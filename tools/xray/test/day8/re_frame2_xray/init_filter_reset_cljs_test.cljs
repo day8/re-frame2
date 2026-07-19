@@ -30,6 +30,7 @@
   nor linger in storage after the reset hook runs."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.filters.persistence :as filters-persistence]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.mount :as mount]
@@ -68,7 +69,13 @@
                    (filters-persistence/clear!)
                    (spine-filters/clear-raw!)
                    (frame-switcher/clear!)
-                   (static-persistence/clear!))}))
+                   (static-persistence/clear!)
+                   ;; rf2-fhtes — the host `:rf.xray/filters` seed atom is
+                   ;; process-global and now LOAD-BEARING on the boot path
+                   ;; (`::seed-configured-filters`). Clear it before each
+                   ;; test so a sibling test's `configure!` cannot leak a
+                   ;; seed into the reset-policy scenarios below.
+                   (config/set-filter-seed! nil))}))
 
 (defn- with-local-storage-stub
   "Install an in-memory `js/window.localStorage` for the test's duration,
@@ -228,3 +235,76 @@
         "transient mute slot cleared")
     (is (nil? (frame-switcher/load))
         "transient frame-pin slot cleared")))
+
+;; -------------------------------------------------------------------------
+;; (6) EXPLICIT host filter SEED lands as the boot baseline (rf2-fhtes)
+;; -------------------------------------------------------------------------
+;;
+;; `configure!` accepts `:rf.xray/filters` and the config/spec/API prose
+;; promised the seed would hydrate `:active-filters`, but production never
+;; called `filters/hydrate!` — the real `ensure-xray-frame!` hook table
+;; only RESET transient filters and never READ the seed, so a host using
+;; the documented key got no error and an unfiltered first paint. The
+;; passing persistence tests only proved this by calling `filters/hydrate!`
+;; MANUALLY (routing around the hook table), so the gap stayed green.
+;;
+;; These tests drive the REAL production `ensure-xray-frame!` path (the
+;; same `boot!` the reset-policy tests above use) and NEVER call
+;; `filters/hydrate!` — the lever that was red on main. The policy: an
+;; EXPLICITLY configured seed is the host's opt-in and lands as the boot
+;; baseline AFTER the transient reset; a `nil` seed stays fully unfiltered.
+
+(def ^:private host-seed
+  "An explicit host-configured seed, as a Story testbed (or any host)
+  would ship via `(configure! {:rf.xray/filters …})`."
+  {:in  [{:pattern ":order/*"}]
+   :out [{:pattern ":mouse-move"}]})
+
+(deftest configured-seed-lands-as-boot-baseline
+  (testing "an explicitly configured :rf.xray/filters seed is observed in
+            :active-filters after the REAL ensure-xray-frame! path — WITHOUT
+            calling filters/hydrate! manually (rf2-fhtes criterion 1)"
+    (config/configure! {:rf.xray/filters host-seed})
+    ;; No localStorage pill state — the seed is the only source.
+    (is (= {:in [] :out []} (filters-persistence/load))
+        "precondition: localStorage carries no user pills")
+    (boot!)
+    (is (= host-seed (frame-sub [:rf.xray/active-filters]))
+        "the host seed IS the boot baseline for :active-filters on the real
+         production path — the false-hydrate contract is now honoured")))
+
+(deftest no-seed-first-mount-stays-fully-unfiltered
+  (testing "with NO host seed, production first mount comes up fully
+            unfiltered (rf2-fhtes criterion 2 — nil remains unfiltered)"
+    (is (nil? (config/get-filter-seed))
+        "precondition: the fixture cleared any seed")
+    (boot!)
+    (is (= {:in [] :out []} (frame-sub [:rf.xray/active-filters]))
+        "no seed → registry-default empty pills → unfiltered first paint")))
+
+(deftest configured-seed-wins-over-stale-localstorage
+  (testing "a stale user/localStorage pill set NEITHER survives reload NOR
+            overrides the explicit host boot posture (rf2-fhtes criterion 2)"
+    ;; A past session persisted its own pills AND the host ships a seed.
+    (filters-persistence/save! stale-pills)
+    (config/configure! {:rf.xray/filters host-seed})
+    (is (= stale-pills (filters-persistence/load))
+        "precondition: localStorage holds the stale user pills")
+    (boot!)
+    (is (= host-seed (frame-sub [:rf.xray/active-filters]))
+        "the host seed baseline wins — the stale user pills never override it")
+    (is (not= stale-pills (frame-sub [:rf.xray/active-filters]))
+        "the stale user pills did NOT resurface")))
+
+(deftest configured-seed-is-not-durable-user-persistence
+  (testing "the seed is an explicit boot baseline re-applied each load — it
+            is NOT written to localStorage as durable user pills (rf2-fhtes
+            criterion 3 — not durable user-filter persistence)"
+    (config/configure! {:rf.xray/filters host-seed})
+    (boot!)
+    (is (= host-seed (frame-sub [:rf.xray/active-filters]))
+        "seed is the live baseline in app-db")
+    (is (= {:in [] :out []} (filters-persistence/load))
+        "the seed did NOT persist into the user filter localStorage slot —
+         `::reset-transient-filters` clears it and the seed hook writes only
+         app-db, so the baseline is re-derived from configure! each load")))

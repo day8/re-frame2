@@ -1477,10 +1477,13 @@
 ;; via localStorage per host-app under a Xray-namespaced key. Two
 ;; configure! axes:
 ;;
-;;   - `:filters/seed` — initial pill set hosts can ship as a default
-;;     (Story testbeds use this to inject a known starting point for
-;;     reproducibility). Default `nil` — no seed; the user surfaces
-;;     filters themselves per spec/018 §7 'Empty defaults'.
+;;   - `:filters/seed` — an explicit host BOOT BASELINE pill set. When a
+;;     host opts in, `mount.cljs`'s `::seed-configured-filters` first-mount
+;;     hook applies it to `:active-filters` on EVERY load, AFTER the
+;;     transient-user-filter reset (rf2-fhtes) — Story testbeds use this to
+;;     inject a known, reproducible starting posture. Default `nil` — no
+;;     seed; the slot stays fully unfiltered per spec/018 §7 'Empty
+;;     defaults'.
 ;;
 ;;   - `:rf.xray/filters-storage-key` — localStorage key the persistence layer
 ;;     reads / writes. Default `"re-frame2.xray.filters.v1"`. Hosts
@@ -1500,17 +1503,23 @@
   {:in [] :out []})
 
 (defonce
-  ^{:doc "Atom holding the host-supplied seed filter set Xray
-         hydrates the slot with on FIRST install (when localStorage
-         is empty). Default `nil` — no seed; the registry's default
-         empty shape wins."}
+  ^{:doc "Atom holding the host-supplied `:rf.xray/filters` seed — the
+         explicit BOOT BASELINE for `:active-filters`. `mount.cljs`'s
+         `::seed-configured-filters` first-mount hook applies a non-empty
+         seed on EVERY load, AFTER the transient-user-filter reset
+         (rf2-fhtes): this is an opted-in host posture, NOT durable
+         user-filter persistence and NOT a first-install-only value.
+         Default `nil` — no seed; the slot stays at its unfiltered
+         registry default `{:in [] :out []}`."}
   filter-seed
   (atom nil))
 
 (defn set-filter-seed!
-  "Set the seed filter set the registry hydrates `:active-filters`
-  with on first install when localStorage is empty. `nil` clears the
-  seed. Shape: `{:in [{:pattern <kw-or-str>}] :out [{:pattern <…>}]}`."
+  "Set the `:rf.xray/filters` seed — the explicit host boot baseline
+  `mount.cljs`'s `::seed-configured-filters` first-mount hook applies to
+  `:active-filters` on every load, AFTER the transient-filter reset
+  (rf2-fhtes). `nil` clears the seed (fully unfiltered). Shape:
+  `{:in [{:pattern <kw-or-str>}] :out [{:pattern <…>}]}`."
   [seed]
   (reset! filter-seed seed)
   nil)
@@ -1660,11 +1669,15 @@
        normal per-knob write path; this key is the bulk-set escape
        hatch (e.g. host wants to ship its own default theme).
     `{:rf.xray/filters <{:in [...] :out [...]}>}` — host-supplied
-       seed pill set the registry hydrates `:active-filters` with on
-       FIRST install (when localStorage is empty). Default `nil` per
-       spec/018 §7 'Empty defaults' — first-session honesty beats
-       first-session quietness. Story testbeds use this to inject a
-       known starting point for reproducibility.
+       seed pill set applied to `:active-filters` as the explicit boot
+       BASELINE. `mount.cljs`'s `::seed-configured-filters` first-mount
+       hook lands a non-empty seed on EVERY load, AFTER the transient-
+       user-filter reset (rf2-fhtes) — an opted-in host posture, NOT
+       durable user-filter persistence. Default `nil` per spec/018 §7
+       'Empty defaults' — first-session honesty beats first-session
+       quietness; a `nil` seed keeps the first paint fully unfiltered.
+       Story testbeds use this to inject a known, reproducible starting
+       posture.
     `{:rf.xray/filters-storage-key <string>}` — localStorage key
        the filter persistence layer reads / writes. Default
        `\"re-frame2.xray.filters.v1\"`. Hosts that run multiple
