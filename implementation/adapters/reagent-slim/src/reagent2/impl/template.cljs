@@ -243,6 +243,26 @@
 (defn- ^boolean reserved-prop-key? [n]
   (contains? reserved-prop-keys n))
 
+;; Unspoofable own-property test for the shared `#js {}` caches (rf2-tsuk6).
+;;
+;; The caches key entries by user-controlled names: `tag-name-cache` on tag
+;; heads (a string head like "hasOwnProperty" is accepted) and
+;; `prop-name-cache` on prop-key names (`{:hasOwnProperty x}` is accepted).
+;; Testing a hit with `(.hasOwnProperty cache n)` reads the method OFF the
+;; cache object — so caching a tag or prop literally named "hasOwnProperty"
+;; `aset`s a value under that exact own-property name and SHADOWS the method.
+;; The lookup itself was fine (`.hasOwnProperty` checks own props, so
+;; inherited prototype keys never falsely hit), but the very next lookup then
+;; invokes the shadowing value as a function and throws a raw host TypeError,
+;; disabling every later parse until reload. `Object.prototype.hasOwnProperty`
+;; called with an explicit receiver can never be shadowed by cache contents.
+(defn- ^boolean own-key?
+  "True when `obj` carries `k` as an OWN property, tested via
+  `Object.prototype.hasOwnProperty.call(obj, k)` so a cache entry named
+  `hasOwnProperty` cannot shadow the check (rf2-tsuk6)."
+  [obj k]
+  (.call (.. js/Object -prototype -hasOwnProperty) obj k))
+
 (def ^:private tag-name-cache #js {})
 
 ;; The cache key is the head's FULLY-QUALIFIED name, not its bare `name`
@@ -287,7 +307,7 @@
   (reject-reserved-rf-head! k element)
   (let [n (cache-key k)]
     (if (and (not (reserved-prop-key? n))
-             (.hasOwnProperty tag-name-cache n))
+             (own-key? tag-name-cache n))
       (aget tag-name-cache n)
       (let [v (parse-tag k element)]
         (when-not (reserved-prop-key? n)
@@ -363,7 +383,7 @@
         (reserved-prop-key? n) n
 
         :else
-        (if-some [cached (when (.hasOwnProperty prop-name-cache n)
+        (if-some [cached (when (own-key? prop-name-cache n)
                            (aget prop-name-cache n))]
           cached
           (let [v (dash-to-prop-name k)]
