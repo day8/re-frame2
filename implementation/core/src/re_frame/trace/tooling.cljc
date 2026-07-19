@@ -943,8 +943,17 @@
     (loop []
       (when (< @head (count @q))
         (when (nil? @entries)
-          (vreset! entries (vec (seq @listeners)))
-          (vreset! lcursor 0))
+          ;; A queued triple `[event continue? snapshot]` carries the listener
+          ;; snapshot captured when a DEFERRED drain-owned event was appended
+          ;; (rf2-6t6qk integration), so integrating a nested drain's traces
+          ;; into a paused outer schedule reaches exactly the listeners an inline
+          ;; delivery would have. A plain pair re-snapshots live, as a reentrant
+          ;; listener-body emit always does.
+          (let [qelem (nth @q @head)]
+            (vreset! entries (if (> (count qelem) 2)
+                               (nth qelem 2)
+                               (vec (seq @listeners))))
+            (vreset! lcursor 0)))
         (let [[event continue?] (nth @q @head)
               es                @entries]
           (if (and (< @lcursor (count es)) (continue?))
@@ -1058,19 +1067,35 @@
 
 (defn- drain-deferred-batch!
   "The body of the post-drain flush (see `flush-deferred-fanout!`), factored out
-  so the JVM can run it under `fanout-monitor` and CLJS can run it bare. Each
-  event is driven through its own outermost schedule under the listener snapshot
-  taken when it was appended, so a listener's reentrant emit is scheduled against
-  that event exactly as it would have been inline. Re-reads `pending` each turn so
-  an append that somehow raced the flush still settles here — exactly once —
-  rather than being stranded."
+  so the JVM can run it under `fanout-monitor` and CLJS can run it bare. Re-reads
+  `pending` each turn so an append that somehow raced the flush still settles here
+  — exactly once — rather than being stranded."
   [pending]
   (loop []
     (let [batch @pending]
       (when (seq batch)
         (vreset! pending [])
-        (doseq [[event continue? entries] batch]
-          (run-outermost-fanout! event continue? entries))
+        (if-let [ctx *fanout-ctx*]
+          ;; A listener-initiated `dispatch-sync` (rf2-6t6qk): the flush runs
+          ;; while an OUTER listener fan-out is still paused inside the very
+          ;; listener body that opened this drain. INTEGRATE into that active
+          ;; schedule rather than seeding fresh outermost fan-outs — `drive-
+          ;; fanout!` advances the paused outer event to its remaining listeners
+          ;; FIRST, so every listener still observes the outer event before these
+          ;; nested drain-owned ones (rf2-1zxlsm), and the whole batch is
+          ;; delivered before the enclosing `dispatch-sync` returns (rf2-s522m).
+          ;; The appended triple carries the append-time listener snapshot, which
+          ;; `drive-fanout!` honours. No monitor re-acquire is needed: the outer
+          ;; drive already holds it (JVM), and CLJS has none.
+          (doseq [[event continue? entries] batch]
+            (vswap! (:q ctx) conj [event continue? entries])
+            (drive-fanout! ctx))
+          ;; Outermost drain (a top-level dispatch-sync / async drain): each
+          ;; event is its own outermost fan-out under its append-time snapshot,
+          ;; so a listener's reentrant emit is scheduled against it exactly as it
+          ;; would have been inline.
+          (doseq [[event continue? entries] batch]
+            (run-outermost-fanout! event continue? entries)))
         (recur)))))
 
 (defn- flush-deferred-fanout!
@@ -1181,42 +1206,48 @@
   ([event continue?] (deliver-to-tooling! event continue? true))
   ([event continue? retain?]
    (when retain? (push-to-ring! event))
-   (if-let [ctx *fanout-ctx*]
-     ;; Reentrant emit from inside a listener body: append and drive the shared
-     ;; schedule. `drive-fanout!` advances the paused outer delivery to every
-     ;; remaining listener, then delivers this event, before we return — so the
-     ;; nested `emit!` completes synchronously (rf2-s522m) while every listener
-     ;; still sees the outer event first (rf2-1zxlsm). Ring retention already ran
-     ;; above, in emission order. `*fanout-ctx*` is bound only on THIS thread, so
-     ;; this branch is what keeps a reentrant emit off `fanout-monitor` — no
-     ;; self-deadlock.
-     (do (vswap! (:q ctx) conj [event continue?])
-         (drive-fanout! ctx)
+   (if-let [pending (deferral-pending)]
+     ;; DEFER (rf2-wxy1c / rf2-6t6qk / rf2-uoy6m). A drain-owned emit — one raised
+     ;; while the framework owns a frame's `:drain-lock` — is appended, never
+     ;; fanned out, until the post-drain boundary.
+     ;;
+     ;; This check takes PRECEDENCE over the reentrant `*fanout-ctx*` fast path
+     ;; below (rf2-6t6qk): when an outer listener fan-out is in progress AND that
+     ;; listener's `dispatch-sync` has opened a nested drain scope, the nested
+     ;; drain's traces must DEFER — driving the outer schedule here would run
+     ;; arbitrary listener code inside the framework's critical section while the
+     ;; lock is held, the exact negation of the rf2-wxy1c charter. The post-drain
+     ;; flush integrates the batch back into that paused outer schedule so
+     ;; outer-before-inner ordering and synchronous completion survive.
+     ;;
+     ;; The deferral scope also PROVES lock ownership (`call-with-deferred-fanout`
+     ;; brackets every acquire → run → release region), so a drain-owned emit
+     ;; never blocks acquiring `fanout-monitor` — the rf2-jl75r AB-BA edge cannot
+     ;; form. Capture the listener snapshot and latch `continue?` so the deferred
+     ;; delivery reaches exactly what an inline one would have. CLJS opens the same
+     ;; scope now (rf2-uoy6m), so a single-threaded host defers too and its
+     ;; listeners never observe partial state.
+     (do (vswap! pending conj [event (deferred-continue continue?)
+                               (vec (seq @listeners))])
          nil)
-     ;; Outermost fan-out.
-     ;;
-     ;; A thread inside a deferral scope may currently own a frame's `:drain-lock`
-     ;; (`call-with-deferred-fanout` brackets every acquire → run → release
-     ;; region), so it MUST NOT block acquiring `fanout-monitor`: a listener
-     ;; already holding the monitor is free to `dispatch-sync` into that frame and
-     ;; spin on its `:drain-lock`, closing a hard AB-BA cycle (rf2-jl75r). Such an
-     ;; emit APPENDS instead — capturing the listener snapshot and latching
-     ;; `continue?` so the deferred delivery reaches exactly what an inline one
-     ;; would have — and the post-drain flush delivers it once the lock is
-     ;; released, before the enclosing dispatch / drain returns (rf2-wxy1c). No
-     ;; lock is held by, or awaited by, a drain-owned emit. CLJS opens the same
-     ;; scope (rf2-uoy6m), so a single-threaded host defers too and its listeners
-     ;; never observe partially settled state.
-     ;;
-     ;; Every OTHER outermost emit is, by that same bracketing, provably issued by
-     ;; a thread holding NO drain-lock — so it serializes on `fanout-monitor`
-     ;; across concurrent emits (rf2-uw7hg) with the monitor held for the whole
-     ;; drive, and nothing can wait on it through a drain-lock. CLJS is
-     ;; single-threaded and needs no monitor.
-     (if-let [pending (deferral-pending)]
-       (do (vswap! pending conj [event (deferred-continue continue?)
-                                 (vec (seq @listeners))])
+     (if-let [ctx *fanout-ctx*]
+       ;; Reentrant emit from inside a listener body with NO drain scope open:
+       ;; append and drive the shared schedule. `drive-fanout!` advances the
+       ;; paused outer delivery to every remaining listener, then delivers this
+       ;; event, before we return — so the nested `emit!` completes synchronously
+       ;; (rf2-s522m) while every listener still sees the outer event first
+       ;; (rf2-1zxlsm). Ring retention already ran above, in emission order.
+       ;; `*fanout-ctx*` is bound only on THIS thread, so this branch keeps a
+       ;; reentrant emit off `fanout-monitor` — no self-deadlock.
+       (do (vswap! (:q ctx) conj [event continue?])
+           (drive-fanout! ctx)
            nil)
+       ;; Outermost emit, no drain scope: by the same deferral bracketing this
+       ;; thread provably holds no drain-lock — so it serializes on
+       ;; `fanout-monitor` across concurrent emits (rf2-uw7hg) with the monitor
+       ;; held for the whole drive, and nothing can wait on it through a
+       ;; drain-lock. CLJS is single-threaded and runs every outermost emit inline
+       ;; with no monitor.
        #?(:clj  (locking fanout-monitor (run-outermost-fanout! event continue?))
           :cljs (run-outermost-fanout! event continue?))))))
 
