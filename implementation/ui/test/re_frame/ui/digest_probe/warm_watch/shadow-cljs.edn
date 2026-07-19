@@ -1,0 +1,42 @@
+;; Real Shadow 3.4.10 fixture for the warm-watch/file-edit harvest-topology proof
+;; (rf2-tm1xi, Arm 2 of rf2-4vm19).
+;;
+;; A genuine UI client dev build whose INHERITED re-frame.ui compile hook
+;; (configured in :build-defaults, so Shadow deep-merges it FIRST) establishes the
+;; custom-element harvest topology, coarse manifest-change invalidation, and
+;; `:build-sources`-keyed eviction; a build-local OBSERVE hook (deep-merged AFTER)
+;; records the accepted topology at :compile-finish so the runner can assert it
+;; survives each real warm edit. Per the rf2-4vm19 Arm-1 ruling this proves ONE
+;; real dev build's identity at the runtime seam (a non-::default build id, the
+;; inherited-hook discovery/order, annotation load-bearingness) — NOT two-build
+;; isolation.
+;;
+;; Kept independent of implementation/shadow-cljs.edn on purpose (the same choice
+;; the sibling final-schedule fixture makes): its defining property is a REAL,
+;; inherited build-default hook running before a real build-local hook, proved by
+;; config rather than by a hand-built build-state. `alt_src` is a SECOND source-
+;; path root the runner relocates leaf.cljs into (keeping its namespace) to prove
+;; a same-namespace file move preserves ownership.
+{:source-paths ["../../../../../../core/src"
+                "../../../../../src"
+                "../../../.."
+                "alt_src"]
+ :cache-root "../../../../../../target/ui-warm-watch/shadow-cache"
+ :cache-blockers #{re-frame.ui}
+ :js-options {:js-package-dirs ["../../../../../../node_modules"]}
+ ;; The production compile hook is inherited here EXACTLY as real consumer builds
+ ;; inherit it — from :build-defaults — so Shadow deep-merges it ahead of this
+ ;; build's own :build-hooks.
+ :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
+ :builds
+ {:ui-warm-watch
+  {:target :browser
+   :output-dir "../../../../../../out/ui-warm-watch"
+   :asset-path "."
+   :modules
+   {:main {:entries [re-frame.ui.digest-probe.warm-watch.client]}}
+   ;; Deep-merged AFTER the inherited re-frame.ui compile hook: this build-local
+   ;; OBSERVE hook records the accepted topology at :compile-finish (and the
+   ;; consumer-recompile witness at :compile-prepare) without mutating build
+   ;; state.
+   :build-hooks [(re-frame.ui.digest-probe.warm-watch.hook/hook)]}}}
