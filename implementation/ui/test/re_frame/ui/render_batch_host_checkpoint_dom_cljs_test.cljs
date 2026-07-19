@@ -7,57 +7,44 @@
   the loop on the host that actually owns the checkpoint: a mounted root, a
   React `Profiler` counting genuine commits, and a genuine microtask yield.
 
-  It proves the two halves that only a real host can distinguish:
+  It proves the three halves that only a real host can distinguish:
 
     - A COMPLETED DRAIN CLOSES NOTHING. A full `dispatch-sync!` drain returns
       with the cell still pending, the revision unmoved and React having
       committed nothing. Only the following host checkpoint advances it. This
       is the direct falsification of the retired per-drain rule.
+    - NO YIELD → ONE BATCH. Two back-to-back `dispatch-sync` calls in one
+      JavaScript stack — INSIDE a `cljs.test/async` body, the exact context
+      that produced the rf2-kahkr misreading — share one window: a control
+      microtask queued BEFORE the second call cannot run until both calls have
+      returned, and the pair yields ONE revision advance and ONE root commit.
     - HOST YIELD → TWO BATCHES. Two drains separated by a real microtask yield
       produce two revision advances and two real root commits (guarantee 4).
 
-  On sharing: the ruled contract says drains finishing before one checkpoint
-  MAY share a batch, and the headless sibling pins a real shared batch. This
-  namespace deliberately does NOT assert sharing, because it was measured not
-  to hold universally here — a second `dispatch-sync!` in the same stack
-  advances the first drain's pending mark before making its own. Asserting the
-  permission as though it were the guarantee is exactly the over-claim this
-  bead exists to remove.
+  ## What the earlier measurement actually measured (rf2-kahkr → rf2-i3dvj)
 
-  ## What advances that pending mark (rf2-kahkr — traced, not inferred)
+  This namespace previously recorded that a second `dispatch-sync!` in the
+  same stack advanced the first drain's pending mark before making its own —
+  revision 0 -> 1 -> 2, with a control `js/queueMicrotask` running between a
+  call's begin and end markers — and concluded that `dispatch-sync!` yields.
 
-  The mechanism is now identified, and it is NOT a hidden synchronous flush.
-  Three back-to-back `dispatch-sync!` calls were instrumented on this exact
-  fixture (stack capture on `flush-scope!` and on `advance-revision!`, with
-  console markers bracketing each call). Across 3 browser runs, identically:
+  The measurement was real. The ATTRIBUTION was wrong, and it is now reversed.
+  `dispatch-sync!` never yielded. The yield was INSTRUMENTATION: the DEBUG
+  call-site stamp spliced a runtime `cond->` coord-map construction into the
+  CALLER's context, and the CLJS compiler lowers a spliced multi-step form to
+  `await (async function(){...})()` when the call site sits inside an async
+  context — which every body in this namespace is (`cljs.test/async`). The
+  compiler-inserted `await` immediately BEFORE the second `dispatch_sync_impl`
+  invocation is what reached the microtask checkpoint. The captured
+  `flush-scope!` stacks correctly terminated at the armed `schedule-flush!`
+  microtask closure with no router frame above them precisely BECAUSE the
+  flush ran at that `await`, not inside the router.
 
-    - the revision advanced 0 -> 1 -> 2, one advance per call after the first;
-    - EVERY `flush-scope!` stack was the same three frames —
-      `flush-scope!` <- `flush-pending!` <- the `schedule-flush!` microtask
-      closure — terminating there, with NO router or dispatch frame above it.
-      That is a host job-queue entry point, i.e. the ordinary armed microtask;
-    - `advance-revision!` (the `commit*` / step-8 route) NEVER fired, so the
-      advance is scheduler phase 1, not a React layout-commit correction;
-    - the flush was logged BETWEEN the `begin` and `end` markers of the second
-      and third calls — i.e. a microtask checkpoint ran DURING `dispatch-sync!`.
-
-  The control that settles it: a plain `js/queueMicrotask` enqueued by the
-  fixture itself, immediately before the second call, ALSO ran between that
-  call's begin and end markers. Nothing in re-frame is involved in that
-  callback, so the checkpoint is genuinely the host's.
-
-  Conclusion: `dispatch-sync!` is not microtask-atomic on the mounted path — it
-  yields, and the ordinary checkpoint therefore lands mid-call and flushes the
-  previous drain's mark. So there is nothing here to remove: the scheduler is
-  behaving exactly as specified, and the earlier `flush-render!` /
-  `dispatch-committed!` / late-bound-hook suspects are correctly ruled out.
-
-  Whether `dispatch-sync!` SHOULD yield is a ROUTER question living in
-  `implementation/core`, and it is a ruling, not a measurement. It is left open
-  deliberately. Until it is ruled, no fixture here asserts sharing OR
-  non-sharing across two `dispatch-sync!` calls: the first would assert a
-  permission as a guarantee, the second would freeze possibly-unintended
-  router behaviour into a contract. Both are over-claims.
+  Per rf2-i3dvj the call-site macros now emit compile-time coord LITERALS and
+  push dynamic scope inside the callee's own body, so nothing yield-bearing
+  reaches the caller. `no-yield-in-one-stack-shares-one-batch` below is the
+  standing regression: it asserts the ordering causally, and it FAILS if a
+  pre-call yield is ever reintroduced into the expansion.
 
   ## Why the awaits here are ordering guarantees, not races
 
@@ -180,22 +167,8 @@
   ;; still pending. Nothing about the router closes a render batch — only the
   ;; host checkpoint does.
   ;;
-  ;; MEASURED SCOPE NOTE (rf2-vxgfnd.166; mechanism traced by rf2-kahkr). The
-  ;; ruled contract says drains finishing before one checkpoint MAY share a
-  ;; batch; it does not promise they always will. On this mounted path they do
-  ;; not always: a SECOND `dispatch-sync!` in the same stack was measured to
-  ;; advance the first drain's pending mark before making its own. So this
-  ;; fixture asserts the guarantee (a finished drain leaves the window open)
-  ;; rather than the permission. The headless sibling pins an actual shared
-  ;; batch, where the scheduler is observed without React in the loop.
-  ;;
-  ;; That advance is now traced: it is the ordinary armed `schedule-flush!`
-  ;; microtask, landing mid-call because `dispatch-sync!` yields to the host
-  ;; microtask queue. See the namespace docstring for the instrumentation, the
-  ;; control microtask that identifies it, and why nothing asserts sharing (or
-  ;; non-sharing) across two `dispatch-sync!` calls pending a router ruling.
-  ;;
-  ;; This test itself performs exactly ONE drain, so it is unaffected either way.
+  ;; This test performs exactly ONE drain. Sharing across TWO same-stack drains
+  ;; is pinned separately by `no-yield-in-one-stack-shares-one-batch` below.
   (if-not (browser?)
     (is true ":node — no DOM; the :browser-test runner exercises the DOM body")
     (async
@@ -231,6 +204,79 @@
                             "exactly one REAL React root commit followed it")
                         (is (= "1" (.-textContent (.querySelector c ".leaf")))
                             "…and the DOM shows the write"))
+                      (react-dom/flushSync #(ui/unmount! root))
+                      (done)))))))))
+
+(deftest no-yield-in-one-stack-shares-one-batch
+  ;; rf2-i3dvj — the standing regression against a hidden pre-call yield, and
+  ;; the restoration of guarantee 3's example on the MOUNTED path.
+  ;;
+  ;; The whole point is WHERE this runs: inside a `cljs.test/async` body, which
+  ;; is a CLJS async context. That is the exact setting in which a call-site
+  ;; macro expansion carrying a runtime `cond->` (or a `binding`) gets lowered
+  ;; by the compiler to `await (async function(){...})()` — a real microtask
+  ;; yield spliced in immediately BEFORE the instrumented call. rf2-kahkr
+  ;; measured that yield and mis-attributed it to `dispatch-sync!` itself.
+  ;;
+  ;; The assertion is CAUSAL, not incidental. A control microtask is queued
+  ;; BETWEEN the two `dispatch-sync` calls. A microtask cannot run while a
+  ;; JavaScript stack is live, so:
+  ;;
+  ;;   - expansion is evaluation-order-transparent → the control runs AFTER
+  ;;     both calls have returned; the log reads [1 2 control];
+  ;;   - a pre-call yield is reintroduced → the second call's `await` reaches
+  ;;     the microtask checkpoint, the control runs BETWEEN the calls, the log
+  ;;     reads [1 control 2], and this test REDS.
+  ;;
+  ;; Nothing here asserts that an exception was thrown: a compiler-inserted
+  ;; yield does not throw on CLJS, so only observable ORDERING (plus the
+  ;; revision and real-commit counts) can discriminate it.
+  (if-not (browser?)
+    (is true ":node — no DOM; the :browser-test runner exercises the DOM body")
+    (async
+     done
+     (let [c    (container)
+           root (mount-probe! c)]
+       (let [cell         (leaf-cell)
+             base-rev     (reactive/revision cell)
+             base-commits (:root-commits @evidence)
+             log          (atom [])]
+         ;; DRAIN 1.
+         (rf/dispatch-sync [:rbhcd/inc] {:frame frame-kw})
+         (swap! log conj :returned-from-call-1)
+         ;; THE CONTROL — queued before call 2, on the same live stack.
+         (js/queueMicrotask (fn [] (swap! log conj :control-microtask)))
+         ;; DRAIN 2 — same JavaScript stack, no yield between them.
+         (rf/dispatch-sync [:rbhcd/inc] {:frame frame-kw})
+         (swap! log conj :returned-from-call-2)
+
+         (testing "two back-to-back dispatch-sync calls are ONE stack"
+           (is (= [:returned-from-call-1 :returned-from-call-2] @log)
+               "the control microtask queued BEFORE the second dispatch-sync
+                had NOT run by the time that call returned — neither call
+                yielded to the host (rf2-i3dvj)")
+           (is (= base-rev (reactive/revision cell))
+               "no revision advanced during either drain — the window is still
+                open, so nothing flushed mid-stack")
+           (is (= base-commits (:root-commits @evidence))
+               "and React committed nothing during either drain"))
+
+         (-> (await-microtask)
+             (.then (fn [_]
+                      (settle-react!)
+                      (testing "the two same-stack drains SHARED one batch"
+                        (is (= [:returned-from-call-1 :returned-from-call-2
+                                :control-microtask]
+                               @log)
+                            "the control ran at the checkpoint, strictly after
+                             both calls returned")
+                        (is (= (inc base-rev) (reactive/revision cell))
+                            "ONE revision advance for TWO drains (guarantee 3's
+                             example, on the real mounted host)")
+                        (is (= (inc base-commits) (:root-commits @evidence))
+                            "ONE real React root commit for TWO drains")
+                        (is (= "2" (.-textContent (.querySelector c ".leaf")))
+                            "…and that single render shows BOTH writes"))
                       (react-dom/flushSync #(ui/unmount! root))
                       (done)))))))))
 

@@ -79,32 +79,38 @@
        the window cannot close while the stack is still unwinding.
     2. N epochs/events settled within ONE drain coalesce into ONE batch.
     3. SEVERAL drains — or listener re-entry after a completed batch — that
-       finish before the SAME host checkpoint MAY SHARE one batch. Nested
-       cross-frame synchronous drains do.
+       finish before the SAME host checkpoint MAY SHARE one batch. Two
+       back-to-back `dispatch-sync!` calls in one JavaScript stack render
+       once, not twice; so do nested cross-frame synchronous drains.
 
-       This is a PERMISSION, not a guarantee, and the difference is load
-       bearing. It used to carry an UNCONDITIONAL example — two back-to-back
-       `dispatch-sync!` calls in one JavaScript stack render once, not twice —
-       which is retracted (rf2-kahkr). It holds HEADLESS, where
-       `render-batch-host-checkpoint-cljs-test` still pins a genuinely shared
-       batch. It is FALSE on the MOUNTED React path, so it could never be
-       stated unconditionally.
-
-       Measured on the mounted path, three back-to-back `dispatch-sync!` calls
-       advance the revision 0 -> 1 -> 2: a host microtask checkpoint runs DURING
-       the second and third calls, so each flushes its predecessor's mark.
-       What advances it is the ordinary armed `schedule-flush!` microtask —
-       every captured `flush-scope!` stack terminated at that closure with no
-       router frame above it, and `commit*`/`advance-revision!` never ran. It is
-       NOT a hidden synchronous flush and NOT a React layout-commit correction.
-       A control `js/queueMicrotask` enqueued by the fixture ran at the same
-       point, so the checkpoint is the host's: `dispatch-sync!` is simply not
-       microtask-atomic on this path — it yields. Whether it SHOULD is a ROUTER
-       question, not a scheduler one, and is deliberately left open.
-
-       So: do not rely on two separate `dispatch-sync!` calls sharing a batch.
-       Guarantees 1 and 2 — one drain, one batch — are what a caller may lean on.
+       Read that example precisely. Guarantee 3 is a PERMISSION — "drains
+       that finish before the same checkpoint MAY share a batch" — and it
+       stays a permission. The example is nonetheless UNCONDITIONAL because
+       its own phrase `in one JavaScript stack` supplies the condition: a
+       stack that has not yielded cannot have reached a host checkpoint (the
+       microtask armed by the first mark cannot run until the stack unwinds),
+       so both drains necessarily finish inside one window. The example is
+       therefore a THEOREM of guarantees 1, 3 and 4 together — not a promotion
+       of the permission into a general "separate drains always share" rule.
+       Two drains with a real yield between them still render separately, by
+       guarantee 4.
     4. Drains separated by a real HOST YIELD render separately.
+
+  Guarantee 3's example held on the mounted React path all along. It was
+  briefly retracted (rf2-kahkr) on a measurement — three back-to-back
+  `dispatch-sync!` calls advancing the revision 0 -> 1 -> 2, with a control
+  microtask observed running "mid-call" — that was REAL but MISATTRIBUTED.
+  The yield was INSTRUMENTATION, not the router (rf2-i3dvj): the DEBUG
+  call-site stamp emitted a runtime `cond->` into the caller's context, which
+  the CLJS compiler lowered to `await (async function(){...})()` because the
+  fixture's calls sat inside a `cljs.test/async` body. The `await` — not
+  `dispatch-sync!` — reached the microtask checkpoint that flushed the
+  previous mark. `dispatch-sync!` and the synchronously-observable call-site
+  family (`dispatch`, `dispatch-sync`, `subscribe`) are SAME-STACK
+  SYNCHRONOUS IN EVERY BUILD, dev included; call-site macros now splice only
+  yield-free literals. Nothing about the scheduler changed, and no router,
+  scheduler or drain-finalization seam was added: there was never a router
+  question here to leave open.
 
   `One render batch per router drain` is RETIRED as normative. It remains
   merely the COMMON CASE — true exactly when callers yield between drains
