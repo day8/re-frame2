@@ -661,6 +661,29 @@ cleared by `queueMicrotask`, and belt-and-braces tagged with
   [dir]
   (into #{} (map #(.getName ^java.io.File %)) (directory-roster dir)))
 
+(defn- create-untracked-probe!
+  "Exclusively create a uniquely-named untracked `.md` probe inside `dir-file`,
+  and return its `java.io.File`.
+
+  `/ai` is a gitignored programmer/agent workspace, so the fixed name
+  `zz-untracked-local-draft-probe.md` this arm once used was NOT reserved: a
+  normal UI test run `spit`-truncated and then `.delete`d whatever real local
+  file a developer happened to keep at that path (rf2-8ycml). `createTempFile`
+  generates a random, previously-nonexistent name and creates the file
+  atomically (CREATE_NEW semantics), so it can never collide with — let alone
+  overwrite — an existing file. The `.md` suffix keeps it the same KIND of
+  untracked document the roster must still exclude, so the probe still proves
+  the census reads Git's tracked set rather than the directory listing."
+  [^java.io.File dir-file]
+  (let [path (java.nio.file.Files/createTempFile
+              (.toPath dir-file)
+              "zz-untracked-local-draft-probe-"
+              ".md"
+              (make-array java.nio.file.attribute.FileAttribute 0))
+        file (.toFile path)]
+    (spit file "# Local scratch note\n\nNo standing marker.\n\n## Body\n\nx\n")
+    file))
+
 (deftest the-standing-census-roster-is-gits-tracked-set
   (testing "admission is Git's tracked set, so an ignored local draft is not
             censused while every tracked document stays covered. Asserted PER
@@ -669,23 +692,50 @@ cleared by `queueMicrotask`, and belt-and-braces tagged with
             aggregate, and the census would go quietly blind exactly there"
     (doseq [{:keys [dir]} censused-directories]
       (testing (str synthesis-root "/" dir "/")
-        (let [tracked (tracked-markdown-names dir)
-              probe   (io/file @root synthesis-root dir
-                               "zz-untracked-local-draft-probe.md")]
+        (let [dir-file (io/file @root synthesis-root dir)
+              tracked  (tracked-markdown-names dir)]
           (is (seq tracked)
               (str dir " tracks no markdown — the arm below would prove nothing"))
           (is (= tracked (roster-names dir))
               (str "every tracked document in " dir " must stay censused; a "
                    "tracked file missing from the worktree reds here rather "
                    "than silently shrinking the roster"))
+          ;; The probe lands untracked exactly as a real local scratch note does
+          ;; — the case that was reddening the suite — but under an exclusively-
+          ;; created unique name, so it can never overwrite or delete a file a
+          ;; programmer already keeps in this gitignored workspace (rf2-8ycml).
+          (let [probe (create-untracked-probe! dir-file)]
+            (try
+              (is (= tracked (roster-names dir))
+                  (str "an untracked local draft entered " dir "'s roster — the "
+                       "census is reading the directory listing, not Git"))
+              ;; Delete ONLY the probe this test created.
+              (finally (.delete probe)))))))))
+
+(deftest the-roster-probe-never-touches-a-pre-existing-local-file
+  (testing "the fixture creates its probe exclusively and cleans up only what it
+            created, so an untracked local file a programmer already keeps in a
+            censused directory survives the run with its content intact — the
+            data-loss this bead fixed (rf2-8ycml). Asserted per directory, so the
+            guarantee is proven in each of drafts/, spikes/ and reviews/"
+    (doseq [{:keys [dir]} censused-directories]
+      (testing (str synthesis-root "/" dir "/")
+        (let [dir-file (io/file @root synthesis-root dir)
+              ;; A co-resident untracked local file, standing in for real work.
+              sentinel (create-untracked-probe! dir-file)
+              content  "# Programmer's real local draft\n\nDo not delete me.\n"]
           (try
-            ;; `/ai` is gitignored, so this lands untracked exactly as a real
-            ;; local scratch note does — the case that was reddening the suite.
-            (spit probe "# Local scratch note\n\nNo standing marker.\n\n## Body\n\nx\n")
-            (is (= tracked (roster-names dir))
-                (str "an untracked local draft entered " dir "'s roster — the "
-                     "census is reading the directory listing, not Git"))
-            (finally (.delete probe))))))))
+            (spit sentinel content)
+            ;; Run the roster arm's probe lifecycle beside the sentinel.
+            (let [probe (create-untracked-probe! dir-file)]
+              (is (not= (.getCanonicalPath probe) (.getCanonicalPath sentinel))
+                  "the exclusively-created probe must never reuse a co-resident file's path")
+              (.delete probe))
+            (is (.exists sentinel)
+                (str "the fixture deleted a pre-existing untracked file in " dir "/"))
+            (is (= content (slurp sentinel))
+                (str "the fixture overwrote a pre-existing untracked file in " dir "/"))
+            (finally (.delete sentinel))))))))
 
 (deftest the-three-real-dispositions-pass-the-standing-census
   (testing "the census admits every disposition actually found, so no document is
