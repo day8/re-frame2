@@ -1200,17 +1200,29 @@
   "Record the sources that re-ran (or were removed) in the open reload cycle —
   the signal a zero-declaration source cannot emit for itself, fed in the shipped
   browser reload path by `reload-source-reset!` (the SHADOW_NS_RESET producer;
-  rf2-vxgfnd.77). `sources` is a coll of ns-syms (paired with `build-id`) or
-  ready-made [build ns] pairs. A no-op when no cycle is open (and, in `:advanced`
-  production, when there is no ledger at all — rf2-k9yuy); unions into the cycle
-  so it can be called repeatedly."
+  rf2-vxgfnd.77). `sources` is a coll of ns-syms, or of [build ns] pairs whose
+  ns is taken and whose build is IGNORED. A no-op when no cycle is open (and, in
+  `:advanced` production, when there is no ledger at all — rf2-k9yuy); unions
+  into the cycle so it can be called repeatedly.
+
+  OWNERSHIP TRAVELS WITH THE ADDRESSED CYCLE, NEVER WITH THE PAYLOAD
+  (rf2-4vm19). Every source is normalized to `[build-id ns]` for the build this
+  call addresses, so the reconciliation a cycle performs is total over its OWN
+  rows and can never reach another build's. A ready-made pair used to be taken
+  verbatim, which let evidence handed to build A's open cycle nominate build B
+  as owner — `commit-reload!` then evicted B's row under a cycle B never took
+  part in. Normalizing rather than rejecting keeps the ergonomic ns-only form
+  the only shape anyone needs while making the pair form merely a more verbose
+  spelling of it: one ownership rule, no second path to reason about, and no
+  caller-facing failure mode for a datum whose ns is perfectly usable."
   ([sources] (note-reloaded-sources! sources (current-build-id)))
   ([sources build-id]
    (when reload-ledger?
      (swap! ledger-state
             (fn [st]
               (if (contains? (::cycles st) build-id)
-                (let [pairs (map (fn [s] (if (vector? s) s [build-id s])) sources)]
+                (let [pairs (map (fn [s] [build-id (if (vector? s) (second s) s)])
+                                 sources)]
                   (update-in st [::cycles build-id :touched] (fnil into #{}) pairs))
                 st))))
    nil))
