@@ -53,7 +53,7 @@ rollback, publish); an honest observed lifecycle for cells (three states,
 retroactive labels); committed push economics with host-checkpoint render
 batching and a test flush; frames at host preflight; and a fixture-pinned HMR
 contract. It does not own the view programming model — `defview`, templates,
-handlers, `local`, effects, presence are EP-0031's surface; the adapter
+handlers, `local`, effects are EP-0031's surface; the adapter
 decision (which view layers exist and are retained) is EP-0030's; the closed
 public adapter API contract (the 11-key spec map) and public
 `subscribe`/`subscribe-once` semantics are unchanged; resource freshness under
