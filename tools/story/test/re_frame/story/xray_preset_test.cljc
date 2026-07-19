@@ -1,24 +1,20 @@
 (ns re-frame.story.xray-preset-test
   "Tests for per-story Xray preset (rf2-q9kv5).
 
-  Coverage layers:
+  Scope: the PURE data surface only — `merge-preset` deep-merge
+  semantics and `resolve-preset` story+variant resolution. Both run on
+  JVM and CLJS.
 
-  - **Pure data** (JVM + CLJS): `merge-preset` deep-merge semantics,
-    `resolve-preset` story+variant resolution.
-  - **CLJS-only side-effects**: `apply-preset!` no-ops when a variant
-    carries no `:xray` slot; `apply-preset!` dispatches the right
-    events when shimmed handlers are in place; the project-root bridge
-    reaches Xray's config slot.
-
-  This namespace is `.cljc` so the pure surface runs on both JVM and
-  CLJS test runners; CLJS-only blocks exercise the dispatch path."
+  CLJS-only side-effect coverage (the mount / config / keybinding
+  bridges) lives in `re-frame.story.xray-preset-cljs-test`, because
+  only a `-cljs-test` namespace is discovered by the `:node-test`
+  build. See the note at the foot of this file."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as story]
             [re-frame.story.xray-preset :as xray-preset]
             #?@(:cljs [[re-frame.core :as rf]
                        [re-frame.frame :as frame]
                        [re-frame.registrar :as registrar]
-                       [day8.re-frame2-xray.config :as xray-config]
                        [re-frame.substrate.plain-atom :as plain-atom]])))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -99,64 +95,21 @@
       (is (= :trace                              (:panel p)))
       (is (= {:in [:keep/x] :out [:drop/y]}      (:filters p))))))
 
-;; ---- CLJS-only: apply-preset! --------------------------------------------
-
-;; rf2-r8trk retired `cljs-apply-preset-no-xray-no-op`. It shimmed
-;; `xray-available?` to `false` to exercise an absent-Xray posture that
-;; the artefact cannot reach: `day8/re-frame2-xray` is a declared Story
-;; dependency, so a build that resolves `re-frame.story.xray-preset` has
-;; already resolved Xray's mount ns. The predicate it shimmed no longer
-;; exists. `cljs-apply-preset-nil-on-missing-preset` below covers the
-;; real no-work path (no `:xray` slot).
-
-#?(:cljs
-   (deftest cljs-apply-preset-nil-on-missing-preset
-     (testing "no :xray slot → no work, returns nil even when Xray would be available"
-       (story/reg-story :story.nilpre
-         {:doc "no slot"
-          :component :Some.view})
-       (story/reg-variant :story.nilpre/v
-         {:doc "v"})
-       (is (nil? (xray-preset/apply-preset! :story.nilpre/v))))))
-
-;; ---- CLJS-only: project-root propagator (rf2-r1uod) ----------------------
-
-#?(:cljs
-   (deftest cljs-propagate-project-root-reaches-xray
-     (testing "propagate-project-root! bridges Story's root into Xray's config slot"
-       ;; rf2-r8trk: this test previously asserted
-       ;; `(false? (xray-config-available?))` — "this test assumes Xray
-       ;; is NOT on the classpath". That assertion only ever passed
-       ;; because the old `resolve-fn` namespace-property walk returned
-       ;; a false-negative for a namespace that WAS present. Xray is now
-       ;; a declared dependency and the bridge calls
-       ;; `xray-config/configure!` through a direct `:require`, so the
-       ;; honest assertion is that the propagation LANDS.
-       ;;
-       ;; Seed Story's project-root via configure! — exercises the whole
-       ;; configure! → set-project-root! → propagator pipeline.
-       (story/configure! {:rf.story/project-root "/home/me/code/my-app"})
-       (try
-         (is (= "/home/me/code/my-app" (xray-preset/propagate-project-root!))
-             "the propagator returns the root it bridged into Xray's slot")
-         (is (= "/home/me/code/my-app" (xray-config/get-project-root))
-             "the value actually landed in Xray's own config slot")
-         (finally
-           ;; Reset BOTH slots so neighbouring tests see the baseline —
-           ;; the bridge now writes through to Xray's global atom.
-           (story/configure! {:rf.story/project-root nil})
-           (xray-config/set-project-root! nil))))))
-
-#?(:cljs
-   (deftest cljs-propagate-project-root-nil-when-unset
-     (testing "propagate-project-root! returns nil when Story has no project-root configured"
-       ;; Clear any prior seed (the fixture resets registrar but not
-       ;; the config atom).
-       (story/configure! {:rf.story/project-root nil})
-       (is (nil? (xray-preset/propagate-project-root!))
-           "no propagation when Story's project-root is nil"))))
-
-;; CLJS-only tests for the keybinding-disable bridge (rf2-q7who.1)
-;; live in `re-frame.story.xray-preset-cljs-test` — separate file so
-;; the `:node-test` build's `cljs-test$` ns-regexp picks them up (the
-;; .cljc file's namespace name does not).
+;; ---- Why there are no CLJS-only tests in this file -----------------------
+;;
+;; This namespace is `re-frame.story.xray-preset-test`. The `:node-test`
+;; build's ns-regexp is `cljs-test$` (implementation/shadow-cljs.edn), so
+;; this name does NOT match and the namespace is never loaded by
+;; `npm run test:cljs`. On the JVM the reader elides `#?(:cljs …)`. A
+;; CLJS-only `deftest` placed here therefore runs on NO host — it is
+;; dead code that reads as coverage.
+;;
+;; rf2-r8trk found three such tests here and moved them to the live
+;; sibling `re-frame.story.xray-preset-cljs-test`. One of them had been
+;; asserting `(false? (xray-config-available?))` under the comment "this
+;; test assumes Xray is NOT on the classpath" — a claim that was false
+;; even then, and that nothing could catch because the test never ran.
+;;
+;; Keep this file to the pure `.cljc` surface (merge / resolve), which
+;; genuinely runs on both hosts. Anything CLJS-only belongs in the
+;; `-cljs-test` sibling.

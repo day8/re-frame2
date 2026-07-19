@@ -32,10 +32,33 @@
     (rf2-ee38b.3 removed the DEPRECATED `ensure-xray-mounted!` shim;
     the legacy whole-shell-open composes
     `(do (wire-cross-host!) (apply-open!))` directly.)"
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.config :as xray-config]
             [day8.re-frame2-xray.keybinding :as xray-keybinding]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.registrar :as registrar]
+            [re-frame.story :as story]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story.xray-preset :as xray-preset]))
+
+;; ---- fixtures ------------------------------------------------------------
+;;
+;; Self-sufficient setup: this namespace installs its own adapter and
+;; canonical vocabulary rather than relying on an earlier namespace
+;; having called `init!`. Story has a documented false-green history
+;; where a suite only passed because a neighbour had seated the adapter
+;; first; the per-ns isolation gate exists to catch exactly that.
+
+(defn reset-all! []
+  (story/clear-all!)
+  (registrar/clear-all!)
+  (reset! frame/frames {})
+  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
+  (frame/ensure-default-frame!)
+  (story/install-canonical-vocabulary!))
+
+(use-fixtures :each (fn [t] (reset-all!) (t)))
 
 ;; ---- disable-keybinding! -------------------------------------------------
 
@@ -175,3 +198,61 @@
         (xray-config/set-keybinding-enabled! true)
         (when (exists? js/document)
           (xray-keybinding/detach!))))))
+
+;; ---- apply-preset! -------------------------------------------------------
+;;
+;; rf2-r8trk moved the three tests below out of the `.cljc` sibling
+;; `re-frame.story.xray-preset-test`. That namespace does not match the
+;; `:node-test` build's `cljs-test$` ns-regexp, so its `#?(:cljs …)`
+;; blocks ran on no host at all — dead code that read as coverage.
+;;
+;; rf2-r8trk also retired a fourth, `cljs-apply-preset-no-xray-no-op`:
+;; it shimmed `xray-available?` to `false` to exercise an absent-Xray
+;; posture the artefact cannot reach. `day8/re-frame2-xray` is a
+;; declared Story dependency, so a build that resolves
+;; `re-frame.story.xray-preset` has already resolved Xray's mount ns,
+;; and the predicate it shimmed no longer exists.
+
+(deftest apply-preset-nil-on-missing-preset
+  (testing "no :xray slot → no work, returns nil"
+    (story/reg-story :story.nilpre
+      {:doc "no slot"
+       :component :Some.view})
+    (story/reg-variant :story.nilpre/v
+      {:doc "v"})
+    (is (nil? (xray-preset/apply-preset! :story.nilpre/v)))))
+
+;; ---- project-root propagator (rf2-r1uod) ---------------------------------
+
+(deftest propagate-project-root-reaches-xray
+  (testing "propagate-project-root! bridges Story's root into Xray's config slot"
+    ;; This test previously asserted `(false? (xray-config-available?))`
+    ;; under the comment "this test assumes Xray is NOT on the
+    ;; classpath". That claim was already untrue — the old `resolve-fn`
+    ;; namespace-property walk was returning a false-negative for a
+    ;; namespace that WAS present — and nothing caught it because the
+    ;; test never ran. Xray is now a declared dependency and the bridge
+    ;; calls `xray-config/configure!` through a direct `:require`, so
+    ;; the honest assertion is that the propagation LANDS (rf2-r8trk).
+    ;;
+    ;; Seed Story's project-root via configure! — exercises the whole
+    ;; configure! → set-project-root! → propagator pipeline.
+    (story/configure! {:rf.story/project-root "/home/me/code/my-app"})
+    (try
+      (is (= "/home/me/code/my-app" (xray-preset/propagate-project-root!))
+          "the propagator returns the root it bridged into Xray's slot")
+      (is (= "/home/me/code/my-app" (xray-config/get-project-root))
+          "the value actually landed in Xray's own config slot")
+      (finally
+        ;; Reset BOTH slots so neighbouring tests see the baseline —
+        ;; the bridge writes through to Xray's global atom.
+        (story/configure! {:rf.story/project-root nil})
+        (xray-config/set-project-root! nil)))))
+
+(deftest propagate-project-root-nil-when-unset
+  (testing "propagate-project-root! returns nil when Story has no project-root configured"
+    ;; Clear any prior seed (the fixture resets the registrar but not
+    ;; the config atom).
+    (story/configure! {:rf.story/project-root nil})
+    (is (nil? (xray-preset/propagate-project-root!))
+        "no propagation when Story's project-root is nil")))
