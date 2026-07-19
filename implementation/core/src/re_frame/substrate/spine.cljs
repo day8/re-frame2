@@ -1351,14 +1351,15 @@
   code, so a keyword frame-id survives intact on every substrate by
   construction."
   [frame-kw children]
-  ;; rf2-9kpigo: reject a non-keyword, non-nil `:frame` BEFORE it reaches
-  ;; React Context. A nil routes to `:rf.error/no-frame-context` (absence);
-  ;; a non-keyword routes to the distinct `:rf.error/bad-frame-provider-arg`.
+  ;; rf2-9kpigo: reject a non-nil `:frame` that is neither a frame-id keyword
+  ;; nor a live frame value BEFORE it reaches React Context. A nil routes to
+  ;; `:rf.error/no-frame-context` (absence); any other such value routes to
+  ;; the distinct `:rf.error/bad-frame-provider-arg`.
   ;; The native UIx/Helix shells read their props in the substrate idiom and
   ;; delegate the clean frame-kw here, so this is the single validating seam
   ;; for both function-component substrates (mirrors the Reagent-side
   ;; `re-frame.views.provider/frame-provider` contract).
-  (frame/require-keyword-frame-provider-arg!
+  (frame/require-frame-provider-target!
     frame-kw
     're-frame.substrate.spine/build-frame-provider-element)
   (apply adapter-context/provider-element

@@ -1307,7 +1307,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:category :keyword]                              ;; [:= :rf.error/bad-frame-provider-arg] in a closed schema
    [:received :any]                                  ;; the offending value (neither keyword nor frame value)
    [:where    {:optional true} :any]                 ;; the validating provider call site (symbol)
-   [:recovery {:optional true} :keyword]             ;; :supply-keyword-frame
+   [:recovery {:optional true} :keyword]             ;; :supply-frame-target
    [:reason   {:optional true} :string]])
 
 (def EffectMapShapeTags

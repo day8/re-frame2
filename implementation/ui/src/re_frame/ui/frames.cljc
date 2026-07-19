@@ -979,7 +979,7 @@
   the frame first (`rf/make-frame` at boot, or a `frame-root` plan in the
   root form, whose ENSURE runs at host preflight)."
   [target where]
-  (let [id (frame/require-keyword-frame-provider-arg! target where)]
+  (let [id (frame/require-frame-provider-target! target where)]
     (if (some? (frame/frame id))
       id
       (error/throw-error!
@@ -1031,7 +1031,7 @@
   ([operation where] (resolve-frame nil operation where))
   ([pin operation where]
    (if (some? pin)
-     (frame/require-keyword-frame-provider-arg! pin where)
+     (frame/require-frame-provider-target! pin where)
      (or (ambient-frame-id)
          (let [payload (frame/no-frame-context-payload
                         operation {:where where})]

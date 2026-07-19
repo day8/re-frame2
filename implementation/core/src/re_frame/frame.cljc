@@ -670,7 +670,7 @@
   ([received extra]
    (merge {:rf.error/id :rf.error/bad-frame-provider-arg
            :received    received
-           :recovery    :supply-keyword-frame
+           :recovery    :supply-frame-target
            :reason      "frame-provider :frame must be a frame id keyword (e.g. :todo) or a live frame value (make-frame's return token); anything else is a bad public provider argument, not a carried frame."}
           extra)))
 
@@ -692,7 +692,7 @@
   (trace/emit-error! :rf.error/bad-frame-provider-arg payload)
   payload)
 
-(defn require-keyword-frame-provider-arg!
+(defn require-frame-provider-target!
   "Validate a public `frame-provider`'s `:frame` arg — accepts a frame-id
   KEYWORD or a live frame VALUE (`make-frame`'s return token), normalizing
   either to the frame id via `frame-value->id` (API-shrink #1, rf2-csbbwu —
