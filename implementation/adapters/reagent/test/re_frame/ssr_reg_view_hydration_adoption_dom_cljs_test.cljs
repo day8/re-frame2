@@ -96,9 +96,15 @@
 
 (defn- hydrate-over
   "Put `server-html` in a container, hydrate `tree` over it with REAL React,
-  report `{:complaints [str …] :node <root-div> :text \"…\"}`. `node` is the
-  `div.card` element as it stands AFTER hydration commits, read off the
-  container the caller captured its pre-hydration identity from."
+  and report — all captured BEFORE unmount / container teardown, so the
+  teardown-sensitive readings (`:connected?`, the attributes) are honest:
+
+    {:complaints [str …]   ;; hydration-relevant console output
+     :node       <div.card> ;; the root element ref (attributes survive detach)
+     :text       \"…\"       ;; textContent while mounted
+     :view-attr  \"…\"       ;; data-rf-view on the live node
+     :coord-attr \"…\"       ;; data-rf2-source-coord on the live node
+     :connected? bool}      ;; node.isConnected while mounted"
   [server-html tree]
   (let [container  (.createElement js/document "div")
         complaints (atom [])
@@ -123,10 +129,15 @@
                       (r/as-element [rf/frame-provider {:frame test-frame} tree])
                       #js {:onRecoverableError
                            (fn [err _info] (record! "onRecoverableError" err))}))))
-        (let [node (.querySelector container "div.card")
-              text (.-textContent container)]
+        ;; Read every teardown-sensitive value while the tree is still mounted.
+        (let [node       (.querySelector container "div.card")
+              text       (.-textContent container)
+              view-attr  (some-> node (.getAttribute "data-rf-view"))
+              coord-attr (some-> node (.getAttribute "data-rf2-source-coord"))
+              connected? (boolean (some-> node .-isConnected))]
           (act-fn (fn [] (some-> @root .unmount)))
-          {:complaints @complaints :node node :text text})
+          {:complaints @complaints :node node :text text
+           :view-attr view-attr :coord-attr coord-attr :connected? connected?})
         (finally
           (set! (.-error js/console) orig-error)
           (set! (.-warn js/console) orig-warn)
@@ -169,18 +180,18 @@
     (testing "rf2-8vi4q — the server markup a registered view now emits
               (root carries both annotations) hydrates SILENTLY, and both
               attributes are present on the live node after hydration."
-      (let [{:keys [complaints node text]}
+      (let [{:keys [complaints node text view-attr coord-attr connected?]}
             (hydrate-over (annotated-server-html)
                           [(rf/view test-view-id) "revenue"])]
         (is (empty? (hydration-complaints complaints))
             (str "React complained about hydrating the reg-view's own "
                  "server markup: " (pr-str (hydration-complaints complaints))))
         (is (some? node) "the root div.card exists after hydration")
-        (is (.-isConnected node) "the adopted node is still in the document")
-        (is (= expected-view (.getAttribute node "data-rf-view"))
+        (is (true? connected?) "the adopted node was in the document while mounted")
+        (is (= expected-view view-attr)
             "the live node carries the view-id annotation (client stamped it,
              and it matched the server ⇒ clean adoption)")
-        (is (= expected-coord (.getAttribute node "data-rf2-source-coord"))
+        (is (= expected-coord coord-attr)
             "the live node carries the source-coord annotation")
         (is (= "revenue" text)
             "the intended text survives hydration — not blanked / rewritten")))))
