@@ -63,6 +63,7 @@
             ["react-dom/client" :as rdc]
             [clojure.string :as str]
             [re-frame.error :as error]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.ui.digest-carrier :as digest-carrier]
             [re-frame.substrate.adapter :as substrate-adapter]
@@ -922,6 +923,56 @@
     (js/reportError error)
     (when (exists? js/console) (.error js/console error))))
 
+(defn- report-recoverable-default!
+  "React's default `onRecoverableError` reporting, preserved when the app
+  authored NO callback but we installed a wrapper for the compiled-tier
+  hydration-mismatch diagnostic (rf2-6z1i2): once a wrapper is set React no
+  longer runs its own default, so we replicate it — `globalThis.reportError`
+  when present, else `console.error`. Mirrors `report-uncaught-default!`."
+  [error]
+  (if (fn? (.-reportError js/globalThis))
+    (js/reportError error)
+    (when (exists? js/console) (.error js/console error))))
+
+(defn- react-opts-with-hydration-mismatch
+  "Compose the React root options with the compiled-tier HYDRATION-MISMATCH
+  verification (rf2-6z1i2, the Path A ruling). A hydrating compiled root has no
+  structural render-tree hash (the `:render-tree-fn` hash channel is
+  hiccup-tier-only); it VERIFIES by React-native ADOPTION — React diffs the
+  root's first `:server`-phase render (its `ui/client-only` fallbacks) against
+  the server DOM during hydration and reports any divergence through
+  `onRecoverableError`. In the ADOPTION WINDOW — before this root's phase flip,
+  tracked by `adoption-ref` (a `#js {:adopting true}` the `PhaseFlipper` clears
+  on its `:server` commit) — such a recoverable error IS the compiled tier's
+  `:rf.ssr/hydration-mismatch` signal: surface the framework diagnostic FIRST,
+  THEN honour the host's authored `onRecoverableError` (compose, never clobber)
+  or React's default report. Post-flip recoverable errors pass straight through.
+
+  The wrapper is installed ONLY when the app authored an `onRecoverableError`
+  OR debug is on: with neither there is nothing to add over React's default
+  `reportError` (the emit DCEs), so no wrapper is installed and production pays
+  zero cost — the `report-uncaught-default!` preserve-default precedent (.264).
+  ONLY `hydrate-root*` calls this; non-hydrating mounts have no adoption window
+  and install no wrapper. Returns a fresh options object, or `react-opts`
+  unchanged when no wrapper is warranted."
+  [react-opts root-id ^js adoption-ref]
+  (let [authored (when react-opts (unchecked-get react-opts "onRecoverableError"))]
+    (if (or (fn? authored) interop/debug-enabled?)
+      (let [composed (fn on-recoverable [error error-info]
+                       ;; In the adoption window a React recoverable error is the
+                       ;; compiled tier's hydration-mismatch signal. Emit the
+                       ;; framework diagnostic FIRST (debug-gated + DCE'd inside
+                       ;; `emit-hydration-mismatch!`), THEN delegate — never clobber.
+                       (when (.-adopting adoption-ref)
+                         (runtime/emit-hydration-mismatch! root-id error))
+                       (if (fn? authored)
+                         (authored error error-info)
+                         (report-recoverable-default! error)))
+            o        (if react-opts (js/Object.assign #js {} react-opts) #js {})]
+        (unchecked-set o "onRecoverableError" composed)
+        o)
+      react-opts)))
+
 (defn- react-opts-with-attempt-abort
   "Compose the (already-built) React root options with the .264 host-error edge:
   an `onUncaughtError` that TERMINALLY settles root `root-id`'s currently-seated
@@ -1432,7 +1483,15 @@
           ;; (arbitrary app code) which may have claimed this id / container /
           ;; prefix. Re-check before any React work.
           (check-root-claim! 're-frame.ui/hydrate-root info container)
-          (let [react-root (rdc/hydrateRoot
+          ;; rf2-6z1i2 — the root-local ADOPTION-WINDOW flag. It starts `true`
+          ;; and the `PhaseFlipper` clears it on the hydration (`:server`) commit;
+          ;; the `onRecoverableError` wrapper reads it to classify a recoverable
+          ;; error as a compiled-tier `:rf.ssr/hydration-mismatch` ONLY while
+          ;; React is still adopting the server DOM (before the flip). Shared by
+          ;; both ends here — the flipper (via `with-phase-flip`) and the wrapper
+          ;; (via `react-opts-with-hydration-mismatch`).
+          (let [adoption-ref #js {:adopting true}
+                react-root (rdc/hydrateRoot
                             container
                             ;; rf2-3omxp — a HYDRATING root is the one root kind
                             ;; that flips: wrap the compiled element in the phase
@@ -1445,9 +1504,16 @@
                             ;; (mount* / render!*) wrap nothing and never flip.
                             (render-attempt-element
                              receipt root-id incarnation
-                             (runtime/with-phase-flip root-id (element-thunk)))
+                             (runtime/with-phase-flip root-id (element-thunk)
+                                                      adoption-ref))
+                            ;; rf2-6z1i2 — compose the compiled-tier hydration-
+                            ;; mismatch onRecoverableError wrapper (adoption-window
+                            ;; scoped) over the host's react-opts, then the .264
+                            ;; onUncaughtError edge. Hydrating roots only.
                             (react-opts-with-attempt-abort
-                             (react-opts-with-identifier-prefix react-opts prefix)
+                             (react-opts-with-hydration-mismatch
+                              (react-opts-with-identifier-prefix react-opts prefix)
+                              root-id adoption-ref)
                              root-id incarnation))
                 root       (Root. react-root container root-id)]
             (register-live-root! info container root incarnation)
