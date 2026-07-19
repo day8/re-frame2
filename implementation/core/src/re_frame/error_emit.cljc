@@ -232,10 +232,12 @@
         - `:capture`                     → a `(frame)` read that resolved a
           dead incarnation BEFORE any op ran — no component source, so
           fabricate NEITHER coord (nil), even were an id somehow present.
-        - `op` absent (the core router / subs emitters do not carry it) →
-          fall back to `[:sub]`-then-`[:event]`, which keeps those callers
-          correct (the subs sub-id hits `[:sub]`; the router event-id misses
-          `[:sub]` then hits `[:event]`).
+        - `op` absent (the ordinary address-directed router DISPATCH emitter
+          does not carry it — the subs SUBSCRIBE emitter now stamps
+          `:op :subscribe` (rf2-alk8a) and so resolves realm-exact via the
+          `:subscribe` case above, NOT this fallback) → fall back to
+          `[:sub]`-then-`[:event]`, which keeps the remaining router-dispatch
+          caller correct (the event-id misses `[:sub]` then hits `[:event]`).
     - every other category → look under `[:event id]`."
   [error-kw id op]
   (when id
@@ -248,7 +250,9 @@
         (:dispatch :dispatch-sync) (source-coords/error-coords-for :event id)
         :subscribe                 (source-coords/error-coords-for :sub id)
         :capture                   nil
-        ;; `op` absent — the realm-ambiguous core router / subs emitters.
+        ;; `op` absent — the ordinary address-directed core router DISPATCH
+        ;; emitter (the subs SUBSCRIBE emitter now stamps `:op :subscribe` —
+        ;; rf2-alk8a — and resolves realm-exact via the `:subscribe` case above).
         (or (source-coords/error-coords-for :sub id)
             (source-coords/error-coords-for :event id)))
 
