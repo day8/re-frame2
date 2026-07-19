@@ -51,6 +51,7 @@
   the marker-PRESENCE half of that arm generalises to the directory. See
   §The synthesis standing-marker census below."
   (:require [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
@@ -583,14 +584,57 @@ cleared by `queueMicrotask`, and belt-and-braces tagged with
 ;; Positive arm — every tracked document in the censused directories
 ;; ---------------------------------------------------------------------------
 
-(defn- directory-roster
-  "The roster: the DIRECTORY LISTING of `dir`'s markdown files, sorted for a
-  stable failure order. Never a maintained list of names."
+(defn- tracked-markdown-names
+  "The names of the markdown files Git TRACKS directly under `dir`.
+
+  Admission is the TRACKED set, not the raw directory listing. `/ai` is
+  gitignored — the tree is local-by-default and this censused subtree is a
+  deliberate tracked exception — so a programmer's or agent's local scratch
+  draft, spike, or review sits in these very directories untracked. Such a file
+  ships nothing, cannot reach CI, and changes no authority; censusing it would
+  red the whole `implementation/ui` suite over a private note, which is how a
+  gate trains its readers to ignore it.
+
+  Asking Git keeps the roster exact in BOTH directions, with nothing maintained
+  by hand: `ls-files` reads the INDEX, so a document is admitted by the very
+  commit that tracks it — force-add a new review and it is censused, and must
+  carry a marker, in that same change.
+
+  `-z` so a path is never returned in Git's quoted form. Non-recursive, matching
+  the directory listing this filters. A failed `git` call throws rather than
+  yielding an empty set: an unreadable tracked set must not read as a clean
+  census."
   [dir]
-  (let [d (io/file @root synthesis-root dir)]
-    (->> (.listFiles d)
+  (let [rel    (str synthesis-root "/" dir)
+        prefix (str rel "/")
+        {:keys [exit out err]} (shell/sh "git" "ls-files" "-z" "--" rel
+                                         :dir @root)]
+    (when-not (zero? exit)
+      (throw (ex-info (str "`git ls-files` failed for " rel " — the census cannot "
+                           "derive its tracked roster and must not pass vacuously")
+                      {:dir rel :exit exit :err err})))
+    (into #{}
+          (comp (remove str/blank?)
+                (filter #(str/starts-with? % prefix))
+                (map #(subs % (count prefix)))
+                (remove #(str/includes? % "/"))
+                (filter #(str/ends-with? % ".md")))
+          (str/split out #"\x00"))))
+
+(defn- directory-roster
+  "The roster: `dir`'s markdown files as Git tracks them, sorted for a stable
+  failure order. Discovery is still the DIRECTORY LISTING; admission is the
+  tracked set (`tracked-markdown-names`). Both halves are derived — never a
+  maintained list of names.
+
+  Intersecting the two, rather than trusting `ls-files` alone, keeps a tracked
+  file that is absent from the worktree out of the roster instead of failing on
+  the `slurp`; the coverage assertion in the roster test is what reds on that."
+  [dir]
+  (let [tracked (tracked-markdown-names dir)]
+    (->> (.listFiles (io/file @root synthesis-root dir))
          (filter #(.isFile ^java.io.File %))
-         (filter #(str/ends-with? (.getName ^java.io.File %) ".md"))
+         (filter #(contains? tracked (.getName ^java.io.File %)))
          (sort-by #(.getName ^java.io.File %)))))
 
 (deftest every-authority-shaped-synthesis-document-declares-its-standing
@@ -599,9 +643,11 @@ cleared by `queueMicrotask`, and belt-and-braces tagged with
       (let [roster (directory-roster dir)]
         (is (seq roster)
             (str synthesis-root "/" dir "/ censuses no documents — the directory "
-                 "is missing or empty. If the S7 removal wave (rf2-vxgfnd.99.1) "
-                 "deleted it, drop its row from `censused-directories` in the "
-                 "same change; do not let the census pass vacuously"))
+                 "is missing, or holds no TRACKED markdown (untracked local "
+                 "drafts are deliberately not censused). If the S7 removal wave "
+                 "(rf2-vxgfnd.99.1) deleted it, drop its row from "
+                 "`censused-directories` in the same change; do not let the "
+                 "census pass vacuously"))
         (doseq [^java.io.File f roster]
           (testing (.getName f)
             (is (= #{} (standing-marker-violations (slurp f) accepts))
@@ -610,6 +656,36 @@ cleared by `queueMicrotask`, and belt-and-braces tagged with
                      "supersession/correction banner, or (in spikes/ and reviews/) "
                      "a dated-record header — in its opening, before the first "
                      "`##` heading. What the marker SAYS is not censused"))))))))
+
+(defn- roster-names
+  [dir]
+  (into #{} (map #(.getName ^java.io.File %)) (directory-roster dir)))
+
+(deftest the-standing-census-roster-is-gits-tracked-set
+  (testing "admission is Git's tracked set, so an ignored local draft is not
+            censused while every tracked document stays covered. Asserted PER
+            DIRECTORY, never over the union: a roster that dropped one
+            directory's documents entirely would still look populated in
+            aggregate, and the census would go quietly blind exactly there"
+    (doseq [{:keys [dir]} censused-directories]
+      (testing (str synthesis-root "/" dir "/")
+        (let [tracked (tracked-markdown-names dir)
+              probe   (io/file @root synthesis-root dir
+                               "zz-untracked-local-draft-probe.md")]
+          (is (seq tracked)
+              (str dir " tracks no markdown — the arm below would prove nothing"))
+          (is (= tracked (roster-names dir))
+              (str "every tracked document in " dir " must stay censused; a "
+                   "tracked file missing from the worktree reds here rather "
+                   "than silently shrinking the roster"))
+          (try
+            ;; `/ai` is gitignored, so this lands untracked exactly as a real
+            ;; local scratch note does — the case that was reddening the suite.
+            (spit probe "# Local scratch note\n\nNo standing marker.\n\n## Body\n\nx\n")
+            (is (= tracked (roster-names dir))
+                (str "an untracked local draft entered " dir "'s roster — the "
+                     "census is reading the directory listing, not Git"))
+            (finally (.delete probe))))))))
 
 (deftest the-three-real-dispositions-pass-the-standing-census
   (testing "the census admits every disposition actually found, so no document is
