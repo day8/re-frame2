@@ -25,6 +25,23 @@
     `:rf/hydrate` (replace-frame-state semantics, Spec 011), and renders
     against the now-seeded state.
 
+    The #app subtree is the dev-build output of `rf/render-to-string` — the
+    same string `handle-request` inlines (minus the render-hash attribute
+    noted below). In a dev build the reg-view REGISTRATION boundary stamps two
+    annotations on every registered view's root DOM element (Spec 006
+    §Source-coord annotation / §View tagging contract, moved cross-host to the
+    reg-view boundary by rf2-8vi4q): the `:pages/articles` view's
+    `<div class="page">` root carries
+    `data-rf2-source-coord="pages:articles:228:1"` (its `<ns>:<sym>:<line>:<col>`
+    reg-view call site) and `data-rf-view=":pages/articles"`, so pair-shaped
+    tooling can map the node back to its view. The client's dev render stamps
+    the SAME two attributes, so this page hydrates as a clean ADOPTION rather
+    than an attribute mismatch. `:app/root` renders `[(rf/view :pages/articles)]`
+    — a callable head, not a DOM element — so it contributes no wrapper node and
+    no annotation of its own. A production build (`goog.DEBUG=false` /
+    `re-frame.debug=false`) elides the annotations on both hosts, so prod markup
+    is attribute-free.
+
     The data-rf-render-hash attribute would normally be emitted by
     render-to-string with :emit-hash? true, and the matching :rf/render-hash
     would ride the payload below; we omit BOTH from this static page because
@@ -40,16 +57,7 @@
     implementation/core/test/re_frame/examples_test.clj (and by the
     re-frame.ssr conformance suite).
   -->
-  <div id="app">
-    <div class="page">
-      <h1>Recent articles</h1>
-      <button class="toggle-bodies" data-testid="toggle-bodies">Hide bodies</button>
-      <ul data-testid="articles-list">
-        <li><h3>Article A</h3><p class="body" data-testid="article-body">Body A</p></li>
-        <li><h3>Article B</h3><p class="body" data-testid="article-body">Body B</p></li>
-      </ul>
-    </div>
-  </div>
+  <div id="app"><div class="page" data-rf2-source-coord="pages:articles:228:1" data-rf-view=":pages/articles"><h1>Recent articles</h1><button class="toggle-bodies" data-testid="toggle-bodies">Hide bodies</button><ul data-testid="articles-list"><li><h3>Article A</h3><p class="body" data-testid="article-body">Body A</p></li><li><h3>Article B</h3><p class="body" data-testid="article-body">Body B</p></li></ul></div></div>
   <script id="__rf_payload" type="application/edn">
 {:rf/version 1
  :rf/app-db {:articles [{:id "a" :title "Article A" :body "Body A"}
