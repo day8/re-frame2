@@ -1624,23 +1624,14 @@
 
 #?(:cljs
    (def ^:private producer-tag
-     "The JS property re-frame.ui stamps on its own `SHADOW_NS_RESET` entry. Its
-     value is the owning build id, so a re-install replaces exactly this build's
-     producer and every other owner's callback is left alone."
+     "The JS property re-frame.ui stamps on its own `SHADOW_NS_RESET` entry,
+     carrying the owning build id as PROVENANCE: it marks an entry as re-frame.ui's
+     and names the build that installed it, which diagnostics and tests read to
+     tell this framework's producers from shadow's and other libraries'. It is NOT
+     the ownership lever — a re-install finds its own entry by OBJECT IDENTITY,
+     never by tag, because the same tag can appear on a co-loaded bundle's entry
+     that only identity can distinguish from ours (rf2-ymfix)."
      "reFrameUiReloadSourceReset"))
-
-#?(:cljs
-   (defn- tagged-producer-index
-     "Index of `build-id`'s re-frame.ui producer in `arr`, or -1 when absent.
-     Identifies by TAG, never by position or object identity — other owners'
-     callbacks sit in the same shared array."
-     [arr build-id]
-     (let [want (str build-id)]
-       (loop [i 0]
-         (cond
-           (>= i (alength arr))                             -1
-           (= want (unchecked-get (aget arr i) producer-tag)) i
-           :else                                            (recur (inc i)))))))
 
 #?(:cljs
    (defonce ^{:private true
@@ -1683,28 +1674,35 @@
      neither clobbers nor is clobbered by shadow's own init), so shadow calls it
      with each reloaded source's ns from `before-load-src`.
 
-     IDEMPOTENT, and SELF-UPGRADING across a hot reload (rf2-mp6fz). It reuses
-     the slot this copy already owns — its own previous entry (by identity, so
-     the slot is reused even when the tag it captured has since gone stale),
-     else this build's tagged entry — and REPLACES it in place; only a copy that
-     owns nothing appends. So repeated installs can neither duplicate the
-     producer nor strand a predecessor still routing to an identity this build
-     no longer resolves, and entries owned by shadow or other libraries/builds
-     are never inspected for anything but their tag, never moved, and never
-     retired. Dev-only (gated on `js/goog.DEBUG`, elided from `:advanced`
-     production)."
+     IDEMPOTENT, and SELF-UPGRADING across a hot reload (rf2-mp6fz). Ownership is
+     OBJECT IDENTITY, with NO tag fallback (rf2-ymfix): it reuses the exact entry
+     this copy already installed — found by identity on the shared array, so the
+     slot is reused even when the build tag that entry captured has since gone
+     stale — and REPLACES it in place. A copy that owns nothing there — a first
+     install, or one whose remembered entry has gone — APPENDS its own; it never
+     adopts an entry by tag, because a same-tagged callback may belong to a
+     co-loaded bundle and only identity can tell the two apart. So repeated
+     installs can neither duplicate this copy's producer nor strand a predecessor
+     still routing to an identity this build no longer resolves, and an entry owned
+     by shadow, another library, or another bundle is never replaced, moved,
+     reordered, or invoked. Dev-only (gated on `js/goog.DEBUG`, elided from
+     `:advanced` production)."
      []
      (when ^boolean js/goog.DEBUG
        (let [arr      (or js/goog.global.SHADOW_NS_RESET #js [])
              build-id (current-build-id)]
          (set! (.-SHADOW_NS_RESET js/goog.global) arr)
          (let [prev @owned-producer
-               mine (if prev (.indexOf arr prev) -1)
-               i    (if (neg? mine) (tagged-producer-index arr build-id) mine)
+               ;; OWNERSHIP IS OBJECT IDENTITY, with no tag fallback (rf2-ymfix):
+               ;; locate only the exact entry this copy installed. A same-tagged
+               ;; entry we did not install may belong to a co-loaded bundle, and
+               ;; only identity tells the two apart — so an absent predecessor is
+               ;; NOT authority to replace one.
+               i    (if prev (.indexOf arr prev) -1)
                f    (make-reload-source-producer build-id)]
            (if (neg? i)
-             (.push arr f)
-             (aset arr i f))
+             (.push arr f)    ; own nothing on the array → APPEND; never adopt by tag
+             (aset arr i f))  ; replace exactly this copy's own entry, in place
            (reset! owned-producer f))
          true))))
 
