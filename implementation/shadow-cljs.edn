@@ -757,32 +757,27 @@
   ;; runner keeps one watch daemon and browser alive across good / downstream-
   ;; failed / good passes, proving warm recompilation and active-runtime LKG.
   ;;
-  ;; rf2-vxgfnd.237 — artifact generation/activation separation. Shadow writes
-  ;; the CANDIDATE module bytes to :output-dir (out/.../candidate); the browser
-  ;; is served the STABLE generation from the dev-http :http-root
-  ;; (out/.../stable). The re-frame.ui promote hook, ordered LAST in
-  ;; :build-hooks, publishes candidate -> stable only when the whole flush
-  ;; pipeline succeeds. The digest-probe test hook (deep-merged FIRST, after the
-  ;; build-default compile hook) injects a downstream :flush failure; being
-  ;; earlier than the promote hook, its throw aborts the build before the
-  ;; publish, so the served stable generation stays on the accepted bytes and a
-  ;; fresh page load / first lazy import never activates the rejected candidate.
+  ;; Shadow serves the build's single :output-dir directly (dev-http :http-root
+  ;; points at it). A downstream :flush failure reverts the accepted compiler
+  ;; snapshot and the active runtime to last-known-good; it does NOT roll back
+  ;; the raw output directory — Shadow's output dir is Shadow's. The digest-probe
+  ;; test hook (deep-merged FIRST, after the build-default compile hook) injects
+  ;; the downstream :flush failure the runner drives.
   :ui-digest-probe-lazy
   {:target :browser
-   :output-dir "out/ui-digest-probe-lazy/candidate"
+   :output-dir "out/ui-digest-probe-lazy"
    :asset-path "."
    :modules
    {:base {:entries [re-frame.ui.digest-probe.base]
            :init-fn re-frame.ui.digest-probe.base/init}
     :lazy {:entries [re-frame.ui.digest-probe.lazy]
            :depends-on #{:base}}}
-   :devtools {:http-root "out/ui-digest-probe-lazy/stable"
+   :devtools {:http-root "out/ui-digest-probe-lazy"
               :http-port 8059}
-   ;; Deep-merged after the load-bearing build-default compile hook: the
-   ;; test hook runs at :flush after target output and injects a true downstream
-   ;; failure; the promote hook runs LAST so that failure aborts before it.
-   :build-hooks [(re-frame.ui.digest-probe.build-hook/hook)
-                 (re-frame.ui.compiler.build-hook/promote-served-generation)]}
+   ;; Deep-merged after the load-bearing build-default compile hook: the test
+   ;; hook runs at :flush after target output and injects a true downstream
+   ;; failure, proving the accepted compiler/runtime authority reverts.
+   :build-hooks [(re-frame.ui.digest-probe.build-hook/hook)]}
 
   ;; rf2-vxgfnd.6 — the G-1 direct-render parity gate (07 §5) for the
   ;; re-frame.ui compiled-view substrate. A :node-script RELEASE build
