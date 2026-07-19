@@ -341,6 +341,11 @@ NOTES block is authoritative over any summary here.
 | R-9 accessibility | WAI-ARIA APG semantics per component class, shipped with each component's wave — legacy parity (one `aria-` attribute total) is not the bar |
 | R-10 CSS/Bootstrap | retained through the parity waves as an isolated, removable theme-data layer; removal is a named post-parity decision bead |
 
+> **Errata — 2026-07-17 (delegated, recorded on `rf2-6ajm6z`).** R-1's native
+> coordinate — `re-com/re-com-ui` with the `re-com.ui.*` namespace family — was
+> confirmed final; the original ruling's "may be adjusted before first
+> publication" window is now closed.
+
 ## Recommendation
 
 Accepted as directed. Land the package through the mapped S3 beads with
