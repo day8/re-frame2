@@ -79,9 +79,11 @@ source-coord walkers; no manifests, cause vectors, histories, timings, warning
 text, `data-rf2-*` strings, project paths; no schema engines when elided; **no
 JVM renderer in any browser entry**; no proxy/signal/atom/query-cache runtimes.
 Debug erasure is a proof: advanced builds are scanned for exact absence (G-11),
-and dev/prod behavioral equivalence is gated per generated shape + pairwise
-capabilities + high-risk triples (G-7) — full powersets are not a practical
-gate. Ordinary view registration is **already `goog.DEBUG`-gated in the
+and dev/prod behavioral equivalence is gated in two layers (G-7): Layer 1 gates
+the GENERATED STRUCTURAL output per generated shape (dev-CLJS == JVM-truth ==
+advanced-CLJS, the parity corpus rendered in both regimes against one embedded
+JVM truth), and Layer 2 gates per-production-wrapper MOUNTED behaviour through
+causal fixtures — no powersets, no pairwise-capability generator. Ordinary view registration is **already `goog.DEBUG`-gated in the
 emitter** (the registration branch of `compiler/emit_cljs.cljc` — the
 production arm is a direct `React.memo` with no registry); G-18 is
 fixture-first, and a new elision mode or packaging change is justified only if
@@ -186,7 +188,7 @@ table governs.
 | **G-4** equality no-op | `rf=` results ⇒ zero revisions, zero prop/sub-driven renders, stable references |
 | **G-5** drain fan-in | eight queued update+commit epochs all execute in one run-to-completion drain and share exactly **one** read/render batch at the following host checkpoint — a drain is never split across batches; coalescing never drops writes; epoch count is never evidence of render/commit count |
 | **G-6** abandonment/disposal | 10k headless abandoned renders/cold probes and bounded mounted StrictMode/Activity cycles return every ownership surface to exact baseline |
-| **G-7** dev/prod equivalence | per generated shape + pairwise capabilities + high-risk triples: committed DOM/events/owners/cleanup/hydration agree, debug off |
+| **G-7** dev/prod equivalence | two layers: **(1)** generated structural output equivalent per generated shape — dev-CLJS / JVM-truth / advanced-CLJS agree, debug off; **(2)** per-production-wrapper mounted behaviour — committed DOM/events/owners/cleanup/hydration agree, debug off |
 | **G-8** input correctness (hard) and latency evidence | **Hard gate:** in real Chromium **and** WebKit — pre-paint synchronous commit under the sync door, ordering, caret restoration, IME composition, exactly one attributable React commit per ordinary input and exactly one at the committed IME boundary, with the deliberate async-door regression as the tooth; the matrix runs through a **reusable event-prefix component** (`ui/event` vector-outcome door) — toy literal fixtures alone do not close it. **Evidence only:** event→commit p95 against an equivalent hand-written React control in the same warmed run — the ratio, the 10% reference-budget observation, the sample count and the noise policy are recorded and reported; no wall-clock number gates (G-13's posture), and an over-budget observation feeds performance follow-up, never a G-8 failure |
 | **G-9** list updates | keyed 1k rows: one entity change renders its row + true dependents; stable handler identity; no retained lazy seqs |
 | **G-10** bundle | kernel ≤ 4 KB gz; counter ≤ React + 6 KB gz; relative targets vs UIx-adapter/slim with symbol-reachability escalation (methodology: pinned three-module splits, per-module measurement, N=3 determinism, checked-in EDN baseline, ratio + floor + slope guard) |
@@ -247,19 +249,25 @@ the stages ahead follow
   slot bodies all run, and the **manifest slot-site arm now ships** — the
   analyzer indexes each slot site into the compiler manifest and the public
   `:render-slots` projection reports it, both pinned by focused acceptance.
+- **G-7 Layer 1**, the generated-structural-output equivalence arm
+  (`npm run test:browser-prod-elision`, the advanced parity-corpus prod-elision
+  proof). The production-absence arm is green, and the corpus now renders
+  through the **advanced** CLJS emitter and compares — in the same
+  normalized-semantic space the dev-lane parity corpus uses — against the JVM
+  emitter's compile-time truth. Paired with the dev-lane corpus
+  (`parity_corpus_cljs_test`) this closes the triangle: dev-CLJS == JVM-truth
+  **and** advanced-CLJS == JVM-truth, so dev == prod per generated shape across
+  all 43 corpus cases, with no golden files.
 
 **Named open:**
 
-- **G-7's broad equivalence matrix.** The production-absence arm is wired and
-  green, and the per-stage equivalence arms landed with their conformance
-  profiles — the S3-shape arm (S3 profile) and the S4-shapes-only arm (S4
-  profile, which deliberately bounded itself to S4 shapes and left the broader
-  debt to its owner). What has no test yet is the *broad, retroactive* S1–S3
-  dev↔prod equivalence matrix over generated shapes — per generated shape,
-  pairwise capabilities, high-risk triples. The requirement stands in full and
-  is owned by **S6** (`rf2-vxgfnd.98`), the stage carrying the remaining
-  absence/equivalence/budget gates (below); it is deferred to that owner, not
-  narrowed.
+- **G-7 Layer 2**, the shape-specialization arm: per-production-wrapper mounted
+  causal fixtures (gaps: presence retention/removal, custom-element property
+  application, the missing event/combination wrapper shapes) — owner
+  **`rf2-55zsd`** (the S6 leaf under `rf2-vxgfnd.98`). Layer 1 above proves the
+  generated structure equivalent per shape; Layer 2 proves the mounted
+  behaviour each distinct production wrapper adds. Not a powerset, not a
+  pairwise generator — one causal fixture per distinct wrapper shape.
 - **G-14's remaining arm** — bounded guide-fixtures CI cost, which needs the
   guide-examples corpus and has no assertion anywhere in the repository, as the
   gate's own suite states.

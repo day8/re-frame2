@@ -296,17 +296,21 @@ ones:
 
 | Gate | S4 arm |
 |---|---|
-| **G-7** | dev↔prod equivalence for **S4 shapes only** — committed DOM, presence retention/removal, and custom-element property application agree with debug off; the a11y roster is compile-tier and emits nothing at runtime in either build |
+| **G-7** | dev↔prod equivalence for **S4 shapes only** — the S4 presence / custom-element corpus rows' generated **structure** agrees with debug off (Layer 1, via the advanced parity corpus); presence retention/removal and custom-element property **application** are **mounted** arms, named-open under the S6 leaf (`rf2-55zsd`); the a11y roster is compile-tier and emits nothing at runtime in either build |
 | **G-11** | S4 diagnostic / site / reload / test machinery absent from advanced production output — `re-frame.ui.test` (now including `flush-presence!`) and every compile-tier diagnostic string stay out of advanced production bundles |
 
-**The G-7 growth is bounded, deliberately.** G-7 today has no equivalence test
-beyond its production-absence arm, so S4 writes G-7's **first** equivalence arms
-— and writes them for **S4 shapes only**. The broader retroactive S1–S3
-equivalence-matrix debt is **not** in scope here and keeps its existing
-named-open owner; S4 does not discharge it, and no row in this profile should be
-read as claiming it. Both arms wire into the **existing** required
-JVM / CLJS / DOM / parity / production-elision jobs — no new job, no new named
-gate, and no S5 SSR build in the S4 matrix.
+**The G-7 growth is bounded, deliberately.** S4's presence and custom-element
+corpus rows ride **Layer 1** — the advanced parity-corpus prod-elision proof —
+so their generated **structure** is proven dev↔prod-equivalent with debug off,
+for **S4 shapes only** and no wider. What is **not** yet executable is the
+**mounted** behaviour these shapes add: presence retention/removal over time and
+custom-element DOM property application. Those arms are named-open under the S6
+leaf **`rf2-55zsd`** (per-production-wrapper mounted causal fixtures); S4 does
+not discharge them, and no row in this profile should be read as claiming the
+mounted behaviour is proven. The broader retroactive S1–S3 equivalence-matrix
+debt is likewise **not** in scope here. Layer 1 wires into the **existing**
+required JVM / CLJS / DOM / parity / production-elision jobs — no new job, no new
+named gate, and no S5 SSR build in the S4 matrix.
 
 Everything else S4 froze is proven by the named suites in §1 and the parity
 corpus in §4, not by a gate arm.
