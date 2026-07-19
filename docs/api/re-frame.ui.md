@@ -446,6 +446,22 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
   is a no-op and recovery uses a fresh container. Idempotent. Client-only; JVM
   host-op error.
 
+### `render-static`
+
+- **Kind**: macro
+- **Signature**: `(render-static root-form) → string`
+- **Description**: The pure `:server`-phase static-HTML render — the compiled-view
+  counterpart of React's `renderToStaticMarkup`. Renders a compiled root to an
+  **inert HTML string**, **non-hydrating**: no manifest, no hydration payload, and
+  **no phase flip** (a `client-only` site renders its capability-free fallback and
+  stops there). It is the static-page path, not the SSR-then-hydrate path
+  (`hydrate-root` + `re-frame.ssr/hydrate!` own that). Like the other root macros it
+  enforces the **literal** root form at the call site (a runtime-assembled vector is
+  `:rf.ui.compile/runtime-root-form`), and the form mounts exactly one view (its
+  derived identity). JVM/server only — a CLJS expansion is a compile error. The JVM
+  structural tree it produces is folded to HTML by `re-frame.ssr/emit-ui-tree`, so
+  `re-frame.ui` never statically requires the SSR artefact.
+
 ### `frame-root`
 
 - **Kind**: function (root-form template symbol)

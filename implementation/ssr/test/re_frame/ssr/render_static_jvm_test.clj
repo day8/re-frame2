@@ -28,11 +28,18 @@
 
 (defn- caught-id
   "Run `f`; -> the thrown compile-error id (`:rf.ui.compile/error` ex-data),
-  or ::no-throw."
+  or ::no-throw. `macroexpand-1` wraps a macro-expansion ExceptionInfo in a
+  CompilerException (phase :macro-syntax-check), so unwrap `.getCause` — the
+  same shape the error-roster suite's `expand-ex` handles; a direct
+  `render-static-form` call throws the ExceptionInfo unwrapped."
   [f]
   (try (f) ::no-throw
        (catch clojure.lang.ExceptionInfo e
-         (:rf.ui.compile/error (ex-data e)))))
+         (:rf.ui.compile/error (ex-data e)))
+       (catch Exception e
+         (let [c (.getCause e)]
+           (when (instance? clojure.lang.ExceptionInfo c)
+             (:rf.ui.compile/error (ex-data c)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Static render correctness — a compiled root -> the expected inert HTML.
