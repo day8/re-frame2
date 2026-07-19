@@ -1183,9 +1183,11 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; re-frame2 ships first-class epoch recording. The listener fires once
-;; per drain-settle with the assembled `:rf/epoch-record`. We register
-;; ours under id :re-frame2-pair-epoch — multi-tool coexistence per
-;; Spec 009 §Listener ordering.
+;; per dequeued event (run-to-completion), NOT per drain-settle, with the
+;; assembled `:rf/epoch-record` — a parent and its `:fx`-queued child
+;; commit TWO records, one per event, even though both settle in one drain.
+;; We register ours under id :re-frame2-pair-epoch — multi-tool coexistence
+;; per Spec 009 §Listener ordering.
 ;;
 ;; Runtime-direct reads, no parallel epoch capture buffer.
 ;; The pair session is a THIN, runtime-direct reader: every epoch read
