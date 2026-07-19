@@ -147,7 +147,7 @@ standing every-stage-wires-its-gates rule]:**
 | G-15 atomic-local writer matrix | two (and N) same-turn host writers through `update!` both land — key+pointer, timer+listener, observer+handler arms; fn-value `set!` stores exactly; mixed `update!`+dispatch; StrictMode replay; JVM typed failure; `:local-state` cause-evidence rows emitted; HMR hook-signature ride |
 | G-16 render-slot parity | slotted output (client emitter vs JVM tree) normalized-structurally equivalent; keyed reorder under slots; purity diagnostics fire for `sub`/`lease`/`local`/`effect`/dispatch/hooks inside a slot body; manifest slot sites present |
 | G-17 safe-spread ownership | the policy form rejects owned keys (`:key` `:ref` `:value` `:checked` owned `:on-*`) in dev **and** advanced builds; `aria-*`/`data-*` pass; a controlled site under the policy form **retains** the sync door; general `spread` at the same site still forfeits it |
-| G-18 library façade isolation | advanced build importing **one** view from a multi-view library namespace retains no unused sibling views, schemas, docs projections, or dev registration (fixture-first per the readiness §4 DCE row — a substrate packaging change is justified only if this fails structurally) |
+| G-18 library façade isolation | advanced build importing **one** view from a multi-view library namespace retains no unused sibling views (fixture-first per the readiness §4 DCE row — a substrate packaging change is justified only if this fails structurally) |
 
 The component-library **proof pack** (readiness §7 — controlled input, selection
 controller, slotted list cell, safe-attrs form control, schema-described component,

@@ -3,10 +3,24 @@
 
 // G-18 — library facade isolation (fixture-first; 07 §5, EP-0035, readiness §4).
 //
-// An advanced build importing EXACTLY ONE view from a multi-view library
-// namespace must retain NO unused sibling views, schemas, docs, or dev
-// registration. This runner builds the proof-pack single-view + all-views
-// advanced bundles and asserts:
+// WHAT THIS GATE PROVES, EXACTLY: sibling render-sentinel isolation. An
+// advanced build importing EXACTLY ONE view from a multi-view library namespace
+// must retain NO unused sibling views — measured as the render sentinel literal
+// each sibling `defview` carries.
+//
+// WHAT IT DOES NOT PROVE (rf2-kxork): production absence of schemas, docs
+// projections, and dev registration. Those are owned by G-11, whose companion
+// scanner `check-ui-mounted-prod-elision.cjs` asserts them against the
+// `browser-test-prod-elision` :advanced bundle — the `rf$view_shell`
+// registration literal plus dedicated props-schema and view-docstring
+// sentinels. `spec/conformance/S3-view-conformance-profile.md` assigns the
+// exact production-absence rosters to G-11 (§4/§5) and gives G-18 only the
+// sibling-isolation row; under EP-0034's one-owner-per-claim doctrine G-18
+// must not duplicate that proof. The EP G-18 roster rows were narrowed to
+// match this scope in the same change.
+//
+// This runner builds the proof-pack single-view + all-views advanced bundles
+// and asserts:
 //
 //   positive control (all-views): every sentinel PRESENT — proves the library
 //     views compile and their sentinels are real, DCE-able strings (so a

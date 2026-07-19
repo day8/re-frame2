@@ -60,7 +60,16 @@
 ;; The fixture under proof. The group local is QUALIFIED (`probe/node`) as well
 ;; as `^js`-hinted, so it exercises the name-strip and the metadata carriage in
 ;; one shape — the host binds `node`, reading slot "probe/node".
+;; rf2-kxork — G-11 payload sentinels. This view is REALLY RENDERED below in
+;; the `:advanced` bundle, so its docstring and its props-schema `:doc` are
+;; carried by a live, rooted view rather than a dead declaration. The G-11
+;; scanner (`scripts/check-ui-mounted-prod-elision.cjs`) asserts both literals
+;; ABSENT from that bundle: docs projections and schema metadata are dev-only
+;; material and must not reach production. Do not rename or delete them without
+;; updating that scanner — they are its subjects, not decoration.
 (defview js-hint-view
+  "rf2-g11-view-docstring-sentinel-v1 — docs-projection egress probe."
+  {:props [:map {:doc "rf2-g11-schema-doc-sentinel-v1"}]}
   [{:keys [^js probe/node]}]
   [:span {:data-role "bp-hinted"} (str "[" (.-bpAdvancedHinted node) "]")])
 

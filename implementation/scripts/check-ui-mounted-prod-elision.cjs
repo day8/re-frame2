@@ -234,6 +234,65 @@ if (!bundle.includes(CONFLICT_CONTROL)) {
 }
 
 /*
+ * rf2-kxork — G-11 owns the view-payload absence claims that G-18 used to
+ * over-promise.
+ *
+ * The EP G-18 roster rows asserted that a one-view import retains no unused
+ * sibling views, SCHEMAS, DOCS PROJECTIONS, or DEV REGISTRATION, while the
+ * shipped G-18 gate (`check-ui-facade-isolation.cjs`) only ever measured
+ * sibling render sentinels. `spec/conformance/S3-view-conformance-profile.md`
+ * already assigns the exact production-absence rosters to G-11, so the EP rows
+ * were narrowed to sibling isolation and the residual three arms land HERE —
+ * in the gate that owns them — rather than being silently retired.
+ *
+ * Each arm is a source positive control plus a bundle absence, the pattern used
+ * throughout this file. The absences are NOT vacuous: this bundle roots and
+ * really RENDERS `js-hint-view` (binding_plan_advanced_elision_prod_test calls
+ * `markup` on it and asserts the committed HTML), and it links
+ * `re-frame.ui.runtime`, whose `view-shell-mark` is the registration marker.
+ * So each literal has a live compiled carrier in this exact artifact; if the
+ * dev-only material rode along, it would be here.
+ */
+const RUNTIME_SOURCE = path.join(ROOT, 'ui', 'src', 're_frame', 'ui',
+                                 'runtime.cljs');
+const runtimeSource = fs.readFileSync(RUNTIME_SOURCE, 'utf8');
+const VIEW_SHELL_MARK = 'rf$view_shell';
+if (!runtimeSource.includes(`(def ^:private view-shell-mark "${VIEW_SHELL_MARK}")`)) {
+  fail(`dev-registration source positive control is absent: view-shell-mark "${VIEW_SHELL_MARK}"`);
+}
+
+const BINDING_PLAN_PROD_TEST = path.join(ROOT, 'ui', 'test', 're_frame', 'ui',
+                                         'binding_plan_advanced_elision_prod_test.cljs');
+const bindingPlanProdTest = fs.readFileSync(BINDING_PLAN_PROD_TEST, 'utf8');
+const SCHEMA_DOC_SENTINEL = 'rf2-g11-schema-doc-sentinel-v1';
+const VIEW_DOCSTRING_SENTINEL = 'rf2-g11-view-docstring-sentinel-v1';
+
+// The carrier must be a REALLY RENDERED view, not merely a declared one — an
+// unrendered defview could be DCE'd wholesale, which would make both absences
+// below pass for the wrong reason.
+if (!/\(markup js-hint-view\b/.test(bindingPlanProdTest)) {
+  fail('G-11 payload sentinels lost their rendered carrier: binding_plan_advanced_elision_prod_test no longer renders js-hint-view');
+}
+for (const expected of [
+  `{:props [:map {:doc "${SCHEMA_DOC_SENTINEL}"}]}`,
+  `"${VIEW_DOCSTRING_SENTINEL} `,
+]) {
+  if (!bindingPlanProdTest.includes(expected)) {
+    fail(`G-11 view-payload source positive control is absent: ${expected}`);
+  }
+}
+
+for (const [forbidden, what] of [
+  [VIEW_SHELL_MARK, 'DEV view registration (view-shell-mark)'],
+  [SCHEMA_DOC_SENTINEL, 'view props-schema metadata'],
+  [VIEW_DOCSTRING_SENTINEL, 'view docstring / docs projection'],
+]) {
+  if (bundle.includes(forbidden)) {
+    fail(`${what} survived advanced output: ${forbidden}`);
+  }
+}
+
+/*
  * rf2-vxgfnd.94.8 — REAL compiled mutation control. A second advanced build
  * flips a private goog-define which roots an unrelatedly named atom/reset path
  * inside re-frame.ui.tool.evidence. The same production test must turn red on

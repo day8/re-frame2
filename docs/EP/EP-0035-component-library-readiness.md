@@ -150,7 +150,7 @@ absence is proven under G-7/G-11.
 | G-15 atomic-local writer matrix | N same-turn host writers through `update!` all land (key+pointer, timer+listener, observer+handler arms); fn-value `set!` stores exactly; mixed `update!`+dispatch; StrictMode replay; JVM typed failure; `:local-state` cause rows; HMR ride |
 | G-16 render-slot parity | client/JVM slotted output normalized-structurally equivalent; keyed reorder under slots; purity diagnostics fire inside slot bodies; manifest slot sites present |
 | G-17 safe-spread ownership | owned-key rejection in dev **and** advanced builds; `aria-*`/`data-*` pass; policy form retains the sync door while general spread forfeits it |
-| G-18 library façade isolation | an advanced build importing **one** view retains no unused sibling views, schemas, docs projections, or dev registration — fixture-first: a packaging change is justified only if this fails structurally |
+| G-18 library façade isolation | an advanced build importing **one** view retains no unused sibling views — fixture-first: a packaging change is justified only if this fails structurally |
 
 The **component-library proof pack** lands in the conformance/parity corpus
 as a rolling consumer (no re-com build dependency): controlled input ·
