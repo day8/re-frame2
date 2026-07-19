@@ -368,10 +368,23 @@ cycle. Both are dev-only tools; neither reaches a production bundle,
 so the bundle-isolation contract (which forbids `implementation/` →
 `tools/`) is untouched.
 
-The one genuine feature-detect that survives is the filters API
-(`day8.re-frame2-xray.filters.config/configure!`), a namespace Xray
-does not currently expose. That probe stays until Xray ships the
-surface — see `re-frame.story.xray-preset/filters-available?`.
+No feature-detect survives. The last one — a probe for
+`day8.re-frame2-xray.filters.config/configure!` — was guarding a
+namespace Xray has never exposed, so it was permanently false and
+Story's `:xray {:filters …}` preset silently did nothing despite
+validating cleanly against its schema. rf2-q5pd6 removed the probe and
+wired the slot to the surface Xray had shipped all along: the
+`:rf.xray/filters` seed on `config/configure!`, plus the
+`:rf.xray/hydrate-filters` event on the `:rf/xray` frame.
+
+The one genuine piece of translation at that seam is a SHAPE
+difference, not an availability question. Story's public API is a
+vector of bare event-id keywords; Xray matches on pills. Xray's
+`canonicalise-pill` reads a bare keyword as the `:never` kind, so
+handing Story's shape over verbatim would have swapped one silent
+no-op for another. `xray-preset/lower-filters` is the boundary that
+keeps Story's compact authoring API and gives Xray its canonical
+representation.
 
 ## Phase-2 SOTA additions — tier choices
 

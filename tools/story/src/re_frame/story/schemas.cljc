@@ -348,8 +348,9 @@
   the rendered variant's frame.
 
   All slots are optional. The preset is plain data; the runtime side
-  (`re-frame.story.xray-preset`) feature-detects Xray and the optional
-  filters API, no-opping gracefully when absent.
+  (`re-frame.story.xray-preset`) reaches Xray through direct
+  `:require`s — `day8/re-frame2-xray` is a declared Story dependency,
+  so there is nothing to feature-detect.
 
   - `:open?`   — when truthy, auto-open the Xray shell on variant mount.
                  Under the per-panel embed this is largely
@@ -374,9 +375,15 @@
                  manual click overrides for the session.
   - `:filters` — `{:out [event-id ...] :in [event-id ...]}` — Xray
                  auto-filter pills to pre-populate. Both axes are
-                 optional. Skipped with a console warning when
-                 `day8.re-frame2-xray.filters` is not on
-                 the classpath.
+                 optional. Bare event-id keywords are lowered to Xray's
+                 pill shape (`{:pattern <event-id>}`) at the boundary
+                 by `xray-preset/lower-filters`, then applied to the
+                 live `:rf/xray` filter slot.
+
+                 A PRESENT `:filters` map asserts the whole filter
+                 state, so an explicitly empty one clears Xray's pills
+                 ('deliberately unfiltered'). Omit the key entirely to
+                 leave whatever pills the user has set alone.
   - `:focus`   — optional pre-focus coordinates. `{:event-pos N}` selects
                  the Nth event in the current cascade. Rare; usually you
                  want LIVE to track head."

@@ -613,6 +613,50 @@ validation as an open-shape addition. See
 [`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand pane and
 §Mount lifecycle for how the RHS embed consumes the slot.
 
+#### Xray preset slot
+
+The `:xray` slot pre-configures the Xray shell when it mounts inside the
+rendered variant's frame. Every sub-slot is optional; a missing `:xray`
+slot is the baseline behaviour. Story merges the parent story's preset
+with the variant's, variant slots winning, and `:filters` deep-merges so
+an `:in` declared at story level survives an `:out` declared at variant
+level.
+
+| Slot | Shape | Effect on mount |
+|---|---|---|
+| `:open?` | boolean | Auto-open the whole Xray shell (popout / escape-hatch path; the RHS embed owns its own mount). |
+| `:panel` | panel keyword | Dispatches `:rf.xray/select-panel`. Distinct from the `:xray-panel` embed default above. |
+| `:filters` | `{:in [<event-id> ...] :out [<event-id> ...]}` | Pre-populates Xray's ribbon filter pills. |
+| `:focus` | `{:event-pos <n>}` | Dispatches `:rf.xray/focus-event`. Rare — usually you want LIVE to track head. |
+
+##### `:filters` — compact keywords, lowered at the boundary
+
+Authors write bare event-id keywords. Xray's filter engine matches on
+**pills**, and its `canonicalise-pill` reads a bare keyword as the
+`:never` kind — a filter that matches nothing. `xray-preset/lower-filters`
+is the Story→Xray boundary that translates:
+
+```clojure
+{:xray {:filters {:out [:app/noise]}}}
+;; reaches Xray as
+{:in [] :out [{:pattern :app/noise}]}
+```
+
+Both axes are normalised, so a preset declaring only one axis still lands
+the full shape in Xray's `:active-filters` slot.
+
+**Present-but-empty is meaningful, absent is not.** A `:filters` map that
+is present asserts the *whole* filter state, so an explicitly empty one
+clears Xray's pills — "this story is deliberately unfiltered". Omitting
+the key entirely is a no-op that leaves whatever pills the operator has
+set through the ribbon alone.
+
+The preset is applied on every variant-selection edge. When it resolves
+*before* the RHS panel's first mount — the initially-selected-variant
+case, where the `:rf/xray` frame does not exist yet — the lowered set is
+parked and flushed by the panel-host the moment Xray's mount registers
+the frame. Both paths land the same slot (rf2-q5pd6).
+
 ### `(reg-workspace id metadata)`
 
 ```clojure
