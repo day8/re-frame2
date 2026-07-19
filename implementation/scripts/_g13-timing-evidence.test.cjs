@@ -15,14 +15,21 @@
  * rendering are pure and pinned here so a regression can be caught without
  * spawning shadow-cljs or Playwright. Standalone node runner, matching the
  * sibling `_*.test.cjs` convention.
+ *
+ * rf2-muhsq — the source-text half of the containment proof used to live here
+ * too: a Clojure string/comment blanker, private-defn delimiters, and exact
+ * form/multiplicity regexes over `dev.cljs`, duplicated again in
+ * `run-ui-g13.cjs`. Containment is now a property of the measurement seam
+ * (`re-frame.ui.g13.measure/measure-dispatch-to-commit!`), whose call order is
+ * asserted directly in `re-frame.ui.g13.measure-cljs-test`. What remains here
+ * is `assertTimedIntervalDidWork` — the runtime half — which, now that the
+ * seam owns both witness reads, also rejects a dispatch hoisted out of the
+ * flushed thunk.
  */
 
 'use strict';
 
 const assert = require('assert/strict');
-
-const fs = require('fs');
-const path = require('path');
 
 const {
   RECORDED_SAMPLES,
@@ -34,8 +41,6 @@ const {
   assertColdIsFirstDrain,
   assertColdOrderControl,
   assertTimedIntervalDidWork,
-  assertTimedRegionShape,
-  codeOnly,
   buildSummary,
 } = require('./lib/g13-timing-evidence.cjs');
 
@@ -363,148 +368,6 @@ test('assertTimedIntervalDidWork rejects a non-positive queued-writes basis', ()
   assert.throws(
     () => assertTimedIntervalDidWork(0, 0, 0),
     /queued-writes must be a positive finite number/,
-  );
-});
-
-// ----- assertTimedRegionShape: STRUCTURAL containment (rf2-a0i2y) ------------
-//
-// Containment is a property of the measured region's SHAPE, so it is proven by
-// construction against the fixture source rather than inferred from samples that
-// happen to pass. These tests drive the real `dev.cljs`, then mutate it.
-
-const DEV_FIXTURE_SOURCE = path.join(
-  __dirname, '..', 'ui', 'g13', 're_frame', 'ui', 'g13', 'dev.cljs',
-);
-const DEV_SOURCE = fs.readFileSync(DEV_FIXTURE_SOURCE, 'utf8');
-
-const TIMED_DISPATCH_FORM = '(uit/dispatch! frame [::fixture/step fixture/queued-writes])';
-const TIMED_START_FORM = 'started (js/performance.now)]';
-const TIMED_ELAPSED_FORM = '(let [elapsed-ms (- (js/performance.now) started)]';
-const TIMED_POST_WITNESS_FORM = ':post-hot (:hot (rf/app-db-value frame))';
-
-function mutated(edits) {
-  let out = DEV_SOURCE;
-  for (const [find, replaceWith] of edits) {
-    const next = out.replace(find, replaceWith);
-    // A stale anchor would hand the checker an UNCHANGED source, and "unchanged
-    // passes" reads exactly like "the mutation was caught".
-    assert.notEqual(next, out, `stale tooth anchor — dev.cljs no longer contains: ${find}`);
-    out = next;
-  }
-  return out;
-}
-
-test('assertTimedRegionShape accepts the real fixture: dispatch and commit are inside the span', () => {
-  assert.deepEqual(assertTimedRegionShape(DEV_SOURCE), [
-    'the pre-dispatch app-db witness read',
-    'the interval START timestamp',
-    'the flush! that owns the measured interval',
-    'the timed dispatch',
-    'the interval END timestamp',
-    'the post-commit app-db witness read',
-  ]);
-});
-
-test('assertTimedRegionShape REJECTS the dispatch removed from the flushed thunk', () => {
-  assert.throws(
-    () => assertTimedRegionShape(mutated([[TIMED_DISPATCH_FORM, 'nil']])),
-    /expected exactly 1 dispatch! calls in the timed region, found 0/,
-  );
-});
-
-test('assertTimedRegionShape REJECTS the dispatch replaced with a no-op event', () => {
-  assert.throws(
-    () => assertTimedRegionShape(
-      mutated([[TIMED_DISPATCH_FORM, '(uit/dispatch! frame [::fixture/noop])']]),
-    ),
-    /the timed dispatch is absent from the timed region/,
-  );
-});
-
-test('assertTimedRegionShape REJECTS the dispatch hoisted above the start timestamp', () => {
-  // THE MUTANT THE RUNTIME WITNESS CANNOT SEE. The pre-hot read still precedes
-  // the hoisted dispatch, so post-minus-pre is still exactly queued-writes — yet
-  // the measured span no longer covers the eight write epochs. Only the source
-  // order shows it.
-  assert.throws(
-    () => assertTimedRegionShape(mutated([
-      [TIMED_DISPATCH_FORM, 'nil'],
-      [TIMED_START_FORM, `_ ${TIMED_DISPATCH_FORM}\n        ${TIMED_START_FORM}`],
-    ])),
-    /the timed dispatch does not follow the flush! that owns the measured interval/,
-  );
-});
-
-test('assertTimedRegionShape REJECTS the dispatch moved past the end timestamp', () => {
-  assert.throws(
-    () => assertTimedRegionShape(mutated([
-      [TIMED_DISPATCH_FORM, 'nil'],
-      [TIMED_ELAPSED_FORM, `${TIMED_ELAPSED_FORM}\n                   ${TIMED_DISPATCH_FORM}`],
-    ])),
-    /the interval END timestamp does not follow the timed dispatch/,
-  );
-});
-
-test('assertTimedRegionShape REJECTS the closing witness read moved inside the span', () => {
-  // The closing witness must cost the measured interval nothing; reading it
-  // before the end timestamp would put validation work on the clock.
-  assert.throws(
-    () => assertTimedRegionShape(mutated([
-      [TIMED_ELAPSED_FORM,
-        '(let [post-hot (:hot (rf/app-db-value frame))\n'
-        + '                       elapsed-ms (- (js/performance.now) started)]'],
-      [TIMED_POST_WITNESS_FORM, ':post-hot post-hot'],
-    ])),
-    /the post-commit app-db witness read does not follow the interval END timestamp/,
-  );
-});
-
-test('assertTimedRegionShape rejects an extra timestamp reading inside the region', () => {
-  assert.throws(
-    () => assertTimedRegionShape(mutated([
-      [TIMED_START_FORM, `mid (js/performance.now)\n        ${TIMED_START_FORM}`],
-    ])),
-    /expected exactly 2 performance.now readings in the timed region, found 3/,
-  );
-});
-
-test('assertTimedRegionShape fails loudly when the measured region cannot be located', () => {
-  assert.throws(() => assertTimedRegionShape(''), /fixture source was not readable/);
-  assert.throws(
-    () => assertTimedRegionShape(DEV_SOURCE.replace('(defn- timing-cycle!', '(defn- timed-cycle!')),
-    /could not locate `\(defn- timing-cycle!`/,
-  );
-  assert.throws(
-    () => assertTimedRegionShape(DEV_SOURCE.replace('(defn- correctness-cycle!', '(defn- audit-cycle!')),
-    /could not locate `\(defn- correctness-cycle!`/,
-  );
-});
-
-test('codeOnly blanks strings and comments, preserving offsets — prose cannot satisfy the proof', () => {
-  // The region's docstring genuinely says "dispatch" and "performance"; without
-  // this the ordering would be computed over prose, the byte-slice mistake the
-  // deps-boundary arm already refuses to make.
-  const src = '(a "str ; not-a-comment" b) ; (uit/dispatch! x)\n(c)';
-  const out = codeOnly(src);
-  assert.equal(out.length, src.length, 'offsets must be preserved');
-  assert.equal(out.includes('not-a-comment'), false);
-  assert.equal(out.includes('uit/dispatch!'), false);
-  // The code parens survive in place; only the literal's bytes are blanked.
-  assert.equal(out.indexOf('(a '), 0);
-  assert.equal(out.indexOf('b)'), src.indexOf('b)'));
-  assert.equal(out.endsWith('\n(c)'), true, 'newlines must survive');
-});
-
-test('codeOnly does not let a docstring mention forge the region shape', () => {
-  // Deleting the real dispatch while leaving one NAMED in the docstring must
-  // still fail: the mention lives in a string and is blanked before counting.
-  const forged = mutated([
-    [TIMED_DISPATCH_FORM, 'nil'],
-    ['Returns `{:elapsed-ms', `${TIMED_DISPATCH_FORM} Returns \`{:elapsed-ms`],
-  ]);
-  assert.throws(
-    () => assertTimedRegionShape(forged),
-    /expected exactly 1 dispatch! calls in the timed region, found 0/,
   );
 });
 

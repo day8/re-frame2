@@ -40,7 +40,6 @@ const {
   assertColdIsFirstDrain,
   assertColdOrderControl,
   assertTimedIntervalDidWork,
-  assertTimedRegionShape,
   buildSummary,
 } = require('./lib/g13-timing-evidence.cjs');
 
@@ -51,12 +50,6 @@ const DEV = path.join(OUT, 'ui-g13');
 const PROD = path.join(OUT, 'ui-g13-prod');
 const MINT_CONTROL = path.join(OUT, 'ui-g13-mint-control');
 const PROD_MANIFEST = path.join(PROD, 'manifest.edn');
-// rf2-a0i2y — the measured region's own source. The structural containment proof
-// reads it directly, so the claim "the dispatch and commit are inside the timed
-// span" rests on the fixture's shape rather than on samples that happen to pass.
-const DEV_FIXTURE_SOURCE = path.join(
-  IMPL, 'ui', 'g13', 're_frame', 'ui', 'g13', 'dev.cljs',
-);
 const REPORT = path.join(OUT, 'ui-g13.json');
 const TIMEOUT = 90000;
 const SENTINELS = [
@@ -460,64 +453,6 @@ function assertDevResult(result) {
   }
 }
 
-// rf2-a0i2y — the source anchors the containment teeth rewrite. Held as named
-// constants so a tooth and the fixture cannot drift apart silently.
-const TIMED_DISPATCH_FORM = '(uit/dispatch! frame [::fixture/step fixture/queued-writes])';
-const TIMED_START_FORM = 'started (js/performance.now)]';
-const TIMED_ELAPSED_FORM = '(let [elapsed-ms (- (js/performance.now) started)]';
-const TIMED_POST_WITNESS_FORM = ':post-hot (:hot (rf/app-db-value frame))';
-
-// Apply an ordered list of literal source edits, FAILING LOUDLY if any of them
-// matches nothing. A tooth whose anchor drifted would otherwise hand the checker
-// an unchanged source, and "unchanged source passes" is indistinguishable from
-// "the mutation was caught" — the shape of false-green this whole arm exists to
-// refuse (rf2-jxpf3).
-function mutateSource(source, edits) {
-  let out = source;
-  for (const [find, replaceWith] of edits) {
-    const next = out.replace(find, replaceWith);
-    if (next === out) {
-      fail(
-        `timed-region containment tooth is stale: dev.cljs no longer contains \`${find}\`. ` +
-          'Re-establish the containment proof against the current source rather than deleting the tooth.',
-      );
-    }
-    out = next;
-  }
-  return out;
-}
-
-// The four ways the dispatch can stop being inside the measured span, plus the
-// one way the closing witness can leak INTO it. Each is a real source shape a
-// reviewer could plausibly write, not a JSON edit — the runtime witness alone
-// cannot see the third of these, because hoisting the dispatch above the start
-// timestamp leaves the post-minus-pre delta at exactly queued-writes while the
-// measured span no longer covers the eight write epochs.
-function timedRegionMutations(devSource) {
-  return [
-    ['timed dispatch removed from the flushed thunk', mutateSource(devSource, [
-      [TIMED_DISPATCH_FORM, 'nil'],
-    ])],
-    ['timed dispatch replaced with a no-op event', mutateSource(devSource, [
-      [TIMED_DISPATCH_FORM, '(uit/dispatch! frame [::fixture/noop])'],
-    ])],
-    ['timed dispatch hoisted above the start timestamp', mutateSource(devSource, [
-      [TIMED_DISPATCH_FORM, 'nil'],
-      [TIMED_START_FORM, `_ ${TIMED_DISPATCH_FORM}\n        ${TIMED_START_FORM}`],
-    ])],
-    ['timed dispatch moved past the end timestamp', mutateSource(devSource, [
-      [TIMED_DISPATCH_FORM, 'nil'],
-      [TIMED_ELAPSED_FORM, `${TIMED_ELAPSED_FORM}\n                   ${TIMED_DISPATCH_FORM}`],
-    ])],
-    ['closing witness read moved inside the measured span', mutateSource(devSource, [
-      [TIMED_ELAPSED_FORM,
-        '(let [post-hot (:hot (rf/app-db-value frame))\n'
-        + '                       elapsed-ms (- (js/performance.now) started)]'],
-      [TIMED_POST_WITNESS_FORM, ':post-hot post-hot'],
-    ])],
-  ];
-}
-
 function expectMutationFailure(label, thunk) {
   try {
     thunk();
@@ -703,14 +638,26 @@ function assertMutationTeeth(result) {
       `${prodManifest}\n"re_frame/resources/internal/runtime.cljs"`,
     );
   }));
-  // rf2-a0i2y — the STRUCTURAL containment teeth, driven against the real
-  // fixture source rather than a JSON result. Containment is a property of the
-  // measured region's shape, so it is proven by construction here and only
-  // corroborated by the runtime witness above.
-  const devSource = fs.readFileSync(DEV_FIXTURE_SOURCE, 'utf8');
-  for (const [label, mutated] of timedRegionMutations(devSource)) {
-    red.push(expectMutationFailure(label, () => assertTimedRegionShape(mutated)));
-  }
+  // rf2-muhsq — the five source-text containment teeth that used to run here
+  // (dispatch removed from the flushed thunk / replaced with a no-op / hoisted
+  // above the start timestamp / moved past the end timestamp, and the closing
+  // witness read moved inside the span) are gone, along with the Clojure
+  // blanker and private-defn anchors they needed. They are not un-tested:
+  //
+  //   - The first four all collapse `post-hot - pre-hot` to 0 now that the
+  //     measurement seam owns BOTH witness reads, so they land on the
+  //     `timed interval was empty` teeth above — the cold, warm, and both
+  //     order-control paths each assert the delta on real browser samples.
+  //     The hoist is the one that previously escaped a runtime witness; that
+  //     it no longer does is exercised directly by
+  //     `work-hoisted-out-of-the-thunk-collapses-the-delta`.
+  //   - The fifth is a call-order property of the seam and is asserted by
+  //     `seam-brackets-the-flushed-work-with-clock-then-witness`, which
+  //     compares the whole call log and so also rejects an extra timestamp.
+  //
+  // Both live in `re-frame.ui.g13.measure-cljs-test` and ride `npm run
+  // test:cljs`. Nothing reads fixture source text any more, so renaming a
+  // private fn or extracting a helper no longer fails CI.
   return red;
 }
 
@@ -746,14 +693,6 @@ async function main() {
   let browser;
   let tearingDown = false;
   try {
-    // rf2-a0i2y — prove containment BY CONSTRUCTION before spending a compile on
-    // measuring anything: the dispatch must be lexically inside the flushed thunk
-    // and that thunk lexically between the two timestamps, with the closing
-    // witness read strictly after the end timestamp. No sample can establish
-    // this, and a green sample set does not need to.
-    const timedRegionOrder = assertTimedRegionShape(
-      fs.readFileSync(DEV_FIXTURE_SOURCE, 'utf8'),
-    );
     shadow('compile', 'ui-g13');
     shadow('release', 'ui-g13-prod', 'ui-g13-mint-control');
     writePage(DEV);
@@ -822,12 +761,16 @@ async function main() {
       status: 'pass',
       correctness: 'exact counts; one post-drain root commit',
       timing: 'evidence-only; no threshold',
-      // rf2-a0i2y — how the measured interval is known to contain the work it is
-      // named for: lexically by construction (this ordered region shape) and, on
-      // every sample and both order-control paths, by the timed cycle's own
-      // post-commit witness. Still no wall-clock threshold.
+      // rf2-a0i2y / rf2-muhsq — how the measured interval is known to contain the
+      // work it is named for. Structurally: one seam owns witness, start, flush
+      // of the supplied work thunk, end, witness, so the caller never sees the
+      // clock (call order asserted in re-frame.ui.g13.measure-cljs-test, which
+      // rides npm run test:cljs). At runtime: on every sample and both
+      // order-control paths, the timed cycle's own post-commit witness. Because
+      // the seam owns both witness reads, work hoisted out of the thunk collapses
+      // the delta too. Still no wall-clock threshold.
       timedIntervalContainment: {
-        structural: timedRegionOrder,
+        structural: 'measure-dispatch-to-commit! seam; order asserted in re-frame.ui.g13.measure-cljs-test',
         runtime: 'timed-cycle post-hot minus pre-hot equals queued-writes',
       },
       mutationTeeth,
