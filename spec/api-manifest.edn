@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 519,
+ :var-count 520,
  :tier-vocab
  [:front-porch
   :advanced
@@ -314,6 +314,7 @@
   {:namespace "re-frame.ssr", :var "default-error-projector-fn", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "default-response", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "drain-blocking-resources!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr", :var "emit-ui-tree", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "fallback-public-error", :tier :implementation, :kind :var, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "flush-response!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "flush-response-result!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}

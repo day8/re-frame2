@@ -1507,6 +1507,17 @@
   ;; `implementation` (rf2-oekz6s; was internal-public).
   ;; =========================================================================
   ["re-frame.ssr" "render-to-string"]              {:tier :advanced :owner "011" :status "v1"}
+  ;; The S5 structural-tree -> HTML serialiser (rf2-3omxp). Its owning
+  ;; CONTRACT is Spec 004B §The SSR consumption boundary, but the var ships
+  ;; on the §011 artefact façade alongside its siblings, so :owner stays
+  ;; "011" like every other re-frame.ssr row. Advanced, matching
+  ;; `render-to-string`: both are host-called HTML producers on the rowed
+  ;; query surface — the seam an SSR page assembly calls directly — not the
+  ;; request/response plumbing this block tiers `implementation`. It differs
+  ;; from `render-to-string` only in its input (an ALREADY-RENDERED
+  ;; version-1 tree rather than hiccup): it invokes no view and resolves no
+  ;; subscription.
+  ["re-frame.ssr" "emit-ui-tree"]                  {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "render-tree-hash"]              {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "project-error"]                 {:tier :advanced :owner "011" :status "v1"}
   ;; The cross-host suspense boundary COMPONENT — the streaming AUTHORING
