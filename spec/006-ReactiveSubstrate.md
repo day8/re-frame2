@@ -669,7 +669,7 @@ When a registered view's render-fn returns a fn (Reagent's Form-2 closure shape 
 
 ### Cross-host
 
-Headless test adapters (no DOM) are exempt. Every in-scope React-binding adapter MUST honour this contract: the CLJS reference view adapters (`re-frame.ui`, Reagent, reagent-slim, UIx, Helix) and every JS-cross-compile-language port (TypeScript-React, Feliz / Fable.React, scalajs-react / Slinky, React.Basic, kotlin-react, ReasonReact / Melange-React). The [JVM SSR emitter](011-SSR.md#source-coord-annotation-under-ssr) is the server-side equivalent — it injects the same attribute when emitting HTML for a registered view, so server-rendered pages carry the annotation too.
+Headless test adapters (no DOM) are exempt. Every in-scope React-binding adapter MUST honour this contract: the CLJS reference view adapters (`re-frame.ui`, Reagent, reagent-slim, UIx, Helix) and every JS-cross-compile-language port (TypeScript-React, Feliz / Fable.React, scalajs-react / Slinky, React.Basic, kotlin-react, ReasonReact / Melange-React). The server-side equivalent is the [JVM `reg-view*` registration boundary](011-SSR.md#source-coord-annotation-under-ssr) — a debug-gated wrapper on the stored `:handler-fn` (`re-frame.views.jvm-source-coord-annotation`) that stamps BOTH `data-rf2-source-coord` and `data-rf-view` on the registered view's root, so server-rendered pages carry both. The JVM SSR emitter itself carries no annotation logic; it stringifies the hiccup the registration boundary already annotated.
 
 ### Source-coord stamping for state machines
 
