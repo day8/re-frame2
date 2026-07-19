@@ -423,46 +423,65 @@
 (deftest hydrate-root-omitted-prefix-uses-react-effective-empty-prefix
   (when (browser?)
     (async done
+      ;; No `ssr/hydrate!` here — the `::greeting` sub returns "client-default"
+      ;; with no payload installed, so a `client-default` server span BYTE-MATCHES
+      ;; the client's first render and hydration is a clean ADOPTION (the
+      ;; server-state boot is proven by the vertical test above). This isolates
+      ;; the omitted-prefix question: does the bare manifest hydrate under React's
+      ;; effective empty prefix?
       (let [act-prev (disable-act-env!)
             host     (plant-host!
                       {:manifest?   true
                        :manifest    bare-manifest
                        :server-html (str "<div class=\"seam\">"
-                                         "<span class=\"greeting\">seam-server</span>"
+                                         "<span class=\"greeting\">client-default</span>"
                                          "<i class=\"uid\"></i>"
                                          "</div>")})
             root-atom (atom nil)]
         (rf/init! ui/adapter)
         (rf/make-frame {:id app-frame :platform :client})
-        (ssr/hydrate! {:frame app-frame})
-        (reset! root-atom
-                (ui/hydrate-root (container host)
-                                 [ui/frame-provider {:frame app-frame} [seam-root]]))
-        (js/setTimeout
-         (fn []
-           (rf/dispatch-sync [::reveal-uid] {:frame app-frame})
-           (js/setTimeout
-            (fn []
-              (try
-                (testing "the omitted-prefix root took React's effective EMPTY prefix"
-                  (let [uid (.-textContent (.querySelector host "i.uid"))]
-                    (is (seq uid)
-                        "the compiled view rendered the use-id value")
-                    ;; React 19.2's empty-prefix useId is `_R_<n>_` — the prefix
-                    ;; segment between the leading `_` and `R` is EMPTY. A
-                    ;; non-empty prefix would appear there (e.g. `_srv7-R_0_`),
-                    ;; and the ui-derived default would inject the root-id slug.
-                    ;; The empty prefix is EXACTLY what the server uses when it
-                    ;; omits identifierPrefix, so server and client useId AGREE.
-                    (is (str/starts-with? uid "_R")
-                        (str "the rendered use-id " (pr-str uid) " carries React's "
-                             "empty-prefix marker — the same effective prefix the "
-                             "server used, so server and client use-id agree"))
-                    (is (not (str/includes? uid "rf2-"))
-                        "no root-id-derived prefix was synthesized on the client")))
-                (finally
-                  (teardown! host root-atom)
-                  (restore-act-env! act-prev)
-                  (done))))
-            0))
-         0)))))
+        ;; captured before any React work — clean ADOPTION under the omitted
+        ;; prefix is proven by object identity (a mismatch would mint a fresh node).
+        (let [server-span (.querySelector host "span.greeting")]
+          (reset! root-atom
+                  (ui/hydrate-root (container host)
+                                   [ui/frame-provider {:frame app-frame} [seam-root]]))
+          (js/setTimeout
+           (fn []
+             (try
+               (testing "the bare-manifest root hydrated CLEANLY (server/client agree)"
+                 (is (identical? server-span (.querySelector host "span.greeting"))
+                     "the exact server-emitted node is still mounted — adopted, not regenerated")
+                 (is (true? (.-isConnected server-span))
+                     "and the retained node is still in the document"))
+               (catch :default e
+                 (teardown! host root-atom) (restore-act-env! act-prev) (done) (throw e)))
+             (rf/dispatch-sync [::reveal-uid] {:frame app-frame})
+             (js/setTimeout
+              (fn []
+                (try
+                  (testing "the omitted-prefix root took React's effective EMPTY prefix"
+                    (let [uid (.-textContent (.querySelector host "i.uid"))]
+                      (is (seq uid)
+                          "the compiled view rendered the use-id value")
+                      ;; React 19.2's useId is `_<prefix>r_<n>_` (client format uses
+                      ;; lowercase `r`, the server renderer uppercase `R` — hence the
+                      ;; case-insensitive check). For the EMPTY prefix the segment
+                      ;; between the leading `_` and the `r_` marker is empty, so the
+                      ;; value is `_r_<n>_`. A non-empty prefix appears there instead
+                      ;; — `_srv7-r_0_`, or the ui-derived default `_rf2-…r_0_`. The
+                      ;; empty prefix is EXACTLY what the server uses when it omits
+                      ;; identifierPrefix, so server and client use-id agree.
+                      (is (str/starts-with? (str/lower-case uid) "_r_")
+                          (str "the rendered use-id " (pr-str uid) " carries React's "
+                               "EMPTY-prefix marker (no prefix segment) — the same "
+                               "effective prefix the server used, so server and "
+                               "client use-id agree"))
+                      (is (not (str/includes? uid "rf2-"))
+                          "no root-id-derived prefix was synthesized on the client")))
+                  (finally
+                    (teardown! host root-atom)
+                    (restore-act-env! act-prev)
+                    (done))))
+              0))
+           0))))))
