@@ -271,7 +271,27 @@
         [[outcome e] records] (with-error-records #(obs/probe target))]
     (is (= :threw outcome))
     (is (= :rf.error/frame-destroyed (error-id e)))
-    (is (some #(= :rf.error/frame-destroyed (:error %)) records))))
+    (is (some #(= :rf.error/frame-destroyed (:error %)) records))
+    ;; rf2-alk8a / rf2-chpoe — the observation port is subscribe-realm BY
+    ;; CONSTRUCTION, so `throw-frame-destroyed!` stamps `:op :subscribe` on the
+    ;; always-on record. A subscription's query vector is public IDENTITY, not
+    ;; payload (rf2-zwgqe / Spec 015), so `error-emit`'s raw-identity
+    ;; discriminator (keyed on that `:op :subscribe`) SKIPS elision — the query
+    ;; vector egresses on `:event` RAW, VERBATIM, even under THIS unresolvable
+    ;; frame (an identity slot never consults frame policy, so there is no
+    ;; empty / missing policy to fail closed against). WHAT-STAYS
+    ;; (rf2-t55hxg.18): a DISPATCH realm keeps its `:rf/redacted` fail-close —
+    ;; the port emits NO dispatch realm, so that counter-pin lives in
+    ;; on_error_cljs_test.cljc (`listener-fires-on-frame-destroyed-dispatch`)
+    ;; and the ui frames reincarnation test; the `not=` below pins that this
+    ;; subscribe record is never that sentinel.
+    (let [r (first (filter #(= :rf.error/frame-destroyed (:error %)) records))]
+      (is (= :subscribe (:op r))
+          ":op :subscribe stamps the always-on subscribe-realm record")
+      (is (= [:obs/items] (:event r))
+          ":event egresses the query vector RAW (identity), never elided")
+      (is (not= :rf/redacted (:event r))
+          "the subscribe realm is NEVER the fail-closed dispatch sentinel"))))
 
 ;; ===========================================================================
 ;; acquire! / read / release! — the real-cache graft gate

@@ -1275,9 +1275,11 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;;             spellings — matching its `:rf.error/observation-retry-exhausted`
   ;;             sibling row in Spec 009)
   ;;
-  ;; `:event` is `:any`, not `[:vector :any]`: the ui surface REDACTS the
-  ;; attempted payload body at source (`privacy/redacted-sentinel`) and stamps
-  ;; nil on its `:capture` arm, and the classification projection may replace
+  ;; `:event` is `:any`, not `[:vector :any]`: the ui surface REDACTS a
+  ;; `:dispatch` / dispatch-sync payload body at source (`privacy/redacted-
+  ;; sentinel`; a `:subscribe` query vector egresses RAW as identity, rf2-wd4ac)
+  ;; and stamps nil on its `:capture` arm, and the classification projection may
+  ;; replace
   ;; any `:event` slot with `:rf/redacted` / `:rf.size/large-elided` on egress.
   ;; Declaring a vector there would be a claim the runtime does not honour.
   [:map
