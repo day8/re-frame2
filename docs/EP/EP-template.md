@@ -61,7 +61,10 @@ may graduate into the active EP itself rather than `spec/`; any EP may end at
 `rejected` / `withdrawn` / `deferred` / `superseded` and is kept as the record.
 `final`/`active` asserts the DECISIONS are settled — it does not, on its own,
 assert the implementation is build-complete (a `final` EP may carry an
-implementation-errata ledger; the EP-0005 pattern).
+implementation-errata ledger; the EP-0005 pattern). After resolution the body is
+a historical record: later factual drift is corrected with dated errata/addenda
+beside the affected passage, never by rewriting settled prose (EP-0009
+§Durability rules 3).
 
 ==== Is an EP even warranted? ====
 
