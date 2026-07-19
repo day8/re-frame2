@@ -1348,7 +1348,7 @@ writes pills through to localStorage *within* a session so a mid-session
 mutation survives a sub-recompute; it is the LOAD that resets, not the
 write that stops.
 
-Host-supplied seed via `(xray-config/configure! {:rf.xray/filters {:in […] :out […]}})` lands ONLY on first install when localStorage is empty — the seed never clobbers a user's hand-tuned set. Per the [`Empty defaults`](#empty-defaults--recommended-quick-add) policy above, Xray itself ships with `nil` seed (first-session honesty).
+A host-supplied seed via `(xray-config/configure! {:rf.xray/filters {:in […] :out […]}})` is a distinct category from the transient user filters above: it is the host's EXPLICIT boot baseline. `mount.cljs`'s `::seed-configured-filters` first-mount hook — which runs immediately AFTER `::reset-transient-filters` — re-applies a non-empty seed to `:active-filters` on **every** load, ignoring localStorage entirely (rf2-fhtes). So the host's opted-in posture always wins over a user's stale session filters and never depends on a genuinely-empty first install; it is neither durable user-filter persistence nor an unreachable first-install-only value. Per the [`Empty defaults`](#empty-defaults--recommended-quick-add) policy above, Xray itself ships with `nil` seed (first-session honesty) — a `nil` seed keeps the first paint fully unfiltered.
 
 ### "N events hidden by filters" indicator + Clear Filters (rf2-jvghz)
 

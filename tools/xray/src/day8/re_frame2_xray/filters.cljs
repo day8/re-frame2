@@ -69,8 +69,8 @@
 ;; ---- hydration ---------------------------------------------------------
 
 (defn hydrate!
-  "Drive the localStorage / seed / empty hydration order per spec/018
-  §7:
+  "The localStorage-preferring DATA LAYER for `:active-filters`. Drives
+  the localStorage / seed / empty resolution order:
 
     1. localStorage value (the user's last-session pill set);
     2. host-supplied seed via `(xray-config/configure! {:rf.xray/filters …})`
@@ -79,17 +79,24 @@
     3. registry default empty shape `{:in [] :out []}` per
        'Empty defaults' (first-session honesty).
 
-  Re-entrant. Safe to call from `install!` (preload-time, before the
-  frame is registered) AND from `mount.cljs/ensure-xray-frame!`
-  (first open, frame registered). Both invocations converge on the
-  same slot because:
+  ## NOT the production init path (rf2-fhtes)
+
+  This fn is DELIBERATELY NOT on the production `ensure-xray-frame!`
+  path: the USER's persisted pills are a transient exploration filter
+  that MUST reset on every load (`mount.cljs`'s `::reset-transient-
+  filters`), so restoring localStorage here on boot would resurrect the
+  stale set the reset exists to kill. The host-configured SEED lands via
+  a distinct seed-only hook (`mount.cljs`'s `::seed-configured-filters`)
+  that ignores localStorage entirely. `hydrate!` is retained for its
+  existing data-layer callers — the persistence round-trip tests, and
+  hosts that deliberately opt back into localStorage-restoring behaviour.
+
+  Re-entrant + idempotent because:
 
   - the load + seed reads are pure;
   - the hydrate dispatch is a wholesale `(assoc db :active-filters …)`
     so re-running with the same source produces the same slot;
-  - the frame guard short-circuits the pre-mount call without losing
-    state — the seed lives in the config atom, the localStorage value
-    lives in localStorage; both are still readable at second call.
+  - the frame guard short-circuits when `:rf/xray` is not yet registered.
 
   Returns nil. No-op when no source has any pills."
   []
@@ -482,13 +489,24 @@
       {:db (assoc db :active-filters
                 (or filters {:in [] :out []}))}))
 
-  ;; NO hydrate on install. The IN/OUT pills are a TRANSIENT
+  ;; NO hydrate on install. The USER's IN/OUT pills are a TRANSIENT
   ;; exploration filter — they reset to unfiltered on every page load so
   ;; a fresh session never silently carries a stale filter. The slot
   ;; starts at its registry default `{:in [] :out []}` and
   ;; `mount.cljs`'s `::reset-transient-filters` first-mount hook clears
-  ;; the stale localStorage slot so storage matches. `hydrate!` / `load`
-  ;; remain as the data layer (exercised by the persistence round-trip
-  ;; tests + reachable by hosts that opt back in), but init does not
-  ;; restore.
+  ;; the stale localStorage slot so storage matches.
+  ;;
+  ;; A host-configured `:rf.xray/filters` seed is the ONE exception, and
+  ;; it is honoured NOT here but on the real production mount path:
+  ;; `mount.cljs`'s `::seed-configured-filters` first-mount hook (which
+  ;; runs AFTER the transient reset) applies an explicitly configured
+  ;; seed as the boot BASELINE (rf2-fhtes). That seed is the host's
+  ;; opt-in — an explicit boot posture re-applied each load — NOT durable
+  ;; user-filter persistence and NOT an unreachable first-install-only
+  ;; promise; `nil` (the default) stays fully unfiltered.
+  ;;
+  ;; `hydrate!` / `load` remain as the localStorage-preferring data layer
+  ;; (exercised by the persistence round-trip tests + reachable by hosts
+  ;; that opt back in), but neither the user's persisted pills nor
+  ;; `hydrate!` itself restore on the production init path.
   nil)

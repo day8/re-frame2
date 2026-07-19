@@ -603,10 +603,53 @@
   ;; still hydrate via their own hooks below — only transient filters
   ;; reset. The #1962 'N events hidden by filters' indicator stays as
   ;; the in-session safety net once the user reaches for a filter.
+  ;;
+  ;; An explicitly configured host seed (`:rf.xray/filters`) is NOT a
+  ;; transient user filter — it is the host's opted-in boot posture, so
+  ;; the `::seed-configured-filters` hook immediately below re-applies it
+  ;; ON TOP of this clean slate. Sequencing matters: this hook runs FIRST
+  ;; and clears the stale localStorage slot, then the seed hook lands the
+  ;; host baseline — so a user's stale session filters never survive
+  ;; reload, while the host's explicit seed always does (rf2-fhtes).
   (fn [_frame-id]
     (filters-persistence/clear!)
     (spine-filters/clear-raw!)
     (frame-switcher/clear!)))
+
+(register-first-mount-hook!
+  ::seed-configured-filters
+  ;; Apply the host-configured `:rf.xray/filters` seed as the boot
+  ;; BASELINE for `:active-filters`, AFTER `::reset-transient-filters`
+  ;; above has wiped any stale user/localStorage filter state (rf2-fhtes).
+  ;;
+  ;; This closes a false public contract: `configure!` accepted
+  ;; `:rf.xray/filters` and the config/spec prose promised the seed would
+  ;; hydrate `:active-filters`, but production never called
+  ;; `filters/hydrate!` — `filters/install!` explicitly does NO hydrate and
+  ;; nothing on the real `ensure-xray-frame!` path read the seed. A host
+  ;; using the documented key got no error and an unfiltered first paint.
+  ;;
+  ;; The policy is small and coherent: an EXPLICITLY configured seed is the
+  ;; programmer's opt-in and lands as the boot baseline on EVERY load (a
+  ;; fresh, host-owned posture — not durable user-filter persistence, which
+  ;; the reset hook deliberately kills). A `nil` seed (the default) leaves
+  ;; the slot at its unfiltered registry default `{:in [] :out []}`, so a
+  ;; host that never configured filters keeps a fully-unfiltered first
+  ;; paint. Only a non-empty seed dispatches, so the no-seed case is a
+  ;; genuine no-op.
+  ;;
+  ;; Mirrors the `::hydrate-static-mode` shape (read via a config helper,
+  ;; dispatch the owning event). `filters/hydrate!` stays as-is for its
+  ;; existing data-layer callers — this hook is seed-only and never reads
+  ;; localStorage, so it cannot resurrect a stale user set. The `:rf.xray/
+  ;; hydrate-filters` event (registered by `filters/install!`) is the
+  ;; single `:active-filters` write seam.
+  (fn [frame-id]
+    (let [seed (config/get-filter-seed)]
+      (when (and seed
+                 (or (seq (:in seed)) (seq (:out seed))))
+        (rf/with-frame frame-id
+          (rf/dispatch-sync [:rf.xray/hydrate-filters seed]))))))
 
 (register-first-mount-hook!
   ::hydrate-column-widths

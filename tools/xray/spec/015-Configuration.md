@@ -643,8 +643,10 @@ semantics predate the popup; the popup-managed surface is the
 
 ### `:rf.xray/filters`
 
-Host-supplied seed pill set the registry hydrates `:active-filters`
-with on **first install** (when localStorage is empty). Per
+Host-supplied seed pill set applied to `:active-filters` as the explicit
+**boot baseline**. The host opts in; `mount.cljs/::seed-configured-filters`
+(a first-mount hook that runs AFTER the transient-filter reset) lands a
+non-empty seed on **every** load. Per
 [`018-Event-Spine.md`](./018-Event-Spine.md) §7 'Empty defaults',
 Xray ships with no filters by default (first-session honesty beats
 first-session quietness). The seed is the escape hatch for hosts
@@ -653,19 +655,25 @@ testbeds that need a known starting point for reproducibility.
 
 | Value | Meaning |
 |---|---|
-| `{:in [{:pattern <…>} …] :out [{:pattern <…>} …]}` | Seed the slot on first install only. The seed never clobbers a user's hand-tuned set — once localStorage carries any pill, the seed is ignored. |
-| `nil` (default) | No seed; registry defaults to `{:in [] :out []}`. |
+| `{:in [{:pattern <…>} …] :out [{:pattern <…>} …]}` | The host's explicit boot baseline, applied to `:active-filters` on every load after the transient reset. This is NOT durable user-filter persistence — a user's own session pills always reset — and it never depends on localStorage. |
+| `nil` (default) | No seed; the slot stays at its unfiltered registry default `{:in [] :out []}` — a fully-unfiltered first paint. |
 
-> **Transient vs durable (rf2-swclw).** The IN/OUT pills, the
-> muted-event-id set, and the frame view-scope are **transient
-> exploration filters**: they persist via localStorage *within* a session
-> but RESET on every load — `mount.cljs/::reset-transient-filters` does
-> not hydrate them and clears the stored value so a stale filter can never
-> silently hide rows on reload (rf2-jvghz; an inspector must show the
-> truth). Only **durable view prefs** (the persisted Settings shape below
-> — mode, density, panel layout) hydrate on boot. The `:rf.xray/filters`
-> seed therefore lands only on a genuinely-empty first install, before the
-> reset hook has a stored value to clear.
+> **Transient user filters vs the explicit host seed (rf2-swclw,
+> rf2-fhtes).** The IN/OUT pills, the muted-event-id set, and the frame
+> view-scope are **transient exploration filters**: they persist via
+> localStorage *within* a session but RESET on every load —
+> `mount.cljs/::reset-transient-filters` does not hydrate them and clears
+> the stored value so a stale filter can never silently hide rows on
+> reload (rf2-jvghz; an inspector must show the truth). Durable view prefs
+> (the persisted Settings shape below — mode, density, panel layout)
+> hydrate on boot via their own hooks. The `:rf.xray/filters` seed is a
+> THIRD, distinct category: an EXPLICIT host boot baseline the programmer
+> opted into. It is re-applied every load by `::seed-configured-filters`,
+> which runs immediately AFTER the transient reset — so the host's baseline
+> always wins over (and is never clobbered by) a user's stale
+> localStorage/session filters, while a `nil` seed leaves the paint fully
+> unfiltered. It is neither durable user-filter persistence nor an
+> unreachable first-install-only value.
 
 ### `:rf.xray/filters-storage-key`
 
