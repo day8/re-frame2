@@ -43,6 +43,7 @@
             [re-frame.interop    :as interop]
             [re-frame.late-bind  :as late-bind]
             [re-frame.subs       :as subs]
+            [re-frame.trace      :as trace]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.adapter.context :as adapter-context]))
 
@@ -882,6 +883,88 @@
     (swap! active-roots-cell disj root)
     (unmount-op root)))
 
+;; ---- native-root hydration-mismatch adoption reporter (rf2-qfz65) ----------
+;;
+;; A native UIx/Helix root is a React-ELEMENT root: it has no hashable client
+;; render-tree (ruling out the hiccup `:render-tree-fn` / `verify-hydration!`
+;; channel — that is for substrates whose view returns a hiccup data tree), and
+;; it is not a compiled `re-frame.ui` root (ruling out that tier's
+;; `ui/hydrate-root` adoption reporter, rf2-6z1i2). Left alone, `make-render`'s
+;; hydrate branch calls `hydrateRoot` with NO root options, so a hydration
+;; MISMATCH is SILENT: React's built-in warn-and-replace recovers the DOM but
+;; the framework emits no `:rf.ssr/hydration-mismatch` (Spec 011 §Hydration-
+;; mismatch detection, the native-root note).
+;;
+;; The fix mirrors #6507's Path A: a native root VERIFIES by React-native
+;; ADOPTION exactly like the compiled tier — `hydrateRoot` diffs the root's
+;; render against the server DOM and reports any divergence through
+;; `onRecoverableError`. We install a framework `onRecoverableError` on the
+;; hydrate path ONLY, emit the SAME `:rf.ssr/hydration-mismatch` diagnostic, and
+;; compose OVER (never clobber) any host-authored `:on-recoverable-error`.
+
+(defn- report-recoverable-default!
+  "React's default `onRecoverableError` reporting, preserved when the app
+  authored NO callback but we installed a wrapper for the native-tier
+  hydration-mismatch diagnostic (rf2-qfz65): once a wrapper is set React no
+  longer runs its own default, so we replicate it — `globalThis.reportError`
+  when present, else `console.error`. Mirrors the compiled tier's
+  `re-frame.ui.client/report-recoverable-default!`."
+  [error]
+  (if (fn? (.-reportError js/globalThis))
+    (js/reportError error)
+    (when (exists? js/console) (.error js/console error))))
+
+(defn- emit-native-hydration-mismatch!
+  ;; The NATIVE-tier `:rf.ssr/hydration-mismatch` diagnostic (rf2-qfz65).
+  ;; Surfaces an adoption-window recoverable error as the SAME category the
+  ;; hiccup and compiled tiers emit, tier-discriminated by `:where` (the spine
+  ;; hydrate site), carrying the recoverable `:error` message and `:recovery`
+  ;; `:warned-and-replaced` (React's own recovery). NO `:root-id` (a native
+  ;; React-element root carries no `re-frame.ui` root-id) and NO hash (there is
+  ;; no native-tier structural hash to report).
+  ;;
+  ;; Rides the diagnostic channel via `re-frame.trace/emit!`; the
+  ;; `interop/debug-enabled?` gate DCEs the whole call under `:advanced` +
+  ;; `goog.DEBUG=false` (Spec 009 §Production builds), exactly like the compiled
+  ;; tier's `re-frame.ui.runtime/emit-hydration-mismatch!` and `emit-phase-flip!`.
+  ;; It is NOT an event and mints no epoch — it fires from a React root-error
+  ;; callback, outside any dispatch/handler scope.
+  [error]
+  (when interop/debug-enabled?
+    (trace/emit! :warning :rf.ssr/hydration-mismatch
+                 {:error    (some-> error .-message)
+                  :where    're-frame.substrate.spine/make-render
+                  :recovery :warned-and-replaced})))
+
+(defn- hydrate-root-options
+  "Build the react-dom/client root options for a HYDRATING native root, or nil.
+
+  When installed, `onRecoverableError` emits the native-tier hydration-mismatch
+  diagnostic FIRST, THEN delegates to the host's authored `:on-recoverable-error`
+  (compose, never clobber) or React's default report. The wrapper is installed
+  ONLY when the host authored a callback OR debug is on: with neither there is
+  nothing to add over React's default report (the emit DCEs), so this returns
+  nil and the caller calls `hydrateRoot` with no options — production pays zero
+  cost (the compiled tier's `react-opts-with-hydration-mismatch` precedent).
+
+  Unlike the compiled tier there is NO adoption-window flag: a native
+  React-element root has no `:server`->`:client` phase flip, so it produces no
+  post-hydration content swap for a window to guard against (that flip is the
+  ONLY thing the compiled tier's window discriminates). The composed reporter
+  surfaces recoverable errors on the hydrating root directly — for a native
+  hydrating root that is the hydration-mismatch signal."
+  [opts]
+  (let [authored (:on-recoverable-error opts)]
+    (when (or (fn? authored) interop/debug-enabled?)
+      #js {:onRecoverableError
+           (fn on-recoverable [error error-info]
+             ;; Framework diagnostic FIRST (debug-gated + DCE'd inside
+             ;; `emit-native-hydration-mismatch!`), THEN delegate — never clobber.
+             (emit-native-hydration-mismatch! error)
+             (if (fn? authored)
+               (authored error error-info)
+               (report-recoverable-default! error)))})))
+
 (defn make-render
   "Build a `render` fn that registers every mounted React root in
   `active-roots-cell` and returns an unmount thunk that removes the
@@ -892,7 +975,13 @@
   React function component that fires `React.useLayoutEffect` on every
   commit and drains the per-adapter after-render queue; it renders no
   DOM. See `make-after-render-machinery` for the queue / sentinel
-  factory."
+  factory.
+
+  On the HYDRATE path (`:hydrate? true`) the React root is created with a
+  framework `onRecoverableError` that surfaces a hydration MISMATCH as the
+  `:rf.ssr/hydration-mismatch` diagnostic, composed OVER any host-supplied
+  `:on-recoverable-error` opt (rf2-qfz65 — see `hydrate-root-options`). A plain
+  (non-hydrating) mount installs no reporter and pays zero cost."
   [active-roots-cell after-render-sentinel-cmp]
   (fn render [render-tree mount-point opts]
     ;; Spec 006 §`render` types `:hydrate?` as a boolean; non-bool
@@ -904,7 +993,12 @@
                          (React/createElement after-render-sentinel-cmp nil)
                          render-tree)
           root         (if hydrate?
-                         (react-dom-client/hydrateRoot mount-point wrapped-tree)
+                         ;; rf2-qfz65 — a hydrating native root adopts the server
+                         ;; DOM; install the composed onRecoverableError reporter
+                         ;; when warranted (host callback or debug), else no opts.
+                         (if-some [ropts (hydrate-root-options opts)]
+                           (react-dom-client/hydrateRoot mount-point wrapped-tree ropts)
+                           (react-dom-client/hydrateRoot mount-point wrapped-tree))
                          (let [r (react-dom-client/createRoot mount-point)]
                            (.render r wrapped-tree)
                            r))]

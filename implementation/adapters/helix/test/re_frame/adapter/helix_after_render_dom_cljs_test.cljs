@@ -72,3 +72,10 @@
 ;; (hydrateRoot) had no React-hook coverage; close it for UIx + Helix.
 (deftest render-hydrate-branch-mounts-without-remount-helix
   (suite/assert-render-hydrate-branch-mounts-without-remount cfg))
+
+;; rf2-qfz65 — a hydrating native root that adopts DIVERGENT server markup now
+;; surfaces the framework :rf.ssr/hydration-mismatch diagnostic (composed
+;; onRecoverableError), a host :on-recoverable-error still fires, and a clean
+;; adoption stays silent. Browser-only mounted DOM proof.
+(deftest native-hydration-mismatch-surfaces-diagnostic-helix
+  (suite/assert-native-hydration-mismatch-surfaces-diagnostic cfg))
