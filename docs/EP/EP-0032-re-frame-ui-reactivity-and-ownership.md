@@ -149,7 +149,19 @@ callback) under the split equality law (`:override-id` by `=`, `:version` by
 render resolves and probes without ownership · commit acquires the exact
 captured target · acquire before release · release is synchronous and
 idempotent · moved evidence corrects before paint · one notification per
-dirty cell per render batch (boundary at the host checkpoint, never epoch close).
+dirty cell per drain (boundary at quiescence, never epoch close).
+
+> **Erratum — 2026-07-19 (`rf2-vxgfnd.166`, PR #6393).** The sixth invariant is
+> preserved above as graduated, and its boundary clause was recorded wrongly:
+> the shipped scheduler takes no hook from router drain finalization, so the
+> notification boundary is the **host checkpoint**, not drain quiescence — one
+> notification per dirty cell per **render batch**. The corrected law is
+> normative in `spec/006-ReactiveSubstrate.md` (§The six frozen invariants,
+> invariant 6; §Render-batch finalization — the host-checkpoint boundary); the
+> spec governs. The same PR reworded this EP's Goals bullet, §One ViewCell
+> prose, and §Push economics paragraph in place from the stale drain-quiescence
+> phrasing; those three passages (not verbatim-frozen) now read as corrected.
+> The other five invariants are unchanged.
 
 ### Transactional multi-acquire
 
@@ -283,7 +295,7 @@ Evidence and landing record (epic `rf2-vxgfnd`):
 Guide impact: the new-substrate guide's reactivity chapters teach hot reload as
 the default workflow and the three-state lifecycle as the tool vocabulary; no
 legacy-adapter guide changes (those coexisting adapters are unaffected by this work; they
-live on per EP-0030).
+live on per EP-0030, Resolved Decisions 2026-07-17).
 
 ## Resolved Decisions
 
@@ -317,8 +329,8 @@ the program epic (`rf2-vxgfnd`).
 
 | Bead | Gap |
 |---|---|
-| `rf2-vxgfnd.166` | render batches must be defined by host checkpoint, not router drain (the G-5 boundary prose) |
-| `rf2-vxgfnd.167` | per-epoch render-law sweep incomplete (force-tracked ai) |
+| ~~`rf2-vxgfnd.166`~~ | ~~render batches must be defined by host checkpoint, not router drain (the G-5 boundary prose)~~ — closed (PR #6393; see the erratum beside the six frozen invariants) |
+| ~~`rf2-vxgfnd.167`~~ | ~~per-epoch render-law sweep incomplete (force-tracked ai)~~ — closed (PR #6393) |
 | ~~`rf2-vxgfnd.169`~~ | ~~empty root-incarnation entries not pruned after weak member collection~~ — closed |
 | ~~`rf2-vxgfnd.204`~~ | ~~CLJS SSR emitter not replayed when `re-frame.ui/adapter` is reinstalled~~ — closed |
 | ~~`rf2-vxgfnd.94.15`, `.94.17`–`.94.21`~~ | ~~compatible-HMR migration evidence/drift-guard family~~ — closed (`.94.16` closed earlier) |
