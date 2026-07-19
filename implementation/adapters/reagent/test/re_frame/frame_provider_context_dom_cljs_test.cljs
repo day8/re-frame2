@@ -87,6 +87,7 @@
             [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.views]
             [re-frame.views.frame-boundary :as boundary])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
@@ -139,6 +140,52 @@
           (.-act test-utils))
         (catch :default _ nil))))
 
+;; ---- deferred-teardown await (rf2-vp3m9) ----------------------------------
+;;
+;; SOURCE fix for the veyfp (#6488) leak class. On the Reagent family the
+;; `:rf.view/unmounted` teardown marker rides the per-component render-reaction
+;; DISPOSAL, which React/Reagent defer to a macrotask PAST the synchronous
+;; unmount commit — passive-effect cleanups are async even under `flushSync`.
+;; A mounting scenario that `(rdc/unmount root)`s in a bare `finally` therefore
+;; lets its teardown marker fire AFTER the test body returns, leaking into the
+;; process-global trace listener the one `:browser-test` page shares across
+;; every `-dom-cljs-test` namespace — the veyfp victim-side symptom. Each
+;; mounting scenario below now awaits its OWN teardown so no marker outlives it.
+;; This is the local Reagent-DOM settle idiom (identical to the machines
+;; artefact's `machine_view_unmount_teardown_mounted_dom_cljs_test` and the
+;; sibling `form_3_lifecycle_dom_cljs_test`) — NOT a new runtime and NOT a
+;; shared framework; the frame-teardown runtime is unchanged, only awaited.
+
+(defn- settle-macrotasks
+  "Resolve after `n` macrotask turns so Reagent's deferred render-reaction
+  disposal (which fires `:rf.view/unmounted` on a real unmount) has settled
+  before the test completes."
+  [n]
+  (js/Promise.
+    (fn [resolve _]
+      (letfn [(step [remaining]
+                (if (zero? remaining)
+                  (resolve nil)
+                  (js/setTimeout #(step (dec remaining)) 4)))]
+        (step n)))))
+
+(defn- await-teardown!
+  "Unmount `root` through the real host teardown path under `flushSync` (so the
+  unmount commits synchronously), then await Reagent's deferred reaction
+  disposal so the `:rf.view/unmounted` marker fires WITHIN the caller's window
+  rather than leaking into the shared runner after the test ends. Returns a
+  Promise; settle-count 3 matches the proven machines-artefact idiom."
+  [root]
+  (try (react-dom/flushSync (fn [] (rdc/unmount root))) (catch :default _ nil))
+  (settle-macrotasks 3))
+
+(defn- teardown-and-done!
+  "The single async exit funnel for a mounting scenario: await `root`'s deferred
+  teardown, then call cljs.test's `done`. Reused by a scenario's success AND
+  error path so `done` fires exactly once, only after the teardown has settled."
+  [root done]
+  (-> (await-teardown! root) (.then (fn [_] (done)))))
+
 ;; ---- Scenario 1: nested-provider inheritance ------------------------------
 ;;
 ;; Per Spec 002 §What `frame-provider` is: a `frame-provider` scopes a
@@ -158,44 +205,72 @@
    against `:inner`'s app-db (not `:outer`'s, not `:rf/default`'s)."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (let [outer :rf-22ds-1-outer
-          inner :rf-22ds-1-inner]
-      (rf/make-frame {:id outer :doc "outer scenario-1 frame"})
-      (rf/make-frame {:id inner :doc "inner scenario-1 frame"})
-      (rf/reg-event :seed-1 (fn [{:keys [db]} [_ v]] {:db {:v v}}))
-      ;; Each frame's app-db carries a distinct value so the subscribe
-      ;; tells us unambiguously which frame served the read.
-      (rf/dispatch-sync [:seed-1 :outer-app-db] {:frame outer})
-      (rf/dispatch-sync [:seed-1 :inner-app-db] {:frame inner})
-      ;; EP-0002 (rf2-69r7ui): no bare `:rf/default` seed — every dispatch
-      ;; carries an explicit frame. The inner-wins assertion compares
-      ;; against the two scoped frames, which is the whole contract here.
-      (rf/reg-sub :scenario-1/v (fn [db _] (:v db)))
+    (async done
+      (let [outer :rf-22ds-1-outer
+            inner :rf-22ds-1-inner]
+        (rf/make-frame {:id outer :doc "outer scenario-1 frame"})
+        (rf/make-frame {:id inner :doc "inner scenario-1 frame"})
+        (rf/reg-event :seed-1 (fn [{:keys [db]} [_ v]] {:db {:v v}}))
+        ;; Each frame's app-db carries a distinct value so the subscribe
+        ;; tells us unambiguously which frame served the read.
+        (rf/dispatch-sync [:seed-1 :outer-app-db] {:frame outer})
+        (rf/dispatch-sync [:seed-1 :inner-app-db] {:frame inner})
+        ;; EP-0002 (rf2-69r7ui): no bare `:rf/default` seed — every dispatch
+        ;; carries an explicit frame. The inner-wins assertion compares
+        ;; against the two scoped frames, which is the whole contract here.
+        (rf/reg-sub :scenario-1/v (fn [db _] (:v db)))
 
-      (let [resolved-frame (atom nil)
-            resolved-value (atom nil)]
-        (rf/reg-view* :rf.22ds-1/probe
-                      (fn probe-impl []
-                        (reset! resolved-frame (rf/current-frame-id))
-                        (reset! resolved-value @(rf/subscribe [:scenario-1/v]))
-                        [:div "probe"]))
-        (let [render-fn  (rf/view :rf.22ds-1/probe)
-              mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)]
-          (try
-            (react-dom/flushSync
-              (fn []
-                (rdc/render root
-                            ;; Outer provider wraps inner provider wraps probe.
-                            [rf/frame-provider {:frame outer}
-                             [rf/frame-provider {:frame inner}
-                              [render-fn]]])))
-            (is (= inner @resolved-frame)
-                "current-frame inside the doubly-wrapped subtree resolves to the INNER provider's frame")
-            (is (= :inner-app-db @resolved-value)
-                "subscribe routes against the inner frame's app-db, not outer's, not :rf/default's")
-            (finally
-              (try (rdc/unmount root) (catch :default _ nil)))))))))
+        (let [resolved-frame (atom nil)
+              resolved-value (atom nil)
+              ;; SOURCE-fix teeth (rf2-vp3m9): record THIS probe's own teardown
+              ;; marker, scoped by :rf.view/id. The trace listener is
+              ;; process-global and the `:browser-test` page is shared across
+              ;; every `-dom-cljs-test` namespace, so a foreign suite's deferred
+              ;; marker can land in this window — count only ours.
+              unmounts       (atom [])]
+          (rf/reg-view* :rf.22ds-1/probe
+                        (fn probe-impl []
+                          (reset! resolved-frame (rf/current-frame-id))
+                          (reset! resolved-value @(rf/subscribe [:scenario-1/v]))
+                          [:div "probe"]))
+          (trace-tooling/register-listener! ::scenario-1-unmounts
+            (fn [ev]
+              (when (and (= :rf.view/unmounted (:operation ev))
+                         (= :rf.22ds-1/probe (-> ev :tags :rf.view/id)))
+                (swap! unmounts conj ev))))
+          (let [render-fn  (rf/view :rf.22ds-1/probe)
+                mount-node (make-mount-node!)
+                root       (rdc/create-root mount-node)
+                ;; Await this scenario's OWN deferred teardown, then assert the
+                ;; marker fired WITHIN the window (not leaked past `done`), then
+                ;; finish. The single exit funnel for both success and error.
+                finish     (fn []
+                             (-> (await-teardown! root)
+                                 (.then (fn [_]
+                                          (trace-tooling/unregister-listener! ::scenario-1-unmounts)
+                                          (is (= 1 (count @unmounts))
+                                              (str "SOURCE fix (rf2-vp3m9): exactly one "
+                                                   ":rf.view/unmounted fired for :rf.22ds-1/probe "
+                                                   "WITHIN the awaited window — the teardown was "
+                                                   "awaited, not leaked into the shared runner; got "
+                                                   (count @unmounts)))
+                                          (done)))))]
+            (try
+              (react-dom/flushSync
+                (fn []
+                  (rdc/render root
+                              ;; Outer provider wraps inner provider wraps probe.
+                              [rf/frame-provider {:frame outer}
+                               [rf/frame-provider {:frame inner}
+                                [render-fn]]])))
+              (is (= inner @resolved-frame)
+                  "current-frame inside the doubly-wrapped subtree resolves to the INNER provider's frame")
+              (is (= :inner-app-db @resolved-value)
+                  "subscribe routes against the inner frame's app-db, not outer's, not :rf/default's")
+              (finish)
+              (catch :default e
+                (is false (str "scenario-1 threw: " (pr-str e)))
+                (finish)))))))))
 
 ;; ---- Scenario 2: no-provider → no-frame-context ---------------------------
 ;;
@@ -218,58 +293,59 @@
    calls resolve correctly."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (let [target :rf-22ds-2-scope]
-      (rf/make-frame {:id target :doc "scenario-2 explicit-scope frame"})
-      (rf/reg-event :seed-2 (fn [{:keys [db]} _] {:db {:n 99}}))
-      (rf/dispatch-sync [:seed-2] {:frame target})
-      (rf/reg-sub :scenario-2/n (fn [db _] (:n db)))
-      ;; (a) No provider → the probe's current-frame-id / subscribe raise
-      ;; no-frame-context. Capture the error the render surfaces.
-      (let [render-error (atom nil)]
-        (rf/reg-view* :rf.22ds-2/probe-no-provider
-                      (fn probe-no-provider-impl []
-                        (try
-                          (rf/current-frame-id)
-                          (catch :default e (reset! render-error e)))
-                        [:div "no-provider"]))
-        (let [render-fn  (rf/view :rf.22ds-2/probe-no-provider)
-              mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)]
-          (try
-            (react-dom/flushSync
-              (fn []
-                ;; No frame-provider in the tree.
-                (rdc/render root [render-fn])))
-            (is (some? @render-error)
-                "no provider in the tree → current-frame-id raised (no :rf/default floor)")
-            (is (= :rf.error/no-frame-context
-                   (:rf.error/id (ex-data @render-error)))
-                "the raised error is :rf.error/no-frame-context")
-            (finally
-              (try (rdc/unmount root) (catch :default _ nil))))))
-      ;; (b) An explicit provider scopes the frame — the probe resolves
-      ;; correctly and the subscribe routes against the scoped frame.
-      (let [resolved-frame (atom nil)
-            resolved-value (atom nil)]
-        (rf/reg-view* :rf.22ds-2/probe-scoped
-                      (fn probe-scoped-impl []
-                        (reset! resolved-frame (rf/current-frame-id))
-                        (reset! resolved-value @(rf/subscribe [:scenario-2/n]))
-                        [:div "scoped"]))
-        (let [render-fn  (rf/view :rf.22ds-2/probe-scoped)
-              mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)]
-          (try
-            (react-dom/flushSync
-              (fn []
-                (rdc/render root [rf/frame-provider {:frame target}
-                                  [render-fn]])))
-            (is (= target @resolved-frame)
-                "an explicit frame-provider scopes the frame the probe resolves to")
-            (is (= 99 @resolved-value)
-                "subscribe routes against the explicitly-scoped frame's app-db")
-            (finally
-              (try (rdc/unmount root) (catch :default _ nil)))))))))
+    (async done
+      (let [target :rf-22ds-2-scope]
+        (rf/make-frame {:id target :doc "scenario-2 explicit-scope frame"})
+        (rf/reg-event :seed-2 (fn [{:keys [db]} _] {:db {:n 99}}))
+        (rf/dispatch-sync [:seed-2] {:frame target})
+        (rf/reg-sub :scenario-2/n (fn [db _] (:n db)))
+        (let [render-error  (atom nil)
+              resolved-frame (atom nil)
+              resolved-value (atom nil)]
+          ;; (a) No provider → the probe's current-frame-id raises
+          ;; no-frame-context. (b) An explicit provider scopes the frame.
+          (rf/reg-view* :rf.22ds-2/probe-no-provider
+                        (fn probe-no-provider-impl []
+                          (try
+                            (rf/current-frame-id)
+                            (catch :default e (reset! render-error e)))
+                          [:div "no-provider"]))
+          (rf/reg-view* :rf.22ds-2/probe-scoped
+                        (fn probe-scoped-impl []
+                          (reset! resolved-frame (rf/current-frame-id))
+                          (reset! resolved-value @(rf/subscribe [:scenario-2/n]))
+                          [:div "scoped"]))
+          (let [render-fn-a (rf/view :rf.22ds-2/probe-no-provider)
+                root-a      (rdc/create-root (make-mount-node!))
+                render-fn-b (rf/view :rf.22ds-2/probe-scoped)
+                root-b      (rdc/create-root (make-mount-node!))
+                ;; SOURCE fix (rf2-vp3m9): await BOTH roots' deferred teardown
+                ;; before finishing, so neither probe's marker leaks.
+                finish      (fn []
+                              (-> (await-teardown! root-a)
+                                  (.then (fn [_] (await-teardown! root-b)))
+                                  (.then (fn [_] (done)))))]
+            (try
+              ;; (a) No frame-provider in the tree.
+              (react-dom/flushSync (fn [] (rdc/render root-a [render-fn-a])))
+              (is (some? @render-error)
+                  "no provider in the tree → current-frame-id raised (no :rf/default floor)")
+              (is (= :rf.error/no-frame-context
+                     (:rf.error/id (ex-data @render-error)))
+                  "the raised error is :rf.error/no-frame-context")
+              ;; (b) An explicit provider scopes the frame.
+              (react-dom/flushSync
+                (fn []
+                  (rdc/render root-b [rf/frame-provider {:frame target}
+                                      [render-fn-b]])))
+              (is (= target @resolved-frame)
+                  "an explicit frame-provider scopes the frame the probe resolves to")
+              (is (= 99 @resolved-value)
+                  "subscribe routes against the explicitly-scoped frame's app-db")
+              (finish)
+              (catch :default e
+                (is false (str "scenario-2 threw: " (pr-str e)))
+                (finish)))))))))
 
 ;; ---- Scenario 3: context-not-present error path ---------------------------
 ;;
@@ -397,33 +473,38 @@
    against the wrapped frame's app-db, not :rf/default."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (let [target :rf-22ds-4-wrapped]
-      (rf/make-frame {:id target :doc "scenario-4 wrapped frame"})
-      (rf/reg-event :seed-4 (fn [{:keys [db]} [_ v]] {:db {:s v}}))
-      ;; Seed the wrapped frame explicitly. EP-0002 (rf2-69r7ui): no bare
-      ;; `:rf/default` seed — the assertion is that the wrapped-frame
-      ;; subscribe resolves to the wrapped value, which the single scoped
-      ;; seed establishes.
-      (rf/dispatch-sync [:seed-4 :wrapped] {:frame target})
-      (rf/reg-sub :scenario-4/s (fn [db _] (:s db)))
+    (async done
+      (let [target :rf-22ds-4-wrapped]
+        (rf/make-frame {:id target :doc "scenario-4 wrapped frame"})
+        (rf/reg-event :seed-4 (fn [{:keys [db]} [_ v]] {:db {:s v}}))
+        ;; Seed the wrapped frame explicitly. EP-0002 (rf2-69r7ui): no bare
+        ;; `:rf/default` seed — the assertion is that the wrapped-frame
+        ;; subscribe resolves to the wrapped value, which the single scoped
+        ;; seed establishes.
+        (rf/dispatch-sync [:seed-4 :wrapped] {:frame target})
+        (rf/reg-sub :scenario-4/s (fn [db _] (:s db)))
 
-      (let [resolved (atom nil)]
-        (rf/reg-view* :rf.22ds-4/probe
-                      (fn []
-                        (reset! resolved @(rf/subscribe [:scenario-4/s]))
-                        [:div "probe"]))
-        (let [render-fn  (rf/view :rf.22ds-4/probe)
-              mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)]
-          (try
-            (react-dom/flushSync
-              (fn []
-                (rdc/render root [rf/frame-provider {:frame target}
-                                  [render-fn]])))
-            (is (= :wrapped @resolved)
-                "subscribe routes against the wrapped frame, not :rf/default")
-            (finally
-              (try (rdc/unmount root) (catch :default _ nil)))))))))
+        (let [resolved (atom nil)]
+          (rf/reg-view* :rf.22ds-4/probe
+                        (fn []
+                          (reset! resolved @(rf/subscribe [:scenario-4/s]))
+                          [:div "probe"]))
+          (let [render-fn  (rf/view :rf.22ds-4/probe)
+                mount-node (make-mount-node!)
+                root       (rdc/create-root mount-node)
+                finish     (fn [] (teardown-and-done! root done))]
+            (try
+              (react-dom/flushSync
+                (fn []
+                  (rdc/render root [rf/frame-provider {:frame target}
+                                    [render-fn]])))
+              (is (= :wrapped @resolved)
+                  "subscribe routes against the wrapped frame, not :rf/default")
+              ;; SOURCE fix (rf2-vp3m9): await the deferred teardown.
+              (finish)
+              (catch :default e
+                (is false (str "scenario-4 threw: " (pr-str e)))
+                (finish)))))))))
 
 ;; ---- Scenario 5: cross-frame dispatch resolution --------------------------
 ;;
@@ -444,33 +525,38 @@
    the wrapped frame via the provider, not some ambient default."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (let [target  :rf-22ds-5-wrapped
-          sibling :rf-22ds-5-sibling]
-      (rf/make-frame {:id target :doc "scenario-5 wrapped frame"})
-      ;; EP-0002 (rf2-69r7ui): no `:rf/default` floor — use an explicit
-      ;; sibling frame to prove the dispatch did NOT leak outside the
-      ;; provider scope.
-      (rf/make-frame {:id sibling :doc "scenario-5 sibling (no provider above)"})
-      (rf/reg-event :scenario-5/stamp (fn [{:keys [db]} _] {:db (assoc db :stamped :here)}))
+    (async done
+      (let [target  :rf-22ds-5-wrapped
+            sibling :rf-22ds-5-sibling]
+        (rf/make-frame {:id target :doc "scenario-5 wrapped frame"})
+        ;; EP-0002 (rf2-69r7ui): no `:rf/default` floor — use an explicit
+        ;; sibling frame to prove the dispatch did NOT leak outside the
+        ;; provider scope.
+        (rf/make-frame {:id sibling :doc "scenario-5 sibling (no provider above)"})
+        (rf/reg-event :scenario-5/stamp (fn [{:keys [db]} _] {:db (assoc db :stamped :here)}))
 
-      (rf/reg-view* :rf.22ds-5/probe
-                    (fn []
-                      (rf/dispatch-sync [:scenario-5/stamp])
-                      [:div "probe"]))
-      (let [render-fn  (rf/view :rf.22ds-5/probe)
-            mount-node (make-mount-node!)
-            root       (rdc/create-root mount-node)]
-        (try
-          (react-dom/flushSync
-            (fn []
-              (rdc/render root [rf/frame-provider {:frame target}
-                                [render-fn]])))
-          (is (= :here (:stamped (rf/app-db-value target)))
-              "the wrapped frame's app-db carries the stamp — dispatch routed there")
-          (is (not= :here (:stamped (rf/app-db-value sibling)))
-              "the sibling frame's app-db is NOT stamped — the dispatch resolved the provider's frame, not an ambient default")
-          (finally
-            (try (rdc/unmount root) (catch :default _ nil))))))))
+        (rf/reg-view* :rf.22ds-5/probe
+                      (fn []
+                        (rf/dispatch-sync [:scenario-5/stamp])
+                        [:div "probe"]))
+        (let [render-fn  (rf/view :rf.22ds-5/probe)
+              mount-node (make-mount-node!)
+              root       (rdc/create-root mount-node)
+              finish     (fn [] (teardown-and-done! root done))]
+          (try
+            (react-dom/flushSync
+              (fn []
+                (rdc/render root [rf/frame-provider {:frame target}
+                                  [render-fn]])))
+            (is (= :here (:stamped (rf/app-db-value target)))
+                "the wrapped frame's app-db carries the stamp — dispatch routed there")
+            (is (not= :here (:stamped (rf/app-db-value sibling)))
+                "the sibling frame's app-db is NOT stamped — the dispatch resolved the provider's frame, not an ambient default")
+            ;; SOURCE fix (rf2-vp3m9): await the deferred teardown.
+            (finish)
+            (catch :default e
+              (is false (str "scenario-5 threw: " (pr-str e)))
+              (finish))))))))
 
 ;; ---- Scenario 6: React StrictMode composition -----------------------------
 ;;
@@ -501,51 +587,56 @@
    return the wrapped frame's app-db value."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (let [target :rf-22ds-6-strict]
-      (rf/make-frame {:id target :doc "scenario-6 strict-mode frame"})
-      (rf/reg-event :seed-6 (fn [{:keys [db]} _] {:db {:s :strict-mode-app-db}}))
-      (rf/dispatch-sync [:seed-6] {:frame target})
-      (rf/reg-sub :scenario-6/s (fn [db _] (:s db)))
+    (async done
+      (let [target :rf-22ds-6-strict]
+        (rf/make-frame {:id target :doc "scenario-6 strict-mode frame"})
+        (rf/reg-event :seed-6 (fn [{:keys [db]} _] {:db {:s :strict-mode-app-db}}))
+        (rf/dispatch-sync [:seed-6] {:frame target})
+        (rf/reg-sub :scenario-6/s (fn [db _] (:s db)))
 
-      (let [observed-frames  (atom [])
-            observed-values  (atom [])
-            invocation-count (atom 0)]
-        (rf/reg-view* :rf.22ds-6/probe
-                      (fn []
-                        (swap! invocation-count inc)
-                        (swap! observed-frames conj (rf/current-frame-id))
-                        (swap! observed-values conj @(rf/subscribe [:scenario-6/s]))
-                        [:div "strict"]))
-        (let [render-fn  (rf/view :rf.22ds-6/probe)
-              mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)]
-          (try
-            (react-dom/flushSync
-              (fn []
-                ;; Wrap in React.StrictMode via Reagent's `:>` interop
-                ;; marker. Children are passed through; StrictMode
-                ;; double-invokes its descendants' render bodies in
-                ;; development.
-                (rdc/render root
-                            [:> (.-StrictMode React)
-                             [rf/frame-provider {:frame target}
-                              [render-fn]]])))
-            ;; The probe should have been invoked at least once. Under
-            ;; StrictMode in development React 18+ invokes function
-            ;; components twice; we don't pin the exact count (Reagent
-            ;; can class-ify, behaviour can vary by mode) — we pin the
-            ;; observability contract: every invocation saw the same
-            ;; frame, and every subscribe returned the same value.
-            (is (>= @invocation-count 1)
-                "the probe rendered at least once")
-            (is (every? #(= target %) @observed-frames)
-                (str "every render observed the wrapped frame; got "
-                     (pr-str @observed-frames)))
-            (is (every? #(= :strict-mode-app-db %) @observed-values)
-                (str "every subscribe returned the wrapped frame's app-db value; got "
-                     (pr-str @observed-values)))
-            (finally
-              (try (rdc/unmount root) (catch :default _ nil)))))))))
+        (let [observed-frames  (atom [])
+              observed-values  (atom [])
+              invocation-count (atom 0)]
+          (rf/reg-view* :rf.22ds-6/probe
+                        (fn []
+                          (swap! invocation-count inc)
+                          (swap! observed-frames conj (rf/current-frame-id))
+                          (swap! observed-values conj @(rf/subscribe [:scenario-6/s]))
+                          [:div "strict"]))
+          (let [render-fn  (rf/view :rf.22ds-6/probe)
+                mount-node (make-mount-node!)
+                root       (rdc/create-root mount-node)
+                finish     (fn [] (teardown-and-done! root done))]
+            (try
+              (react-dom/flushSync
+                (fn []
+                  ;; Wrap in React.StrictMode via Reagent's `:>` interop
+                  ;; marker. Children are passed through; StrictMode
+                  ;; double-invokes its descendants' render bodies in
+                  ;; development.
+                  (rdc/render root
+                              [:> (.-StrictMode React)
+                               [rf/frame-provider {:frame target}
+                                [render-fn]]])))
+              ;; The probe should have been invoked at least once. Under
+              ;; StrictMode in development React 18+ invokes function
+              ;; components twice; we don't pin the exact count (Reagent
+              ;; can class-ify, behaviour can vary by mode) — we pin the
+              ;; observability contract: every invocation saw the same
+              ;; frame, and every subscribe returned the same value.
+              (is (>= @invocation-count 1)
+                  "the probe rendered at least once")
+              (is (every? #(= target %) @observed-frames)
+                  (str "every render observed the wrapped frame; got "
+                       (pr-str @observed-frames)))
+              (is (every? #(= :strict-mode-app-db %) @observed-values)
+                  (str "every subscribe returned the wrapped frame's app-db value; got "
+                       (pr-str @observed-values)))
+              ;; SOURCE fix (rf2-vp3m9): await the deferred teardown.
+              (finish)
+              (catch :default e
+                (is false (str "scenario-6-strict-mode threw: " (pr-str e)))
+                (finish)))))))))
 
 ;; ---- Scenario 6 (ENSURE): StrictMode + hot-reload preserve durable state ---
 ;;
@@ -888,57 +979,65 @@
    without corrupting the provider chain."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (let [target :rf-22ds-7-concurrent
-          act-fn (get-act)]
-      (if (nil? act-fn)
-        ;; Harness gap — no act() reachable. Per the bead, file and
-        ;; skip rather than yak-shave a new harness primitive.
-        (is true (str "act() not reachable from this test runner; "
-                      "scenario-7 skipped — bead filed (see suite docstring)."))
-        (let [_ (rf/make-frame {:id target :doc "scenario-7 concurrent frame"})
-              _ (rf/reg-event :seed-7 (fn [{:keys [db]} _] {:db {:n 1}}))
-              _ (rf/reg-event :inc-7  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-              _ (rf/dispatch-sync [:seed-7] {:frame target})
-              _ (rf/reg-sub :scenario-7/n (fn [db _] (:n db)))
-              observed-frames (atom [])
-              observed-values (atom [])
-              _ (rf/reg-view* :rf.22ds-7/probe
-                              (fn []
-                                (swap! observed-frames conj (rf/current-frame-id))
-                                (swap! observed-values conj @(rf/subscribe [:scenario-7/n]))
-                                [:div "concurrent"]))
-              render-fn  (rf/view :rf.22ds-7/probe)
-              mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)]
-          (try
-            ;; Render 1 — wrap the call in act() so pending React work
-            ;; commits before we read the observed-* atoms.
-            (act-fn (fn []
-                      (rdc/render root [rf/frame-provider {:frame target}
-                                        [render-fn]])))
-            (is (some #{target} @observed-frames)
-                "first render saw the wrapped frame")
-            (is (some #{1} @observed-values)
-                "first render saw the seeded value n=1")
-            ;; Mutate the wrapped frame's app-db. The reaction held by
-            ;; the probe should pick up the change; act() drains the
-            ;; resulting render.
-            (rf/dispatch-sync [:inc-7] {:frame target})
-            (act-fn (fn []
-                      ;; Force a re-render by re-rendering the same
-                      ;; tree; Reagent's reaction tracking would
-                      ;; normally kick a render automatically — the
-                      ;; explicit re-render makes the test
-                      ;; deterministic across reactivity-flush timing
-                      ;; differences in the harness.
-                      (rdc/render root [rf/frame-provider {:frame target}
-                                        [render-fn]])))
-            (is (= target (last @observed-frames))
-                "post-act render still observes the wrapped frame — provider boundary held")
-            (is (some #{2} @observed-values)
-                "post-dispatch re-render observes the incremented value n=2")
-            (finally
-              (try (rdc/unmount root) (catch :default _ nil)))))))))
+    (async done
+      (let [target :rf-22ds-7-concurrent
+            act-fn (get-act)]
+        (if (nil? act-fn)
+          ;; Harness gap — no act() reachable. Per the bead, file and
+          ;; skip rather than yak-shave a new harness primitive.
+          (do (is true (str "act() not reachable from this test runner; "
+                            "scenario-7 skipped — bead filed (see suite docstring)."))
+              (done))
+          (let [_ (rf/make-frame {:id target :doc "scenario-7 concurrent frame"})
+                _ (rf/reg-event :seed-7 (fn [{:keys [db]} _] {:db {:n 1}}))
+                _ (rf/reg-event :inc-7  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+                _ (rf/dispatch-sync [:seed-7] {:frame target})
+                _ (rf/reg-sub :scenario-7/n (fn [db _] (:n db)))
+                observed-frames (atom [])
+                observed-values (atom [])
+                _ (rf/reg-view* :rf.22ds-7/probe
+                                (fn []
+                                  (swap! observed-frames conj (rf/current-frame-id))
+                                  (swap! observed-values conj @(rf/subscribe [:scenario-7/n]))
+                                  [:div "concurrent"]))
+                render-fn  (rf/view :rf.22ds-7/probe)
+                mount-node (make-mount-node!)
+                root       (rdc/create-root mount-node)
+                finish     (fn [] (teardown-and-done! root done))
+                fail!      (fn [e]
+                             (is false (str "scenario-7 threw: " (pr-str e)))
+                             (finish))]
+            (try
+              ;; Render 1 — wrap the call in act() so pending React work
+              ;; commits before we read the observed-* atoms.
+              (act-fn (fn []
+                        (rdc/render root [rf/frame-provider {:frame target}
+                                          [render-fn]])))
+              (is (some #{target} @observed-frames)
+                  "first render saw the wrapped frame")
+              (is (some #{1} @observed-values)
+                  "first render saw the seeded value n=1")
+              ;; Mutate the wrapped frame's app-db. The mounted probe's
+              ;; subscription re-renders on the reactive substrate's SCHEDULED
+              ;; flush (batched, not synchronous with dispatch-sync). Await that
+              ;; settle so the re-render commits before asserting — this is what
+              ;; makes the concurrent re-render deterministic when the ns runs
+              ;; ALONE (in-suite the substrate happened to already be warm). No
+              ;; explicit re-render needed: reactivity drives it.
+              (rf/dispatch-sync [:inc-7] {:frame target})
+              (-> (settle-macrotasks 3)
+                  (.then
+                    (fn [_]
+                      (is (= target (last @observed-frames))
+                          "post-dispatch render still observes the wrapped frame — provider boundary held")
+                      (is (some #{2} @observed-values)
+                          (str "post-dispatch re-render observes the incremented value n=2; got "
+                               (pr-str @observed-values)))
+                      ;; SOURCE fix (rf2-vp3m9): await the deferred teardown.
+                      (finish)))
+                  (.catch fail!))
+              (catch :default e
+                (fail! e)))))))))
 
 ;; ---- harness sanity: provider element shape -------------------------------
 ;;
@@ -995,35 +1094,40 @@
    and the probe would observe `:admin` instead."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (let [target :rf-22ds-ns/tenant-admin]
-      (rf/make-frame {:id target :doc "namespaced frame-id regression"})
-      (rf/reg-event :rf-22ds-ns/seed (fn [{:keys [db]} [_ v]] {:db {:tag v}}))
-      (rf/dispatch-sync [:rf-22ds-ns/seed :wrapped-value] {:frame target})
-      (rf/reg-sub :rf-22ds-ns/tag (fn [db _] (:tag db)))
+    (async done
+      (let [target :rf-22ds-ns/tenant-admin]
+        (rf/make-frame {:id target :doc "namespaced frame-id regression"})
+        (rf/reg-event :rf-22ds-ns/seed (fn [{:keys [db]} [_ v]] {:db {:tag v}}))
+        (rf/dispatch-sync [:rf-22ds-ns/seed :wrapped-value] {:frame target})
+        (rf/reg-sub :rf-22ds-ns/tag (fn [db _] (:tag db)))
 
-      (let [observed-frame (atom nil)
-            observed-value (atom nil)]
-        (rf/reg-view* :rf-22ds-ns/probe
-                      (fn []
-                        (reset! observed-frame (rf/current-frame-id))
-                        (reset! observed-value @(rf/subscribe [:rf-22ds-ns/tag]))
-                        [:div "probe"]))
-        (let [render-fn  (rf/view :rf-22ds-ns/probe)
-              mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)]
-          (try
-            (react-dom/flushSync
-              (fn []
-                (rdc/render root [rf/frame-provider {:frame target}
-                                  [render-fn]])))
-            (is (= target @observed-frame)
-                (str "current-frame inside the wrapped subtree resolves to the FULL "
-                     "namespaced keyword (got " (pr-str @observed-frame) ")"))
-            (is (= :tenant-admin (-> @observed-frame name keyword))
-                "sanity: the unqualified part matches the namespaced keyword's name")
-            (is (= "rf-22ds-ns" (namespace @observed-frame))
-                "sanity: the namespace survived (would be nil if prop-conversion stripped it)")
-            (is (= :wrapped-value @observed-value)
-                "subscribe routes against the namespaced frame's app-db, not :rf/default's")
-            (finally
-              (try (rdc/unmount root) (catch :default _ nil)))))))))
+        (let [observed-frame (atom nil)
+              observed-value (atom nil)]
+          (rf/reg-view* :rf-22ds-ns/probe
+                        (fn []
+                          (reset! observed-frame (rf/current-frame-id))
+                          (reset! observed-value @(rf/subscribe [:rf-22ds-ns/tag]))
+                          [:div "probe"]))
+          (let [render-fn  (rf/view :rf-22ds-ns/probe)
+                mount-node (make-mount-node!)
+                root       (rdc/create-root mount-node)
+                finish     (fn [] (teardown-and-done! root done))]
+            (try
+              (react-dom/flushSync
+                (fn []
+                  (rdc/render root [rf/frame-provider {:frame target}
+                                    [render-fn]])))
+              (is (= target @observed-frame)
+                  (str "current-frame inside the wrapped subtree resolves to the FULL "
+                       "namespaced keyword (got " (pr-str @observed-frame) ")"))
+              (is (= :tenant-admin (-> @observed-frame name keyword))
+                  "sanity: the unqualified part matches the namespaced keyword's name")
+              (is (= "rf-22ds-ns" (namespace @observed-frame))
+                  "sanity: the namespace survived (would be nil if prop-conversion stripped it)")
+              (is (= :wrapped-value @observed-value)
+                  "subscribe routes against the namespaced frame's app-db, not :rf/default's")
+              ;; SOURCE fix (rf2-vp3m9): await the deferred teardown.
+              (finish)
+              (catch :default e
+                (is false (str "namespaced-frame-id test threw: " (pr-str e)))
+                (finish)))))))))
