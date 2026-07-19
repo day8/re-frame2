@@ -318,7 +318,12 @@ When the v1 observer assembled a per-cascade summary (an audit-log entry per dra
 (rf/register-listener! :epoch :my-app/post-mortem-shipper
   (fn epoch-shipper [epoch-record]
     (when-not (:rf.epoch/sensitive? epoch-record)                  ;; honour epoch-level rollup
-      (let [[bounded dropped] (cap-or-elide epoch-record
+      ;; Project at the egress boundary FIRST — the listener holds the RAW record.
+      ;; projected-record is the single off-box projection (frame/profile redaction,
+      ;; raw :db-before / :db-after stripped, plus any installed :redact-fn); the
+      ;; size-cap below then bounds the already-projected payload.
+      (let [projected         (rf/projected-record epoch-record)
+            [bounded dropped] (cap-or-elide projected
                                             {:threshold-bytes 65536
                                              :frame           (:frame epoch-record)})]
         (when (pos? dropped)
@@ -337,7 +342,8 @@ When the v1 observer assembled a per-cascade summary (an audit-log entry per dra
 Two epoch-specific notes:
 
 - **`(:rf.epoch/sensitive? epoch-record)`** is the framework-computed rollup over the schema-declared sensitive leaves of `:db-before` / `:db-after` / `:trigger-event` / `:trace-events` (per [Security.md §Sensitive rollup at the record level](../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)). The shipper MUST default-drop sensitive epochs; the rollup is exactly the signal to gate on.
-- **The `(rf/configure! {:epoch-history {:redact-fn ...}})` build-time hook** is a stronger alternative — instead of every off-box forwarder applying its own `cap-or-elide`, the operator installs one redact-fn at boot that erases sensitive material from each `:rf/epoch-record` **once, as it is committed** (per record — not once per off-box forwarder); every downstream consumer (ring buffer, listener fan-out, off-box egress) sees the redacted shape. The agent SHOULD recommend the build-time hook when the codebase has multiple forwarders against the same epoch surface; for single-forwarder codebases the per-listener `cap-or-elide` is sufficient.
+- **Every off-box epoch forwarder MUST project at the egress boundary.** The listener receives the **raw** record, so a forwarder that ships `epoch-record` straight off-box leaks whatever the raw record holds. Route it through `(rf/projected-record record)` first (or `(rf/projected-history frame-id)` for the whole ring) — the single off-box egress projection: it applies the frame/profile classification and strips the raw `:db-before` / `:db-after`. Do **not** assume the record was scrubbed at storage; it was not.
+- **The `(rf/configure! {:epoch-history {:redact-fn ...}})` hook is a *projection-side* advanced override, not a storage-time scrub and not a substitute for `projected-record`.** When installed it runs **once per projection call, inside `projected-record`, after** the built-in frame/profile projection — an escape hatch for sensitive slots the frame's classification can't prove. It never mutates stored records: the in-process ring buffer and every `register-epoch-listener!` listener still deliver the **raw** record (epoch records are causal replay material — mutating them at rest would corrupt `restore-epoch!` fidelity), so installing a `:redact-fn` does **not** let a forwarder skip `projected-record`. Reach for it when the payload carries sensitive material the schema-driven projection can't reach — declared once at boot, it composes into every forwarder's `projected-record` rather than being hand-rolled per site; where the schema already classifies those slots, `projected-record` alone suffices.
 
 ### Shape C — per-frame `:interceptors` for behaviour-modifying interceptors
 
