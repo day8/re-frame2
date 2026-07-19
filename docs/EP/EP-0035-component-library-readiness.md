@@ -152,11 +152,14 @@ absence is proven under G-7/G-11.
 | G-17 safe-spread ownership | owned-key rejection in dev **and** advanced builds; `aria-*`/`data-*` pass; policy form retains the sync door while general spread forfeits it |
 | G-18 library façade isolation | an advanced build importing **one** view retains no unused sibling views — fixture-first: a packaging change is justified only if this fails structurally |
 
-The **component-library proof pack** lands in the conformance/parity corpus
-as a rolling consumer (no re-com build dependency): controlled input ·
-selection controller · slotted list cell · safe-attrs form control ·
-schema-described component · inline popover · single-view advanced import.
-EP-0034 owns the roster of record and the wiring status.
+The **component-library proof pack**'s six library views are rendered and
+exercised by a mounted DOM suite (`library-dom-cljs-test`), not the parity
+corpus — four are host-bearing (`ui/sub`, `ui/local`, `ui/effect`) and so
+cannot be `.cljc` dual-emitter corpus rows (no re-com build dependency):
+controlled input · selection controller · slotted list cell · safe-attrs form
+control · schema-described component · inline popover; a single-view advanced
+import proves façade isolation (G-18). EP-0034 owns the roster of record and
+the wiring status.
 
 ### The trigger-gated candidate register
 

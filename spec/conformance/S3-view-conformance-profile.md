@@ -117,8 +117,11 @@ and, in real Chromium **and** WebKit, by **G-8**.
 (`parity_fixtures.cljc` + the JVM/CLJS corpus tests) proves normalized
 structural equivalence of every grammar form — including the S3 render-slot
 shape — across the JVM tree and the CLJS `react-dom/server` emitter. The
-component-library **proof pack** (`implementation/ui/proof-pack/`) rides this
-corpus as a rolling consumer.
+component-library **proof pack** (`implementation/ui/proof-pack/`) is rendered
+and exercised by its own mounted DOM suite (`library-dom-cljs-test`), not this
+corpus — four of its six views are host-bearing and have no JVM side to
+compare, so the corpus keeps only the dual-emitter grammar shapes it genuinely
+owns.
 
 ## 3. HMR signature, event batching, callback law
 
