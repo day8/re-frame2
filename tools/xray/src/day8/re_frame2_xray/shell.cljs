@@ -1798,9 +1798,9 @@
 ;; view SCOPE, not a filter (rf2-4vp5j Workstream C), so switching frames
 ;; never inflates "hidden" and Clear Filters never touches the frame.
 ;; The message keeps rf2-jvghz's prominent yellow accent (Mike values
-;; it). Persisted filters survive reload via localStorage and used to
-;; silently suppress L2 rows; this ribbon makes them a VISIBLE cause +
-;; one-click reset (`:rf.xray/clear-all-filters`).
+;; it). Active filters (transient — reset on reload, rf2-fhtes) can
+;; still silently suppress L2 rows within a session; this ribbon makes
+;; them a VISIBLE cause + one-click reset (`:rf.xray/clear-all-filters`).
 
 (defn filters-hidden-message
   "Pure hiccup. The `N events filtered out` warning count — the LEADING

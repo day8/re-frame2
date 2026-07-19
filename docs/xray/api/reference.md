@@ -44,7 +44,7 @@ The full configuration surface. Reach here when you're flipping a knob the facad
 | `set-auto-open!` | `(set-auto-open! bool)` → nil | Whether the preload auto-opens on adapter readiness. Default `true`. |
 | `set-keybinding-enabled!` | `(set-keybinding-enabled! bool)` → nil | Whether `keybinding/attach!` installs the global listener. Default `true`. |
 | `set-show-sensitive!` | `(set-show-sensitive! bool)` → nil | Cross-tool `:rf.privacy/show-sensitive?` flag. Default `false`. |
-| `set-filter-seed!` | `(set-filter-seed! seed-map)` → nil | Host-supplied seed pill set for first install. Shape: `{:in [{...}] :out [{...}]}`. |
+| `set-filter-seed!` | `(set-filter-seed! seed-map)` → nil | Host-supplied seed pill set applied to `:active-filters` as the boot baseline — reapplied on every load after the transient-filter reset, not a first-install-only value. Shape: `{:in [{...}] :out [{...}]}`. |
 | `set-filters-storage-key!` | `(set-filters-storage-key! key)` → nil | localStorage key the filter persistence layer uses. Default `"re-frame2.xray.filters.v1"`. |
 | `update-setting!` | `(update-setting! path value)` → nil | Set one Settings slot. `path` is a vector into the settings map. |
 | `reset-settings!` | `(reset-settings!)` → nil | Reset every Settings slot to its default. Wipes the localStorage slot. |

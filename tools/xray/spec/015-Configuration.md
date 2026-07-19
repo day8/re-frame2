@@ -695,8 +695,12 @@ changes can ignore stale payloads).
 The storage key and the `:rf.xray/filters` seed are independent axes.
 This key governs the **transient user-pill** localStorage round-trip
 (within-session writes + the load-time reset cleanup); the seed is a
-separate in-memory boot baseline that is never persisted (rf2-fhtes).
-When both are passed in one call the storage key is set first, but the
+separate in-memory boot baseline whose *hook* never touches this key —
+it neither reads nor writes localStorage (rf2-fhtes). The seed value
+is still not durable across loads: once it lands, a later pill edit
+persists the whole `:active-filters` set (seeded pills included) under
+this key, until the next load's reset clears that storage and reapplies
+the baseline. When both are passed in one call the storage key is set first, but the
 ordering does not affect the seed — it lands via `mount.cljs`'s
 `::seed-configured-filters` hook, not through this key.
 
