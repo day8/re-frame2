@@ -1449,8 +1449,10 @@
 ;; `:schemas/on-frame-destroyed!`, `:routing/on-frame-destroyed!`, … — one
 ;; per optional artefact that owns frame-scoped teardown. The compiled-view
 ;; substrate answers it through `reactive/teardown-frame!`, which sweeps a
-;; bounded victim set to `:dead`: every currently-connected ViewCell observing
-;; the destroyed frame, PLUS every still-disconnected but React-retained
+;; bounded victim set to `:dead`: every currently-connected ViewCell whose
+;; retained subscription targets OR resource-incarnation records name the
+;; destroyed frame (resource ownership is not read observation), PLUS every
+;; still-disconnected but React-retained
 ;; root-owned ViewCell whose last published site values (retained subscription
 ;; targets / resource reservations) name it. The disconnected arm is the
 ;; non-obvious half and the reason the hook can never be connected-only — an
@@ -1464,7 +1466,9 @@
 ;; is simply unbound (a no-op) when day8/re-frame2-ui is absent from the
 ;; classpath. The disconnected-cell obligation is pinned by
 ;; `reactive-frame-teardown-cljs-test`'s
-;; `frame-destroy-reaps-an-activity-hidden-cell`.
+;; `frame-destroy-reaps-an-activity-hidden-cell`; the connected resource-only
+;; obligation by `resource-lease-reconcile-cljs-test`'s
+;; `resource-only-cells-are-discoverable-while-connected-and-hidden`.
 ;;
 ;; The hook ALSO prunes the destroyed id's install record (rf2-vxgfnd.30 (a)):
 ;; `installed-plan-entry` only HID a dead record behind a liveness guard, so a

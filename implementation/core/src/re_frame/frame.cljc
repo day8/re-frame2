@@ -3706,8 +3706,11 @@
     4. :ui/on-frame-destroyed!      — detach the compiled-view
                                       (day8/re-frame2-ui) observers: a bounded
                                       victim set transitions to :dead (03 §4) —
-                                      every currently-connected ViewCell
-                                      observing this frame PLUS every still-
+                                      every currently-connected ViewCell whose
+                                      retained subscription targets OR
+                                      resource-incarnation records name this
+                                      frame (resource ownership is not read
+                                      observation) PLUS every still-
                                       disconnected but React-retained
                                       root-owned ViewCell whose last published
                                       site values name it (an Activity-hidden
@@ -3951,7 +3954,9 @@
         ;; Detach the compiled-view (day8/re-frame2-ui) observers BEFORE the
         ;; liveness flip / sub-cache teardown. The hook sweeps a bounded victim
         ;; set to :dead (03 §4 dead-cell lifecycle): every currently-connected
-        ;; ViewCell observing this frame PLUS every still-disconnected but
+        ;; ViewCell whose retained subscription targets OR resource-incarnation
+        ;; records name this frame (resource ownership is not read observation)
+        ;; PLUS every still-disconnected but
         ;; React-retained root-owned ViewCell whose last published site values
         ;; name it (a hidden cell holds no live observers yet must still be
         ;; reaped) — deduped + incarnation-scoped. Each releases its leases
