@@ -567,8 +567,10 @@
 
 ;; ---- EP-0027 — handler-time frame construction is FORBIDDEN --------------
 ;;
-;; Per EP-0027 §Construction: frames are created by the VIEW (frame-provider) or
-;; at TOP LEVEL (tests, boot, SSR per request). Constructing a frame INSIDE an
+;; Per EP-0027 §Construction: frames are created by the VIEW (`frame-root`, the
+;; ENSURE boundary — `frame-provider` is SCOPE and creates nothing) or at TOP
+;; LEVEL (tests, boot, SSR per request — an explicit `make-frame`).
+;; Constructing a frame INSIDE an
 ;; event handler is not supported — a handler changes app-db, and the view
 ;; materializes frames from it — and fails loud with
 ;; `:rf.error/frame-construction-in-handler`. This REMOVES the prior rf2-cufbh

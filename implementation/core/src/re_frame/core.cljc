@@ -1141,7 +1141,8 @@
 ;;
 ;; `current-frame-id` reads the carried-invariant scope/hold stamp via
 ;; `frame/require-current-frame!` (EP-0002): the dynamic `*current-frame*`
-;; var or a React-context frame-provider scope, with NO `:rf/default`
+;; var or the closest React-context frame boundary — a `frame-provider`
+;; (SCOPE) or a `frame-root` (ENSURE), both of which emit scope — with NO `:rf/default`
 ;; floor — absence raises `:rf.error/no-frame-context`. `capture-frame` is
 ;; the keystone: a frame api — a per-frame bundle (`{:frame :dispatch
 ;; :dispatch-sync :subscribe}`) captured at CREATION time, so its ops
