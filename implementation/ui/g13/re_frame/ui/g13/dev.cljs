@@ -6,6 +6,7 @@
             [re-frame.substrate.observation :as obs]
             [re-frame.ui :as ui]
             [re-frame.ui.g13.fixture :as fixture]
+            [re-frame.ui.g13.measure :as measure]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.test :as uit]))
 
@@ -72,52 +73,35 @@
 (defn- timing-cycle!
   "CLEAN dispatch-to-commit measurement. The measured interval spans exactly
   the eight write epochs plus the single read/render commit: no pre-commit
-  evidence scan and no post-commit validation runs inside it. The end
-  timestamp is taken the instant the post-commit Promise resolves — before any
-  delta scan, counter comparison, or DOM query — so the sample is the true
-  dispatch-to-commit span and is independent of the V-scaled audit work done by
-  the correctness cycle.
+  evidence scan and no post-commit validation runs inside it, so the sample is
+  independent of the V-scaled audit work done by the correctness cycle.
 
-  rf2-6k4cm — the `:pre-hot` witness (app-db `:hot` immediately before THIS
-  timed dispatch) is read here, adjacent to the dispatch it guards, and returned
-  WITH this exact timed cycle. It is read before `started`, so it sits OUTSIDE
-  the measured interval and leaves the dispatch-to-commit span unchanged. Being
-  sourced from the timed cycle's own dispatch — not from `sample!` entry — makes
-  it causal to the measurement: any drain that preceded this cycle shows up as a
-  nonzero witness, so a warmed cycle can never masquerade as the cold first
-  drain.
+  This function supplies the collaborators and the WORK; it does not own the
+  clock. `measure/measure-dispatch-to-commit!` owns the interval — witness,
+  start, flush of the supplied thunk, end, witness — and its docstring carries
+  the containment argument in full. The two properties that matter here:
 
-  rf2-a0i2y — the `:post-hot` CLOSING witness. Every witness above describes
-  state BEFORE the timed dispatch, so none of them can tell a real measured
-  drain from an EMPTY one: delete the dispatch from this function and `:pre-hot`
-  still reports the mount seed, the separate untimed correctness cycle still
-  advances app-db and still supplies every projection, and the runner would go
-  on labelling a flush interval that did nothing `dispatch-to-commit`.
-  `:post-hot` is app-db `:hot` read AFTER the end timestamp — so no validation
-  work enters the measured span — and returned with this same cycle. The gate
-  asserts `post-hot - pre-hot = queued-writes`: the two reads bracket the two
-  timestamps by construction, so that delta is the work this interval actually
-  contained. A removed, no-op, or empty dispatch yields 0 and turns the gate red.
-  The lexical containment itself (dispatch inside the flushed thunk, thunk
-  between the two `performance.now` reads) is pinned structurally by
-  `assertTimedRegionShape` over THIS source region.
+  rf2-6k4cm — `:pre-hot` is causal to the measurement. It is read inside the
+  seam, so any drain that preceded this cycle shows up as a nonzero witness and
+  a warmed cycle can never masquerade as the cold first drain.
 
-  Returns `{:elapsed-ms <ms> :pre-hot <:hot at dispatch> :post-hot <:hot at commit>}`."
+  rf2-a0i2y / rf2-muhsq — `:post-hot` is the closing witness, read after the
+  end timestamp. The gate asserts `post-hot - pre-hot = queued-writes`. Because
+  the seam reads BOTH witnesses, a dispatch removed from `:work!`, replaced
+  with a no-op, hoisted above this call, or deferred past the resolved Promise
+  all collapse the delta and turn the gate red. That is why the work is passed
+  as a thunk rather than written inline around a timestamp.
+
+  Returns a Promise of
+  `{:elapsed-ms <ms> :pre-hot <:hot at dispatch> :post-hot <:hot at commit>}`."
   [frame]
-  (let [pre-hot (:hot (rf/app-db-value frame))
-        started (js/performance.now)]
-    (-> (uit/flush!
-         (fn []
-           ;; dispatch! completes all eight write epochs synchronously; the
-           ;; render phase runs when flush!'s Promise advances to the commit.
-           (uit/dispatch! frame [::fixture/step fixture/queued-writes])))
-        (.then (fn [_]
-                 ;; The end timestamp is taken FIRST and bound, so the closing
-                 ;; witness read below cannot land inside the measured span.
-                 (let [elapsed-ms (- (js/performance.now) started)]
-                   {:elapsed-ms elapsed-ms
-                    :pre-hot pre-hot
-                    :post-hot (:hot (rf/app-db-value frame))}))))))
+  (measure/measure-dispatch-to-commit!
+   {:read-hot (fn [] (:hot (rf/app-db-value frame)))
+    :now      (fn [] (js/performance.now))
+    :flush!   uit/flush!
+    ;; dispatch! completes all eight write epochs synchronously; the render
+    ;; phase runs when flush!'s Promise advances to the commit.
+    :work!    (fn [] (uit/dispatch! frame [::fixture/step fixture/queued-writes]))}))
 
 (defn- correctness-cycle!
   "Exact push-work accounting for ONE drain — UNTIMED. Owns the O(V) live-cell
