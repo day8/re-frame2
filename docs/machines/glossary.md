@@ -25,7 +25,7 @@ The data a machine *is*: a map with `:initial`, the starting [`:data`](#data), t
 ```clojure
 {:initial :idle
  :data    {:attempts 0 :error nil}
- :guards  {:under-retry-limit (fn [{d :data}] (< (:attempts d) 3))}
+ :guards  {:under-retry-limit (fn [{d :data}] (< (:attempts d) 2))}
  :actions {:clear-error (fn [_] {:data {:error nil}})}
  :states  {:idle       {:on {:submit {:target :submitting :action :clear-error}}}
            :submitting {...}}}
@@ -62,6 +62,8 @@ The move from one [state](#state) to another in response to a dispatched [event]
 ### **guard**
 
 A pure yes/no predicate that decides whether a [transition](#transition) fires. Referenced by name from the table and defined once in the machine's `:guards`, so a visualiser can read the condition right off the arrow. It receives the context map `{:data :event :state :meta}` (note: **no** app-db) and returns a boolean. There's no `{:and …}` combinator DSL — compound logic goes in one named function, so the *name* is what tools and AI read off the arrow.
+
+A guard runs *before* the transition's [action](#action), so it sees the pre-action snapshot: a counter the action is about to bump still holds its old value, and the boundary sits one below the total you want — `(< (:attempts d) 2)` for a three-attempt policy. See [Guards](concepts.md#guards).
 
 ### **action**
 

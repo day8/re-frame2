@@ -69,7 +69,7 @@ In XState you build a machine with `createMachine` — and in v6 a `setup()` reg
 import { setup, assign } from 'xstate';
 
 const loginMachine = setup({
-  guards:  { underRetryLimit: ({ context }) => context.attempts < 3 },
+  guards:  { underRetryLimit: ({ context }) => context.attempts < 2 },
   actions: { /* … */ },
 }).createMachine({
   initial: 'idle',
@@ -86,7 +86,7 @@ In re-frame2 the definition is *just data* — one map, with its `:guards` and `
    :data    {:attempts 0 :error nil}
 
    :guards
-   {:under-retry-limit (fn [{:keys [data]}] (< (:attempts data) 3))}
+   {:under-retry-limit (fn [{:keys [data]}] (< (:attempts data) 2))}
 
    :actions
    {:clear-error  (fn [_] {:data {:error nil}})
@@ -163,13 +163,13 @@ on: { FAILURE: [{ guard: 'underRetryLimit', target: 'errorShown' }, { target: 'l
 ```
 
 ```clojure
-:guards {:under-retry-limit (fn [{:keys [data]}] (< (:attempts data) 3))}
+:guards {:under-retry-limit (fn [{:keys [data]}] (< (:attempts data) 2))}
 ;; …on the :submitting node:
 :on {:auth.login/failure [{:guard :under-retry-limit :target :error-shown :action :record-error}
                           {:target :locked-out}]}
 ```
 
-Same guarded candidate vector, first-pass-wins — identical to XState's transition array. A guard (like an action) receives **one context map** and destructures what it needs: `(fn [{:keys [data event state meta]}] …)`. **Divergence:** there is no `{and: [...]}` / `stateIn` data combinator (XState v6 dropped the v5 `and`/`or`/`not`/`stateIn` creators, which re-frame2 never had) — a compound condition goes in one *named* function, so the *name* is what a diagram arrow and an AI read; cross-region coordination uses [tags](#tags). A guard or action that needs a host fact (the clock, a random draw) [declares it as a coeffect](concepts.md#guards-and-actions) rather than calling `(js/Date.now)`, so the decision replays identically under time-travel.
+Same guarded candidate vector, first-pass-wins — identical to XState's transition array. Both sides read `2` for this three-attempt login because a guard is evaluated *before* the transition's action — ahead of the `assign` in XState, ahead of `:record-error` here — so each sees the not-yet-bumped counter and the boundary sits one below the total ([Guards](concepts.md#guards)). A guard (like an action) receives **one context map** and destructures what it needs: `(fn [{:keys [data event state meta]}] …)`. **Divergence:** there is no `{and: [...]}` / `stateIn` data combinator (XState v6 dropped the v5 `and`/`or`/`not`/`stateIn` creators, which re-frame2 never had) — a compound condition goes in one *named* function, so the *name* is what a diagram arrow and an AI read; cross-region coordination uses [tags](#tags). A guard or action that needs a host fact (the clock, a random draw) [declares it as a coeffect](concepts.md#guards-and-actions) rather than calling `(js/Date.now)`, so the decision replays identically under time-travel.
 
 ### Reading the snapshot
 
