@@ -548,6 +548,39 @@
     s))
 
 ;; ---------------------------------------------------------------------------
+;; Newline-eating elements — leading-LF compensation (rf2-z05di)
+;; ---------------------------------------------------------------------------
+
+(def newline-eating-tags
+  "The HTML elements whose parser DROPS one leading LF immediately after the
+  start tag — `<pre>`, `<listing>`, `<textarea>`. react-dom/server 19.2
+  compensates by prefixing one extra LF so content that begins with a newline
+  survives the parse round-trip."
+  #{"pre" "listing" "textarea"})
+
+(defn leading-newline-compensation
+  "-> the compensating LF (`\"\\n\"`) react-dom/server 19.2 prefixes inside a
+  newline-eating element (`newline-eating-tags`), or `\"\"` when none is owed.
+
+  HTML parsing eats the FIRST LF immediately after `<pre>`/`<listing>`/
+  `<textarea>` (the newline-eating elements). So a tree whose textarea value or
+  pre text begins with LF would, without compensation, parse to a DOM carrying
+  one FEWER newline than authored — an S5 hydration/correctness gap. React
+  prefixes exactly one LF, but ONLY when the element's content is a SINGLE
+  STRING (its `typeof children === 'string'` guard): multiple or element
+  children are left untouched, because the parser's newline-eating still
+  applies but React does not doctor a multi-child body. `content-strings` is the
+  element's content as a seq — one entry means a single (already text-coalesced)
+  string child, or a textarea's `:value`."
+  [tag-lc content-strings]
+  (if (and (contains? newline-eating-tags tag-lc)
+           (= 1 (count content-strings))
+           (let [c (first content-strings)]
+             (and (string? c) (str/starts-with? c "\n"))))
+    "\n"
+    ""))
+
+;; ---------------------------------------------------------------------------
 ;; Attribute value serialisation (the value half of the table).
 ;; ---------------------------------------------------------------------------
 
@@ -733,12 +766,21 @@
       ;; unescaped (only the closing-sequence escape), matching react-dom/server.
       raw-text?      (str open ">" (escape-raw-text norm-tag (str/join (:children el)))
                           "</" tag-name ">")
-      (some? ta-val) (str open ">" (escape-html (coerce-val ta-val)) "</" tag-name ">")
+      ;; rf2-z05di — a textarea :value beginning with LF needs the compensating
+      ;; leading LF the parser will eat back off (single-string content).
+      (some? ta-val) (let [cv (coerce-val ta-val)]
+                       (str open ">"
+                            (leading-newline-compensation norm-tag [cv])
+                            (escape-html cv) "</" tag-name ">"))
       :else
       (let [children (if (some? sel-val)
                        (mark-selected (:children el) (coerce-val sel-val))
                        (:children el))]
-        (str open ">" (emit-children children path) "</" tag-name ">")))))
+        ;; rf2-z05di — <pre>/<listing>/<textarea> with a single string child
+        ;; beginning with LF get the one compensating LF react-dom/server emits.
+        (str open ">"
+             (leading-newline-compensation norm-tag children)
+             (emit-children children path) "</" tag-name ">")))))
 
 (defn- node-text
   "Concatenated text content of a RAW element/fragment node — its text

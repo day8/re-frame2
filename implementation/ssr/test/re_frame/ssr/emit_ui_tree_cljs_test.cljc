@@ -287,6 +287,67 @@
                   :children [{:tag :option :attrs {:value "a"} :children ["A"]}
                              {:tag :option :attrs {:value "b"} :children ["B"]}]}))))))
 
+;; ---------------------------------------------------------------------------
+;; Newline-eating elements — leading-LF compensation (rf2-z05di)
+;;
+;; ANCHOR (rf2-z05di): HTML parsing eats the FIRST LF immediately after
+;; <pre>/<listing>/<textarea>, so react-dom/server 19.2 prefixes one
+;; compensating LF when the element's content is a SINGLE STRING beginning with
+;; LF (its `typeof children === 'string'` guard) — making the intended content
+;; survive the parse round-trip. Multiple/element children are left untouched.
+;; The expected strings are byte-pinned against react-dom/server 19.2
+;; (renderToStaticMarkup); "\n\n" below is a real doubled newline.
+;; ---------------------------------------------------------------------------
+
+(deftest leading-newline-compensated-for-pre-and-listing
+  (testing "<pre> single text child beginning with LF gets the doubled LF"
+    ;; RED-BEFORE lever: the shipped serialiser emitted "<pre>\nhello</pre>",
+    ;; which parses to a DOM with one FEWER newline than the tree authored.
+    (is (= "<pre>\n\nhello</pre>"
+           (ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\nhello"]})))))
+  (testing "each extra authored LF survives (one is eaten, the rest remain)"
+    (is (= "<pre>\n\n\nhello</pre>"
+           (ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\n\nhello"]})))))
+  (testing "pre child text is still HTML-escaped alongside the compensation"
+    (is (= "<pre>\n\n&lt;a&gt; &amp; b</pre>"
+           (ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\n<a> & b"]})))))
+  (testing "<listing> is a newline-eating element too"
+    (is (= "<listing>\n\nhello</listing>"
+           (ui-tree/emit-ui-tree (v1 {:tag :listing :children ["\nhello"]}))))))
+
+(deftest leading-newline-compensated-for-textarea-value
+  (testing ":value on <textarea> beginning with LF gets the doubled LF"
+    ;; RED-BEFORE lever: emitted "<textarea>\nhello</textarea>" (one LF).
+    (is (= "<textarea>\n\nhello</textarea>"
+           (ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "\nhello"}})))))
+  (testing "textarea :value is RCDATA-escaped alongside the compensation"
+    (is (= "<textarea>\n\n&lt;a&gt;&amp;</textarea>"
+           (ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "\n<a>&"}})))))
+  (testing "a single string child (no :value) is compensated the same way"
+    (is (= "<textarea>\n\nhi</textarea>"
+           (ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["\nhi"]}))))))
+
+(deftest leading-newline-own-lever-only-a-single-lf-string-child
+  (testing "VACUITY: no LF prefix ⇒ no compensation (the fix must not add one)"
+    (is (= "<pre>hello</pre>"
+           (ui-tree/emit-ui-tree (v1 {:tag :pre :children ["hello"]})))
+        "content not beginning with LF is emitted unchanged")
+    (is (= "<textarea>hello</textarea>"
+           (ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "hello"}})))))
+  (testing "a leading CR (\\r) is NOT a newline-eating trigger — matches React"
+    (is (= "<pre>\r\nhello</pre>"
+           (ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\r\nhello"]})))
+        "only a leading LF is eaten by the parser, so only LF is compensated"))
+  (testing "MULTIPLE children ⇒ no compensation (React's single-string guard)"
+    ;; Two text children are React's `children` array, not a string — no doctoring.
+    (is (= "<pre>\nab</pre>"
+           (ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\na" "b"]})))
+        "a multi-child pre body is left untouched even when the first begins LF"))
+  (testing "a non-newline-eating element is never compensated"
+    (is (= "<div>\nhello</div>"
+           (ui-tree/emit-ui-tree (v1 {:tag :div :children ["\nhello"]})))
+        "the compensation is scoped to pre/listing/textarea only")))
+
 (deftest doctype-opt
   (is (= "<!DOCTYPE html><html></html>"
          (ui-tree/emit-ui-tree (v1 {:tag :html}) {:doctype? true}))))
