@@ -73,4 +73,16 @@
   (testing "the cache-collision guard holds in production too"
     (is (some? (:painted (render-outcome [:button "ordinary"]))))
     (is (nil? (:painted (render-outcome [:rf/button {}])))
-        "an unreserved twin must not disarm the guard in the shipped build")))
+        "an unreserved twin must not disarm the guard in the shipped build"))
+
+  (testing "the string-aliased cache-hit guard holds in production too (rf2-sgbna)"
+    ;; A STRING head "rf/x" and the reserved keyword `:rf/x` share the cache
+    ;; key "rf/x"; seeding the string form must not let the keyword ride the
+    ;; cache-HIT path and paint a phantom in the shipped :advanced build.
+    (is (some? (:painted (render-outcome ["rf/prod-string-twin" "ordinary"])))
+        "seed the cache under the aliased string key")
+    (is (nil? (:painted (render-outcome [:rf/prod-string-twin {:id 1}])))
+        "the string-seeded reserved twin must paint NOTHING in production")
+    (is (= :rf.error/invalid-hiccup-head
+           (:rf.error/id (:data (render-outcome [:rf/prod-string-twin {:id 1}]))))
+        "and carry its catalogued identity from the cache-hit path")))
