@@ -151,7 +151,7 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 | `rf/trace-buffer` / `rf/clear-trace-buffer!` | retain-N ring — **JVM-only aliases**; CLJS callers use `re-frame.trace.tooling/trace-buffer` / `clear-trace-buffer!` directly (core trace tooling, not the epoch artefact) |
 | `rf/epoch-history` | `(frame-id)` → `[epoch-records]` |
 | `rf/restore-epoch!` | `(frame-id epoch-id)` → bool |
-| `rf/register-listener! :epoch` / `rf/unregister-listener! :epoch` | per-dequeued-event listener — one `:rf/epoch-record` per event's run-to-completion, not per drain-settle (the `:epoch` stream; the dedicated `rf/register-epoch-listener!` facade pair was retired) |
+| `rf/register-listener! :epoch` / `rf/unregister-listener! :epoch` | epoch-record **publication** listener — one `:rf/epoch-record` per event's run-to-completion (not per drain-settle), also re-published on post-settle backfill and for `:rf.epoch/db-replaced` / halt records; reconcile by `[(:frame record) (:epoch-id record)]` and replace, don't count. `:halted-destroy` is listener-only, never retained. (the `:epoch` stream; the dedicated `rf/register-epoch-listener!` facade pair was retired) |
 | `rf/replace-frame-state!` | `(frame-id frame-state)` → bool — the ONE frame-state write surface; `frame-state` is a PARTIAL map (any subset of `{:rf.db/app … :rf.db/runtime …}`) — a present key replaces that partition, an absent key is preserved. App-db-only injection: `{:rf.db/app v}`; app-db reset: `{:rf.db/app {}}`; runtime-db-only write: `{:rf.db/runtime v}`; full-frame install: both keys. A map with no recognized key, or an unrecognized key, is rejected |
 
 ## Interceptors, boot, introspection
