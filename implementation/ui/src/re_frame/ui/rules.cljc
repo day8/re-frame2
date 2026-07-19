@@ -999,7 +999,8 @@
 ;; winner law. For a given [build-id tag] the effective declaration is the
 ;; unique value contributed by live sources IFF every cross-source pair is
 ;; `rf=`-equal. Any non-`rf=`-equal same-tag declaration from a DIFFERENT source
-;; fails atomically with BOTH [build-id ns-sym] anchors and leaves the
+;; fails atomically, carrying a sorted vector of [build-id ns-sym] anchors —
+;; every equal incumbent declarer plus the arrival — and leaves the
 ;; last-known-good aggregate unchanged.
 ;;
 ;; ## Where the law lives, and why it is not where it was first ruled
@@ -1010,18 +1011,25 @@
 ;; false and DCEs under `:advanced` + `goog.DEBUG=false` (rf2-k9yuy) — so
 ;; implemented as first written the law would not have existed in the shipped
 ;; artefact at all. That is the exact shape of two defects that DID ship in the
-;; same week (rf2-2hkfy #6376, an "always-on" rejection that was goog.DEBUG-
-;; gated; rf2-5pr75 #6352, a live XSS closed only by making the check fire on
-;; every build). The 2026-07-19 placement amendment moves the law's residence to
-;; the ONE thing that survives a release build:
+;; same week (rf2-2hkfy #6376, an "always-on" rejection — enforcement meant to
+;; survive every build, NOT the always-on error-emit channel — that was actually
+;; goog.DEBUG-gated; rf2-5pr75 #6352, a live XSS closed only by making the check
+;; fire on every build). The 2026-07-19 placement amendment gives the law a
+;; residence on the ONE registration that survives a release build:
 ;;
-;;   `write-element!` — the single `custom-elements` update every registration
-;;   performs, on BOTH the dev write-through and the production direct branch.
+;;   `write-element!` — the direct `custom-elements` barrier the ADVANCED-
+;;   PRODUCTION path performs (`reload-ledger?` false, no ledger). On dev/JVM
+;;   hosts (`reload-ledger?` true) the same declaration is instead admitted
+;;   against `ledger-state` — `write-through-verdict` for a direct registration,
+;;   `commit-reload!` for a staged one — and the live `custom-elements` aggregate
+;;   is a published PROJECTION of the ledger, never a `write-element!` call.
 ;;
-;; The ledger-path checks are RETAINED as dev-side defence in depth; they are no
-;; longer the law's residence. `custom_element_reload_elision_prod_test.cljs`
-;; runs INSIDE the `:advanced` bundle and pins the production enforcement so it
-;; cannot silently rot back to dev-only.
+;; So `ledger-state` is the dev/JVM admission authority and `write-element!` is
+;; the advanced-production barrier; both apply the SAME pure `admit`, and the
+;; `aggregate` re-derivation over `::sources` is defence in depth, not a second
+;; winner rule. `custom_element_reload_elision_prod_test.cljs` runs INSIDE the
+;; `:advanced` bundle and pins the production enforcement so it cannot silently
+;; rot back to dev-only.
 ;;
 ;; The compile arm (PR #6006) already draws the same two-tier shape:
 ;; `build/contribute-element-checked!` is the write BARRIER and
@@ -1139,20 +1147,21 @@
                               (pr-str (vec (sort properties)))))
                        declarations))
         ". One tag has ONE property manifest: delete the duplicate declaration, "
-        "or make both sources declare an IDENTICAL :properties set (identical "
+        "or make all declaring sources declare an IDENTICAL :properties set (identical "
         "declarations may co-exist). re-frame.ui will not pick a winner by "
         "evaluation or reload order — the live manifest is UNCHANGED")
    {:recovery :align-custom-element-declarations
     :extra evidence}))
 
 (defn- write-element!
-  "THE production residence of the law (placement amendment 2026-07-19): the
-  single `custom-elements` update every registration performs, on BOTH the dev
-  write-through branch and the production direct branch.
+  "THE advanced-production residence of the law (placement amendment 2026-07-19):
+  the direct `custom-elements` swap the PRODUCTION registration path performs.
 
   This is the only registration code that survives `:advanced` +
-  `goog.DEBUG=false`; everything ledger-shaped folds away with `reload-ledger?`.
-  Putting the check anywhere else would make the law dev-only.
+  `goog.DEBUG=false`; everything ledger-shaped folds away with `reload-ledger?`,
+  so putting the check anywhere else would make the law dev-only. On dev/JVM
+  hosts the declaration is admitted against `ledger-state` instead (see
+  `register-custom-element!`), never here.
 
   The verdict is decided INSIDE the one atomic swap, so no interleaved
   registration is admitted against a value this one has already rejected. The
@@ -1361,12 +1370,17 @@
   dev write-through publishes, reached without touching any ledger state
   (rf2-k9yuy).
 
-  Every path here goes through `write-element!`, so the cross-source declaration
-  law (rf2-vxgfnd.143) holds on EVERY host and build mode: a contradictory
-  same-tag declaration from a DIFFERENT source is rejected without writing and
-  raises `:rf.error/custom-element-conflict` with both `[build-id ns-sym]`
-  anchors, leaving the live manifest exactly as it was. `rf=`-equal duplicates
-  co-exist and a source re-declaring its own tag simply replaces its row."
+  Every path applies the SAME pure `admit` law (rf2-vxgfnd.143), so a
+  cross-source contradiction is caught on EVERY host and build mode — advanced
+  production through the direct `write-element!` barrier, dev/JVM through the
+  `ledger-state` admission (`write-through-verdict` here, `commit-reload!` for a
+  staged reload). A contradictory same-tag declaration from a DIFFERENT source is
+  rejected without writing and raises `:rf.error/custom-element-conflict` whose
+  `:declarations` is a sorted vector naming every equal incumbent declarer plus
+  the arriving source, leaving the live manifest exactly as it was. `rf=`-equal
+  duplicates co-exist, and a source re-declaring its own tag replaces its row only
+  while it is the SOLE declarer — while another source still co-declares the live
+  value, a non-`rf=`-equal re-declaration is a contradiction."
   ([tag decl ns-sym] (register-custom-element! tag decl ns-sym (current-build-id)))
   ([tag decl ns-sym build-id]
    (let [source [build-id ns-sym]]
