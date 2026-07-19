@@ -380,6 +380,16 @@
      (pass-open? (current-build-id))))
   ([build-id] (:pass-open? (get @state build-id empty-slice) false)))
 
+(defn shadow-compile?
+  "Whether an OWNED Shadow compiler-env carrier is bound — a real Shadow
+  build/watch/REPL compile, where the build hook's `:compile-prepare` harvest
+  (or the REPL's own top-to-bottom order) governs custom-element seeding. False
+  on the plain-JVM / SSR path, where no compiler env is bound and the harvest
+  must lazily read the ambient namespace's own source instead (rf2-vxgfnd.141).
+  Always false on CLJS (there is no compile-path host there)."
+  []
+  #?(:clj (boolean (validated-compiler-state)) :cljs false))
+
 ;; ---------------------------------------------------------------------------
 ;; Contribution (pure transitions)
 ;; ---------------------------------------------------------------------------
@@ -595,6 +605,38 @@
                         (sort-by str (keys registries)))]
     (::conflict outcome)))
 
+(defn- stage-element-checked
+  "Pure: admit `source`'s `tag` -> `decl` into `slice` under the ruled
+  cross-source conflict law, returning `[slice' conflict|nil]`. The barrier both
+  the ambient `contribute-element-checked!` and the pre-pass
+  `seed-shadow-elements` share, so no aggregation path can pick a merge-order
+  winner regardless of which route wrote the row. An `rf=`-equal duplicate is
+  idempotent; a contradiction from another live source (or a second
+  contradictory declaration in the same open pass of one ns) is refused without
+  writing, leaving the last-known-good slice untouched."
+  [slice source tag decl]
+  (let [other-decl (get (effective slice elements source) tag)
+        other-owner (get (effective slice element-declarations source) tag)
+        ;; Own STAGED row only: a second, contradictory declaration of the same
+        ;; tag in the same pass of the same ns. Committed/no-pass rows are the
+        ;; source replacing itself and must stay admissible.
+        own-decl (when (:pass-open? slice)
+                   (get-in slice [:staged source elements tag]))
+        conflict (cond
+                   (and (some? other-decl) (not (eq/rf= other-decl decl)))
+                   {:owner other-owner :declaration other-decl}
+
+                   (and (some? own-decl) (not (eq/rf= own-decl decl)))
+                   {:owner source :declaration own-decl}
+
+                   :else nil)]
+    (if conflict
+      [slice conflict]
+      [(-> slice
+           (write-slice element-declarations source tag source)
+           (write-slice elements source tag decl))
+       nil])))
+
 (defn contribute-element-checked!
   "Atomically contribute ONE custom-element declaration under the ruled
   cross-source conflict law (rf2-vxgfnd.143, delegated ruling 2026-07-15
@@ -622,28 +664,30 @@
   (let [outcome (atom nil)]
     (update-current-slice!
      (fn [slice]
-       (let [other-decl (get (effective slice elements source) tag)
-             other-owner (get (effective slice element-declarations source) tag)
-             ;; Own STAGED row only: a second, contradictory declaration of the
-             ;; same tag in the same pass of the same ns. Committed/no-pass rows
-             ;; are the source replacing itself and must stay admissible.
-             own-decl (when (:pass-open? slice)
-                        (get-in slice [:staged source elements tag]))
-             conflict (cond
-                        (and (some? other-decl) (not (eq/rf= other-decl decl)))
-                        {:owner other-owner :declaration other-decl}
-
-                        (and (some? own-decl) (not (eq/rf= own-decl decl)))
-                        {:owner source :declaration own-decl}
-
-                        :else nil)]
-         (if conflict
-           (do (reset! outcome {:conflict conflict}) slice)
-           (do (reset! outcome nil)
-               (-> slice
-                   (write-slice element-declarations source tag source)
-                   (write-slice elements source tag decl)))))))
+       (let [[slice' conflict] (stage-element-checked slice source tag decl)]
+         (reset! outcome (when conflict {:conflict conflict}))
+         slice')))
     @outcome))
+
+(defn seed-shadow-elements
+  "Purely PRE-STAGE harvested custom-element declarations into `build-state`'s
+  open scratch pass, BEFORE any view analyzes — the order-independence seam the
+  build hook uses at `:compile-prepare` (rf2-vxgfnd.141, dimension 2). Each
+  `[source tag decl]` triple is admitted under the SAME cross-source conflict
+  law as `contribute-element-checked!`: an `rf=`-equal duplicate co-exists, a
+  contradictory same-tag declaration is REFUSED here (the `ui/custom-element`
+  macro reports it with source coordinates when it later expands) so the slice
+  never carries a merge-order winner. A pure build-state transform because
+  `cljs.env/*compiler*` is not bound during hook execution; when no scratch pass
+  is open the build-state is returned unchanged."
+  [build-state seeded]
+  (if (get-in build-state [:compiler-env scratch-key])
+    (update-in build-state [:compiler-env scratch-key]
+               (fn [slice]
+                 (reduce (fn [s [source tag decl]]
+                           (first (stage-element-checked s source tag decl)))
+                         slice seeded)))
+    build-state))
 
 ;; ---------------------------------------------------------------------------
 ;; Pass boundaries

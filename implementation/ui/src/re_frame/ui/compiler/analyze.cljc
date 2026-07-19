@@ -17,7 +17,8 @@
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.env :as env]
             [re-frame.ui.fingerprint :as fingerprint]
-            [re-frame.ui.rules :as rules]))
+            [re-frame.ui.rules :as rules]
+            #?@(:clj [[re-frame.ui.compiler.harvest :as harvest]])))
 
 (def node-ops
   "The CLOSED op set — the AST-shape gate's vocabulary. `:frame-root` (S1c,
@@ -1830,7 +1831,19 @@
         ;; resolves the CURRENT build's declarations — never a process-global
         ;; last-writer-wins mirror that a sibling build could clobber between
         ;; this tag's declaration and this classification read.
-        properties (when custom? (build/element-properties tag))
+        ;;
+        ;; On the plain-JVM / SSR path there is no `:compile-prepare` hook to
+        ;; pre-seed the slice, and macros expand top-to-bottom, so a view
+        ;; expanded before a declaration below it would read an empty slice and
+        ;; lower a declared property to an attribute. Harvest this namespace's
+        ;; OWN literal declarations once, here, before classifying — making the
+        ;; verdict order-independent (rf2-vxgfnd.141, dimension 2). Under a real
+        ;; Shadow compile the build hook already seeded the slice, so this is a
+        ;; no-op there (`shadow-compile?`).
+        properties (when custom?
+                     #?(:clj (when-not (build/shadow-compile?)
+                               (harvest/ensure-namespace-harvested! (:ns e))))
+                     (build/element-properties tag))
         spread?    (spread-form? e props-form)
         spread-safe? (spread-safe-form? e props-form)]
     (when (and (some? props-form) (not (map? props-form))

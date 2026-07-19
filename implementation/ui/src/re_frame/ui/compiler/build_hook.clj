@@ -97,7 +97,8 @@
   It is currently wired only by the digest-probe build, not `:build-defaults`."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [re-frame.ui.compiler.build :as build]))
+            [re-frame.ui.compiler.build :as build]
+            [re-frame.ui.compiler.harvest :as harvest]))
 
 (def digest-sentinel
   "The unique fixed-width literal emitted by re-frame.ui.digest-carrier.
@@ -207,31 +208,41 @@
    #{}
    build-sources))
 
-(defn- recompiled-member-nss
-  "Declaring namespaces whose CLJS source Shadow 3.4.10 will actually compile.
+(defn- parallel-build?
+  "Whether Shadow schedules this build in parallel — output presence is then the
+  exact cache-hit / recompile signal."
+  [build-state]
+  (and (:executor build-state)
+       (not (false? (get-in build-state
+                            [:compiler-options :parallel-build])))))
 
-  At `:compile-prepare`, watch reset has already removed output for modified
-  and affected sources. Parallel compilation schedules precisely sources with
-  no retained output map; sequential compilation calls
+(defn- pass-recompiles-cljs?
+  "Whether Shadow 3.4.10 will actually (re)compile CLJS resource `resource-id`
+  this pass. At `:compile-prepare`, watch reset has already removed output for
+  modified and affected sources. Parallel compilation schedules precisely
+  sources with no retained output map; sequential compilation calls
   `generate-output-for-source`, which also recompiles retained outputs carrying
   warnings. Mirror those two Shadow branches rather than treating every graph
   member as dirty: warm cache-hit silence must preserve accepted registry rows."
-  [{:keys [build-sources sources output executor] :as build-state}]
-  (let [parallel? (and executor
-                       (not (false? (get-in build-state
-                                           [:compiler-options
-                                            :parallel-build]))))]
+  [{:keys [sources output] :as build-state} parallel? resource-id]
+  (let [{:keys [type]} (get sources resource-id)
+        prior-output (get output resource-id)]
+    (and (= :cljs type)
+         (if parallel?
+           (not (map? prior-output))
+           (or (nil? prior-output)
+               (seq (:warnings prior-output)))))))
+
+(defn- recompiled-member-nss
+  "Declaring namespaces whose CLJS source Shadow 3.4.10 will actually compile."
+  [{:keys [build-sources sources] :as build-state}]
+  (let [parallel? (parallel-build? build-state)]
     (reduce
      (fn [acc resource-id]
-       (let [{:keys [type ns provides]} (get sources resource-id)
-             prior-output (get output resource-id)
-             scheduled? (if parallel?
-                          (not (map? prior-output))
-                          (or (nil? prior-output)
-                              (seq (:warnings prior-output))))]
-         (if (and (= :cljs type) scheduled?)
-           (into acc (or provides (when ns #{ns})))
-           acc)))
+       (if (pass-recompiles-cljs? build-state parallel? resource-id)
+         (let [{:keys [ns provides]} (get sources resource-id)]
+           (into acc (or provides (when ns #{ns}))))
+         acc))
      #{}
      build-sources)))
 
@@ -637,6 +648,51 @@
           (publish-tree! candidate stable)))))
   build-state)
 
+;; ---------------------------------------------------------------------------
+;; Deterministic custom-element pre-seed (rf2-vxgfnd.141, dimension 2)
+;;
+;; Compile-time property lowering reads the `elements` slice at macroexpansion,
+;; and macros expand top-to-bottom, so a view expanded before its tag's
+;; `(ui/custom-element …)` declaration — or in a source that compiled before the
+;; declaring source, with no `:require` edge to order them — saw an empty slice
+;; and lowered a declared property to an HTML attribute. Reading each RECOMPILED
+;; UI source's top-level literal declarations here, at `:compile-prepare`, and
+;; staging them into the open pass BEFORE any view analyzes makes classification
+;; a pure function of the build's declarations rather than evaluation order.
+;; Restricted to recompiled sources: a warm cache-hit keeps its accepted rows
+;; (re-staging elements-only would evict its committed views at commit) and its
+;; declarations stay visible through the committed aggregate anyway.
+;; ---------------------------------------------------------------------------
+
+(defn- resource-source
+  "Source text of a Shadow CLJS resource: its already-loaded `:source` string,
+  else read from `:url` / `:file`. nil (a source we cannot read) makes the
+  harvest a graceful no-op for that member — the `ui/custom-element` macro
+  remains the authority."
+  [{:keys [source url file]}]
+  (cond
+    (string? source) source
+    url  (try (slurp url) (catch Throwable _ nil))
+    file (try (slurp file) (catch Throwable _ nil))
+    :else nil))
+
+(defn- harvest-seed
+  "The `[source tag decl]` triples for every RECOMPILED re-frame.ui-consumer
+  source scheduled this pass — the declarations that must seed the elements
+  slice before any view analyzes."
+  [{:keys [build-sources sources] :as build-state}]
+  (let [parallel? (parallel-build? build-state)]
+    (into []
+          (mapcat
+           (fn [resource-id]
+             (let [{:keys [ns] :as rc} (get sources resource-id)]
+               (when (and ns
+                          (pass-recompiles-cljs? build-state parallel? resource-id)
+                          (ui-cache-blocked-source? rc))
+                 (some->> (resource-source rc)
+                          (harvest/source-seed ns))))))
+          build-sources)))
+
 (defn hook
   "Shadow build hook. Configure once in `:build-defaults` as
   `:build-hooks [(re-frame.ui.compiler.build-hook/hook)]`."
@@ -672,6 +728,11 @@
                                         build-id
                                         (member-nss stamped)
                                         (recompiled-member-nss stamped))
+            ;; Pre-seed this pass's recompiled custom-element declarations into
+            ;; the open scratch BEFORE any view analyzes, so property lowering is
+            ;; order-independent (rf2-vxgfnd.141, dimension 2). Pure build-state
+            ;; transform — `cljs.env/*compiler*` is not bound during the hook.
+            (build/seed-shadow-elements (harvest-seed stamped))
             (assoc-in [:compiler-env build/scratch-key :pass-token]
                       pass-token)
             (assoc-in [:compiler-env build/scratch-key :compile-witness]
