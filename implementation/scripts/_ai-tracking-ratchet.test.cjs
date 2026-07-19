@@ -373,6 +373,69 @@ test('ARM 7: an unresolvable base ref fails closed rather than passing vacuously
 });
 
 // ---------------------------------------------------------------------------
+// ARM 8 — THE MULTI-COMMIT PUSH. The base must be the ACCEPTED base of the
+// push, not HEAD^. This is the rf2-7hq4l defect: on a push of more than one
+// commit, HEAD^ is the push's own second-to-last commit, so a path first
+// tracked in an EARLIER commit and retained at the tip is present on both
+// sides of a HEAD^ diff and escapes. The workflow resolves the base to
+// github.event.before (the previously accepted main tip); this arm proves that
+// choice is load-bearing by running the real gate against BOTH bases on one
+// fixture and showing they disagree.
+//
+// Negative control, in the spirit of the count-ceiling controls above but
+// aimed at the BASE-SELECTION defect rather than the counting one: HEAD^ (the
+// pre-fix base) PASSES this fixture — the exact false green — while the
+// accepted push base FAILS and names the path.
+
+test('ARM 8: a multi-commit push — an ai/ path added before the tip escapes HEAD^ but is caught by the accepted push base', () => {
+  withFixtureRepo((h) => {
+    // The previously accepted main tip: one pre-existing tracked ai/ file, no
+    // probe. This SHA is what github.event.before carries for the push below.
+    h.write('README.md', '# fixture\n');
+    h.write('ai/findings/kept.md', '# already accepted\n');
+    h.commit('B: the previously accepted main tip');
+    const acceptedBase = h.git('rev-parse', 'HEAD').trim();
+
+    // c1 — the FIRST commit of a two-commit push ADDS the probe under ai/.
+    h.write('ai/_audit-multicommit-probe.md', '# added in an earlier commit of the push\n');
+    h.commit('c1: track a new ai/ path');
+
+    // c2 — the tip. It touches something unrelated and RETAINS the probe, so
+    // HEAD^ (= c1) already has it.
+    h.write('README.md', '# fixture, edited at the tip\n');
+    h.commit('c2: the pushed tip, probe retained');
+
+    // BUG SHAPE — HEAD^ is c1, which already tracks the probe, so the diff is
+    // empty and the gate PASSES. This is what the unfixed push path did.
+    const viaHeadParent = h.run('HEAD^');
+    assert.equal(
+      viaHeadParent.status,
+      0,
+      'HEAD^ points inside the push and misses a path added before the tip — the rf2-7hq4l blind spot',
+    );
+    assert.equal(viaHeadParent.currentCount, 2);
+    assert.match(viaHeadParent.stdout, /unchanged from base HEAD\^/);
+
+    // FIX SHAPE — comparing the pushed tip against the ACCEPTED base (B) makes
+    // the probe an addition, so the gate FAILS and names it.
+    const viaAcceptedBase = h.run(acceptedBase);
+    assert.equal(
+      viaAcceptedBase.currentCount,
+      2,
+      'the same index is compared — only the base differs',
+    );
+    assert.equal(
+      viaAcceptedBase.status,
+      1,
+      'against the accepted push base a path first tracked in an earlier commit must fail',
+    );
+    assert.match(viaAcceptedBase.stderr, /ADDED: ai\/_audit-multicommit-probe\.md/);
+    assert.match(viaAcceptedBase.stderr, /1 path\(s\) newly tracked under ai\//);
+    assert.match(viaAcceptedBase.stderr, /tracked 1 file\(s\) under ai\/; this change tracks 2/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Non-vacuity of the SUITE itself: the arms above are not all failures. If a
 // future edit made the gate fail unconditionally, arms 1, 3, 6a and the drain
 // would catch it — this asserts that mix is actually present, so the suite
@@ -383,6 +446,7 @@ test('SUITE: the arms include genuine passes, so a fail-everything gate is caugh
   assert.ok(names.some((n) => n.startsWith('ARM 1')), 'a passing arm must be present');
   assert.ok(names.some((n) => n.startsWith('ARMS 3+4')), 'the decrease-then-increase sequence must be present');
   assert.ok(names.some((n) => n.startsWith('ARMS 6a+6b')), 'the end-state sequence must be present');
+  assert.ok(names.some((n) => n.startsWith('ARM 8')), 'the multi-commit push tooth must be present');
 });
 
 let failed = 0;

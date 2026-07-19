@@ -59,17 +59,23 @@
 # real cost, and it is the intended one — the alternative is a lever that a
 # force-add can pull on its own.
 #
-# BASE resolution — `HEAD^`, the first parent, which is the last accepted
-# state in both CI shapes:
-#   * pull_request: CI checks out the MERGE commit, whose first parent is
-#     the base-branch tip. Difference = exactly what this PR adds.
-#   * push to main: the first parent is the previously accepted main tip.
-#     Difference = exactly what this push adds.
-# Override with AI_RATCHET_BASE_REF for other shapes and for this gate's own
-# teeth tests. If the base cannot be resolved (root commit, or a depth-1
-# shallow clone) the gate FAILS rather than passing: a guard that cannot see
-# its base must not certify anything. The workflow therefore checks out with
-# fetch-depth: 2.
+# BASE resolution. The base is read from AI_RATCHET_BASE_REF, defaulting to
+# `HEAD^` only when it is unset or empty. CI sets it to the EVENT's accepted
+# base (rf2-7hq4l) and never lets the default stand in for a push:
+#   * pull_request: github.event.pull_request.base.sha, the base-branch tip.
+#     This equals the merge commit's first parent, so HEAD^ was already sound
+#     here; the workflow passes it explicitly so both shapes share one rule.
+#   * push to main: github.event.before, the tip main pointed at before the
+#     push. HEAD^ is NOT that tip on a MULTI-COMMIT push — it is the push's own
+#     second-to-last commit — so a path first tracked in an earlier commit of
+#     the push and retained at the tip would sit on both sides of a HEAD^ diff
+#     and escape. Comparing against the accepted base names it instead.
+# `HEAD^` stays the default for LOCAL and manual runs, where the parent is a
+# sensible base and there is no event to consult. If the base cannot be
+# resolved (root commit, or an over-shallow clone) the gate FAILS rather than
+# passing: a guard that cannot see its base must not certify anything. The
+# workflow therefore checks out with fetch-depth: 0, because the accepted push
+# base can be arbitrarily deep.
 #
 # Cross-platform: POSIX sh. No bashisms (`[[`, arrays, `<<<`, process
 # substitution). Runs identically on the ubuntu-latest CI runner, on macOS,

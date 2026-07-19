@@ -117,28 +117,64 @@ jobs:
     name: No newly tracked files under ai/
     runs-on: ubuntu-latest
     steps:
-      # fetch-depth: 2 is REQUIRED, not incidental (rf2-ow7dz). The gate
-      # compares the tracked ai/ set against the same set at HEAD^ — the
-      # base-branch tip on a pull_request merge commit, the previous main
-      # tip on a push. At the default depth of 1 that parent is absent and
-      # the gate FAILS closed rather than passing vacuously, so this line is
-      # load-bearing.
+      # fetch-depth: 0 is REQUIRED, not incidental (rf2-ow7dz, rf2-7hq4l). The
+      # gate compares the tracked ai/ set against the last ACCEPTED state, and
+      # that base is the event's accepted base — resolved in the step below,
+      # NOT HEAD^:
+      #   * push to main: github.event.before, the tip main pointed at before
+      #     this push. On a MULTI-COMMIT push HEAD^ is only the second-to-last
+      #     commit of this same push, so a path first tracked in an earlier
+      #     commit and retained at the tip is present on both sides and escapes
+      #     (the rf2-7hq4l defect). The accepted base can be arbitrarily deep,
+      #     so a full checkout is the only depth that is guaranteed to hold it.
+      #   * pull_request: github.event.pull_request.base.sha, the base-branch
+      #     tip — which equals the merge commit's first parent, so HEAD^ was
+      #     already sound here; the base sha is passed explicitly so both event
+      #     shapes share one contract instead of relying on HEAD^ by accident.
+      # If the base cannot be resolved the script FAILS closed rather than
+      # passing vacuously (its own guard), so a missing base certifies nothing.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       # Same precedent as the gate above: lint the gate script itself so a
       # future edit cannot introduce a shell bug that silently weakens it.
       - name: Shellcheck the ratchet script
         run: shellcheck scripts/check-ai-tracking-ratchet.sh
 
+      # Select the event's ACCEPTED base (rf2-7hq4l): the previous main tip for
+      # a push, the PR base tip for a pull_request. A null `before` SHA (the
+      # first push to a fresh ref) and every other event shape leave the ref
+      # empty, so the script falls back to its own HEAD^ default. Context
+      # values arrive via `env:` — never interpolated into the script body — so
+      # the step is injection-safe regardless of what the event carries.
+      - name: Resolve the accepted base
+        id: base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -eu
+          case "$EVENT_NAME" in
+            push)         base="$PUSH_BEFORE" ;;
+            pull_request) base="$PR_BASE_SHA" ;;
+            *)            base='' ;;
+          esac
+          if [ "$base" = '0000000000000000000000000000000000000000' ]; then
+            base=''
+          fi
+          echo "ref=$base" >> "$GITHUB_OUTPUT"
+
       # Fails when any path is tracked under ai/ that was NOT tracked at the
-      # base, naming every such path. Counts are irrelevant to the decision,
-      # which is what makes it a ratchet rather than a ceiling: an addition
-      # fails even after an earlier removal, and even when a swap leaves the
-      # total unchanged. A decrease passes — S7 (rf2-vxgfnd.99.1) removes the
-      # remaining trees and must never be blocked by this gate — and the base
-      # then tightens on its own, because it is read from git. Invoked via
-      # `sh` so the script needs no executable bit on the runner.
+      # accepted base, naming every such path. Counts are irrelevant to the
+      # decision, which is what makes it a ratchet rather than a ceiling: an
+      # addition fails even after an earlier removal, and even when a swap
+      # leaves the total unchanged. A decrease passes — S7 (rf2-vxgfnd.99.1)
+      # removes the remaining trees and must never be blocked by this gate —
+      # and the base tightens on its own, because it is read from the event.
+      # Invoked via `sh` so the script needs no executable bit on the runner.
       - name: Run the tracked-ai/ ratchet
+        env:
+          AI_RATCHET_BASE_REF: ${{ steps.base.outputs.ref }}
         run: sh scripts/check-ai-tracking-ratchet.sh
