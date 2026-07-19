@@ -709,7 +709,7 @@ There is no dedicated "reset" function; `reset-frame!` was retired (rf2-lxwpob).
   ```clojure
   (current-frame-id) → keyword
   ```
-- **Description**: Return the active frame id the in-effect scope carries: the dynamic `*current-frame*` stamp, or a React-context `frame-provider` scope (CLJS only). This is the context **reader** form; it requires an established scope. There is **no `:rf/default` floor**. Called under no established scope, it raises `:rf.error/no-frame-context` (EP-0002).
+- **Description**: Return the active frame id the in-effect scope carries: the dynamic `*current-frame*` stamp, or the closest React-context frame boundary — a [`frame-provider`](#frame-provider) (SCOPE) or a [`frame-root`](#frame-root) (ENSURE), both of which emit scope (CLJS only). This is the context **reader** form; it requires an established scope. There is **no `:rf/default` floor**. Called under no established scope, it raises `:rf.error/no-frame-context` (EP-0002).
 
 ### `frame-generation`
 
