@@ -343,6 +343,55 @@ unexercised — Stage 1 confirms.
 | adjacent text | coalesced in the tree (canonical form); **the serialiser's hydration text-separator behaviour (`<!-- -->` between originally-distinct dynamic text runs) is an open 011-owned row** — React hydration distinguishes text-node boundaries, `renderToStaticMarkup` does not; a hydration fixture must settle what our emitter writes **[S1-CONFIRM]** |
 | no handler attributes | event data never serialises into HTML — no `onclick="…"`, ever |
 
+### Leading-newline compensation — the newline-eating elements
+
+The compact row above states the enforced scope; this is the normative rule the
+serialiser meets in full.
+
+The HTML parser **drops one leading `U+000A` LINE FEED** that immediately follows the
+start tag of `<pre>`, `<listing>`, and `<textarea>` — the *newline-eating elements*
+(HTML tree construction's "if the next token is an LF character token, ignore it"
+step). `<pre>`/`<listing>` carry ordinary element content and `<textarea>` is
+escapable RCDATA, but all three share that single leading-LF drop. Left
+uncompensated, a body that itself begins with LF would serialise, parse, and come
+back one newline short — the authored blank first line silently vanishes, and under
+SSR the hydrated DOM diverges from the server markup (an S5 correctness gap).
+
+**The rule.** When a newline-eating element's body is a **single string beginning
+with LF**, the serialiser emits **one compensating LF** immediately after the start
+tag, ahead of the (escaped) body. The parser's drop then cancels that compensating
+LF and the authored content survives the round-trip. Only the first LF is ever
+compensated; interior newlines are emitted verbatim. This is byte-parity with
+react-dom/server 19.2, which prefixes the same LF under its single-string-body guard
+(`typeof … === 'string'`, applied to a string child and to
+`dangerouslySetInnerHTML.__html` alike): a multi-child or element body is left
+untouched because React does not doctor a body that is not one string.
+
+**Scope — what counts as "a single string body"** (exactly the set the serialiser
+compensates):
+
+- **`<pre>` / `<listing>` / `<textarea>`** — a lone **ordinary string child**
+  beginning with LF is compensated. `<textarea>` additionally sources its content
+  through `:value`/`:default-value` (the form-control special form in *Property-only
+  and form-control special forms* above); a `:value` string beginning with LF is
+  compensated on the same footing as a string child.
+- **`<pre>` / `<listing>` only** — a **sole trusted-markup (`ui/html`, `{:html s}`)
+  child** whose string begins with LF is compensated as well (React doctors
+  `dangerouslySetInnerHTML.__html` the same way). `<textarea>` is **absent from this
+  arm**: a trusted-markup child beneath a textarea is rejected outright at the SSR
+  seam and the compiler (react-dom/server 19.2 rejects `dangerouslySetInnerHTML` on a
+  textarea — its content is `value`/`defaultValue` or a text child; see the
+  `dangerouslySetInnerHTML` row above), so it never reaches compensation. The
+  exclusion is a *consequence* of that rejection, not a second rule.
+- **Nothing else.** A multi-child body, a structural element child, a body that does
+  not begin with LF, or a non-string trusted-markup body is left **untouched**: the
+  parser's leading-LF drop still applies, but neither React nor this serialiser
+  doctors a body that is not a single string.
+
+This is a narrow parser-parity rule, not a general whitespace-normalisation policy —
+the tree is emitted verbatim apart from this one compensating LF (rf2-z05di,
+rf2-0spji, rf2-ib4fd).
+
 ### Custom elements (per the RULED grammar)
 
 Per [Spec 004 §Template grammar](004-Views.md#template-grammar)'s RULED `ui/custom-element`
