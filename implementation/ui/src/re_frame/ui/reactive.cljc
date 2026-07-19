@@ -83,23 +83,24 @@
        back-to-back `dispatch-sync!` calls in one JavaScript stack render
        once, not twice; so do nested cross-frame synchronous drains.
 
-       Read that example precisely. Guarantee 3 is a PERMISSION — "drains
-       that finish before the same checkpoint MAY share a batch" — and it
-       stays a permission. The example is nonetheless UNCONDITIONAL because
-       its own phrase `in one JavaScript stack` supplies the condition: a
-       stack that has not yielded cannot have reached a host checkpoint (the
-       microtask armed by the first mark cannot run until the stack unwinds),
-       so both drains necessarily finish inside one window. The example is
-       therefore a THEOREM of guarantees 1, 3 and 4 together — not a promotion
-       of the permission into a general "separate drains always share" rule.
-       Two drains with a real yield between them still render separately, by
+       Read that example precisely. Guarantee 3 is a PERMISSION — drains that
+       finish before the same checkpoint MAY share a batch — and it stays a
+       permission. The example is nonetheless UNCONDITIONAL because its own
+       phrase `in one JavaScript stack` supplies the condition: a stack that
+       has not yielded cannot have reached a host checkpoint (the microtask
+       armed by the first mark cannot run until the stack unwinds), so both
+       drains necessarily finish inside one window. The example is therefore a
+       THEOREM of guarantees 1, 3 and 4 together — NOT a promotion of the
+       permission into a general `separate drains always share` rule. Two
+       drains with a real yield between them still render separately, by
        guarantee 4.
     4. Drains separated by a real HOST YIELD render separately.
 
   Guarantee 3's example held on the mounted React path all along. It was
   briefly retracted (rf2-kahkr) on a measurement — three back-to-back
   `dispatch-sync!` calls advancing the revision 0 -> 1 -> 2, with a control
-  microtask observed running "mid-call" — that was REAL but MISATTRIBUTED.
+  microtask observed running seemingly MID-CALL — that was REAL but
+  MISATTRIBUTED.
   The yield was INSTRUMENTATION, not the router (rf2-i3dvj): the DEBUG
   call-site stamp emitted a runtime `cond->` into the caller's context, which
   the CLJS compiler lowered to `await (async function(){...})()` because the
