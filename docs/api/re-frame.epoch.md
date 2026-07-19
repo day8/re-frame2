@@ -6,7 +6,7 @@
 (:require [re-frame.epoch :as epoch])
 ```
 
-Most of this surface is re-exported on the `re-frame.core` facade, so `rf/restore-epoch!` and `epoch/restore-epoch!` name the same function. Examples below use the `rf/` form for re-exported names and the `epoch/` form for the epoch-only helpers (`clear-history!`, `current-config`, `register-epoch-listener!`, `unregister-epoch-listener!`, `clear-epoch-listeners!`, `configure!`). The epoch drain-settle **listener** is NOT a per-channel facade re-export. Its app-facing route is the `:epoch` stream of the one listener verb: `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch id)`. The `epoch/register-epoch-listener!` native form below is the same underlying registry. See [Observability](../core/observability.md) for how epochs fit the broader trace model.
+Most of this surface is re-exported on the `re-frame.core` facade, so `rf/restore-epoch!` and `epoch/restore-epoch!` name the same function. Examples below use the `rf/` form for re-exported names and the `epoch/` form for the epoch-only helpers (`clear-history!`, `current-config`, `register-epoch-listener!`, `unregister-epoch-listener!`, `clear-epoch-listeners!`, `configure!`). The epoch **listener** is NOT a per-channel facade re-export. Its app-facing route is the `:epoch` stream of the one listener verb: `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch id)`. The `epoch/register-epoch-listener!` native form below is the same underlying registry. See [Observability](../core/observability.md) for how epochs fit the broader trace model.
 
 ## Epoch history
 
