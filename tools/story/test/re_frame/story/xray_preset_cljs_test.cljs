@@ -58,18 +58,13 @@
 
 (deftest disable-keybinding-shimmed-configure
   (testing "disable-keybinding! calls Xray's configure! with the exact slot map"
-    ;; Belt-and-braces test: redef `xray-config-available?` (already
-    ;; true in this build) and the `resolve-fn` lookup so we capture
-    ;; the exact opts map the bridge sends to `configure!`. Guards the
-    ;; payload shape against accidental extras / typos.
-    (let [captured (atom nil)
-          shim-configure! (fn [opts] (reset! captured opts) nil)]
-      (with-redefs [xray-preset/xray-config-available?
-                    (fn [] true)
-                    xray-preset/resolve-fn
-                    (fn [sym]
-                      (when (= sym 'day8.re-frame2-xray.config/configure!)
-                        shim-configure!))]
+    ;; Belt-and-braces test: redef Xray's `configure!` var directly
+    ;; (the bridge calls it through a declared `:require`, not a
+    ;; runtime symbol lookup — rf2-r8trk) so we capture the exact opts
+    ;; map. Guards the payload shape against accidental extras / typos.
+    (let [captured (atom nil)]
+      (with-redefs [xray-config/configure!
+                    (fn [opts] (reset! captured opts) nil)]
         (is (true? (xray-preset/disable-keybinding!))
             "returns true when the configure! call landed")
         (is (= {:rf.xray/keybinding-enabled? false} @captured)
@@ -79,32 +74,17 @@
 
 (deftest detach-keybinding-drives-xray-keybinding-detach
   (testing "detach-keybinding! removes Xray's global keydown listener"
-    ;; Belt-and-braces test: redef `xray-config-available?` and the
-    ;; `resolve-fn` lookup so we capture that detach-keybinding! drives
-    ;; `keybinding/detach!` by symbol. The bridge is symbol-based
-    ;; (resolve-fn 'day8.re-frame2-xray.keybinding/detach!) so the
-    ;; assertion mirrors that lookup contract.
-    (let [called? (atom false)
-          shim-detach! (fn [] (reset! called? true) nil)]
-      (with-redefs [xray-preset/xray-config-available?
-                    (fn [] true)
-                    xray-preset/resolve-fn
-                    (fn [sym]
-                      (when (= sym 'day8.re-frame2-xray.keybinding/detach!)
-                        shim-detach!))]
+    ;; Belt-and-braces test: redef Xray's `detach!` var directly. The
+    ;; bridge calls it through a declared `:require` (rf2-r8trk), so
+    ;; the assertion mirrors that direct-reference contract rather
+    ;; than a runtime symbol lookup.
+    (let [called? (atom false)]
+      (with-redefs [xray-keybinding/detach!
+                    (fn [] (reset! called? true) nil)]
         (is (true? (xray-preset/detach-keybinding!))
             "returns true when keybinding/detach! is reachable")
         (is (true? @called?)
             "keybinding/detach! was driven by the bridge")))))
-
-(deftest detach-keybinding-is-noop-without-xray
-  (testing "detach-keybinding! returns nil when Xray's keybinding ns is absent"
-    ;; Shim xray-config-available? false so the outer guard short-
-    ;; circuits — bridges must degrade silently when Xray is not on the
-    ;; classpath (the standalone-Story posture).
-    (with-redefs [xray-preset/xray-config-available? (fn [] false)]
-      (is (nil? (xray-preset/detach-keybinding!))
-          "no Xray → no work → nil"))))
 
 ;; ---- wire-cross-host! drives the bridges (rf2-ee38b.3) -------------------
 ;;
@@ -116,17 +96,14 @@
   (testing "wire-cross-host! drives disable-keybinding! + detach-keybinding!;
             the composed (wire-cross-host! + apply-open!) still opens"
     ;; The embed wires cross-host config on every variant-selection edge.
-    ;; Verify the keybinding bridges fire. We shim the Xray-availability
-    ;; gate AND the bridges so we can assert the wiring without depending
-    ;; on the underlying configure! plumbing (covered by the shimmed-
-    ;; configure test above), and shim `apply-open!` so we don't actually
-    ;; mount a shell.
+    ;; Verify the keybinding bridges fire. We shim the bridges so we can
+    ;; assert the wiring without depending on the underlying configure!
+    ;; plumbing (covered by the shimmed-configure test above), and shim
+    ;; `apply-open!` so we don't actually mount a shell.
     (let [disable-called? (atom false)
           detach-called?  (atom false)
           open-called?    (atom false)]
-      (with-redefs [xray-preset/xray-available?
-                    (fn [] true)
-                    xray-preset/disable-keybinding!
+      (with-redefs [xray-preset/disable-keybinding!
                     (fn [] (reset! disable-called? true) true)
                     xray-preset/detach-keybinding!
                     (fn [] (reset! detach-called? true) true)
@@ -148,9 +125,7 @@
             declared intent. We capture the order via a shared log and
             assert disable-keybinding! ran before detach-keybinding!."
     (let [calls (atom [])]
-      (with-redefs [xray-preset/xray-available?
-                    (fn [] true)
-                    xray-preset/disable-keybinding!
+      (with-redefs [xray-preset/disable-keybinding!
                     (fn [] (swap! calls conj :disable) true)
                     xray-preset/detach-keybinding!
                     (fn [] (swap! calls conj :detach) true)
@@ -185,14 +160,12 @@
         (xray-keybinding/attach!)
         (is (true? (xray-keybinding/attached?))
             "precondition: preload-style attach! installed the listener"))
-      ;; Drive the cross-host bridge. We shim Xray-availability so the
-      ;; gate passes; `disable-keybinding!` and `detach-keybinding!` run
-      ;; for real (their inner `resolve-fn` lookups resolve against
-      ;; Xray's live config/keybinding namespaces, both on the test
-      ;; classpath). No shell mount happens — `wire-cross-host!` never
-      ;; calls `apply-open!`.
-      (with-redefs [xray-preset/xray-available? (fn [] true)]
-        (xray-preset/wire-cross-host!))
+      ;; Drive the cross-host bridge for real — `disable-keybinding!`
+      ;; and `detach-keybinding!` reference Xray's live config /
+      ;; keybinding namespaces through declared `:require`s
+      ;; (rf2-r8trk), so no availability shim is needed. No shell mount
+      ;; happens — `wire-cross-host!` never calls `apply-open!`.
+      (xray-preset/wire-cross-host!)
       (is (false? (xray-config/keybinding-attach-enabled?))
           "wire-cross-host! flipped the slot to false")
       (is (false? (xray-keybinding/attached?))

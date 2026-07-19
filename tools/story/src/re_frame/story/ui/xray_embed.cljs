@@ -56,7 +56,6 @@
   (:require [reagent.core :as r]
             [day8.re-frame2-xray.mount :as xray-mount]
             [day8.re-frame2-xray.panels :as xray-panels]
-            [re-frame.story.xray-preset :as xray-preset]
             [re-frame.story.config :as config]
             [re-frame.story.predicates :as pred]
             [re-frame.story.registrar :as registrar]
@@ -213,13 +212,11 @@
   popout carries the full chrome the per-panel embed elides so
   power users have one click to the whole-shell shape.
 
-  Gated on `xray-available?` so the chip remains a graceful no-op
-  when Xray's preload is not on the build (e.g. a pre-rf2-v1ach
-  Story-only build); the direct `:require` of
-  `day8.re-frame2-xray.mount` above pulls the popout symbol onto
-  the compile classpath."
+  `day8/re-frame2-xray` is a declared Story dependency, so the
+  popout symbol is always on the compile classpath; the only gate is
+  Story's own `config/enabled?` elision posture."
   []
-  (when (and config/enabled? (xray-preset/xray-available?))
+  (when config/enabled?
     (xray-mount/popout!)))
 
 ;; ---- styling -------------------------------------------------------------
@@ -640,9 +637,7 @@
   itself, and the 'pop out full Xray' escape hatch.
 
   Returns nil when no variant is focused — the panels are
-  cascade-scoped; without a variant there's nothing to inspect.
-  Returns a graceful empty state when Xray is not on the
-  classpath (preload absent / production build)."
+  cascade-scoped; without a variant there's nothing to inspect."
   []
   (let [shell      @state/shell-state-atom
         variant-id (:selected-variant shell)]
@@ -651,11 +646,6 @@
       [:div {:style (:empty styles)
              :data-test "story-xray-embed-empty"}
        "Select a variant to inspect via Xray."]
-
-      (not (xray-preset/xray-available?))
-      [:div {:style (:empty styles)
-             :data-test "story-xray-embed-no-xray"}
-       "Xray is not loaded in this build — embed surface unavailable."]
 
       :else
       (let [active-panel (effective-panel shell variant-id)

@@ -15,12 +15,20 @@
                :focus    {:event-pos 5}}}     ; pre-focus a cascade pos
 
   Every slot is optional. A missing `:xray` slot is the v0 behaviour
-  (no auto-mount, no tab focus). Xray's mount surface is resolved at
-  compile time via a direct `:require` (mirroring `mount-fn-for`); the
-  optional filters API is runtime feature-detected via the `resolve-fn`
-  lookup. When Xray's mount ns is somehow not bound, the preset no-ops
-  silently; when filters is not present, only the filters step is
-  skipped (with a console.warn breadcrumb so authors notice).
+  (no auto-mount, no tab focus).
+
+  ## Xray is a declared dependency, not a feature-detect
+
+  `day8/re-frame2-xray` is declared in `tools/story/deps.edn`, so
+  Xray's mount, config, and keybinding surfaces are guaranteed on the
+  classpath and are reached through direct `:require`s. There is no
+  runtime availability probe: a build that resolves this namespace has
+  already resolved Xray's (rf2-r8trk).
+
+  The one genuine feature-detect that remains is the filters API
+  (`day8.re-frame2-xray.filters.config/configure!`), which Xray does
+  not currently expose. When it is absent only the `:filters` step is
+  skipped, with a console.warn breadcrumb so authors notice.
 
   ## Where it runs
 
@@ -45,21 +53,19 @@
             [re-frame.story.registrar  :as registrar]
             #?(:cljs [re-frame.core           :as rf])
             #?(:cljs [re-frame.story.config   :as config])
-            ;; Direct :require for compile-time symbol resolution
-            ;; of `day8.re-frame2-xray.mount/open!`. `xray-available?`
-            ;; checks the bound symbol rather than a runtime
-            ;; `find-ns-obj` + `aget` walk, which returns a
-            ;; false-negative in node-test (shadow-cljs's namespace
-            ;; organisation does not guarantee top-level def'd fns are
-            ;; surfaced as parent-namespace JS properties — the same
-            ;; bug class the `mount-fn-for` walk would hit).
-            ;; Xray is on the same shadow-cljs :source-paths as Story
-            ;; (see `implementation/shadow-cljs.edn`), so the require
-            ;; is a compile-time resolution; bundle-isolation still
-            ;; holds because the gate only forbids `implementation/`
-            ;; → `tools/` requires, not `tools/story` → `tools/xray`
-            ;; (the inverse is explicitly fine).
-            #?(:cljs [day8.re-frame2-xray.mount :as xray-mount])))
+            ;; Direct :require's against the declared `day8/re-frame2-xray`
+            ;; dependency (tools/story/deps.edn). A runtime `find-ns-obj`
+            ;; + `aget` walk is NOT used for these: it returns a
+            ;; false-negative under node-test, because shadow-cljs's
+            ;; namespace organisation does not guarantee top-level def'd
+            ;; fns are surfaced as parent-namespace JS properties.
+            ;; Bundle-isolation is unaffected — the gate forbids
+            ;; `implementation/` → `tools/` requires, not
+            ;; `tools/story` → `tools/xray` (the inverse is explicitly
+            ;; fine, and neither artefact reaches a production bundle).
+            #?@(:cljs [[day8.re-frame2-xray.mount :as xray-mount]
+                       [day8.re-frame2-xray.config :as xray-config]
+                       [day8.re-frame2-xray.keybinding :as xray-keybinding]])))
 
 ;; ---- pure: preset resolution ---------------------------------------------
 
@@ -97,8 +103,12 @@
    (defn- resolve-fn
      "Resolve a fully-qualified `'ns/name` symbol to a fn via
      `cljs.core/find-ns-obj` + property lookup. Returns nil when the
-     namespace or symbol is not loaded. Used to feature-detect Xray
-     and the optional filters API without forcing a hard require.
+     namespace or symbol is not loaded.
+
+     Used for the filters API ONLY. Xray's mount / config / keybinding
+     surfaces are declared dependencies reached via direct `:require`
+     (see the ns docstring) — this walk is unreliable under node-test
+     and must not be reintroduced for them.
 
      CLJS `find-ns-obj` returns the JS object backing the namespace
      and we read the property by munged name. Returns the live fn or
@@ -116,32 +126,6 @@
                  v      (aget ns-obj munged)]
              (when (fn? v) v))))
        (catch :default _ nil))))
-
-#?(:cljs
-   (defn xray-available?
-     "True iff the Xray mount surface is loaded — checks that the
-     compile-time-resolved `xray-mount/open!` symbol is bound to a
-     value at runtime.
-
-     The symbol is resolved at compile time via a direct `:require`
-     of `day8.re-frame2-xray.mount` at the top of this ns (mirroring
-     `mount-fn-for`); the runtime call just dereferences the bound
-     value. A runtime `find-ns-obj` + `aget` feature-detect walk
-     returns a false-negative under node-test (same bug class the
-     `mount-fn-for` walk would hit). Xray is on Story's shadow-cljs
-     `:source-paths` so the require always resolves; the `some?` guard
-     is belt-and-braces against a degenerate build that somehow shipped
-     without Xray's mount ns. When false the preset no-ops silently."
-     []
-     (some? xray-mount/open!)))
-
-#?(:cljs
-   (defn xray-config-available?
-     "True iff Xray's `configure!` surface is loaded — feature-detect
-     `day8.re-frame2-xray.config/configure!`. When false the
-     project-root propagator no-ops silently."
-     []
-     (some? (resolve-fn 'day8.re-frame2-xray.config/configure!))))
 
 #?(:cljs
    (defn filters-available?
@@ -172,14 +156,12 @@
    (defn apply-open!
      "Drive the Xray shell open via `xray-mount/open!`. The symbol
      resolves at compile time via the direct `:require` at the top of
-     this ns (a `find-ns-obj` walk would false-negative under
-     node-test).
+     this ns.
 
      Public composition seam: callers that need a whole-shell open
      compose `(do (wire-cross-host!) (apply-open!))` directly."
      []
-     (when xray-mount/open!
-       (safe-call! "open!" xray-mount/open!))))
+     (safe-call! "open!" xray-mount/open!)))
 
 ;; ---- :project-root bridge -----------------------------------------------
 ;;
@@ -204,9 +186,9 @@
 ;;      already fired (e.g. lazy loader / hot-reload edge).
 ;;
 ;; Idempotent: writing the same project-root twice is a no-op on
-;; Xray's `set-project-root!` (it's a plain reset!). Feature-detect-
-;; safe: when Xray is not on the classpath, the propagator returns
-;; nil without touching the wire.
+;; Xray's `set-project-root!` (it's a plain reset!). Xray's config ns
+;; is a declared dependency, so the only no-op case is "Story has no
+;; project-root configured".
 
 #?(:cljs
    (defn propagate-project-root!
@@ -214,22 +196,21 @@
      into Xray's config slot via `day8.re-frame2-xray.config/configure!`.
      Returns the propagated value (or nil when there was nothing to do).
 
-     No-ops when:
-       - Xray's `configure!` is not on the classpath (preload absent).
-       - Story has no `:rf.story/project-root` configured (the slot is nil).
+     No-ops when Story has no `:rf.story/project-root` configured (the
+     slot is nil).
 
      The propagation is one-way Story → Xray; Xray-side edits do not
      reflect back into Story's slot. Hosts that want to point Xray at
      a different root from Story should call `xray-config/configure!`
      directly AFTER `story/configure!` to override the bridge."
      []
-     (when (and config/enabled? (xray-config-available?))
+     (when config/enabled?
        (when-let [root (config/get-project-root)]
-         (when-let [configure! (resolve-fn 'day8.re-frame2-xray.config/configure!)]
-           ;; Xray's configure! keys live under :rf.xray/* per the
-           ;; :rf.<tool>/* convention.
-           (safe-call! "config/configure!" configure! {:rf.xray/project-root root})
-           root)))))
+         ;; Xray's configure! keys live under :rf.xray/* per the
+         ;; :rf.<tool>/* convention.
+         (safe-call! "config/configure!" xray-config/configure!
+                     {:rf.xray/project-root root})
+         root))))
 
 ;; ---- :rf.xray/keybinding-enabled? bridge --------------------------------
 ;;
@@ -270,8 +251,7 @@
    (defn disable-keybinding!
      "Set Xray's `:rf.xray/keybinding-enabled?` config slot to `false`
      via `day8.re-frame2-xray.config/configure!`. Returns `true` when
-     the call landed, or `nil` when Xray's `configure!` is not on the
-     classpath (preload absent).
+     the call landed.
 
      Called by `wire-cross-host!` so Story-driven Xray-as-RHS mounts
      never have Xray swallow the host's global keybindings (typically
@@ -283,10 +263,10 @@
      preload already installed under the default-true posture (runtime
      mechanism). Both fire from `wire-cross-host!` in that order."
      []
-     (when (and config/enabled? (xray-config-available?))
-       (when-let [configure! (resolve-fn 'day8.re-frame2-xray.config/configure!)]
-         (safe-call! "config/configure!" configure! {:rf.xray/keybinding-enabled? false})
-         true))))
+     (when config/enabled?
+       (safe-call! "config/configure!" xray-config/configure!
+                   {:rf.xray/keybinding-enabled? false})
+       true)))
 
 ;; ---- keybinding/detach! bridge ------------------------------------------
 ;;
@@ -315,8 +295,7 @@
    (defn detach-keybinding!
      "Remove Xray's global keydown listener via
      `day8.re-frame2-xray.keybinding/detach!`. Returns `true` when the
-     call landed, or `nil` when Xray's `keybinding` ns is not on the
-     classpath (preload absent).
+     call landed.
 
      Called by `wire-cross-host!` AFTER `disable-keybinding!` flipped
      the slot — the slot declares intent, `detach!` removes the
@@ -325,14 +304,11 @@
      Idempotent — `keybinding/detach!` is a no-op when nothing is
      attached, so this bridge is safe on the rare edge where Xray's
      preload was suppressed (e.g. host already set the slot to `false`
-     before Xray's preload ran). Feature-detect-safe — when Xray's
-     `keybinding` ns is absent the bridge returns nil without touching
-     the wire."
+     before Xray's preload ran)."
      []
-     (when (and config/enabled? (xray-config-available?))
-       (when-let [detach! (resolve-fn 'day8.re-frame2-xray.keybinding/detach!)]
-         (safe-call! "keybinding/detach!" detach!)
-         true))))
+     (when config/enabled?
+       (safe-call! "keybinding/detach!" xray-keybinding/detach!)
+       true)))
 
 #?(:cljs
    (defn wire-cross-host!
@@ -344,10 +320,9 @@
      `mount/open!` — under the per-panel embed the RHS panel-host
      component owns the mount lifecycle on its own.
 
-     Idempotent / feature-detect-safe — every bridge is a no-op when
-     Xray is not on the classpath."
+     Idempotent — each bridge is a plain reset! / no-op on repeat."
      []
-     (when (and config/enabled? (xray-available?))
+     (when config/enabled?
        (propagate-project-root!)
        (disable-keybinding!)
        (detach-keybinding!))))
@@ -417,7 +392,7 @@
      Returns the resolved preset (or nil) so the shell can log /
      debug-introspect what fired."
      [variant-id]
-     (when (and config/enabled? (xray-available?))
+     (when config/enabled?
        (when-let [preset (resolve-preset variant-id)]
          (when (:open? preset)
            (apply-open!))

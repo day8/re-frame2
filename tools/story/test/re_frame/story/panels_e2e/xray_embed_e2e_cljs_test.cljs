@@ -5,16 +5,16 @@
   Story's RHS hosts ONE Xray panel at a time under a chip-row picker
   (rf2-v1ach). Three bug classes drove this coverage:
 
-  - **rf2-senbl** / **rf2-ibpwr** — `mount-fn-for` returning nil
-    (rf2-senbl) and `xray-available?` returning a false-negative
-    (rf2-ibpwr) because the previous `find-ns-obj` + `aget` walk did
-    not surface top-level def'd fns as parent-namespace JS
-    properties; the fix is a `case` dispatch via direct `:require`
-    (for `mount-fn-for`) and a direct symbol reference via direct
-    `:require` (for `xray-available?`). We assert here that every
-    catalogued panel-id resolves to a callable mount-fn so a
-    regression in the require / case shape is caught at unit-test
-    speed.
+  - **rf2-senbl** / **rf2-ibpwr** / **rf2-r8trk** — `mount-fn-for`
+    returning nil (rf2-senbl) and `xray-available?` returning a
+    false-negative (rf2-ibpwr) because the previous `find-ns-obj` +
+    `aget` walk did not surface top-level def'd fns as
+    parent-namespace JS properties. The fix for `mount-fn-for` is a
+    `case` dispatch via direct `:require`; `xray-available?` was
+    retired entirely by rf2-r8trk once `day8/re-frame2-xray` became a
+    declared Story dependency. We assert here that every catalogued
+    panel-id resolves to a callable mount-fn so a regression in the
+    require / case shape is caught at unit-test speed.
   - **rf2-4l7t2** — React 18+ throws \"Attempted to synchronously
     unmount a root while React was already rendering\" whenever a
     Xray-owned React root is torn down inside the outer Story-
@@ -69,12 +69,11 @@
 ;; `find-ns-obj` + `aget` walk that returned a false-negative under
 ;; node-test (same bug class as the pre-rf2-senbl `mount-fn-for`
 ;; walk). The fixture below used to stub the predicate via
-;; `with-redefs` so the embed rendered its full surface. After
-;; rf2-ibpwr the predicate is a compile-time symbol resolution check
-;; (the direct `:require` of `day8.re-frame2-xray.mount` in
-;; `re-frame.story.xray-preset` makes the symbol bound at compile
-;; time, so the runtime call correctly reports `true` in node-test).
-;; The stub fixture is no longer needed.
+;; `with-redefs` so the embed rendered its full surface.
+;;
+;; rf2-r8trk retired the predicate outright: `day8/re-frame2-xray` is a
+;; declared Story dependency, so the embed has no availability gate to
+;; stub. The stub fixture is no longer needed.
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
