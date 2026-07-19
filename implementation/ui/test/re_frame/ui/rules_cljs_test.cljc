@@ -859,6 +859,42 @@
              (when-not (neg? i) (.splice arr i 1)))
            (rules/install-reload-source-producer!))))))
 
+#?(:cljs
+   (deftest producer-install-appends-rather-than-adopting-a-same-tagged-foreign
+     ;; rf2-ymfix. Ownership is OBJECT IDENTITY, with NO tag fallback. When this
+     ;; copy's remembered entry is ABSENT from the shared array, re-installing must
+     ;; APPEND its own producer and leave every entry it did not itself install
+     ;; untouched — INCLUDING one carrying THIS build's tag, which a co-loaded
+     ;; bundle may legitimately hold and which only identity can distinguish from
+     ;; ours. The retired tag fallback treated the first same-tagged entry as ours
+     ;; and REPLACED it, silently evicting a foreign owner.
+     (let [arr      js/goog.global.SHADOW_NS_RESET
+           standing (first (rf2-producers))              ; the entry THIS copy owns
+           std-i    (.indexOf arr standing)
+           ;; a co-loaded bundle's producer, tagged EXACTLY like this copy's — the
+           ;; precise case only object identity can tell apart from our own.
+           foreign  (let [f (fn [_ns] nil)]
+                      (unchecked-set f "reFrameUiReloadSourceReset"
+                                     (str (rules/current-build-id)))
+                      f)]
+       (try
+         ;; The exact fallback trigger: this copy's remembered entry goes ABSENT
+         ;; from the array while `owned-producer` still points at it, so the
+         ;; identity scan misses and the old code fell back to the tag.
+         (.splice arr std-i 1)
+         (.push arr foreign)
+         (rules/install-reload-source-producer!)
+         (is (some #(identical? % foreign) (array-seq arr))
+             "a same-tagged entry this copy did NOT install is preserved — the
+              install APPENDED its own producer instead of adopting the foreign one
+              by tag (rf2-ymfix; the retired fallback replaced it in place)")
+         (finally
+           ;; leave the array with exactly one re-frame.ui producer owned by this
+           ;; copy, as every other producer test expects to find it.
+           (let [fi (.indexOf arr foreign)]
+             (when-not (neg? fi) (.splice arr fi 1)))
+           (rules/install-reload-source-producer!))))))
+
 ;; ---------------------------------------------------------------------------
 ;; rf2-vxgfnd.142 — ONE real build identity through the whole reload cycle.
 ;;
