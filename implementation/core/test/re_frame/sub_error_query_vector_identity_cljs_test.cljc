@@ -129,7 +129,7 @@
         (is (= :rf.error/sub-exception (:error r)))
         (is (= query-v (:event r))
             "observability sink :event is the RAW query vector, VERBATIM (#6441)")
-        (is (not (contains? r :rf.observe/raw-event?))
+        (is (not (contains? r :re-frame.projection/raw-event?))
             "the internal raw-event? marker is dropped from the projected record")))))
 
 ;; ---------------------------------------------------------------------------

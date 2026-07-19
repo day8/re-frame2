@@ -322,11 +322,14 @@
         ;; IDENTITY — it egresses VERBATIM, never app-db-elided (a concrete
         ;; integer path coincidentally matching a query-vector coordinate would
         ;; mutate identity). `error-emit/dispatch-on-error!` (the caller) marks
-        ;; the record with `:rf.observe/raw-event?`; keep `:event` raw here on
-        ;; the sink route, exactly as the corpus-wide record does. The marker is
-        ;; neither a summary nor a tree key, so it is dropped from the projected
-        ;; output (never delivered to a sink).
-        raw-event? (:rf.observe/raw-event? record)
+        ;; the record with the transient projector-input flag
+        ;; `:re-frame.projection/raw-event?` — an INTERNAL keyword, deliberately
+        ;; OUTSIDE the closed `:rf.observe/*` `:kind` vocabulary that names the
+        ;; public record kinds; keep `:event` raw here on the sink route, exactly
+        ;; as the corpus-wide record does. The marker is neither a summary nor a
+        ;; tree key, so it is dropped from the projected output (never delivered
+        ;; to a sink).
+        raw-event? (:re-frame.projection/raw-event? record)
         base (select-keys record error-summary-keys)
         ;; Tree-shaped slots → walker. The `:event` slot is REGISTRATION-owned
         ;; (EP-0015): apply the event handler's marks before the
