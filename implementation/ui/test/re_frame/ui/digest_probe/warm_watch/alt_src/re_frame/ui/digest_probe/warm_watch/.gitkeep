@@ -1,0 +1,4 @@
+Second source-path root for the same-namespace file-move pass of
+check-ui-warm-watch.cjs. The runner relocates leaf.cljs here (keeping its
+namespace) to prove ownership survives a file move; the tree is kept so Shadow
+watches it from daemon start. No committed source lives here.
