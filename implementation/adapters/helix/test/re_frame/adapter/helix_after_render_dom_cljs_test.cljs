@@ -25,9 +25,13 @@
             [re-frame.adapter.react-shared-suite :as suite]
             [re-frame.test-support :as test-support]))
 
+;; `:async? true` returns the map-form fixture required by the async
+;; native-hydration-mismatch DOM test below (rf2-qfz65); a plain-fn fixture
+;; aborts an async cljs.test with "Async tests require fixtures to be specified
+;; as maps". The map form runs the file's synchronous tests identically.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter helix-adapter/adapter}))
+    {:adapter helix-adapter/adapter :async? true}))
 
 (defnc Probe []
   ;; Bare Helix component — the rf2-334d9 sentinel is injected by the

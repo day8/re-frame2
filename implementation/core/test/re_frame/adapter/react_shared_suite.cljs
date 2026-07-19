@@ -3078,8 +3078,11 @@
   atom), never that an exception was thrown.
 
   Browser-only + async: hydration adoption is a real-DOM operation whose
-  onRecoverableError fires on React's own schedule (act off). Under :node-test
-  the (browser?) gate makes this an honest skip.
+  onRecoverableError fires on React's own schedule (act OFF — the treatment the
+  ssr-artefact hydration-mismatch DOM tests use). Under :node-test the
+  `(browser?)` gate makes this an honest skip. The ENTRY FILE MUST install the
+  `:async? true` map-form `make-reset-runtime-fixture` (a plain-fn fixture aborts
+  an async test with \"Async tests require fixtures to be specified as maps\").
 
   cfg keys:
     :probe-element  a thunk returning a fresh substrate probe ELEMENT (renders
@@ -3091,19 +3094,22 @@
     (async done
       (let [act-prev   (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)
             ;; act OFF — a genuine adoption mismatch reaches onRecoverableError on
-            ;; React's own schedule (the compiled tier's proven treatment).
+            ;; React's own schedule (the ssr-artefact hydration-mismatch tests'
+            ;; proven treatment).
             _          (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
             mismatches (atom [])
             clean-host (atom [])
             div-host   (atom [])
             lk         (keyword (gensym "rf.qfz65-mm-"))
             ;; Both nodes attached so React schedules their hydration work.
-            clean-node (.createElement js/document "div")
-            div-node   (.createElement js/document "div")
+            clean-node (make-mount-node!)
+            div-node   (make-mount-node!)
             unmounts   (atom [])]
         (trace-tooling/register-listener!
           lk (fn [ev] (when (= :rf.ssr/hydration-mismatch (:operation ev))
                         (swap! mismatches conj ev))))
+        (.appendChild (.-body js/document) clean-node)
+        (.appendChild (.-body js/document) div-node)
         ;; CLEAN: server markup = exactly what the client renders ⇒ React adopts
         ;; cleanly ⇒ no onRecoverableError ⇒ the clean host callback never fires.
         (set! (.-innerHTML clean-node)
@@ -3113,18 +3119,18 @@
         ;; recovers by client-rendering (warn-and-replace).
         (set! (.-innerHTML div-node)
               "<section class=\"srv\">DIVERGENT-SERVER</section>")
-        (.appendChild (.-body js/document) clean-node)
-        (.appendChild (.-body js/document) div-node)
-        (swap! unmounts conj
-               (substrate-adapter/render
-                 (probe-element) clean-node
-                 {:hydrate? true
-                  :on-recoverable-error (fn [e _] (swap! clean-host conj e))}))
-        (swap! unmounts conj
-               (substrate-adapter/render
-                 (probe-element) div-node
-                 {:hydrate? true
-                  :on-recoverable-error (fn [e _] (swap! div-host conj e))}))
+        (try
+          (swap! unmounts conj
+                 (substrate-adapter/render
+                   (probe-element) clean-node
+                   {:hydrate? true
+                    :on-recoverable-error (fn [e _] (swap! clean-host conj e))}))
+          (swap! unmounts conj
+                 (substrate-adapter/render
+                   (probe-element) div-node
+                   {:hydrate? true
+                    :on-recoverable-error (fn [e _] (swap! div-host conj e))}))
+          (catch :default _ nil))
         (poll-until
           #(seq @mismatches)
           (fn []
