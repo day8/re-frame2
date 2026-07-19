@@ -15,7 +15,14 @@
   still open) reintroduces the loss, so a green run here is load-bearing.
 
   JVM-only: `future`/`CyclicBarrier` real threads. CLJS is single-threaded; its
-  reentrancy proof lives in `re-frame.ui.rules-cljs-test`."
+  reentrancy proof lives in `re-frame.ui.rules-cljs-test`.
+
+  The explicit `build-id` arguments throughout this suite are TEST-STATE PARTITION
+  TOKENS, not a topology claim (rf2-4vm19). They keep a round's rows and cycles
+  from colliding in the one shared ledger, so each race has an unambiguous legal
+  serial outcome. They do NOT assert that two dev builds can share one copy of
+  `re-frame.ui.rules`: the shipped boundary is ONE Shadow dev build per CLJS global
+  namespace root (see §THE ISOLATION UNIT in `rules.cljc`)."
   (:require [clojure.test :refer [deftest is]]
             [re-frame.ui.rules :as rules])
   (:import [java.util.concurrent CyclicBarrier]))
@@ -164,8 +171,11 @@
           (str "round " round ": settled aggregate equals the ledger projection")))))
 
 (deftest concurrent-write-throughs-on-distinct-builds-compose
-  ;; Two builds, no cycles: concurrent initial-load registrations must both land
-  ;; in the aggregate — the publication path never drops one under contention.
+  ;; Two DISJOINT ledger partitions, no cycles: concurrent initial-load
+  ;; registrations must both land in the aggregate — the publication path never
+  ;; drops one under contention. The distinct build-ids are partition tokens that
+  ;; keep the two rows independent (see the ns docstring), never a claim that two
+  ;; co-loaded dev builds share this namespace.
   (dotimes [round 400]
     (rules/reset-custom-elements!)
     (let [barrier (CyclicBarrier. 2)

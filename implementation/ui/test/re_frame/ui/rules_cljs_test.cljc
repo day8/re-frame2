@@ -291,23 +291,6 @@
             :b-el {:properties #{:b-prop}}} (declared))
         "the recovering reload commits the full new manifest, no ghost of the abort")))
 
-(deftest build-ids-are-isolated
-  ;; AC5: two builds sharing one runtime atom own their rows independently.
-  ;; Reloading (and evicting a source in) build :app cannot touch build :lib.
-  (rules/reset-custom-elements!)
-  (rules/register-custom-element! :app-el {:properties #{:a-prop}} 'app.core :app)
-  (rules/register-custom-element! :lib-el {:properties #{:l-prop}} 'lib.core :lib)
-  (is (= #{:a-prop} (rules/custom-element-properties :app-el)))
-  (is (= #{:l-prop} (rules/custom-element-properties :lib-el)))
-  ;; build :app reloads app.core with its declaration deleted
-  (rules/notify-reload! :app)
-  (rules/note-reloaded-sources! ['app.core] :app)
-  (rules/commit-reload! :app)
-  (is (= #{} (rules/custom-element-properties :app-el))
-      "reconciling build :app evicts its own source")
-  (is (= #{:l-prop} (rules/custom-element-properties :lib-el))
-      "build :lib's row is untouched — reconciling one build cannot delete another's"))
-
 (deftest repl-reeval-converges-to-the-same-manifest-as-file-save-hmr
   ;; AC6: REPL re-evaluation of a source (including a zero-declaration one) goes
   ;; through the SAME begin/stage/commit protocol as a file-save reload, so it
@@ -417,29 +400,6 @@
          (declared))
       "the published aggregate equals the legal serial execution exactly — the
        reentrant row appears once, the committing source's reload applied"))
-
-(deftest reentrant-registration-into-an-open-foreign-cycle-still-stages
-  ;; Generation rule: a reentrant registration whose OWN build still has an open
-  ;; cycle must stage into it (it belongs to that live generation), not leak live.
-  ;; Here build :a commits (firing the watch) while build :b's cycle is open, and
-  ;; the reentrant registration targets build :b.
-  (rules/reset-custom-elements!)
-  (rules/register-custom-element! :a-el {:properties #{:a}} 'app.a :a)
-  (rules/register-custom-element! :b-el {:properties #{:b}} 'app.b :b)
-  (rules/notify-reload! :a)
-  (rules/notify-reload! :b)                                   ; build :b cycle stays open
-  (rules/register-custom-element! :a-el {:properties #{:a2}} 'app.a :a)
-  (with-publication-reentry
-    #(rules/register-custom-element! :b-el {:properties #{:b2}} 'app.b :b) ; :b cycle open -> stages
-    (fn [] (rules/commit-reload! :a)))                        ; commit :a -> publish -> reentry
-  (is (= #{:a2} (rules/custom-element-properties :a-el))
-      "build :a committed")
-  (is (= #{:b} (rules/custom-element-properties :b-el))
-      "the reentrant :b registration STAGED into build :b's still-open cycle —
-       last-known-good until :b commits, not leaked live by :a's commit")
-  (rules/commit-reload! :b)
-  (is (= #{:b2} (rules/custom-element-properties :b-el))
-      "and it commits with build :b's own cycle"))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-84173 — exactly ONE live cycle per build, and the supersession is LOUD.
@@ -899,11 +859,14 @@
 ;; rf2-vxgfnd.142 — ONE real build identity through the whole reload cycle.
 ;;
 ;; Before this, every real path (emitted registrations, both lifecycle hooks, the
-;; reset producer) hard-coded the ::default placeholder; a second identity was
-;; reachable only from a test-only arity. Two real builds sharing a JS realm
-;; collapsed onto one [::default ns] row. `current-build-id` is now the single
-;; rule every arity default resolves through, so the participants in a cycle can
-;; never disagree about who owns a row.
+;; reset producer) hard-coded the ::default placeholder while a second identity was
+;; reachable only from a test-only arity — so an emitted registration and the cycle
+;; meant to reconcile it could key a row differently and strand it.
+;; `current-build-id` is now the single rule every arity default resolves through,
+;; so the participants in ONE build's cycle can never disagree about who owns a
+;; row. These fixtures pin that single-build identity COHERENCE; they are not a
+;; co-loaded-build isolation claim (rf2-4vm19 — see §THE ISOLATION UNIT in
+;; rules.cljc: one Shadow dev build per CLJS root).
 ;; ---------------------------------------------------------------------------
 
 (deftest build-identity-is-one-rule-shared-by-every-arity
@@ -950,48 +913,6 @@
     (is (= #{:p2} (rules/custom-element-properties :stable-el))
         "so the reload reconciled the row the initial load wrote")))
 
-(deftest co-loaded-builds-retain-independent-declarations
-  ;; AC2: two co-loaded builds with EQUAL namespace symbols. Reloading (or
-  ;; zero-declaring) either one may not disturb the other's contribution — the
-  ;; collapse that a shared ::default owner token caused.
-  (rules/reset-custom-elements!)
-  (rules/register-custom-element! :a-el {:properties #{:from-app}} 'shared.ns :app)
-  (rules/register-custom-element! :l-el {:properties #{:from-lib}} 'shared.ns :lib)
-  (is (= #{:from-app} (rules/custom-element-properties :a-el)))
-  (is (= #{:from-lib} (rules/custom-element-properties :l-el)))
-  ;; build :app reloads `shared.ns` declaring NOTHING
-  (rules/notify-reload! :app)
-  (rules/note-reloaded-sources! ['shared.ns] :app)
-  (rules/commit-reload! :app)
-  (is (= #{} (rules/custom-element-properties :a-el))
-      "build :app's own zero-declaration source is evicted")
-  (is (= #{:from-lib} (rules/custom-element-properties :l-el))
-      "build :lib's row under the SAME ns symbol is untouched — equal ns symbols
-       in two builds are two rows, not one")
-  ;; and the reverse direction: :lib zero-declares, :app is re-populated
-  (rules/register-custom-element! :a-el {:properties #{:from-app}} 'shared.ns :app)
-  (rules/notify-reload! :lib)
-  (rules/note-reloaded-sources! ['shared.ns] :lib)
-  (rules/commit-reload! :lib)
-  (is (= #{} (rules/custom-element-properties :l-el))
-      "build :lib's source is evicted by its own cycle")
-  (is (= #{:from-app} (rules/custom-element-properties :a-el))
-      "build :app's row survives build :lib's reconciliation"))
-
-(deftest one-builds-cycle-never-consumes-another-builds-reload-evidence
-  ;; A cycle open for build :app must not be reconciled by evidence belonging to
-  ;; build :lib — the two builds' reload cycles are independent transactions.
-  (rules/reset-custom-elements!)
-  (rules/register-custom-element! :a-el {:properties #{:from-app}} 'shared.ns :app)
-  (rules/register-custom-element! :l-el {:properties #{:from-lib}} 'shared.ns :lib)
-  (rules/notify-reload! :app)
-  (rules/note-reloaded-sources! ['shared.ns] :lib)   ; :lib has NO open cycle → no-op
-  (rules/commit-reload! :app)
-  (is (= #{:from-lib} (rules/custom-element-properties :l-el))
-      "reload evidence addressed to a build with no open cycle cannot evict rows")
-  (is (= #{:from-app} (rules/custom-element-properties :a-el))
-      "nor can it leak into the OTHER build's open cycle"))
-
 (deftest ready-made-pair-cannot-inject-a-foreign-owner-into-an-open-cycle
   ;; rf2-4vm19. The seam took a ready-made [build ns] pair VERBATIM, so the
   ;; owner travelled with the datum rather than with the addressed cycle: a
@@ -1027,25 +948,6 @@
         (str "the addressed build's row is reconciled, given " (pr-str sources)))
     (is (= #{:b} (rules/custom-element-properties :b-el))
         (str "and no other build's row is touched, given " (pr-str sources)))))
-
-#?(:cljs
-   (deftest installed-producer-notes-into-its-own-build-only
-     ;; The producer is the one real caller of the ledger seam, so its build
-     ;; routing is what decides which build a reloaded source is attributed to.
-     ;; A row owned by a DIFFERENT build must be untouched when the installed
-     ;; producer fires — SHADOW_NS_RESET lives on the shared `goog.global`, so
-     ;; every build's producer sees every build's reload.
-     (rules/reset-custom-elements!)
-     (rules/register-custom-element! :own-el {:properties #{:p}} 'shared.ns)      ; this build
-     (rules/register-custom-element! :other-el {:properties #{:q}} 'shared.ns
-                                     :some-other-build)
-     (rules/notify-reload!)
-     (fire-shadow-ns-reset! 'shared.ns)      ; what before-load-src does
-     (rules/commit-reload!)
-     (is (= #{} (rules/custom-element-properties :own-el))
-         "the producer noted the reloaded source into ITS OWN build's cycle")
-     (is (= #{:q} (rules/custom-element-properties :other-el))
-         "another build's row under the same ns symbol is untouched")))
 
 #?(:cljs
    (deftest reinstalled-producer-still-runs-the-current-implementation
@@ -1118,19 +1020,3 @@
          "the dropped :x-el is evicted through the real producer")
      (is (= #{:label} (rules/custom-element-properties :y-el))
          "the surviving :y-el is retained")))
-
-#?(:cljs
-   (deftest reload-producer-is-build-isolated
-     ;; The producer notes into the ::default build (one compiled bundle = one
-     ;; build). Explicit-build rows are untouched by a ::default-build reload —
-     ;; the [build-id ns] ownership holds through the real path too.
-     (rules/reset-custom-elements!)
-     (rules/register-custom-element! :app-el {:properties #{:a-prop}} 'app.core)       ; ::default
-     (rules/register-custom-element! :lib-el {:properties #{:l-prop}} 'lib.core :lib)  ; build :lib
-     (rules/notify-reload!)                       ; opens the ::default cycle
-     (fire-shadow-ns-reset! 'app.core)            ; app.core re-runs, declares nothing
-     (rules/commit-reload!)
-     (is (= #{} (rules/custom-element-properties :app-el))
-         "the ::default reload evicts its own zero-declaration source")
-     (is (= #{:l-prop} (rules/custom-element-properties :lib-el))
-         "build :lib's row is untouched — the producer cannot cross builds")))
