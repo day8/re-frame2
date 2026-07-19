@@ -87,16 +87,29 @@
 (rf/reg-sub ::greeting
   (fn [db _] (or (:greeting db) "client-default")))
 
-;; The compiled root. `(react/use-id)` is a supported ui hook and its output is
-;; derived from the ROOT's `identifierPrefix` — which, for a hydrating root, is
-;; whatever the manifest said the server used. Rendering it into the DOM is
-;; what makes the server-authored prefix an observable outcome rather than an
-;; invisible React option.
+(rf/reg-sub ::revealed? (fn [db _] (boolean (:revealed? db))))
+
+(rf/reg-event ::reveal-uid (fn [{:keys [db]} _] {:db (assoc db :revealed? true)}))
+
+;; The compiled root. `(react/use-id)` runs at the TOP of the view body, so it
+;; is called on the FIRST render — the hydrating one — and React's `useId` is
+;; stable for a component's position across every later render of the same
+;; fiber. Its value is derived from the ROOT's `identifierPrefix`, which for a
+;; hydrating root is whatever the manifest said the server used.
+;;
+;; The id is rendered into the DOM only once `::revealed?` flips, and that is
+;; deliberate. Its value (`_srv7-R_0_` under React 19) is an INTERNAL React
+;; token no hand-authored server fixture can predict, so emitting it on the
+;; first render would guarantee a text mismatch — React would regenerate the
+;; tree and destroy the very node-identity signal the adoption assertion reads.
+;; Deferring the DISPLAY costs nothing: the string revealed is the one the
+;; first render computed, and the assertion stays format-agnostic (it matches
+;; on the prefix SUBSTRING, not on React's token shape).
 (defview seam-root []
   (let [id (react/use-id)]
     [:div.seam
      [:span.greeting (ui/sub [::greeting])]
-     [:i.uid id]]))
+     [:i.uid (when (ui/sub [::revealed?]) id)]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Server-side artefacts, planted by hand (this test proves the CLIENT half of
@@ -185,10 +198,11 @@
     (async done
       (let [act-prev (disable-act-env!)
             ;; The markup the server render emitted for `seam-root` against the
-            ;; SERVER's app-db. The `use-id` slot is left empty: its value is a
-            ;; React-internal token no hand-authored fixture can predict, and
-            ;; the point under test is which PREFIX the client root was created
-            ;; with, which is read off the rendered output below.
+            ;; SERVER's app-db, byte-matching what the first client render
+            ;; produces for that same state (`::revealed?` false ⇒ an empty
+            ;; `<i class="uid">`). A byte-match is what keeps hydration a clean
+            ;; ADOPTION, so the node-identity assertion below measures the
+            ;; adopt-vs-replace distinction rather than a mismatch recovery.
             host     (plant-host!
                       {:manifest?   true
                        :server-html (str "<div class=\"seam\">"
@@ -229,23 +243,38 @@
                  (is (true? (.-isConnected server-span))
                      "and the retained node is still in the document"))
 
-               (testing "the root took the SERVER-AUTHORED identifier prefix"
-                 (let [uid (.-textContent (.querySelector host "i.uid"))]
-                   (is (seq uid)
-                       "the compiled view rendered a use-id value")
-                   (is (str/includes? uid server-prefix)
-                       (str "the rendered use-id " (pr-str uid) " carries the "
-                            "manifest's :identifier-prefix " (pr-str server-prefix)
-                            " — a client-synthesised default is derived from the "
-                            "root-id and could not contain it"))))
-
                (testing "the root is registered under the MANIFEST's root-id"
                  (is (= server-root-id (ui-client/root-id-of @root-atom))
                      "identity came from the manifest content, not from opts"))
-               (finally
+               (catch :default e
                  (teardown! host root-atom)
                  (restore-act-env! act-prev)
-                 (done))))
+                 (done)
+                 (throw e)))
+
+             ;; Reveal the id the FIRST render computed. `useId` is stable for
+             ;; a fiber's position, so what appears now is the token allocated
+             ;; during the hydrating render — under the prefix `hydrate-root`
+             ;; read out of the manifest.
+             (rf/dispatch-sync [::reveal-uid] {:frame app-frame})
+             (js/setTimeout
+              (fn []
+                (try
+                  (testing "the root took the SERVER-AUTHORED identifier prefix"
+                    (let [uid (.-textContent (.querySelector host "i.uid"))]
+                      (is (seq uid)
+                          "the compiled view rendered the use-id value")
+                      (is (str/includes? uid server-prefix)
+                          (str "the rendered use-id " (pr-str uid) " carries the "
+                               "manifest's :identifier-prefix " (pr-str server-prefix)
+                               " — the ui default prefix is derived from the "
+                               "root-id, so this substring can only have come "
+                               "from the manifest's content"))))
+                  (finally
+                    (teardown! host root-atom)
+                    (restore-act-env! act-prev)
+                    (done))))
+              0))
            0))))))
 
 ;; ---------------------------------------------------------------------------
