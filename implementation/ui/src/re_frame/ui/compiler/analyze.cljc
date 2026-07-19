@@ -1246,8 +1246,26 @@
   "Parse a keyword element head into {:tag kw :id str|nil :classes [str]}.
   `.class`/`#id` segments compose in any order; two `#id`s are an error."
   [e head]
-  (let [s (name head)]
-    (when (namespace head)
+  (let [s   (name head)
+        ns* (namespace head)]
+    ;; A head in the framework-reserved `:rf/*` scheme gets its OWN reject
+    ;; (rf2-01zvu — the client half of the rf2-j81hs SS4 ruling). re-frame.ui
+    ;; classifies heads at COMPILE time, so it never painted the phantom the
+    ;; runtime substrates did — but the generic arm below advises "write
+    ;; :<name>", which for a reserved head tells the author to strip the
+    ;; namespace and paint exactly that phantom. Same closed-vocabulary id;
+    ;; the message is what distinguishes the arm.
+    (when (and ns* (or (= "rf" ns*) (str/starts-with? ns* "rf.")))
+      (env/fail! e :rf.ui.compile/bad-tag
+                 (str "element head " head " is in the framework-reserved "
+                      ":rf/* namespace, which is framework-owned (Conventions "
+                      "§Reserved namespaces) — it cannot be an author element. "
+                      "No :rf/* head has a client meaning "
+                      "(:rf/suspense-boundary is a streaming-SSR marker, "
+                      "server-only). Check the spelling, or use an unreserved "
+                      "keyword if you meant a custom element.")
+                 {:head head}))
+    (when ns*
       (env/fail! e :rf.ui.compile/bad-tag
                  (str "element head " head " must be an unqualified keyword — "
                       "tag keywords carry no namespace (write :" s ")")

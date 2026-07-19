@@ -75,6 +75,82 @@
 ;; and to dodge the munging entirely.
 (deftype ^:private HiccupTag [tag id className])
 
+;; ---------------------------------------------------------------------------
+;; Reserved `:rf/*` heads fail loud (rf2-01zvu — the CLIENT half of the
+;; rf2-j81hs SS4 ruling; the two JVM emitters already carry the server half).
+;;
+;; rf2-j81hs made keyword heads HTML elements EVERYWHERE. That leaves a
+;; head in the framework-reserved `:rf/*` scheme sailing straight through
+;; the DOM-tag grammar: `:rf/suspense-boundry` (typo) has a `name` that
+;; matches `re-tag`, so the renderer would paint a phantom
+;; `<suspense-boundry>` and say nothing — the exact silent mis-render that
+;; bead exists to kill, displaced by one keystroke.
+;;
+;; The guard is TOTAL — every `:rf/*` / `:rf.<area>/*` head is rejected,
+;; with no allow-list carve-out. The `:rf/*` root is framework-owned
+;; (Conventions §Reserved namespaces) so no legitimate author element lives
+;; there, and NO `:rf/*` head has a client render-tree meaning: the one
+;; reserved hiccup head that exists, `:rf/suspense-boundary`, is a
+;; streaming-SSR-only marker consumed by the JVM shell walker. The
+;; recognised interop heads (`:<>`, `:>`, `:r>`, `:f>`) are unnamespaced
+;; and are consumed by `vec-to-elem` before the tag grammar is reached.
+;;
+;; COST: this sits in `parse-tag`, which `cached-parse` reaches only on a
+;; cache MISS — once per distinct head — so steady-state rendering pays
+;; nothing (the ruling's requirement). `reagent2.dom.server` calls
+;; `parse-tag` directly, so the one guard covers both surfaces.
+;;
+;; ALWAYS-ON: no `goog.DEBUG` gate. This is a correctness reject on a
+;; runtime DATA branch, so it survives `:advanced` + `goog.DEBUG=false`
+;; exactly as the sibling `:rf.error/template-empty-vector` throw does.
+;; rf2-2hkfy is why that is PINNED rather than asserted in a comment: a
+;; rejection described as "always-on" there was in fact goog.DEBUG-gated
+;; and so was absent from the build users ship. The pin is
+;; `reagent2.impl.template-reserved-head-elision-prod-test`, which runs
+;; under the `:browser-test-prod-elision` build (`:advanced` +
+;; `goog.DEBUG=false`) and asserts the OBSERVABLE OUTCOME — that no
+;; phantom element is painted — not merely that something threw.
+;; ---------------------------------------------------------------------------
+
+(defn- ^boolean reserved-rf-head?
+  "True when `head` is a keyword in the framework-reserved `:rf/*` scheme —
+  the bare `rf` namespace (`:rf/suspense-boundary`) or a dotted subsystem
+  segment under it (`:rf.ssr/…`). Mirrors `re-frame.ssr.emit/reserved-rf-head?`;
+  duplicated rather than shared because reagent-slim is bundle-isolated and
+  MUST NOT `:require` re-frame.*."
+  [head]
+  (if-let [ns* (and (keyword? head) (namespace head))]
+    (or (= "rf" ns*)
+        (str/starts-with? ns* "rf."))
+    false))
+
+(defn- reject-reserved-rf-head!
+  "Throw `:rf.error/invalid-hiccup-head` for an unrecognised `:rf/*` head.
+
+  Canonical thrown-error shape per Spec 009 §The thrown-error shape
+  (rf2-vvixub), replicated INLINE — the central `re-frame.error` builder is
+  not reachable from this bundle-isolated adapter (see the sibling
+  `:rf.error/template-empty-vector` throw in `vec-to-elem`). The id and the
+  `:recovery` token are the ones the JVM emitters' reserved-head arm already
+  carries, so server and client teach one grammar."
+  [head]
+  (when (reserved-rf-head? head)
+    (let [reason (str "hiccup vector head " head " is in the framework-reserved "
+                      ":rf/* namespace but is not a head this renderer "
+                      "recognises. The :rf/* scheme is framework-owned "
+                      "(Conventions §Reserved namespaces), so this cannot be an "
+                      "author DOM element — rendering it would paint a phantom <"
+                      (name head) "> element silently. No :rf/* head has a "
+                      "client meaning (:rf/suspense-boundary is a streaming-SSR "
+                      "marker, server-only). Check the spelling, or use an "
+                      "unreserved keyword if you meant a custom element.")]
+      (throw (ex-info (str reason " [:rf.error/invalid-hiccup-head]")
+                      {:rf.error/id :rf.error/invalid-hiccup-head
+                       :where       'reagent2.template/parse-tag
+                       :reason      reason
+                       :recovery    :use-a-recognised-reserved-head-or-an-unreserved-keyword
+                       :head        head})))))
+
 (defn parse-tag
   "Parse a hiccup tag keyword into its `:tag` / `:id` / `:class` parts.
 
@@ -94,8 +170,12 @@
     (parse-tag :div.cls)     → HiccupTag{tag \"div\" id nil  class \"cls\"}
     (parse-tag :div#id)      → HiccupTag{tag \"div\" id \"id\" class nil}
     (parse-tag :div#id.a.b)  → HiccupTag{tag \"div\" id \"id\" class \"a b\"}
-    (parse-tag :div.a.b#id)  → HiccupTag{tag nil   id nil  class nil}  ; NOT supported"
+    (parse-tag :div.a.b#id)  → HiccupTag{tag nil   id nil  class nil}  ; NOT supported
+
+  Rejects an UNRECOGNISED head in the framework-reserved `:rf/*` scheme —
+  see `reject-reserved-rf-head!` (rf2-01zvu)."
   [hiccup-tag]
+  (reject-reserved-rf-head! hiccup-tag)
   (let [[_ tag id class-shorthand]
         (re-matches re-tag (name hiccup-tag))
         class (when class-shorthand
@@ -143,8 +223,25 @@
 
 (def ^:private tag-name-cache #js {})
 
-(defn- cached-parse [k]
+;; The cache key is the head's FULLY-QUALIFIED name, not its bare `name`
+;; (rf2-01zvu). Keyed on `name` alone, `:button` and `:rf/button` collide on
+;; the entry `"button"`: an app rendering ordinary `[:button …]` markup would
+;; seed it, and a later `[:rf/button …]` would HIT the cache, never reach
+;; `parse-tag`, and paint a phantom — the app's own markup silently
+;; disarming the reserved-head guard. Namespaced heads are rare and
+;; erroneous, so the `str` runs essentially never; the common unnamespaced
+;; head keeps `name`'s exact cost. (Parsing itself is unaffected: `parse-tag`
+;; reads `(name …)`, so the two spellings always produced the same
+;; `HiccupTag` — the collision was harmless until this guard made the head's
+;; namespace load-bearing.)
+(defn- cache-key [k]
   (let [n (name k)]
+    (if-let [ns* (and (keyword? k) (namespace k))]
+      (str ns* "/" n)
+      n)))
+
+(defn- cached-parse [k]
+  (let [n (cache-key k)]
     (if (and (not (reserved-prop-key? n))
              (.hasOwnProperty tag-name-cache n))
       (aget tag-name-cache n)
