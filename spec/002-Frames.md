@@ -658,8 +658,12 @@ exact-token teardown cascade described below is the sole executable exception.
    the unified teardown projection, unregister per-actor handlers, and emit
    `:rf.machine.lifecycle/destroyed` with `:reason :parent-frame-destroyed`.
 4. **Compiled-view observer teardown** via `:ui/on-frame-destroyed!` — when
-   `day8/re-frame2-ui` is present, transition connected ViewCells observing this exact
-   frame to dead and release their leases while the sub-cache is still live.
+   `day8/re-frame2-ui` is present, transition the bounded victim set to dead and release
+   their leases while the sub-cache is still live: every currently-connected ViewCell whose
+   retained subscription targets OR resource-incarnation records name this frame (resource
+   ownership is not read observation), PLUS every still-disconnected but React-retained
+   root-owned ViewCell whose last published site values (retained subscription targets /
+   resource reservations) name it.
 5. **Publish lifecycle-dead.** CAS-flip `:destroyed?` only while the claimed incarnation
    token still matches. From this point public dispatch recovers as a no-op, public
    subscribe recovers to `nil`, and both emit the production-survivable

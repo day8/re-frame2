@@ -3240,9 +3240,11 @@
     cell))
 
 (defn teardown-frame!
-  "Frame-destroy sweep: transition every currently-connected ViewCell observing
-  frame `frame-id`, plus every still-disconnected root-owned ViewCell whose last
-  published site values name it, to `:dead` (03 §4 dead-cell lifecycle). Each
+  "Frame-destroy sweep: transition every currently-connected ViewCell whose
+  retained subscription targets OR resource-incarnation records name frame
+  `frame-id` (resource ownership is not read observation), plus every still-
+  disconnected root-owned ViewCell whose last published site values name it, to
+  `:dead` (03 §4 dead-cell lifecycle). Each
   matched cell's leases are detached, its pending notification dropped, and
   its retained interval proven an unmount (`:unmounted {:proof
   :host-teardown}`) — so a subsequent read/probe on such a cell follows the
