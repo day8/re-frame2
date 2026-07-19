@@ -1780,9 +1780,11 @@
       #?(:cljs
          (when-not (storage-get settings-storage-key)
            (write-storage!)))))
-  ;; Filter seed + storage key. Storage key sets BEFORE seed so a host
-  ;; that overrides both in one call gets the seed persisted under the
-  ;; right key.
+  ;; Filter seed + storage key — two independent axes. The storage key
+  ;; governs the transient user-pill localStorage round-trip (within-
+  ;; session writes + the load-time reset cleanup); the filter seed is
+  ;; an in-memory boot baseline that is never persisted (rf2-fhtes).
+  ;; Storage key is set first, but the ordering does not affect the seed.
   (when (contains? opts :rf.xray/filters-storage-key)
     (set-filters-storage-key! filters-key-opt))
   (when (contains? opts :rf.xray/filters)

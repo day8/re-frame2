@@ -175,7 +175,12 @@ preload mounts. Calling it after mount is legal — every key is read at
 its consumer's hot path on each use, so changes take effect on the
 next read — but defeats the "boot-time configuration" mental model and
 is reserved for hot-reload / live-rebind scenarios (Settings panel,
-dev REPL).
+dev REPL). The one exception is `:rf.xray/filters`: that seed is a
+**pre-mount boot baseline** consumed once per frame by
+`mount.cljs`'s `::seed-configured-filters` first-mount hook, not
+re-read per use — so a post-mount `configure!` does not take effect
+until the next load. Change filters live via the filter pill events /
+Story path instead.
 
 ## Configuration keys
 
@@ -687,10 +692,13 @@ The localStorage key the filter persistence layer reads / writes.
 Default: `"re-frame2.xray.filters.v1"` (versioned so future schema
 changes can ignore stale payloads).
 
-When both `:rf.xray/filters` and `:rf.xray/filters-storage-key`
-are passed in one call, the storage key is set BEFORE the seed so a
-host that overrides both gets the seed persisted under the right
-key.
+The storage key and the `:rf.xray/filters` seed are independent axes.
+This key governs the **transient user-pill** localStorage round-trip
+(within-session writes + the load-time reset cleanup); the seed is a
+separate in-memory boot baseline that is never persisted (rf2-fhtes).
+When both are passed in one call the storage key is set first, but the
+ordering does not affect the seed — it lands via `mount.cljs`'s
+`::seed-configured-filters` hook, not through this key.
 
 ### Static mode availability
 
