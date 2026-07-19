@@ -607,12 +607,35 @@
            path)))))
 
 (defn coords-form
-  "Construct the compile-time `(cond-> {:ns 'sym} ...)` form that every
-  reg-* macro emits as the value of its `*pending-coords*` binding.
+  "Construct the compile-time coord MAP LITERAL that every reg-* macro
+  emits as the value of its `*pending-coords*` binding.
 
   `form-meta` is `(meta &form)`; `file` is `*file*`; `ns-sym` is the
   consumer's namespace symbol. The returned form is syntax-quote-safe
   data the caller splices into its expansion.
+
+  EVALUATION-ORDER TRANSPARENCY (rf2-i3dvj — standing, binds all future
+  macro emission). The `cond->` runs HERE, in Clojure, at expansion time;
+  absent keys are simply omitted from the emitted literal. It is NOT
+  emitted as a runtime `cond->` form. That distinction is a CORRECTNESS
+  requirement, not a micro-optimisation:
+
+    Framework instrumentation must be EVALUATION-ORDER-TRANSPARENT. A
+    call-site macro expansion may splice ONLY yield-free expression forms
+    (compile-time literals and plain calls) into the CALLER's context; any
+    dynamic-scope establishment happens INSIDE THE CALLEE's own function
+    body, where it can never compile as an awaited async IIFE.
+
+  The reason: the call-site macros (`dispatch`, `dispatch-sync`,
+  `subscribe`) splice this form directly into USER code. When that user
+  code sits in a CLJS async context (`cljs.test/async`, a `go` block, any
+  `^:async` fn), the compiler lowers a spliced multi-step form such as a
+  runtime `cond->` to `await (async function(){...})()` — inserting a real
+  microtask YIELD immediately BEFORE the instrumented call. That silently
+  broke the documented same-stack synchronicity of `dispatch-sync!` and was
+  mis-attributed to the router (PR #6432, since reversed). A map literal
+  cannot lower that way. Harmonises with [[form-coords]]'s existing
+  expansion-time literal emission on the machines path.
 
   :file picks the form-meta value over `*file*` and rejects the
   `\"NO_SOURCE_PATH\"` sentinel via `resolve-file`.
@@ -635,10 +658,13 @@
   (let [chosen-file (resolve-file form-meta file)
         chosen-file #?(:clj  (when chosen-file (absolutise-file chosen-file))
                        :cljs chosen-file)]
-    `(cond-> {:ns '~ns-sym}
-       ~chosen-file         (assoc :file ~chosen-file)
-       ~(:line form-meta)   (assoc :line ~(:line form-meta))
-       ~(:column form-meta) (assoc :column ~(:column form-meta)))))
+    ;; Symbols inside `:ns` need explicit quoting — otherwise the splice
+    ;; would namespace-resolve them at compile time (same rationale as
+    ;; `stamp-machine-spec-expr` / `form-coords`).
+    (cond-> {:ns (list 'quote ns-sym)}
+      chosen-file         (assoc :file chosen-file)
+      (:line form-meta)   (assoc :line (:line form-meta))
+      (:column form-meta) (assoc :column (:column form-meta)))))
 
 #?(:clj
    (defn prod-coords-form
@@ -656,8 +682,11 @@
             ~(coords-form form-meta file ns-sym)
             ~(prod-coords-form form-meta file ns-sym))
 
-     Both branches use `cond->` so absent keys (e.g. nil `:line` on a
-     programmatic synthesis) elide cleanly.
+     Both branches build with `cond->` AT EXPANSION TIME so absent keys
+     (e.g. nil `:line` on a programmatic synthesis) elide cleanly from the
+     emitted LITERAL — see [[coords-form]] for why the `cond->` must not
+     survive into the emitted form (rf2-i3dvj evaluation-order
+     transparency).
 
      Per rf2-wvsxg: the picked `:file` is absolutised via
      [[absolutise-file]] at macro-expansion time so the downstream URI
@@ -666,9 +695,9 @@
      [form-meta file ns-sym]
      (let [chosen-file (resolve-file form-meta file)
            chosen-file (when chosen-file (absolutise-file chosen-file))]
-       `(cond-> {:ns '~ns-sym}
-          ~chosen-file       (assoc :file ~chosen-file)
-          ~(:line form-meta) (assoc :line ~(:line form-meta))))))
+       (cond-> {:ns (list 'quote ns-sym)}
+         chosen-file       (assoc :file chosen-file)
+         (:line form-meta) (assoc :line (:line form-meta))))))
 
 ;; ---- co-located reference-site (states-tree) coord stamping --------------
 ;;
