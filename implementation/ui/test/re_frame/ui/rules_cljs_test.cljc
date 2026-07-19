@@ -645,6 +645,26 @@
            (array-seq js/goog.global.SHADOW_NS_RESET))))
 
 #?(:cljs
+   (defn- shadow-build-id-carrier
+     "shadow's OWN build-identity carrier — the object graph `current-build-id`
+     reads through `shadow-build-id`, not a test seam standing in for it. Reading
+     and writing the real carrier is what makes the migration fixture below drive
+     an actual change of resolved build identity."
+     []
+     (let [root (or (unchecked-get js/goog.global "$CLJS") js/goog.global)
+           env  (reduce (fn [o k]
+                          (let [child (or (unchecked-get o k) #js {})]
+                            (unchecked-set o k child)
+                            child))
+                        root
+                        ["shadow" "cljs" "devtools" "client" "env"])]
+       env)))
+
+#?(:cljs
+   (defn- set-shadow-build-id! [v]
+     (unchecked-set (shadow-build-id-carrier) "build_id" v)))
+
+#?(:cljs
    (deftest reload-producer-is-wired-to-shadow-reset-array
      ;; The wire itself: install-reload-source-producer! (run at ns load) must
      ;; have registered a re-frame.ui producer on shadow's per-reload callback
@@ -652,7 +672,14 @@
      (is (exists? js/goog.global.SHADOW_NS_RESET)
          "install-reload-source-producer! ensured the SHADOW_NS_RESET array")
      (is (= 1 (count (rf2-producers)))
-         "exactly one re-frame.ui producer is registered on shadow's array")))
+         "exactly one re-frame.ui producer is registered on shadow's array")
+     ;; rf2-mp6fz — the wire runs on EVERY load of this namespace, so the entry
+     ;; standing on the array is always owned by the identity the CURRENT code
+     ;; resolves. A producer whose tag has drifted from `current-build-id` is a
+     ;; producer installed by a code generation that no longer exists.
+     (is (= (str (rules/current-build-id))
+            (unchecked-get (first (rf2-producers)) "reFrameUiReloadSourceReset"))
+         "the standing producer is tagged with the identity the current code resolves")))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-vxgfnd.145 — the installed producer must run the CURRENT implementation.
@@ -735,6 +762,89 @@
            (let [arr js/goog.global.SHADOW_NS_RESET
                  i   (.indexOf arr foreign)]
              (when-not (neg? i) (.splice arr i 1))))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-mp6fz — the install must be SELF-UPGRADING across the trampoline
+;; boundary.
+;;
+;; .145 made the installed entry a trampoline so the BEHAVIOUR it runs is always
+;; freshly loaded code. But the install itself sat behind a `defonce`, so the
+;; INSTALLER never re-ran: a page loaded before a given generation of this
+;; namespace kept whatever entry it already had, and no change to the installer,
+;; the trampoline's construction, or the owner tag could ever reach it without a
+;; full page reload. The `defonce` was there to stop the pre-.145 `.push` from
+;; appending duplicates — a job the owner tag took over, which is precisely what
+;; made the `defonce` redundant AND the thing blocking self-upgrade.
+;;
+;; Running the install on every load is only safe if it retires what this copy
+;; already owns. Ownership is proven by OBJECT IDENTITY — the exact entry this
+;; copy installed — never by tag, because a co-loaded bundle may legitimately own
+;; a producer under any tag, including the placeholder.
+;; ---------------------------------------------------------------------------
+
+#?(:cljs
+   (deftest producer-install-migrates-the-entry-this-copy-already-owns
+     ;; The bead's concrete live-upgrade failure: an entry created while no real
+     ;; build identity was resolvable captured the ::default placeholder. When
+     ;; the reloaded code resolves the build's real name, re-installing must
+     ;; MIGRATE that entry — one producer, real identity — rather than push a
+     ;; second one and leave the placeholder-routed predecessor executing.
+     (let [arr      js/goog.global.SHADOW_NS_RESET
+           original (unchecked-get (shadow-build-id-carrier) "build_id")
+           foreign  (fn [_ns] nil)
+           before   (count (array-seq arr))]
+       (.push arr foreign)
+       (try
+         (is (= 1 (count (rf2-producers)))
+             "precondition: the ns-load install left exactly one producer")
+         (set-shadow-build-id! "app-migrated")
+         (is (= :app-migrated (rules/current-build-id))
+             "precondition: the code now resolves a REAL build identity, as it
+              does the moment shadow's build-id carrier is present")
+         (rules/install-reload-source-producer!)      ; what every load re-runs
+         (is (= 1 (count (rf2-producers)))
+             "exactly one re-frame.ui producer — the entry this copy already
+              owned was retired, not left standing beside the new one")
+         (is (= ":app-migrated"
+                (unchecked-get (first (rf2-producers)) "reFrameUiReloadSourceReset"))
+             "and the surviving producer carries the build's real identity, so
+              reset evidence stops routing to the placeholder owner")
+         (is (= (inc before) (count (array-seq arr)))
+             "the array grew by exactly the foreign probe — no accumulation")
+         (is (some #(identical? % foreign) (array-seq arr))
+             "a callback owned by shadow or another library is untouched")
+         (finally
+           (set-shadow-build-id! original)
+           (rules/install-reload-source-producer!)
+           (let [i (.indexOf arr foreign)]
+             (when-not (neg? i) (.splice arr i 1))))))))
+
+#?(:cljs
+   (deftest producer-migration-leaves-another-owners-producer-alone
+     ;; Why identity and not tag: a co-loaded bundle's producer may carry ANY
+     ;; tag, including the very placeholder this copy is migrating away from.
+     ;; Retiring by tag would evict it; retiring by identity cannot.
+     (let [arr      js/goog.global.SHADOW_NS_RESET
+           original (unchecked-get (shadow-build-id-carrier) "build_id")
+           ;; another bundle's producer, tagged exactly like the entry this copy
+           ;; is about to migrate away from
+           other    (let [f (fn [_ns] nil)]
+                      (unchecked-set f "reFrameUiReloadSourceReset"
+                                     (str (rules/current-build-id)))
+                      f)]
+       (.push arr other)
+       (try
+         (set-shadow-build-id! "app-migrated")
+         (rules/install-reload-source-producer!)
+         (is (some #(identical? % other) (array-seq arr))
+             "the other owner's identically-tagged producer survives the
+              migration — ownership is the object this copy installed, not a tag
+              any bundle could be carrying")
+         (finally
+           (set-shadow-build-id! original)
+           (let [i (.indexOf arr other)]
+             (when-not (neg? i) (.splice arr i 1)))
+           (rules/install-reload-source-producer!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-vxgfnd.142 — ONE real build identity through the whole reload cycle.
