@@ -149,7 +149,6 @@ The v1 `re-frame.alpha` namespace is **not part of v2**. The generalised `reg`/`
 
 - **Per-kind registration macros**: `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-route`, `reg-machine`, `reg-app-schema`, `reg-view`, `ui/defview`. (`ui/defview` — the compiled-view substrate's registration macro (`re-frame.ui`, artifact `day8/re-frame2-ui`) — registers under the same registrar `:view` kind as `reg-view`; `reg-view` lives on as part of the stock-Reagent compatibility/interop adapter, per [Spec 004 §Removed forms](004-Views.md#removed-forms--normative-absences).)
 - **Vector-form subscribe**: `(rf/subscribe [::id arg])`.
-- **Compiled-view lint config**: `{:re-frame.ui/bare-handlers :warn|:error}` is the reserved build-config lint key that opts a team into explicit-everywhere handler policy (rejecting the permissive bare-fn shorthand at native event properties). The `re-frame.ui` namespace is reserved for such compiled-view build/lint config keys, per [Spec 004 §Handlers](004-Views.md#handlers-are-data--the-callback-law).
 
 The per-frame sub-cache uses a single disposal algorithm — synchronous ref-counting (dispose on derefer-count → 0) — per [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal). For one-shot or persistent-value edge cases that would have leaned on a specific lifecycle policy, file a bead naming the actual need rather than reaching for a removed API.
 
