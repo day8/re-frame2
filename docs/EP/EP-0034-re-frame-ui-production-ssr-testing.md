@@ -199,7 +199,7 @@ table governs.
 | **G-15** atomic-local writer matrix | N same-turn host writers through `update!` all land (key+pointer, timer+listener, observer+handler arms); fn-value `set!` stores exactly; mixed `update!`+dispatch; StrictMode replay; JVM typed failure; `:local-state` cause evidence; HMR ride |
 | **G-16** render-slot parity | slotted output normalized-structurally equivalent across both emitters; keyed reorder under slots; purity diagnostics fire inside slot bodies; manifest slot sites present |
 | **G-17** safe-spread ownership | the policy form rejects owned keys (`:key` `:ref` `:value` `:checked` owned `:on-*`) in dev **and** advanced builds; `aria-*`/`data-*` pass; the policy form retains the sync door where general `spread` forfeits it |
-| **G-18** library façade isolation | an advanced build importing one view from a multi-view library namespace retains no unused sibling views, schemas, docs projections, or dev registration (fixture-first; see §1) |
+| **G-18** library façade isolation | an advanced build importing one view from a multi-view library namespace retains no unused sibling views (fixture-first; see §1) |
 
 Methodology, binding on every gate: identical fixtures, distributions not best
 runs, pinned browsers, cold+warm, dev overhead separate, no precomputed-props
