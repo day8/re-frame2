@@ -27,6 +27,7 @@
   if either host's formatter drifts, its test fails."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.source-coords :as source-coords]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]
             [re-frame.views.jvm-source-coord-annotation :as jvm-annot]))
@@ -90,6 +91,36 @@
     (is (= expected-source-coord-no-line-no-col
            (jvm-annot/format-source-coord fixture-id fixture-coords-no-line-no-col))
         "JVM degraded source-coord must match the canonical degraded literal")))
+
+;; ---- convergence: source-coords is the single cross-host owner (rf2-5q0jv) -
+;;
+;; Before rf2-5q0jv the JVM formatters (this ns) and the CLJS formatters (in
+;; `re-frame.adapter.context`) were two hand-kept copies; a canonical-literal
+;; test could only catch a drift AFTER it shipped. They now alias one `.cljc`
+;; implementation in `re-frame.source-coords`, co-located with their inverse
+;; parsers, so cross-host divergence is structurally impossible. Prove it: the
+;; neutral owner emits the canonical literals directly, and the JVM annotation
+;; vars ARE that same fn (an alias, not a re-derivable copy). `identical?` here
+;; compares fn-object identity — NOT a keyword literal, so it is not the
+;; rf2-6365 `.cljc` interning trap (and these are `.clj` / `.cljs` test files).
+
+(deftest neutral-owner-is-the-single-jvm-formatter-implementation
+  (testing "rf2-5q0jv — `re-frame.source-coords` owns the one cross-host
+            implementation; the JVM annotation vars alias it, so the neutral
+            owner emits the canonical literals and the JVM vars are the
+            identical fn (not a re-derived copy that could drift)."
+    (is (= expected-source-coord
+           (source-coords/format-source-coord fixture-id fixture-coords))
+        "neutral owner must emit the canonical data-rf2-source-coord literal")
+    (is (= expected-view-id
+           (source-coords/format-view-id fixture-id))
+        "neutral owner must emit the canonical data-rf-view literal")
+    (is (identical? source-coords/format-source-coord
+                    jvm-annot/format-source-coord)
+        "JVM format-source-coord must be an alias of the neutral owner")
+    (is (identical? source-coords/format-view-id
+                    jvm-annot/format-view-id)
+        "JVM format-view-id must be an alias of the neutral owner")))
 
 ;; ---- end-to-end byte parity: SSR-rendered HTML carries BOTH attributes ---
 ;;
