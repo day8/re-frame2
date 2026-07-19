@@ -174,8 +174,17 @@ else
     # material gets a narrow gate without classifying unrelated ai/ scratch
     # or pulling the guide into MkDocs before S6. The checker and focused JVM
     # fixture arm their own job so a gate edit cannot avoid its proof.
+    #
+    # rf2-rf7gu — these arms MUST mirror check_doc_slugs.py's --synthesis-only
+    # inventory (SYNTHESIS_ROOTS + SYNTHESIS_FILES). rf2-d9v3n (#6127) widened
+    # that guard to prep/** and 11-adoption-workstreams.md without widening the
+    # trigger, so a PR touching only those paths never fired the job that runs
+    # the guard. Keep the two lists in lockstep; _changed-surfaces.test.cjs pins
+    # every guarded path. Note the roots are not a directory sweep — the 01-10
+    # narrative chapters and README sit beside the named files and stay
+    # deliberately unclassified.
     case "$file" in
-      ai/findings/new-substrate-synthesis/guide/*|ai/findings/new-substrate-synthesis/drafts/*|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|implementation/ui/test/re_frame/ui/guide_truth_jvm_test.clj)
+      ai/findings/new-substrate-synthesis/guide/*|ai/findings/new-substrate-synthesis/drafts/*|ai/findings/new-substrate-synthesis/prep/*|ai/findings/new-substrate-synthesis/11-adoption-workstreams.md|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|implementation/ui/test/re_frame/ui/guide_truth_jvm_test.clj)
         synthesis_docs=true
         ;;
     esac

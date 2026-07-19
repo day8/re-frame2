@@ -912,6 +912,56 @@ test('tracked synthesis guide and active drafts arm their focused docs gate only
   assert.equal(classify('ai/findings/unrelated-scratch.md').synthesis_docs, 'false');
 });
 
+// rf2-rf7gu — the classifier's synthesis_docs arms MUST cover every path
+// check_doc_slugs.py guards under --synthesis-only (its SYNTHESIS_ROOTS +
+// SYNTHESIS_FILES). rf2-d9v3n (#6127) widened that guard to prep/** and
+// 11-adoption-workstreams.md but left the trigger behind, so a PR touching
+// only those paths never fired the job that runs the guard — the newly-covered
+// inventory went unchecked for exactly the PRs it was expanded to protect.
+// These arms pin the two ends together; a future SYNTHESIS_ROOTS widening that
+// forgets the trigger fails here instead of silently skipping CI.
+test('every check_doc_slugs --synthesis-only guarded path fires the synthesis-docs job (rf2-rf7gu)', () => {
+  // SYNTHESIS_ROOTS — all three directory roots.
+  assert.equal(
+    classify('ai/findings/new-substrate-synthesis/guide/03-state.md').synthesis_docs,
+    'true',
+  );
+  assert.equal(
+    classify('ai/findings/new-substrate-synthesis/drafts/spec-004-rewrite-draft.md').synthesis_docs,
+    'true',
+  );
+  assert.equal(
+    classify('ai/findings/new-substrate-synthesis/prep/w3-docs-disposition.md').synthesis_docs,
+    'true',
+  );
+  assert.equal(
+    classify('ai/findings/new-substrate-synthesis/prep/w9-ci-matrix-disposition.md').synthesis_docs,
+    'true',
+  );
+
+  // SYNTHESIS_FILES — the two named top-level operational authorities.
+  assert.equal(
+    classify('ai/findings/new-substrate-synthesis/11-adoption-workstreams.md').synthesis_docs,
+    'true',
+  );
+  assert.equal(
+    classify('ai/findings/new-substrate-synthesis/12-implementation-plan.md').synthesis_docs,
+    'true',
+  );
+
+  // The roots are NOT a whole-directory sweep: the 01-10 narrative chapters and
+  // README sit beside the named files and stay unguarded, so they must stay
+  // unclassified. This keeps the arms above honest rather than vacuously true.
+  assert.equal(
+    classify('ai/findings/new-substrate-synthesis/08-delivery.md').synthesis_docs,
+    'false',
+  );
+  assert.equal(
+    classify('ai/findings/new-substrate-synthesis/README.md').synthesis_docs,
+    'false',
+  );
+});
+
 test('synthesis-docs job runs the opt-in link scan and focused guide truth fixture (rf2-vxgfnd.135)', () => {
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'synthesis-docs');
   assert.match(block, /if: needs\.detect_changed_surfaces\.outputs\.synthesis_docs == 'true'/);
