@@ -24,6 +24,41 @@
   permission as though it were the guarantee is exactly the over-claim this
   bead exists to remove.
 
+  ## What advances that pending mark (rf2-kahkr — traced, not inferred)
+
+  The mechanism is now identified, and it is NOT a hidden synchronous flush.
+  Three back-to-back `dispatch-sync!` calls were instrumented on this exact
+  fixture (stack capture on `flush-scope!` and on `advance-revision!`, with
+  console markers bracketing each call). Across 3 browser runs, identically:
+
+    - the revision advanced 0 -> 1 -> 2, one advance per call after the first;
+    - EVERY `flush-scope!` stack was the same three frames —
+      `flush-scope!` <- `flush-pending!` <- the `schedule-flush!` microtask
+      closure — terminating there, with NO router or dispatch frame above it.
+      That is a host job-queue entry point, i.e. the ordinary armed microtask;
+    - `advance-revision!` (the `commit*` / step-8 route) NEVER fired, so the
+      advance is scheduler phase 1, not a React layout-commit correction;
+    - the flush was logged BETWEEN the `begin` and `end` markers of the second
+      and third calls — i.e. a microtask checkpoint ran DURING `dispatch-sync!`.
+
+  The control that settles it: a plain `js/queueMicrotask` enqueued by the
+  fixture itself, immediately before the second call, ALSO ran between that
+  call's begin and end markers. Nothing in re-frame is involved in that
+  callback, so the checkpoint is genuinely the host's.
+
+  Conclusion: `dispatch-sync!` is not microtask-atomic on the mounted path — it
+  yields, and the ordinary checkpoint therefore lands mid-call and flushes the
+  previous drain's mark. So there is nothing here to remove: the scheduler is
+  behaving exactly as specified, and the earlier `flush-render!` /
+  `dispatch-committed!` / late-bound-hook suspects are correctly ruled out.
+
+  Whether `dispatch-sync!` SHOULD yield is a ROUTER question living in
+  `implementation/core`, and it is a ruling, not a measurement. It is left open
+  deliberately. Until it is ruled, no fixture here asserts sharing OR
+  non-sharing across two `dispatch-sync!` calls: the first would assert a
+  permission as a guarantee, the second would freeze possibly-unintended
+  router behaviour into a contract. Both are over-claims.
+
   ## Why the awaits here are ordering guarantees, not races
 
   The scheduler arms its flush with `queue-microtask!` during the drain. The
@@ -145,14 +180,22 @@
   ;; still pending. Nothing about the router closes a render batch — only the
   ;; host checkpoint does.
   ;;
-  ;; MEASURED SCOPE NOTE (rf2-vxgfnd.166). The ruled contract says drains
-  ;; finishing before one checkpoint MAY share a batch; it does not promise they
-  ;; always will. On this mounted path they do not always: a SECOND
-  ;; `dispatch-sync!` in the same stack was measured to advance the first
-  ;; drain's pending mark before making its own. So this fixture asserts the
-  ;; guarantee (a finished drain leaves the window open) rather than the
-  ;; permission. The headless sibling pins an actual shared batch, where the
-  ;; scheduler is observed without React in the loop.
+  ;; MEASURED SCOPE NOTE (rf2-vxgfnd.166; mechanism traced by rf2-kahkr). The
+  ;; ruled contract says drains finishing before one checkpoint MAY share a
+  ;; batch; it does not promise they always will. On this mounted path they do
+  ;; not always: a SECOND `dispatch-sync!` in the same stack was measured to
+  ;; advance the first drain's pending mark before making its own. So this
+  ;; fixture asserts the guarantee (a finished drain leaves the window open)
+  ;; rather than the permission. The headless sibling pins an actual shared
+  ;; batch, where the scheduler is observed without React in the loop.
+  ;;
+  ;; That advance is now traced: it is the ordinary armed `schedule-flush!`
+  ;; microtask, landing mid-call because `dispatch-sync!` yields to the host
+  ;; microtask queue. See the namespace docstring for the instrumentation, the
+  ;; control microtask that identifies it, and why nothing asserts sharing (or
+  ;; non-sharing) across two `dispatch-sync!` calls pending a router ruling.
+  ;;
+  ;; This test itself performs exactly ONE drain, so it is unaffected either way.
   (if-not (browser?)
     (is true ":node — no DOM; the :browser-test runner exercises the DOM body")
     (async
