@@ -155,7 +155,7 @@
   gets one listener per host-frame, and re-`reg-runner!`ing a deck
   (hot reload) replaces rather than stacks.
 
-  The listener fires once per drain-settle with the assembled
+  The listener fires once per dequeued event with the assembled
   `:rf/epoch-record`. It acts only on records whose `:frame` is THIS
   `host-frame`, and SKIPS the `[:run-step n]` PARENT epoch (whose only
   app-db delta is the `:step` write) by matching the record's

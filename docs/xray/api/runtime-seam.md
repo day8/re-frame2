@@ -89,7 +89,7 @@ Nine read-only accessors. Every one returns a map; success is `:ok? true`; failu
   ```clojure
   (get-epoch-history opts) → {:ok? true :frame <id> :epochs <vec> :count <n>}
   ```
-- **Description**: The per-frame epoch ring buffer. Each epoch is a `:rf/epoch-record` (drain-completion snapshot). The canonical state slots are `:frame-state-before` / `:frame-state-after` — the whole frame-state (app-db + runtime-db as separate partitions); `:db-before` / `:db-after` are optional app-db projections of those. Default depth 50.
+- **Description**: The per-frame epoch ring buffer. Each epoch is a `:rf/epoch-record` (one per dequeued event's run-to-completion, **not** per drain — a parent event and the `:fx [[:dispatch …]]` child it queued commit two records). The canonical state slots are `:frame-state-before` / `:frame-state-after` — the whole frame-state (app-db + runtime-db as separate partitions); `:db-before` / `:db-after` are optional app-db projections of those. Default depth 50.
 
 ### `get-app-db`
 

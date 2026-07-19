@@ -1131,7 +1131,7 @@
    {:key         :trace.cascade/capture-for-epoch!
     :producer-ns 're-frame.trace.cascade
     :design-bead "rf2-931pm"
-    :description "Focused-event-only per-epoch cascade-DAG aggregator. `epoch/settle!` invokes once per drain-settle after the cascade buffer has been harvested; no-op when the installed focus predicate returns false."}
+    :description "Focused-event-only per-epoch cascade-DAG aggregator. `epoch/settle!` invokes it once per dequeued event after the cascade buffer has been harvested; no-op when the installed focus predicate returns false."}
    {:key         :trace.cascade/set-focus-predicate!
     :producer-ns 're-frame.trace.cascade
     :design-bead "rf2-931pm"

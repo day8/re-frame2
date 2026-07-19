@@ -2242,7 +2242,7 @@
 ;;              always-on 'structured data only' rule). NOT projected under
 ;;              any frame's egress policy — the frame-owned `:observability
 ;;              :errors` sink is the normal off-box error path.
-;;   :epoch   — drain-settle epoch-record listener, late-bound through the
+;;   :epoch   — epoch-record listener, late-bound through the
 ;;              optional `day8/re-frame2-epoch` artefact; degrades to nil
 ;;              when the artefact is absent.
 ;;
@@ -2305,7 +2305,7 @@
                 (`:event` wire-elided, `:exception` rides RAW). The
                 frame-owned `:observability :errors` sink is the normal
                 off-box error path.
-  - `:epoch`  — drain-settle epoch-record listener (Spec 009
+  - `:epoch`  — epoch-record listener (Spec 009
                 §`register-epoch-listener!`); no-op returning nil when the
                 epoch artefact is absent.
 
@@ -2518,7 +2518,7 @@
 
 ;; There are deliberately NO façade `register-epoch-listener!` /
 ;; `unregister-epoch-listener!` exports (retired rf2-9flalp — API-shrink #4).
-;; The epoch drain-settle stream is one of the four pure observation streams,
+;; The epoch stream is one of the four pure observation streams,
 ;; so it is registered through the single stream-parameterized verb —
 ;; `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch
 ;; id)` — exactly like `:trace` / `:events` / `:errors`. Those verbs delegate

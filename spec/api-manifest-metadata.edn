@@ -1134,7 +1134,7 @@
   ;; bead 5).
   ["re-frame.core" "replace-frame-state!"]       {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ;; The façade `register-epoch-listener!` / `unregister-epoch-listener!` pair
-  ;; was RETIRED (rf2-9flalp — API-shrink #4): the epoch drain-settle stream is
+  ;; was RETIRED (rf2-9flalp — API-shrink #4): the epoch stream is
   ;; registered through the single stream-parameterized verb,
   ;; `(rf/register-listener! :epoch id f)`, like :trace / :events / :errors.
   ;; The wrappers remain in re-frame.epoch (rowed below, canonical home).
