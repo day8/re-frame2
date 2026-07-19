@@ -1119,12 +1119,16 @@
                                     (declaration entry) source decl)})))
 
 (defn- throw-element-conflict!
-  "Raise the ruled runtime conflict on the ALWAYS-ON error seam — never a
+  "Raise the ruled runtime conflict as an UNCONDITIONAL throw — never a
   `trace/`-gated path. The law this reports holds in `:advanced` production, so
-  its evidence has to reach production too; routing it through a diagnostic
-  channel would re-create the very dev-only-law defect the placement amendment
-  exists to prevent. Spec 009 catalogues `:rf.error/custom-element-conflict` as
-  always-on for that reason."
+  the throw has to fire there too; gating it behind `goog.DEBUG` would re-create
+  the very dev-only-law defect the placement amendment exists to prevent. That is
+  production-surviving ENFORCEMENT — a DISTINCT axis from the always-on
+  error-emit listener CHANNEL. This is a pure `error/throw-error!` that never
+  fans a record to the `:errors` listener, so Spec 009 catalogues
+  `:rf.error/custom-element-conflict` on the DIAGNOSTIC channel (the
+  thrown-ex-info-is-diagnostic rule) even though the enforcement itself is
+  unconditional and survives a release build."
   [{:keys [tag declarations] :as evidence}]
   (error/throw-error!
    :rf.error/custom-element-conflict 're-frame.ui/custom-element
