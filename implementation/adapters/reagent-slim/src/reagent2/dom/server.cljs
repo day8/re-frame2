@@ -745,7 +745,7 @@
   "Emit a hiccup vector whose head is a DOM-tag keyword/symbol/string."
   [^StringBuffer sb argv]
   (let [head      (nth argv 0 nil)
-        parsed    (template/parse-tag head)
+        parsed    (template/parse-tag head argv)
         tag-str   (.-tag parsed)
         [first-arg has-props children-pos] (template/hiccup-shape argv 1)
         user-attrs (when (and has-props (some? first-arg)) first-arg)

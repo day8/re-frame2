@@ -43,7 +43,16 @@
              (:recovery data))
           "same recovery token as the server arm — one target grammar")
       (is (= :rf/suspense-boundry (:head data))
-          "the offending head rides the payload")))
+          "the offending head rides the payload")
+      ;; rf2-vzno0 — Spec 009's `:rf.error/invalid-hiccup-head` row promises
+      ;; `:head`, `:element` on BOTH arms, and the JVM arm
+      ;; (`re-frame.ssr.emit/reject-reserved-rf-hiccup-head!`) supplies both.
+      ;; The client arm stamped `:head` alone, so a diagnostic consumer
+      ;; reading the documented payload got the head but nil for the
+      ;; offending vector — cross-host friction in a structured error API.
+      (is (= [:rf/suspense-boundry {:id 1}] (:element data))
+          "the COMPLETE offending hiccup vector rides the payload, as the
+           catalogue row promises for both arms")))
 
   (testing ":rf/suspense-boundary is server-streaming-only on the client"
     (let [data (head-error [:rf/suspense-boundary {:id 1}])]
