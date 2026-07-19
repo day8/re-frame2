@@ -458,11 +458,21 @@
   registrar currently holds — so the moment it is chosen is a correctness
   property, not a scheduling detail. Forcing it here, inside the `(continue?)`
   fence and immediately before the physical write, is the LAST point ahead of
-  the swap; every callback-bearing pre-install emission (the caller's
-  `:rf.machine.spawn/spawned` trace and this fn's own
-  `:rf.error/system-id-collision` trace, both of which fan synchronously to
-  application listeners that can unregister or replace the child's TYPE) has
-  already run and is therefore already reflected in the reference this stamps."
+  the swap, so every pre-install emission and every in-drain mutation it may
+  have provoked is already reflected in the reference this stamps.
+
+  Note the premise has NARROWED (rf2-wxy1c). The pre-install emissions named
+  above — the caller's `:rf.machine.spawn/spawned` trace and this fn's own
+  `:rf.error/system-id-collision` trace — no longer fan synchronously to
+  application listeners: trace listeners are OBSERVERS, and internal
+  drain-owned emits deliver at the POST-DRAIN boundary, so no listener body
+  can unregister or replace the child's TYPE between the caller's bindings and
+  this write. That window is now closed BY CONSTRUCTION. This placement is kept
+  regardless: it costs nothing, it is the honest place to read a registrar-derived
+  value, and it remains load-bearing for in-drain application code that CAN run
+  ahead of the write — a prepared child's own `[:schemas :data]` validator runs
+  after its `:type-spec` was retained, so the definition-lifetime rule must still
+  decide against the registrar as it stands at COMMIT."
   [frame-id rt-after-alloc spec spawned-id initial-snap
    {:keys [system-id parent-id invoke-id track? type-ref-fn continue? owner-token]}]
   (let [existing (when system-id (get-in rt-after-alloc (paths/system-id-path system-id)))]
@@ -509,17 +519,28 @@
             ;; `:machine-id` keyword while the registrar still holds the prepared
             ;; definition, pin that definition once the registrar has diverged —
             ;; but the CHOICE was taken in `spawn-fx*`'s `let` bindings, ahead of
-            ;; two callback-bearing emissions that still run before this write:
-            ;; the caller's `:rf.machine.spawn/spawned` trace and the
-            ;; `:rf.error/system-id-collision` trace above. Both fan synchronously
-            ;; to application listeners. A listener that UNREGISTERED or REPLACED
-            ;; the admitted child's TYPE therefore diverged the registrar AFTER
-            ;; `prepared-type-ref` had observed it intact and returned the
-            ;; keyword — so the install stamped a now-STALE keyword and the child
-            ;; came up INERT (nothing resolves; it never leaves `:initial`, and
-            ;; every event raises `:rf.error/no-such-handler`) or SPLIT (a
-            ;; prepared-v1 snapshot driven by an unrelated current-v2 handler).
-            ;; The very failure modes rxjy3 removed, reached through a later door.
+            ;; the two emissions that still run before this write: the caller's
+            ;; `:rf.machine.spawn/spawned` trace and the
+            ;; `:rf.error/system-id-collision` trace above. Those then fanned
+            ;; synchronously to application listeners, so a listener that
+            ;; UNREGISTERED or REPLACED the admitted child's TYPE diverged the
+            ;; registrar AFTER `prepared-type-ref` had observed it intact and
+            ;; returned the keyword — the install stamped a now-STALE keyword and
+            ;; the child came up INERT (nothing resolves; it never leaves
+            ;; `:initial`, and every event raises `:rf.error/no-such-handler`) or
+            ;; SPLIT (a prepared-v1 snapshot driven by an unrelated current-v2
+            ;; handler). The very failure modes rxjy3 removed, reached through a
+            ;; later door.
+            ;;
+            ;; rf2-wxy1c CLOSED that door from the other side: those two emits are
+            ;; internal and drain-owned, so their listeners now run at the
+            ;; post-drain boundary and no listener body can act here at all. The
+            ;; late force is retained because it is still the correct reading
+            ;; point for a registrar-derived value, and because in-drain
+            ;; application code — notably a prepared child's own
+            ;; `[:schemas :data]` validator, which `prepare-spawn-all-child` runs
+            ;; AFTER retaining `:type-spec` — can still diverge the registrar
+            ;; ahead of this write.
             ;;
             ;; Deferring the CHOICE — rather than re-checking anything — is the
             ;; whole fix: `type-ref-fn` reads the registrar as it stands at
@@ -929,16 +950,25 @@
         ;; keyword, so hot-reload semantics are unchanged).
         ;;
         ;; rf2-zo5n9 — a THUNK, deliberately unforced here. `prepared-type-ref`
-        ;; is the one registrar-DERIVED input the install still needs, and
-        ;; everything between this binding and the write is callback-bearing:
-        ;; the `:rf.machine.spawn/spawned` trace below and `install-spawn!`'s
-        ;; `:rf.error/system-id-collision` trace both fan synchronously to
-        ;; application listeners that can unregister or replace the child's TYPE.
-        ;; Choosing here would read a registrar those callbacks then invalidate,
-        ;; stamping a stale keyword onto the snapshot (inert child / split
-        ;; authority). `install-spawn!` forces it at the last point before the
-        ;; swap instead. `machine-type-ref` is pure over `args` and reads no
-        ;; registrar, so the non-prepared path is timing-independent either way.
+        ;; is the one registrar-DERIVED input the install still needs, so it is
+        ;; read as late as possible: `install-spawn!` forces it at the last point
+        ;; before the swap, and the definition-lifetime rule therefore decides
+        ;; against the registrar as it stands at COMMIT rather than at this
+        ;; binding.
+        ;;
+        ;; This originally guarded against TRACE LISTENERS — the
+        ;; `:rf.machine.spawn/spawned` trace below and `install-spawn!`'s
+        ;; `:rf.error/system-id-collision` trace fanned synchronously to
+        ;; application listeners that could unregister or replace the child's
+        ;; TYPE mid-drain. rf2-wxy1c retired that premise: both are internal
+        ;; drain-owned emits, delivered at the post-drain boundary, so no
+        ;; listener body runs between here and the write. The thunk stays because
+        ;; the late read is still correct and still load-bearing for ordinary
+        ;; in-drain application code — a prepared child's `[:schemas :data]`
+        ;; validator runs after `prepare-spawn-all-child` retained `:type-spec`,
+        ;; so a registrar it mutates must be the one the rule sees.
+        ;; `machine-type-ref` is pure over `args` and reads no registrar, so the
+        ;; non-prepared path is timing-independent either way.
         type-ref-fn (if prepared
                       #(prepared-type-ref args prepared)
                       (constantly (machine-type-ref args)))
