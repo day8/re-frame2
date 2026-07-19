@@ -934,9 +934,20 @@
               host         (.createElement js/document "div")
               captured     (atom [])
               k            (str (gensym "stream-exactly-once-cb"))
+              ;; Scope the count to THIS boundary's own id. `captured` is a
+              ;; PROCESS-GLOBAL trace listener — it observes every namespace's
+              ;; events, including any deferred emit a sibling suite leaked into
+              ;; this test's `js/setTimeout` settle windows — so an
+              ;; `:operation`-only count measures the SUITE, not this boundary.
+              ;; The `(= 1 (failed-count))` below is the SOLE detector that the
+              ;; trace fired on the successful swap, so an unscoped count could
+              ;; go green on a foreign padding while THIS boundary emitted none
+              ;; (the rf2-veyfp false-green). The failed trace carries the
+              ;; authored id under `[:tags :id]` (see string-boundary-id test).
               failed-count #(count (filter (fn [ev]
-                                             (= :rf.ssr/suspense-boundary-failed
-                                                (:operation ev)))
+                                             (and (= :rf.ssr/suspense-boundary-failed
+                                                     (:operation ev))
+                                                  (= id (-> ev :tags :id))))
                                            @captured))]
           ;; NO fallback <template> for `id` yet — the failed chunk arrives
           ;; before any live mount exists.
