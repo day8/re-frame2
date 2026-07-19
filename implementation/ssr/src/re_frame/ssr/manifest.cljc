@@ -443,6 +443,61 @@
           (when-not (and (edn-carryable? k) (edn-carryable? v)) k))
         m))
 
+(defn- browser-number
+  "The one IEEE-754 double a wire-number becomes on the BROWSER, where
+  every number is a double and there is a single zero (`+0.0 === -0.0`).
+  Two SERVER-distinct numbers collide on the client exactly when this
+  projection is `=`: a Long `1` and a double `1.0` both name `1.0`, and
+  `0` and `-0.0` both name `0.0`. `##NaN` never reaches here —
+  `edn-carryable?` excludes it, and it is not `=` to itself anyway."
+  [v]
+  (let [d (double v)]
+    (if (zero? d) 0.0 d)))
+
+(defn- numeric-collision
+  "-> a DATA map naming the FIRST cross-host numeric collision reachable
+  from `v` — a map whose distinct numeric KEYS, or a set whose distinct
+  numeric ELEMENTS, collapse to one `browser-number` — else `nil`.
+
+  `edn-carryable?` asks whether each value ALONE rides the wire; this
+  asks whether a whole map or set survives the crossing. It need not,
+  even when every element passes `edn-carryable?`: the server holds
+  numbers the browser cannot tell apart. `1` and `1.0`, or `0` and
+  `-0.0`, are two distinct keys on the JVM, but the browser reads both as
+  one double, so `pr-str`'ing the collection and reading it back on the
+  client rejects a DUPLICATE key/element (PR #6437 screened each value in
+  isolation and missed this). The check recurs through nested maps, sets,
+  vectors and lists — the same reach `edn-carryable?` walks — and `path`
+  records the route to the offending collection so the author can narrow
+  one key deliberately."
+  ([v] (numeric-collision v []))
+  ([v path]
+   (letfn [(collapse [kind xs]
+             (some (fn [[d members]]
+                     (when (next members)
+                       {:invalid        :cross-host-numeric-collision
+                        :collision       kind
+                        :path            path
+                        :collapses       (vec members)
+                        :browser-number  d}))
+                   (group-by browser-number (filter number? xs))))]
+     (cond
+       (map? v)
+       (or (collapse :map-keys (keys v))
+           (some (fn [[k val]]
+                   (or (numeric-collision k   (conj path {:key k}))
+                       (numeric-collision val (conj path k))))
+                 v))
+
+       (set? v)
+       (or (collapse :set-elements v)
+           (some #(numeric-collision % (conj path {:in-set %})) v))
+
+       (coll? v)
+       (first (keep-indexed (fn [i x] (numeric-collision x (conj path i))) v))
+
+       :else nil))))
+
 (defn script-html
   "-> the manifest's WIRE FORM: one `<script type=\"application/edn\"
   data-rf-root>` element carrying the `pr-str`'d manifest, escaped by
@@ -468,7 +523,19 @@
   (rf2-v4foc).
 
   One predicate, `edn-carryable?`, spelled once and enforced at both
-  points. Not a second rule."
+  points. Not a second rule.
+
+  ## The collision gate
+
+  `edn-carryable?` clears each value ALONE; it cannot see that a whole
+  map or set fails to CROSS. The server holds `1` and `1.0`, or `0` and
+  `-0.0`, as two distinct keys — each rides the wire — yet the browser
+  reads every number as one double and collapses the pair, so the emitted
+  body reads back with a DUPLICATE key and the manifest changes
+  cardinality across the wire (PR #6437 checked each value in isolation
+  and missed this). So the whole manifest is also screened for cross-host
+  numeric collisions here, at the one door onto the wire, and a colliding
+  manifest is refused rather than emitted."
   [m]
   (validate! 'rf.ssr/manifest-script m)
   (when-let [k (unwireable-key m)]
@@ -487,6 +554,24 @@
           "manifest must be plain EDN data both hosts hold identically")
      {:recovery :pass-serialisable-root-props
       :extra    {:unserialisable-manifest-key k}}))
+  (when-let [{:keys [collision path collapses browser-number] :as c}
+             (numeric-collision m)]
+    (error/throw-error!
+     :rf.error/root-manifest-invalid 'rf.ssr/manifest-script
+     (str "root manifest holds a cross-host numeric collision at "
+          (pr-str path) ": the distinct "
+          (if (= :map-keys collision) "map keys " "set elements ")
+          (pr-str collapses) " are separate values on the server, but the "
+          "browser reads every number as one IEEE-754 double, so they "
+          "collapse to " (pr-str browser-number) " on the client — the "
+          "emitted body would not read back, the reader rejecting it as a "
+          "duplicate " (if (= :map-keys collision) "key" "element")
+          " and changing the collection's cardinality between server and "
+          "client. Each value rides the wire alone, so this is not a "
+          "carryability failure: narrow one of the colliding numbers so "
+          "both hosts agree on the collection")
+     {:recovery :re-render-the-root-manifest
+      :extra    c}))
   (str "<script type=\"" manifest-script-type "\" "
        constants/root-manifest-marker-attribute ">"
        (html/escape-edn-script-body (pr-str m))

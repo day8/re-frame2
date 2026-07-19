@@ -551,6 +551,7 @@
     (doseq [v [0 -1 1 1.5 -1.5 9.0 0.1
                manifest/max-safe-integer
                (- manifest/max-safe-integer)
+               ##Inf ##-Inf
                #?(:clj 1.0E308 :cljs 1e308)]]
       (is (manifest/edn-carryable? v) (str "must still carry " (pr-str v))))
 
@@ -586,6 +587,171 @@
     (testing "a large DOUBLE is admitted though it dwarfs the integer
               bound — the bound is about representability, not magnitude"
       (is (manifest/edn-carryable? #?(:clj 1.0E308 :cljs 1e308))))))
+
+;; ---------------------------------------------------------------------------
+;; ±INFINITY RIDES; ONLY NaN IS EXCLUDED (rf2-pdcoh — Spec 011 same-contract)
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 011 once read "finite doubles", but `wire-number?` admits ±Infinity and
+;; always has: EDN prints `##Inf` / `##-Inf` and reads them back EXACTLY, so
+;; they satisfy the round-trip property. `##NaN` alone is excluded — it is not
+;; `=` to itself. The predicate, the spec prose, and these pins now agree, on
+;; BOTH hosts.
+
+(deftest infinities-ride-only-nan-is-excluded
+  (testing "±Infinity is admitted on both hosts — EDN round-trips it exactly"
+    (is (manifest/edn-carryable? ##Inf))
+    (is (manifest/edn-carryable? ##-Inf)))
+  (testing "…and NaN alone is refused, by the round-trip property on its own terms"
+    (is (not (manifest/edn-carryable? #?(:clj Double/NaN :cljs js/NaN)))))
+  (testing "±Infinity survives the shipped wire, both hosts — the accepted pin"
+    (doseq [inf [##Inf ##-Inf]]
+      (let [m (manifest/manifest {:rf.root/schema-version 1 :root-id :page/shop}
+                                 {:props {:v inf}})]
+        (is (round-trips? m) (str "±Inf prop " (pr-str inf) " round-trips"))
+        (is (= inf (get-in (manifest/read-manifest
+                            'test (script-body (manifest/script-html m)))
+                           [:props :v]))
+            "the exact infinity the server rendered is what the reader returns")))))
+
+;; ---------------------------------------------------------------------------
+;; CROSS-HOST NUMERIC KEY / SET COLLISIONS (rf2-pdcoh)
+;; ---------------------------------------------------------------------------
+;;
+;; PR #6437 made `wire-number?` decide, PER VALUE, whether a number crosses the
+;; JVM→CLJS wire. Per-value acceptance is not enough for a whole map or set:
+;; the server and the browser do not share numeric key identity. On the JVM `1`
+;; and `1.0` (and `0` and `-0.0`) are two DISTINCT keys that BOTH pass
+;; `edn-carryable?`; the browser reads every number as one double, so the
+;; emitted body reads back with a DUPLICATE key — the accepted manifest does
+;; not round-trip, and its cardinality changes across the wire. As with the
+;; numeric-scalar arm above, no same-host suite can see it: the server reads its
+;; own two-key body back perfectly. So this proof, too, is joined by BYTES.
+
+(def ^:private collision-bodies
+  "Exact `<script>` bodies a PRE-fix server emitted for colliding manifests,
+  pinned as BYTES because bytes are what cross. Map-key, set-element, and
+  signed-zero arms. The JVM half pins the tokens against the live printer so
+  these literals cannot go stale."
+  {:map  "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:lookup {1 :integer, 1.0 :double}}}"
+   :set  "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:tags #{1.0 1}}}"
+   :zero "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:lookup {0 :a, -0.0 :b}}}"})
+
+(deftest colliding-wire-bytes-part-across-hosts
+  (testing "rf2-pdcoh — the SAME wire bytes, read by the shipped `read-manifest`
+            on each host, PART: the server reads its own body back with BOTH
+            keys; the browser rejects it as a duplicate. One wire, two
+            cardinalities — the defect as an executable fact, and WHY emission
+            must now refuse the value."
+    #?(:clj
+       (do
+         (is (= "{1 :integer, 1.0 :double}" (pr-str {1 :integer 1.0 :double}))
+             "the map tokens pinned in `collision-bodies` match the live printer")
+         (is (= "#{1.0 1}" (pr-str #{1 1.0}))
+             "…and the set token — if either reds, the pinned bytes are stale")
+         (is (= 2 (count (get-in (manifest/read-manifest 'test (:map collision-bodies))
+                                 [:props :lookup])))
+             "the server round-trips two distinct keys — same-host is blind")
+         (is (= 2 (count (get-in (manifest/read-manifest 'test (:set collision-bodies))
+                                 [:props :tags])))))
+       :cljs
+       (doseq [[label body] collision-bodies]
+         (let [data (try (manifest/read-manifest 'test body) nil
+                         (catch cljs.core/ExceptionInfo e (ex-data e)))]
+           (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
+               (str label " — the browser rejects the colliding body"))
+           (is (= :unreadable (:invalid data))
+               (str label " — as an unreadable body: the CLJS reader flags the "
+                    "duplicate the two server numbers collapsed into")))))))
+
+#?(:clj
+   (deftest cross-host-numeric-collision-fails-before-emission
+     (testing "rf2-pdcoh — the server holds two distinct keys the browser cannot
+               tell apart; `script-html` refuses the manifest BEFORE emission,
+               naming the offending collection, its colliding keys, and the one
+               browser double they share."
+       ;; map-key collision, nested under :props
+       (let [collide {1 :integer 1.0 :double}
+             m       {:rf.root/schema-version 1 :root-id :page/shop
+                      :props {:lookup collide}}]
+         (is (= 2 (count collide)) "the server really does hold two distinct keys")
+         (is (manifest/edn-carryable? collide)
+             "THE LEVER: each key and value rides the wire ALONE — exactly what
+              PR #6437 checked. Per-value carryability is not the property.")
+         (let [data (try (manifest/script-html m) nil
+                         (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+           (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
+               "the EXISTING error id — a colliding manifest is a malformed
+                manifest, not a new failure kind, so no new catalogue row")
+           (is (= :cross-host-numeric-collision (:invalid data)))
+           (is (= :map-keys (:collision data)))
+           (is (= [:props :lookup] (:path data)) "the offending collection is NAMED")
+           (is (= #{1 1.0} (set (:collapses data))) "and its colliding keys")
+           (is (= 1.0 (:browser-number data)) "and the one browser double they share")))
+
+       ;; set-element collision
+       (let [m    {:rf.root/schema-version 1 :root-id :page/shop
+                   :props {:tags #{1 1.0}}}
+             data (try (manifest/script-html m) nil
+                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+         (is (= :cross-host-numeric-collision (:invalid data)))
+         (is (= :set-elements (:collision data)))
+         (is (= [:props :tags] (:path data)))
+         (is (= #{1 1.0} (set (:collapses data)))))
+
+       ;; signed zero — the JVM keeps Long 0 and double -0.0 apart; the browser
+       ;; holds ONE zero (verified: `(= 0 -0.0)` is true on CLJS)
+       (let [collide (into {} [[0 :a] [-0.0 :b]])
+             m       {:rf.root/schema-version 1 :root-id :page/shop
+                      :props {:lookup collide}}]
+         (is (= 2 (count collide)) "0 (Long) and -0.0 (double) are two keys on the JVM")
+         (let [data (try (manifest/script-html m) nil
+                         (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+           (is (= :cross-host-numeric-collision (:invalid data)))
+           (is (= 0.0 (:browser-number data)) "0 and -0.0 share the browser's one zero")))
+
+       ;; the gate is TOTAL: a DESCRIPTOR key `serialise-props` never sees is
+       ;; gated too, because `script-html` is the one door onto the wire
+       (let [m    {:rf.root/schema-version 1 :root-id :page/shop
+                   :static-props {:m {1 :a 1.0 :b}}}
+             data (try (manifest/script-html m) nil
+                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+         (is (= :cross-host-numeric-collision (:invalid data)))
+         (is (= [:static-props :m] (:path data))
+             "a descriptor key collides too — the check is at emission, not props-only"))
+
+       ;; nested through a vector — collisions are found at any depth
+       (let [m    {:rf.root/schema-version 1 :root-id :page/shop
+                   :props {:xs [{:a 1} #{2 2.0}]}}
+             data (try (manifest/script-html m) nil
+                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+         (is (= :cross-host-numeric-collision (:invalid data)))
+         (is (= :set-elements (:collision data)))
+         (is (= [:props :xs 1] (:path data)) "the path indexes into the vector")))))
+
+(deftest a-mutation-that-resolves-the-collision-emits-fine
+  (testing "rf2-pdcoh — THE RED-BEFORE MUTATION: change one colliding number so
+            the two keys/elements no longer share a browser double, and the very
+            same shape emits and round-trips. This proves each rejection above is
+            the COLLISION, not the shape — and that the gate does not narrow
+            ordinary numeric props."
+    (doseq [[label m]
+            {:map-mutated  {:rf.root/schema-version 1 :root-id :page/shop
+                            :props {:lookup {1 :integer 2.0 :double}}}
+             :set-mutated  {:rf.root/schema-version 1 :root-id :page/shop
+                            :props {:tags #{1.0 2}}}
+             :zero-mutated {:rf.root/schema-version 1 :root-id :page/shop
+                            :props {:lookup {0 :a 1.0 :b}}}
+             :single-key   {:rf.root/schema-version 1 :root-id :page/shop
+                            :props {:lookup {1 :only}}}
+             :distinct-set {:rf.root/schema-version 1 :root-id :page/shop
+                            :props {:tags #{1 2 3}}}
+             :nested-ok    {:rf.root/schema-version 1 :root-id :page/shop
+                            :props {:a [1 {:b #{2 3.5}}]}}}]
+      (is (string? (manifest/script-html m))
+          (str label " — a non-colliding numeric collection still emits"))
+      (is (round-trips? m)
+          (str label " — …and round-trips exactly")))))
 
 #?(:clj
    (deftest non-carryable-number-fails-before-emission
