@@ -833,6 +833,42 @@
   (is (= #{:from-app} (rules/custom-element-properties :a-el))
       "nor can it leak into the OTHER build's open cycle"))
 
+(deftest ready-made-pair-cannot-inject-a-foreign-owner-into-an-open-cycle
+  ;; rf2-4vm19. The seam took a ready-made [build ns] pair VERBATIM, so the
+  ;; owner travelled with the datum rather than with the addressed cycle: a
+  ;; source handed to build :a's cycle could name build :b as its owner and
+  ;; `reconcile-sources` would then evict :b's row. Ownership is a property of
+  ;; the CYCLE BEING ADDRESSED, never of the payload — a caller cannot nominate
+  ;; whose rows a cycle reconciles.
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :a-el {:properties #{:a}} 'shared.ns :a)
+  (rules/register-custom-element! :b-el {:properties #{:b}} 'shared.ns :b)
+  (rules/notify-reload! :a)
+  (rules/note-reloaded-sources! [[:b 'shared.ns]] :a)   ; :a's cycle, :b's owner
+  (rules/commit-reload! :a)
+  (is (= #{:b} (rules/custom-element-properties :b-el))
+      "build :b's row survives a cycle it never took part in — the foreign owner
+       in the payload was normalized to the addressed build, not honoured")
+  (is (= #{} (rules/custom-element-properties :a-el))
+      "and the source WAS reconciled, against the build whose cycle is open —
+       normalization re-owns the datum rather than discarding it"))
+
+(deftest ns-only-and-ready-made-pair-are-the-same-evidence
+  ;; The ergonomic ns-only form is preserved, and the pair form is now merely a
+  ;; more verbose spelling of it: for one addressed build both must reconcile
+  ;; the identical row, so there is no second ownership rule to reason about.
+  (doseq [sources [['shared.ns] [[:a 'shared.ns]]]]
+    (rules/reset-custom-elements!)
+    (rules/register-custom-element! :a-el {:properties #{:a}} 'shared.ns :a)
+    (rules/register-custom-element! :b-el {:properties #{:b}} 'shared.ns :b)
+    (rules/notify-reload! :a)
+    (rules/note-reloaded-sources! sources :a)
+    (rules/commit-reload! :a)
+    (is (= #{} (rules/custom-element-properties :a-el))
+        (str "the addressed build's row is reconciled, given " (pr-str sources)))
+    (is (= #{:b} (rules/custom-element-properties :b-el))
+        (str "and no other build's row is touched, given " (pr-str sources)))))
+
 #?(:cljs
    (deftest installed-producer-notes-into-its-own-build-only
      ;; The producer is the one real caller of the ledger seam, so its build
