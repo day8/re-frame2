@@ -232,14 +232,19 @@
       (let [r (first @seen)]
         (is (= :rf.error/frame-destroyed (:error r)))
         (is (= :gone/frame (:frame r)))
-        ;; EP-0015 issue 1 (rf2-t55hxg.18) — the `:event` slot is projected
-        ;; against the record's frame, which is UNRESOLVABLE here. With no
-        ;; classification policy to consult the slot FAILS CLOSED to
-        ;; `:rf/redacted` (it must not leak the attempted query-v under an
-        ;; empty policy) — and the fail-closed posture holds in production
-        ;; (`goog.DEBUG=false`), not just dev.
-        (is (= :rf/redacted (:event r))
-            ":event fails closed under an unresolvable frame (prod survival)")))))
+        ;; rf2-alk8a (Option A — RAW): a subscription's query vector is IDENTITY
+        ;; (rf2-zwgqe / Spec 015 "pass identifiers, not secrets"), so it egresses
+        ;; on `:event` VERBATIM even under an unresolvable frame — the subscribe
+        ;; emitters stamp `:op :subscribe`, which routes `:event` raw through
+        ;; `raw-identity-query-vector-event?`. rf2-t55hxg.18's fail-closed guards
+        ;; policy-walked VALUE slots (dispatched event vectors — see
+        ;; `frame-destroyed-dispatch-listener-survives-prod`, still `:rf/redacted`),
+        ;; NOT identity slots, which never consult frame policy. The raw egress
+        ;; holds in production (`goog.DEBUG=false`), not just dev.
+        (is (= [:any-sub] (:event r))
+            ":event egresses the query vector raw (identity) under prod elision")
+        (is (= :subscribe (:op r))
+            ":op :subscribe stamped on the always-on subscribe-realm record")))))
 
 (deftest no-such-handler-listener-survives-prod
   (testing "Per rf2-2hvga (= B / widen): a dispatch to a never-registered

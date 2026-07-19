@@ -781,35 +781,47 @@
 (defn- emit-and-throw!
   "Fan `error-id` through the always-on error-emit axis (so a
   boundary-swallowed port throw still reaches off-box shippers) then throw
-  the canonical thrown-error. Never returns."
-  [error-id where frame-id query-v reason extra]
-  (error-emit/emit-error-both!
-    error-id
-    query-v                        ;; attempted query-vector (as :event)
-    (when query-v (first query-v)) ;; sub-id (as :event-id)
-    frame-id
-    nil                            ;; no exception — invalid op
-    0                              ;; elapsed-ms
-    (interop/now-ms)
-    (merge {:where    where
-            :frame    frame-id
-            :recovery :no-recovery}
-           (when query-v {:rf.sub/id      (first query-v)
-                          :rf.sub/query-v query-v})
-           extra))
-  ;; Throwable-bound emission provenance (rf2-9m4oy7): the emit-error-both! record
-  ;; above IS this failure's exactly-once emission on BOTH axes. Binding it to
-  ;; THIS exact throwable — not carrying a forgeable token in ex-data — lets a
-  ;; containment drain catching this throw (an on-change that called a port op)
-  ;; see always-on coverage and re-fan it on neither channel, while a forged or
-  ;; transplanted token on any OTHER throwable reads uncovered.
-  (throw
-    (attest-provenance!
-      (error/thrown-ex-info error-id where reason
-                            {:extra (merge {:frame          frame-id
-                                            :rf.sub/query-v query-v}
-                                           extra)})
-      provenance-both-channels)))
+  the canonical thrown-error. Never returns.
+
+  `record-attrs` (the optional trailing arg) is the axis-1 always-on record
+  attribution the always-on error record should carry INDEPENDENT of the
+  dev-trace `extra` tags — currently `{:op :subscribe}` from
+  `throw-frame-destroyed!` alone (rf2-alk8a): the port is subscribe-realm by
+  construction, so the `:subscribe` realm stamp lets `error-emit` resolve the
+  `:source-coord` under the EXACT `[:sub id]` realm and egress the lease's query
+  vector on `:event` VERBATIM as raw IDENTITY (rf2-zwgqe). Every other caller
+  (`throw-no-such-sub!`, `retry-exhausted`) passes nil — unchanged."
+  ([error-id where frame-id query-v reason extra]
+   (emit-and-throw! error-id where frame-id query-v reason extra nil))
+  ([error-id where frame-id query-v reason extra record-attrs]
+   (error-emit/emit-error-both!
+     error-id
+     query-v                        ;; attempted query-vector (as :event)
+     (when query-v (first query-v)) ;; sub-id (as :event-id)
+     frame-id
+     nil                            ;; no exception — invalid op
+     0                              ;; elapsed-ms
+     (interop/now-ms)
+     (merge {:where    where
+             :frame    frame-id
+             :recovery :no-recovery}
+            (when query-v {:rf.sub/id      (first query-v)
+                           :rf.sub/query-v query-v})
+            extra)
+     record-attrs)                  ;; axis-1 always-on record attrs (:op realm)
+   ;; Throwable-bound emission provenance (rf2-9m4oy7): the emit-error-both! record
+   ;; above IS this failure's exactly-once emission on BOTH axes. Binding it to
+   ;; THIS exact throwable — not carrying a forgeable token in ex-data — lets a
+   ;; containment drain catching this throw (an on-change that called a port op)
+   ;; see always-on coverage and re-fan it on neither channel, while a forged or
+   ;; transplanted token on any OTHER throwable reads uncovered.
+   (throw
+     (attest-provenance!
+       (error/thrown-ex-info error-id where reason
+                             {:extra (merge {:frame          frame-id
+                                             :rf.sub/query-v query-v}
+                                            extra)})
+       provenance-both-channels))))
 
 (defn- throw-frame-destroyed!
   [where frame-id query-v]
@@ -819,7 +831,12 @@
          "been destroyed; the observation port is fail-loud — the ViewCell "
          "maps this to the view error boundary (the public subscribe surface "
          "keeps its recover-to-nil semantics).")
-    nil))
+    nil
+    ;; rf2-alk8a: the observation port is subscribe-realm by construction, so
+    ;; stamp `:op :subscribe` as the always-on record attribution — the query
+    ;; vector on `:event` egresses raw (identity), and the source-coord resolves
+    ;; realm-exact `[:sub id]`. ONLY this caller passes it.
+    {:op :subscribe}))
 
 (defn- throw-no-such-sub!
   [where frame-id query-v]
