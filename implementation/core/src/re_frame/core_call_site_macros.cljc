@@ -79,10 +79,11 @@
      owning-ns fns directly: a `defn` there would let the CLJS compiler attach
      inline fixed-arity metadata to a call site referencing it directly, so a
      `with-redefs`'d fn whose arity set differs couldn't satisfy it). When the
-     user wrote two args, `(disp arg1 (assoc opts :rf.trace/call-site cs))`
-     — `arg1` being the event-vec for the dispatch pair, the query-v for
-     `subscribe`. The 1-arg case is the ambient-frame form, stamped via the
-     2-arity opts map.
+     user wrote two args, `(disp arg1 (stamp-opts opts {:rf.trace/call-site
+     cs}))` — `arg1` being the event-vec for the dispatch pair, the query-v for
+     `subscribe`; [[re-frame.core/stamp-opts]] merges tolerantly so a malformed
+     non-map opts still reaches the callee for its own clean error. The 1-arg
+     case is the ambient-frame form, stamped via the 2-arity opts map.
 
      The emitted form is a plain CALL whose only non-literal operand is the
      user's own expression — no `binding`, no `cond->`, nothing that the CLJS
@@ -90,7 +91,8 @@
      (rf2-i3dvj)."
      [disp-sym arg1 arg2 cs-form]
      (if arg2
-       `(~disp-sym ~arg1 (assoc ~arg2 :rf.trace/call-site ~cs-form))
+       `(~disp-sym ~arg1 (re-frame.core/stamp-opts
+                           ~arg2 {:rf.trace/call-site ~cs-form}))
        `(~disp-sym ~arg1 {:rf.trace/call-site ~cs-form}))))
 
 #?(:clj

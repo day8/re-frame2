@@ -207,6 +207,30 @@
 (def ^:no-doc dispatch-sync-impl router/dispatch-sync!)
 (def ^:no-doc subscribe-impl     subs/subscribe)
 
+(defn ^:no-doc stamp-opts
+  "Merge macro-stamped `extra` into a call's user-supplied `opts`, TOLERANTLY:
+  a malformed (non-map, non-nil) `opts` passes through UNTOUCHED so the callee's
+  own validation still produces its clean framework error rather than a raw
+  host `ClassCastException` (`subscribe`'s pinned malformed-opts contract —
+  non-map opts fall to the ambient path and fail loud with
+  `:rf.error/no-frame-context`, never a misroute).
+
+  Reached ONLY from the debug-gated stamped branch of the call-site macros, so
+  it DCEs under `:advanced` + `goog.DEBUG=false`. It is deliberately GENERIC —
+  no reserved keyword literal lives in this body, keeping the elision probe's
+  `rf.trace/call-site`-absent-from-prod-bundle assertion intact (the keyword
+  literal stays in the macro expansion, which DCEs).
+
+  Per rf2-i3dvj it is also a plain FN CALL by construction: the call-site
+  macros may splice only yield-free expression forms into the caller's context,
+  and an inline `(if (map? opts) …)` would need a `let` to avoid double
+  evaluation — which the CLJS compiler lowers to an awaited async IIFE inside
+  an async context. A function call cannot lower that way."
+  [opts extra]
+  (if (or (map? opts) (nil? opts))
+    (merge opts extra)
+    opts))
+
 ;; ---- CLJS fn-aliases for registration ------------------------------------
 ;;
 ;; Source-coord capture on CLJS rides the JVM-emitted macros above. The

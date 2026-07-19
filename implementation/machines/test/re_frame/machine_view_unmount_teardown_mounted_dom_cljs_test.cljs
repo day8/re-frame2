@@ -97,6 +97,20 @@
   [traces op]
   (filterv #(= op (:operation %)) traces))
 
+(defn- view-ops-of
+  "`ops-of`, narrowed to the events tagged with `view-id`.
+
+  The trace listener is PROCESS-GLOBAL and the `:browser-test` runner shares
+  one page across every `-dom-cljs-test` namespace, so an unrelated suite's
+  deferred `:rf.view/unmounted` disposal can land inside this fixture's
+  settle window. Counting every view's teardown marker was therefore always
+  an under-specified way to assert THIS view's teardown — it passed on
+  scheduling luck, and rf2-i3dvj (which removed compiler-inserted awaits from
+  call-site expansions in async contexts) shifted that luck. Narrowing to the
+  view under test asserts what the fixture actually means."
+  [traces op view-id]
+  (filterv #(= view-id (-> % :tags :rf.view/id)) (ops-of traces op)))
+
 (defn- settle-macrotasks
   "Resolve after `n` macrotask turns so Reagent's deferred render-reaction
   disposal (which fires the `:rf.view/unmounted` marker on a real unmount)
@@ -161,7 +175,7 @@
                                     [(rf/view :mvut/session-view)]]))
               (is (some? (mtest/snapshot frame-id machine-id))
                   "machine still live while the view is mounted")
-              (is (zero? (count (ops-of @traces view-unmounted)))
+              (is (zero? (count (view-ops-of @traces view-unmounted :mvut/session-view)))
                   "no :rf.view/unmounted before the unmount (nothing torn down yet)")
 
               ;; UNMOUNT via the real host teardown path. The disposal that fires
@@ -171,7 +185,8 @@
                   (.then
                     (fn [_]
                       ;; (1) the REAL host-unmount path fired exactly one marker.
-                      (let [unmounts (ops-of @traces view-unmounted)]
+                      (let [unmounts (view-ops-of @traces view-unmounted
+                                                  :mvut/session-view)]
                         (is (= 1 (count unmounts))
                             "exactly one :rf.view/unmounted fired via the REAL
                              reaction-disposal path — NOT a direct emit")
@@ -285,7 +300,8 @@
             (-> (settle-macrotasks 3)
                 (.then
                   (fn [_]
-                    (is (= 1 (count (ops-of @traces view-unmounted)))
+                    (is (= 1 (count (view-ops-of @traces view-unmounted
+                                                 :mvut/ed-view)))
                         "the mounted view's REAL unmount fired exactly one
                          :rf.view/unmounted teardown marker")
                     (is (= 1 (count (ops-of @traces fx-destroyed)))

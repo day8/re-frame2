@@ -26,7 +26,8 @@
   This namespace previously recorded that a second `dispatch-sync!` in the
   same stack advanced the first drain's pending mark before making its own —
   revision 0 -> 1 -> 2, with a control `js/queueMicrotask` running between a
-  call's begin and end markers — and concluded that `dispatch-sync!` yields.
+  call's begin and end markers, i.e. seemingly MID-CALL — and concluded that
+  `dispatch-sync!` yields.
 
   The measurement was real. The ATTRIBUTION was wrong, and it is now reversed.
   `dispatch-sync!` never yielded. The yield was INSTRUMENTATION: the DEBUG
