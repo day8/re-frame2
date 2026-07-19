@@ -1031,22 +1031,26 @@
 ;; the same pure function.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private owner-key
-  "Owner provenance slot on a live aggregate entry: the `[build-id ns-sym]` of
-  the source whose declaration is live for that tag.
+(def ^:private owners-key
+  "Owner provenance slot on a live aggregate entry: the SET of `[build-id ns-sym]`
+  sources whose `rf=`-equal declarations are live for that tag.
 
-  Written in the SAME swap as the declaration itself, because the law's evidence
-  needs BOTH anchors and production carries no ledger to look an incumbent up in
-  (rf2-k9yuy). Readers are unaffected — `custom-element-properties` reads
-  `:properties` off the entry — and there is deliberately NO second atom and no
-  parallel index that could drift from it."
-  ::owner)
+  A SET, not a single canonical owner (rf2-7uyl9): several sources may
+  legitimately state the same fact, and a later replacement from one of them must
+  be able to name EVERY other source still contributing it — otherwise it could
+  silently overwrite a manifest another source still declares, and the conflict
+  evidence could not name every declarer. Written in the SAME swap as the
+  declaration itself, because the law's evidence needs every anchor and production
+  carries no ledger to look incumbents up in (rf2-k9yuy). Readers are unaffected —
+  `custom-element-properties` reads `:properties` off the entry — and there is
+  deliberately NO second atom and no parallel index that could drift from it."
+  ::owners)
 
 (defn- declaration
   "The DECLARATION half of a live entry — the entry minus its provenance. What
-  two sources must agree on, `rf=`, for their declarations to co-exist."
+  the equal declarers all agree on, `rf=`, for their declarations to co-exist."
   [entry]
-  (dissoc entry owner-key))
+  (dissoc entry owners-key))
 
 (defn- conflict-row
   "One anchor of a contradiction, in the ruled evidence shape (mirrors the
@@ -1055,63 +1059,64 @@
   {:build build-id :ns ns-sym :properties (:properties decl #{})})
 
 (defn- conflict-evidence
-  "Both anchors of a contradiction, SORTED — so the evidence is byte-identical
-  under every permutation of source names, evaluation order and build ids."
-  [tag incumbent-owner incumbent-decl source decl]
+  "Every anchor of a contradiction, SORTED. `incumbent-owners` are all the
+  sources whose `rf=`-equal `incumbent-decl` is live for `tag`; `source`/`decl`
+  is the arriving contradiction. Naming EVERY equal declarer — not one canonical
+  owner (rf2-7uyl9) — is what stops a replacement silently overwriting a manifest
+  another source still declares, and makes the anchors complete. Sorting by
+  `[build ns]` keeps the evidence byte-identical under every permutation of
+  source names, evaluation order and build ids."
+  [tag incumbent-owners incumbent-decl source decl]
   {:tag tag
-   :declarations (vec (sort-by (juxt (comp str :build) (comp str :ns))
-                               [(conflict-row incumbent-owner incumbent-decl)
-                                (conflict-row source decl)]))})
-
-(defn- canonical-owner
-  "Which of two sources declaring the SAME fact is named as the entry's owner:
-  the lexicographically smaller `[build-id ns-sym]`.
-
-  `rf=`-equal duplicates co-exist, so neither is a winner over the other — but
-  one of them has to be the anchor a LATER contradiction is reported against.
-  Taking the smaller makes that anchor a function of the SET of equal declarers
-  rather than of the order they happened to evaluate in, which is what keeps
-  conflict evidence identical under every permutation. It decides nothing
-  observable about the manifest: the two declarations it chooses between are
-  equal, so no property classification depends on the choice."
-  [a b]
-  (if (neg? (compare (mapv str a) (mapv str b))) a b))
+   :declarations (->> (conj (mapv #(conflict-row % incumbent-decl) incumbent-owners)
+                            (conflict-row source decl))
+                      (sort-by (juxt (comp str :build) (comp str :ns)))
+                      vec)})
 
 (defn- admit
   "THE law, as one pure step: fold `source`'s declaration of `tag` into
   aggregate `agg`.
 
   Returns `{:aggregate agg'}` when the declaration is admitted, or
-  `{:conflict evidence}` — carrying BOTH `[build-id ns-sym]` anchors — when it
-  contradicts a live declaration from a DIFFERENT source, in which case NOTHING
-  is written and `agg` remains the last-known-good aggregate.
+  `{:conflict evidence}` — naming EVERY equal live declarer plus `source`
+  (rf2-7uyl9) — when it contradicts a live declaration from a DIFFERENT source,
+  in which case NOTHING is written and `agg` remains the last-known-good
+  aggregate.
 
-  Three admissions and one rejection:
+  Each entry records the SET of sources whose `rf=`-equal declarations are live
+  (`owners-key`). Four cases:
 
-    - no live declaration for `tag`  -> admitted; `source` owns the entry.
-    - the live one is `source`'s OWN -> REPLACED. A source never conflicts with
-                                        itself: re-declaration is what a reload
-                                        or a REPL re-eval legitimately does.
-    - the live one is `rf=`-EQUAL    -> duplicates co-exist (idempotent — two
-                                        namespaces may legitimately state the
-                                        same fact); `canonical-owner` decides
-                                        which is named in future evidence.
-    - anything else                  -> CONFLICT. Never a merge, never a winner
-                                        by evaluation or sort order.
+    - no live declaration for `tag`  -> admitted; `source` is its sole declarer.
+    - the arriving decl is `rf=`-EQUAL to the live one -> `source` JOINS the
+                                        declarer set (idempotent if already in);
+                                        duplicates co-exist, and every one is now
+                                        named in any future contradiction.
+    - not equal, but `source` is the SOLE live declarer -> REPLACED. A source
+                                        never conflicts with itself: re-declaration
+                                        is what a reload or a REPL re-eval does.
+    - not equal, and OTHER sources still declare the live value -> CONFLICT,
+                                        naming every remaining declarer. Never a
+                                        merge, never a winner by evaluation order.
 
   Pure and total, so the production write barrier (`write-element!`) and the
   dev-side ledger projection (`aggregate`) apply literally the same law and
   cannot drift from one another."
   [agg tag decl source]
-  (let [entry    (get agg tag)
-        owner    (get entry owner-key)
-        admit-as (fn [o] {:aggregate (assoc agg tag (assoc decl owner-key o))})]
+  (let [entry  (get agg tag)
+        owners (get entry owners-key)]
     (cond
-      (nil? owner)                      (admit-as source)
-      (= owner source)                  (admit-as source)
-      (eq/rf= (declaration entry) decl) (admit-as (canonical-owner owner source))
-      :else {:conflict (conflict-evidence tag owner (declaration entry)
-                                          source decl)})))
+      (nil? owners)
+      {:aggregate (assoc agg tag (assoc decl owners-key #{source}))}
+
+      (eq/rf= (declaration entry) decl)
+      {:aggregate (assoc agg tag (assoc decl owners-key (conj owners source)))}
+
+      (= owners #{source})
+      {:aggregate (assoc agg tag (assoc decl owners-key #{source}))}
+
+      :else
+      {:conflict (conflict-evidence tag (disj owners source)
+                                    (declaration entry) source decl)})))
 
 (defn- throw-element-conflict!
   "Raise the ruled runtime conflict on the ALWAYS-ON error seam — never a
