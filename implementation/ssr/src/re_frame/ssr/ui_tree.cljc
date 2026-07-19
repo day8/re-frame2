@@ -558,25 +558,40 @@
   survives the parse round-trip."
   #{"pre" "listing" "textarea"})
 
+(defn- sole-newline-content
+  "The single content STRING React's leading-LF rule applies to, or nil. React
+  compensates only when a newline-eating element's body is ONE string: a lone
+  text child, OR a lone `{:html s}` trusted-markup child — React's
+  `dangerouslySetInnerHTML.__html`, likewise a `typeof … === 'string'` body it
+  doctors the same way (rf2-0spji). A multi-child, element, or non-string-`:html`
+  body is left untouched. `content` is the element's content as a seq — one entry
+  means a single (already text-coalesced) string child, a textarea's `:value`, or
+  a sole trusted-markup child."
+  [content]
+  (when (= 1 (count content))
+    (let [c (first content)]
+      (cond
+        (string? c)                        c
+        (and (map? c) (string? (:html c))) (:html c)
+        :else                              nil))))
+
 (defn leading-newline-compensation
   "-> the compensating LF (`\"\\n\"`) react-dom/server 19.2 prefixes inside a
   newline-eating element (`newline-eating-tags`), or `\"\"` when none is owed.
 
   HTML parsing eats the FIRST LF immediately after `<pre>`/`<listing>`/
-  `<textarea>` (the newline-eating elements). So a tree whose textarea value or
-  pre text begins with LF would, without compensation, parse to a DOM carrying
-  one FEWER newline than authored — an S5 hydration/correctness gap. React
-  prefixes exactly one LF, but ONLY when the element's content is a SINGLE
-  STRING (its `typeof children === 'string'` guard): multiple or element
-  children are left untouched, because the parser's newline-eating still
-  applies but React does not doctor a multi-child body. `content-strings` is the
-  element's content as a seq — one entry means a single (already text-coalesced)
-  string child, or a textarea's `:value`."
-  [tag-lc content-strings]
+  `<textarea>` (the newline-eating elements). So a tree whose textarea value, pre
+  text, or sole trusted-markup (`:html`) body begins with LF would, without
+  compensation, parse to a DOM carrying one FEWER newline than authored — an S5
+  hydration/correctness gap. React prefixes exactly one LF, but ONLY when the
+  element's content is a SINGLE STRING body (its `typeof … === 'string'` guard,
+  applied to a string child AND to `dangerouslySetInnerHTML.__html`): multiple or
+  element children are left untouched, because the parser's newline-eating still
+  applies but React does not doctor a multi-child body."
+  [tag-lc content]
   (if (and (contains? newline-eating-tags tag-lc)
-           (= 1 (count content-strings))
-           (let [c (first content-strings)]
-             (and (string? c) (str/starts-with? c "\n"))))
+           (let [c (sole-newline-content content)]
+             (and (some? c) (str/starts-with? c "\n"))))
     "\n"
     ""))
 
@@ -729,6 +744,44 @@
       (fn [i c] (emit-node c (conj parent-path :children i)))
       children)))
 
+(defn- emit-raw-text-children
+  "Emit the children of a raw-text element (`<script>`/`<style>`) — the raw-text
+  half of the child grammar (rf2-0spji). React's model: a raw-text element's body
+  is EITHER HTML raw text (string children) OR a single trusted-markup bypass
+  (`ui/html` → `dangerouslySetInnerHTML`), never both.
+
+    - all-string content → HTML raw text: emitted verbatim but for the
+      context-safe closing-sequence rewrite (`escape-raw-text`), matching
+      react-dom/server's string-`children` path (rf2-2dh3b).
+    - a sole `{:html s}` child → the trusted-markup bypass: `s` VERBATIM, no
+      rewrite — react-dom/server pushes `dangerouslySetInnerHTML.__html` raw. This
+      REUSES `emit-node`'s general `:html` row, so the body is byte-identical to a
+      `:html` node anywhere else and a non-string `:html` is the SAME shared
+      malformed-tree error.
+
+  Any other shape — an element/view-boundary/fragment child, string content mixed
+  with a structural child, or several structural children — is NOT raw text and
+  must not be stringified (the pre-fix fast path `(str/join (:children el))`
+  printed such a child's EDN literally into the script/style body). It fails loud
+  through the shared `:rf.error/ui-tree-malformed` path, locating the element."
+  [tag-lc children path]
+  (cond
+    (every? string? children)
+    (escape-raw-text tag-lc (str/join children))
+
+    (and (= 1 (count children))
+         (map? (first children))
+         (contains? (first children) :html))
+    (emit-node (first children) (conj path :children 0))
+
+    :else
+    (malformed-node!
+      (str "a <" tag-lc "> raw-text element takes EITHER string content OR a "
+           "single trusted-markup (:html) child — never a structural, mixed, or "
+           "multi-child body (which the raw-text fast path would otherwise "
+           "stringify into the element): " (pr-str children))
+      path {:value children})))
+
 (defn- emit-element
   "Emit an element node. Applies the form-control special forms
   (`:default-value`/`:default-checked` -> `value`/`checked`; `:value` on
@@ -764,7 +817,10 @@
       void?          (str open ">")
       ;; rf2-2dh3b — <script>/<style> content is HTML raw text: emit it
       ;; unescaped (only the closing-sequence escape), matching react-dom/server.
-      raw-text?      (str open ">" (escape-raw-text norm-tag (str/join (:children el)))
+      ;; rf2-0spji — but honor a sole `{:html s}` child (the ui/html trusted
+      ;; bypass) verbatim, and fail loud on any other structural child instead of
+      ;; stringifying it.
+      raw-text?      (str open ">" (emit-raw-text-children norm-tag (:children el) path)
                           "</" tag-name ">")
       ;; rf2-z05di — a textarea :value beginning with LF needs the compensating
       ;; leading LF the parser will eat back off (single-string content).
