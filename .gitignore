@@ -3,6 +3,11 @@
 **/.cpcache/
 /.shadow-cljs/
 /target/
+# Per-artefact clein build output. `clojure -M:clein jar|pom` writes into
+# <artefact>/target/; the release preflights (e.g. preflight-story-package.sh)
+# build there before deploy, so running one locally must not dirty the tree.
+implementation/**/target/
+tools/*/target/
 /out/
 /classes/
 /node_modules/

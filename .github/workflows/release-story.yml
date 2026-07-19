@@ -1,0 +1,249 @@
+# Release workflow for tools/story/ (rf2-wht9a).
+#
+# Publishes `day8/re-frame2-story` to Clojars on a tag push of the form
+# `story-v[0-9]+.[0-9]+.[0-9]+*` (e.g. `story-v0.0.1.alpha`).
+#
+# # Why a separate workflow
+#
+# Same rationale as release-xray.yml: Story is a CONSUMER of the framework,
+# published from tools/, so it ships on its own cadence. The disjoint tag
+# prefix (`story-v…` vs `xray-v…` vs the framework's `v…`) keeps the
+# triggers from overlapping in either direction.
+#
+# # What this workflow exists to prevent
+#
+# `clein pom` SILENTLY SKIPS `:local/root` coordinates, and
+# tools/story/deps.edn declares FIVE of them: core, the Reagent adapter,
+# machines, HTTP, and Xray. A pom built from the in-tree deps.edn therefore
+# declares NONE of Story's in-repo dependencies — it carries only
+# org.clojure/clojure, reagent/reagent and metosin/malli. Publishing that
+# would recreate, at the package boundary, the exact consumer compile
+# failure rf2-r8trk fixed in source:
+#
+#     No such namespace: day8.re-frame2-xray.mount
+#     ... in re_frame/story/xray_preset.cljc
+#
+# Two steps stand between that and Clojars, and BOTH are load-bearing:
+#
+#   1. the `:local/root → :mvn/version` rewrite (all five coordinates), via
+#      the shared .github/scripts/rewrite-local-root-coord.sh helper; and
+#   2. the package preflight, which parses the GENERATED pom and refuses to
+#      deploy unless all five are present at the exact lockstep VERSION.
+#
+# Step 2 is not belt-and-braces. Clojars has no yank — recovery from a bad
+# publish is bump-and-supersede only — so the last gate before an
+# irreversible act reads the actual artefact, not the inputs that were
+# supposed to produce it.
+#
+# # Dependency availability (the ordering contract)
+#
+# Story's rewritten pom pins five sibling coordinates at the lockstep
+# VERSION. Those artefacts must ALREADY be on Clojars: core + the Reagent
+# adapter + machines + HTTP are cut by the framework release.yml on the
+# matching `v<VERSION>` tag, and Xray by release-xray.yml on `xray-v<VERSION>`.
+#
+# This ordering is enforced structurally rather than by documentation: after
+# the rewrite, `clojure -P` resolves the rewritten dependency graph from
+# Clojars/Maven, and the `clein pom` inside the preflight does the same. If
+# any coordinate is not yet published the job fails at classpath resolution
+# — before `clein deploy` can touch Clojars.
+#
+# So the release ORDER for a given VERSION is:
+#
+#     v<VERSION>        (framework: core, reagent adapter, machines, http, …)
+#     xray-v<VERSION>   (Xray)
+#     story-v<VERSION>  (this workflow)
+#
+# # Lockstep versioning
+#
+# Per spec/Conventions.md §Packaging conventions every published artefact
+# ships at the repo-root VERSION. tools/story/deps.edn already declares
+# `:clein/build :version "../../VERSION"`, and verify-version-lockstep.sh
+# asserts each of the five `:local/root` coordinates is present and
+# rewritable. A mismatched tag is refused before any deploy step runs.
+#
+# # Failure recovery
+#
+# Clojars does not support yanking. If `deploy-story` fails AFTER the
+# artefact is published (e.g. a network glitch on the upload
+# acknowledgement), DO NOT re-run with the same tag — Clojars will 409.
+# Bump VERSION, retag with the bumped value, and rerun.
+#
+# # Secrets
+#
+# CLOJARS_USERNAME and CLOJARS_PASSWORD are configured at the repository
+# level (per the framework release.yml convention). Mike configures them
+# out-of-band; this workflow only references them.
+#
+# # First publish protocol
+#
+# Mike triggers the first deploy manually by pushing the tag once the
+# framework and Xray tags for the same VERSION have published.
+
+name: release-story
+
+on:
+  push:
+    tags:
+      - "story-v[0-9]+.[0-9]+.[0-9]+*"
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # 1. Lockstep version contract gate. Fails fast on a mismatched tag
+  #    or a hand-edited deps.edn that breaks the framework-wide
+  #    lockstep.
+  # ─────────────────────────────────────────────────────────────────
+  verify-version:
+    name: Verify Story tag matches lockstep VERSION
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Verify tag matches VERSION
+        id: version
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          version="$(tr -d '[:space:]' < VERSION)"
+          expected="story-v${version}"
+          if [ "$tag" != "$expected" ]; then
+            echo "::error::tag '$tag' does not match repo-root VERSION '$expected' (refusing publish — bump VERSION or fix the tag)"
+            exit 1
+          fi
+          echo "tag $tag matches VERSION $expected — proceeding"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify framework-wide lockstep contract
+        # Same script the framework release.yml + tests.yml run. Its
+        # tools/ loop covers tools/story/deps.edn and asserts all five
+        # :local/root coordinates the rewrite step below depends on.
+        run: ./.github/scripts/verify-version-lockstep.sh
+
+  # ─────────────────────────────────────────────────────────────────
+  # 2. Pre-release test gate for the Story artefact.
+  # ─────────────────────────────────────────────────────────────────
+  test-story:
+    name: Story pre-release test gate
+    needs: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-story-${{ hashFiles('tools/story/deps.edn', 'tools/xray/deps.edn', 'implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-story-
+            ${{ runner.os }}-clj-
+
+      - name: JVM tests (story artefact)
+        working-directory: tools/story
+        run: clojure -M:test
+
+  # ─────────────────────────────────────────────────────────────────
+  # 3. Deploy Story. Rewrite → resolve → preflight → deploy.
+  # ─────────────────────────────────────────────────────────────────
+  deploy-story:
+    name: Deploy day8/re-frame2-story
+    needs: [verify-version, test-story]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-story-${{ hashFiles('tools/story/deps.edn', 'tools/xray/deps.edn', 'implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-story-
+            ${{ runner.os }}-clj-
+
+      # ─────────────────────────────────────────────────────────────
+      # Rewrite all FIVE :local/root coordinates → :mvn/version on the
+      # throwaway runner checkout (never committed). The shared helper
+      # is comment-aware (rf2-ldkuk), which matters here: Story's
+      # deps.edn quotes the Xray coordinate inside its own prose
+      # comment, so a raw substring count would see two occurrences and
+      # abort the deploy outright.
+      # ─────────────────────────────────────────────────────────────
+      - name: Rewrite Story :local/root → :mvn/version
+        working-directory: tools/story
+        env:
+          VERSION: ${{ needs.verify-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for local_root in \
+            "../../implementation/core" \
+            "../../implementation/adapters/reagent" \
+            "../../implementation/machines" \
+            "../../implementation/http" \
+            "../xray"
+          do
+            "$GITHUB_WORKSPACE/.github/scripts/rewrite-local-root-coord.sh" \
+              "$local_root" "$VERSION" deps.edn
+          done
+          echo "--- Rewritten dep coords:"
+          grep -E "day8/re-frame2" deps.edn
+
+      # ─────────────────────────────────────────────────────────────
+      # The ordering gate. Resolving the rewritten graph requires every
+      # sibling coordinate to be ON Clojars at this VERSION. If the
+      # framework (`v<VERSION>`) or Xray (`xray-v<VERSION>`) tag has not
+      # published yet, this fails here — before anything is deployed.
+      # ─────────────────────────────────────────────────────────────
+      - name: Verify every in-repo dependency is published at this VERSION
+        working-directory: tools/story
+        run: |
+          set -euo pipefail
+          if ! clojure -P; then
+            echo "::error::could not resolve Story's rewritten dependency graph from Clojars. Story cannot publish before its siblings: cut v<VERSION> (framework) and xray-v<VERSION> (Xray) first."
+            exit 1
+          fi
+
+      # ─────────────────────────────────────────────────────────────
+      # Read the GENERATED pom and refuse to deploy unless all five
+      # in-repo coordinates are present at the lockstep VERSION. Last
+      # gate before an irreversible publish.
+      # ─────────────────────────────────────────────────────────────
+      - name: Preflight the generated Story package
+        working-directory: tools/story
+        env:
+          VERSION: ${{ needs.verify-version.outputs.version }}
+        run: "$GITHUB_WORKSPACE/.github/scripts/preflight-story-package.sh \"$VERSION\""
+
+      - name: Deploy day8/re-frame2-story
+        working-directory: tools/story
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+        run: clojure -M:clein deploy
