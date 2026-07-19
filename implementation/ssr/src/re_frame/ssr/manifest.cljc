@@ -552,6 +552,28 @@
 ;; Discovery (CLJS — it reaches into the DOM)
 ;; ---------------------------------------------------------------------------
 
+(defn canonicalize-effective-prefix
+  "Resolve a validated manifest's EFFECTIVE React identifier prefix for
+  hydration identity (rf2-y3swx). React 19.2's `hydrateRoot` has no distinct
+  \"no prefix\" state: it canonicalizes an OMITTED `identifierPrefix` option to
+  the empty string `\"\"`, and `useId` derives its ids from that empty prefix
+  (server `renderToString` with no prefix does the same). A Root Manifest that
+  OMITS `:identifier-prefix` therefore records that the server rendered under
+  React's effective EMPTY prefix — NOT \"no effective prefix at all\".
+
+  Discovery IS the client hydration identity boundary, so it stamps that
+  effective value: an absent `:identifier-prefix` becomes `\"\"`. This lets the
+  client-runtime live-root uniqueness fence (Spec 004C Layer 3) see two
+  omitted-prefix roots as BOTH owning `\"\"` and reject the second before any
+  React work, and it feeds React the empty prefix it already uses — never a
+  client-synthesized, root-id-derived prefix, which would disagree with the
+  server and break hydration. An AUTHORED prefix passes through untouched. This
+  resolves the effective IDENTITY only; the wire form and `valid?` keep
+  `:identifier-prefix` an OPTIONAL extension key (this is not a schema change)."
+  [m]
+  (cond-> m
+    (not (contains? m :identifier-prefix)) (assoc :identifier-prefix "")))
+
 #?(:cljs
    (defn manifest-script?
      "Is `el` a root-manifest script element? Both marks must be present:
@@ -586,7 +608,11 @@
      [container]
      (let [el (some-> container .-nextElementSibling)]
        (when (manifest-script? el)
-         (read-manifest 'rf.ssr/discover-root-manifest (.-textContent el))))))
+         ;; rf2-y3swx — stamp React's effective empty prefix onto an
+         ;; omitted `:identifier-prefix`, so the hydration identity the caller
+         ;; reads matches what React actually uses (an omitted prefix is `""`).
+         (canonicalize-effective-prefix
+          (read-manifest 'rf.ssr/discover-root-manifest (.-textContent el)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The `ui -> core late-bind <- ssr` discovery seam (rf2-3omxp)
