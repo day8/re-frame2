@@ -664,10 +664,20 @@
     :slot     (emit-slot node st)
     :error-boundary (emit-error-boundary node st)
     :presence (emit-presence node st)
-    ;; S3: the browser renders the client subtree directly (activation). The
-    ;; capability-free fallback is the JVM/SSR path only; the single-update SSR
-    ;; phase-flip (fallback→client per root) completes S5.
-    :client-only (emit-node (:child node) st inline?)
+    ;; client-only (S5 phase flip, rf2-3omxp; Spec 011 §Phase flip): the site
+    ;; compiles to a PHASE-CONDITIONAL runtime boundary. It renders the
+    ;; capability-free fallback in `:server` phase (the JVM/SSR + first-hydration
+    ;; render) and the client subtree in `:client` phase, reading a root-scoped
+    ;; phase context a hydrating root flips `:server` -> `:client` in one update
+    ;; after its hydration commit. Both arms therefore ride the client bundle:
+    ;; the fallback template now compiles in (the ruled, perf-budget-covered cost
+    ;; — the browser must materialise the fallback vdom during the hydration
+    ;; render). A non-hydrating mount has no phase Provider, so the boundary reads
+    ;; the `:client` default and renders the client subtree on the first render,
+    ;; byte-identical to S3.
+    :client-only `(re-frame.ui.runtime/client-only
+                   ~(emit-node (:fallback node) st false)
+                   ~(emit-node (:child node) st false))
     ;; Leading (effect …) statements spliced before the template: a `do`
     ;; sequences the lowered effect hook calls, then renders the template.
     :hook-prefix `(do ~@(:statements node) ~(emit-node (:body node) st inline?))
