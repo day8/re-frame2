@@ -26,10 +26,13 @@ decision, capture it as one file per decision under `ai/decisions/`.
 
 **Findings vs extended-context.** `ai/findings/` is gitignored exploratory work
 (audits, drafts, alternatives); always write the finding doc BEFORE filing the
-beads it would spawn. `ai/extended-context/` is committed durable context for
-the next fresh mayor (initiative state, recent strategic decisions, why a
-non-obvious convention exists). When unsure: would a fresh mayor next week need
-this? Yes → extended-context. No → findings.
+beads it would spawn. `ai/extended-context/` is durable context for the next
+fresh mayor (initiative state, recent strategic decisions, why a non-obvious
+convention exists) — also gitignored: it persists in the operator's checkout
+across mayor sessions and is never committed. When unsure: would a fresh mayor
+next week need this? Yes → extended-context. No → findings. Anything that must
+survive a clean clone gets promoted through `bd remember`, bead notes, or
+`docs/` — never a tracked file under `ai/`.
 
 **Dispatch discipline.** For each worker: dedicated worktree; one bounded task;
 explicit write scope; project stance injected into the preamble; enumerate

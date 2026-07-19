@@ -108,8 +108,9 @@ Keep AI working material out of the product tree:
 - `/ai/findings/` — audits, research notes, design drafts, second opinions.
   **Gitignored.** Never commit one. Convert actionable findings into beads,
   spec, or docs.
-- `/ai/extended-context/` — durable project context not obvious from code.
-  The mayor consults it on bootstrap and contributes on retrospectives.
+- `/ai/extended-context/` — durable project context not obvious from code,
+  kept locally. **Gitignored**, so it is not available from a clean clone.
+  The mayor consults it on bootstrap and grows it on retrospectives.
 - `/ai/decisions/` — one file per decision, written only when the operator
   asks for a durable record of a specific call. Ordinary holds awaiting the
   operator (review gates, operator-run actions, held beads) live in chat and

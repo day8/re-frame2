@@ -31,10 +31,6 @@ Thumbs.db
 # AI working tree (local-only — findings, map, super-prompt playground)
 # Per docs/the-mayor-method/
 /ai/
-# Exception: extended-context is durable committed project context (the mayor
-# consults it on bootstrap, contributes on retrospectives) — keep it tracked.
-!/ai/extended-context/
-!/ai/extended-context/**
 
 # Force-tracked exception (TEMPORARY, removed at re-frame.ui S7 — see the S7
 # cleanup bead): ai/findings/new-substrate-synthesis/ is force-added to git
