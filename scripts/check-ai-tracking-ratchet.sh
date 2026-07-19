@@ -51,12 +51,6 @@
 # snapshot file was the last remaining list-in-a-file, and it is gone. No
 # tree is named here, blessed here, or excluded here.
 #
-# NOTE — .gitignore un-ignores /ai/extended-context/**, so a file added
-# there needs no `git add -f` and WILL trip this gate. That collision is
-# deliberate and is filed separately for Mike on rf2-2dupb; it is not
-# resolved here, and no exclusion for that tree (or any other) belongs in
-# this script.
-#
 # THERE IS NO IN-BAND ESCAPE HATCH, by choice. A count ceiling could be
 # raised by editing a file; a git-derived base cannot, which is exactly what
 # makes it leak-proof. Since the END STATE is zero, a genuinely intended new
