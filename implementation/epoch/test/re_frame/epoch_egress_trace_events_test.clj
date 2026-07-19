@@ -49,6 +49,7 @@
             [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             ;; Side-effect require (mirror epoch_test.clj fixture).
@@ -601,3 +602,58 @@
       (is (= body (get-in ev [:tags :body]))
           "the hand-built ring record carries the raw error body (no projection
            ran) — projected-record is the boundary, the ring stays raw"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-92uvq — COLD gate-false seam. `projected-record` is a PURE off-box
+;; projection transform callable even when `interop/debug-enabled?` is false
+;; (a JVM SSR process booted with RE_FRAME_DEBUG=false, or an already-held /
+;; synthetic record — the gate elides record ASSEMBLY, not PROJECTION). Its
+;; fail-closed HTTP-body contract must therefore hold when the debug gate is
+;; false FROM namespace/process start, so the five production-real HTTP
+;; operation rows of the body-slot table must be bound regardless of the gate.
+;;
+;; The existing disabled-gate tests miss this seam: they load the ns gate-TRUE
+;; (which populates the table) and only then flip the gate, so the table is
+;; already full. This test reproduces a genuine cold process-start by
+;; RE-LOADING tool-pair with the gate redefed false — recomputing the
+;; body-slot table under the false gate exactly as a prod JVM boot would — and
+;; confirms public projected-record still omits every production-real stamped
+;; HTTP body. Red-before: the wholly-gated table folded to nil, so
+;; `omit-off-box-http-bodies` found no slot path and passed the raw body
+;; through. After: the five production rows are unconditional, so it fails
+;; closed. The `finally` restores the normal gate-true table for the rest of
+;; the suite.
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-http-fail-closed-survives-cold-gate-false
+  (testing "rf2-92uvq — with interop/debug-enabled? false FROM namespace load
+            (a production-start JVM), the pure projector still omits each
+            production-real unschematized HTTP body off-box"
+    (rf/make-frame {:id :test/http})
+    (try
+      ;; Recompute the tool-pair defs (incl. the HTTP body-slot table) with
+      ;; the debug gate false — a cold process-start reproduction. Existing
+      ;; tests never reach this: their table loaded gate-true. projected-record
+      ;; is a pure transform (it never consults the gate), so it runs after.
+      (with-redefs [interop/debug-enabled? false]
+        (require 're-frame.epoch.tool-pair :reload))
+      ;; The five PRODUCTION-REAL operations, one per body slot.
+      (doseq [[operation body-slot] [[:rf.http/replied        :value]
+                                     [:rf.http/accept-failure :decoded]
+                                     [:rf.http/http-4xx       :body]
+                                     [:rf.http/http-5xx       :body]
+                                     [:rf.http/decode-failure :body-text]]]
+        (let [record    (http-record :test/http operation body-slot
+                                     {:token http-body-secret :user-id 7} :omit)
+              projected (epoch/projected-record record)
+              ev        (first (:trace-events projected))]
+          (is (= :rf/redacted (get-in ev [:tags body-slot]))
+              (str "cold gate-false: " operation " body slot " body-slot
+                   " is omitted off-box (fail-closed)"))
+          (is (not (contains-http-secret? projected))
+              (str "cold gate-false: the raw token appears nowhere in the "
+                   operation " projected record"))))
+      (finally
+        ;; Restore the full gate-true table (incl. the dev-only
+        ;; :rf.http/retry-attempt row) for the remaining tests.
+        (require 're-frame.epoch.tool-pair :reload)))))

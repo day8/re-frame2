@@ -1279,30 +1279,39 @@
   whose body can ride in more than one slot (retry-attempt) is covered with
   one general rule rather than a per-slot special case.
 
-  The table is the tool-pair off-box enforcement,
-  not the on-box stamp — it lives behind the same `interop/debug-enabled?`
-  boundary that elides the whole epoch off-box projection surface in
-  production (`epoch/projected-record` — \"Production builds elide the
-  entire epoch surface\"). Gating it matters because `:rf.http/retry-attempt`
-  is a DEV-ONLY trace op (its only emit sites are `(when
-  interop/debug-enabled? (trace/emit! :info :rf.http/retry-attempt …))`);
-  holding it as a literal KEY in a top-level production-loaded `def` is the
-  one route that would float its keyword constant into the production
-  bundle (the Spec 009 elision probe asserts that sentinel ABSENT). Under
-  `:advanced` + `goog.DEBUG=false` the map literal is dead code, so the def
-  folds to `nil`, the dev-only constant DCEs, and `omit-off-box-http-bodies`
-  short-circuits to a pass-through (it is never called on a production egress
-  path — off-box projection is dev/tool-only). The sibling production-real
-  operation keywords (`:rf.http/replied`, `:rf.http/http-4xx`, …) already
-  ride the bundle as `:kind`/`:operation` data values, so the gate is about
-  the dev-only `:rf.http/retry-attempt` constant, not the table per se."
-  (when interop/debug-enabled?
-    {:rf.http/replied        [[:value]]
-     :rf.http/accept-failure [[:decoded]]
-     :rf.http/http-4xx       [[:body]]
-     :rf.http/http-5xx       [[:body]]
-     :rf.http/decode-failure [[:body-text]]
-     :rf.http/retry-attempt  [[:failure :body] [:failure :body-text]]}))
+  The five PRODUCTION-REAL operation rows (`:rf.http/replied`,
+  `:rf.http/accept-failure`, `:rf.http/http-4xx`, `:rf.http/http-5xx`,
+  `:rf.http/decode-failure`) are bound UNCONDITIONALLY — NOT behind
+  `interop/debug-enabled?`. `projected-record` is a PURE off-box projection
+  transform callable even when the debug gate is false (a JVM SSR process
+  started with `RE_FRAME_DEBUG=false`, or an already-held / synthetic record —
+  the gate elides record ASSEMBLY, not record PROJECTION). Its contract is
+  FAIL-CLOSED on a stamped unschematized HTTP body, so the slots it consults
+  must be present whether or not the gate was ever true. Gating the whole
+  table (rf2-92uvq) left it `nil` in a cold gate-false process, so
+  `omit-off-box-http-bodies` found no slot path and passed every stamped body
+  through raw — a mandatory-off-box-safe breach. These five operation keywords
+  already ride the production bundle as `:kind`/`:operation` data values, so
+  binding them here at namespace load leaks nothing new.
+
+  ONLY the DEV-ONLY `:rf.http/retry-attempt` row stays behind the gate. That
+  op is a dev-only trace op (Spec 014 §Retry and backoff — its only emit sites
+  are `(when interop/debug-enabled? (trace/emit! :info :rf.http/retry-attempt …))`),
+  so its keyword literal must NOT float into the `:advanced` production bundle
+  (the Spec 009 elision probe / `scripts/check-elision.cjs` assert the
+  `rf.http/retry-attempt` sentinel ABSENT). Under `:advanced` +
+  `goog.DEBUG=false` the gated `assoc` is dead code, so the keyword constant
+  DCEs and the table folds to the five production rows; on the JVM the gate is
+  read once at load and a prod process simply omits the row. A retry-attempt
+  record only ever exists in a debug build anyway, so omitting its row under
+  prod is unreachable, not a fail-open."
+  (cond-> {:rf.http/replied        [[:value]]
+           :rf.http/accept-failure [[:decoded]]
+           :rf.http/http-4xx       [[:body]]
+           :rf.http/http-5xx       [[:body]]
+           :rf.http/decode-failure [[:body-text]]}
+    interop/debug-enabled?
+    (assoc :rf.http/retry-attempt [[:failure :body] [:failure :body-text]])))
 
 (defn- omit-off-box-http-bodies
   "Enforce the fail-closed rule for off-box HTTP body trace events. For each
