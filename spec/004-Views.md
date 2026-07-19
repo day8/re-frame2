@@ -384,10 +384,9 @@ built on it is not v1).
 
 **The narrow bare-fn law (R-4).** As an *invoked callback*, a bare fn is legal **only**
 in known native event properties, where the invoker and phase are known. One callback
-never serves both phases. A day-one **strict lint** — `{:re-frame.ui/bare-handlers :warn}`
-(or `:error`) — lets a team adopt explicit-everywhere as policy without a language change;
-the language itself stays permissive (flipping it later would break source; the lint is
-the honest lever). **An ordinary fn prop between INTERNAL views** (compile-resolved Vars)
+never serves both phases. Event vectors are the canonical handler form; the bare fn is
+intentionally legal only where invoker and phase are known, and the language itself stays
+permissive. **An ordinary fn prop between INTERNAL views** (compile-resolved Vars)
 is **not** a callback position: it is a **legal opaque value** — identity-compared like
 any other prop, never invoked by the framework, promising **no** invocation phase; the
 receiving view's own contract decides its use (C-13a). To opt a fn into a *phase*, use
@@ -1369,7 +1368,7 @@ a conflict is resolved in that order and is a defect in this table.
 | §Template grammar — prop conversion (the rule table; `ui/spread`) | **S1** | conversion-table fixtures consumed by both emitters (owning table: [004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md)); `spread` dynamic-map cases |
 | §Template grammar — custom elements (`ui/custom-element`, RULED grammar) | **S4** | property-vs-attribute classification; SSR attributes-only; W14 fixtures |
 | §Handlers — event vectors as structural data (manifest flags; JVM-tree `:events`) | **S1** | vectors/options-maps retained as data in tree + manifest; placeholder keywords retained as keywords |
-| §Handlers — committed behaviour (decision table, bare-fn law + lint, dynamic classification, loops, refs, the synchrony door) | **S3** | decision-table fixtures; sync-door fixture (input-door predicate; G-8 real-browser matrix is the residual named gate); loop/ref diagnostics |
+| §Handlers — committed behaviour (decision table, bare-fn law, dynamic classification, loops, refs, the synchrony door) | **S3** | decision-table fixtures; sync-door fixture (input-door predicate; G-8 real-browser matrix is the residual named gate); loop/ref diagnostics |
 | §Reactive reads — `sub` | **S2** | one-ViewCell binding; stabilization; conditional reads (the loop *rejection* is a compile error from S1) |
 | §The committed-frame ops bundle — `frame` | **S2** | the mounted committed-frame bind (dispatch-through-the-bundle repaints the mounted `sub`; cross-render bundle-identity stability); ambient `frame-provider` retarget; the same-id reincarnation race (the stale bundle fails loud, the replacement frame is untouched, a fresh read re-mints a new identity); stale-op `:rf.error/frame-destroyed` fencing; JVM live-ops (a real bundle during Tier-1 render, not a `jvm-host-op` stub); the always-on observability fan-out on every bundle failure (one record + one dev trace before the throw). The zero-arity, loop, deferred-callback, and root-expression *rejections* are compile-time — asserted with the form at S2 through the accept/reject analyzer fixtures (the form rides the S2 closed-macro expression grammar) |
 | §Process substrate — `ui/adapter` | **S2** | exact closed adapter map; canonical `:rf.adapter/ui` discriminator; copied-kind routing; dispose/re-init; watch re-arm; real provider/render/flush/dispose browser proof |
@@ -1411,7 +1410,7 @@ non-reactive rows · the removed-forms absences. That set passing its named asse
 [TRANSITION] land at **S7** with the Helix-removal wave — no row moves to a 004A
 appendix, because none lands;
 identity/naming/reservation rows (Conventions reserved `:rf.ui/*` namespace + artifact
-registration + lint key, Ownership's new-surface rows, `spec/API.md`'s `re-frame.ui`
+registration, Ownership's new-surface rows, `spec/API.md`'s `re-frame.ui`
 additions, the 008 `ui.test`/selector rows) land at **S1** with this rewrite;
 behaviour rows land with the stage that asserts their subject (002 frame chain → S2,
 006 observation port → S2, 009 evidence schema + catalogue rows → their features'
@@ -1429,7 +1428,8 @@ stages in small batches, 011 → S5).
 - **R-3 — naming.** `re-frame.ui`, alias `ui`, artifact `day8/re-frame2-ui`; supporting
   `re-frame.ui.test` / `.react` / (if earned) `.data`. Separate artifact on a lockstep
   release train initially (R-6).
-- **R-4 — the narrow bare-fn law + strict lint** (§Handlers).
+- **R-4 — the narrow bare-fn law** (§Handlers). *(strict lint withdrawn pre-alpha —
+  style, not safety; rf2-b6pua ruling, 2026-07-19)*
 - **Presence ruling** — wrapper form, no reserved nodes; `:timeout-ms` mandatory (it *is*
   the exit retention duration, and the boundary stays DOM-agnostic — rf2-0ufty);
   `presence-phase` returns `:present` outside a boundary (§Presence).

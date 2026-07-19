@@ -114,10 +114,10 @@ retained as data in the manifest and JVM tree.
 `ui/event` (committed phase + the live event; `nil` ⇒ no dispatch), `ui/handler`
 (imperative, stable identity), `ui/render-fn` (render phase, pure — and also the
 value an internal `ui/slot` accepts), the **narrow bare-fn law (R-4)** — bare
-`#(…)` legal only in known native event properties, with a day-one strict lint
-(`{:re-frame.ui/bare-handlers :warn|:error}`) instead of a language flip (the
-lint key is reserved in `spec/Conventions.md`; compiler enforcement is a known
-build gap — see Open Issues) — a compile error at foreign-component boundaries,
+`#(…)` legal only in known native event properties (invoker and phase known),
+the language permissive rather than flipped (the proposed day-one strict lint was
+withdrawn pre-alpha — style, not safety; rf2-b6pua ruling, 2026-07-19) — a compile
+error at foreign-component boundaries,
 and `ui/raw-fn` for identity-as-protocol APIs and callback refs. Dynamic handler
 expressions classify at runtime by type; placeholders are recognized in literal
 vectors only (dev warns on a placeholder riding a runtime vector); loop handlers
@@ -249,7 +249,9 @@ Reagent-compat appendix).
   local ephemera); the forbidden tier is defined by what the *value* needs, not
   by whether any handler ever reads it.
 - **R-4 — the narrow bare-fn law (2026-07-12).** Bare fns only in known native
-  event properties; a strict lint over a language flip.
+  event properties; the language permissive, not flipped. (The proposed strict
+  lint was withdrawn pre-alpha — style, not safety; rf2-b6pua ruling,
+  2026-07-19.)
 - **Placeholder vocabulary closed (2026-07-12).** Three scalars;
   `:rf.ui/form-data` and `:rf.ui/event` rejected — both cases belong to
   `ui/event`.
@@ -275,9 +277,7 @@ Reagent-compat appendix).
 
 ## Open Issues
 
-None on the decision surface. One known build gap: the
-`{:re-frame.ui/bare-handlers :warn|:error}` strict lint is reserved in
-`spec/Conventions.md` but not yet implemented in the compiler.
+None on the decision surface.
 
 ## References
 
