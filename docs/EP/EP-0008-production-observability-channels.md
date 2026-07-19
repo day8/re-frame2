@@ -34,15 +34,9 @@ are kept here as a closed record and no longer reopen any ruling:
 - **Fixed (PR #3860, impl)** — the frame-teardown report: a single
   always-on `:rf.error/frame-teardown-failed` record carrying a `:hook-failures`
   vector, emitted from `destroy-frame!` through a **finally-shaped** boundary so a
-  partial teardown (abort after step 3 of 7) still flushes the collected entries.
-  Each entry names a failed teardown **step** — a late-bound cleanup hook, or a
-  guarded direct step such as the `:frame/notify-machine-destruction!` machine
-  cascade. The dev-only per-step diagnostic
-  (`:rf.warning/teardown-hook-exception`) stays at its causal positions, funneled
-  through the shared `record-teardown-failure!` boundary every teardown catch
-  site routes through (`safe-call-hook!` for the late-bound hooks,
-  `safe-teardown-step!` for the guarded direct steps), and DCE-elides in
-  production.
+  partial teardown (abort after hook 3 of 7) still flushes the collected entries.
+  The dev-only per-hook diagnostic (`:rf.warning/teardown-hook-exception`) stays
+  at its causal positions inside `safe-call-hook!` and DCE-elides in production.
 - **Fixed (audit)** — graded the full `:rf.error/*` /
   `:rf.warning/*` catalogue against the promotion criterion and filed promotion-fix
   beads for the gaps the sweep found. Teardown was the known first row (resolved by
@@ -241,7 +235,7 @@ the *always-on* emission is a single report.
 
 | Category | Today | Under the criterion |
 |---|---|---|
-| frame-teardown hook failures | per-hook `:rf.warning/teardown-hook-exception`, diagnostic (DCE'd) | **Promote to a single always-on report** → `:rf.error/frame-teardown-failed`, default `:recovery :ignored` (teardown continues best-effort; the one bounded record ships through the always-on axis carrying `:hook-failures`), finally-shaped so a partial teardown still flushes. The per-step `:rf.warning/teardown-hook-exception` **stays diagnostic** (dev, at causal positions inside `safe-call-hook!` for the late-bound hooks and `safe-teardown-step!` for the guarded direct steps). The known C4 fix |
+| frame-teardown hook failures | per-hook `:rf.warning/teardown-hook-exception`, diagnostic (DCE'd) | **Promote to a single always-on report** → `:rf.error/frame-teardown-failed`, default `:recovery :ignored` (teardown continues best-effort; the one bounded record ships through the always-on axis carrying `:hook-failures`), finally-shaped so a partial teardown still flushes. The per-hook `:rf.warning/teardown-hook-exception` **stays diagnostic** (dev, at causal positions inside `safe-call-hook!`). The known C4 fix |
 | `:rf.error/sub-input-fn-exception` / `-bad-return` | always-on | Correct as-is (the precedent rows) |
 | `:rf.error/no-frame-context` | always-on | Correct (frameless errors need the frameless axis — EP-0002 R6) |
 | `:rf.warning/app-handler-runtime-effect` | diagnostic | Correct — dev-time teaching diagnostic; leg 2 fails (the write applies; nothing leaks) |
@@ -274,10 +268,9 @@ release-notes material.
 2. Teardown bead: emit a **single** always-on
    `:rf.error/frame-teardown-failed` record carrying a `:hook-failures` vector
    from `destroy-frame!`, through a **finally-shaped** boundary so a partial
-   teardown still flushes the collected entries (R1). Keep the per-step
+   teardown still flushes the collected entries (R1). Keep the per-hook
    `:rf.warning/teardown-hook-exception` dev diagnostic at its causal positions
-   inside `safe-call-hook!` — and, for the guarded direct steps, inside
-   `safe-teardown-step!` (R2 — diagnostic channel, DCE'd in production). Plus a
+   inside `safe-call-hook!` (R2 — diagnostic channel, DCE'd in production). Plus a
    teardown-report test.
 3. Audit bead: grade the full catalogue; file promotion fixes found.
 4. Conformance bead: the catalogue/channel pin test.
@@ -320,14 +313,13 @@ refinements are recorded here verbatim; the normative shape lives in
 
 ### The ruling
 
+> **Addendum — 2026-07-18 (delegated ruling, rf2-r7ahi).** The 2026-06-11 ruling below speaks of cleanup hooks because those were the only teardown-failure sites then in scope. The runtime later added guarded direct teardown steps (`safe-teardown-step!` — e.g. the `:frame/notify-machine-destruction!` machine cascade); they join the late-bound hooks at the same shared `record-teardown-failure!` boundary and the same single bounded `:rf.error/frame-teardown-failed` report. Report shape, `:hook-failures`/`:hook` wire names, channels, and recovery semantics are unchanged. `spec/009-Instrumentation.md` is the current normative contract; the ruling below is retained as made.
+
 Frame-destroy emits a **single always-on teardown report** — one bounded event
-summarizing all teardown-step failures — NOT per-step always-on emissions. The
-always-on category is named for the report-fact: `:rf.error/frame-teardown-failed`,
+summarizing all hook failures — NOT per-hook always-on emissions. The always-on
+category is named for the report-fact: `:rf.error/frame-teardown-failed`,
 `:recovery :ignored` (teardown stays best-effort), carrying a `:hook-failures`
-vector (one entry per failed teardown step — a late-bound cleanup hook, or a
-guarded direct step such as the `:frame/notify-machine-destruction!` machine
-cascade; the `:hook-failures` / `:hook` wire names are deliberately stable).
-It is **not** the per-step-shaped
+vector (one entry per failed hook). It is **not** the per-hook-shaped
 `:rf.error/teardown-hook-exception` reused for a multi-hook record —
 one-name-per-fact applies to the fact actually emitted (EP-0007).
 
@@ -353,13 +345,11 @@ one-name-per-fact applies to the fact actually emitted (EP-0007).
   aborts after hook 3 of 7 the collected entries still flush. This neutralizes
   the one genuine advantage per-hook emission had (incremental delivery surviving
   a mid-teardown collapse). The contract is stated in Spec 009.
-- **R2 — axis scope.** "Instead of per-step emissions" is scoped to the
-  **always-on axis only**. In dev, the per-step diagnostic trace rows
+- **R2 — axis scope.** "Instead of per-hook emissions" is scoped to the
+  **always-on axis only**. In dev, the per-hook diagnostic trace rows
   (`:rf.warning/teardown-hook-exception`) at their causal positions inside
-  `safe-call-hook!` — and, for the guarded direct steps, inside
-  `safe-teardown-step!` — STAY (more useful there; DCE'd in production).
-  Per-step visibility does not disappear — only the always-on emission is a
-  single report.
+  `safe-call-hook!` STAY (more useful there; DCE'd in production). Per-hook
+  visibility does not disappear — only the always-on emission is a single report.
 
 ## Recommendation
 

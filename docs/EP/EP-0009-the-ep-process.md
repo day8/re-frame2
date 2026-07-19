@@ -118,7 +118,11 @@ The `Status:` line is machine-readable. Its value MUST be one of:
 3. **Amendment is allowed only before implementation.** Once an EP is accepted
    and beads are in flight, substantive changes go through a new EP or a
    recorded ruling — not silent edits. (Mechanical corrections and errata-ledger
-   updates are always fine.)
+   updates are always fine.) Mechanical means the edit cannot change a
+   reasonable reader's understanding of the proposal, alternatives, rationale,
+   ruling, or scope; anything past that line is recorded as a dated
+   erratum/addendum beside the affected passage, preserving the original text —
+   freeze meaning, not bytes (rf2-r7ahi).
 4. **One EP, one decision surface.** Bundling independent decisions invites
    all-or-nothing rulings; prefer narrow EPs and cross-references.
 5. **Graduation includes a guide-impact assessment:** the graduating EP names
