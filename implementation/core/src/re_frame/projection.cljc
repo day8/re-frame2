@@ -318,16 +318,30 @@
 
 (defn- project-error-record
   [record opts elision-opts]
-  (let [base (select-keys record error-summary-keys)
+  (let [;; #6441 / rf2-zwgqe: a subscription QUERY VECTOR rides `:event` as raw
+        ;; IDENTITY — it egresses VERBATIM, never app-db-elided (a concrete
+        ;; integer path coincidentally matching a query-vector coordinate would
+        ;; mutate identity). `error-emit/dispatch-on-error!` (the caller) marks
+        ;; the record with `:rf.observe/raw-event?`; keep `:event` raw here on
+        ;; the sink route, exactly as the corpus-wide record does. The marker is
+        ;; neither a summary nor a tree key, so it is dropped from the projected
+        ;; output (never delivered to a sink).
+        raw-event? (:rf.observe/raw-event? record)
+        base (select-keys record error-summary-keys)
         ;; Tree-shaped slots → walker. The `:event` slot is REGISTRATION-owned
         ;; (EP-0015): apply the event handler's marks before the
-        ;; frame-policy walk. `:tags` is frame-policy-only (it is the generic
-        ;; non-event tree-lift from `route-error-record!`).
+        ;; frame-policy walk — UNLESS it is a raw-identity query vector, which
+        ;; passes through verbatim. `:tags` is frame-policy-only (it is the
+        ;; generic non-event tree-lift from `route-error-record!`).
         with-tree (reduce
                     (fn [acc k]
                       (if (contains? record k)
-                        (assoc acc k (if (= k :event)
+                        (assoc acc k (cond
+                                       (and (= k :event) raw-event?)
+                                       (get record k)
+                                       (= k :event)
                                        (project-event-slot (get record k) elision-opts)
+                                       :else
                                        (walk-slot (get record k) elision-opts)))
                         acc))
                     base
