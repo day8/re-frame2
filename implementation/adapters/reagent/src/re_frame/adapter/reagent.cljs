@@ -87,7 +87,10 @@
     :cause  — recorded on the ensure (observability; free-form data value).
               Defaults to `[:lease :mount]`.
     :frame  — pin the lease to an explicit frame id, bypassing ambient
-              frame-provider / dynamic-var resolution.
+              resolution — which, when `:frame` is omitted, reads the
+              dynamic `with-frame` binding FIRST, then the surrounding
+              `frame-provider` (SCOPE) / `frame-root` (ENSURE) React
+              context, else raises `:rf.error/no-frame-context`.
 
   The component is one stable Form-3 class, not a Form-2 that creates a new
   class on every render. It resolves the target frame during render, then uses
