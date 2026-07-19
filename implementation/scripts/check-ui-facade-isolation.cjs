@@ -8,8 +8,19 @@
 // must retain NO unused sibling views — measured as the render sentinel literal
 // each sibling `defview` carries.
 //
-// WHAT IT DOES NOT PROVE (rf2-kxork): production absence of schemas, docs
-// projections, and dev registration. Those are owned by G-11, whose companion
+// WHAT IT DOES NOT PROVE (rf2-kxork), FIRST: that the library views RENDER.
+// This gate's two consumers root view VARS (`single_view` roots one into a
+// global, `all_views` roots all six into a JS array) so Closure's reachability
+// can be measured; neither ever mounts a node. Sentinel PRESENCE in a bundle is
+// a reachability fact, not a behavioural one — a view whose render body was
+// broken would still satisfy every assertion here. Behaviour is owned by
+// `re-frame.ui.proof-pack.library-dom-cljs-test`, which mounts all six views on
+// a real React root and exercises each one scoped to its own sentinel. Keep the
+// split: adding render assertions here would need a third advanced build and
+// would duplicate a proof that already has an owner.
+//
+// WHAT IT DOES NOT PROVE (rf2-kxork), SECOND: production absence of schemas,
+// docs projections, and dev registration. Those are owned by G-11, whose companion
 // scanner `check-ui-mounted-prod-elision.cjs` asserts them against the
 // `browser-test-prod-elision` :advanced bundle — the `rf$view_shell`
 // registration literal plus dedicated props-schema and view-docstring
