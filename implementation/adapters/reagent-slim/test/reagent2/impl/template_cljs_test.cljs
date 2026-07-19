@@ -899,3 +899,57 @@
       (doseq [k ["__proto__" "constructor" "prototype"]]
         (is (not (.call (.. js/Object -prototype -hasOwnProperty) out k))
             (str "reserved key '" k "' is not an own property"))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-tsuk6: an ACCEPTED tag/prop name must not poison the shared caches
+;;
+;; `tag-name-cache` and `prop-name-cache` are plain `#js {}` objects keyed on
+;; user-controlled names. String Hiccup heads are accepted, so "hasOwnProperty"
+;; is a valid head; prop-key names are accepted, so `{:hasOwnProperty x}` is a
+;; valid prop. Testing a cache hit with `(.hasOwnProperty cache n)` reads the
+;; method OFF the cache object, so caching an entry NAMED "hasOwnProperty"
+;; `aset`s a value under that own-property name and shadows the method — and
+;; the NEXT lookup then invokes that value as a function and throws a raw host
+;; TypeError, taking down every later render until reload. The fix tests
+;; membership with `Object.prototype.hasOwnProperty.call(cache, n)`, which no
+;; cache entry can shadow.
+;;
+;; The lever is ORDER: seed the "hasOwnProperty"-named entry FIRST (that render
+;; succeeds and shadows the method), THEN render an ordinary tag/prop — before
+;; the fix that second render throws; after it, it parses normally. The tests
+;; assert the OBSERVABLE parse result (`.-type` / `props`) of BOTH renders, so
+;; a spurious-crash is distinguished from a correct-parse (not vacuous: a stub
+;; returning nil would fail the type assertions).
+;; ---------------------------------------------------------------------------
+
+(deftest tag-name-cache-accepts-hasownproperty-head-rf2-tsuk6
+  (testing "rf2-tsuk6: caching the accepted string head \"hasOwnProperty\"
+            does not break the NEXT tag lookup"
+    ;; Seed FIRST: this render succeeds and, pre-fix, `aset`s a HiccupTag
+    ;; under the own-property name "hasOwnProperty", shadowing the method.
+    (let [^js seeded (template/as-element ["hasOwnProperty" "first"])]
+      (is (= "hasOwnProperty" (.-type seeded))
+          "the accepted string head renders as its own custom element"))
+    ;; The very next ordinary lookup must parse normally. Pre-fix,
+    ;; `(.hasOwnProperty tag-name-cache \"div\")` invokes the shadowing
+    ;; HiccupTag as a function → raw TypeError; the render never returns.
+    (let [^js el (template/as-element ["div" "second"])]
+      (is (= "div" (.-type el))
+          "the subsequent ordinary tag renders correctly, not a TypeError"))))
+
+(deftest prop-name-cache-accepts-hasownproperty-key-rf2-tsuk6
+  (testing "rf2-tsuk6: caching the accepted prop key :hasOwnProperty does
+            not break the NEXT prop-name lookup"
+    ;; Seed FIRST: `cached-prop-name :hasOwnProperty` `aset`s "hasOwnProperty"
+    ;; under that own-property name in prop-name-cache, shadowing the method.
+    (let [^js seeded (template/as-element [:div {:hasOwnProperty "x"}])]
+      (is (= "div" (.-type seeded))
+          "an element carrying a :hasOwnProperty prop renders"))
+    ;; The next element with ANY prop must convert normally. Pre-fix,
+    ;; `(.hasOwnProperty prop-name-cache \"class\")` invokes the shadowing
+    ;; string as a function → raw TypeError.
+    (let [^js el (template/as-element [:span {:class "c"}])]
+      (is (= "span" (.-type el))
+          "the subsequent element parses, not a TypeError")
+      (is (= "c" (.. el -props -className))
+          "and its prop still camelCases through prop-name-cache"))))
