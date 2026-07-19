@@ -454,10 +454,39 @@
   (let [d (double v)]
     (if (zero? d) 0.0 d)))
 
+(defn- browser-project
+  "Project `v` into the browser's numeric world for CROSS-HOST identity:
+  every number becomes its `browser-number`, and every map / set / vector /
+  list keeps its shape with its members projected the same way. Two
+  SERVER-DISTINCT values are `=` after this projection EXACTLY when the
+  browser — which holds one double per number and one zero — reads them as
+  one value.
+
+  `browser-number` alone catches a numeric key beside a numeric key (`1`
+  beside `1.0`), because both are numbers at the SAME level. It cannot see a
+  COMPOSITE key beside a composite key: `[1]` and `[1.0]` are two distinct
+  vectors on the server, and NEITHER is a number, yet the browser reads both
+  as `[1.0]` and rejects the second as a duplicate. Projecting the WHOLE
+  key/element — to any depth — before siblings are compared is what closes
+  that gap (PR #6489 grouped only the directly-numeric siblings and missed
+  it). The projected value is used only to GROUP siblings for `=`; it is
+  never emitted, so a key whose own numbers collapse (a nested collision the
+  recursion reports on its own) is projected to a well-defined value here
+  without hiding that inner failure."
+  [v]
+  (cond
+    (number? v)     (browser-number v)
+    (map? v)        (into {} (map (fn [[k val]]
+                                    [(browser-project k) (browser-project val)]))
+                          v)
+    (set? v)        (into #{} (map browser-project) v)
+    (sequential? v) (mapv browser-project v)
+    :else           v))
+
 (defn- numeric-collision
   "-> a DATA map naming the FIRST cross-host numeric collision reachable
-  from `v` — a map whose distinct numeric KEYS, or a set whose distinct
-  numeric ELEMENTS, collapse to one `browser-number` — else `nil`.
+  from `v` — a map whose distinct KEYS, or a set whose distinct ELEMENTS,
+  collapse to one value under `browser-project` — else `nil`.
 
   `edn-carryable?` asks whether each value ALONE rides the wire; this
   asks whether a whole map or set survives the crossing. It need not,
@@ -466,21 +495,29 @@
   `-0.0`, are two distinct keys on the JVM, but the browser reads both as
   one double, so `pr-str`'ing the collection and reading it back on the
   client rejects a DUPLICATE key/element (PR #6437 screened each value in
-  isolation and missed this). The check recurs through nested maps, sets,
-  vectors and lists — the same reach `edn-carryable?` walks — and `path`
-  records the route to the offending collection so the author can narrow
-  one key deliberately."
+  isolation and missed this).
+
+  The collision need not be a bare number. `[1]` and `[1.0]` are two
+  distinct VECTOR keys on the server, neither a number, yet the browser
+  reads both as `[1.0]` and rejects the duplicate all the same (PR #6489
+  grouped only the directly-numeric siblings and missed this). So siblings
+  are grouped by `browser-project`, which folds a WHOLE key/element to any
+  depth, not by the bare-number projection. The check also recurs through
+  nested maps, sets, vectors and lists — the same reach `edn-carryable?`
+  walks — so a collision buried inside one key or value is found too, and
+  `path` records the route to the offending collection so the author can
+  narrow one key deliberately."
   ([v] (numeric-collision v []))
   ([v path]
    (letfn [(collapse [kind xs]
-             (some (fn [[d members]]
+             (some (fn [[browser-value members]]
                      (when (next members)
                        {:invalid        :cross-host-numeric-collision
                         :collision       kind
                         :path            path
                         :collapses       (vec members)
-                        :browser-number  d}))
-                   (group-by browser-number (filter number? xs))))]
+                        :browser-number  browser-value}))
+                   (group-by browser-project xs)))]
      (cond
        (map? v)
        (or (collapse :map-keys (keys v))

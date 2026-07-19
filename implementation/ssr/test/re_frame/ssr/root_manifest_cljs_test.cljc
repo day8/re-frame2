@@ -631,11 +631,15 @@
 (def ^:private collision-bodies
   "Exact `<script>` bodies a PRE-fix server emitted for colliding manifests,
   pinned as BYTES because bytes are what cross. Map-key, set-element, and
-  signed-zero arms. The JVM half pins the tokens against the live printer so
-  these literals cannot go stale."
-  {:map  "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:lookup {1 :integer, 1.0 :double}}}"
-   :set  "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:tags #{1.0 1}}}"
-   :zero "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:lookup {0 :a, -0.0 :b}}}"})
+  signed-zero arms, plus the rf2-pdcoh COMPOSITE arms — a VECTOR key and a
+  vector set element, where each key/element is a collection whose numeric
+  leaves (not the key itself) collapse. The JVM half pins the tokens against
+  the live printer so these literals cannot go stale."
+  {:map     "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:lookup {1 :integer, 1.0 :double}}}"
+   :set     "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:tags #{1.0 1}}}"
+   :zero    "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:lookup {0 :a, -0.0 :b}}}"
+   :vec-map "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:lookup {[1] :integer-vector, [1.0] :double-vector}}}"
+   :vec-set "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:tags #{[1.0] [1]}}}"})
 
 (deftest colliding-wire-bytes-part-across-hosts
   (testing "rf2-pdcoh — the SAME wire bytes, read by the shipped `read-manifest`
@@ -649,10 +653,20 @@
              "the map tokens pinned in `collision-bodies` match the live printer")
          (is (= "#{1.0 1}" (pr-str #{1 1.0}))
              "…and the set token — if either reds, the pinned bytes are stale")
+         (is (= "{[1] :integer-vector, [1.0] :double-vector}"
+                (pr-str {[1] :integer-vector [1.0] :double-vector}))
+             "the COMPOSITE map-key tokens — the residual #6489's direct walk missed")
+         (is (= "#{[1.0] [1]}" (pr-str #{[1] [1.0]}))
+             "…and the composite set-element token")
          (is (= 2 (count (get-in (manifest/read-manifest 'test (:map collision-bodies))
                                  [:props :lookup])))
              "the server round-trips two distinct keys — same-host is blind")
          (is (= 2 (count (get-in (manifest/read-manifest 'test (:set collision-bodies))
+                                 [:props :tags]))))
+         (is (= 2 (count (get-in (manifest/read-manifest 'test (:vec-map collision-bodies))
+                                 [:props :lookup])))
+             "…and two distinct VECTOR keys — same-host is blind to composites too")
+         (is (= 2 (count (get-in (manifest/read-manifest 'test (:vec-set collision-bodies))
                                  [:props :tags])))))
        :cljs
        (doseq [[label body] collision-bodies]
@@ -727,7 +741,52 @@
                        (catch clojure.lang.ExceptionInfo e (ex-data e)))]
          (is (= :cross-host-numeric-collision (:invalid data)))
          (is (= :set-elements (:collision data)))
-         (is (= [:props :xs 1] (:path data)) "the path indexes into the vector")))))
+         (is (= [:props :xs 1] (:path data)) "the path indexes into the vector"))
+
+       ;; rf2-pdcoh RESIDUAL — COMPOSITE sibling KEYS. `[1]` and `[1.0]` are two
+       ;; distinct vectors on the server, and NEITHER is a number, so #6489's
+       ;; directly-numeric grouping accepted them and emitted the body; the
+       ;; browser reads both as `[1.0]` and rejects the duplicate. The walk now
+       ;; projects the WHOLE key before comparing siblings.
+       (let [collide {[1] :integer-vector [1.0] :double-vector}
+             m       {:rf.root/schema-version 1 :root-id :page/shop
+                      :props {:lookup collide}}]
+         (is (= 2 (count collide)) "two distinct VECTOR keys on the server")
+         (is (manifest/edn-carryable? collide)
+             "THE LEVER: each composite key rides the wire ALONE, and each is a
+              vector, not a number — so the directly-numeric group had nothing to
+              grab. Per-key carryability is not the property.")
+         (let [data (try (manifest/script-html m) nil
+                         (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+           (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
+               "the EXISTING id — still a malformed manifest, no new catalogue row")
+           (is (= :cross-host-numeric-collision (:invalid data)))
+           (is (= :map-keys (:collision data)))
+           (is (= [:props :lookup] (:path data)) "the offending collection is NAMED")
+           (is (= #{[1] [1.0]} (set (:collapses data))) "and its colliding vector keys")
+           (is (= [1.0] (:browser-number data))
+               "and the one browser value they collapse to")))
+
+       ;; composite SET elements — same class, one collection out
+       (let [m    {:rf.root/schema-version 1 :root-id :page/shop
+                   :props {:tags #{[1] [1.0]}}}
+             data (try (manifest/script-html m) nil
+                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+         (is (= :cross-host-numeric-collision (:invalid data)))
+         (is (= :set-elements (:collision data)))
+         (is (= [:props :tags] (:path data)))
+         (is (= #{[1] [1.0]} (set (:collapses data)))))
+
+       ;; DEEP composite collision — a set inside a vector inside a map: the
+       ;; residual is closed at ARBITRARY depth, not just one collection down.
+       (let [m    {:rf.root/schema-version 1 :root-id :page/shop
+                   :props {:xs [{:k #{[1] [1.0]}}]}}
+             data (try (manifest/script-html m) nil
+                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+         (is (= :cross-host-numeric-collision (:invalid data)))
+         (is (= :set-elements (:collision data)))
+         (is (= [:props :xs 0 :k] (:path data))
+             "the path threads map -> vector -> map -> set to the colliding set")))))
 
 (deftest a-mutation-that-resolves-the-collision-emits-fine
   (testing "rf2-pdcoh — THE RED-BEFORE MUTATION: change one colliding number so
@@ -747,7 +806,20 @@
              :distinct-set {:rf.root/schema-version 1 :root-id :page/shop
                             :props {:tags #{1 2 3}}}
              :nested-ok    {:rf.root/schema-version 1 :root-id :page/shop
-                            :props {:a [1 {:b #{2 3.5}}]}}}]
+                            :props {:a [1 {:b #{2 3.5}}]}}
+             ;; rf2-pdcoh — the COMPOSITE mutations: change one leaf so the two
+             ;; vector keys/elements no longer project to one browser value, and
+             ;; the same composite shape emits and round-trips. Proves the
+             ;; residual rejection is the COLLISION, not the composite shape.
+             :vec-map-ok   {:rf.root/schema-version 1 :root-id :page/shop
+                            :props {:lookup {[1] :integer-vector [2.0] :double-vector}}}
+             :vec-set-ok   {:rf.root/schema-version 1 :root-id :page/shop
+                            :props {:tags #{[1] [2.0]}}}
+             :deep-vec-ok  {:rf.root/schema-version 1 :root-id :page/shop
+                            :props {:xs [{:k #{[1] [2.0]}}]}}
+             ;; distinct composite keys that are NOT a collision must still emit
+             :two-vec-ok   {:rf.root/schema-version 1 :root-id :page/shop
+                            :props {:lookup {[1 2] :a [1 3] :b}}}}]
       (is (string? (manifest/script-html m))
           (str label " — a non-colliding numeric collection still emits"))
       (is (round-trips? m)
