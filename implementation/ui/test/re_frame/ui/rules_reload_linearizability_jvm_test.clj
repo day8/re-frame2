@@ -23,6 +23,17 @@
 (defn- await-barrier [^CyclicBarrier b]
   (.await b))
 
+(defn- declared
+  "The live aggregate with each entry's owner provenance stripped
+  (rf2-vxgfnd.143 stamps `[build-id ns-sym]` onto every entry in the same swap
+  as the declaration). These rounds assert WHICH declarations are live under a
+  race, which is orthogonal to who owns them; provenance and the conflict law it
+  anchors are pinned by `re-frame.ui.rules-custom-element-conflict-cljs-test`."
+  []
+  (into {}
+        (map (fn [[tag entry]] [tag (dissoc entry :re-frame.ui.rules/owner)]))
+        @rules/custom-elements))
+
 (deftest register-races-commit-equals-a-legal-serial-execution
   ;; Build :x has a cycle open with a staged reload of :seed-el. Concurrently a
   ;; FRESH declaration (:race-el, its own source) is registered while the commit
@@ -56,7 +67,7 @@
                ": the concurrently-registered declaration is never lost"))
       (is (= {:seed-el {:properties #{:s2}}
               :race-el {:properties #{:r}}}
-             @rules/custom-elements)
+             (declared))
           (str "round " round
                ": the published aggregate equals a legal serial execution — no "
                "double-apply, no clobbered row"))
@@ -106,7 +117,7 @@
       ;; without it this test tolerated losing :race-el entirely.
       (is (= {:base-el {:properties #{:b}}
               :race-el {:properties #{:r}}}
-             @rules/custom-elements)
+             (declared))
           (str "round " round
                ": the raced registration is present EXACTLY once when settled — "
                "never lost by either serialization, never doubled")))))

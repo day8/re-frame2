@@ -22,7 +22,8 @@
   `boolean-attrs` were probed against react-dom/server 19.2.0 (renders +
   throw behaviour); see the S1b PR body for the row-by-row outcomes."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]))
+            [re-frame.error :as error]
+            [re-frame.ui.eq :as eq]))
 
 ;; ---------------------------------------------------------------------------
 ;; Shared vocabulary
@@ -966,14 +967,195 @@
              default-build)
      :clj  default-build))
 
+;; ---------------------------------------------------------------------------
+;; The ONE cross-source declaration law (rf2-vxgfnd.143)
+;;
+;; Delegated ruling 2026-07-15, Option A — FAIL ATOMICALLY, never a merge or a
+;; winner law. For a given [build-id tag] the effective declaration is the
+;; unique value contributed by live sources IFF every cross-source pair is
+;; `rf=`-equal. Any non-`rf=`-equal same-tag declaration from a DIFFERENT source
+;; fails atomically with BOTH [build-id ns-sym] anchors and leaves the
+;; last-known-good aggregate unchanged.
+;;
+;; ## Where the law lives, and why it is not where it was first ruled
+;;
+;; The 2026-07-15 ruling placed the runtime arm on the ledger paths below
+;; (`register-custom-element!`'s pre-write check, the `commit-reload!` fold).
+;; All of those sit behind `reload-ledger?`, which Closure constant-folds to
+;; false and DCEs under `:advanced` + `goog.DEBUG=false` (rf2-k9yuy) — so
+;; implemented as first written the law would not have existed in the shipped
+;; artefact at all. That is the exact shape of two defects that DID ship in the
+;; same week (rf2-2hkfy #6376, an "always-on" rejection that was goog.DEBUG-
+;; gated; rf2-5pr75 #6352, a live XSS closed only by making the check fire on
+;; every build). The 2026-07-19 placement amendment moves the law's residence to
+;; the ONE thing that survives a release build:
+;;
+;;   `write-element!` — the single `custom-elements` update every registration
+;;   performs, on BOTH the dev write-through and the production direct branch.
+;;
+;; The ledger-path checks are RETAINED as dev-side defence in depth; they are no
+;; longer the law's residence. `custom_element_reload_elision_prod_test.cljs`
+;; runs INSIDE the `:advanced` bundle and pins the production enforcement so it
+;; cannot silently rot back to dev-only.
+;;
+;; The compile arm (PR #6006) already draws the same two-tier shape:
+;; `build/contribute-element-checked!` is the write BARRIER and
+;; `build/elements-conflict` the re-derived detector. `admit` below is the
+;; runtime barrier's law, and `aggregate` re-derives the same verdict over the
+;; committed ledger — one law, applied twice, unable to drift because both call
+;; the same pure function.
+;; ---------------------------------------------------------------------------
+
+(def ^:private owner-key
+  "Owner provenance slot on a live aggregate entry: the `[build-id ns-sym]` of
+  the source whose declaration is live for that tag.
+
+  Written in the SAME swap as the declaration itself, because the law's evidence
+  needs BOTH anchors and production carries no ledger to look an incumbent up in
+  (rf2-k9yuy). Readers are unaffected — `custom-element-properties` reads
+  `:properties` off the entry — and there is deliberately NO second atom and no
+  parallel index that could drift from it."
+  ::owner)
+
+(defn- declaration
+  "The DECLARATION half of a live entry — the entry minus its provenance. What
+  two sources must agree on, `rf=`, for their declarations to co-exist."
+  [entry]
+  (dissoc entry owner-key))
+
+(defn- conflict-row
+  "One anchor of a contradiction, in the ruled evidence shape (mirrors the
+  compile arm's `build/element-conflict-row`)."
+  [[build-id ns-sym] decl]
+  {:build build-id :ns ns-sym :properties (:properties decl #{})})
+
+(defn- conflict-evidence
+  "Both anchors of a contradiction, SORTED — so the evidence is byte-identical
+  under every permutation of source names, evaluation order and build ids."
+  [tag incumbent-owner incumbent-decl source decl]
+  {:tag tag
+   :declarations (vec (sort-by (juxt (comp str :build) (comp str :ns))
+                               [(conflict-row incumbent-owner incumbent-decl)
+                                (conflict-row source decl)]))})
+
+(defn- canonical-owner
+  "Which of two sources declaring the SAME fact is named as the entry's owner:
+  the lexicographically smaller `[build-id ns-sym]`.
+
+  `rf=`-equal duplicates co-exist, so neither is a winner over the other — but
+  one of them has to be the anchor a LATER contradiction is reported against.
+  Taking the smaller makes that anchor a function of the SET of equal declarers
+  rather than of the order they happened to evaluate in, which is what keeps
+  conflict evidence identical under every permutation. It decides nothing
+  observable about the manifest: the two declarations it chooses between are
+  equal, so no property classification depends on the choice."
+  [a b]
+  (if (neg? (compare (mapv str a) (mapv str b))) a b))
+
+(defn- admit
+  "THE law, as one pure step: fold `source`'s declaration of `tag` into
+  aggregate `agg`.
+
+  Returns `{:aggregate agg'}` when the declaration is admitted, or
+  `{:conflict evidence}` — carrying BOTH `[build-id ns-sym]` anchors — when it
+  contradicts a live declaration from a DIFFERENT source, in which case NOTHING
+  is written and `agg` remains the last-known-good aggregate.
+
+  Three admissions and one rejection:
+
+    - no live declaration for `tag`  -> admitted; `source` owns the entry.
+    - the live one is `source`'s OWN -> REPLACED. A source never conflicts with
+                                        itself: re-declaration is what a reload
+                                        or a REPL re-eval legitimately does.
+    - the live one is `rf=`-EQUAL    -> duplicates co-exist (idempotent — two
+                                        namespaces may legitimately state the
+                                        same fact); `canonical-owner` decides
+                                        which is named in future evidence.
+    - anything else                  -> CONFLICT. Never a merge, never a winner
+                                        by evaluation or sort order.
+
+  Pure and total, so the production write barrier (`write-element!`) and the
+  dev-side ledger projection (`aggregate`) apply literally the same law and
+  cannot drift from one another."
+  [agg tag decl source]
+  (let [entry    (get agg tag)
+        owner    (get entry owner-key)
+        admit-as (fn [o] {:aggregate (assoc agg tag (assoc decl owner-key o))})]
+    (cond
+      (nil? owner)                      (admit-as source)
+      (= owner source)                  (admit-as source)
+      (eq/rf= (declaration entry) decl) (admit-as (canonical-owner owner source))
+      :else {:conflict (conflict-evidence tag owner (declaration entry)
+                                          source decl)})))
+
+(defn- throw-element-conflict!
+  "Raise the ruled runtime conflict on the ALWAYS-ON error seam — never a
+  `trace/`-gated path. The law this reports holds in `:advanced` production, so
+  its evidence has to reach production too; routing it through a diagnostic
+  channel would re-create the very dev-only-law defect the placement amendment
+  exists to prevent. Spec 009 catalogues `:rf.error/custom-element-conflict` as
+  always-on for that reason."
+  [{:keys [tag declarations] :as evidence}]
+  (error/throw-error!
+   :rf.error/custom-element-conflict 're-frame.ui/custom-element
+   (str "conflicting (ui/custom-element " tag " ...) declarations — "
+        (str/join " vs "
+                  (map (fn [{:keys [build ns properties]}]
+                         (str ns " (build " (pr-str build) ") declares :properties "
+                              (pr-str (vec (sort properties)))))
+                       declarations))
+        ". One tag has ONE property manifest: delete the duplicate declaration, "
+        "or make both sources declare an IDENTICAL :properties set (identical "
+        "declarations may co-exist). re-frame.ui will not pick a winner by "
+        "evaluation or reload order — the live manifest is UNCHANGED")
+   {:recovery :align-custom-element-declarations
+    :extra evidence}))
+
+(defn- write-element!
+  "THE production residence of the law (placement amendment 2026-07-19): the
+  single `custom-elements` update every registration performs, on BOTH the dev
+  write-through branch and the production direct branch.
+
+  This is the only registration code that survives `:advanced` +
+  `goog.DEBUG=false`; everything ledger-shaped folds away with `reload-ledger?`.
+  Putting the check anywhere else would make the law dev-only.
+
+  The verdict is decided INSIDE the one atomic swap, so no interleaved
+  registration is admitted against a value this one has already rejected. The
+  post-swap re-derivation reads the same `old` the WINNING attempt saw, so the
+  evidence reported is exactly the verdict that was applied — never a second,
+  differently-timed opinion."
+  [tag decl source]
+  (let [[old _new] (swap-vals! custom-elements
+                               (fn [agg]
+                                 (:aggregate (admit agg tag decl source) agg)))]
+    (when-let [evidence (:conflict (admit old tag decl source))]
+      (throw-element-conflict! evidence)))
+  nil)
+
 (defn- aggregate
-  "The public aggregate as the merge of every ledger source's map — the live
-  registry is a PURE FUNCTION of `::sources`. Sources merged in a stable order so
-  the projection is deterministic regardless of ledger insertion order."
+  "The public aggregate as the conflict-CHECKED fold of every ledger source's
+  map — the live registry is a PURE FUNCTION of `::sources`, computed by the
+  SAME `admit` law the production barrier applies.
+
+  Returns `{:aggregate m}` or `{:conflict evidence}`. Sources are folded in a
+  stable sorted order, so the projection and the anchors of any contradiction it
+  finds are deterministic regardless of ledger insertion order. That order
+  decides only which of two `rf=`-EQUAL declarations is folded first; it can
+  never pick a winner between contradictory ones, which is what makes this a
+  DEFENCE-IN-DEPTH re-derivation rather than a second, sort-order law of the
+  kind the ruling forbids."
   [sources]
-  (reduce (fn [agg src] (merge agg (get sources src)))
-          {}
-          (sort-by str (keys sources))))
+  (reduce
+   (fn [acc src]
+     (let [step (reduce-kv (fn [acc tag decl]
+                             (let [r (admit (:aggregate acc) tag decl src)]
+                               (if (:conflict r) (reduced r) r)))
+                           acc
+                           (get sources src))]
+       (if (:conflict step) (reduced step) step)))
+   {:aggregate {}}
+   (sort-by str (keys sources))))
 
 (defn- report-publication-escape!
   "Surface the contained observer failure from ONE reload publication (rf2-za45g).
@@ -1047,7 +1229,16 @@
   semantics, not a framework guarantee."
   [build-id]
   (let [failure (try
-                  (swap! custom-elements (fn [_] (aggregate (::sources @ledger-state))))
+                  ;; A conflicted projection RETAINS the live aggregate rather
+                  ;; than publishing a partial one. Unreachable in practice —
+                  ;; `commit-reload!` rejects a conflicting cycle before it can
+                  ;; reach here, and the barrier keeps contradictory rows out of
+                  ;; `::sources` in the first place — but publication is DELIVERY
+                  ;; (rf2-za45g), so its failure mode is "deliver nothing new",
+                  ;; never "deliver something half-resolved".
+                  (swap! custom-elements
+                         (fn [live]
+                           (:aggregate (aggregate (::sources @ledger-state)) live)))
                   {:failed? false :error nil}
                   ;; The explicit `:failed?` bit — never the truthiness of
                   ;; `:error` — preserves failure identity when CLJS throws a
@@ -1071,6 +1262,24 @@
           sources
           (into (set (keys staged)) touched)))
 
+(defn- commit-outcome
+  "Pure: what committing `build-id`'s open cycle in ledger value `st` WOULD do.
+
+  `nil` when no cycle is open; `{:sources reconciled}` when the reconciled
+  ledger projects cleanly; `{:conflict evidence}` when a staged source
+  introduces a cross-source contradiction.
+
+  The verdict is taken on the POST-reconciliation value, which is the only
+  honest place to take it: a staged source REPLACES its whole prior
+  contribution, so a row that looks contradictory mid-cycle may be the very row
+  being retired. Dev-side defence in depth — a staged registration never reaches
+  the production barrier, so this is where the law is enforced for it."
+  [st build-id]
+  (when-let [{:keys [staged touched]} (get (::cycles st) build-id)]
+    (let [reconciled (reconcile-sources (::sources st) staged touched)
+          {:keys [conflict]} (aggregate reconciled)]
+      (if conflict {:conflict conflict} {:sources reconciled}))))
+
 (defn register-custom-element!
   "Register `tag`'s runtime property classification under its declaring source.
   Emitted top-level by `ui/custom-element`, so it re-runs on every ns hot-reload.
@@ -1092,25 +1301,49 @@
   cycle can ever be open, so the whole stage-vs-write-through transition folds
   away and what remains is the single direct aggregate update — the same row the
   dev write-through publishes, reached without touching any ledger state
-  (rf2-k9yuy)."
+  (rf2-k9yuy).
+
+  Every path here goes through `write-element!`, so the cross-source declaration
+  law (rf2-vxgfnd.143) holds on EVERY host and build mode: a contradictory
+  same-tag declaration from a DIFFERENT source is rejected without writing and
+  raises `:rf.error/custom-element-conflict` with both `[build-id ns-sym]`
+  anchors, leaving the live manifest exactly as it was. `rf=`-equal duplicates
+  co-exist and a source re-declaring its own tag simply replaces its row."
   ([tag decl ns-sym] (register-custom-element! tag decl ns-sym (current-build-id)))
   ([tag decl ns-sym build-id]
-   (if reload-ledger?
-     (let [source [build-id ns-sym]
-           [old _new]
-           (swap-vals! ledger-state
-                       (fn [st]
-                         (if (contains? (::cycles st) build-id)
-                           (update-in st [::cycles build-id :staged source]
-                                      (fnil assoc {}) tag decl)
-                           (update-in st [::sources source]
-                                      (fnil assoc {}) tag decl))))]
-       ;; The winning transition saw `old`; if `old` had no open cycle it was a
-       ;; write-through, so publish this row incrementally. (Staged registrations
-       ;; stay invisible until commit.)
-       (when-not (contains? (::cycles old) build-id)
-         (swap! custom-elements assoc tag decl)))
-     (swap! custom-elements assoc tag decl))
+   (let [source [build-id ns-sym]]
+     (if reload-ledger?
+       (let [[old _new]
+             (swap-vals! ledger-state
+                         (fn [st]
+                           (if (contains? (::cycles st) build-id)
+                             (update-in st [::cycles build-id :staged source]
+                                        (fnil assoc {}) tag decl)
+                             ;; WRITE-THROUGH. Apply the SAME verdict the
+                             ;; aggregate barrier below is about to apply, so a
+                             ;; REJECTED write-through leaves no row behind for a
+                             ;; later `commit-reload!` to publish — which would
+                             ;; let the next reload defeat the barrier, and would
+                             ;; wedge every subsequent commit against a ledger
+                             ;; that can no longer be projected.
+                             ;;
+                             ;; A STAGED row is deliberately NOT checked here: it
+                             ;; is not live yet, and the rows it would be checked
+                             ;; against are the very ones this cycle is about to
+                             ;; replace, so a stage-time check would reject
+                             ;; legitimate edits. The reconciled fold in
+                             ;; `commit-reload!` is the staged path's check, and
+                             ;; it decides on the POST-reconciliation value.
+                             (if (:conflict (admit @custom-elements tag decl source))
+                               st
+                               (update-in st [::sources source]
+                                          (fnil assoc {}) tag decl)))))]
+         ;; The winning transition saw `old`; if `old` had no open cycle it was a
+         ;; write-through, so publish this row incrementally. (Staged
+         ;; registrations stay invisible until commit.)
+         (when-not (contains? (::cycles old) build-id)
+           (write-element! tag decl source)))
+       (write-element! tag decl source)))
    tag))
 
 (defn- report-unpaired-cycle!
@@ -1258,19 +1491,42 @@
      (let [[old _new]
            (swap-vals! ledger-state
                        (fn [st]
-                         (if-let [{:keys [staged touched]} (get (::cycles st) build-id)]
-                           (-> st
-                               (assoc ::sources
-                                      (reconcile-sources (::sources st) staged touched))
-                               (update ::cycles dissoc build-id))
-                           st)))]
+                         (let [{:keys [sources]} (commit-outcome st build-id)]
+                           (cond
+                             ;; Clean commit: reconcile AND close in one swap.
+                             sources
+                             (-> st
+                                 (assoc ::sources sources)
+                                 (update ::cycles dissoc build-id))
+
+                             ;; CONFLICTING cycle — reject ATOMICALLY. `::sources`
+                             ;; is untouched, so the last-known-good manifest
+                             ;; survives and nothing is partially published; the
+                             ;; cycle is closed and its staging DISCARDED, exactly
+                             ;; as an aborted reload's would be. Leaving it open
+                             ;; instead would wedge the session — every later
+                             ;; registration would stage into a cycle no commit
+                             ;; could ever close.
+                             (contains? (::cycles st) build-id)
+                             (update st ::cycles dissoc build-id)
+
+                             :else st))))]
        ;; Publish only when THIS commit closed a cycle (the winning transition saw
        ;; one in `old`). The cycle is gone from the ledger, so a reentrant
        ;; registration during the publish takes the write-through path — it cannot
        ;; be recaptured or dropped by this commit. `publish!` recomputes from the
        ;; LIVE ledger, so a concurrent write-through's row is never clobbered.
-       (when (contains? (::cycles old) build-id)
-         (publish! build-id))))
+       ;;
+       ;; The outcome is re-derived from the same `old` the winning transition
+       ;; saw, so the raised evidence is the verdict that was actually applied.
+       ;; A rejected commit RAISES: this is the `^:dev/after-load` hook, and the
+       ;; reload genuinely did not commit, so reporting it as failed is the truth
+       ;; (rf2-za45g contains a throwing publication OBSERVER precisely because
+       ;; that case is the opposite — a committed reload being recast as failed).
+       (let [{:keys [conflict]} (commit-outcome old build-id)]
+         (cond
+           conflict (throw-element-conflict! conflict)
+           (contains? (::cycles old) build-id) (publish! build-id)))))
    nil))
 
 ;; ---------------------------------------------------------------------------
@@ -1493,10 +1749,14 @@
   pure projection of the current ledger `::sources`. A settled ledger's published
   aggregate always equals this; a divergence is a torn or clobbered projection.
   Where there is no ledger (`:advanced` production) registrations write straight
-  through, so the live aggregate IS the projection. Observability only."
+  through, so the live aggregate IS the projection. Observability only.
+
+  A ledger holding a contradiction projects to `nil` — a loud divergence from
+  any live aggregate, which is the intended reading: there IS no valid manifest
+  for such a ledger, and the law is that no path invents one."
   []
   (if reload-ledger?
-    (aggregate (::sources @ledger-state))
+    (:aggregate (aggregate (::sources @ledger-state)))
     @custom-elements))
 
 (defn custom-element-properties [tag]
