@@ -1078,7 +1078,26 @@
                         (contains? tags :rf.event/v)
                         (project-event-tags :rf.event/v)
 
-                        (contains? tags :event)
+                        ;; The bare `:event` slot on the realm-AMBIGUOUS
+                        ;; `:rf.error/frame-destroyed` trace carries a raw
+                        ;; subscription QUERY VECTOR in the `:subscribe` realm
+                        ;; (public IDENTITY — rf2-zwgqe / rf2-alk8a / Spec 015),
+                        ;; NOT a dispatched event. It egresses VERBATIM here,
+                        ;; mirroring the always-on record's
+                        ;; `error-emit/raw-identity-query-vector-event?` skip
+                        ;; (keyed on the SAME `:op :subscribe` realm the UI /
+                        ;; core emitters stamp). Projecting it would misread the
+                        ;; vector as a dispatched event and borrow a same-id
+                        ;; EVENT registration's `:sensitive` paths to mutate the
+                        ;; identity — a LEGAL event/sub id collision, since the
+                        ;; two live in SEPARATE registries (rf2-wd4ac). Every
+                        ;; OTHER `:event` slot still projects — including the
+                        ;; `:dispatch` / `:dispatch-sync` frame-destroyed realms,
+                        ;; whose `:event` IS a dispatched-event payload. `=` on
+                        ;; keyword operands, never `identical?` (#6365).
+                        (and (contains? tags :event)
+                             (not (and (= :rf.error/frame-destroyed operation)
+                                       (= :subscribe (:op tags)))))
                         (project-event-tags :event)
 
                         ;; `:rf.event/fx` — the WHOLE returned effect vector on
