@@ -245,7 +245,7 @@ The single most-asked question this doc answers: **what runs when, in what order
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  6. EPOCH ASSEMBLY (re-frame.epoch/build-record)                            │
-│     - Per-frame, on drain-settle.                                           │
+│     - Per-frame, once per dequeued event.                                   │
 │     - sensitive-rollup computes :rf.epoch/sensitive? from the raw record's  │
 │       schema-declared sensitive leaves at build-time.                       │
 │     - The RAW record is appended to the ring and delivered to every         │

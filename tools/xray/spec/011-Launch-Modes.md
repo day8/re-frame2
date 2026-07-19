@@ -642,15 +642,22 @@ key is reserved — host code MUST NOT register a competing callback
 under the same id (a duplicate registration would replace the
 collector and silence Xray's epoch-driven panels).
 
-**Trigger.** The callback fires once per **dequeued event**, after
-the framework has appended the assembled record to its per-frame
-`epoch-history` ring buffer. The callback runs synchronously on the
-framework's emit call stack, per
+**Trigger.** The callback fires for each committed record — once per
+**dequeued event**, after the framework has appended the assembled
+record to its per-frame `epoch-history` ring buffer. The callback runs
+synchronously on the framework's emit call stack, per
 [Spec 009 §Listener invocation rules](../../../spec/009-Instrumentation.md#listener-invocation-rules)
 — there is no batching, no debounce, no background delivery. A
 multi-event drain yields one callback invocation per settled event:
 a parent event and the `:fx [[:dispatch …]]` child it queued settle
-as two epochs, so the collector fires twice.
+as two epochs, so the collector fires twice. The collector ALSO
+re-fires with a corrected same-`:epoch-id` record when a post-settle
+render / sub-run / unmount back-fills into an already-settled epoch
+(this re-sync is the collector's whole purpose — Xray's epoch-driven
+panels cache `epoch-history` at settle time), and it fires for
+synthetic records with no dequeued event (`:rf.epoch/db-replaced`, the
+terminal `:halted-destroy`). The collector therefore reconciles on
+`:epoch-id`; it does NOT treat each invocation as a distinct event.
 
 **What the callback does.** On every invocation the callback MUST
 re-enter the runtime under the `:rf/xray` frame binding (via

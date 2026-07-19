@@ -58,7 +58,7 @@
   ([frame-id epoch-id] :delegate))
 
 (defwrapper register-epoch-listener!
-  "Register a callback fired once per drain-settle with the assembled
+  "Register a callback fired for each assembled
   `:rf/epoch-record`. Per Spec 009 §`register-epoch-listener!`. Same-id
   registrations replace; listener exceptions are isolated. Returns the
   id. No-op (returns nil) when the `day8/re-frame2-epoch` artefact is
