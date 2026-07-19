@@ -221,8 +221,12 @@
               (is (= :rf.error/frame-destroyed (:error r)))
               (is (= :ops/doomed (:frame r)) ":frame names the destroyed frame")
               (is (= op (:op r)) ":op names the failing bundle operation")
-              ;; :event fails closed to :rf/redacted under the unresolvable
-              ;; (destroyed) frame; the structural :event-id head survives.
+              ;; This leg pins the realm-AGNOSTIC structural attribution (one
+              ;; record + one trace, frame / op / head). The `:event` BODY policy
+              ;; is realm-specific and pinned elsewhere: a dispatched payload
+              ;; fails closed to `:rf/redacted`
+              ;; (`frame-ops-reincarnation-elision-cljs-test`), while a subscribe
+              ;; query vector egresses RAW as identity (rf2-wd4ac, same file).
               (is (= head (:event-id r)) ":event-id is the attempted vector head"))
             (is (= 1 (count traces))
                 "exactly ONE dev trace on the axis-2 surface")))))))

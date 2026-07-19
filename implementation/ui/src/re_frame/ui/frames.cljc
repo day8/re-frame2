@@ -1112,10 +1112,12 @@
 
   The record carries the exact `frame-id`, the failing `op`
   (`:dispatch` / `:dispatch-sync` / `:subscribe`, or `:capture` for a `(frame)`
-  read that resolved a dead incarnation), and the attempted `payload` (the event
-  or query vector, as the record's elided `:event`; its head as `:event-id`) so
-  an off-box shipper attributes the failure. `payload` is nil for the `:capture`
-  arm (the read failed before any op was invoked).
+  read that resolved a dead incarnation), and the attempted `payload` on the
+  record's `:event` slot (its head as `:event-id`) so an off-box shipper
+  attributes the failure. A SUBSCRIBE query vector is public IDENTITY (rf2-zwgqe
+  / rf2-alk8a) and rides `:event` RAW; a DISPATCH / dispatch-sync payload is
+  redacted to `:rf/redacted` (see the fail-closed section). `payload` is nil for
+  the `:capture` arm (the read failed before any op was invoked).
 
   The THROWN exception mirrors the same STRUCTURAL attribution in its `:extra`
   ex-data — `:frame`, `:op`, and the event/query `:event-id` HEAD (rf2-r79gr) —
@@ -1145,34 +1147,61 @@
   the walk would BORROW the successor's (unrelated, possibly permissive) policy
   and project incarnation A's raw payload off-box — under BOTH the corpus-wide
   record AND the frame-owned observability sink route, which `dispatch-on-error!`
-  feeds the RAW event. We therefore redact the payload BODY to the reserved
-  `:rf/redacted` sentinel HERE, at the only site that knows the incarnation is
-  dead: the structural event/query HEAD still rides `:event-id`, no successor
-  policy can be borrowed, and no policy-snapshot machinery is introduced. The
-  absent-frame and destroyed-without-successor arms fail closed identically."
+  feeds the RAW event. We therefore redact a DISPATCH / dispatch-sync payload
+  BODY to the reserved `:rf/redacted` sentinel HERE, at the only site that knows
+  the incarnation is dead: the structural event/query HEAD still rides
+  `:event-id`, no successor policy can be borrowed, and no policy-snapshot
+  machinery is introduced. The absent-frame and destroyed-without-successor arms
+  fail closed identically.
+
+  The SUBSCRIBE realm is EXEMPT from this source-redaction (rf2-alk8a). A
+  subscription query vector is public IDENTITY, not payload (rf2-zwgqe / Spec
+  015 — \"a subscription's query vector is identity, and it egresses raw\"), so
+  it rides `:event` VERBATIM. rf2-t55hxg.18's unresolvable-frame fail-closed
+  guards policy-walked VALUE slots — an identity slot never consults frame
+  policy, so there is no successor policy to borrow: downstream
+  `error-emit/raw-identity-query-vector-event?` (keyed on the ratified-public
+  `:op :subscribe` this seam stamps) SKIPS elision on the query vector across
+  BOTH egress routes, exactly as the core subscribe emitters do after #6497.
+  This mirrors `subs/emit-frame-destroyed-recovery!` and
+  `observation/throw-frame-destroyed!`; only the DISPATCH realm stays redacted."
   [frame-id op payload reason]
-  (let [;; Body redacted at source (rf2-01ihi) — a dead incarnation has no
-        ;; trustworthy policy for its captured payload on EITHER channel. nil
-        ;; for the `:capture` arm (no op was invoked, so no payload to redact).
-        redacted-event (when (some? payload) privacy/redacted-sentinel)
+  (let [;; A SUBSCRIBE query vector is public IDENTITY (rf2-zwgqe / rf2-alk8a),
+        ;; NOT payload, so it egresses RAW (see the fail-closed section above).
+        ;; Keyed on `=`, NEVER `identical?`, on the keyword operand — a `.cljc`
+        ;; `identical?` keyword compare is JVM-only sound and CLJS-unreachable
+        ;; (#6365).
+        subscribe?     (= :subscribe op)
+        ;; The event/query BODY that egresses on the always-on `:event` slot AND
+        ;; the dev-trace `:event` tag. For the SUBSCRIBE realm it is the RAW
+        ;; query vector (identity — downstream `raw-identity-query-vector-event?`
+        ;; skips elision on it, so no dead/successor frame policy is ever
+        ;; consulted). For a DISPATCH / dispatch-sync it is a dispatched event
+        ;; vector — payload, not identity — redacted at source to the reserved
+        ;; `:rf/redacted` sentinel (rf2-01ihi): a dead incarnation has no
+        ;; trustworthy policy, and a same-id successor's policy must never be
+        ;; borrowed to un-redact it. nil for the `:capture` arm (no op ran).
+        egress-event   (cond
+                         (nil? payload) nil
+                         subscribe?     payload
+                         :else          privacy/redacted-sentinel)
         ;; The STRUCTURAL event/query HEAD — the attempted vector's first
-        ;; element (the event-id / sub-id keyword), NEVER the raw payload body
-        ;; (rf2-01ihi redacts the body; only the head survives). nil for the
-        ;; `:capture` arm. Rides BOTH the always-on record's `:event-id` slot
-        ;; AND the thrown exception's `:extra :event-id` (rf2-r79gr), so a
-        ;; synchronous catcher attributes the stale op from the exception alone,
-        ;; without correlating the async record stream — head only, so no
-        ;; successor elision policy can be borrowed to egress the body.
+        ;; element (the event-id / sub-id keyword). Rides BOTH the always-on
+        ;; record's `:event-id` slot AND the thrown exception's `:extra
+        ;; :event-id` (rf2-r79gr), so a synchronous catcher attributes the stale
+        ;; op from the exception alone. The raw payload BODY never rides the
+        ;; thrown exception on ANY realm — the subscribe query vector egresses
+        ;; raw only on the always-on record's `:event` slot, not the exception.
         event-id       (when payload (first payload))]
     (error-emit/emit-error-both!
      :rf.error/frame-destroyed
-     redacted-event                  ;; attempted event/query body, redacted at source (elided as :event); nil for :capture
+     egress-event                    ;; :event — RAW query vector for :subscribe (identity); :rf/redacted for dispatch; nil for :capture
      event-id                        ;; :event-id / sub-id — the structural vector head (survives)
      frame-id
      nil                             ;; no exception — a dead-incarnation op, not a caught throw
      0                               ;; elapsed-ms — not a timed path
      (interop/now-ms)                ;; time
-     {:frame frame-id :op op :event redacted-event :reason :frame-destroyed} ;; dev-trace tags (axis 2)
+     {:frame frame-id :op op :event egress-event :reason :frame-destroyed} ;; dev-trace tags (axis 2)
      {:op op})                       ;; category-specific attribution for the always-on record (axis 1)
     (error/throw-error!
      :rf.error/frame-destroyed 're-frame.ui/frame

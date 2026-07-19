@@ -15,14 +15,23 @@
   (A's payload under unrelated successor B's authority), on BOTH the corpus-wide
   record and the frame-owned observability sink route.
 
-  These legs pin the fix: the dead-incarnation emit seam
-  (`emit-and-throw-frame-destroyed!`) redacts the payload BODY to `:rf/redacted`
-  AT SOURCE, so no successor policy can be borrowed. The record still retains the
-  category, the captured frame id, the operation, and the structural event/query
-  HEAD (`:event-id`). Dispatch, dispatch-sync, and subscribe stay
-  exact-incarnation fenced and still throw after EXACTLY ONE observability
-  fan-out. The absent-frame and destroyed-without-successor paths fail closed
-  identically.
+  These legs pin the fix: for a DISPATCH / dispatch-sync the dead-incarnation
+  emit seam (`emit-and-throw-frame-destroyed!`) redacts the payload BODY to
+  `:rf/redacted` AT SOURCE, so no successor policy can be borrowed. The record
+  still retains the category, the captured frame id, the operation, and the
+  structural event/query HEAD (`:event-id`). Dispatch, dispatch-sync, and
+  subscribe all stay exact-incarnation fenced and still throw after EXACTLY ONE
+  observability fan-out. The absent-frame and destroyed-without-successor paths
+  fail closed identically.
+
+  The SUBSCRIBE realm is the deliberate EXCEPTION (rf2-alk8a): a subscription
+  query vector is public IDENTITY, not payload (rf2-zwgqe / Spec 015), so it
+  egresses RAW on the always-on `:event` slot with `:op :subscribe` — downstream
+  `raw-identity-query-vector-event?` skips elision on it, so no dead / successor
+  frame policy is ever consulted. `stale-subscribe-across-reincarnation-egresses-raw-identity`
+  pins that raw egress; the dispatch legs above pin the WHAT-STAYS (dispatched
+  vectors remain source-redacted). This mirrors #6497's core-path fix in
+  `subs/emit-frame-destroyed-recovery!` / `observation/throw-frame-destroyed!`.
 
   Dual-runtime `*_cljs_test.cljc`: the shadow `:node-test` build
   (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both run it. Plain
@@ -109,20 +118,20 @@
 (deftest stale-bundle-op-across-reincarnation-fails-closed
   (testing "Per rf2-01ihi: with DIVERGENT A/B policies — incarnation A OWNS a
             sensitive elision policy, successor B is unclassified/permissive — a
-            stale bundle op fired after the same-id reincarnation redacts the
-            attempted payload in the always-on record (never borrows B's policy),
-            while retaining the category, captured frame id, operation, and the
-            structural event/query head. Dispatch, dispatch-sync, and subscribe
-            all fail closed, each throwing after EXACTLY ONE fan-out."
+            stale DISPATCH / dispatch-sync bundle op fired after the same-id
+            reincarnation redacts the attempted payload in the always-on record
+            (never borrows B's policy), while retaining the category, captured
+            frame id, operation, and the structural event/query head. Both
+            dispatch realms fail closed, each throwing after EXACTLY ONE fan-out.
+            (The SUBSCRIBE realm is the deliberate raw-IDENTITY exception —
+            `stale-subscribe-across-reincarnation-egresses-raw-identity`.)"
     (rf/reg-event :reinc/classify
       (fn [{:keys [db]} _]
         {:db        (assoc-in db [:secret] "A-owned")
          :sensitive [[:secret]]}))
-    (rf/reg-sub :reinc/n (fn [db _] (:n db)))
     (doseq [[op invoke head]
             [[:dispatch      (fn [b] ((:dispatch b) secret-event))      :audit/secret]
-             [:dispatch-sync (fn [b] ((:dispatch-sync b) secret-event)) :audit/secret]
-             [:subscribe     (fn [b] ((:subscribe b) secret-event))     :audit/secret]]]
+             [:dispatch-sync (fn [b] ((:dispatch-sync b) secret-event)) :audit/secret]]]
       (testing (str "stale " op " across reincarnation")
         (make-frame! fid {:n 1})
         (let [stale (rf/with-frame fid (frames/frame-ops))]
@@ -146,8 +155,9 @@
               (is (= fid (:frame r))                       "captured frame id retained")
               (is (= op (:op r))                           "operation retained")
               (is (= head (:event-id r))                   "structural event/query head retained")
-              ;; THE FIX: the body is redacted at source — B's permissive policy
-              ;; can never be borrowed to ship A's raw payload.
+              ;; THE WHAT-STAYS: a dispatched event vector is payload, redacted
+              ;; at source — B's permissive policy can never be borrowed to ship
+              ;; A's raw payload (rf2-t55hxg.18 fail-closed stays for dispatch).
               (is (= privacy/redacted-sentinel (:event r))
                   ":event fails closed to the reserved sentinel, NOT B's identity walk")
               (is (not (deep-contains? r secret-value))
@@ -155,6 +165,74 @@
             ;; The dev trace (axis 2) is fenced at the same source.
             (is (not (some #(deep-contains? % secret-value) traces))
                 "the raw secret reaches the dev trace NOWHERE either")))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-wd4ac — the SUBSCRIBE realm is the deliberate raw-IDENTITY exception.
+;; A subscription query vector is public identity (rf2-zwgqe / rf2-alk8a / Spec
+;; 015), NOT payload. Even across a same-id reincarnation with a divergent A/B
+;; policy, the query vector egresses VERBATIM on the always-on `:event` slot
+;; with `:op :subscribe` — downstream `raw-identity-query-vector-event?` skips
+;; elision on it, so no dead-A / successor-B frame policy is EVER consulted. The
+;; UI frames.cljc seam now carries this raw identity, mirroring #6497's core-
+;; path fix (`subs/emit-frame-destroyed-recovery!`), rather than pre-redacting.
+;; ---------------------------------------------------------------------------
+
+;; A subscribe query vector whose body would be visibly mutated if any frame
+;; elision policy were (wrongly) walked over it — a distinctive identity leaf.
+(def ^:private subscribe-query [:reinc/n {:token :SUBSCRIBE-IDENTITY}])
+(def ^:private subscribe-identity-leaf :SUBSCRIBE-IDENTITY)
+
+(deftest stale-subscribe-across-reincarnation-egresses-raw-identity
+  (testing "Per rf2-alk8a: a stale SUBSCRIBE bundle op fired after a same-id
+            reincarnation — incarnation A OWNS a sensitive elision policy,
+            successor B is unclassified — egresses its query vector RAW on the
+            always-on `:event` slot with `:op :subscribe`. The query vector is
+            identity, so it is NOT elided and no A/B frame policy is consulted;
+            the structural head + captured frame id + operation ride alongside.
+            Still exactly ONE always-on record + ONE dev trace, then the typed
+            throw. Contrast the dispatch legs above, whose payload stays redacted."
+    (rf/reg-event :reinc/classify
+      (fn [{:keys [db]} _]
+        {:db        (assoc-in db [:secret] "A-owned")
+         :sensitive [[:secret]]}))
+    (rf/reg-sub :reinc/n (fn [db _] (:n db)))
+    (make-frame! fid {:n 1})
+    (let [stale (rf/with-frame fid (frames/frame-ops))]
+      ;; A owns a sensitive elision policy.
+      ((:dispatch-sync stale) [:reinc/classify])
+      (is (contains? (elision/sensitive-declarations fid) [:secret])
+          "incarnation A owns a non-empty sensitive elision policy")
+      ;; Destroy A; reincarnate an UNCLASSIFIED successor B under the same id.
+      (frame/destroy-frame! fid)
+      (make-frame! fid {:n 41})
+      (is (empty? (elision/sensitive-declarations fid))
+          "successor B is unclassified — a policy that must NOT be walked over identity")
+      ;; Fire A's stale subscribe into the same-id successor world.
+      (let [{:keys [records traces err-id]}
+            (capture-emissions #((:subscribe stale) subscribe-query))]
+        (is (= :rf.error/frame-destroyed err-id)
+            "the stale subscribe still fails loud with the canonical typed error")
+        (is (= 1 (count records)) "EXACTLY ONE always-on record")
+        (is (= 1 (count traces))  "EXACTLY ONE dev trace on axis 2")
+        (let [r (first records)]
+          (is (= :rf.error/frame-destroyed (:error r)) "category retained")
+          (is (= fid (:frame r))                       "captured frame id retained")
+          (is (= :subscribe (:op r))
+              ":op :subscribe stamps the realm (the raw-identity discriminator)")
+          (is (= :reinc/n (:event-id r))               "structural query head retained")
+          ;; THE FIX (red before rf2-wd4ac — the UI seam pre-redacted this to
+          ;; :rf/redacted): the query vector egresses RAW as identity.
+          (is (= subscribe-query (:event r))
+              ":event carries the RAW query vector VERBATIM — identity, not redacted")
+          (is (not= privacy/redacted-sentinel (:event r))
+              ":event is NOT the fail-closed sentinel for the subscribe realm")
+          ;; Non-vacuity: the identity leaf DOES reach the record (contrast the
+          ;; dispatch legs, which assert the payload reaches it NOWHERE).
+          (is (deep-contains? r subscribe-identity-leaf)
+              "the raw query-vector identity reaches the always-on record"))
+        ;; Axis 2 carries the same raw identity (the sibling raw dev-trace path).
+        (is (some #(deep-contains? % subscribe-identity-leaf) traces)
+            "the raw query vector rides the dev trace too")))))
 
 ;; ---------------------------------------------------------------------------
 ;; The sibling dead-incarnation paths fail closed identically.

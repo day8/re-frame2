@@ -118,6 +118,48 @@
           (is (not (deep-contains? r :TOP-SECRET))
               "the raw secret reaches the production record NOWHERE"))))))
 
+(deftest stale-subscribe-across-reincarnation-egresses-raw-under-prod
+  (testing "Per rf2-wd4ac / rf2-alk8a: under `:advanced` + goog.DEBUG=false —
+            where the dev trace (axis 2) is DCE'd and the always-on record is the
+            SOLE surviving channel — a stale SUBSCRIBE bundle op fired after a
+            same-id reincarnation egresses its query vector RAW (identity, not
+            payload) on the `:event` slot with `:op :subscribe`. Incarnation A
+            owns a sensitive elision policy; successor B is unclassified. A query
+            vector is identity, so the raw-identity path SKIPS elision and no A/B
+            frame policy is walked — the raw vector survives the prod build. This
+            is the production pin that #6497's core subscribe raw egress and the
+            UI seam agree under `:advanced`. Contrast the dispatch-sync leg above,
+            whose payload fails closed to `:rf/redacted`."
+    (rf/reg-event :prod.reinc/classify
+      (fn [{:keys [db]} _]
+        {:db        (assoc-in db [:secret] "A-owned")
+         :sensitive [[:secret]]}))
+    (rf/reg-sub :prod.reinc/n (fn [db _] (:n db)))
+    (make-frame! :prod.reinc.sub/id {:n 1})
+    (let [stale (rf/with-frame :prod.reinc.sub/id (frames/frame-ops))
+          seen  (atom [])
+          query [:prod.reinc/n {:token :SUBSCRIBE-IDENTITY}]]
+      ((:dispatch-sync stale) [:prod.reinc/classify])
+      (is (contains? (elision/sensitive-declarations :prod.reinc.sub/id) [:secret])
+          "incarnation A owns a sensitive elision policy")
+      (frame/destroy-frame! :prod.reinc.sub/id)
+      (make-frame! :prod.reinc.sub/id {:n 41})    ;; unclassified successor B
+      (is (empty? (elision/sensitive-declarations :prod.reinc.sub/id))
+          "successor B is permissive — its policy must NOT be walked over identity")
+      (rf/register-listener! :errors :prod/recorder (fn [r] (swap! seen conj r)))
+      (is (thrown? js/Error ((:subscribe stale) query))
+          "the stale subscribe still fails loud with the typed error under prod")
+      (let [reports (filter #(= :rf.error/frame-destroyed (:error %)) @seen)]
+        (is (= 1 (count reports)) "EXACTLY ONE always-on record survives prod")
+        (let [r (first reports)]
+          (is (= :prod.reinc.sub/id (:frame r)) ":frame names the captured incarnation")
+          (is (= :subscribe (:op r)) ":op :subscribe stamps the raw-identity realm")
+          (is (= :prod.reinc/n (:event-id r)) ":event-id is the structural query head")
+          (is (= query (:event r))
+              ":event carries the RAW query vector VERBATIM under prod — identity, not elided")
+          (is (deep-contains? r :SUBSCRIBE-IDENTITY)
+              "the raw query-vector identity survives the prod build in the record"))))))
+
 (deftest absent-capture-fans-one-always-on-record-under-prod
   (testing "Per rf2-vxgfnd.230: the absent/closing `(frame)` CAPTURE arm follows
             the same prod-survival contract — a `(frame)` read resolving a stamp
