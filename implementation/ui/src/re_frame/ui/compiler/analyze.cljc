@@ -989,7 +989,7 @@
                                  (not (vector? (nth call-args deps-arg))))
                         (env/fail! e :rf.ui.compile/react-hook-bad-deps
                                    (str "(react/" name " setup deps): deps must be a "
-                                        "literal vector (compared per slot by Object.is); "
+                                        "literal vector (compared by rf= value equality); "
                                         "got " (pr-str (nth call-args deps-arg)))
                                    {:form f}))
                       (let [sid   (lexical-site-id e kind f p)

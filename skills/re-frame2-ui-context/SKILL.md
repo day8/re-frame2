@@ -366,7 +366,7 @@ not edit it by hand.
 - **`:rf.ui.compile/raw-text-children`**
   - <> is an HTML raw-text element and takes a SINGLE text child, but children were given — React joins them into an array that warns and loses the body. Construct ONE string, e.g. (str a b …), or use (ui/html s) for trusted markup.
   - <> is an HTML raw-text element and takes a SINGLE text child, not structural markup — React drops or stringifies an element child here. Construct ONE string, e.g. (str …), or use (ui/html s) for trusted markup.
-- **`:rf.ui.compile/react-hook-bad-deps`** — (react/ setup deps): deps must be a literal vector (compared per slot by Object.is)
+- **`:rf.ui.compile/react-hook-bad-deps`** — (react/ setup deps): deps must be a literal vector (compared by rf= value equality)
 - **`:rf.ui.compile/react-hook-misplaced`** — (react/ …) is a host hook — legal ONLY where it evaluates unconditionally, once per render: the straight-line top region of a defview body (an outer let binding). It cannot run in a loop, branch, deferred callback, render-fn slot, or root expression — React's hook order must be static. Hoist it to the top of the view body, or extract a keyed child view
 - **`:rf.ui.compile/react-lazy-misplaced`** — (react/lazy …) is DEF-LEVEL only — bind it at the top level: (def HeavyChart (react/lazy load-thunk {:fallback tpl})), then use the component as a foreign head [HeavyChart {…}]. Calling it inside a view body mints a new component type per render and remount-loops
 - **`:rf.ui.compile/rejected-prop-spelling`** — is not a prop — one spelling per name, ambiguities removed. Use
