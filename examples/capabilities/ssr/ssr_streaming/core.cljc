@@ -249,8 +249,11 @@
            final-payload (rf/with-frame fid
                            (ssr/streaming-build-final-payload
                              fid render-hash
-                             {:version 1
-                              :payload :rf.ssr.payload/whole-app-db
+                             ;; No `:version` — the builder sources `:rf/version`
+                             ;; from the SSR artefact's compiled-in
+                             ;; pattern-protocol constant, so both wire ends agree
+                             ;; with no hand-pinned literal.
+                             {:payload :rf.ssr.payload/whole-app-db
                               :failed-boundaries failed-boundaries}))
            ;; Strip the payload's `:rf/frame-id` before it goes over the
            ;; wire. The two sides don't share a frame id: the server renders

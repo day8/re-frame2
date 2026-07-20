@@ -191,9 +191,11 @@ Streaming emits the shell HTML first, then continues rendering boundary subtrees
 - **Example**:
   ```clojure
   ;; After every continuation drains, build the canonical __rf_payload chunk.
+  ;; No :version opt — the builder sources :rf/version from the SSR artefact's
+  ;; compiled-in pattern-protocol constant. Pass :version only to force skew.
   (rf/with-frame fid
     (ssr/streaming-build-final-payload
-      fid render-hash {:version 1 :payload :rf.ssr.payload/whole-app-db}))
+      fid render-hash {:payload :rf.ssr.payload/whole-app-db}))
   ```
 
 The next four functions are the lower-level chunk-template builders the streaming host emits per boundary. They are host-adapter territory; app code rarely calls them.
