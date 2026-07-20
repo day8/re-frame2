@@ -96,6 +96,20 @@ evaluated-only host specials. **Every other macro — core or user — is reject
 reactive call from site indexing, falsify the manifest, and let production elide
 a ViewCell that was not actually sub-free. The set grows only by ruling.
 
+> **Addendum — 2026-07-21 (ratified UIx-review programme, rf2-u53yy.4).** The two
+> clauses above enumerated the grammar as first ratified. Both tiers now admit the
+> conditional-binder family `if-let` / `when-let` / `if-some` / `when-some`: they
+> join the template control forms (after `when-not`) and the binder-aware structural
+> expression tier (after `try`). Each desugars into the analyzer's own `let` +
+> `if`/`when` over a reserved temp — the position-aware binder machinery the analyzer
+> already fully controls — so the init lowers a finite reactive site, the pattern's
+> reactive-escape is rejected, and the closed-grammar / manifest / elision invariants
+> are unchanged. The admission is exactly those four forms; `case` in expression
+> position, `condp`, `doto`, and other conveniences stay **deferred** under the
+> "demonstrated demand at a real call site" trigger. The set still grows only by
+> ruling, each addition carrying its lexical-scope + hidden-reactive-injection
+> counterfixtures. Normative home: [spec/004-Views.md §Template grammar](../../spec/004-Views.md).
+
 DOM prop spelling is pinned (`:on-click`, never `:on-keydown`); prop conversion
 is compile-time, contextual, and total — one rule table (004B) serves static
 props, `ui/spread`, and both emitters; custom elements get the bounded

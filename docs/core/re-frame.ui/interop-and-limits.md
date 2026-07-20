@@ -17,10 +17,11 @@ where this substrate is the wrong tool.
 > piece of markup **at compile time**, that spelling is illegal in a `defview` body.
 
 "Prove" means: after normalising the control forms it understands — `let`, `if`,
-`when`, `cond`, `case`, `for`, and friends — every tag head, every `sub`/`lease`
-site, and every list identity is finite and visible. Ordinary branching and binding
-are *free*: both arms of an `if`, every `cond` clause, the body of a `for` all lower
-into the AST, so you are never forced into one linear template.
+`when`, `if-let`, `when-let`, `if-some`, `when-some`, `cond`, `case`, `for`, and
+friends — every tag head, every `sub`/`lease` site, and every list identity is finite
+and visible. Ordinary branching and binding are *free*: both arms of an `if`, every
+`cond` clause, the bound branch of an `if-let`, the body of a `for` all lower into the
+AST, so you are never forced into one linear template.
 
 ## Template structure
 
@@ -49,10 +50,10 @@ ordinary Clojure *values*, but their lexical *syntax* is audited so every reacti
 call stays visible. That closes the door on arbitrary macros in those positions: an
 unaudited macro could inject a `sub` the manifest never saw. The accepted set is
 the transparent core forms (`or` `and` `when` `when-not` `cond` `->` `->>` `some->`
-`some->>` `cond->` `cond->>`), the binder forms (`let` `fn` `loop` `letfn` `try`),
-and ordinary function calls; everything else is `:rf.ui.compile/unsupported-form`,
-and the fix is always to move the computation into a plain function or another
-`defview`.
+`some->>` `cond->` `cond->>`), the binder forms (`let` `fn` `loop` `letfn` `try`, and
+the conditional binders `if-let` `when-let` `if-some` `when-some`), and ordinary
+function calls; everything else is `:rf.ui.compile/unsupported-form`, and the fix is
+always to move the computation into a plain function or another `defview`.
 
 ## Foreign React
 
