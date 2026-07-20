@@ -529,9 +529,29 @@
            (ui-tree/emit-ui-tree (v1 {:tag :div :children [{:html "\n<b>x</b>"}]})))
         "a non-newline-eating element is never compensated, even for a :html body")))
 
-(deftest doctype-opt
-  (is (= "<!DOCTYPE html><html></html>"
-         (ui-tree/emit-ui-tree (v1 {:tag :html}) {:doctype? true}))))
+(deftest opts-contract
+  ;; The exact opts contract (Spec 004B §The SSR consumption boundary,
+  ;; API.md re-frame.ssr table): `:doctype?` is the ONLY current option,
+  ;; default off; other keys are ignored — no `render-to-string` option
+  ;; transfers to this seam, and there is no validation framework.
+  (let [tree (v1 {:tag :html})]
+    (testing ":doctype? true prefixes the doctype"
+      (is (= "<!DOCTYPE html><html></html>"
+             (ui-tree/emit-ui-tree tree {:doctype? true}))))
+    (testing "default (arity-1) emits no doctype"
+      (is (= "<html></html>"
+             (ui-tree/emit-ui-tree tree))))
+    (testing "nil opts emits no doctype"
+      (is (= "<html></html>"
+             (ui-tree/emit-ui-tree tree nil))))
+    (testing ":doctype? false emits no doctype"
+      (is (= "<html></html>"
+             (ui-tree/emit-ui-tree tree {:doctype? false}))))
+    (testing "unknown keys are ignored — not rejected, not honoured"
+      (is (= "<html></html>"
+             (ui-tree/emit-ui-tree tree {:emit-hash? true :bogus 1})))
+      (is (= "<!DOCTYPE html><html></html>"
+             (ui-tree/emit-ui-tree tree {:doctype? true :emit-hash? true :bogus 1}))))))
 
 (deftest facade-re-export-is-the-same-fn
   (testing "re-frame.ssr/emit-ui-tree is the serialiser"
