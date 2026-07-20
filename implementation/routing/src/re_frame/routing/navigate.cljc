@@ -2,15 +2,18 @@
   "`:rf.route/navigate` event for re-frame2 routing.
 
   Per Spec 012 §Navigation is an event. Programmatic navigation entry
-  point: accepts a route-id (`[:rf.route/navigate :route/cart]`), a
-  target-map (`{:url ...}` form), or the URL-string form. Honours
-  :can-leave and :can-enter, :params/:query validation, scroll resolution,
-  :query-retain merge, and the rule-3 no-op short-circuit.
+  point: ONE flat request map — `[:rf.route/navigate {request}]`. Address
+  keys `:to` / `:url` / `:params` / `:query` / `:fragment`; policy keys
+  `:replace?` / `:scroll` / `:bypass-guards?`; the in-place edit key
+  `:query-merge`. A destination request (`:to` / `:url`) builds a FRESH
+  address; an in-place request (neither) PATCHES the current location.
+  Honours :can-leave and :can-enter, :params/:query validation, scroll
+  resolution, :query-retain merge, and the rule-3 no-op short-circuit.
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the `events/reg-event :rf.route/navigate` call so a
   `:reload` re-wires it on a fresh registrar."
-  (:require [clojure.string :as str]
+  (:require [clojure.set :as set]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.privacy :as privacy]
@@ -23,42 +26,73 @@
             [re-frame.routing.url :as url]
             [re-frame.trace :as trace]))
 
-;; Per Spec 012 §Navigation is an event — the arity contract:
-;;   [:rf.route/navigate target]              ;; no path-params, no opts
-;;   [:rf.route/navigate target params]       ;; params 2nd, opts absent
-;;   [:rf.route/navigate target params opts]  ;; params 2nd, OPTS THIRD
-;; The two trailing maps are positionally ambiguous: the likely mistake is
-;; dropping an options-shaped map into
-;; the PARAMS slot — `[:rf.route/navigate :route/x {:replace? true}]`
-;; reads as "navigate with these path-params" but the author meant opts.
-;; `opts-only-keys` names the keys that ONLY ever belong in the opts map.
-(def ^:private opts-only-keys
-  "Keys the trailing `opts` map recognises (Spec 012 §Navigation is an
-  event) that are NOT path-param names. An occurrence of one of these in
-  the PARAMS slot — and not as a declared path-param of the target route
-  — is the classic params/opts swap and is rejected.
-  `:bypass-guards?` carries a set and skips `:leave`, `:enter`, or both
-  guards for one navigation."
-  #{:replace? :scroll :fragment :bypass-guards?})
+(def ^:private request-roster
+  "The closed set of keys a `:rf.route/navigate` request map may carry:
+  address (`:to` `:url` `:params` `:query` `:fragment`), policy
+  (`:replace?` `:scroll` `:bypass-guards?`), and the in-place edit key
+  `:query-merge`. Any other key -- namespaced or not -- is rejected by the
+  structural gate (`:reason :unknown-keys`). The runtime's own resume rider
+  `:rf.route/enter-attempts` is stripped BEFORE the gate (it is
+  continuation bookkeeping, absent from the published grammar)."
+  #{:to :url :params :query :fragment :replace? :scroll :bypass-guards? :query-merge})
 
-(defn- misplaced-opts-keys
-  "Disambiguate the params/opts positional swap (rf2-1os1c). Returns the
-  seq of opts-only keys present in the PARAMS slot that the target route
-  does NOT declare as path-params — i.e. keys that can only sensibly be
-  opts. Empty (falsy via `seq`) when `params` is clean. Route-id form
-  only; the `{:url ...}` form has no positional params slot.
+(def ^:private in-place-change-keys
+  "The request keys whose PRESENCE marks an in-place change (a patch of the
+  current location) when no destination (`:to` / `:url`) is supplied. Key
+  PRESENCE -- not truthiness -- discriminates: `:query {}` clears the query,
+  `:fragment nil` clears the fragment; both are valid lone in-place
+  requests."
+  #{:query :query-merge :fragment})
 
-  Declared path-param names are read from the compiled pattern's
-  `:names` (string capture names), so a route that legitimately captures
-  a segment named `:scroll`/`:fragment`/… is never false-flagged."
-  [route-meta params]
-  (when (and (map? params) (seq params))
-    (let [declared (into #{}
-                         (map keyword)
-                         (:names (:rf.route/compiled route-meta)))]
-      (seq (filter (fn [k] (and (contains? opts-only-keys k)
-                                (not (contains? declared k))))
-                   (keys params))))))
+(defn- validate-request
+  "The always-on structural gate for a `:rf.route/navigate` request map
+  (Spec 012 Enforcement). Returns nil when the request is well-formed,
+  else `{:reason <kw> :keys [<offending keys>]}` naming the first
+  violation. Plain set logic, total over `request-roster`; rejects BEFORE
+  any guard evaluation so a malformed request never consumes a `:can-leave`
+  run. `current` is the current route slice (nil before the first
+  navigation).
+
+  The rules (Spec 012 Validity rules):
+  1. `:to` xor `:url`.
+  2. `:url` excludes `:params` / `:query` / `:query-merge` -- a raw URL IS
+     the address. `:url` + `:fragment` is legal.
+  3. `:query` xor `:query-merge`.
+  4. `:query-merge` requires an in-place request (no `:to` / `:url`).
+  5. A destination (`:to` / `:url`) OR an in-place change is required;
+     PRESENCE discriminates. Empty maps and pure-policy maps reject loud.
+  6. An in-place request before any current route exists rejects loud.
+  7. Unknown keys reject (namespaced included)."
+  [request current]
+  (let [ks           (set (keys request))
+        unknown      (set/difference ks request-roster)
+        destination? (or (contains? request :to) (contains? request :url))
+        in-place?    (boolean (seq (set/intersection ks in-place-change-keys)))
+        present      (fn [& kws] (vec (filter #(contains? request %) kws)))]
+    (cond
+      (seq unknown)
+      {:reason :unknown-keys :keys (vec (sort unknown))}
+
+      (and (contains? request :to) (contains? request :url))
+      {:reason :to-url-exclusive :keys [:to :url]}
+
+      (and (contains? request :url)
+           (some #(contains? request %) [:params :query :query-merge]))
+      {:reason :url-excludes-address :keys (present :params :query :query-merge)}
+
+      (and (contains? request :query) (contains? request :query-merge))
+      {:reason :query-exclusive :keys [:query :query-merge]}
+
+      (and (contains? request :query-merge) destination?)
+      {:reason :query-merge-in-place-only :keys [:query-merge]}
+
+      (not (or destination? in-place?))
+      {:reason :no-destination-or-change :keys (vec (sort ks))}
+
+      (and (not destination?) in-place? (nil? current))
+      {:reason :no-current-route :keys (vec (sort ks))}
+
+      :else nil)))
 
 (defn- route-schema-sensitive?
   "True iff the route's `:params` OR `:query` Malli schema declares ANY
@@ -190,514 +224,273 @@
                       (when scroll-fx [scroll-fx])))}))
 
 (defn navigate-handler
-  "`:rf.route/navigate` event handler. Registered by the façade so a
+  "`:rf.route/navigate` event handler. Registered by the facade so a
   `:reload` re-wires it on a fresh registrar.
+
+  Per Spec 012 the event carries ONE flat request map. The handler:
+    1. strips the internal resume rider (`:rf.route/enter-attempts`) BEFORE
+       the always-on structural gate (`validate-request`);
+    2. rejects a malformed request with `:rf.error/navigate-bad-request`
+       BEFORE any guard runs (slice unchanged, no push);
+    3. resolves a DESTINATION request (`:to` / `:url`) into a FRESH address,
+       or an IN-PLACE request into a PATCH of the current location;
+    4. runs the `:can-leave` / `:can-enter` gate, then the rule-3 no-op /
+       fragment-only short-circuits, then commits.
 
   EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
   state, so the handler reads it from the `:rf.db/runtime` coeffect (`rdb`)
   and `commit-navigation` returns a `:rf.db/runtime` effect. The handler
   never touches user app-db. rf2-vcop6y: the nav-token / pending-nav-id are
-  minted by RECORDABLE generator-backed allocation cofx — `:rf.route/
-  nav-allocation` (commit) and `:rf.route/pending-nav-allocation` (block) —
+  minted by RECORDABLE generator-backed allocation cofx -- `:rf.route/
+  nav-allocation` (commit) and `:rf.route/pending-nav-allocation` (block) --
   so the minted ids are recorded on the causal token and replay re-presents
-  them verbatim. The handler stays pure: it publishes the supplied id and
-  emits the host high-water bump via fx. Both allocations generate eagerly
-  at processing-start; the block-vs-commit branch uses only one (the other
-  is recorded-but-unused — harmless, the counters are monotone never-recycle
-  allocators). Scroll positions are likewise a host-side cache (rf2-1hncp2)."
+  them verbatim. Scroll positions are likewise a host-side cache (rf2-1hncp2)."
   [{frame          :rf.frame/id
     rdb-raw        :rf.db/runtime
     nav-allocation :rf.route/nav-allocation
     pending-nav-allocation :rf.route/pending-nav-allocation
     app-db         :db}
-   [_ target params opts :as event-vec]]
-    ;; Per Spec 012 §Navigation is an event and §Fragments §Programmatic
-    ;; navigation with fragments. Fragment may be supplied in opts
-    ;; (`{:fragment "x"}`), on the target-map form (`{:url "/x"
-    ;; :fragment "y"}`), or — for URL-string targets — embedded in the
-    ;; URL itself; match-url surfaces the latter. Opts/target-map win
-    ;; over a URL-embedded fragment.
-    ;;
-    ;; Per Spec 012 §Navigation tokens — stale-result suppression and
-    ;; §The route slice: the slice ALWAYS carries :fragment and a
-    ;; freshly-allocated :nav-token, and the runtime emits
-    ;; :rf.route.nav-token/allocated as the cascade begins (rf2-d60go) —
-    ;; the programmatic path matches the URL-driven path so async loaders
-    ;; have a token to thread through stale-suppression.
-    (let [;; EP-0002 carried invariant — `:rf.route/navigate` is a cascade
+   [_ request0 :as event-vec]]
+    (let [;; EP-0002 carried invariant -- `:rf.route/navigate` is a cascade
           ;; event, so the cofx carries the frame stamp under `:rf.frame/id`;
-          ;; a nil stamp is an invariant failure
-          ;; (`:rf.error/no-frame-context`), never a
-          ;; synthesised `:rf/default`. Validated once; the trace stamps and
-          ;; the leave-guard call below all read this carried value.
+          ;; a nil stamp is an invariant failure (`:rf.error/no-frame-context`),
+          ;; never a synthesised `:rf/default`.
           frame (frame/require-frame-stamp!
                   frame :rf.route/navigate
                   {:where 'rf.route/navigate-handler})
-          opts (or opts {})
           rdb  (or rdb-raw {})
-          ;; The current route slice (durable framework runtime-db fact).
-          ;; Read once here so the `:rf.route/self` identity-on-route target
-          ;; and the `:query-merge` opt both resolve against it (rf2-ue2d4t).
+          ;; The current route slice (durable framework runtime-db fact). Read
+          ;; once so the in-place patch, `:query-retain`, and `:query-merge`
+          ;; all resolve against it.
           current (get-in rdb [:rf.runtime/routing :current])
-          {:keys [route-id path-params query-params matched-fragment unmatched-url
-                  throw-reason requested-url external-url-target?]}
-          (cond
-            ;; rf2-ue2d4t — Spec 012 §Navigation is an event §Reserved
-            ;; targets §:rf.route/self. `:rf.route/self` is a reserved
-            ;; navigate target that means "stay on the CURRENT route,
-            ;; change only these query params" — the single most common URL
-            ;; operation (search, pagination, tabs). It is a documented,
-            ;; semantically-honest exception to enumerable route-id targets:
-            ;; identity-on-route. It resolves `:route-id` + `:path-params`
-            ;; from the current slice (the path is held fixed — self-nav
-            ;; never re-threads path params; the 2nd `params` arg is ignored
-            ;; for a self target, so the classic `{}` placeholder is
-            ;; correct). Query starts from `(:query opts)` exactly like a
-            ;; route-id target — the `:query-merge` opt below then folds the
-            ;; caller's deltas into the CURRENT query. Before the first
-            ;; navigation there is no current route; `:route-id` is nil and
-            ;; the `route-url` build fails closed to a rejected navigation
-            ;; (`:rf.error/no-such-route`), the same as any unresolvable
-            ;; target.
-            (= :rf.route/self target)
-            {:route-id     (:route-id current)
-             :path-params  (or (:params current) {})
-             :query-params (:query opts {})}
-
-            (keyword? target)
-            {:route-id     target
-             :path-params  (or params {})
-             :query-params (:query opts {})}
-
-            ;; rf2-cylse.4 (SECURITY — open-redirect): the `{:url ...}`
-            ;; escape hatch is the untrusted-input sink (Spec 012 §Target
-            ;; form — URL-string: deep-link handlers, server-redirect
-            ;; targets, programmatic redirects from a string). It MUST gate
-            ;; through the SAME fail-closed open-redirect classifier the
-            ;; `:rf.route/url-requested` link-click path uses — otherwise every
-            ;; rf2-3bv8o bypass vector (`//evil`, `/\evil`, `javascript:`,
-            ;; leading-space, `user@host`) is pushed VERBATIM to
-            ;; `:rf.nav/push-url`. The classifier is hoisted into
-            ;; `re-frame.routing.url` so both sinks share one gate. When the
-            ;; URL classes EXTERNAL we short-circuit BEFORE `match-url` (no
-            ;; match work, no slice rewrite, no push) — the commit body's
-            ;; `external-url-target?` cond arm fails closed identically to
-            ;; `url-requested-handler` (`:rf.route/external-url-requested`
-            ;; trace + `{}`).
-            (and (map? target) (:url target) (url/external-url? (:url target)))
-            {:route-id             :rf.route/not-found
-             :path-params          {}
-             :query-params         {}
-             :requested-url        (:url target)
-             :external-url-target? true}
-
-            (and (map? target) (:url target))
-            ;; rf2-6t1xb: any unexpected throw out of `match-url`, left
-            ;; unhandled here, escapes the `:rf.route/navigate` handler and
-            ;; CRASHES the event drain. `match-url-fail-closed` catches it
-            ;; → NIL match + `:throw-reason` (`:match-error`), so a throwing
-            ;; `{:url ...}` target fails closed to `:rf.route/not-found` —
-            ;; the same fail-closed path as a bare miss, mirroring the
-            ;; URL-driven entry point.
-            (let [{:keys [match throw-reason]}
-                  (registry/match-url-fail-closed (:url target))]
-              ;; Spec 012 §Target form — URL-string (escape hatch): an
-              ;; unmatched URL-string resolves to `:rf.route/not-found`
-              ;; with the URL in `:params`. `:unmatched-url` flags this
-              ;; no-match fallback so the commit below pushes the
-              ;; REQUESTED url VERBATIM rather than `route-url` of the
-              ;; not-found route — keeping the address bar on the URL the
-              ;; caller aimed at, consistent with the URL-driven not-found
-              ;; path (`url-change-fx`), which never pushes a fabricated
-              ;; `/404` (rf2-0zr2o). nil ⇒ the URL matched a route and the
-              ;; canonical `route-url` round-trip drives the push.
-              ;;
-              ;; rf2-6t1xb: on a throw (or any miss) `:params` carries the
-              ;; requested url; a throw also stamps the `:reason`
-              ;; discriminator (`:match-error`), uniform with the URL-driven
-              ;; not-found slice.
-              {:route-id         (or (:route-id match) :rf.route/not-found)
-               ;; rf2-u8qe7y: the not-found fallback `:params` shape +
-               ;; `:reason` vocabulary is shared with the URL-driven path
-               ;; (`plan/not-found-params`). On a throw it carries the cause
-               ;; reason; on a bare miss it carries `{:url ...}` (no reason);
-               ;; a match supplies its own `:params`.
-               :path-params      (if throw-reason
-                                   (plan/not-found-params (:url target) throw-reason)
-                                   (:params match (plan/not-found-params (:url target) nil)))
-               :query-params     (:query match {})
-               :matched-fragment (:fragment match)
-               :unmatched-url    (when-not (:route-id match) (:url target))
-               ;; rf2-2zyvj: thread the match-url throw cause + the
-               ;; requested URL out of this `{:url ...}` branch so the
-               ;; commit body below can emit `:rf.warning/malformed-url`,
-               ;; symmetric with the URL-driven path (url_change.cljc:190).
-               ;; Without this the match-error navigate target fails closed
-               ;; SILENTLY — invisible to the security dashboards / SSR
-               ;; projections.
-               :throw-reason     throw-reason
-               :requested-url    (:url target)}))
-          ;; rf2-zmcq6 / rf2-u8qe7y: normalize an explicit empty-string
-          ;; fragment to nil at the navigate boundary via the shared
-          ;; `plan/normalize-fragment`. `route-url` (the URL builder) treats
-          ;; `:fragment ""` as NO fragment (emits no trailing `#`), but
-          ;; `""` is truthy, so without this normalization
-          ;; `[:rf.route/navigate :route/docs {} {:fragment ""}]` would
-          ;; push `/docs` (no `#`) while writing `:fragment ""` into the
-          ;; route slice — a slice/URL divergence vs URL-driven nav to the
-          ;; same URL (which yields `:fragment nil`). Collapsing `""` → nil
-          ;; here keeps the programmatic and URL-driven paths in agreement:
-          ;; the pushed URL and the slice's `:fragment` match regardless of
-          ;; how the route was reached.
-          fragment    (plan/normalize-fragment
-                        (or (:fragment opts)
-                            (and (map? target) (:fragment target))
-                            matched-fragment))
-          route-meta  (registrar/lookup :route route-id)
-          ;; rf2-1os1c: catch the params/opts positional swap at the
-          ;; event boundary. Route-id form only — the `{:url ...}` form
-          ;; has no positional params slot.
-          misplaced   (when (keyword? target)
-                        (misplaced-opts-keys route-meta params))
-          ;; Per Spec 012 §Query strings and fragments: `:query-retain`
-          ;; on the TARGET route names the keys that should be carried
-          ;; through from the current `:rf.route/query` slice when the
-          ;; caller did not supply them. The merge runs here (rather
-          ;; than inside `route-url`, which is documented pure and
-          ;; cannot read app-db) so apps that navigate by
-          ;; `[:rf.route/navigate :route/cart]` from a search page
-          ;; automatically preserve `?theme=dark` / `?locale=en`
-          ;; without explicitly threading those keys through every call
-          ;; site (rf2-u8t3s). Caller-supplied values always win.
-          ;; Cross-route coercion-class carry (rf2-b3rzz): retained
-          ;; values are pulled from the CURRENT route's `:query` slice
-          ;; VERBATIM — already coerced to that route's class (a keyword
-          ;; via `[:enum ...]`, an int via `:int`, …) — and carried into
-          ;; the target unchanged. They are NOT re-coerced against the
-          ;; target route's `:query` schema. The target's `:query`
-          ;; validator still runs at the call site (below + in
-          ;; `route-url`), so a class mismatch (current route typed the
-          ;; key `[:enum :a :b]`, target types it `:string`) surfaces as
-          ;; a validation failure rather than silently desyncing. The
-          ;; contract: authors keep a `:query-retain` key's type
-          ;; CONSISTENT across every route that retains it (same trust
-          ;; class as the `:query` schema being author-named intent).
-          ;; Re-coercion was considered + rejected: retained values are
-          ;; runtime values, not URL strings, so re-running
-          ;; string→class coercion is ill-typed; verbatim-carry keeps the
-          ;; merge a pure `select-keys`. See Spec 012 §Query strings and
-          ;; fragments §:query-retain cross-route coercion class.
-          retain-keys  (:query-retain route-meta)
-          retained     (when (seq retain-keys)
-                         (select-keys (get-in rdb [:rf.runtime/routing :current :query])
-                                      retain-keys))
-          query-params (if (seq retained)
-                         (merge retained query-params)
-                         query-params)
-          ;; rf2-ue2d4t — Spec 012 §Navigation is an event §The :query-merge
-          ;; opt. `:query-merge` folds the caller's deltas into the CURRENT
-          ;; route's `:query` slice — the "stay here, change these query
-          ;; params" primitive (search, pagination, tabs). It REUSES the
-          ;; same read-and-merge machinery `:query-retain` uses above:
-          ;; the current query is read from the durable slice
-          ;; (`[:rf.runtime/routing :current :query]`, i.e. `current`),
-          ;; not built afresh. Precedence, low→high: current query → any
-          ;; already-resolved `query-params` (`:query` opt + retained
-          ;; keys) → the `:query-merge` deltas — so an explicit delta wins.
-          ;; A `nil` value REMOVES a key from the result (both the pushed
-          ;; URL and the written slice), matching `route-url`'s query
-          ;; nil-elision policy (rf2-w3qgc): eliding here keeps the slice
-          ;; clean rather than carrying a `{:page nil}` the URL omits. A
-          ;; present-but-FALSY value (`false`, `0`, `""`) is a legitimate
-          ;; value and survives, same as `route-url`. `:query-merge` is
-          ;; target-agnostic — it works with any target — but its natural
-          ;; pairing is `:rf.route/self`, where the current route IS the
-          ;; target. When `:query-merge` is absent the query resolves
-          ;; exactly as before (no current-query base is folded in).
-          ;;
-          ;; rf2-gxq7z1: strip nil-valued query keys on BOTH branches, not just
-          ;; `:query-merge`. `route-url` ELIDES nil-valued query keys from the
-          ;; URL (and validates the elided map), so a plain `:query {:sort nil}`
-          ;; opt used to push `/search` yet write `{:sort nil}` verbatim into
-          ;; the slice — a slice/URL divergence that breaks the rule-3 no-op on
-          ;; a later URL-driven nav (the URL yields `:query {}`, so
-          ;; `{:sort nil}` != `{}` and `:on-match` spuriously re-fires). Apply
-          ;; the same `(remove nil? val)` the `:query-merge` branch already
-          ;; used to EVERY branch so the written slice matches the pushed URL.
-          query-params (let [merged (if-let [merge-in (:query-merge opts)]
-                                      (merge (:query current) query-params merge-in)
-                                      query-params)]
-                         (into {} (remove (comp nil? val)) merged))
-          ;; Per Spec 012 §Param validation at the call site: the
-          ;; event-boundary path `[:rf.route/navigate ...]` runs the
-          ;; route's `:params` / `:query` schema BEFORE transitioning;
-          ;; on failure the navigation is REJECTED — the route slice
-          ;; at [:rf.runtime/routing :current] does not change, no URL
-          ;; is pushed — and the runtime
-          ;; emits `:rf.error/schema-validation-failure` (`:where
-          ;; :event`). `route-url` raises the structured error on a
-          ;; caller bug (`:rf.error/route-url-validation` /
-          ;; `:rf.error/missing-route-param` / `:rf.error/no-such-route`);
-          ;; we catch it, surface the canonical event-boundary error id,
-          ;; and reject (the `::reject` sentinel short-circuits the cond
-          ;; below). The reject is total — no slice write, no fallback URL
-          ;; push — so a caller bug never desyncs the browser URL or
-          ;; strands the slice in an invalid state.
-          ;;
-          ;; Unmatched URL-string target (rf2-0zr2o): when the `{:url ...}`
-          ;; form missed every route, `route-id` fell back to
-          ;; `:rf.route/not-found`. We do NOT call `route-url` for that id —
-          ;; that would build the not-found route's literal `:path` (`/404`)
-          ;; and push it, rewriting the address bar away from the URL the
-          ;; caller aimed at (and throwing `:no-such-route` when no
-          ;; not-found route is registered). Instead the REQUESTED url is
-          ;; pushed verbatim, so the address bar keeps it and the not-found
-          ;; view renders — matching the URL-driven not-found path
-          ;; (`url-change-fx`), which already keeps the requested URL (it
-          ;; changed via link/popstate, so that path emits no push). Per
-          ;; Spec 012 §Target form — URL-string.
-          url (cond
-                ;; rf2-cylse.4: an external-classed `{:url ...}` target
-                ;; fails closed below (the `external-url-target?` cond arm)
-                ;; — never built into a push URL, so skip `route-url`
-                ;; entirely (calling it for `:rf.route/not-found` would
-                ;; throw `:no-such-route` when none is registered).
-                external-url-target? nil
-                unmatched-url        unmatched-url
-                :else
-                (try (registry/route-url route-id path-params query-params fragment)
-                     (catch #?(:clj Throwable :cljs :default) ex
-                       ;; rf2-7d30s — stamp the in-flight cascade's `:frame`
-                       ;; (destructured from the cofx at the handler top) so
-                       ;; this navigate-reject lands in the emitting frame's
-                       ;; epoch (epoch capture buffers only frame-tagged
-                       ;; traces) AND so the SSR error-projection listener
-                       ;; can map it to a 4xx for the correct frame under
-                       ;; concurrent server frames — not the single-frame
-                       ;; fallback's guess.
-                       ;; rf2-zsm03 — the `:error` slot carries the
-                       ;; `route-url` throw's ex-data, which on a
-                       ;; `:rf.error/route-url-validation` /
-                       ;; `:rf.error/missing-route-param` throw embeds the
-                       ;; raw route-param value (document-ids / tokens). Elide
-                       ;; it when the route's `:params` / `:query` schema is
-                       ;; `:sensitive?`, BEFORE the trace crosses the bus /
-                       ;; epoch-capture / AI-MCP egress boundary or a log
-                       ;; sink — the route-param analogue of the rf2-o69h5
-                       ;; class sweep (structural param validation has no
-                       ;; per-slot Malli walk here, so the slot is elided
-                       ;; whole rather than path-targeted).
-                       (trace/emit-error! :rf.error/schema-validation-failure
-                                          (-> (cond-> {:where    :event
-                                                       :route-id route-id
-                                                       :error    (or (ex-data ex)
-                                                                     {:message (ex-message ex)})
-                                                       :recovery :no-recovery}
-                                                frame (assoc :frame frame))
-                                              (redact-route-error-tags route-meta)))
-                       ::reject)))
-          on-match-vec (vec (or (:on-match route-meta) []))
-          ;; Spec 012 §Per-route data loading rule 3: a programmatic
-          ;; navigation whose target id/params/query/fragment match the
-          ;; current slice exactly is a no-op re-navigation — skip the
-          ;; `:on-match` re-fire and the nav-token allocation. Mirrors the
-          ;; URL-driven path's `identical-nav?` short-circuit so a
-          ;; duplicate `[:rf.route/navigate :route/cart]` doesn't re-fetch
-          ;; unchanged data.
-          identical-nav? (plan/identical-route-target?
-                           (get-in rdb [:rf.runtime/routing :current])
-                           route-id path-params query-params fragment)
-          ;; Spec 012 §Fragments rules 3-4 / §Programmatic navigation with
-          ;; fragments (rf2-k4exp1): the SIBLING short-circuit to
-          ;; `identical-nav?` — same `:route-id`/`:params`/`:query` as the
-          ;; current slice but a DIFFERENT `:fragment` (a same-page anchor
-          ;; change). Classified through the SAME shared `plan/fragment-only?`
-          ;; predicate the URL-driven doors use, so the one logical operation
-          ;; behaves identically whichever entry point it arrives on. Guarded
-          ;; by `(not unmatched-url)` so a `{:url ...}` route-MISS fallback
-          ;; keeps its full not-found path (mirrors `url_change.cljc`'s
-          ;; `(and match …)`); the `::reject` and `external-url-target?`
-          ;; targets short-circuit in earlier cond arms and never reach here.
-          ;; Mutually exclusive with `identical-nav?` (which requires the
-          ;; fragment to be equal too).
-          fragment-only? (and (not unmatched-url)
-                              (plan/fragment-only?
-                                (get-in rdb [:rf.runtime/routing :current])
-                                route-id path-params query-params fragment))]
-      (cond
-        ;; rf2-1os1c: params/opts positional swap. An opts-only key
-        ;; (`:replace?` / `:scroll` / `:fragment` / `:bypass-guards?`)
-        ;; sits in the PARAMS slot and is not a declared path-param of
-        ;; the target route — the author almost certainly meant to pass
-        ;; it as the THIRD `opts` arg. Reject loudly (caller bug; slice
-        ;; unchanged, no push) so the swap fails at the event boundary
-        ;; rather than navigating with a wrong URL or silently dropping
-        ;; the intended opts. Per Spec 012 §Navigation is an event.
-        (seq misplaced)
+          ;; Strip the internal resume rider BEFORE the gate: `:rf.route/
+          ;; enter-attempts` is threaded by `:rf.route/continue`
+          ;; (can_leave.cljc) and is continuation bookkeeping, absent from the
+          ;; published grammar. It still rides `event-vec` so the guard gate's
+          ;; `loop-count` can read it on a resume.
+          request (dissoc (or request0 {}) :rf.route/enter-attempts)
+          bad     (validate-request request current)]
+      (if bad
+        ;; Spec 012 §Error surfaces #1: the always-on structural gate rejected
+        ;; the request. `:rf.error/navigate-bad-request` is a DISTINCT channel
+        ;; from `:rf.error/schema-validation-failure` (that category is the
+        ;; dev-only, schemas-artefact-gated validation channel; this gate is
+        ;; always-on and production-surviving). Slice unchanged, no push.
+        ;; rf2-7d30s: frame-attribute the reject so it lands in the emitting
+        ;; frame's epoch.
         (do
-          (trace/emit-error! :rf.error/navigate-arity-misuse
+          (trace/emit-error! :rf.error/navigate-bad-request
                              (cond-> {:where    :event
-                                      :route-id route-id
-                                      :reason   (str "opts-shaped key(s) "
-                                                     (str/join ", " (map pr-str misplaced))
-                                                     " appeared in the PARAMS slot (2nd arg) of "
-                                                     "[:rf.route/navigate " route-id " params opts]. "
-                                                     "These belong in the OPTS map (3rd arg): "
-                                                     "[:rf.route/navigate " route-id " {} {...opts}]. "
-                                                     "Navigation rejected.")
-                                      :keys     (vec misplaced)
+                                      :reason   (:reason bad)
+                                      :keys     (:keys bad)
                                       :recovery :no-recovery}
-                               ;; rf2-7d30s — frame-attribute the reject so it
-                               ;; lands in the emitting frame's epoch.
                                frame (assoc :frame frame)))
           {})
+        (let [destination? (or (contains? request :to) (contains? request :url))
+              url-target   (:url request)
+              {:keys [route-id path-params query-params matched-fragment unmatched-url
+                      throw-reason requested-url external-url-target?]}
+              (cond
+                ;; rf2-cylse.4 (SECURITY -- open-redirect): an external-classed
+                ;; `:url` target fails closed BEFORE match-url, identical to
+                ;; `url-requested-handler` (the shared `url/external-url?` gate).
+                (and (some? url-target) (url/external-url? url-target))
+                {:route-id             :rf.route/not-found
+                 :path-params          {}
+                 :query-params         {}
+                 :requested-url        url-target
+                 :external-url-target? true}
 
-        ;; Caller-bug schema failure: reject (slice unchanged, no push).
-        (= ::reject url)
-        {}
+                ;; URL-string target (escape hatch). `match-url-fail-closed`
+                ;; catches any throw -> nil match + `:throw-reason`, so a
+                ;; throwing `:url` fails closed to `:rf.route/not-found` (the
+                ;; same fail-closed path as a bare miss). An unmatched URL keeps
+                ;; the REQUESTED url on the address bar (rf2-0zr2o).
+                (some? url-target)
+                (let [{:keys [match throw-reason]}
+                      (registry/match-url-fail-closed url-target)]
+                  {:route-id         (or (:route-id match) :rf.route/not-found)
+                   :path-params      (if throw-reason
+                                       (plan/not-found-params url-target throw-reason)
+                                       (:params match (plan/not-found-params url-target nil)))
+                   :query-params     (:query match {})
+                   :matched-fragment (:fragment match)
+                   :unmatched-url    (when-not (:route-id match) url-target)
+                   :throw-reason     throw-reason
+                   :requested-url    url-target})
 
-        ;; rf2-cylse.4 (SECURITY — open-redirect): the `{:url ...}` target
-        ;; classed EXTERNAL by the shared `url/external-url?` gate. Fail
-        ;; closed IDENTICALLY to `url-requested-handler`: emit
-        ;; `:rf.route/external-url-requested` and return `{}` — no
-        ;; `:rf.nav/push-url`, no slice rewrite, no `:rf.route/transitioned`.
-        ;; The verbatim-push open-redirect sink is closed across all three
-        ;; URL-string nav sinks (the gated `:rf.route/url-requested`, this
-        ;; `:rf.route/navigate {:url}`, and `:rf.route/continue` re-issuing
-        ;; either).
-        external-url-target?
-        (do
-          (trace/emit! :rf.event :rf.route/external-url-requested
-                       (cond-> {:url requested-url}
-                         frame (assoc :frame frame)))
-          {})
+                ;; Route-id destination -- build a FRESH address (omitted
+                ;; :query/:fragment empty, exactly as today).
+                (contains? request :to)
+                {:route-id     (:to request)
+                 :path-params  (:params request {})
+                 :query-params (:query request {})}
 
-        ;; The navigation gate runs first (mirrors the URL-driven path,
-        ;; where `maybe-block-navigation` precedes `url-change-fx`): it
-        ;; evaluates the current route's `:can-leave` THEN the target's
-        ;; `:can-enter` (rf2-p69yaz Option A). A blocked guard wins even
-        ;; over a rule-3 no-op so the pending-nav protocol stays uniform
-        ;; across both entry points.
-        :else
-        (if-let [blocked (can-leave/maybe-block-navigation
-                           rdb frame
-                           event-vec url
-                           (:bypass-guards? opts)
-                           pending-nav-allocation)]
-          blocked
+                ;; In-place request -- PATCH the current location. Route + path
+                ;; params are carried from the current slice and never accepted
+                ;; in-place (changing params is a destination). Query base:
+                ;; `:query` replaces wholesale ({} clears); `:query-merge` folds
+                ;; over the current query (below); otherwise the current query is
+                ;; carried unchanged.
+                :else
+                {:route-id     (:route-id current)
+                 :path-params  (or (:params current) {})
+                 :query-params (cond
+                                 (contains? request :query)       (:query request)
+                                 (contains? request :query-merge) (or (:query current) {})
+                                 :else                             (or (:query current) {}))})
+              ;; Fragment: an explicit `:fragment` (present, even nil) wins --
+              ;; the request's fragment overrides a URL-embedded one, and
+              ;; `:fragment nil` clears. Otherwise a DESTINATION uses the
+              ;; URL-embedded fragment (nil for a route-id -> fresh), and an
+              ;; IN-PLACE request carries the current fragment. Normalised so an
+              ;; empty-string fragment collapses to nil (slice/URL agreement).
+              fragment (plan/normalize-fragment
+                         (cond
+                           (contains? request :fragment) (:fragment request)
+                           destination?                  matched-fragment
+                           :else                         (:fragment current)))
+              route-meta (registrar/lookup :route route-id)
+              ;; `:query-retain` on the resolved route carries retain keys from
+              ;; the current query into a FRESH DESTINATION address (rf2-u8t3s);
+              ;; caller values win. It does NOT apply to an in-place request --
+              ;; the current query is already the base there, and a wholesale
+              ;; `:query {}` must be able to clear it.
+              retain-keys (:query-retain route-meta)
+              retained    (when (and destination? (seq retain-keys))
+                            (select-keys (get-in rdb [:rf.runtime/routing :current :query])
+                                         retain-keys))
+              query-params (if (seq retained) (merge retained query-params) query-params)
+              ;; `:query-merge` (in-place only, gated above) folds the caller's
+              ;; deltas over the current query; a nil value removes a key. Strip
+              ;; nil-valued query keys on EVERY branch so the written slice
+              ;; matches the pushed URL (route-url elides nils, rf2-gxq7z1).
+              query-params (let [merged (if-let [merge-in (:query-merge request)]
+                                          (merge (:query current) query-params merge-in)
+                                          query-params)]
+                             (into {} (remove (comp nil? val)) merged))
+              ;; Build the push URL. An external / unmatched target skips
+              ;; `route-url`; a `route-url` throw is a caller bug -> emit
+              ;; `:rf.error/schema-validation-failure` (`:where :event`) and
+              ;; reject via the `::reject` sentinel (slice unchanged, no push).
+              url (cond
+                    external-url-target? nil
+                    unmatched-url        unmatched-url
+                    :else
+                    (try (registry/route-url {:to       route-id
+                                              :params   path-params
+                                              :query    query-params
+                                              :fragment fragment})
+                         (catch #?(:clj Throwable :cljs :default) ex
+                           (trace/emit-error! :rf.error/schema-validation-failure
+                                              (-> (cond-> {:where    :event
+                                                           :route-id route-id
+                                                           :error    (or (ex-data ex)
+                                                                         {:message (ex-message ex)})
+                                                           :recovery :no-recovery}
+                                                    frame (assoc :frame frame))
+                                                  (redact-route-error-tags route-meta)))
+                           ::reject)))
+              on-match-vec (vec (or (:on-match route-meta) []))
+              ;; Rule-3 no-op: an exactly-identical target skips the on-match
+              ;; re-fire + nav-token allocation. The fragment-only sibling
+              ;; (same route/params/query, different #fragment) is an anchor
+              ;; change routed through the shared `plan/fragment-only?`.
+              identical-nav? (plan/identical-route-target?
+                               current route-id path-params query-params fragment)
+              fragment-only? (and (not unmatched-url)
+                                  (plan/fragment-only?
+                                    current route-id path-params query-params fragment))]
           (cond
-            ;; Spec 012 §Per-route data loading rule 3: nothing relevant
-            ;; changed — leave the slice and the standing nav-token as-is;
-            ;; emit no allocation, fire no loaders, push no URL. An exactly
-            ;; identical target is the complete no-op even when `:replace?`
-            ;; was supplied (wins over the fragment-only branch below, which
-            ;; requires the fragment to DIFFER).
-            identical-nav?
+            ;; Caller-bug schema failure on `route-url`: reject (slice
+            ;; unchanged, no push).
+            (= ::reject url)
             {}
 
-            ;; Spec 012 §Fragments rules 3-4 / §Programmatic navigation with
-            ;; fragments (rf2-k4exp1): same route-id/params/query, only the
-            ;; `#fragment` differs — update `:fragment`, emit
-            ;; `:rf.route/fragment-changed`, and drive history + scroll via
-            ;; effects. NO `commit-navigation`: no nav-token bump, no
-            ;; `:on-match` re-fire, no resource re-plan. The SAME short-circuit
-            ;; `url_change.cljc` applies on the URL-driven doors.
-            fragment-only?
-            (fragment-only-nav-fx {:rdb        rdb
-                                   :current    current
-                                   :fragment   fragment
-                                   :url        url
-                                   :opts       opts
-                                   :route-meta route-meta
-                                   :route-id   route-id
-                                   :params     path-params
-                                   :query      query-params
-                                   :frame      frame})
+            ;; External `:url` target: fail closed identical to
+            ;; `url-requested-handler` -- emit `:rf.route/external-url-requested`
+            ;; and return `{}` (no push, no slice rewrite).
+            external-url-target?
+            (do
+              (trace/emit! :rf.event :rf.route/external-url-requested
+                           (cond-> {:url requested-url}
+                             frame (assoc :frame frame)))
+              {})
 
+            ;; The navigation gate runs first (mirrors the URL-driven path):
+            ;; current route's `:can-leave` THEN target's `:can-enter`. A
+            ;; blocked guard wins even over a rule-3 no-op.
             :else
-            (let [push-fx    (if (:replace? opts)
-                               [:rf.nav/replace-url url]
-                               [:rf.nav/push-url    url])
-                  ;; rf2-u8qe7y: the capture-fx + scroll-fx assembly is
-                  ;; shared pre-commit policy — `plan/scroll-plan`. Forward
-                  ;; navigation defaults to `:top` (Spec 012 §Scroll
-                  ;; restoration); the per-call `:scroll` override rides in
-                  ;; `opts`. `:url` keys the (forward → never-hit) `:restore`
-                  ;; saved-position lookup, kept for parity with the
-                  ;; URL-driven path.
-                  {:keys [capture-fx scroll-fx]}
-                  (plan/scroll-plan {:rdb              rdb
-                                     ;; rf2-1hncp2: saved scroll positions
-                                     ;; are a host-side transient cache (not
-                                     ;; runtime-db) — read the active frame's
-                                     ;; cache and thread it in explicitly so
-                                     ;; the planner stays pure.
-                                     :scroll-cache     (scroll/frame-scroll-cache frame)
-                                     :route-meta       route-meta
-                                     :opts             opts
-                                     :default-strategy :top
-                                     :route-id         route-id
-                                     :params           path-params
-                                     :query            query-params
-                                     :fragment         fragment
-                                     :url              url})]
-              ;; rf2-2zyvj / rf2-u8qe7y: the fail-closed warning telemetry is
-              ;; shared pre-commit policy with the URL-driven path
-              ;; (`plan/fallback-telemetry-intents`). An unexpected `match-url`
-              ;; THROW on the `{:url ...}` target form (`:match-error`)
-              ;; surfaces `:rf.warning/malformed-url`; an unmatched URL-string
-              ;; target that resolved to `:rf.route/not-found` with no such
-              ;; route registered surfaces `:rf.warning/no-not-found-route`
-              ;; (rf2-0zr2o). Both entry points build the SAME intent list,
-              ;; so a throwing URL is visible regardless of WHICH of the three
-              ;; nav events it arrived on — before the seam the programmatic
-              ;; path once failed closed SILENTLY. The navigate path has no
-              ;; `:malformed?` branch (`match-url-fail-closed` only THROWS for
-              ;; the `{:url}` form — no %-decode scan), so it passes
-              ;; `:malformed? false`. `requested-url` equals `unmatched-url`
-              ;; when both are present (both derive from `(:url target)`).
-              (plan/emit-intents!
-                (plan/fallback-telemetry-intents
-                  {:throw-reason  throw-reason
-                   :malformed?    false
-                   :no-not-found? (boolean (and unmatched-url (nil? route-meta)))
-                   :url           requested-url
-                   :frame         frame}))
-              ;; rf2-g8tzb / commit-navigation: nav-token alloc, the
-              ;; allocated/activation traces, the slice publish, and the
-              ;; fx assembly are the shared commit shape. The programmatic
-              ;; path is the only one that drives the browser URL, so it
-              ;; passes `push-fx`.
-              (routing-events/commit-navigation
-                rdb
-                {:route-id   route-id
-                 :params     path-params
-                 :query      query-params
-                 :fragment   fragment
-                 :transition (if (seq on-match-vec) :loading :idle)}
-                on-match-vec
-                {:prev-id        (get-in rdb [:rf.runtime/routing :current :route-id])
-                 ;; rf2-vdyrls: the prior route's nav-token — the second half
-                 ;; of the previous route owner `[:route prev-id prev-nav-token]`
-                 ;; the resources plan releases on route leave (Spec 016 §Route
-                 ;; integration).
-                 :prev-nav-token (get-in rdb [:rf.runtime/routing :current :nav-token])
-                 :capture-fx   capture-fx
-                 :scroll-fx    scroll-fx
-                 :push-fx      push-fx
-                 ;; rf2-vcop6y: the RECORDABLE nav-token allocation delivered
-                 ;; by the `:rf.route/nav-allocation` cofx — `commit-navigation`
-                 ;; publishes its `:token` (recorded + replay-stable) + rides
-                 ;; `:counter` on the bump fx.
-                 :nav-allocation nav-allocation
-                 ;; rf2-dbmj6x: the in-flight cascade's carried frame stamp
-                 ;; (validated at the handler top). `commit-navigation` stamps
-                 ;; it on the nav-token-allocated + activated/deactivated
-                 ;; lifecycle traces so they enter the emitting frame's epoch
-                 ;; and obey the frame trace-disable gate, consistent with the
-                 ;; route-miss diagnostics this path already frame-tags above.
-                 :frame        frame
-                 ;; EP-0016 D3 slice 3: the route-entry app-db, threaded into
-                 ;; the `:routing/on-route-entry` hook so a `{:from-db …}`
-                 ;; route-resource scope resolves db-derived viewer identity.
-                 :app-db       app-db})))))))
+            (if-let [blocked (can-leave/maybe-block-navigation
+                               rdb frame
+                               event-vec url
+                               (:bypass-guards? request)
+                               pending-nav-allocation)]
+              blocked
+              (cond
+                identical-nav?
+                {}
+
+                ;; Same route-id/params/query, only the #fragment differs --
+                ;; update `:fragment`, emit `:rf.route/fragment-changed`, and
+                ;; drive history + scroll via effects. No `commit-navigation`:
+                ;; no nav-token bump, no `:on-match` re-fire, no resource re-plan.
+                fragment-only?
+                (fragment-only-nav-fx {:rdb        rdb
+                                       :current    current
+                                       :fragment   fragment
+                                       :url        url
+                                       :opts       request
+                                       :route-meta route-meta
+                                       :route-id   route-id
+                                       :params     path-params
+                                       :query      query-params
+                                       :frame      frame})
+
+                :else
+                (let [push-fx    (if (:replace? request)
+                                   [:rf.nav/replace-url url]
+                                   [:rf.nav/push-url    url])
+                      {:keys [capture-fx scroll-fx]}
+                      (plan/scroll-plan {:rdb              rdb
+                                         :scroll-cache     (scroll/frame-scroll-cache frame)
+                                         :route-meta       route-meta
+                                         :opts             request
+                                         :default-strategy :top
+                                         :route-id         route-id
+                                         :params           path-params
+                                         :query            query-params
+                                         :fragment         fragment
+                                         :url              url})]
+                  ;; Shared fail-closed telemetry (rf2-2zyvj / rf2-u8qe7y): a
+                  ;; match-url throw on a `:url` target surfaces
+                  ;; `:rf.warning/malformed-url`; an unmatched URL that resolved
+                  ;; to `:rf.route/not-found` with no such route registered
+                  ;; surfaces `:rf.warning/no-not-found-route`.
+                  (plan/emit-intents!
+                    (plan/fallback-telemetry-intents
+                      {:throw-reason  throw-reason
+                       :malformed?    false
+                       :no-not-found? (boolean (and unmatched-url (nil? route-meta)))
+                       :url           requested-url
+                       :frame         frame}))
+                  ;; commit-navigation: nav-token alloc, allocated/activation
+                  ;; traces, slice publish, fx assembly -- the shared commit
+                  ;; shape. The programmatic path is the only one that drives the
+                  ;; browser URL, so it passes `push-fx`.
+                  (routing-events/commit-navigation
+                    rdb
+                    {:route-id   route-id
+                     :params     path-params
+                     :query      query-params
+                     :fragment   fragment
+                     :transition (if (seq on-match-vec) :loading :idle)}
+                    on-match-vec
+                    {:prev-id        (get-in rdb [:rf.runtime/routing :current :route-id])
+                     :prev-nav-token (get-in rdb [:rf.runtime/routing :current :nav-token])
+                     :capture-fx     capture-fx
+                     :scroll-fx      scroll-fx
+                     :push-fx        push-fx
+                     :nav-allocation nav-allocation
+                     :frame          frame
+                     :app-db         app-db})))))))))
