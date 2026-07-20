@@ -7,7 +7,7 @@
 ;; - match-url returns {:route-id :params :query :fragment :validation-failed?} or nil.
 ;; - :params is the path-params map; :query is the query-params map (separate).
 ;; - :fragment is the URL's '#fragment' (string or nil; fragments do NOT participate in matching).
-;; - route-url has 2-/3-/4-arity forms: (route-url id path-params [query-params [fragment]]).
+;; - route-url takes a single address map: (route-url {:to id :params .. :query .. :fragment ..}).
 
 {:fixture/id           :routing/match-url
  :fixture/spec-version "1.0"
