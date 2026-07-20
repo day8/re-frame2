@@ -29,7 +29,8 @@
   #?(:cljs (:require ["react" :as react]
                      [re-frame.error :as error]
                      [re-frame.ui.eq :as eq]
-                     [re-frame.ui.events :as events])
+                     [re-frame.ui.events :as events]
+                     [re-frame.ui.reactive :as reactive])
      :clj  (:require [re-frame.ui.tree :as tree])))
 
 #?(:cljs
@@ -65,7 +66,17 @@
   "React `useState`-backed `[value set! update!]`. `set!` stores its argument
   exactly (a stored fn is a value, never an updater); `update!` applies
   `(f current & args)` to the LATEST host state so several same-turn writers
-  compose (React's functional updater queues them against the live state)."
+  compose (React's functional updater queues them against the live state).
+
+  DEV-only view-evidence bridge (Ruling 2 :local-state): each host-only
+  `set!`/`update!` records `:local-state` as the cause of the re-render it just
+  triggered, so the ViewCell's NEXT connected commit attributes its
+  :rf.view/causes to the local write. The owning cell is captured ONCE at
+  setter-mint time (the first render, which runs inside the ambient
+  `with-capture`); React — not the ViewCell scheduler — owns the re-render, so the
+  bridge only STASHES the cause (`reactive/note-local-state!`), never marks the
+  cell dirty or advances a revision. The whole bridge is `goog.DEBUG`-gated at
+  both ends and elides in production."
   [init]
   (let [pair      (react/useState init)
         value     (aget pair 0)
@@ -74,19 +85,22 @@
     ;; The React setter identity is stable across renders, so set!/update! are
     ;; minted once and kept stable (attach them as handlers/listeners freely).
     (when (nil? (.-current ops))
-      (let [setter  (fn local-set!
+      (let [cell    (when ^boolean js/goog.DEBUG (reactive/ambient-cell))
+            setter  (fn local-set!
                       [v]
                       (when ^boolean js/goog.DEBUG
                         (when (.-v render-active) (fail-render-phase!)))
                       ;; ALWAYS the functional form: a stored fn is returned
                       ;; verbatim, never invoked as a React updater.
                       (react-set (fn [_] v))
+                      (when ^boolean js/goog.DEBUG (reactive/note-local-state! cell))
                       nil)
             updater (fn local-update!
                       [f & args]
                       (when ^boolean js/goog.DEBUG
                         (when (.-v render-active) (fail-render-phase!)))
                       (react-set (fn [cur] (apply f cur args)))
+                      (when ^boolean js/goog.DEBUG (reactive/note-local-state! cell))
                       nil)]
         (set! (.-current ops) #js [setter updater])))
     [value (aget (.-current ops) 0) (aget (.-current ops) 1)]))

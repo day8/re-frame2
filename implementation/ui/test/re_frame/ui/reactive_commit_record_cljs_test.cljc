@@ -10,10 +10,12 @@
   over the plain-atom adapter — the same headless discipline the reconcile
   fixtures use.
 
-  Scope fence (slice a): this slice mints the record shape ONLY. It emits NO
-  causes (`:rf.view/causes` is a LATER slice), invents NO :parent-render-key
-  (deferred — no capture machinery), and claims NO singular top-level :frame-id
-  (frame attribution is PER-OBSERVATION)."
+  Scope fence: slice a minted the record shape; slice b (rf2-qkq2k) added the
+  per-commit `:rf.view/causes` vector — this file now asserts a first connected
+  commit is caused by `:mount`. The record still invents NO :parent-render-key
+  (deferred — no capture machinery) and claims NO singular top-level :frame-id
+  (frame attribution is PER-OBSERVATION). The full per-cause cause-vector proof
+  lives in `reactive_commit_causes_cljs_test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core                 :as rf]
@@ -67,14 +69,19 @@
       (is (vector? (:observations record)) ":observations is a vector")
       (is (= (reactive/render-key cell) (:render-key record))
           "the render-key reader mirrors the record's :render-key"))
-    (testing "slice-a scope fences — the record ships NONE of the later slices"
+    (testing "slice-a scope fences — the record still invents no deferred fields"
       (let [record (reactive/commit-record cell)]
         (is (not (contains? record :parent-render-key))
             "no :parent-render-key is invented (deferred — no capture machinery)")
         (is (not (contains? record :frame-id))
-            "no singular top-level :frame-id (attribution is per-observation)")
-        (is (not (contains? record :rf.view/causes))
-            "no causes slot yet (that is a later slice)")))))
+            "no singular top-level :frame-id (attribution is per-observation)")))
+    (testing "slice-b adds the per-commit :rf.view/causes vector (Ruling 2)"
+      (let [record (reactive/commit-record cell)]
+        (is (contains? record :rf.view/causes)
+            "the causes vector now ships on the record")
+        (is (vector? (:rf.view/causes record)) ":rf.view/causes is a vector")
+        (is (= [:mount] (:rf.view/causes record))
+            "a first connected commit is caused by :mount")))))
 
 ;; ===========================================================================
 ;; render-key is monotonic, minted fresh PER COMMIT
