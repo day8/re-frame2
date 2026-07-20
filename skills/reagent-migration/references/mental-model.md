@@ -4,7 +4,7 @@
 > "a view is a function I run every render" onto re-frame.ui's "a view is
 > something the compiler analyses", every rule below stops being a surprise.
 
-## Anchor: Storybook is to a component library what re-frame.ui is to Reagent hiccup
+## Anchor: runtime `createElement`/JSX → a compiled template
 
 If you know React, the closest analogue is the move from **hand-written `React.createElement` / JSX evaluated at runtime** to a **compiled template**: the framework can see the shape of your view *before* it runs, so it can validate props, track dependencies, and optimise re-renders statically. Reagent evaluates your hiccup every render; re-frame.ui reads it once, at build time. Everything that only worked *because* Reagent re-ran a plain function each render is exactly what changes.
 

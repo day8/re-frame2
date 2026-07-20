@@ -22,7 +22,7 @@
 >
 > *Voice: tight, declarative, recipe-shaped; match `skills/re-frame-migration/SKILL.md`. Tables for rule lookups; code blocks for before→after shapes. Cite `MIG-NN` in every catalogue.*
 >
-> *Don't: ship or invoke a codemod; oversell re-frame.ui (it is experimental — say so); emit a form for a staged capability that hasn't shipped (SSR emit, `ui/->react`, the `sub` frame-pin, compiled `route-link` — name the gap, hold the view); write `*.md` outside `skills/reagent-migration/` (except the index registration in `skills/README.md` + the docs mirror/nav); commit anything under `ai/` or revive `tools/ui-migrator`; use this repo's testbeds/paths as examples (stay generic); claim AI authorship in commits/PR.*
+> *Don't: ship or invoke a codemod; oversell re-frame.ui (it is experimental — say so); emit a form for a staged capability that hasn't shipped (the `ui/->react` bridge, the `sub` frame-pin — name the gap, hold the view; re-verify every "not shipped" claim against `ui.cljc`'s exports, since SSR `render-static`/`hydrate-root` and compiled `route-link` have since shipped and are transforms now); write `*.md` outside `skills/reagent-migration/` (except the index registration in `skills/README.md` + the docs mirror/nav); commit anything under `ai/` or revive `tools/ui-migrator`; use this repo's testbeds/paths as examples (stay generic); claim AI authorship in commits/PR.*
 >
 > *Open the PR titled `feat(skills): reagent-migration — AI skill for Reagent→re-frame.ui view migration`. Body: the sibling shape matched, the M/D/R catalogue distilled (which rules), the optional/second/experimental framing, the incremental procedure, the per-tier evals. Surface OQ1/OQ2 from `design.md` for Mike.*
 
@@ -35,7 +35,7 @@
 ## When to re-author
 
 - The framework's `MIG` rule table grows by several rules, or re-tiers many → rebuild the catalogues fresh.
-- A staged `re-frame.ui` capability ships (SSR emit, `ui/->react`, the `sub` frame-pin, compiled `route-link`) → the reject/capability-gap list shrinks; re-author `catalog-reject.md` and the mechanical/judgment target that now exists.
+- A staged `re-frame.ui` capability ships (the remaining ones are the `ui/->react` bridge and the `sub` frame-pin; SSR `render-static`/`hydrate-root` and compiled `route-link` already shipped and were folded into the mechanical/judgment catalogues) → the reject/capability-gap list shrinks; re-author `catalog-reject.md` and the mechanical/judgment target that now exists.
 - The positioning changes (e.g. re-frame.ui graduates from experimental) → design L2 changes; update this `spec/` folder first, then the skill.
 
 Otherwise, edit the leaves directly; reauthoring from scratch is for major-version updates.

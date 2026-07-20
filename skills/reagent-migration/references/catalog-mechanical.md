@@ -123,7 +123,7 @@ The in-map entry rules (MIG-04/05/06/07/11/34) still rewrite entries *inside* a 
 (defn init! [] (ui/mount [ui/frame-root {:id <frame-id> :initial-events […]} [app {}]] el))
 ```
 
-Once per root. The frame id + `:initial-events` lift from the app's existing frame setup; the React-18 `create-root`/`defonce`-atom dance *deletes* (`ui/mount` is idempotent per root). No existing frame config to lift from → judgment (name the frame id with the author). `reagent.dom.server` / `hydrate-root` are the SSR family → R-tier (MIG-23).
+Once per root. The frame id + `:initial-events` lift from the app's existing frame setup; the React-18 `create-root`/`defonce`-atom dance *deletes* (`ui/mount` is idempotent per root). No existing frame config to lift from → judgment (name the frame id with the author). `reagent.dom.server` / `hydrate-root` are the SSR family → MIG-23 (D — route between the static-page and SSR-then-hydrate paths).
 
 ## MIG-24 — ns requires (runs LAST)
 
@@ -156,6 +156,19 @@ A zero-arg render-body capture rewrites in place to the compiled ops-bundle:
 ```
 
 The bundle is incarnation-fenced (ops fail loud once the captured frame is destroyed). An explicit-arity `(rf/capture-frame frame-id)`, or a capture sited *inside* a callback/loop, has no direct compiled site → D.
+
+## MIG-32 — framework `route-link` → the compiled `ui/route-link`
+
+`ui/route-link` is an **ordinary compiled `defview`** shipped in `re-frame.ui` — the compiled counterpart of the stock-Reagent `route-link`. The Reagent head becomes the compiled head:
+
+```clojure
+;; before → after
+[rf/route-link {:to :home} :Home]   =>   [ui/route-link {:to :home} :Home]
+```
+
+`:to` (a registered route id) is required; `:params` / `:query` / `:fragment` feed both the href and the dispatch payload; **every other key** — `:class`, `:title`, `:id`, `:aria-label`, `:target`, `:download`, `:on-click`, any further HTML attribute — passes through to the underlying `<a>`. A plain `[:a {:href …}]` is **not** an equivalent (the runtime doesn't intercept plain anchors), so the head-rename is the migration.
+
+Two things to carry: (a) rendering a `ui/route-link` **without `day8/re-frame2-routing` on the classpath fails loud** with `:rf.error/routing-artefact-missing` — confirm the routing artefact is present. (b) A caller `:on-click` runs *first* and may veto the interception (prevent-default), exactly as in Reagent; it is a prop on an internal compiled view, so a bare fn is legal-and-opaque (MIG-27 / C-13a) — reach for `ui/handler` only if a stable identity or a phase is actually needed. Framework-shipped Reagent view heads other than `route-link` have no ruled compiled counterpart → judgment (hold).
 
 ## MIG-33 — adapter boot
 
