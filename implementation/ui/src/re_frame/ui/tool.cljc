@@ -2,7 +2,7 @@
   "The DEV-ONLY public projection tier over the compiled-view evidence model
   (rf2-vxgfnd.95.6; Spec 004 §View identity and the instrumentation surface;
   04-debugging §1/§5). Five frozen read-only projections a debugging consumer
-  (Xray, Story, Pair) reads WITHOUT touching private React state, leases, or the
+  (Xray, Story, Pair) reads WITHOUT touching private React state or the
   reactive scheduler:
 
     `view-manifest`     — the versioned public projection of a view's compiler
@@ -17,7 +17,7 @@
                           bounded cause set, occurrence/epoch counters, the moving
                           observation targets, and explicit loss accounting.
     `view-dependencies` — the reactive dependency SITES a view declares
-                          (subscriptions + leases) with literal-vs-`:dynamic`
+                          (subscriptions) with literal-vs-`:dynamic`
                           query-shape honesty.
     `view-event-sites`  — the event-handler SITES a view declares, distinguishing
                           LITERAL (`:vector`) and NORMALIZED (`:options`) event
@@ -28,7 +28,7 @@
   (`schema-version`) so a consumer built against an older head reads the version
   and degrades rather than mis-parsing. The projections are DETERMINISTIC,
   SERIALIZABLE, and READ-ONLY: they mint no evidence, retain nothing, and egress
-  no ViewCell / lease / React object — only bounded plain data.
+  no ViewCell / React object — only bounded plain data.
 
   DEV-ONLY. Every entry point is compile-time gated on `interop/debug-enabled?`
   and returns nil (or an empty envelope) under `:advanced` + goog.DEBUG=false;
@@ -45,8 +45,9 @@
 (def schema-version
   "The versioned tool-evidence public-shape contract version. Bumped whenever a
   projection's shape changes incompatibly, so a consumer reads `:rf.ui.tool/version`
-  and reconciles rather than mis-parsing an evolved shape."
-  1)
+  and reconciles rather than mis-parsing an evolved shape. v2 dropped a removed
+  view-lifetime dependency site kind and its `:site-counts` entry."
+  2)
 
 ;; ---- manifest access (both hosts register `:view` into the registrar) --------
 
@@ -61,8 +62,8 @@
 
 (defn- literal-form?
   "True when `x` is pure literal DATA — a scalar, or a collection built wholly of
-  literals, or a `(quote …)` — with NO free symbol and NO call. A sub query or
-  lease descriptor that satisfies this is exactly the authored runtime shape and
+  literals, or a `(quote …)` — with NO free symbol and NO call. A sub query
+  that satisfies this is exactly the authored runtime shape and
   is safe to project verbatim; anything with a free symbol (a captured local) or
   a call is `:dynamic` and must NOT be presented as the literal value."
   [x]
@@ -140,7 +141,6 @@
      :hook-signature       (:hook-signature m)
      :site-counts          {:subs         (count (:subs sites))
                             :events       (count (:events sites))
-                            :leases       (count (:leases sites))
                             :effects      (count (:effects sites))
                             :dispatch-fns (count (:dispatch-fns sites))
                             :frame-ops    (count (:frame-ops sites))
@@ -232,15 +232,9 @@
     {:sid sid :path path :dynamic? true
      :query-id (when (and (vector? query) (keyword? (first query))) (first query))}))
 
-(defn- project-lease-site
-  [{:keys [sid descriptor path]}]
-  (if (literal-form? descriptor)
-    {:sid sid :path path :dynamic? false :descriptor descriptor}
-    {:sid sid :path path :dynamic? true}))
-
 (defn view-dependencies
   "The reactive dependency SITES the compiled view `view-id` declares — its
-  `sub` and `lease` sites — with query-shape honesty: a fully-literal query is
+  `sub` sites — with query-shape honesty: a fully-literal query is
   projected verbatim (`:dynamic? false`), a query carrying a captured local is
   `:dynamic? true` (its literal `:query-id`, when present, is still shown — the
   runtime argument is not fabricated). Read from the compiler manifest, so it is
@@ -251,8 +245,7 @@
       (let [sites (:sites m)]
         {:rf.ui.tool/version schema-version
          :view-id            view-id
-         :subscriptions      (mapv project-sub-site (:subs sites))
-         :leases             (mapv project-lease-site (:leases sites))}))))
+         :subscriptions      (mapv project-sub-site (:subs sites))}))))
 
 ;; ---- 5. view-event-sites -----------------------------------------------------
 

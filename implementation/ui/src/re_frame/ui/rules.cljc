@@ -1911,8 +1911,7 @@
 ;; door); `caller` is the forwarded runtime map. The structural/controlled/
 ;; identity keys below, PLUS the component's owned `:on-*` handler keys, are
 ;; denied to `caller` in every build — a runtime offender throws here, never
-;; goog.DEBUG-gated, so the guarantee survives an advanced build (the same
-;; production-reachability the compiled lease-descriptor grammar guard has).
+;; goog.DEBUG-gated, so the guarantee survives an advanced build.
 ;; ---------------------------------------------------------------------------
 
 (def spread-safe-denied-structural
@@ -2019,8 +2018,7 @@
   key can no longer slip through. A non-map caller, a non-nameable key, or a
   denied key throws `:rf.error/ui-tree-malformed`, consistently on BOTH hosts.
   NOT `goog.DEBUG`-gated — the denial is a production invariant a component
-  library relies on, so it survives an advanced build exactly like the compiled
-  lease-descriptor grammar guard.
+  library relies on, so it survives an advanced build.
 
   Returns the CANONICALIZED caller map: every ACCEPTED key is rewritten to its
   author-canonical keyword (`(keyword (name k))`), so an alternate spelling lands

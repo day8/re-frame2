@@ -138,26 +138,6 @@
     :required  [[#"`frame-provider`\s*\(SCOPE\) / `frame-root`\s*\(ENSURE\)"
                  "the SCOPE/ENSURE boundary pair"]]}
 
-   ;; Two DISTINCT contracts on one line, and #6438 fixed the first while
-   ;; breaking the second (rf2-5cmf7): it correctly renamed the boundary to
-   ;; the SCOPE/ENSURE pair — satisfying the row as it then stood — but
-   ;; REVERSED the two ambient tiers, claiming React context outranks the
-   ;; dynamic binding. The executable resolver
-   ;; (`resource-lease/resolve-lease-frame` -> `frame/require-current-frame!`)
-   ;; reads dynamic-var FIRST, React-context SECOND. So this row pins the
-   ;; ORDER as well as the NAMING; a row that only checked naming went green
-   ;; on a page that had become wrong.
-   {:file      "docs/api/re-frame.adapter.reagent.md"
-    :why       "with-resource-lease's frame-resolution order"
-    :forbidden [[#"the surrounding `frame-provider` context, then the dynamic"
-                 "a provider-only resolution order"]
-                [#"\(ENSURE\),? then the dynamic"
-                 "the REVERSED ambient tiers — React context ranked above the dynamic binding"]]
-    :required  [[#"`frame-provider`\s*\(SCOPE\) or a `frame-root`\s*\(ENSURE\)"
-                 "the SCOPE/ENSURE boundary pair"]
-                [#"the dynamic `with-frame` binding, then the surrounding"
-                 "the executable tier order — dynamic binding BEFORE React context"]]}
-
    {:file      "docs/api/re-frame.adapter.uix.md"
     :why       "use-subscribe's standard chain"
     :forbidden [[#"then the surrounding `frame-provider`\. It raises"

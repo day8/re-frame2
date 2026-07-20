@@ -24,7 +24,6 @@
             [re-frame.source-coord-dom-elision-prod-test]
             [re-frame.adapter.uix-source-coord-dom-elision-prod-test]
             [re-frame.adapter.helix-source-coord-dom-elision-prod-test]
-            [re-frame.ui.resource-lease-hook-matrix-elision-prod-test]
             [re-frame.on-error-elision-prod-test]
             ;; Per rf2-9pxj70 — the three EP-0008-promoted always-on
             ;; teardown / write-race rows

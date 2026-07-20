@@ -855,7 +855,7 @@
 
 (defn emit-defview
   [{:keys [vname view-id display-name docstring header slots ast manifest
-           closed-keys children? lease-declarations self-fqn]}]
+           closed-keys children? self-fqn]}]
   (let [st         (doto (new-state vname) (swap! assoc :self-fqn self-fqn))
         ;; The DEV view-evidence DOM annotation for this view's compiler-owned
         ;; host root — the source coordinate + view id, in today's attribute
@@ -868,9 +868,6 @@
                     :view-tag     (source-coord/format-view-id view-id)}
         body       (->> (emit-node (mark-host-root-annotation ast annotate) st false)
                         (hoist-literal-sub-queries st))
-        leases     (mapv #(update % :descriptor
-                                  (partial hoist-literal-sub-queries st))
-                          lease-declarations)
         binds      (vec (header-bindings header))
         render-sym (symbol (str (name vname) "$render"))
         host-render-sym (symbol (str (name vname) "$host_render"))
@@ -880,7 +877,6 @@
         ;; view uses the host wrapper below; a sub-free view goes straight from
         ;; React.memo to the raw body with zero ViewCell hooks.
         has-subs?  (boolean (seq (:subs (:sites manifest))))
-        has-leases? (boolean (seq leases))
         has-locals? (boolean (seq (:locals (:sites manifest))))
         ;; A ui/dispatch-fn site reads the committed frame through the EventOwner
         ;; exactly like an :on-* handler site, so it selects an event-owner
@@ -889,27 +885,18 @@
         has-events? (boolean (or (seq (:events (:sites manifest)))
                                  has-dispatch-fns?))
         ;; rf2-vxgfnd.253 (extending .228): a `(frame)` site resolves the AMBIENT
-        ;; committed frame, and so does EVERY sub target and EVERY lease owner (a
-        ;; sub/lease site implicitly captures the ambient frame/incarnation). So
+        ;; committed frame, and so does EVERY sub target (a sub site implicitly
+        ;; captures the ambient frame/incarnation). So
         ;; any reactive view MUST become a real React frame-context CONSUMER or a
         ;; provider retarget (A→B) memo-bails the non-consumer child and its held
-        ;; subs/leases/ops stay locked to the old frame. The sub/lease wrappers
+        ;; subs/ops stay locked to the old frame. The sub wrappers
         ;; therefore consume the context unconditionally — frame-ops presence no
         ;; longer forks the selection, so there are NO separate `-frame` variants.
         ;; `render-frame` covers a frame-only view (a `(frame)` site but no
-        ;; sub/lease — a context consumer with no ViewCell); a view with NONE of
+        ;; sub — a context consumer with no ViewCell); a view with NONE of
         ;; the three stays on the inert direct React.memo path.
         has-frame-ops? (boolean (seq (:frame-ops (:sites manifest))))
-        lease-binds (vec
-                     (mapcat (fn [{:keys [sid descriptor]}]
-                               [(gensym "lease")
-                                `(re-frame.ui.reactive/lease-site
-                                  ~sid ~descriptor)])
-                             leases))
-        rendered   (if (seq lease-binds)
-                     `(let [~@lease-binds] ~body)
-                     body)
-        inner-body (if (seq binds) `(let [~@binds] ~rendered) rendered)
+        inner-body (if (seq binds) `(let [~@binds] ~body) body)
         ;; DEV: a local-bearing body runs under the render-phase guard so a
         ;; (local …) set!/update! invoked during render fails loud. Production
         ;; (goog.DEBUG false) emits the body directly — no flag, no thunk.
@@ -920,17 +907,10 @@
                         ~inner-body)
                      inner-body)
         host-render (cond
-                      (and has-subs? has-leases? has-events?)
-                      're-frame.ui.viewcell/render-subs-leases-and-events
                       (and has-subs? has-events?)
                       're-frame.ui.viewcell/render-subs-and-events
-                      (and has-leases? has-events?)
-                      're-frame.ui.viewcell/render-leases-and-events
                       has-events? 're-frame.ui.viewcell/render-events
-                      (and has-subs? has-leases?)
-                      're-frame.ui.viewcell/render-subs-and-leases
                       has-subs?  're-frame.ui.viewcell/render-subs
-                      has-leases? 're-frame.ui.viewcell/render-leases
                       has-frame-ops? 're-frame.ui.viewcell/render-frame)
         var-meta   (cond-> {:rf.ui/view true
                             :rf.ui/view-id view-id

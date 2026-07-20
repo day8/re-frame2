@@ -16,8 +16,8 @@
   ## Why here (core, CLJS-only)
 
   The hook body is substrate-agnostic — it uses `React/useContext` /
-  `React/useRef` directly (exactly like `re-frame.adapter.resource-lease`,
-  the established shared-hook precedent), not any UIx- or Helix-specific
+  `React/useRef` directly (like the spine's `use-subscribe`, the established
+  shared-hook precedent), not any UIx- or Helix-specific
   hook — so the UIx and Helix `use-frame` surfaces re-export this ONE
   implementation with zero drift. It lives in the core artefact because
   core already `:require`s React (via `re-frame.adapter.context`), and both

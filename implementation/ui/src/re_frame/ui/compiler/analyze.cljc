@@ -48,7 +48,6 @@
 (def ^:private client-only-fqns #{'re-frame.ui/client-only})
 (def ^:private presence-fqns #{'re-frame.ui/presence})
 (def ^:private sub-fqns       #{'re-frame.ui/sub})
-(def ^:private lease-fqns     #{'re-frame.ui/lease})
 (def ^:private frame-fqns     #{'re-frame.ui/frame})
 (def ^:private local-fqns     #{'re-frame.ui/local})
 (def ^:private effect-fqns    #{'re-frame.ui/effect})
@@ -322,88 +321,16 @@
 
 (declare rewrite-expr)
 
-(defn lease-declaration-form?
-  "True when `form` is a direct, unshadowed call resolving to public
-  `re-frame.ui/lease`. Only such forms may occupy defview's leading lease
-  declaration prefix; helper calls and macro-produced calls are never granted
-  an invisible ownership site."
-  [e form]
-  (and (seq? form)
-       (symbol? (first form))
-       (not (contains? (:locals e) (first form)))
-       (env/resolves-to? e (first form) lease-fqns)))
-
-(defn- compile-time-lease-descriptor!
-  "Validate the statically knowable portion of one descriptor. Dynamic
-  expressions defer to the host-neutral runtime validator; literal map keys
-  and literal resource ids fail at compile time."
-  [e descriptor]
-  (cond
-    (nil? descriptor) nil
-
-    (map? descriptor)
-    (let [allowed  #{:resource :scope :params}
-          unknown  (seq (sort-by pr-str (remove allowed (keys descriptor))))
-          resource (:resource descriptor)
-          dynamic-resource? (or (symbol? resource) (seq? resource))]
-      (when unknown
-        (env/fail! e :rf.ui.compile/unsupported-form
-                   (str "a lease descriptor contains unknown key"
-                        (when (next unknown) "s") " " (pr-str (vec unknown))
-                        " — the v1 map is closed to :resource, :scope, and :params")
-                   {:form descriptor :unknown (vec unknown)}))
-      (when-not (contains? descriptor :resource)
-        (env/fail! e :rf.ui.compile/unsupported-form
-                   "a lease descriptor requires :resource"
-                   {:form descriptor}))
-      (when (and (not dynamic-resource?)
-                 (not (and (keyword? resource) (namespace resource))))
-        (env/fail! e :rf.ui.compile/unsupported-form
-                   (str "a lease descriptor's :resource must be a qualified "
-                        "keyword; got " (pr-str resource))
-                   {:form descriptor :resource resource})))
-
-    ;; A symbol/call may evaluate to nil or a descriptor at render time.
-    (or (symbol? descriptor) (seq? descriptor)) nil
-
-    :else
-    (env/fail! e :rf.ui.compile/unsupported-form
-               (str "a lease descriptor must evaluate to nil or a closed map; "
-                    "the literal " (pr-str descriptor) " cannot")
-               {:form descriptor}))
-  descriptor)
-
-(defn analyze-lease-declaration
-  "Analyze one direct leading `(lease descriptor)` declaration. Returns the
-  compact emitted site record; also appends the tool-rich manifest row.
-  Descriptor expression rewriting is evaluation-order/shadowing aware, so a
-  finite nested `sub` receives its own independent sid while any nested lease
-  is rejected by the ordinary expression rewriter."
-  [e index form]
-  (when-not (= 2 (count form))
-    (env/fail! e :rf.ui.compile/unsupported-form
-               "(lease descriptor) takes exactly one descriptor argument"
-               {:form form}))
-  (let [descriptor (compile-time-lease-descriptor! e (second form))
-        expr-path  [:lease-declarations index]
-        sid        (lexical-site-id e :lease form expr-path)
-        descriptor* (rewrite-expr e (conj expr-path :descriptor) descriptor)]
-    (env/add-site! e :leases {:sid sid
-                              :descriptor descriptor
-                              :path (:path e)
-                              :expr-path expr-path})
-    {:sid sid :descriptor descriptor*}))
-
 (defn- map-path-token [x]
   (fingerprint/digest "ep1-" x))
 
 (declare reactive-macro-reference-kind)
 
 (defn- reactive-call-kind
-  "Return :sub/:lease/:frame when `x` contains an unshadowed resolved
+  "Return :sub/:frame when `x` contains an unshadowed resolved
   reactive CALL. Quoted data is never executable. This scanner is
   deliberately about calls, not bare symbols, so a binding pattern may
-  still introduce a local named `sub`, `lease`, or `frame`."
+  still introduce a local named `sub` or `frame`."
   [e x locals]
   (let [e* (update e :locals into locals)]
     (cond
@@ -414,7 +341,6 @@
               (let [info (env/resolve-sym e* h)]
                 (cond
                   (contains? sub-fqns (:fqn info)) :sub
-                  (contains? lease-fqns (:fqn info)) :lease
                   (contains? frame-fqns (:fqn info)) :frame
                   ;; Binding/default forms never pass through rewriting later.
                   ;; An unaudited macro can inject a reactive call even when its
@@ -441,7 +367,6 @@
       (and (symbol? x) (not (contains? locals x)))
       (cond
         (env/resolves-to? e* x sub-fqns) :sub
-        (env/resolves-to? e* x lease-fqns) :lease
         (env/resolves-to? e* x frame-fqns) :frame)
       (map? x) (or (some #(reactive-macro-reference-kind e % locals) (keys x))
                    (some #(reactive-macro-reference-kind e % locals) (vals x)))
@@ -449,8 +374,8 @@
       :else nil)))
 
 (defn- bare-reactive-reference-kind
-  "Return :sub/:lease/:frame for an unquoted BARE reactive var reference. A
-  direct `(sub ...)`/`(lease ...)`/`(frame)` head is not bare—the rewriter
+  "Return :sub/:frame for an unquoted BARE reactive var reference. A
+  direct `(sub ...)`/`(frame)` head is not bare—the rewriter
   owns it—but a threading step such as `(-> query sub)` would become an
   unindexed call only after macro expansion and must fail loudly."
   [e x locals]
@@ -460,13 +385,11 @@
       (and (symbol? x) (not (contains? locals x)))
       (cond
         (env/resolves-to? e* x sub-fqns) :sub
-        (env/resolves-to? e* x lease-fqns) :lease
         (env/resolves-to? e* x frame-fqns) :frame)
       (seq? x)
       (let [h (first x)
             direct? (and (symbol? h) (not (contains? locals h))
                          (or (env/resolves-to? e* h sub-fqns)
-                             (env/resolves-to? e* h lease-fqns)
                              (env/resolves-to? e* h frame-fqns)))]
         (some #(bare-reactive-reference-kind e % locals)
               (if direct? (rest x) x)))
@@ -478,18 +401,16 @@
 (defn- reactive-direct-form
   "The kind-correct compiler-owned direct form a reactive authoring verb must
   take in evaluated code — the ONLY shape in which the public var is legal, and
-  what every escape diagnostic must recommend. `sub` reads a query, `lease`
-  DECLARES a descriptor (the leading prefix, never a second-form read), `frame`
+  what every escape diagnostic must recommend. `sub` reads a query, `frame`
   takes no argument. Kept as one function so no diagnostic can drift into
-  recommending an invalid form (e.g. a lease `query` second element)."
+  recommending an invalid form."
   [kind]
   (case kind
     :sub   "(sub query)"
-    :lease "(lease descriptor)"
     :frame "(frame)"))
 
 (defn- reactive-authoring-var-kind
-  "Return :sub/:lease/:frame when `sym` is an unquoted, unshadowed reference to
+  "Return :sub/:frame when `sym` is an unquoted, unshadowed reference to
   a public reactive authoring var. Such a var is sound ONLY as a compiler-owned
   DIRECT CALL HEAD — the rewriter consumes those heads (and lowers them to an
   indexed runtime site) before this leaf check runs — so a bare reference that
@@ -499,7 +420,6 @@
   (let [{:keys [fqn]} (env/resolve-sym env sym)]
     (cond
       (contains? sub-fqns fqn)   :sub
-      (contains? lease-fqns fqn) :lease
       (contains? frame-fqns fqn) :frame)))
 
 (defn- check-portable-map-shape!
@@ -910,31 +830,6 @@
                        (env/add-site! e :subs {:sid sid :query (second f)
                                                :path (:path e) :expr-path (vec p)})
                        (with-same-meta f (list runtime-sub-fqn sid query))))
-
-                    (and (symbol? head) (not (contains? locals head))
-                         (env/resolves-to? e* head lease-fqns))
-                    (do
-                      (when-not (= 2 (count f))
-                        (env/fail! e :rf.ui.compile/unsupported-form
-                                   "(lease descriptor) takes exactly one descriptor argument"
-                                   {:form f}))
-                      (if (or (nil? (:self-id e))
-                              (:in-loop? e)
-                              (contains? locals deferred-scope))
-                        (if (:in-render-fn? e)
-                          (impure-slot-fail! e "lease" f)
-                          (env/fail! e :rf.ui.compile/lease-in-loop
-                                     (str "(lease ...) must be a finite render-time site in "
-                                          "a defview — it cannot run in a loop, deferred "
-                                          "callback, raw-fn/ref body, or root expression. "
-                                          "Move it into the leading lease declaration prefix; for rows, "
-                                          "extract a keyed child view")
-                                     {:form f}))
-                        (env/fail! e :rf.ui.compile/unsupported-form
-                                   (str "(lease ...) is a declaration, not an expression — "
-                                        "put direct lease forms before the view's one final "
-                                        "template; conditional liveness is (lease (when p descriptor))")
-                                   {:form f})))
 
                     (and (symbol? head) (not (contains? locals head))
                          (env/resolves-to? e* head frame-fqns))
@@ -2485,14 +2380,14 @@
 (defn- analyze-capability-free
   "Analyze `form` as a CAPABILITY-FREE template (a client-only :fallback):
   deterministic structural markup only — the JVM/SSR and first-hydration render
-  must match, so reactive reads (sub/lease/frame), host state/effects (local/
+  must match, so reactive reads (sub/frame), host state/effects (local/
   effect/dispatch-fn), and committed event handlers are compile errors. Returns
   the fallback AST. `context` names the position for the diagnostic."
   [e context form]
-  (let [sub-sites (atom {:events [] :subs [] :leases [] :htmls [] :frame-ops []
+  (let [sub-sites (atom {:events [] :subs [] :htmls [] :frame-ops []
                          :slots [] :locals [] :effects [] :dispatch-fns []})
         ast       (analyze (assoc e :sites sub-sites :hooks-region? false) form)
-        found     (->> [:events :subs :leases :frame-ops :locals :effects :dispatch-fns]
+        found     (->> [:events :subs :frame-ops :locals :effects :dispatch-fns]
                        (filter #(seq (get @sub-sites %)))
                        (map name))]
     (when (seq found)
@@ -2667,12 +2562,12 @@
 ;; Reactive authoring verbs in head position (rf2-vxgfnd.266)
 ;; ---------------------------------------------------------------------------
 ;;
-;; sub/lease/frame are reactive authoring verbs, sound in evaluated code ONLY as
-;; their compiler-owned DIRECT forms — (sub query), the leading (lease
-;; descriptor) declaration, (frame) — which the expression rewriter lowers to
+;; sub/frame are reactive authoring verbs, sound in evaluated code ONLY as
+;; their compiler-owned DIRECT forms — (sub query), (frame) — which the
+;; expression rewriter lowers to
 ;; indexed runtime sites. A Hiccup component HEAD is not such a form:
 ;; env/classify-head resolves any resolved non-:rf.ui/view var to a plain
-;; :foreign React component, so [sub {…}] / [lease {…}] / [frame] would
+;; :foreign React component, so [sub {…}] / [frame] would
 ;; otherwise compile as a foreign component with an EMPTY reactive manifest,
 ;; leaving the public authoring var to survive to runtime unindexed and
 ;; bypassing reactive-site indexing entirely. These verbs are therefore
@@ -2684,7 +2579,7 @@
 ;; classifies as :foreign.
 
 (defn- reactive-authoring-head-kind
-  "Return :sub/:lease/:frame when `head` is an unshadowed symbol resolving to a
+  "Return :sub/:frame when `head` is an unshadowed symbol resolving to a
   public reactive authoring var — the reserved-head discriminator, mirroring
   frame-root-head?/frame-provider-head?."
   [e head]
