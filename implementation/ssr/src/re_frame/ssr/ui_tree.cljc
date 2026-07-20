@@ -1006,8 +1006,9 @@
   throws the shared `:rf.error/ui-tree-malformed`.
 
   Calls NOTHING — no view, no subscription, no frame. Pure, deterministic
-  to the byte, JVM-runnable. `opts` mirrors the emitter family: `:doctype?`
-  prefixes `<!DOCTYPE html>`."
+  to the byte, JVM-runnable. `opts` carries a single current option,
+  `:doctype?` (default off), which prefixes `<!DOCTYPE html>`; other keys are
+  ignored (the `render-to-string` option set does not transfer to this seam)."
   ([tree] (emit-ui-tree tree nil))
   ([tree opts]
    (validate-tree-version! tree)
