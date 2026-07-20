@@ -418,7 +418,7 @@
       :page-params [nil "cursor-1"]
       :next-page-param "cursor-2"                  ; more pages → not terminal
       :generation 3 :loaded-at (- now 1000) :stale-at (+ now 50000)
-      :active-owners #{[:lease "feed"]} :tags #{[:feed "clj"]}}
+      :active-owners #{[:feed/opened "feed"]} :tags #{[:feed "clj"]}}
      ;; a TERMINAL feed (nil cursor) carrying a load-more :page-error
      [session-scope :feed/articles {:tag "done"}]
      {:resource/id :feed/articles :status :loaded :infinite? true
@@ -427,7 +427,7 @@
       :next-page-param nil                         ; nil cursor = terminal
       :page-error {:kind :rf.http/server-error :status 500}
       :generation 2 :loaded-at (- now 500) :stale-at (+ now 50000)
-      :active-owners #{[:lease "feed2"]}}}))
+      :active-owners #{[:feed/opened "feed2"]}}}))
 
 (deftest infinite-instance-surface-test
   (let [rows  (h/project-instances infinite-entries now)
@@ -706,7 +706,7 @@
            :matched [[session-scope :article/by-slug {:slug "welcome"}]]
            :refetched 1}}
    {:id 5 :operation :rf.resource/owner-released
-    :tags {:owner [:lease :dashboard/opened "u-42"]}}])
+    :tags {:owner [:dashboard/opened "u-42"]}}])
 
 (deftest lifecycle-timeline-test
   (let [rows (h/lifecycle-timeline trace-buffer)]
@@ -1130,16 +1130,16 @@
                     [{:resource-id :article/by-slug
                       :params {:slug "welcome"} :scope session-scope}]))))
     (testing "orphaned-owner lint flags an app-kind owner with no release"
-      ;; add an entry pinned by an app-minted [:lease …] owner with no
+      ;; add an entry pinned by an app-minted [:dashboard/opened …] owner with no
       ;; owner-released event in the trace
       (let [pinned (assoc entries
                           [session-scope :dashboard/summary {:user-id "u-99"}]
                           {:resource/id :dashboard/summary :status :loaded
-                           :data {} :active-owners #{[:lease :dashboard/opened "u-99"]}})
+                           :data {} :active-owners #{[:dashboard/opened "u-99"]}})
             rows   (h/project-instances pinned now)
             ;; trace has a release only for u-42, not u-99
             orphans (h/orphaned-owner-lint rows trace-buffer)]
-        (is (= [[:lease :dashboard/opened "u-99"]] (mapv :owner orphans))))
+        (is (= [[:dashboard/opened "u-99"]] (mapv :owner orphans))))
       (testing "a route/machine/ssr owner is framework-released — not linted"
         (is (empty? (h/orphaned-owner-lint instance-rows trace-buffer))
             "the route-owned fresh entry is not an app-kind owner")))))

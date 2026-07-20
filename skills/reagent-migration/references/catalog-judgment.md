@@ -43,7 +43,7 @@
 
 - **Host / DOM work** → split by *timing*, because `component-did-mount` fired **before paint** and the passive `effect` fires **after** it. Ordinary listeners and deferrable host work (wire a listener, focus a node, kick off a fetch, attach a chart that sizes itself) → `(effect :connect …)`; its signature is a trap — read **the `effect` signature** below before you emit one. But work that **measures or mutates the DOM before the browser paints** — reading a node's geometry to place a popover/dropdown, sizing a table viewport — must NOT move to the passive `effect` (it would measure a frame late and flicker). Route that to **`re-frame.ui.react/use-ref` + `use-layout-effect`** — the measure-before-paint door (see **below**).
 - **Domain work on MOUNT** ("mark viewed", "load on mount") → a route/domain **event** through the dataflow (name it for the author). There is deliberately **no** `:on-mount` primitive; domain-on-mount is a dispatch through the dataflow, not a lifecycle hook.
-- **Domain work on UNMOUNT** ("release the lease", "mark the draft abandoned") → **re-home it OUT of the view** — see **Domain work on unmount** below. There is **no dispatch-at-unmount** in native re-frame.ui; you do **not** preserve it as an `effect` cleanup.
+- **Domain work on UNMOUNT** ("release a held resource", "mark the draft abandoned") → **re-home it OUT of the view** — see **Domain work on unmount** below. There is **no dispatch-at-unmount** in native re-frame.ui; you do **not** preserve it as an `effect` cleanup.
 
 ### The update, snapshot-pairing, and error-boundary roles
 
@@ -108,41 +108,41 @@ Two forms, both a **leading statement** in a `defview`'s top region (before the 
          (fn [] (.removeEventListener node "keydown" on-key))))
 ```
 
-`:connect` cleanup runs at each *disconnect*, not once at unmount, and dev StrictMode replays connect/disconnect — so the cleanup must be idempotent (the **StrictMode idempotency** gotcha, [`gotchas.md`](gotchas.md)). `sub`/`lease`/`frame` inside an effect body are compile errors. To dispatch from an effect, capture `(ui/dispatch-fn)` in the view body and call it — **but that dispatcher fails loud at disconnect**, which is exactly why unmount domain-work re-homes (next).
+`:connect` cleanup runs at each *disconnect*, not once at unmount, and dev StrictMode replays connect/disconnect — so the cleanup must be idempotent (the **StrictMode idempotency** gotcha, [`gotchas.md`](gotchas.md)). `sub`/`frame` inside an effect body are compile errors. To dispatch from an effect, capture `(ui/dispatch-fn)` in the view body and call it — **but that dispatcher fails loud at disconnect**, which is exactly why unmount domain-work re-homes (next).
 
 ### Domain work on unmount re-homes OUT of the view (no dispatch-at-unmount)
 
-A Reagent view that dispatched a domain event from `:component-will-unmount` (release a lease, mark a draft abandoned) has **no compiled equivalent, by design**. Native re-frame.ui has **no dispatch-at-unmount**. The framework's own words on the committed dispatcher (`ui.cljc`, `dispatch-fn`):
+A Reagent view that dispatched a domain event from `:component-will-unmount` (release a held resource, mark a draft abandoned) has **no compiled equivalent, by design**. Native re-frame.ui has **no dispatch-at-unmount**. The framework's own words on the committed dispatcher (`ui.cljc`, `dispatch-fn`):
 
 > *… it FAILS LOUD in every non-connected state (`:rf.error/dispatch-disconnected`) — the leaked-listener detector for an external callback that outlived its view.*
 
 An unmount cleanup fires while the view is disconnecting, so a `(ui/dispatch-fn)` call there is rejected — the **leaked-listener law**. You cannot dispatch domain work at unmount, and an `effect` cleanup is **not** a place to smuggle it in.
 
-**So re-home the resource lifecycle out of the view.** The canonical `re-frame.ui` editor reference states it in its docstring:
+**So re-home the resource lifecycle out of the view.** The canonical `re-frame.ui` editor reference captures the doctrine:
 
-> *"The article read is a DATAFLOW concern that the ROUTE owns … `:realworld.editor/edit` declares `:realworld/article` as a `:resources` entry (routing.cljs), so the runtime marks it active under the route owner `[:route :realworld.editor/edit nav-token]` on entry and RELEASES that owner on every route leave … So the native view owns no lease — there is nothing at the view tier to leak — and the resource lifecycle lives in the route's `:resources`, released on every exit."*
+> *The article read is a DATAFLOW concern that the ROUTE owns … `:realworld.editor/edit` declares `:realworld/article` as a `:resources` entry (routing.cljs), so the runtime marks it active under the route owner `[:route :realworld.editor/edit nav-token]` on entry and RELEASES that owner on every route leave … So the native view owns no resource lifetime — there is nothing at the view tier to leak — and the resource lifecycle lives in the route's `:resources`, released on every exit.*
 
-The pattern, abstractly: the resource was minted by a *causal event* (a route match, a "start editing" event), and it is released by an owner that covers **every** exit path — **not** by the view's teardown. That completeness is the discipline: a D-tier view stays held until each old teardown responsibility has a **proven** new owner; naming a plausible end event is not completion — enumerate every exit and prove each one releases. The RealWorld editor is the corrected reference (`examples/real-apps/realworld_resources/{routing,article_editor,ui_editor}.cljc`): ordinary *route leave* (edit→home, edit A→B, save) fires no `:editor/*` event, so an enumeration that stopped at delete/finish would leak. Ownership re-homes to the **route** — the article read is a `:resources` entry the runtime releases on every route leave, one framework lifecycle covering every exit. The migrated view becomes a **pure render** of subs; it owns no lease, so there is nothing at the view tier to leak.
+The pattern, abstractly: the resource was minted by a *causal event* (a route match, a "start editing" event), and it is released by an owner that covers **every** exit path — **not** by the view's teardown. That completeness is the discipline: a D-tier view stays held until each old teardown responsibility has a **proven** new owner; naming a plausible end event is not completion — enumerate every exit and prove each one releases. The RealWorld editor is the corrected reference (`examples/real-apps/realworld_resources/{routing,article_editor,ui_editor}.cljc`): ordinary *route leave* (edit→home, edit A→B, save) fires no `:editor/*` event, so an enumeration that stopped at delete/finish would leak. Ownership re-homes to the **route** — the article read is a `:resources` entry the runtime releases on every route leave, one framework lifecycle covering every exit. The migrated view becomes a **pure render** of subs; it owns no resource lifetime, so there is nothing at the view tier to leak.
 
 ```clojure
-;; before — a Form-3 view owns the lease and releases it at unmount
+;; before — a Form-3 view owns the resource lifetime and releases it at unmount
 (defn editor []
   (let [{:keys [dispatch]} (rf/capture-frame)]
     (r/create-class
      {:component-will-unmount (fn [_] (dispatch [:resource/release]))
       :reagent-render         (fn [] [editor-form])})))
 
-;; after — the view owns no lease; it is a pure defview.
-;; The lease RE-HOMES to the dataflow: a route / "start" event MINTS it (e.g. a
-;;   route `:resources` entry, or [:lease :resource id]); an owner that covers
-;;   EVERY exit RELEASES it — for a route-scoped read that owner is the route's
-;;   `:resources` (released on every route leave), not a hand-picked set of end
-;;   events. Name/scope that owner for the author (cardinal rule 5) — the skill
-;;   does not write it, it scopes it.
+;; after — the view owns no resource lifetime; it is a pure defview.
+;; The resource lifetime RE-HOMES to the dataflow: a route / "start" event MINTS
+;;   the owner (e.g. a route `:resources` entry, or an app-minted event owner such
+;;   as [:editor/opened id]); an owner that covers EVERY exit RELEASES it — for a
+;;   route-scoped read that owner is the route's `:resources` (released on every
+;;   route leave), not a hand-picked set of end events. Name/scope that owner for
+;;   the author (cardinal rule 5) — the skill does not write it, it scopes it.
 (ui/defview editor [] [editor-form])
 ```
 
-**When the resource lifetime genuinely follows this view site's presence**, the compiled owner is a *view-declared* lease — a leading `(ui/lease {:resource :ns/thing …})` declaration the framework acquires on connect and **releases at teardown for you (no dispatch)**. That lease is valid **even when its activation is conditional or its params are dynamic** — the descriptor may evaluate to `nil` (not held) or to a `{:resource … :params …}` map at render time, and the framework owns ensure/retarget/release across those changes. What a view lease does **not** fit is an **app-minted** owner — one an event, route, or machine created: keep causal ownership in the dataflow and release via the causal owner's *end* (for the route reference, the `:resources` release on every route leave). Choosing a view lease over causal ownership is an **ownership-model decision** to make with the author, not a mechanical migration — and routes/events/machines remain the preferred causal owners (Spec 004, I-11). Either way, **the view never dispatches at unmount.**
+**re-frame.ui has no view-owned resource lifetime, by design** — there is no component-presence resource owner, and liveness never re-enters through a view's mount/unmount. So the owner is always **causal**: a route (a `:resources` entry, released on every route leave), a machine (`[:machine actor-id]`, released on actor destroy), an SSR request (`[:ssr request-id nav-token]`), or a **semantic app event** that mints an app-kind owner (e.g. `[:editor/opened id]`) with a matching `:rf.resource/release-owner` on the event that ends it. Which causal owner fits is an **ownership-model decision** to make with the author, not a mechanical migration — and routes/events/machines remain the preferred owners (Spec 004, I-11; [Spec 016 §Release authority](../../../spec/016-Resources.md)). When a read genuinely has **no causal event bounding its life**, the valid tool is an **ownerless `ensure`** — cause-only, carrying no `:owner`, so the entry stays GC-eligible (focus/reconnect revalidate it; it is reaped once inactive) — never a view that owns a lifetime. Either way, **the view never dispatches at unmount and owns no resource lifetime.**
 
 ## MIG-18 — non-conforming `:on-*` handlers
 
@@ -234,7 +234,7 @@ The outward direction (a compiled view *inside* a Reagent/foreign React tree) is
 | MIG | Construct | The decision |
 |---|---|---|
 | **MIG-03** | `@(subscribe [:q] {:frame f})` / explicit-frame op | No arity-1 `sub` frame-pin is exported yet. Scope the subtree with `ui/frame-provider {:frame f}`, or hold the view. (Capability gap → R-tier.) |
-| **MIG-08** | unkeyed `for`; `sub`/`lease` in a loop; loop-capturing handler | Extract a **keyed child view** (per-row instances). Missing key = build failure; a `sub`/capture in a loop = compile error. The tool never does this structural move — you do, with the author. |
+| **MIG-08** | unkeyed `for`; `sub` in a loop; loop-capturing handler | Extract a **keyed child view** (per-row instances). Missing key = build failure; a `sub`/capture in a loop = compile error. The tool never does this structural move — you do, with the author. |
 | **MIG-10** | fn-valued prop at a **foreign** component boundary | Choose the callback form: identity/ref → `(ui/raw-fn f)`; needs the event/payload → `ui/event`; imperative/stable-identity → `ui/handler`; pure render prop → `ui/render-fn`. Event *vectors* are not a foreign-boundary form. |
 | **MIG-13** | markup-returning `(map (fn …) xs)` in child position | Rewrite to a keyed `for` (`(for [t ts] [item {:key (:id t) :t t}])`) — mechanical only when the fn is a literal with a keyed hiccup body; confirm the candidate. |
 | **MIG-26** | ambient `subscribe`/`dispatch` in a plain unregistered `defn` | Grep for these — they throw `:rf.error/no-frame-context`. Preference order: (1) register as a view; (2) hoist the op to the nearest registered ancestor and pass values down; (3) explicit `{:frame f}`. |

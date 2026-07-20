@@ -84,7 +84,7 @@ The table is **complete by gate**: `scripts/check_skill_mcp_drift.py` cross-chec
 | `read-ui` | `{view-id \| point \| selector}` (exactly one) — rendered subtree + producing entity | [`ops.md` §ui/read](ops.md#view--rendered-content--producing-entity-uiread) |
 | `read-dom` | `{selector, sub-selector?, attrs?, max-text?, limit?}` — raw DOM by CSS selector | [`ops.md` §read-dom](ops.md#read-dom--raw-dom-content-by-explicit-css-selector) |
 | `read-view-manifest` | `{view-id, build?, max-tokens?}` — a compiled view's public manifest (props, source, site counts) | [`ops.md` §Compiled-view inspection](ops.md#compiled-view-inspection--manifest-mounted-set-render-cause) |
-| `read-view-dependencies` | `{view-id, build?, max-tokens?}` — its declared subscription + lease sites | [`ops.md` §Compiled-view inspection](ops.md#compiled-view-inspection--manifest-mounted-set-render-cause) |
+| `read-view-dependencies` | `{view-id, build?, max-tokens?}` — its declared subscription sites | [`ops.md` §Compiled-view inspection](ops.md#compiled-view-inspection--manifest-mounted-set-render-cause) |
 | `read-view-event-sites` | `{view-id, build?, max-tokens?}` — its declared `:on-*` handler sites, each classified | [`ops.md` §Compiled-view inspection](ops.md#compiled-view-inspection--manifest-mounted-set-render-cause) |
 | `read-mounted-views` | `{build?, max-tokens?}` — every retained incarnation; no `view-id` arg | [`ops.md` §Compiled-view inspection](ops.md#compiled-view-inspection--manifest-mounted-set-render-cause) |
 | `explain-render` | `{view-id?, build?, max-tokens?}` — why live incarnations rendered; omit `view-id` for all | [`ops.md` §Compiled-view inspection](ops.md#compiled-view-inspection--manifest-mounted-set-render-cause) |

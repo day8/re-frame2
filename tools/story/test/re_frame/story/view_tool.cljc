@@ -20,8 +20,8 @@
       `:owned? false` — Story OBSERVES a view through the shared override door
       (`ui.test/render {:sub-overrides …}` on the JVM, the
       `re-frame.adapter.sub-override-context` Provider on CLJS); it never
-      acquires or releases the reactive lease behind an override. Core lowers a
-      `:sub-overrides` HIT to a callback-free STATIC `:story-override` lease,
+      acquires or releases the reactive handle behind an override. Core lowers a
+      `:sub-overrides` HIT to a callback-free STATIC `:story-override` handle,
       `:owned? false` (`re-frame.substrate.observation` / `re-frame.ui.reactive`
       §override door), so the label is the CORE contract Story surfaces — not a
       claim Story invents.
@@ -67,9 +67,9 @@
   nil) as Story OBSERVATION targets — one row per exact query vector, each
   labelled `:owned? false`.
 
-  This is HONEST NON-OWNERSHIP: an override does not lease the view's real
+  This is HONEST NON-OWNERSHIP: an override does not own the view's real
   subscription. Core lowers a `:sub-overrides` HIT to a `:story-override`
-  observation target whose commit acquires a callback-free STATIC lease with
+  observation target whose commit acquires a callback-free STATIC handle with
   `:owned? false` (`re-frame.ui.reactive` §override door /
   `re-frame.substrate.observation`); Story neither acquires nor releases the
   view's reactive resource — it observes a pinned value. `nil`/empty overrides
@@ -105,7 +105,7 @@
                                        ;   consumer does not know — degrade
      :compiled-view?     <bool>        ; is `view-id` a registered compiled view?
      :manifest           <projection|nil>   ; what CAN happen (pre-mount)
-     :dependencies       <projection|nil>   ; declared sub + lease SITES
+     :dependencies       <projection|nil>   ; declared subscription SITES
      :event-sites        <projection|nil>   ; declared event-handler SITES
      :mounted            [<record> ...]      ; committed CONNECTED-INSTANCE
                                        ;   records for THIS view (S3), possibly []
@@ -153,7 +153,7 @@
 ;; asserts what the compiled view produced WITHOUT a DOM or a live root (it never
 ;; acquires/releases an app resource). The `:sub-overrides` render opt seeds the
 ;; SAME observation door `view-evidence` labels `:owned? false`, so a fixture can
-;; prove a pinned value flowed through the tree without Story owning a lease.
+;; prove a pinned value flowed through the tree without Story owning a handle.
 
 (defn- node-kind
   "Discriminate a MAP node per the tree contract's pinned order (mirrors

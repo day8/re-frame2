@@ -6,11 +6,11 @@
 
   These expose, from a RUNNING re-frame2 app, the same S3 view evidence Xray and
   Story read — so a pairing agent inspects a compiled view WITHOUT reaching a
-  private React / lease / scheduler handle. Each tool ships ONE self-describing
-  CLJS form that calls a `re-frame.ui.tool` projection and forwards the bounded,
-  serializable, VERSIONED result verbatim; the projection stamps
-  `:rf.ui.tool/version` and egresses only plain data (no ViewCell / lease / React
-  object), so the wire carries no raw internal handle.
+  private React / observation-handle / scheduler object. Each tool ships ONE
+  self-describing CLJS form that calls a `re-frame.ui.tool` projection and
+  forwards the bounded, serializable, VERSIONED result verbatim; the projection
+  stamps `:rf.ui.tool/version` and egresses only plain data (no ViewCell /
+  observation-handle / React object), so the wire carries no raw internal handle.
 
     | MCP wire tool           | `re-frame.ui.tool` projection | arg      |
     |-------------------------|-------------------------------|----------|
@@ -165,9 +165,9 @@
                            :read-view-manifest-failed "read-view-manifest"))
 
 (defn read-view-dependencies-tool
-  "MCP `read-view-dependencies` — the reactive dependency SITES (subscriptions +
-  leases) a compiled view declares, with literal-vs-`:dynamic` query-shape
-  honesty. Read from the manifest; available before mount. Requires `:view-id`."
+  "MCP `read-view-dependencies` — the subscription SITES a compiled view
+  declares, with literal-vs-`:dynamic` query-shape honesty. Read from the
+  manifest; available before mount. Requires `:view-id`."
   [conn raw-args]
   (view-id-projection-tool conn raw-args "view-dependencies"
                            :read-view-dependencies-failed "read-view-dependencies"))

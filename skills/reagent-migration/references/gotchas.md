@@ -26,7 +26,7 @@ So: gate the whole view first. Any D/R hit → the **entire** view stays on Reag
 A `for` body in the compiled grammar has hard rules Reagent didn't enforce:
 
 - **A missing key is a build failure** (Reagent silently tolerated it).
-- **A `sub` or `lease` inside a `for` body is a compile error** — reactive reads can't be per-row inline.
+- **A `sub` inside a `for` body is a compile error** — reactive reads can't be per-row inline.
 - **A handler vector that captures the loop binding is a compile error.**
 
 The fix for all three is the same structural move: **extract a keyed child view** — one `defview` instance per row, keyed, with the per-row read/handler inside the child (MIG-08). The skill does not perform this cross-structure extraction automatically; it is a code-shaping move you make with the author. A capture-free literal handler and a first-collection `sub` position (evaluated once per render) are fine — it's the per-row reactive read / captured handler that forces extraction.

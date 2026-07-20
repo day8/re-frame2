@@ -752,8 +752,8 @@ teardown lists, plus a **COMPILED VIEW SITES** section (§3.4.2) for the static
 per-view manifest sites.
 
 **What it consumes (rf2-vxgfnd.95.7).** The five frozen read-only projections
-a debugging consumer reads WITHOUT touching private React state, leases, or the
-scheduler — each stamped `:rf.ui.tool/version`:
+a debugging consumer reads WITHOUT touching private React state, observation
+handles, or the scheduler — each stamped `:rf.ui.tool/version`:
 
 - `explain-render` → the per-INCARNATION render evidence: OCCURRENCE IDENTITY
   (`:occurrence`), the live `:connection` state, the honest hide-vs-unmount
@@ -915,7 +915,7 @@ the silent-when-zero grammar). Each row is shaped from `view-manifest`,
 
 - **Source** — the manifest `:source` `[code]` chip (`…-view-site-code-<slug>`),
   jumping to the view's registration.
-- **Dependencies** — sub + lease counts with a `:dynamic` tally; a fully-literal
+- **Dependencies** — subscription counts with a `:dynamic` tally; a fully-literal
   query is projected verbatim, a query carrying a captured local is honestly
   `:dynamic?` (never fabricated as a literal value).
 - **Event sites** (`…-view-site-events-<slug>`) — each `:on-*` handler classified

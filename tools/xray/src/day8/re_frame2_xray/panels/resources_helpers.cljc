@@ -1708,7 +1708,7 @@
 
 (defn orphaned-owner-lint
   "Orphaned-owner lint (Spec 016 §Xray — two lints / §Release authority):
-  an app-minted `[:lease …]` (or other app-kind) owner pinning an entry
+  an app-minted `[:dashboard/opened …]` (or other app-kind) owner pinning an entry
   with no observed `:rf.resource/owner-released` for that owner in the
   trace. Route / machine / ssr owners are framework-released (route on
   nav supersession, machine on actor destroy, ssr on request teardown),
