@@ -210,15 +210,30 @@
   `events/with-capture` as the committed destination, and every sub/lease wrapper
   binds it into `re-frame.frame/*current-frame*` around the compiled body
   (`with-current-frame`) so ambient `(sub …)` / `(lease …)` resolution hits the
-  precedence-first dynamic tier. The `useContext` call above owns the repaint
-  SUBSCRIPTION either way. Called as a compile-time-selected LEADING hook, so it
-  is stable in hook order for every render of a given compiled view's component
-  (never conditional at runtime)."
+  precedence-first dynamic tier. Called as a compile-time-selected LEADING hook,
+  so it is stable in hook order for every render of a given compiled view's
+  component (never conditional at runtime).
+
+  The frame VALUE is the PUBLIC `useContext` RETURN (rf2-2rzx0), not a re-read
+  of the private `_currentValue` slot. `useContext` is renderer-agnostic — it
+  resolves the closest Provider under BOTH the client renderer and
+  `react-dom/server`. `function-component-current-frame` reads `_currentValue`
+  directly, which React 19.2's SERVER renderer does NOT populate (it uses
+  `_currentValue2`), so sourcing the frame there lost the Provider under
+  `react-dom/server` and a server-rendered compiled sub/lease ViewCell could
+  still raise `:rf.error/no-frame-context`. Resolution keeps the same explicit
+  precedence and the same validation: an ambient `frame/*current-frame*` still
+  wins, otherwise the hook value flows through the SHARED sentinel / coercion /
+  corruption rules (`adapter-context/context-value->current-frame`) — identical
+  to the reader's classification, since on the client `useContext` observes the
+  same value `_currentValue` holds."
   []
-  (react/useContext adapter-context/frame-context)
-  ;; Preserve the full carried-invariant precedence (dynamic binding before
-  ;; React context) while the useContext call above owns repaint subscription.
-  (adapter-context/function-component-current-frame))
+  (let [ctx-frame (react/useContext adapter-context/frame-context)]
+    ;; Dynamic binding before React context (the carried-invariant precedence);
+    ;; the single `useContext` call above owns the repaint SUBSCRIPTION and now
+    ;; also supplies the renderer-agnostic frame value.
+    (or frame/*current-frame*
+        (adapter-context/context-value->current-frame ctx-frame))))
 
 (defn- with-current-frame
   "Wrap compiled body `thunk` so `re-frame.frame/*current-frame*` is bound to
