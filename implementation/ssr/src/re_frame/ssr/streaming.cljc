@@ -370,25 +370,29 @@
                                 [(second el) (drop 2 el)]
                                 [{} (rest el)])
         merged-attrs          (emit/merge-class-attrs tag-attrs user-attrs)
-        ;; Void classification is case-insensitive,
-        ;; mirroring the non-streaming emitter. A `[:BR]` admitted by
+        ;; Void + raw-text classification are case-insensitive, mirroring
+        ;; the non-streaming emitter. A `[:BR]` admitted by
         ;; `validate-tag-name!` must be recognised as void here too, or the
-        ;; shell walker emits a `<BR></BR>` open+close pair. The raw-text
-        ;; body guard below (`reject-raw-text-string-children!`) already
-        ;; lower-cases internally for the same reason.
-        void?                 (contains? emit/void-elements
-                                         (keyword (clojure.string/lower-case tag-name)))]
-    (if void?
-      (str "<" tag-name (emit/attr-string merged-attrs) ">")
-      (do
-        ;; Mirror the non-streaming emitter's raw-text body
-        ;; guard so a body-position `<script>`/`<style>` with raw string
-        ;; content fails loud in the shell walk too (rather than silently
-        ;; `escape-html`-ing it via the standard emitter).
-        (emit/reject-raw-text-string-children! tag-name children head)
-        (str "<" tag-name (emit/attr-string merged-attrs) ">"
-             (walk-children children acc)
-             "</" tag-name ">")))))
+        ;; shell walker emits a `<BR></BR>` open+close pair.
+        norm-tag              (clojure.string/lower-case tag-name)
+        void?                 (contains? emit/void-elements (keyword norm-tag))
+        raw-text?             (contains? html/raw-text-tags norm-tag)]
+    (cond
+      void?     (str "<" tag-name (emit/attr-string merged-attrs) ">")
+      ;; rf2-xbvzh — mirror the non-streaming emitter: an ordinary inline
+      ;; `<script>`/`<style>` with STRING content is author content, emitted
+      ;; VERBATIM with only the shared closing-sequence rewrite
+      ;; (`html/escape-raw-text`), byte-identical to the sync emitter and the
+      ;; S5 serialiser. Any structural child falls through to the standard
+      ;; child walk (element children pass through inert).
+      (and raw-text? (seq children) (every? string? children))
+      (str "<" tag-name (emit/attr-string merged-attrs) ">"
+           (html/escape-raw-text norm-tag (clojure.string/join children))
+           "</" tag-name ">")
+      :else
+      (str "<" tag-name (emit/attr-string merged-attrs) ">"
+           (walk-children children acc)
+           "</" tag-name ">"))))
 
 (defn- suspense-attrs? [m]
   (and (map? m) (contains? m :id) (contains? m :fallback)))
