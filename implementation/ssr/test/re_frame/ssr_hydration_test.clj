@@ -210,37 +210,35 @@
             "the cookie's :name slot round-trips verbatim")))))
 
 ;; ===========================================================================
-;; spec.cjs §(6) → :rf.ssr/compatibility-check-skipped trace fires
+;; spec.cjs §(6) → version check silently matches the SSR constant (rf2-qfb1i)
 ;; ===========================================================================
 
-(deftest hydration-baseline-emits-compatibility-check-skipped-trace
-  (testing "Migrated from testbeds/ssr_basic/spec.cjs assertion #12.
-            The baseline surface registers no :rf2/runtime-version
-            late-bind hook (per testbed core.cljs — no host-version
-            stamp wired). The :rf.ssr/check-version fx dispatched by
-            :rf/hydrate emits :rf.ssr/compatibility-check-skipped
-            (Spec 011 §The :rf/hydrate event — best-effort
-            compatibility check; absence of the hook is degraded-
-            but-running, never crash)."
+(deftest hydration-baseline-version-matches-ssr-constant-silently
+  (testing "Migrated from testbeds/ssr_basic/spec.cjs assertion #12, updated
+            for rf2-qfb1i (the late-bind version hook was removed; the SSR
+            artefact now owns the pattern-protocol version).
+            The baseline payload ships :rf/version = the SSR artefact's
+            compiled-in pattern-protocol constant, so the :rf.ssr/check-version
+            fx the :rf/hydrate handler dispatches resolves the client-side
+            'actual' from that SAME constant and silently matches — NO
+            :rf.ssr/compatibility-check-skipped (the former no-hook baseline)
+            and NO :rf.ssr/version-mismatch. Best-effort, degraded-but-running,
+            never crash (Spec 011 §The :rf/hydrate event)."
     (register-baseline-handlers!)
+    ;; The baseline payload's version is the SSR-owned constant (the wire
+    ;; shape the testbed baked), so the scalar version check compares equal.
+    (is (= payload-policy/pattern-protocol-version (:rf/version baseline-payload))
+        "the baseline payload ships the v1 pattern-protocol version")
     (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-basic client frame"
                                        :platform :client})
           payload      (materialise-response baseline-payload)]
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
-        (let [skipped (filter #(= :rf.ssr/compatibility-check-skipped
-                                  (:operation %))
-                              @traces)]
-          (is (seq skipped)
-              (str "expected at least one :rf.ssr/compatibility-check-skipped "
-                   "trace (the baseline surface registers no "
-                   ":rf2/runtime-version hook); saw operations: "
-                   (pr-str (mapv :operation @traces))))
-          (let [ev (first skipped)]
-            (is (= :rf.ssr/check-version (-> ev :tags :check))
-                "tag :check identifies the originating compatibility-check fx")
-            (is (= 1 (-> ev :tags :expected))
-                "tag :expected carries the payload's :rf/version verbatim")))))))
+        (is (empty? (filter #(= :rf.ssr/compatibility-check-skipped (:operation %)) @traces))
+            (str "version check resolves via the SSR constant → never skipped; "
+                 "saw operations: " (pr-str (mapv :operation @traces))))
+        (is (empty? (filter #(= :rf.ssr/version-mismatch (:operation %)) @traces))
+            "payload :rf/version == the SSR constant → silent match")))))
 
 ;; ===========================================================================
 ;; spec.cjs §(7) → NO mismatch trace on the baseline
@@ -290,29 +288,29 @@
 (deftest hydration-on-client-platform-still-dispatches-check-fxs
   (testing "Per rf2-7bcn0 (counter-test to the server-side skip): on a
             :client-platform frame the handler MUST still enqueue the
-            check fxs so legitimate client-side mismatches surface via
-            :rf.ssr/compatibility-check-skipped (when the late-bind
-            hook is absent) or :rf.ssr/version-mismatch (when present
-            and differing). Without this counter-assertion the
-            server-side gate could silently strip both code paths."
+            check fxs so legitimate client-side mismatches surface. Updated
+            for rf2-qfb1i: the version check's client-side 'actual' is the
+            SSR artefact's compiled-in constant, so a payload whose
+            :rf/version DIFFERS from it emits :rf.ssr/version-mismatch —
+            observable proof the :rf.ssr/check-version fx dispatched on the
+            client frame (the rf2-7bcn0 gate did NOT over-skip on :client).
+            Without this counter-assertion the server-side gate could
+            silently strip the client code path."
     (register-baseline-handlers!)
     (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-basic client frame"
                                        :platform :client})
-          payload      (materialise-response baseline-payload)]
+          ;; Skew the payload version away from the SSR constant so the
+          ;; version check has something to report on the client frame.
+          payload      (-> baseline-payload
+                           (assoc :rf/version (inc payload-policy/pattern-protocol-version))
+                           materialise-response)]
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
-        (let [skipped (filter #(= :rf.ssr/compatibility-check-skipped
-                                  (:operation %))
-                              @traces)]
-          ;; Same trace as hydration-baseline-emits-compatibility-check-skipped-trace —
-          ;; the fx STILL fires on the client frame because no
-          ;; :rf2/runtime-version hook is registered. Asserts the
-          ;; rf2-7bcn0 gate did NOT over-skip on :client.
-          (is (seq skipped)
+        (let [mismatch (filter #(= :rf.ssr/version-mismatch (:operation %)) @traces)]
+          (is (seq mismatch)
               (str "on :client the :rf.ssr/check-version fx still fires and "
-                   "emits :rf.ssr/compatibility-check-skipped (no runtime-"
-                   "version hook registered); saw operations: "
-                   (pr-str (mapv :operation @traces)))))))))
+                   "emits :rf.ssr/version-mismatch on a skewed :rf/version; "
+                   "saw operations: " (pr-str (mapv :operation @traces)))))))))
 
 (deftest hydration-baseline-no-mismatch-trace-when-server-hash-nil
   (testing "Migrated from testbeds/ssr_basic/spec.cjs assertion #13.

@@ -78,10 +78,10 @@
   four-key payload assembly (`build-payload`). Both streaming and
   non-streaming SSR construct the identical `:rf/hydration-payload`
   shape and pin `:rf/version` from the identical source-of-truth: the
-  caller's explicit `:version` opt, falling back to the
-  `:rf2/runtime-version` late-bind hook the client-side
-  `:rf.ssr/check-version` fx reads, falling back to the v1 pattern-
-  protocol stamp. The two call sites differ only in how they source
+  caller's explicit `:version` opt, falling back to the SSR artefact's
+  compiled-in `pattern-protocol-version` constant — the SAME value the
+  client-side `:rf.ssr/check-version` fx reads, so both wire ends agree
+  with no host wiring. The two call sites differ only in how they source
   `app-db` (the non-streaming path is handed it; the streaming path
   reads it from the live frame after every continuation drains), so
   each owns a thin wrapper over `build-payload`:
@@ -622,11 +622,16 @@
 ;; Single home for the hydration-payload `:rf/version` resolution and the
 ;; Canonical payload assembly shared by streaming and non-streaming SSR.
 
-(def ^:private default-pattern-protocol-version
-  "The v1 pattern-protocol version stamp (per Spec-Schemas
-  §`:rf/hydration-payload` — \"integer; v1 = 1\"). Terminal fallback in
-  `resolve-version` so the canonical `:rf/version` key is always present
-  (Malli `:int` slot, not `:optional`)."
+(def pattern-protocol-version
+  "The hydration pattern-protocol version — the SSR artefact's compiled-in
+  constant (v1 = 1, per Spec-Schemas §`:rf/hydration-payload` — \"integer;
+  v1 = 1\"). The SSR artefact OWNS this fact: it is compiled into the wire
+  code both ends run, so `resolve-version` (server payload assembly) and
+  `re-frame.ssr.hydrate/runtime-version-lookup` (the client-side scalar
+  `:rf.ssr/check-version` path) read this one source of truth and agree with
+  no host wiring. Also the terminal fallback in `resolve-version` so the
+  canonical `:rf/version` key is always present (Malli `:int` slot, not
+  `:optional`)."
   1)
 
 (defn- coerce-version
@@ -686,27 +691,21 @@
     1. An explicit `:version` opt from the caller (host-supplied stamp;
        wins so test fixtures and apps that ship their own version source
        stay in control) — when it coerces to an integer.
-    2. The framework-global `:rf2/runtime-version` late-bind hook — the
-       same source the client-side `:rf.ssr/check-version` fx reads — when
-       it coerces to an integer. When the host registers this hook at boot,
-       both sides of the wire pin the same value with no further wiring
-       (per Spec 011 §The hydration payload + §fx-input shape + Conventions
-       §Late-bind hook key grammar).
-    3. `default-pattern-protocol-version` (v1 = 1) — the canonical schema
-       slot is required (per Spec-Schemas §`:rf/hydration-payload`), so a
-       terminal integer fallback is structurally necessary. Used when no
-       source supplied a coercible integer (absent, or all rejected).
+    2. `pattern-protocol-version` (v1 = 1) — the SSR artefact's compiled-in
+       constant, the SAME value the client-side `:rf.ssr/check-version` fx
+       reads (`re-frame.ssr.hydrate/runtime-version-lookup`), so both wire
+       ends pin the same value with no host wiring. The canonical schema
+       slot is required (per Spec-Schemas §`:rf/hydration-payload`), so this
+       integer is also the terminal fallback — used whenever no explicit
+       `:version` supplied a coercible integer (absent, or rejected).
 
-  Both sides of the wire read `:version` through the same hook so a host
-  that doesn't pass `:version` explicitly still pins a value the client
-  agrees with (the inline `(or version 1)` it replaced silently defeated
-  the version-mismatch check; rf2-asmj1 S8 / rf2-l8fi6 non-streaming,
-  rf2-via0g streaming)."
+  Both wire ends read the SSR-owned constant, so a host that doesn't pass
+  `:version` explicitly still pins the value the client agrees with (the
+  inline `(or version 1)` it replaced silently defeated the version-mismatch
+  check; rf2-asmj1 S8 / rf2-l8fi6 non-streaming, rf2-via0g streaming)."
   [explicit-version]
   (or (coerce-version explicit-version)
-      (coerce-version (when-let [f (late-bind/get-fn :rf2/runtime-version)]
-                        (f)))
-      default-pattern-protocol-version))
+      pattern-protocol-version))
 
 (defn build-payload
   "Assemble the canonical `:rf/hydration-payload` map per Spec 011 §The
@@ -732,8 +731,8 @@
   The `:rf/app-db` slice is the already-projected `db-slice` — callers
   run `apply-policy` (the fail-closed allowlist / whole-app-db contract,
   rf2-gtgf9) and hand the result here. `:rf/version` is resolved via
-  `resolve-version` (caller's `:version` opt → `:rf2/runtime-version`
-  hook → v1 stamp). `render-hash` is the BODY-ONLY structural hash
+  `resolve-version` (caller's `:version` opt → the SSR-owned
+  `pattern-protocol-version` constant). `render-hash` is the BODY-ONLY structural hash
   (rf2-1oxjxk Option B) — see `re-frame.ssr.ring.lifecycle/render-document-
   hash`. Schema-digest is supplied by the caller when their app
   participates in the schema-digest check; nil otherwise.

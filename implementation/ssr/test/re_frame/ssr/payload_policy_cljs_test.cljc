@@ -30,7 +30,6 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
-            [re-frame.late-bind :as late-bind]
             [re-frame.ssr.payload-policy :as payload-policy]))
 
 (def sample-app-db
@@ -470,22 +469,14 @@
       (is (= 1 v) "non-integer semver string is rejected, not shipped")
       (is (int? v))))
 
-  (testing "no :version + a SEMVER-string :rf2/runtime-version hook → rejected → v1 = 1 default"
-    (late-bind/set-fn! :rf2/runtime-version (constantly "9.9.9"))
-    (try
-      (let [v (:rf/version (payload-policy/build-payload :rf/default {} "h" {}))]
-        (is (= 1 v) "a non-integer hook value is rejected; the integer default wins")
-        (is (int? v)))
-      (finally (swap! late-bind/hooks dissoc :rf2/runtime-version))))
-
-  (testing "no :version + an INTEGER :rf2/runtime-version hook → hook value wins"
-    (late-bind/set-fn! :rf2/runtime-version (constantly 42))
-    (try
-      (is (= 42 (:rf/version (payload-policy/build-payload :rf/default {} "h" {}))))
-      (finally (swap! late-bind/hooks dissoc :rf2/runtime-version))))
-
-  (testing "no source at all → terminal integer v1 = 1 fallback"
-    (is (= 1 (:rf/version (payload-policy/build-payload :rf/default {} "h" {}))))))
+  (testing "no :version → the SSR-owned pattern-protocol constant (v1 = 1)"
+    ;; rf2-qfb1i: the late-bind version hook was removed — with no explicit
+    ;; :version opt, resolve-version falls back to the SSR artefact's
+    ;; compiled-in constant (the SAME value the client reads).
+    (let [v (:rf/version (payload-policy/build-payload :rf/default {} "h" {}))]
+      (is (= payload-policy/pattern-protocol-version v)
+          "absent :version opt → the SSR-owned constant")
+      (is (int? v)))))
 
 ;; ---- build-payload output conforms to the HydrationPayload schema --------
 ;;

@@ -14,6 +14,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
+            [re-frame.ssr.payload-policy :as payload-policy]
             [re-frame.ssr.test-fixture :as tf]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
@@ -127,70 +128,69 @@
               (is (= :warned-and-applied                   (:recovery ev))))))))))
 
 ;; ===========================================================================
-;; SCALAR-form + missing-hook paths — rf2-ooj41
+;; SCALAR-form paths — rf2-ooj41 / rf2-qfb1i
 ;; ===========================================================================
 ;;
 ;; Per rf2-ooj41 (audit ssr coverage + robustness): the explicit-map form is
 ;; covered above. The reference :rf/hydrate handler dispatches the SCALAR
-;; form `[:rf.ssr/check-version <server-value>]`; the fx then looks up the
-;; client-side "actual" via the `:rf2/runtime-version` /
-;; `:schemas/app-schemas-digest` late-bind hooks. When the hook is absent
-;; (host hasn't registered a version-stamp, schemas artefact not on the
-;; classpath), the fx emits `:rf.ssr/compatibility-check-skipped` rather
-;; than throwing. Pin both paths so a regression that silently drops
-;; either trace is caught.
+;; form `[:rf.ssr/check-version <server-value>]`; the fx then resolves the
+;; client-side "actual". For version (rf2-qfb1i) that is the SSR artefact's
+;; compiled-in `payload-policy/pattern-protocol-version` constant — it
+;; ALWAYS resolves (no host hook), so a scalar equal to the constant compares
+;; silently and a scalar that differs emits `:rf.ssr/version-mismatch`. For
+;; schema-digest the client value still comes from the
+;; `:schemas/app-schemas-digest` late-bind hook, which emits
+;; `:rf.ssr/compatibility-check-skipped` when the schemas artefact is absent
+;; (covered below). Pin both paths so a regression that silently drops a
+;; trace is caught.
 
-(deftest check-version-scalar-with-no-hook-emits-skipped
-  (testing "scalar form + absent :rf2/runtime-version hook → :rf.ssr/compatibility-check-skipped"
-    (rf/reg-event ::probe-check-version-scalar-no-hook
+(deftest check-version-scalar-matches-ssr-constant
+  (testing "scalar form equal to the SSR-owned pattern-protocol constant → silent match (no skipped, no mismatch)"
+    ;; rf2-qfb1i: the version-side scalar resolves the client-side "actual"
+    ;; from the SSR artefact's compiled-in constant, not a host hook. A
+    ;; scalar carrying the same value the server stamped (= the constant)
+    ;; compares equal and is silent — the former no-hook "skipped" baseline
+    ;; is gone (the check is real by default).
+    (rf/reg-event ::probe-check-version-scalar-matches
       {:platforms #{:client}}
       (fn [_ _]
-        {:fx [[:rf.ssr/check-version 1]]}))
+        {:fx [[:rf.ssr/check-version payload-policy/pattern-protocol-version]]}))
 
     (let [f (frame/make-anon-frame-record! {:platform :client})]
       (with-trace-recorder! [traces]
-        (rf/dispatch-sync [::probe-check-version-scalar-no-hook] {:frame f})
-        (let [hits (traces-of @traces :rf.ssr/compatibility-check-skipped)]
-          (is (= 1 (count hits))
-              (str "expected one :rf.ssr/compatibility-check-skipped trace; saw: "
-                   (pr-str (mapv :operation @traces))))
-          (when (seq hits)
-            (let [ev (first hits)]
-              (is (= :warning              (:op-type ev)))
-              (is (= :rf.ssr/check-version (-> ev :tags :check))
-                  ":check tag identifies which compatibility fx skipped")
-              (is (= 1                     (-> ev :tags :expected))
-                  "scalar value is the :expected (server-side) value")
-              (is (= :skipped              (:recovery ev))))))))))
+        (rf/dispatch-sync [::probe-check-version-scalar-matches] {:frame f})
+        (is (empty? (traces-of @traces :rf.ssr/compatibility-check-skipped))
+            "version scalar resolves via the SSR constant → never skipped")
+        (is (empty? (traces-of @traces :rf.ssr/version-mismatch))
+            "scalar == the SSR constant → silent match")))))
 
-(deftest check-version-scalar-with-hook-runs-comparison
-  (testing "scalar form + registered :rf2/runtime-version hook → compare; mismatch fires"
-    ;; Install the hook to return the client-side runtime version;
-    ;; remove after to keep the hook table clean for the next test.
-    (late-bind/set-fn! :rf2/runtime-version (constantly 2))
-    (try
-      (rf/reg-event ::probe-check-version-scalar-with-hook
+(deftest check-version-scalar-differs-from-ssr-constant-emits-mismatch
+  (testing "scalar form differing from the SSR-owned constant → :rf.ssr/version-mismatch"
+    ;; rf2-qfb1i: no host hook installed — the client-side "actual" IS the
+    ;; SSR artefact's compiled-in constant. A scalar (server value) that
+    ;; differs from it is genuine skew and emits :rf.ssr/version-mismatch,
+    ;; proving the SSR constant is the "actual" the comparison runs against.
+    (let [server-version (inc payload-policy/pattern-protocol-version)]
+      (rf/reg-event ::probe-check-version-scalar-differs
         {:platforms #{:client}}
         (fn [_ _]
-          {:fx [[:rf.ssr/check-version 1]]}))
+          {:fx [[:rf.ssr/check-version server-version]]}))
 
       (let [f (frame/make-anon-frame-record! {:platform :client})]
         (with-trace-recorder! [traces]
-          (rf/dispatch-sync [::probe-check-version-scalar-with-hook] {:frame f})
+          (rf/dispatch-sync [::probe-check-version-scalar-differs] {:frame f})
           (let [hits (traces-of @traces :rf.ssr/version-mismatch)]
             (is (empty? (traces-of @traces :rf.ssr/compatibility-check-skipped))
-                "hook present → no skipped trace; the comparison ran")
+                "version scalar resolves via the SSR constant → never skipped")
             (is (= 1 (count hits))
                 (str "expected one :rf.ssr/version-mismatch trace; saw: "
                      (pr-str (mapv :operation @traces))))
             (when (seq hits)
               (let [ev (first hits)]
-                (is (= 1 (-> ev :tags :expected))
+                (is (= server-version (-> ev :tags :expected))
                     "scalar arg is :expected (server side)")
-                (is (= 2 (-> ev :tags :actual))
-                    ":actual sourced via the late-bind hook"))))))
-      (finally
-        (swap! late-bind/hooks dissoc :rf2/runtime-version)))))
+                (is (= payload-policy/pattern-protocol-version (-> ev :tags :actual))
+                    ":actual sourced from the SSR-owned pattern-protocol constant")))))))))
 
 (deftest check-schema-digest-scalar-with-no-hook-emits-skipped
   (testing "scalar form + absent :schemas/app-schemas-digest hook → skipped"

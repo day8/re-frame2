@@ -689,9 +689,10 @@
   would reject — symmetric with the non-streaming wrapper.
 
   Version source-of-truth: `re-frame.ssr.payload-policy/resolve-version`
-  — caller opt wins, falling back to the `:rf2/runtime-version`
-  late-bind hook so server and client read from the same source
-  (rf2-via0g, mirroring the non-streaming rf2-asmj1 S8 fix).
+  — caller opt wins, falling back to the SSR-owned
+  `payload-policy/pattern-protocol-version` constant so server and client
+  read from the same source (rf2-via0g, mirroring the non-streaming
+  rf2-asmj1 S8 fix).
 
   `render-hash` is BODY-ONLY (rf2-1oxjxk Option B — see
   `re-frame.ssr.ring.lifecycle/render-document-hash`). `policy-opts` may
