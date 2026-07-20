@@ -59,7 +59,7 @@ the **foreign boundary**.
 key: a key passes `:mounting → :present`; a key that leaves the incoming set is
 **retained** in `:unmounting` for exactly `:timeout-ms` — the mandatory exit
 retention duration *and* terminal bound — after which removal is terminal and
-**exactly-once** (React unmounts the retained subtree, releasing every lease and
+**exactly-once** (React unmounts the retained subtree, releasing every handle and
 effect it owns). Removal-then-reinsertion interrupts the exit and re-enters at
 `:present`.
 

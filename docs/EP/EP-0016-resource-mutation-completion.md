@@ -109,7 +109,7 @@ application code: per-read status/data/error slices, load/success/failure event
 trios, "loading vs fetching" decisions, manual stale-state handling, ad hoc
 request dedupe, and most view-specific selectors. The app states the remote
 facts, and the runtime owns resource identity, loading, refresh, cache hits,
-stale-while-revalidate, work-ledger rows, owner leases, GC, route preload, and
+stale-while-revalidate, work-ledger rows, owners, GC, route preload, and
 focus/reconnect revalidation.
 
 That validates EP-0003 and Spec 016's center. It also makes the remaining gaps

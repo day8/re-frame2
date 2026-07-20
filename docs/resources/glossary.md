@@ -54,7 +54,7 @@ The lifecycle a cached read reports to a [view](../core/glossary.md#view): `:idl
 
 ### **owner & cause**
 
-Two facts the runtime tracks per fetch. An **owner** is a *lease* — a route, a [machine](../machines/glossary.md#machine), an explicit hold — that keeps a cached entry alive and decides whether an [invalidation](#invalidate) refetches now or merely marks the entry stale; release every owner and the entry becomes GC-eligible. A **cause** is pure provenance — *why* a fetch happened (a route entry, a click, a refresh) — recorded for the trace and never affecting liveness. *Owner = lifetime; cause = explanation.*
+Two facts the runtime tracks per fetch. An **owner** is a *hold* — a route, a [machine](../machines/glossary.md#machine), an app event — that keeps a cached entry alive and decides whether an [invalidation](#invalidate) refetches now or merely marks the entry stale; release every owner and the entry becomes GC-eligible. A **cause** is pure provenance — *why* a fetch happened (a route entry, a click, a refresh) — recorded for the trace and never affecting liveness. *Owner = lifetime; cause = explanation.*
 
 ### **optimistic update & rollback**
 

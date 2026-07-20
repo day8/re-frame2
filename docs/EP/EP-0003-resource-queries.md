@@ -46,7 +46,7 @@ ruling:
   re-fetched unconditionally — diverging from the FSM (a fresh `ensure` has no
   transition off `:loaded`) and from §Restore ("refetches only on the next
   `ensure` from a live owner … gated by the entry's own stale/fresh policy").
-  Mike ruled (a) implement: a fresh `:loaded` ensure now attaches the owner lease,
+  Mike ruled (a) implement: a fresh `:loaded` ensure now attaches the owner,
   emits `:rf.resource/cache-hit`, drains any blocking route slot immediately (a
   fresh blocking resource settles the navigation at once — no hang), and starts no
   new generation/fetch. The Spec 016 cache-hit note flipped from
@@ -904,7 +904,7 @@ multiple users, tenants, story frames, or SSR requests.
 TanStack Query and RTK Query talk about active observers or subscriptions.
 re-frame2 should talk about active owners.
 
-Owners are liveness leases. They answer:
+Owners are liveness holds. They answer:
 
 - should invalidation refetch now, or only mark stale?
 - should polling continue?
@@ -925,12 +925,12 @@ not precise enough because the same route can be entered multiple times with
 different params, pending work, or SSR request frames.
 
 Do not use ordinary event ids as durable owners unless the event creates a
-releaseable lease. A manual refresh, a button click, or a one-shot dashboard
+releaseable owner. A manual refresh, a button click, or a one-shot dashboard
 open should usually be a cause, not an owner.
 
 #### Release authority is per owner kind
 
-Every owner kind names *who is authoritative for releasing it* so a lease cannot
+Every owner kind names *who is authoritative for releasing it* so an owner cannot
 silently outlive the thing it represents (an orphaned owner pins an entry alive
 and keeps it refetching on focus/reconnect — a slow leak). The release authority
 for each kind is:
@@ -942,19 +942,19 @@ for each kind is:
   complete).
 - **Machine owners** (`[:machine machine-id instance-id]`) — released on
   **actor destroy**: when the owning machine instance is stopped/destroyed
-  ([Spec 005](../../spec/005-StateMachines.md)), its resource leases are released.
+  ([Spec 005](../../spec/005-StateMachines.md)), its resource owners are released.
   Machine liveness is a pure function of frame-state, so a destroyed instance can
-  hold no live lease.
+  hold no live owner.
 - **SSR owners** (`[:ssr request-id nav-token]`) — released on **request
   teardown**: an SSR owner belongs to one server render and is released when that
-  request's frame is torn down; it never survives as a live client-side lease (it
+  request's frame is torn down; it never survives as a live client-side owner (it
   is reconciled to an orphan on hydration/restore — see [§4 Owners revive or
   orphan by kind](#4-owners-revive-or-orphan-by-kind)).
-- **Bare app / lease owners** (`[:lease …]`, `[:dashboard/opened …]`, and other
-  app-minted kinds) — the **app is authoritative**: an event that mints such a
-  lease must have a matching `:rf.resource/release-owner` release path. The
-  framework does not auto-release app-minted leases. To catch the forgotten case,
-  Xray surfaces an **orphaned-owner lint**: an `[:lease …]`/app-kind owner whose
+- **App / event owners** (`[:dashboard/opened …]` and other app-minted kinds
+  naming a real event) — the **app is authoritative**: an event that mints such an
+  owner must have a matching `:rf.resource/release-owner` release path. The
+  framework does not auto-release app-minted owners. To catch the forgotten case,
+  Xray surfaces an **orphaned-owner lint**: an app-kind owner whose
   minting event has no observed release path (or that pins an entry long past its
   expected lifetime) is flagged as a candidate leak.
 
@@ -1551,7 +1551,7 @@ machines:
            [:rf.resource/ensure
             {:resource :dashboard/summary
              :params   {:user-id user-id}
-             :owner    [:lease :dashboard/opened user-id]
+             :owner    [:dashboard/opened user-id]
              :cause    [:event :dashboard/opened]}]]]}))
 ```
 
@@ -1808,7 +1808,7 @@ names is itself revertible:
   liveness is a pure function of the restored snapshot
   ([Spec 005](../../spec/005-StateMachines.md)) — restoring frame-state restores
   the machine and its instance id, so a machine owner the snapshot revives is a
-  genuine live lease again.
+  genuine live owner again.
 - **Route owners** (`[:route route-id nav-token]`) revive **only if** the
   restored routing state names the same live nav-token. Route state restores with
   runtime-db ([EP-0001](EP-0001-frame-partitions.md)), and the active nav-token
@@ -1816,11 +1816,11 @@ names is itself revertible:
   one the restored routing slice currently considers live is released as an
   **orphan** rather than trusted (it is the resource analogue of the nav-token
   supersession check).
-- **Lease/event owners** (`[:lease ...]`, `[:dashboard/opened ...]`) revive with
-  the snapshot, since they are recorded durably on the entry; their release path
-  is the same explicit `:rf.resource/release-owner` it always was.
+- **App / event owners** (`[:dashboard/opened ...]` and other app-minted kinds)
+  revive with the snapshot, since they are recorded durably on the entry; their
+  release path is the same explicit `:rf.resource/release-owner` it always was.
 - **SSR owners** (`[:ssr request-id nav-token]`) do not survive a client-side
-  restore as live leases; they belong to a settled server render and are released
+  restore as live owners; they belong to a settled server render and are released
   as orphans if present.
 
 Owner reconciliation runs on install: each restored owner is checked against the
@@ -1967,7 +1967,7 @@ These cases should be specified before implementation:
   the invalidated identity; otherwise schedule a follow-up refetch;
 - owner release while a request is in flight aborts only when no remaining owner
   needs that work record. Shared requests must not be cancelled just because one
-  route, machine, or lease went away;
+  route, machine, or app-event owner went away;
 - route supersession uses both nav-token owner release and generation checks.
   The old nav-token may not write into the new route's resource state;
 - stale/GC timers are advisory. A timer handler must re-read the current entry,
@@ -2207,7 +2207,7 @@ runtime tripwire for the cases that slip through — e.g. an event ensured under
 (or a stale token). Xray flags the mismatched (entry-scope, sub-scope) pair with
 both resource keys so the divergence is obvious at a glance, rather than the view
 silently rendering a permanent skeleton. The **orphaned-owner lint** (an
-app-minted `[:lease …]` owner with no observed release path — see [Active
+app-minted owner with no observed release path — see [Active
 Owners](#active-owners-not-component-observers)) rides the same cache-growth /
 audit surface.
 
@@ -2228,7 +2228,7 @@ Those two are the canonical sources; this list mirrors them.
 ```clojure
 ;; lifecycle
 :rf.resource/registered          ; first-time reg-resource (frame-agnostic)
-:rf.resource/owner-attached      ; a new owner lease lands on an entry
+:rf.resource/owner-attached      ; a new owner lands on an entry
 :rf.resource/work-started        ; work-LEDGER row created (transport request started)
 :rf.resource/fetch-started       ; cache ENTRY transitioned to :fetching (emitted with work-started)
 :rf.resource/work-abort-requested
@@ -2388,7 +2388,7 @@ global claim, no session resolver, no per-call scope to mismatch.
            [:rf.resource/ensure
             {:resource :dashboard/summary
              :params   {:user-id user-id}
-             :owner    [:lease :dashboard/opened user-id]
+             :owner    [:dashboard/opened user-id]
              :cause    [:event :dashboard/opened]}]]]}))
 ```
 
@@ -3052,7 +3052,7 @@ Initial conformance fixtures should cover:
   the work-id + generation check and cannot mutate a post-restore entry;
 - restore does not eagerly refetch; restored entries refetch only on the next
   live-owner `ensure`, and a restored epoch double-fetches nothing;
-- owner reconciliation on restore revives machine/route/lease owners that the
+- owner reconciliation on restore revives machine/route/app-event owners that the
   restored runtime state names live and orphans the rest (stale nav-tokens,
   SSR owners);
 - host timers and abort handles are cleared on restore and re-armed lazily from
@@ -3267,7 +3267,7 @@ re-frame2 runtime process.
    never a silent global read. `clear-scope` remains the causal operation for
    logout/account changes. See [Scope Resolution](#scope-resolution).
 10. Should owners also represent causes?
-    Recommendation: no. Owners are liveness leases; causes are trace metadata.
+    Recommendation: no. Owners are liveness holds; causes are trace metadata.
 11. Should Xray ever become an owner?
     Recommendation: no for inspection. A future explicit debug pin may be a
     tool mutation with trace evidence.

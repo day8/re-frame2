@@ -91,7 +91,7 @@ The [route](../../routing/glossary.md#route) validates the `?page=` query param,
   "/")
 ```
 
-A word on *owning*, since it's the mechanism doing the cleanup. A cached entry lives as long as something [owns](../concepts.md) it — holds a lease — and falls back to normal staleness/GC once unowned. Here route entry takes the lease, so the page you're looking at can't be garbage-collected out from under you; route leave drops it. Nothing leaks, and you wrote no cleanup code to make that true. (You'll see *owner* again later, paired with *cause*, when we get to load-more: owner = lifetime, cause = explanation.)
+A word on *owning*, since it's the mechanism doing the cleanup. A cached entry lives as long as something [owns](../concepts.md) it — holds an owner — and falls back to normal staleness/GC once unowned. Here route entry takes the owner, so the page you're looking at can't be garbage-collected out from under you; route leave drops it. Nothing leaks, and you wrote no cleanup code to make that true. (You'll see *owner* again later, paired with *cause*, when we get to load-more: owner = lifetime, cause = explanation.)
 
 Each `:resources` entry is a small declaration. The four keys above:
 
@@ -377,7 +377,7 @@ Every single-key sub from the numbered family applies to a feed too — but `:rf
 
 !!! warning "Gotcha — `load-more` carries a `:cause`, not an `:owner`"
 
-    The route already *owns* the feed for its whole lifetime, which is what keeps it alive. A load-more *extends* that one owned entry — it isn't trying to keep anything alive on its own, so it omits `:owner` and supplies only `:cause` (owner keeps alive; cause explains why). Pass an `:owner` anyway and the runtime warns (`:rf.warning/resource-load-more-owner-ignored`) and ignores it — the page still appends — rather than minting a stray lease that would pin the feed open past its real owner.
+    The route already *owns* the feed for its whole lifetime, which is what keeps it alive. A load-more *extends* that one owned entry — it isn't trying to keep anything alive on its own, so it omits `:owner` and supplies only `:cause` (owner keeps alive; cause explains why). Pass an `:owner` anyway and the runtime warns (`:rf.warning/resource-load-more-owner-ignored`) and ignores it — the page still appends — rather than minting a stray owner that would pin the feed open past its real owner.
 
 ??? note "Going deeper — the runtime is the guard"
 
@@ -456,9 +456,9 @@ A leaderboard, a notifications badge, an admin queue — sometimes a list should
   (fn [{:keys [page]} _ctx] …))
 ```
 
-The contract is worth knowing, because it's the same *owner-driven* model the rest of this page runs on, not a component-observer one (TanStack's `refetchInterval`, SWR's `refreshInterval`, RTK's `pollingInterval` — but driven by the lease, not by a mounted hook):
+The contract is worth knowing, because it's the same *owner-driven* model the rest of this page runs on, not a component-observer one (TanStack's `refetchInterval`, SWR's `refreshInterval`, RTK's `pollingInterval` — but driven by the owner, not by a mounted hook):
 
-- **Polling needs a live owner.** A `:poll` tick fires only while the entry has at least one active [owner](../glossary.md#owner--cause) (the route lease, a machine, an explicit `[:lease …]`). The poll itself is pure [cause](../glossary.md#owner--cause), never an owner — it creates no liveness and extends no GC, so the instant the last owner releases (route leave), polling stops. A "just polling, no route" view mints its own `[:lease …]` owner with a matching release.
+- **Polling needs a live owner.** A `:poll` tick fires only while the entry has at least one active [owner](../glossary.md#owner--cause) (the route owner, a machine, an explicit app-event owner). The poll itself is pure [cause](../glossary.md#owner--cause), never an owner — it creates no liveness and extends no GC, so the instant the last owner releases (route leave), polling stops. A "just polling, no route" view mints its own app-event owner (e.g. `[:dashboard/opened …]`) with a matching release.
 - **Hidden tabs pause.** A tick is suppressed while the document is hidden (`document.visibilityState != "visible"`) and resumes on tab return — matching the `refetchIntervalInBackground: false` default of every prior-art tool. (A background opt-in is reserved for the first consumer that needs it.)
 - **It can't stampede.** A tick that finds a refetch already in flight skips and re-arms (no overlapping requests); a tab return that fires both the focus revalidation and a poll tick double-fetches nothing — whichever starts work first wins, the other no-ops. A failed tick is an ordinary background-refresh failure (data stays, `:refresh-error` records it) and the *next* tick still fires — a transient blip never silently stops the monitor.
 

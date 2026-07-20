@@ -176,7 +176,7 @@ the one `#{:subscription :hmr :disposed}` vocabulary — no two-vocabulary resid
 **Compiler manifest — what *can* happen.** Per view, dev-only: source coords,
 prop slots + schema, template fingerprint, hook signature, capability bits, and
 every site — subs with query shapes; events with event shapes and a
-`:serializable?`/`:dynamic` flag; leases; effects; presence sites;
+`:serializable?`/`:dynamic` flag; effects; presence sites;
 trusted-markup `ui/html` sites; render-slot sites (P0-3) — each with source +
 template path. No runtime values; useful before mount, to Xray, Story, editors,
 and agents. Per the readiness package (EP-0035, P1-5), the dev/test projection

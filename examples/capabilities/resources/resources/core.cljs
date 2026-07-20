@@ -14,7 +14,7 @@
    - ROUTE-DRIVEN page load — a route declares `:resources`; entering the
      route ensures them, owned by the route for as long as you stay on it.
    - EVENT-DRIVEN ensure     — an event ensures a resource under an app-minted
-     `[:lease …]` owner, with a matching release event.
+     event owner, with a matching release event.
    - MANUAL refresh          — a button refetches with a `:cause` and no owner
      (a refresh wants fresh data but keeps nothing alive).
    - MACHINE-OWNED resource  — a machine ensures a resource owned for the
@@ -124,7 +124,7 @@
   [{:slug "resources-101"  :title "Resources 101: server-state as cached reads"
     :body "A resource is identity + scope + a request. Views read it passively."}
    {:slug "owners-vs-causes" :title "Owners keep alive; causes explain why"
-    :body "A route or lease OWNS a read for its lifetime; a refresh is a CAUSE."}
+    :body "A route or app-event owner OWNS a read for its lifetime; a refresh is a CAUSE."}
    {:slug "fresh-skip"      :title "Fresh-skip: re-ensure within the stale window is free"
     :body "Ensure an entry still inside :stale-after-ms and the runtime skips the refetch."}])
 
@@ -202,31 +202,31 @@
 ;; ============================================================================
 ;;
 ;; Routes aren't the only thing that can cause a fetch — an event can too. Here
-;; the event mints its own `[:lease …]` owner to keep the entry alive. But with
-;; ownership comes responsibility: whatever mints a lease must also, somewhere,
-;; fire a matching `:rf.resource/release-owner`. Forget that, and the lease pins
+;; the event mints its own app-event owner to keep the entry alive. But with
+;; ownership comes responsibility: whatever mints an owner must also, somewhere,
+;; fire a matching `:rf.resource/release-owner`. Forget that, and the owner pins
 ;; the entry alive forever — the cache equivalent of a memory leak.
 ;; See ../../../../docs/resources/glossary.md#owner--cause
 
 (rf/reg-event :resources.app/preview-opened
   {:doc "Open a lightweight article preview from the list — ensure the
-         detail under a releaseable lease, and record the open slug in
+         detail under a releaseable owner, and record the open slug in
          app-db so the view can render the preview panel."}
   (fn [{:keys [db]} [_ slug]]
     {:db (assoc db :resources.app/preview-slug slug)
      :fx [[:dispatch [:rf.resource/ensure
                       {:resource :article/by-slug
                        :params   {:slug slug}
-                       :owner    [:lease :resources.app/preview slug]
+                       :owner    [:resources.app/preview-opened slug]
                        :cause    [:event :resources.app/preview-opened]}]]]}))
 
 (rf/reg-event :resources.app/preview-closed
-  {:doc "Close the preview — release the lease so the entry can GC, and
+  {:doc "Close the preview — release the owner so the entry can GC, and
          clear the open slug from app-db."}
   (fn [{:keys [db]} [_ slug]]
     {:db (dissoc db :resources.app/preview-slug)
      :fx [[:dispatch [:rf.resource/release-owner
-                      {:owner [:lease :resources.app/preview slug]}]]]}))
+                      {:owner [:resources.app/preview-opened slug]}]]]}))
 
 ;; A manual refresh is a cause, not an owner — and the distinction is the whole
 ;; point. Clicking "Refresh" means "I'd like fresher data", not "keep this alive
@@ -273,7 +273,7 @@
 ;;
 ;; The owner is the actor-id, deliberately NOT `[:machine machine-id
 ;; instance-id]`. A three-part owner that folds a DOMAIN instance-id into the key
-;; is an *app-authoritative* lease (like any `[:lease …]`) — the framework does
+;; is an *app-authoritative* owner (like any app-minted owner) — the framework does
 ;; NOT auto-release it, so leaning on actor-destroy to free it would leak the
 ;; entry (it would pin the read alive, refetching forever). The reader keeps its
 ;; instance-id in `:data`, never in the owner. See Spec 016 §Release authority.
@@ -342,7 +342,7 @@
   (fn [[articles] _query-v]
     (:slug (first articles))))
 
-;; Which article's preview lease is currently open (nil when none).
+;; Which article's preview is currently open (nil when none).
 (rf/reg-sub :resources.app/preview-slug
   (fn [db _] (:resources.app/preview-slug db)))
 
@@ -363,8 +363,8 @@
                        :data-testid "route-link-articles"}
         "See the articles →"]]])
 
-;; The EVENT-LEASE preview panel. It only exists on screen while a preview is
-;; open. The detail it shows was ensured under an app lease over in
+;; The EVENT-OWNER preview panel. It only exists on screen while a preview is
+;; open. The detail it shows was ensured under an app-event owner over in
 ;; `:resources.app/preview-opened`, and will be released by
 ;; `:resources.app/preview-closed`. The panel's whole job is to read and render.
 (rf/reg-view preview-panel [slug]
@@ -447,7 +447,7 @@
                                  :params {:slug slug}
                                  :data-testid (str "route-link-article-" slug)}
                   title]
-                 ;; EVENT-LEASE causer: opens a preview held alive by an app lease.
+                 ;; EVENT-OWNER causer: opens a preview held alive by an app-event owner.
                  " "
                  [:button {:data-testid (str "preview-" slug)
                            :on-click    #(dispatch [:resources.app/preview-opened slug])}
@@ -457,7 +457,7 @@
                  [:button {:data-testid (str "read-" slug)
                            :on-click    #(dispatch [:resources.app/start-reader slug])}
                   "Open in reader"]]))
-        ;; The lease and machine panels only appear when their owner is active —
+        ;; The preview and machine panels only appear when their owner is active —
         ;; passive read-models, mounted on demand.
         (when preview-slug
           [preview-panel preview-slug])

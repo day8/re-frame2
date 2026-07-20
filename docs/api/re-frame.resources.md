@@ -333,7 +333,7 @@ Active-stale revalidation is expressed as **resource events** (see [`[:rf.resour
 
 ## Polling
 
-A resource may declare an optional `:poll-interval-ms` policy. While an entry has at least one **active owner** and the document is **visible**, the runtime re-runs its load every N ms — no component-side fetch call needed. Polling is owner-driven: it tracks the active-owner lease, not a component observer. A route, machine, or app-minted lease keeps it alive, and polling stops the instant the last owner releases.
+A resource may declare an optional `:poll-interval-ms` policy. While an entry has at least one **active owner** and the document is **visible**, the runtime re-runs its load every N ms — no component-side fetch call needed. Polling is owner-driven: it tracks the active owner, not a component observer. A route, machine, or app-minted event owner keeps it alive, and polling stops the instant the last owner releases.
 
 ```clojure
 (rf/reg-resource :notifications/unread-count
@@ -353,7 +353,7 @@ Semantics (per [The model — owners and refetch](../resources/concepts.md#owner
 - **Coalescing.** A tick that finds a live in-flight refetch skips (no overlap on a slow endpoint); focus + poll never double-fetch.
 - **Background-failure resilient.** A failed poll keeps prior `:data` + records `:refresh-error`, and the next poll still fires.
 
-A "just polling" view with no natural route/machine owner needs an app-minted `[:lease …]` owner to keep the poll alive, with a matching `[:rf.resource/release-owner {…}]`. An owner-free entry never polls.
+A "just polling" view with no natural route/machine owner needs an app-minted owner naming its event (e.g. `[:dashboard/opened …]`) to keep the poll alive, with a matching `[:rf.resource/release-owner {…}]`. An owner-free entry never polls.
 
 ## Infinite resources
 
@@ -620,12 +620,12 @@ Resource events take a **map payload**, not a positional argument vector. The re
 
 - **Kind**: event
 - **Payload**: `{:owner …}`
-- **Description**: Release an owner lease. Aborts in-flight work only when no remaining owner needs it. App-minted leases (`[:lease …]`) MUST have a matching release path — an orphaned lease pins an entry alive (Xray lints it).
+- **Description**: Release an owner. Aborts in-flight work only when no remaining owner needs it. App-minted owners MUST have a matching release path — an orphaned owner pins an entry alive (Xray lints it).
 
 ```clojure
-;; the matching release for an app-minted [:lease …] owner
+;; the matching release for an app-minted event owner
 [:rf.resource/release-owner
- {:owner [:lease :preview "welcome"]}]
+ {:owner [:article/preview-opened "welcome"]}]
 ```
 
 #### `[:rf.resource/clear-scope {…}]`
@@ -732,7 +732,7 @@ Status invariants:
 
 `:stale?` / `:loading?` / `:fetching?` / `:has-data?` are derived sub values, never stored. See [Guide ch.27 §Status](../resources/concepts.md).
 
-> **Lifecycle trace ops (observability, not events you dispatch).** The runtime emits two trace ops here. `:rf.resource/cache-hit` fires when a fresh `ensure` is served from cache with no fetch — a fresh-skip. The already-`:loaded` entry, still fresh-by-policy, serves the cached value and attaches the owner lease; for a blocking route resource it also drains the blocking slot immediately, with no `:fetching` transition. `:rf.resource/stale-fired` fires when a stale timer ticks — it arms the stale transition, not a fetch. These are trace surfaces Xray reads. They are not `:status` values, and user code never dispatches them.
+> **Lifecycle trace ops (observability, not events you dispatch).** The runtime emits two trace ops here. `:rf.resource/cache-hit` fires when a fresh `ensure` is served from cache with no fetch — a fresh-skip. The already-`:loaded` entry, still fresh-by-policy, serves the cached value and attaches the owner; for a blocking route resource it also drains the blocking slot immediately, with no `:fetching` transition. `:rf.resource/stale-fired` fires when a stale timer ticks — it arms the stale transition, not a fetch. These are trace surfaces Xray reads. They are not `:status` values, and user code never dispatches them.
 
 ### Mutation events (map payloads)
 

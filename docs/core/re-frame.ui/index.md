@@ -82,7 +82,7 @@ are depth: open each when the need appears.
 | [Mental model](mental-model.md) | The three shifts from Reagent: views compile, `defview` is the one form, and `(sub …)` reads as a value. |
 | [Build a view](build-a-view.md) | A worked walkthrough — `defview`, `sub`, an event, local state, and the mount — built up one step at a time. |
 | [Reactivity and ownership](reactivity-and-ownership.md) | How a compiled view stays reactive, what re-computes when, and why subscriptions never leak. |
-| [State: the four inputs](state.md) | `sub`, props, `local`, and `lease` — the whole state surface, and where each value belongs. |
+| [State: the three inputs](state.md) | `sub`, props, and `local` — the whole state surface, and where each value belongs. |
 | [Events and handlers](events-and-handlers.md) | Handlers as data, the placeholder vocabulary, controlled inputs, and when to escape to `ui/event` / `ui/handler`. |
 | [Custom elements](custom-elements.md) | Web components in templates — the property-vs-attribute declaration. |
 | [Presence: exit animations](presence.md) | `ui/presence` — bounded enter/exit retention, DOM-agnostic, your CSS animates. |

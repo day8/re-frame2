@@ -279,7 +279,7 @@ The runtime knows how to release exactly **three** framework-managed resource ki
 
 - **In-flight `:rf.http/managed` requests** the actor issued — aborted automatically. The reply path sees `{:kind :rf.http/aborted :reason :actor-destroyed}`. *This is the headline:* an HTTP request issued from inside a spawned actor is bound to that actor's lifetime; a request fired from a plain `reg-event` handler has no such peg and is **not** cancelled. If you want lifetime-bound HTTP, spawn a child that issues it.
 - **Armed `:after` timers** the actor scheduled — cancelled, so a killed worker won't wake up later.
-- **`:rf.resource/*` owner leases** the actor holds.
+- **`:rf.resource/*` owners** the actor holds.
 
 !!! note "Auto-cancel covers three resource kinds"
 

@@ -61,7 +61,7 @@ red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 | [re-frame.http](re-frame.http.md) | Managed HTTP fx and interceptors |
 | [re-frame.machines](re-frame.machines.md) | State machines |
 | [re-frame.routing](re-frame.routing.md) | Router, routes, route link |
-| [re-frame.resources](re-frame.resources.md) | Resource cache, leases, mutations |
+| [re-frame.resources](re-frame.resources.md) | Resource cache, owners, mutations |
 | [re-frame.ssr](re-frame.ssr.md) | Server render, head, payloads |
 | [re-frame.ssr.ring](re-frame.ssr.ring.md) | Ring adapter for SSR |
 | [re-frame.epoch](re-frame.epoch.md) | Epoch history / time-travel surface |

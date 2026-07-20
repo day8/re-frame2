@@ -1,15 +1,14 @@
-# State: the four inputs
+# State: the three inputs
 
-A view has **four inputs**, each with exactly one spelling:
+A view has **three inputs**, each with exactly one spelling:
 
 | Question | Answer |
 |---|---|
 | Shared application state? | `(sub [:query …])` |
 | Given by my parent? | props |
 | Ephemeral, mine, gone on unmount? | `(ui/local initial)` |
-| Keep a resource alive while I'm visible? | `(ui/lease descriptor)` |
 
-There is no fifth — and that is the feature. No ratoms, cursors, reactions, or
+There is no fourth — and that is the feature. No ratoms, cursors, reactions, or
 external stores. State that matters lives in [app-db](../app-db.md), where events,
 time-travel, and [Xray](../observability.md) can all see it.
 
@@ -160,11 +159,15 @@ committed-frame ops bundle (`:frame` / `:dispatch` / `:dispatch-sync` /
 `:subscribe`) — the same shape core's `capture-frame` gives you outside views. Exact
 contract in the [API reference](../../api/re-frame.ui.md).
 
-## Resource liveness: `lease`
+## Reading a resource
+
+A view never keeps a resource alive itself — resource liveness is owned
+**causally**, by whatever caused the load: a route entry, a machine, or an app
+event, each with a named release ([Resources corpus](../../resources/concepts.md)).
+A view only ever **reads** a resource, passively, with `sub`:
 
 ```clojure
 (ui/defview latency-tile []
-  (ui/lease {:resource :metrics/latency-feed})
   (let [{:keys [status data]} (sub [:rf/resource {:resource :metrics/latency-feed}])]
     (case status
       (:idle :loading) [:div.tile.skeleton "…"]
@@ -173,35 +176,18 @@ contract in the [API reference](../../api/re-frame.ui.md).
       [:div.tile [:h3 "p95 latency"] [:strong (str (:p95 data) "ms")]])))
 ```
 
-`lease` declares *interest*: while this view is mounted and visible, keep the
-resource alive. First lease in → the resource is ensured (fetch starts, or joins an
-in-flight one); last lease out → it can wind down. **Lease never returns data and
-never fetches during render** — the load is a consequence of the view's committed,
-visible presence, and reading is always the passive `(sub [:rf/resource …])`.
-
-A `lease` is a *leading declaration*, not an expression — it sits before the
-template, never inside a `when`, a prop, or a loop. Conditional liveness moves into
-the descriptor, which may evaluate to `nil` (lease nothing):
-
-```clojure
-(ui/lease (when live? {:resource :metrics/latency-feed}))
-```
-
-Rule of thumb: loading that belongs to navigation or workflow rides route/event
-resource plans; `lease` is for liveness that genuinely follows visible UI —
-dashboard tiles, hover cards, modals. The resource system itself — registration,
-caching, refetch, the transport — is the [Resources corpus](../../resources/concepts.md);
-nothing on this page fetches.
+The read is the passive `(sub [:rf/resource …])`; nothing on this page fetches.
+The resource system itself — registration, caching, refetch, the transport, and
+the causal owners that keep an entry alive — is the
+[Resources corpus](../../resources/concepts.md).
 
 ## When you get it wrong
 
-The four inputs have few rules, and the ones they have fail where you can see them:
+The three inputs have few rules, and the ones they have fail where you can see them:
 
 | If you write | What you see | The fix |
 |---|---|---|
 | `(sub …)` inside a `for` | Compile error `:rf.ui.compile/sub-in-loop` | Extract a keyed child view that subscribes for one row |
-| `lease` in expression position — inside a `when`, a prop, a template | Compile error `:rf.ui.compile/unsupported-form` | Move the condition into the descriptor: `(ui/lease (when live? descriptor))` |
-| `lease` inside a loop | Compile error `:rf.ui.compile/lease-in-loop` | Extract a keyed child view; each child leases its own resource |
 | `local` / `effect` below a branch or inside a loop | Compile error `:rf.ui.compile/hook-misplaced` | Keep them in the view's unconditional top region |
 | `set!` / `update!` during render | Loud error `:rf.error/ui-tree-malformed` naming the render-phase mutation | Call setters from a committed handler or an `effect` callback |
 | `(ui/dispatch-fn)` called after the view disconnected | Loud error `:rf.error/dispatch-disconnected` | Return a cleanup fn from the `effect` so the listener is removed |
@@ -210,8 +196,7 @@ The four inputs have few rules, and the ones they have fail where you can see th
 ## When not
 
 - State with product meaning goes to **app-db behind events** — the default. Reach
-  for `local` only for keystroke-latency ephemera, and for `lease` only when
-  liveness genuinely follows visible UI.
+  for `local` only for keystroke-latency ephemera.
 - `effect` is for the host world, not app logic — fetching in an `effect` bypasses
   events, epochs, and every tool that watches them.
 - And the standing note for this whole section: `re-frame.ui` is experimental. The

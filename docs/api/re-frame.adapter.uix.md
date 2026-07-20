@@ -2,7 +2,7 @@
 
 The UIx adapter connects re-frame2's substrate-agnostic core to UIx, a hooks-first React substrate. It exposes:
 
-- the hooks `use-subscribe`, `use-frame`, `use-resource-lease`, and `use-current-frame`;
+- the hooks `use-subscribe`, `use-frame`, and `use-current-frame`;
 - the `frame-provider` (SCOPE) + `frame-root` (ENSURE) components;
 - the `adapter` spec map you pass to `init!`;
 - adapter seams for tests, SSR, and code-gen.
@@ -99,31 +99,6 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
     (let [count              (uix-adapter/use-subscribe [:counter/value])
           {:keys [dispatch]} (uix-adapter/use-frame)]
       ($ :button {:on-click #(dispatch [:counter/inc])} "+")))
-  ```
-
-### `use-resource-lease`
-
-- **Kind**: UIx hook (function)
-- **Signature**:
-  ```clojure
-  (use-resource-lease descriptor) → nil
-  (use-resource-lease descriptor opts) → nil
-  ```
-- **Description**: Holds a resource liveness lease for the calling component's mounted lifetime. On mount, dispatches `:rf.resource/ensure` with an app-minted `[:lease …]` owner; on unmount, dispatches `:rf.resource/release-owner` for that same lease.
-
-  Returns nil: this is a lifecycle hook, not a read. Pair it with `use-subscribe` on a `[:rf.resource/*]` query to read the data.
-
-  - `descriptor` — the resource-instance identity `{:resource … :scope … :params …}`.
-  - `opts` keys: `:cause` (recorded on the ensure; defaults to `[:lease :mount]`) and `:frame` (pin to an explicit frame-id).
-  - Without `:frame`, frame resolution mirrors `use-subscribe`, raising `:rf.error/no-frame-context` when no frame is in scope.
-  - Changing the resolved frame, descriptor, or cause releases the old lease and takes a fresh one.
-  - The events are inert when the resources artefact is not loaded.
-- **Example**:
-  ```clojure
-  ;; Hold a liveness lease on a polled resource while the widget is mounted.
-  (uix-adapter/use-resource-lease {:resource :my/feed
-                                   :scope    :rf.scope/global
-                                   :params   {:page 0}})
   ```
 
 ### `use-current-frame`

@@ -120,11 +120,10 @@ four explicit body forms rather than a component-shape change:
 |---|---|
 | `local` | Component-local ephemera — a toggle, a hover flag — that lives *outside* app-db and re-renders only this view. |
 | `effect` | Synchronising with the world outside the tree: measurement, a chart or animation library attached through a ref. |
-| `lease` | Declaring that a mounted, visible view is interested in a [resource](../../resources/concepts.md), loaded and released around its lifetime. |
 | `frame` | The committed-frame ops bundle, for the rare imperative or foreign-callback case. |
 
 The [build-a-view walkthrough](build-a-view.md) uses `local` and an event; the
-[state page](state.md) takes all four inputs in turn, and the
+[state page](state.md) takes all three inputs in turn, and the
 [reactivity page](reactivity-and-ownership.md) explains why `local` sits outside
 re-frame2's epochs and app-db does not.
 

@@ -105,12 +105,12 @@ three observable states, and its tools speak in these terms:
 You won't write against these directly, but they're the words [Xray](../observability.md)
 and the reactivity tooling use, so it helps to recognise them.
 
-## Resources: `lease`
+## Resources: reading server data
 
-The same "commit owns, release on teardown" discipline extends to server data. A
-view declares interest in a [resource](../../resources/concepts.md) with `lease`,
-and the runtime loads it after the view's visible commit and releases it when the
-view goes away — you read its status and data passively with an ordinary
-`(sub [:rf/resource …])`. It's the resource-shaped version of the ownership model:
-liveness declared in the view, acquisition and cleanup handled at the lifecycle
-edges, never during render.
+A view never owns a [resource](../../resources/concepts.md)'s liveness. That is
+owned **causally**, by whatever caused the load — a route entry, a machine, or an
+app event — each with a named release. A view only ever **reads** a resource,
+passively, with an ordinary `(sub [:rf/resource …])`: status and data, never a
+fetch during render. The same "commit owns, release on teardown" discipline that
+governs subscriptions above governs resource entries too, but the owner is the
+cause, not the view.

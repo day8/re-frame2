@@ -20,7 +20,7 @@ The honest framing up front: TanStack Query is a *hook* library. Its primitives 
 | `data`, `error`, `status`, `isPending`, `isFetching` | `:rf/resource` view-model: `:data` `:error` `:status` `:loading?` `:fetching?` `:has-data?` | Five statuses: `:idle` `:loading` `:fetching` `:loaded` `:error`. `:error` is *first-load only*. |
 | `staleTime` | `:stale-after-ms` | Same semantics: fresh window, then refetch on next access. **Default diverges**: TanStack's `staleTime` defaults to `0` (stale-immediately); re-frame2's `:stale-after-ms` defaults to *never* time-stale (freshness is explicit-invalidation-driven, not wall-clock). |
 | `gcTime` (was `cacheTime`) | `:gc-after-ms` | Reclaim after the entry goes *owner-free* for this long. **Default matches**: both are finite by default — TanStack's `gcTime` defaults to 5 minutes, re-frame2's `:gc-after-ms` defaults to `300000` (5 minutes); `:gc-after-ms :never` is the explicit opt-out (TanStack's analogue is `Infinity`). |
-| an *observer* (a mounted `useQuery`) keeps data alive | an **[owner](glossary.md#owner--cause)** (a route, machine, or explicit lease) | Owner = liveness lease. Decoupled from any component mounting. |
+| an *observer* (a mounted `useQuery`) keeps data alive | an **[owner](glossary.md#owner--cause)** (a route, machine, or app-event owner) | Owner = liveness hold. Decoupled from any component mounting. |
 | `enabled: false` / conditional queries | route `:resources` `:when` predicate (or simply: don't fire the cause) | A read with no cause sits at `:idle` — that's the "disabled" state, for free. |
 | `select: (data) => …` | a plain [subscription](../core/glossary.md#subscription) over `[:rf.resource/data …]` | No `:select` key. You already have a memoised [derivation graph](../core/glossary.md#the-derivation-graph). |
 | `placeholderData: keepPreviousData` | route `:keep-previous?` (+ `:previous-data` in the view-model) | Same anti-flash behaviour for pagination. |
@@ -179,7 +179,7 @@ The mapping above is the vocabulary; this is the exhaustive reference card, each
 | **Staleness (SWR semantics)** | `staleTime`; stale-while-revalidate | `keepUnusedDataFor` + refetch triggers | always SWR; `dedupingInterval` | `:stale-after-ms`; `:loaded` entries serve immediately, refetch on next *ensure* when stale. **Default diverges**: TanStack's `staleTime` defaults to `0`; `:stale-after-ms` absent defaults to *never* time-stale | **Landed** |
 | **Request deduplication** | in-flight queries coalesce | automatic | `dedupingInterval` window | `ensure` of an in-flight key joins the existing request (one fetch, two owners) | **Landed** |
 | **Fresh-skip (cache hit, no fetch)** | fresh query returns cached, no fetch | served from store | within deduping window | fresh `:loaded` `ensure` serves the cached value, attaches the owner, fetches nothing | **Landed** |
-| **Garbage collection** | `gcTime` (was `cacheTime`); GC when no observer | `keepUnusedDataFor` after last subscriber | revalidation-driven; weak retention | `:gc-after-ms` after the **last owner lease** is released; timer re-checks owners before collecting. **Default matches**: absent `:gc-after-ms` defaults to `300000` (5 min, same as TanStack's `gcTime`); `:gc-after-ms :never` is the explicit unowned-pinning opt-out | **Landed** |
+| **Garbage collection** | `gcTime` (was `cacheTime`); GC when no observer | `keepUnusedDataFor` after last subscriber | revalidation-driven; weak retention | `:gc-after-ms` after the **last owner** is released; timer re-checks owners before collecting. **Default matches**: absent `:gc-after-ms` defaults to `300000` (5 min, same as TanStack's `gcTime`); `:gc-after-ms :never` is the explicit unowned-pinning opt-out | **Landed** |
 | **Scope / cache identity boundary** | viewer id is one `queryKey` segment, by convention | baked into arg by convention | part of the key, by convention | **scope is a required, structural key segment**; forgetting it is a loud registration/subscription error, never a silent cross-viewer leak | **Different by design** |
 | **Invalidation** | `queryClient.invalidateQueries({queryKey})`, imperative | tag-based (`providesTags` / `invalidatesTags`) | `mutate(key)`, imperative | tag-based, declared as a *consequence of a named mutation*; scoped by default; per-target scoped descriptors; cross-scope is an audited opt-in | **Landed** |
 | **Mutations** | `useMutation` | `builder.mutation` | bound `mutate` / `useSWRMutation` | `reg-mutation` + `:rf.mutation/execute`; instance-keyed pending/result/error state; same managed-HTTP transport as reads | **Landed** |
@@ -219,9 +219,9 @@ The two whole-view-model reads are `@(rf/subscribe [:rf/resource query])` and `@
 
 Three command names earn a sentence each, because a query-library reader reaches for them and the mapping isn't obvious:
 
-- **`:rf.resource/refetch`** is the imperative bypass — TanStack's `refetch()` / SWR's `mutate(key)` with no data. It forces a fetch regardless of freshness, carrying a `:cause` but usually *no* `:owner` (a manual refresh keeps no lease).
+- **`:rf.resource/refetch`** is the imperative bypass — TanStack's `refetch()` / SWR's `mutate(key)` with no data. It forces a fetch regardless of freshness, carrying a `:cause` but usually *no* `:owner` (a manual refresh keeps no owner).
 - **`:rf.resource/remove`** evicts one exact entry (scope + resource + params), eagerly, regardless of GC policy — the surgical counterpart to letting GC reclaim it.
-- **`:rf.resource/release-owner`** drops an app-minted lease (the matching half of an `:owner` you attached on an `ensure`). Forgetting it is the orphaned-owner leak [Xray](../core/glossary.md#xray) lints for.
+- **`:rf.resource/release-owner`** drops an app-minted owner (the matching half of an `:owner` you attached on an `ensure`). Forgetting it is the orphaned-owner leak [Xray](../core/glossary.md#xray) lints for.
 
 ---
 

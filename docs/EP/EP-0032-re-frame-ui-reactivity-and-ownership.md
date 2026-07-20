@@ -14,7 +14,7 @@ compile-indexed `(sub …)` sites sharing **one** ViewCell — one
 `useSyncExternalStore` bridge, one scalar revision — per view. Under concurrent
 React, *render* may run, restart, or be abandoned, so rendering only **resolves
 and probes** (ownership-free); *commit* alone **owns**, through a six-operation
-observation port over a strict target/evidence/lease split. Notification is
+observation port over a strict target/evidence/handle split. Notification is
 **push** — constant-work source-side marking, with each dirty cell flushed once
 per render batch at the host checkpoint; the pull alternative stands falsified
 by benchmark (4.0×–6.5× worse, the gap growing with scale). Frames
@@ -57,8 +57,8 @@ handlers, `local`, effects are EP-0031's surface; the adapter
 decision (which view layers exist and are retained) is EP-0030's; the closed
 public adapter API contract (the 11-key spec map) and public
 `subscribe`/`subscribe-once` semantics are unchanged; resource freshness under
-Activity reveal belongs to Spec 016, not the lease. Where graduated, the spec
-is the authority.
+Activity reveal belongs to Spec 016, not the observation handle. Where
+graduated, the spec is the authority.
 
 ### One ViewCell per view; rf= stabilization
 
@@ -72,7 +72,7 @@ revision integer suffices under the two-guard rule — React's own snapshot
 re-check catches mid-pass movement of watched sites; the commit reconciler's
 evidence comparison catches the rest — no third mechanism.
 
-### The target/evidence/lease split and the six-operation port
+### The target/evidence/handle split and the six-operation port
 
 Render resolves each site to an **observation target** via `resolve-target` —
 the only resolution point (ambient frame, pins, Story override context all land
@@ -91,16 +91,16 @@ guard (`:rf.error/observation-port-version-mismatch`):
 ```clojure
 (resolve-target site-ctx)     ; render: the ONLY resolution point → target
 (probe target ?slice-memo)    ; render: pure evidence read
-(acquire! target on-change)   ; commit-only: re-resolves canonical node → lease
-(current? lease target)       ; the commit kept-check, one predicate
-(read lease)                  ; {:value v :version n}; typed error after release
-(release! lease)              ; synchronous, idempotent
+(acquire! target on-change)   ; commit-only: re-resolves canonical node → handle
+(current? handle target)      ; the commit kept-check, one predicate
+(read handle)                 ; {:value v :version n}; typed error after release
+(release! handle)             ; synchronous, idempotent
 ```
 
-**The lease IS the owner token** — opaque, identity-equality, per-lease
+**The handle IS the owner token** — opaque, identity-equality, per-handle
 callbacks — making the sibling-callback clobber structurally impossible and
 StrictMode release/reacquire naturally balanced. A `:story-override` target
-acquires a **static lease** (`:owned? false` honestly, pinned value, no
+acquires a **static handle** (`:owned? false` honestly, pinned value, no
 callback) under the split equality law (`:override-id` by `=`, `:version` by
 `rf=`; NaN-to-NaN retains) — one uniform commit path.
 
@@ -116,8 +116,8 @@ boundary).
 ### Transactional multi-acquire
 
 Commit stage-acquires every newly-observed or retargeted target **before
-releasing anything**; staged leases are provisional. On any acquisition
-failure, every staged lease is synchronously released in reverse acquisition
+releasing anything**; staged handles are provisional. On any acquisition
+failure, every staged handle is synchronously released in reverse acquisition
 order, **the prior committed set remains installed**, the reconcile aborts, and
 the typed error propagates — first failure safe by ordering, k-th by rollback;
 partial acquisition can never leak or corrupt.
@@ -126,7 +126,7 @@ partial acquisition can never leak or corrupt.
 
 Public React gives no cleanup-time signal distinguishing Activity-hide from
 unmount, so the runtime implements exactly three observable states:
-`:connected` (owns targets + leases), `:disconnected` (ownership released;
+`:connected` (owns targets + handles), `:disconnected` (ownership released;
 emitted fact is `{:reason :unknown}`), `:dead` (frame/adapter/root destroyed;
 reconnection fails loudly). Hide vs unmount is only ever a **qualified
 retroactive annotation of the prior interval** — a reconnect proves
@@ -179,7 +179,7 @@ R-7 of the program record (EP-0030).
   mechanism) replaces the descriptor and bumps its generation; React state and
   cell identity survive.
 - **Hook-signature hash decides preserve vs remount:** the compiler hashes
-  ordered user hook sites (`sub`/`lease`/event sites excluded — they reconcile
+  ordered user hook sites (`sub`/event sites excluded — they reconcile
   through the cell); same signature preserves state, changed signature remounts
   deliberately — never a corrupted hook order.
 - **Site identity** is source anchor + structural path + generation; ambiguity
@@ -201,7 +201,7 @@ Internally fail-loud, publicly recover-to-nil: the port throws typed
 while public `subscribe`/`subscribe-once` keep `:replaced-with-default`
 recovery — one condition, one catalogue id, two emit surfaces; the ViewCell
 maps port throws to the view error boundary. The spec extends the roster
-(malformed target/lease diagnostics, displacement retry and
+(malformed target/handle diagnostics, displacement retry and
 `:rf.error/observation-retry-exhausted`, the entry-node fail-loud line) — the
 spec governs; every id carries a Spec 009 catalogue row.
 
@@ -218,9 +218,9 @@ Push over pull is the load-bearing bet, so it was made falsifiable rather than
 argued: G-13 frames pull as a standing falsification benchmark, and the
 falsification run answered decisively — 4.0× at 100 views, 6.5× at 500, pull
 O(N views) per epoch by construction with ~60× the GC pressure.
-Target-not-handle and lease-as-owner-token both came out of the ownership spike
+Target-not-handle and handle-as-owner-token both came out of the ownership spike
 the same way: the captured node handle failed under HMR, and keying owners by
-lease identity made the worst spine bug structurally impossible instead of
+handle identity made the worst spine bug structurally impossible instead of
 merely tested-against. Three lifecycle states with retroactive annotation is
 honesty over convenience — the platform does not say hide-or-unmount at
 cleanup, so the runtime never claims it. Transactional staging exists because
@@ -238,15 +238,15 @@ error by the ABI guard.
 ## Resolved Decisions
 
 - **R-2 — port shapes final (2026-07-11/12).** Observation-port semantics
-  frozen ahead of implementation; the ownership spike's target/evidence/lease
+  frozen ahead of implementation; the ownership spike's target/evidence/handle
   model is the sole ABI source; the port lives outside the closed public
   adapter map.
 - **Push ownership committed (2026-07-11).** The pull alternative survives only
   as the G-13 falsification benchmark, which ran and confirmed push
   decisively. If a future run ever inverts, the design is rewritten, not
   toggled.
-- **Target = evidence-not-handle; lease = owner token (2026-07-11).** No node
-  handle rides a target; owners are keyed by lease identity.
+- **Target = evidence-not-handle; handle = owner token (2026-07-11).** No node
+  handle rides a target; owners are keyed by handle identity.
 - **Preflight ENSURE failure (2026-07-12).** A failed preflight fails the mount
   loudly, container untouched, no auto-retry.
 - **`flush!` is per-root (2026-07-12).** The global all-roots flush is the
@@ -322,7 +322,7 @@ None. No open implementation gaps are tracked on this EP's surface.
   adoption decision this EP serves.
 - [EP-0031](EP-0031-re-frame-ui-programming-model.md) — the compiled-view
   programming model. The one-reactive-grammar table (sub / props / `local` /
-  `lease` / frame) is shared vocabulary, but `local`'s contract — including the
+  frame) is shared vocabulary, but `local`'s contract — including the
   `[value set! update!]` three-tuple — is owned by EP-0031 and EP-0035, not
   here; this EP fixes only that `local` sits outside epochs and re-renders its
   own view.
@@ -330,7 +330,7 @@ None. No open implementation gaps are tracked on this EP's surface.
   readiness amendments.
 - [EP-0014](EP-0014-derivation-and-process-algebra.md) — this EP is its
   view-tier realization: sub sites are declared inputs, the ViewCell is the
-  evaluation/lifecycle boundary, leases are the ownership leg.
+  evaluation/lifecycle boundary, handles are the ownership leg.
 - [EP-0002](EP-0002-frame-target-resolution.md) /
   [EP-0024](EP-0024-unified-frame-identity-and-lifecycle.md) —
   `resolve-target` is the view tier's single resolution point for the explicit

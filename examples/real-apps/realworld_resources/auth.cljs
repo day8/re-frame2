@@ -201,7 +201,7 @@
 ;; SAME declarative source `routing.cljs` planned on entry) and re-ensures each
 ;; entry under the current route owner `[:route route-id nav-token]` — so the
 ;; reads land on the exact cache keys and owner the route would have used, and the
-;; eventual route-leave releases them with no app-minted lease to track. One
+;; eventual route-leave releases them with no app-minted owner to track. One
 ;; generalised re-ensure covers every viewer-scoped read AND the session feed on
 ;; whatever route the deep link landed on.
 
@@ -219,7 +219,7 @@
          on entry), evaluates each entry's `:when` + `:params` against the route,
          and ensures it under the current route owner `[:route route-id nav-token]`
          — so the reads land on the SAME cache keys and owner the route used, and
-         route-leave releases them with no app-minted lease. A resource with no
+         route-leave releases them with no app-minted owner. A resource with no
          route `:scope` resolves its spec policy ({:from-db :realworld/viewer} for
          the six optional-auth reads); the feed carries its own
          {:from-db :realworld/session} entry scope. A route with no `:resources`

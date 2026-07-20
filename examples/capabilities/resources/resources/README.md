@@ -20,7 +20,7 @@ This is the worked companion to [Spec
 
 One distinction makes the whole resource surface click: **owner versus cause**.
 
-- An **owner** is a *lease*. It keeps a cached read alive for as long as it
+- An **owner** is a *hold*. It keeps a cached read alive for as long as it
   exists. The moment the last owner lets go, the entry becomes GC-eligible.
 - A **cause** is just provenance — *why* a fetch happened. It is recorded for the
   trace and changes nothing's lifetime.
@@ -43,12 +43,12 @@ live. They go from "the framework decides" to "a workflow decides":
   You never wrote a fetch. You wrote a data requirement next to a URL, and the
   page's lifetime *is* the read's lifetime.
 
-- **Event-driven ensure — you mint the lease.** Some fetches aren't tied to a
+- **Event-driven ensure — you mint the owner.** Some fetches aren't tied to a
   page. The per-row **Preview** button dispatches `:resources.app/preview-opened`,
-  which ensures the detail under an app-minted `[:lease …]` owner. **Close
+  which ensures the detail under an app-minted event owner. **Close
   preview** dispatches `:resources.app/preview-closed` to release it. *You* opened
-  the lease, so *you* must close it. Forget the release and the entry pins forever
-  (Xray lints the orphan). That is the trade for holding the lease yourself.
+  the owner, so *you* must close it. Forget the release and the entry pins forever
+  (Xray lints the orphan). That is the trade for holding the owner yourself.
 
 - **Manual refresh — a cause with no owner.** The **Refresh** button dispatches
   `:rf.resource/refetch` with a `:cause` and deliberately **no** `:owner`. A
@@ -58,7 +58,7 @@ live. They go from "the framework decides" to "a workflow decides":
 
 - **Machine-owned resource — a workflow decides.** Sometimes a read should live
   exactly as long as some workflow. Model that workflow as a
-  [machine](../../../../docs/machines/concepts.md) and let it hold the lease. The
+  [machine](../../../../docs/machines/concepts.md) and let it hold the owner. The
   per-row **Open in reader** button starts the `:resources.app/reader` machine,
   then dispatches `[:reader/load …]` into it (the birth cascade carries no
   event, so the slug rides in on that dispatch). The `:reading` state handles it
@@ -67,7 +67,7 @@ live. They go from "the framework decides" to "a workflow decides":
   machine-owner key the framework auto-releases on actor destroy. **Stop reader**
   runs the `[:rf.machine/destroy …]` effect; destroying the actor releases that
   owner, so the read is not left pinned. (A three-part `[:machine machine-id
-  instance-id]` owner would be an *app-authoritative* lease the framework does
+  instance-id]` owner would be an *app-authoritative* owner the framework does
   NOT auto-release — see [Spec 016 §Release authority is per owner
   kind](../../../../spec/016-Resources.md#release-authority-is-per-owner-kind).)
   The machine stays the workflow; the resource runtime just handles the
