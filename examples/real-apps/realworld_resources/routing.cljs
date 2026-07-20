@@ -224,20 +224,19 @@
 ;; route guard: ../../../docs/routing/glossary.md#route-guard.
 
 ;; `current` is the current route slice ([:rf.runtime/routing :current]) — needed
-;; to resolve the reserved `:rf.route/self` target (stay on the current route,
+;; to resolve an in-place request (no :to / :url — stay on the current route,
 ;; change only the query) the same way the runtime does. Without it a session
-;; that expires WHILE on a `:requires-auth` route could self-navigate straight
-;; past the guard: the raw `:rf.route/self` keyword carries no `:tags`.
+;; that expires WHILE on a `:requires-auth` route could navigate in place straight
+;; past the guard.
 (defn- resolve-nav-target [[ev-id a _b] current]
   (case ev-id
-    :rf.route/navigate (cond
-                         (= :rf.route/self a)              ;; reserved "stay here" target
-                         {:id (:route-id current) :params (or (:params current) {})}
-                         (map? a)                          ;; {:url ...} escape-hatch target
-                         (when-let [{:keys [route-id params]} (routing/match-url (:url a))]
-                           {:id route-id :params (or params {})})
-                         :else                             ;; route-id target
-                         {:id a :params (or _b {})})
+    :rf.route/navigate (let [{:keys [to url params]} a]    ;; a is the flat request map
+                         (cond
+                           to  {:id to :params (or params {})}   ;; route-id destination
+                           url (when-let [{:keys [route-id params]} (routing/match-url url)]  ;; {:url ...} escape hatch
+                                 {:id route-id :params (or params {})})
+                           :else                            ;; in-place — stay on the current route
+                           {:id (:route-id current) :params (or (:params current) {})}))
     :rf.route/url-requested  (let [{:keys [to params url]} a]
                          (cond
                            to  {:id to :params (or params {})}
@@ -260,7 +259,7 @@
          for a post-login bounce-back."}
   {:before (fn auth-guard-before [ctx]
              ;; The route slice is framework runtime-db state — read it from the
-             ;; :rf.db/runtime coeffect so `:rf.route/self` resolves to the
+             ;; :rf.db/runtime coeffect so an in-place request resolves to the
              ;; protected route the user is already on.
              (if-let [{:keys [id params]} (resolve-nav-target
                                             (get-in ctx [:coeffects :event])

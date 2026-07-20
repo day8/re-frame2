@@ -116,12 +116,12 @@ The `action` attribute is what makes the form work without JS: the browser will 
                  (assoc-in  [:cart :add-form :status] :submitted)
                  (assoc-in  [:cart :add-form :submitted] draft))
          :fx [[:rf.server/redirect {:status 303 :location "/cart"}]   ;; server only
-              [:dispatch [:rf.route/navigate :route/cart]]]}))))      ;; client only — shipped routing event
+              [:dispatch [:rf.route/navigate {:to :route/cart}]]]}))))      ;; client only — shipped routing event
 ```
 
 Schema validation runs as the standard `:schema` boundary check ([010 §Validation timing](010-Schemas.md#validation-timing)). If `form-params` fails the `AddToCartForm` schema, the framework's structured-error trace fires (`:rf.error/schema-validation-failure`); the error projector ([011 §Server error projection](011-SSR.md#server-error-projection)) maps it to a 400 response with the public-error shape, *and* the per-field error sub for the form slice reads the validation result and renders the re-served page with inline messages. The app does not write a separate validation branch.
 
-The success path emits both a `303 See Other` (the canonical POST-redirect-GET pattern) and a client-side `[:rf.route/navigate :route/cart]`. On the server, `:platforms` gating no-ops the navigate and the host adapter materialises the redirect — the browser GETs `/cart`, and the cart page renders. On the client (post-hydration), the redirect fx no-ops and `:rf.route/navigate` (the shipped programmatic-navigation event, registered by `day8/re-frame2-routing`) drives the SPA transition. The framework exposes **no** navigate fx under the `:rf.nav/*` namespace (that namespace ships only `push-url`, `replace-url`, `capture-scroll`, and `scroll` fxs); if you need a bare URL push rather than a route id, register an **app-owned** fx (e.g. `:app.nav/navigate`).
+The success path emits both a `303 See Other` (the canonical POST-redirect-GET pattern) and a client-side `[:rf.route/navigate {:to :route/cart}]`. On the server, `:platforms` gating no-ops the navigate and the host adapter materialises the redirect — the browser GETs `/cart`, and the cart page renders. On the client (post-hydration), the redirect fx no-ops and `:rf.route/navigate` (the shipped programmatic-navigation event, registered by `day8/re-frame2-routing`) drives the SPA transition. The framework exposes **no** navigate fx under the `:rf.nav/*` namespace (that namespace ships only `push-url`, `replace-url`, `capture-scroll`, and `scroll` fxs); if you need a bare URL push rather than a route id, register an **app-owned** fx (e.g. `:app.nav/navigate`).
 
 ### Failure path — re-render with errors
 
@@ -197,7 +197,7 @@ The `:cart/add-item` event runs unchanged on both platforms. The differences are
 | Dispatch site | `:rf/server-init`'s POST branch | view's `:on-submit` handler |
 | Source of `form-params` | parsed by host adapter from POST body | the view's `:draft` slice (Pattern-Forms) |
 | CSRF cofx | app-owned `:app.csrf/active-token` (server-only) | client reads app-owned `[:app.csrf :session-token]` from app-db directly |
-| Success effect | `[:rf.server/redirect …]` (full-page navigation) | `[:dispatch [:rf.route/navigate :route/cart]]` (SPA navigation, shipped routing event) |
+| Success effect | `[:rf.server/redirect …]` (full-page navigation) | `[:dispatch [:rf.route/navigate {:to :route/cart}]]` (SPA navigation, shipped routing event) |
 | Failure render | `render-to-string` re-emits the page with errors | the form view's existing error subs re-render in place |
 
 The success/failure effects are the only platform-divergent slot. Apps express this via `:platforms` ([011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx)): `:rf.server/redirect` is server-only, so it no-ops on the client; the client-side `:rf.route/navigate` (the shipped programmatic-navigation event) is a no-op on the server. The same event-handler body emits both, and each platform silently no-ops the one it doesn't own. The mental-model claim of [011-SSR.md](011-SSR.md) — "same handler tree both sides" — holds at this layer.
@@ -206,7 +206,7 @@ The success/failure effects are the only platform-divergent slot. Apps express t
 ;; Inside the action handler — the fx vector can carry both platform-specific effects;
 ;; each platform's `:platforms` gating no-ops the wrong one.
 :fx [[:rf.server/redirect {:status 303 :location "/cart"}]   ;; server only
-     [:dispatch [:rf.route/navigate :route/cart]]]           ;; client only — shipped routing event
+     [:dispatch [:rf.route/navigate {:to :route/cart}]]]           ;; client only — shipped routing event
 ```
 
 ## Composition with `:rf.server/request` cofx
