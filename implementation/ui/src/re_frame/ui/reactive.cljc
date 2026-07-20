@@ -3373,34 +3373,52 @@
   `:foreign-or-react` is the standalone honesty fallback (not in the order)."
   [:mount :story-override :subscription :local-state :hmr :disposed])
 
-(defn- coalesce-kinds
-  "Coalesce the drained fold vector `eligible` into ONE record per cause kind
-  (`{kind -> record}`): last-writer-wins per kind, EXCEPT a `:subscription` keeps
-  the EARLIEST `:from` so a same-target window spans first-from -> latest-to. Each
-  fold already carries its `:cause`. (rf2-sy536 makes this identity-aware so two
-  DISTINCT targets stay two records rather than collapsing.)"
+(defn- cause-identity
+  "The coalescing identity of a pending port fold: a `:subscription` coalesces by
+  its observed TARGET (the upstream node identity, the `:target` axis); every other
+  kind collapses to one record per kind (rf2-sy536). Two subscriptions to DIFFERENT
+  targets have DIFFERENT identities, so they never merge into one fabricated span."
+  [entry]
+  (if (= :subscription (:cause entry))
+    [:subscription (:target entry)]
+    (:cause entry)))
+
+(defn- coalesce-pending
+  "Coalesce the drained fold vector `eligible` into one record per DISTINCT causal
+  identity, in first-appearance order (rf2-sy536). Repeated same-target
+  `:subscription` folds merge to one record spanning that target's EARLIEST `:from`
+  to its LATEST `:to`/`:epoch`; two DISTINCT targets stay two records and neither
+  disappears; bare markers collapse. It never fabricates a cross-target transition
+  by mixing one target's `:from` with another's `:to`."
   [eligible]
-  (reduce (fn [m entry]
-            (let [kind (:cause entry)]
-              (if-some [prior (get m kind)]
-                (assoc m kind (cond-> entry
-                                (contains? prior :from)
-                                (assoc :from (or (:from prior) (:from entry)))))
-                (assoc m kind entry))))
-          {}
-          eligible))
+  (let [{:keys [order by-id]}
+        (reduce (fn [acc entry]
+                  (let [id (cause-identity entry)]
+                    (if-some [prior (get (:by-id acc) id)]
+                      (assoc-in acc [:by-id id]
+                                (if (= :subscription (:cause entry))
+                                  (assoc entry :from (or (:from prior) (:from entry)))
+                                  entry))
+                      (-> acc
+                          (update :order conj id)
+                          (assoc-in [:by-id id] entry)))))
+                {:order [] :by-id {}}
+                eligible)]
+    (mapv by-id order)))
 
 (defn- commit-causes
   "Project THIS connected commit's :rf.view/causes vector — a vector of DETAILED
   cause RECORDS (Ruling 2, reworked rf2-qkq2k), each `{:cause <kind> …ruled-fields}`
-  — from signals that ALREADY exist, never a new capture machine:
+  — from signals that ALREADY exist, never a new capture machine. EP-0033 makes
+  causes a VECTOR because one commit can have several: two moved dependencies yield
+  two records, not one collapsed span (rf2-sy536).
 
     - :mount          `mounting?` — the cell's pre-commit lifecycle was :fresh
                       (the :fresh->:connected transition). Bare marker.
-    - :story-override `override-detail` — a (re)acquired site whose target is a
-                      static Story override; carries the ruled identity + version
-                      (`:override-id` / `:version`). Classification, not
-                      reconstruction.
+    - :story-override `override-details` — ONE ruled `{:override-id :version}` per
+                      (re)acquired site whose target is a static Story override;
+                      sibling overrides are each preserved (never `some`-dropped).
+                      Classification, not reconstruction.
     - :local-state    `local-state?` — the commit-time host-write flag set by the
                       substrate local writer (`note-local-state!`), confirmed only
                       at commit (post-render), so it is a COMMIT-TIME fact, not a
@@ -3408,25 +3426,27 @@
     - :subscription / :hmr / :disposed
                       captured at their cause site into the render-fenced
                       `:pending-commit-causes` vector (`note-commit-cause` at the
-                      port note). :subscription carries its ruled
-                      target/query/frame-id + version :from->:to + :epoch detail;
-                      the rest are bare markers.
+                      port note) and coalesced per identity. :subscription carries
+                      its ruled target/query/frame-id + version :from->:to + :epoch
+                      detail; the rest are bare markers.
     - :foreign-or-react
                       the honesty fallback — a commit that carries no other cause
                       (a foreign React re-render, or a headless value move caught at
                       commit step 5 with no evidence window). Never has detail.
 
-  `eligible` is the render-fenced fold vector (rf2-eww3k); each kind projects to a
-  record in `cause-order`. `:hmr-remount` / `:epoch-restore` are deferred (see
-  `cause-order`) and never appear. Empty is impossible: the fallback always yields
-  one record."
-  [eligible mounting? override-detail local-state?]
-  (let [present (cond-> (coalesce-kinds eligible)
-                  mounting?       (assoc :mount {:cause :mount})
-                  override-detail (assoc :story-override
-                                         (assoc override-detail :cause :story-override))
-                  local-state?    (assoc :local-state {:cause :local-state}))
-        ordered (into [] (keep present) cause-order)]
+  `eligible` is the render-fenced fold vector (rf2-eww3k). Records project in the
+  canonical `cause-order`; same-kind ordering is stable by first-appearance.
+  `:hmr-remount` / `:epoch-restore` are deferred (see `cause-order`) and never
+  appear. Empty is impossible: the fallback always yields one record."
+  [eligible mounting? override-details local-state?]
+  (let [folded  (coalesce-pending eligible)
+        by-kind (cond-> (group-by :cause folded)
+                  mounting?              (assoc :mount [{:cause :mount}])
+                  (seq override-details) (assoc :story-override
+                                                (mapv #(assoc % :cause :story-override)
+                                                      override-details))
+                  local-state?           (assoc :local-state [{:cause :local-state}]))
+        ordered (into [] (mapcat by-kind) cause-order)]
     (if (seq ordered)
       ordered
       [{:cause :foreign-or-react}])))
@@ -3479,12 +3499,15 @@
   (let [st         (state cell)
         st0        @st
         waterline  (:cause-waterline cap)
-        override-detail (some (fn [sid]
-                                (let [t (:target (new-by sid))]
-                                  (when (= :story-override (:kind t))
-                                    {:override-id (:override-id t)
-                                     :version     (:version t)})))
-                              to-acquire)
+        ;; ONE ruled record per (re)acquired Story-override target, in render order
+        ;; — `keep` preserves siblings that `some` (first-only) dropped (rf2-sy536).
+        override-details (into []
+                               (keep (fn [sid]
+                                       (let [t (:target (new-by sid))]
+                                         (when (= :story-override (:kind t))
+                                           {:override-id (:override-id t)
+                                            :version     (:version t)}))))
+                               to-acquire)
         base       {:render-key    (next-render-key!)
                     :view-id       (:view-id st0)
                     :generation    (:generation cap)
@@ -3498,7 +3521,7 @@
             cut      (if (and waterline (< waterline n)) waterline n)
             eligible (subvec pending 0 cut)
             residual (subvec pending cut)
-            causes   (commit-causes eligible mounting? override-detail
+            causes   (commit-causes eligible mounting? override-details
                                     (boolean (:local-state-committed? s)))
             record   (assoc base :rf.view/causes causes)
             next-s   (-> (assoc s :commit-record record)
@@ -3848,9 +3871,12 @@
   the view-evidence plane is elided. The per-commit record (Ruling 1/2; EP-0033
   §Two evidence layers): integer :render-key, :view-id, :generation, :root-id,
   :connection, a per-observation :observations vector, and the per-commit
-  :rf.view/causes vector (Ruling 2 — the nine ruled kinds projected from their
-  existing sources; `:epoch-restore` is not produced by slice b). There is
-  deliberately NO singular :frame-id (frame attribution is per-observation) and NO
+  :rf.view/causes vector (Ruling 2 — the SIX shipped kinds `:mount` /
+  `:story-override` / `:subscription` / `:local-state` / `:hmr` / `:disposed`
+  projected from their existing sources, plus the `:foreign-or-react` fallback; one
+  record per distinct causal identity, rf2-sy536). Both `:hmr-remount` and
+  `:epoch-restore` are DEFERRED and never produced by slice b. There is deliberately
+  NO singular :frame-id (frame attribution is per-observation) and NO
   :parent-render-key (deferred). Tool/test read."
   [^ViewCell cell]
   (:commit-record @(state cell)))

@@ -336,6 +336,48 @@
             "the fenced cause drives its own commit — never left as :foreign-or-react")))))
 
 ;; ===========================================================================
+;; sy536 (Preserve each cause) — distinct causal identities stay distinct
+;; ===========================================================================
+
+(deftest two-subscription-targets-yield-two-truthful-records
+  ;; rf2-sy536: two DIFFERENT targets moving before one commit must yield TWO
+  ;; :subscription records — neither disappears and NO record fabricates a
+  ;; cross-target span (one target's :from with another's :to).
+  (rf/reg-sub :cc/a (fn [db _] (:a db)))
+  (rf/reg-sub :cc/b (fn [db _] (:b db)))
+  (seed! {:a 1 :b 1})
+  (let [cell (reactive/make-cell ::v)]
+    (render+commit! cell [[[:cc/site 0] [:cc/a]] [[:cc/site 1] [:cc/b]]])
+    ;; node A (:node-key 7) moves 2->3; node B (:node-key 8) moves 20->21
+    (fan-cause! cell :subscription [:cc/a] {:node-key 7 :node-version 3  :epoch 1})
+    (fan-cause! cell :subscription [:cc/b] {:node-key 8 :node-version 21 :epoch 1})
+    (render+commit! cell [[[:cc/site 0] [:cc/a]] [[:cc/site 1] [:cc/b]]])
+    (let [subs (filterv #(= :subscription (:cause %)) (causes cell))]
+      (is (= 2 (count subs)) "two distinct targets -> two records; neither disappears")
+      (is (= {7 {:query [:cc/a] :from 2  :to 3}
+              8 {:query [:cc/b] :from 20 :to 21}}
+             (into {} (map (fn [s] [(:target s) (select-keys s [:query :from :to])])) subs))
+          "each record keeps ONLY its own target's identity + version span —
+           no cross-target :from/:to fabrication"))))
+
+(deftest sibling-story-overrides-each-retain-a-record
+  ;; rf2-sy536: two moved Story overrides in one commit retain one detailed record
+  ;; EACH — the old `some` over `to-acquire` dropped the sibling.
+  (rf/reg-sub :cc/a (fn [db _] (:a db)))
+  (rf/reg-sub :cc/b (fn [db _] (:b db)))
+  (seed! {:a 1 :b 1})
+  (let [cell (reactive/make-cell ::v)]
+    (binding [reactive/*sub-overrides* {[:cc/a] 10 [:cc/b] 30}]      ;; mount both overrides
+      (render+commit! cell [[[:cc/site 0] [:cc/a]] [[:cc/site 1] [:cc/b]]]))
+    (binding [reactive/*sub-overrides* {[:cc/a] 20 [:cc/b] 40}]      ;; move BOTH
+      (render+commit! cell [[[:cc/site 0] [:cc/a]] [[:cc/site 1] [:cc/b]]]))
+    (let [ovs (filterv #(= :story-override (:cause %)) (causes cell))]
+      (is (= 2 (count ovs)) "each moved override retains its own record (no sibling drop)")
+      (is (= {[:cc/a] 20 [:cc/b] 40}
+             (into {} (map (fn [o] [(:override-id o) (:version o)])) ovs))
+          "each record carries ONLY its own override's ruled identity + version"))))
+
+;; ===========================================================================
 ;; Canonical order — the cause vector is deterministic across hosts/runs
 ;; ===========================================================================
 
