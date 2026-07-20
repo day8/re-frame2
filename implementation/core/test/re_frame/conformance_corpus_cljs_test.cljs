@@ -94,8 +94,25 @@
   ;; achieves the same effect via `(require 're-frame.ssr :reload)`).
   @re-frame.trace.tooling/listeners)
 
+;; rf2-i6oku — the FRAMEWORK-ONLY baseline, captured at NS-LOAD (like
+;; `baseline-trace-listeners` above), BEFORE any sibling test namespace in the
+;; shared node bundle registers its handlers. This ns's `:require`s pull in every
+;; framework + optional-feature + test-support registration the fixtures need
+;; (routing / http / machines / resources / …), all of which land at ns-load —
+;; so this snapshot is exactly the clean framework surface. The per-fixture
+;; `reset-runtime!` restores TO THIS, so the corpus runs against a framework-only
+;; registrar/source-store REGARDLESS of what a prior suite (e.g. the Xray
+;; RESOURCES-panel tests) left in the live registrar. The JVM leaf achieves the
+;; same clean state via `registrar/clear-all!` + `(require … :reload)`; CLJS has
+;; no `:reload`, so an ns-load snapshot is the equivalent framework-only source.
+(def ^:private framework-baseline-registrar @registrar/kind->id->metadata)
+(def ^:private framework-baseline-source-store @source-store/kind->id->ns->descriptor)
+
 (def ^:private pretest-registrar
-  ;; Mutable cell, set on deftest / self-test entry.
+  ;; Mutable cell, set on deftest / self-test entry. Used ONLY by the try/finally
+  ;; end-of-suite restore, so sibling namespaces that ran BEFORE the corpus keep
+  ;; their live registrations (an ns-load-baseline restore there would strand
+  ;; them). The per-fixture reset uses `framework-baseline-registrar` instead.
   (atom nil))
 
 (def ^:private pretest-source-store
@@ -114,12 +131,12 @@
   ;;    specifically (example apps register routes at ns-load whose rank
   ;;    tuples can collide with the fixture's equal-score cases). The fixture
   ;;    re-registers every route it needs.
-  (reset! registrar/kind->id->metadata @pretest-registrar)
+  (reset! registrar/kind->id->metadata framework-baseline-registrar)
   ;; rf2-h1vqa4: roll the SOURCE STORE back in lockstep and drop the
   ;; resolved-generation cache — the raw `reset!` does not bump the store
   ;; generation counter, so a stale cache entry keyed on [identity counter]
   ;; could otherwise alias a DIFFERENT store content assembled earlier.
-  (reset! source-store/kind->id->ns->descriptor @pretest-source-store)
+  (reset! source-store/kind->id->ns->descriptor framework-baseline-source-store)
   (image-assembly/clear-generation-cache!)
   ;; rf2-h1vqa4: re-seed the routing test-support fixture event. THIS ns is
   ;; the namespace that loads `re-frame.routing.test-support`, so any suite
