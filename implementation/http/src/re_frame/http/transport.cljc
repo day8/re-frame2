@@ -1189,7 +1189,15 @@
                                   :attempt         attempt
                                   :max-attempts    max-attempts
                                   :failure         failure
-                                  :next-backoff-ms delay-ms}
+                                  :next-backoff-ms delay-ms
+                                  ;; rf2-fyt5i — this arm SCHEDULES another
+                                  ;; attempt (`:next-backoff-ms` non-nil), so its
+                                  ;; honest disposition is `:retried`. Spec 009's
+                                  ;; `:rf.http/retry-attempt` row promises this;
+                                  ;; `trace/build-event` hoists `:recovery` on an
+                                  ;; `:info` event ONLY when the producer supplies
+                                  ;; it, so an absent tag left consumers reading nil.
+                                  :recovery        :retried}
                                  (true? (:sensitive? ctx))
                                  {:frame (:frame ctx)})
                          (or (contains? failure :body)
@@ -1247,7 +1255,13 @@
                                   :attempt         attempt
                                   :max-attempts    max-attempts
                                   :failure         failure
-                                  :next-backoff-ms nil}
+                                  :next-backoff-ms nil
+                                  ;; rf2-fyt5i — the retained terminal-exhaustion
+                                  ;; marker schedules NOTHING (discriminated by
+                                  ;; `:next-backoff-ms nil`); stamping `:retried`
+                                  ;; here would be a lie, so its honest disposition
+                                  ;; is `:no-recovery` — no further attempt occurs.
+                                  :recovery        :no-recovery}
                                  (true? (:sensitive? ctx))
                                  {:frame (:frame ctx)})
                          (or (contains? failure :body)

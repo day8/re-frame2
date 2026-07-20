@@ -608,7 +608,17 @@
             `:retry {:on #{:rf.http/http-5xx} :max-attempts 3}` retries
             twice and exhausts on attempt 3; the trace stream must carry the
             per-attempt retry-attempt events (the final one with
-            :next-backoff-ms nil)."
+            :next-backoff-ms nil).
+
+            rf2-fyt5i — the same exhaustion sequence proves the retry
+            timeline reports its `:recovery` disposition HONESTLY: an
+            intermediate attempt that SCHEDULES another (`:next-backoff-ms`
+            non-nil) carries `:recovery :retried`; the retained terminal
+            exhaustion marker (`:next-backoff-ms nil`) schedules nothing and
+            carries `:recovery :no-recovery`, never a phantom `:retried`.
+            `:recovery` is hoisted top-level on the `:info` event by
+            `trace/build-event`; before the fix neither producer arm supplied
+            it, so consumers read nil."
     (let [traces      (atom [])
           listener-id ::upexd3-eligible
           {:keys [port] :as srv}
@@ -632,12 +642,33 @@
           (is (= :error (get-in db [:reply :status])))
           (is (= :rf.http/http-5xx (get-in db [:reply :error :kind])))
           (let [retry-traces (filter #(= :rf.http/retry-attempt (:operation %))
-                                     @traces)]
+                                     @traces)
+                ;; rf2-fyt5i — the `:next-backoff-ms nil` discriminator splits
+                ;; the timeline into the intermediate SCHEDULING arm and the
+                ;; retained terminal-exhaustion marker.
+                {intermediate false terminal true}
+                (group-by #(nil? (get-in % [:tags :next-backoff-ms])) retry-traces)]
             (is (seq retry-traces)
                 "a retry-eligible exhaustion MUST still emit retry-attempt traces")
             ;; The terminal exhaustion trace carries :next-backoff-ms nil.
             (is (some #(nil? (get-in % [:tags :next-backoff-ms])) retry-traces)
-                "the final exhaustion retry-attempt carries :next-backoff-ms nil")))
+                "the final exhaustion retry-attempt carries :next-backoff-ms nil")
+            ;; rf2-fyt5i — honest recovery dispositions. `:recovery` is hoisted
+            ;; top-level on the `:info` event; both arms must now supply it.
+            (is (seq intermediate)
+                "the 5xx exhaustion retries twice, so intermediate scheduling
+                 retry-attempt traces (`:next-backoff-ms` non-nil) must exist")
+            (is (every? #(= :retried (:recovery %)) intermediate)
+                (str "each intermediate attempt SCHEDULES another, so it must "
+                     "carry `:recovery :retried`; saw "
+                     (pr-str (mapv :recovery intermediate))))
+            (is (= 1 (count terminal))
+                "exactly one terminal-exhaustion marker (`:next-backoff-ms nil`)")
+            (is (every? #(= :no-recovery (:recovery %)) terminal)
+                (str "the terminal-exhaustion marker schedules nothing, so it "
+                     "must carry the honest `:recovery :no-recovery`, never a "
+                     "phantom `:retried`; saw "
+                     (pr-str (mapv :recovery terminal))))))
         (finally
           (trace/unregister-listener! listener-id)
           (stop-server! srv))))))
