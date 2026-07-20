@@ -33,17 +33,25 @@
      sub. The render is a pure function of subscriptions — it never dispatches
      out of band, and it is not a Form-3 class component.
 
-   The article read's lease stays a DATAFLOW concern, exactly as in
-   `article_editor.cljs`: the route's `:editor/load-article` mints
-   `[:lease :editor/article slug]` and the `:editor/*` events release it. The
-   Reagent page released on `:component-will-unmount`; native re-frame.ui has no
-   dispatch-at-unmount (a committed dispatcher rejects firing from a disconnected
-   view — the leaked-listener law), and a view-declared `(ui/lease {:resource …})`
-   is a different ownership model — the framework would own the whole lease
-   lifecycle — but this owner is app-minted (route-minted, released by the
-   `:editor/*` events), not view-scoped. So the native view owns no lease — there is
-   nothing at the view tier to leak — and the resource lifecycle stays where the
-   `realworld_resources` suite already proves it."
+   The article read is a DATAFLOW concern that the ROUTE owns, exactly as every
+   other page here does. `:realworld.editor/edit` declares `:realworld/article`
+   as a `:resources` entry (routing.cljs), so the runtime marks it active under
+   the route owner `[:route :realworld.editor/edit nav-token]` on entry and
+   RELEASES that owner on every route leave — edit→home, edit→profile→settings,
+   save→the saved article, edit→new, and edit A→B all release through the one
+   framework lifecycle, with no view teardown involved. Seeding the edit draft's
+   baseline stays a causal event: `:editor/load-article` (the route's `:on-match`)
+   fires an OWNERLESS `:reply-to [:editor/article-loaded]` ensure that JOINS the
+   route's own load purely to be told when it settles — it mints no lease of its
+   own. The Reagent page released on `:component-will-unmount`; native re-frame.ui
+   has no dispatch-at-unmount (a committed dispatcher rejects firing from a
+   disconnected view — the leaked-listener law), so this owner CANNOT ride the
+   view. It doesn't need to: the read is app-minted by a ROUTE, and a route is a
+   causal owner whose end event is route leave (MIG-17 — routes/events/machines
+   are the preferred causal owners; a view lease fits only an owner whose lifetime
+   truly follows the view site, which this route-minted one does not). So the
+   native view owns no lease — there is nothing at the view tier to leak — and the
+   resource lifecycle lives in the route's `:resources`, released on every exit."
   (:require [re-frame.ui :as ui :refer [defview sub]]))
 
 ;; The one stable instance id the editor form watches for the save write — the

@@ -278,25 +278,24 @@
 (defn- route-params [frame] (rf/compute-sub [:rf.route/params] (state-value frame)))
 (defn- route-query [frame] (rf/compute-sub [:rf.route/query] (state-value frame)))
 
-(defn- owner-index-for
-  "Map the entry-liveness owner-index (keyed on opaque byte key-ids) back to
-   scoped-key vectors, so lease-teardown assertions can read owners in the same
-   `[:lease …]` shape the app mints them. Mirrors the resources-machine-owner-
-   release suite's owner-index helper."
-  [frame]
-  (let [rdb    (runtime-db frame)
-        es     (get-in rdb (state/entries-path))
-        id->sk (into {} (map (fn [[k-id e]] [k-id (:resource/key e)])) es)]
-    (into {} (map (fn [[owner members]]
-                    [owner (into #{} (map #(get id->sk % %)) members)]))
-          (get-in rdb (state/owner-index-path)))))
-
 (defn- gc-recheck!
   "Fire the GC re-check for a scoped key on `frame` (the timer-fired event).
    An owner-free, work-free entry is collected; a still-pinned one survives."
   [frame scoped-key]
   (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key scoped-key}]
                     {:frame frame}))
+
+(defn- editor-route-owner?
+  "True iff `entry` carries an active `[:route :realworld.editor/edit _]` owner —
+   the route-owned lease the editor's article read holds while the edit route is
+   live (rf2-y4mgw: the read is a route `:resource`, owned under
+   `[:route route-id nav-token]` and released by the runtime on route leave). The
+   nav-token is opaque, so match on the route id, not the token."
+  [entry]
+  (boolean (some (fn [o] (and (vector? o)
+                              (= :route (first o))
+                              (= :realworld.editor/edit (second o))))
+                 (:active-owners entry))))
 
 ;; ============================================================================
 ;; 1. SESSION-SCOPE RESOLVER — :realworld/session (EP-0016 D3)
@@ -697,80 +696,117 @@
       (is (nil? (:page (route-query f))) "profile page 1 drops ?page="))))
 
 ;; ============================================================================
-;; 9. THE EDITOR EDIT-MODE LOAD + LEASE TEARDOWN + DELETE (rf2-hv7eid)
+;; 9. THE EDITOR EDIT-MODE LOAD + ROUTE-OWNED TEARDOWN + DELETE (rf2-y4mgw)
 ;; ============================================================================
 ;;
 ;; The editor's CREATE path is covered above (editor-flow-gates-…). This pins the
-;; recently-changed EDIT path: the read-side `:reply-to` seed-on-load, and the
-;; lease-teardown NO-LEAK property (rf2-kkqy6q). The footgun: `:editor/load-article`
-;; mints an app-owned `[:lease :editor/article slug]` on the article read; every
-;; exit path MUST have a matching release or `N edits → N leaked entries`. edit→save
-;; and edit→leave release via the component unmount (slug still set); the two
-;; slice-blanking paths — edit→NEW (`:editor/initialise`) and edit→DELETE
-;; (`:editor/replied` delete branch) — must release the OUTGOING slug BEFORE they
-;; blank the slice to a nil slug, else the lease orphans and the entry stays pinned
-;; active forever. Asserted in the shape of the machine-owner-release suite
-;; (active-owners empty + owner-index cleared + GC reclaims).
+;; EDIT path: the read-side `:reply-to` seed-on-load, and the ROUTE-OWNED teardown
+;; NO-LEAK property. rf2-y4mgw re-homed the article read's lifecycle onto the ROUTE:
+;; `:realworld.editor/edit` declares `:realworld/article` as a `:resources` entry,
+;; so the runtime owns it under `[:route :realworld.editor/edit nav-token]` and
+;; RELEASES that owner on every route leave. That closes the leak the app-minted
+;; `[:lease :editor/article slug]` had — the old owner was released only on
+;; edit→new / edit A→B / delete and (in the Reagent tier) the component unmount, so
+;; ordinary route leave in the native (unmount-free) rendition stranded it. Now
+;; EVERY exit (edit→new, edit A→B, save, delete, and edit→any-other-route) releases
+;; through the one framework lifecycle. The seed-on-load is the route's `:on-match`
+;; OWNERLESS `:reply-to [:editor/article-loaded]` ensure — it mints no owner, it
+;; joins the route's own read purely to seed. These tests drive REAL navigations
+;; (so the route plan runs) and assert active-owners + GC reclaim.
 
-(deftest editor-edit-load-seeds-baseline-then-edit-to-new-releases-lease-and-reclaims
+(deftest editor-edit-load-seeds-baseline-then-edit-to-new-releases-owner-and-reclaims
   (testing "examples/real-apps/realworld_resources — edit-mode entry seeds the draft
-            + baseline from the article read via the ensure's :reply-to
-            [:editor/article-loaded] continuation (rf2-p1yri7), pinning the
-            [:lease :editor/article slug] owner; edit→New Article
-            (:editor/initialise, same re-used component, no unmount) releases that
-            outgoing lease so the article entry is reclaimed (edit→new leaks
-            nothing — rf2-kkqy6q FAIL 1)"
+            + baseline from the article read via the route's `:on-match` ownerless
+            :reply-to [:editor/article-loaded] continuation, while the ROUTE owns
+            the read under [:route :realworld.editor/edit nav-token]; navigating
+            edit→New Article releases that owner (the route leave) so the article
+            entry is reclaimed (rf2-y4mgw)"
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
-      ;; EDIT-MODE ENTRY: navigating to /editor/:slug fires the route's :on-match
-      ;; [[:editor/load-article]], which ensures :realworld/article under the
-      ;; releaseable lease with :reply-to [:editor/article-loaded].
+      ;; EDIT-MODE ENTRY: navigating to /editor/:slug runs the route plan (owns
+      ;; :realworld/article under the route owner) AND fires :on-match
+      ;; [[:editor/load-article]] (the ownerless :reply-to [:editor/article-loaded]
+      ;; seed ensure, which dedupes onto the route's own read).
       (rf/dispatch-sync [:rf.route/navigate :realworld.editor/edit {:slug "hello-conduit"}] {:frame f})
       (is (some? @last-managed-args) "edit entry lowered the article read")
-      (let [lease [:lease :editor/article "hello-conduit"]]
-        (is (contains? (:active-owners (entry f (article-key "hello-conduit"))) lease)
-            "the article read is pinned by the editor's releaseable lease")
-        ;; the read settles → the :reply-to continuation seeds the baseline
-        (reply-success! @last-managed-args
-                        {:article {:slug "hello-conduit" :title "Hello, Conduit"
-                                   :description "A desc" :body "Some body" :tagList ["clojure"]}}
-                        f)
-        (testing "the :reply-to [:editor/article-loaded] continuation seeded draft + baseline"
-          (is (= "Hello, Conduit" (:title (rf/compute-sub [:editor/draft] (state-value f))))
-              "the draft is seeded from the loaded article")
-          (is (= "clojure" (:tagList (rf/compute-sub [:editor/draft] (state-value f))))
-              "the tag list is joined into the draft's comma-separated string")
-          (is (= "hello-conduit" (rf/compute-sub [:editor/slug] (state-value f))))
-          (is (false? (rf/compute-sub [:editor/dirty?] (state-value f)))
-              "a freshly-seeded edit draft equals its baseline → not dirty")
-          (is (true? (rf/compute-sub [:editor/can-leave?] (state-value f)))
-              "a clean edit draft may leave freely (the :can-leave guard passes)"))
+      (is (editor-route-owner? (entry f (article-key "hello-conduit")))
+          "the article read is pinned by the ROUTE owner, not an app-minted lease")
+      (is (not (contains? (:active-owners (entry f (article-key "hello-conduit")))
+                          [:lease :editor/article "hello-conduit"]))
+          "no app-minted [:lease :editor/article slug] owner is created any more")
+      ;; the read settles → the ownerless :reply-to continuation seeds the baseline
+      (reply-success! @last-managed-args
+                      {:article {:slug "hello-conduit" :title "Hello, Conduit"
+                                 :description "A desc" :body "Some body" :tagList ["clojure"]}}
+                      f)
+      (testing "the :reply-to [:editor/article-loaded] continuation seeded draft + baseline"
+        (is (= "Hello, Conduit" (:title (rf/compute-sub [:editor/draft] (state-value f))))
+            "the draft is seeded from the loaded article")
+        (is (= "clojure" (:tagList (rf/compute-sub [:editor/draft] (state-value f))))
+            "the tag list is joined into the draft's comma-separated string")
+        (is (= "hello-conduit" (rf/compute-sub [:editor/slug] (state-value f))))
+        (is (false? (rf/compute-sub [:editor/dirty?] (state-value f)))
+            "a freshly-seeded edit draft equals its baseline → not dirty")
+        (is (true? (rf/compute-sub [:editor/can-leave?] (state-value f)))
+            "a clean edit draft may leave freely (the :can-leave guard passes)"))
 
-        ;; EDIT → NEW ARTICLE: the same editor-page component is re-used, so no
-        ;; unmount fires; :editor/initialise (the /editor on-match) must release
-        ;; the OUTGOING slug's lease before it blanks the slice.
-        (rf/dispatch-sync [:editor/initialise] {:frame f})
-        (testing "edit→new released the outgoing lease (no orphaned owner)"
-          (is (not (contains? (:active-owners (entry f (article-key "hello-conduit"))) lease))
-              "the outgoing edit lease is released on edit→new")
-          (is (nil? (get (owner-index-for f) lease))
-              "the lease is gone from the owner-index (no dangling pin)")
-          (is (nil? (rf/compute-sub [:editor/slug] (state-value f)))
-              "the slice is blanked to a fresh create draft (nil slug)"))
-        (testing "the released, settled article entry is GC-reclaimed (leak closed)"
-          (is (nil? (:current-work (entry f (article-key "hello-conduit"))))
-              "the settled read pins no in-flight work")
-          (gc-recheck! f (article-key "hello-conduit"))
-          (is (nil? (entry f (article-key "hello-conduit")))
-              "an owner-free, work-free entry is reclaimed — edit→new leaks nothing"))))))
+      ;; EDIT → NEW ARTICLE: a REAL navigation to :realworld.editor/new. The route
+      ;; plan releases the outgoing edit owner (route leave); :editor/initialise
+      ;; (the /editor on-match) resets the slice.
+      (rf/dispatch-sync [:rf.route/navigate :realworld.editor/new] {:frame f})
+      (testing "edit→new released the route-owned read (no orphaned owner)"
+        (is (not (editor-route-owner? (entry f (article-key "hello-conduit"))))
+            "the outgoing edit route owner is released on edit→new")
+        (is (nil? (rf/compute-sub [:editor/slug] (state-value f)))
+            "the slice is blanked to a fresh create draft (nil slug)"))
+      (testing "the released, settled article entry is GC-reclaimed (leak closed)"
+        (is (nil? (:current-work (entry f (article-key "hello-conduit"))))
+            "the settled read pins no in-flight work")
+        (gc-recheck! f (article-key "hello-conduit"))
+        (is (nil? (entry f (article-key "hello-conduit")))
+            "an owner-free, work-free entry is reclaimed — edit→new leaks nothing")))))
 
-(deftest editor-delete-clears-slice-releases-lease-and-navigates-home
+(deftest editor-edit-then-navigate-to-unrelated-route-releases-the-route-owned-read
+  (testing "examples/real-apps/realworld_resources — THE rf2-y4mgw FIX: leaving the
+            edit route for an UNRELATED route (home) releases the editor's article
+            owner. This is the exact path the native (unmount-free) rendition
+            leaked: no :editor/* event fires on an ordinary route leave, and the
+            old app-minted [:lease :editor/article slug] was released only on
+            new/A→B/delete/unmount — so a plain edit→home stranded it. With the
+            read re-homed onto the route `:resources`, route leave IS the release"
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate :realworld.editor/edit {:slug "hello-conduit"}] {:frame f})
+      (reply-success! @last-managed-args
+                      {:article {:slug "hello-conduit" :title "Hello, Conduit"
+                                 :description "A desc" :body "Some body" :tagList []}}
+                      f)
+      (is (editor-route-owner? (entry f (article-key "hello-conduit")))
+          "the article read is owned while the edit route is live")
+      (is (false? (rf/compute-sub [:editor/dirty?] (state-value f)))
+          "the seeded draft is clean, so the :can-leave guard won't block")
+      ;; ORDINARY ROUTE LEAVE — navigate to home, a route that does NOT read this
+      ;; article. RED on the pre-fix code: nothing releases the editor's article
+      ;; owner on this path, so the entry stays pinned active forever.
+      (rf/dispatch-sync [:rf.route/navigate :realworld/home] {:frame f})
+      (is (= :realworld/home (route-id f)) "left the editor for home")
+      (is (not (editor-route-owner? (entry f (article-key "hello-conduit"))))
+          "leaving the editor for an unrelated route releases the article owner")
+      (testing "the now-unowned, settled article entry is GC-reclaimed"
+        (is (nil? (:current-work (entry f (article-key "hello-conduit"))))
+            "the settled read pins no in-flight work")
+        (gc-recheck! f (article-key "hello-conduit"))
+        (is (nil? (entry f (article-key "hello-conduit")))
+            "an owner-free, work-free entry is reclaimed — edit→leave leaks nothing")))))
+
+(deftest editor-delete-clears-slice-releases-route-owner-and-navigates-home
   (testing "examples/real-apps/realworld_resources — :editor/delete fires the delete
             mutation under the shared save instance with :reply-to [:editor/replied];
-            the delete branch clears the slice, releases the OUTGOING slug's lease
-            BEFORE the navigate-home unmount would read a now-nil slug, and heads
-            home (rf2-kkqy6q FAIL 2 — the matching-release invariant)"
+            the delete branch clears the slice and navigates home, and that
+            navigate-home leaves the edit route, so the runtime releases the
+            route-owned article read on the way out (rf2-y4mgw)"
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -779,21 +815,19 @@
                       {:article {:slug "doomed" :title "Doomed" :description "d"
                                  :body "b" :tagList []}}
                       f)
-      (let [lease [:lease :editor/article "doomed"]]
-        (is (contains? (:active-owners (entry f (article-key "doomed"))) lease)
-            "the edit lease is held before delete")
-        ;; DELETE → the delete mutation lowers; reply with no :article (the delete
-        ;; endpoint returns no body) → the :editor/replied DELETE branch runs.
-        (rf/dispatch-sync [:editor/delete] {:frame f})
-        (reply-success! @last-managed-args {} f)
-        (is (not (contains? (:active-owners (entry f (article-key "doomed"))) lease))
-            "the delete flow releases the edit lease before clearing the slice (rf2-kkqy6q)")
-        (is (nil? (get (owner-index-for f) lease))
-            "the lease is gone from the owner-index after delete (no dangling owner)")
-        (is (nil? (rf/compute-sub [:editor/slug] (state-value f)))
-            "the editor slice is cleared to a blank create draft on delete")
-        (is (= :realworld/home (route-id f))
-            "a successful delete navigates home")))))
+      (is (editor-route-owner? (entry f (article-key "doomed")))
+          "the edit route owns the article read before delete")
+      ;; DELETE → the delete mutation lowers; reply with no :article (the delete
+      ;; endpoint returns no body) → the :editor/replied DELETE branch clears the
+      ;; slice and navigates home, which leaves the edit route.
+      (rf/dispatch-sync [:editor/delete] {:frame f})
+      (reply-success! @last-managed-args {} f)
+      (is (not (editor-route-owner? (entry f (article-key "doomed"))))
+          "navigating home on delete leaves the edit route → the route owner is released")
+      (is (nil? (rf/compute-sub [:editor/slug] (state-value f)))
+          "the editor slice is cleared to a blank create draft on delete")
+      (is (= :realworld/home (route-id f))
+          "a successful delete navigates home"))))
 
 ;; ============================================================================
 ;; 10. SESSION-RESTORE-WITH-TOKEN — the documented "restore stays put" invariant,
