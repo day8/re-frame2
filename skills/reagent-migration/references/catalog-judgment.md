@@ -41,9 +41,30 @@
 
 **The decision: decompose each lifecycle body into host work vs domain work.** Mechanical parts first: delete `:should-component-update` (memo-by-default makes it dead), and extract `:reagent-render` as the view body (the other rules apply to it). Then, per lifecycle body, split by *what the body does*:
 
-- **Host / DOM work** (focus a node, wire a listener, measure, attach a chart) → `(effect :connect …)`. Its signature is a trap — read **the `effect` signature** below before you emit one.
+- **Host / DOM work** → split by *timing*, because `component-did-mount` fired **before paint** and the passive `effect` fires **after** it. Ordinary listeners and deferrable host work (wire a listener, focus a node, kick off a fetch, attach a chart that sizes itself) → `(effect :connect …)`; its signature is a trap — read **the `effect` signature** below before you emit one. But work that **measures or mutates the DOM before the browser paints** — reading a node's geometry to place a popover/dropdown, sizing a table viewport — must NOT move to the passive `effect` (it would measure a frame late and flicker). Route that to **`re-frame.ui.react/use-ref` + `use-layout-effect`** — the measure-before-paint door (see **below**).
 - **Domain work on MOUNT** ("mark viewed", "load on mount") → a route/domain **event** through the dataflow (name it for the author). There is deliberately **no** `:on-mount` primitive; domain-on-mount is a dispatch through the dataflow, not a lifecycle hook.
 - **Domain work on UNMOUNT** ("release the lease", "mark the draft abandoned") → **re-home it OUT of the view** — see **Domain work on unmount** below. There is **no dispatch-at-unmount** in native re-frame.ui; you do **not** preserve it as an `effect` cleanup.
+
+### Measure/mutate before paint → `use-ref` + `use-layout-effect`
+
+Only for the narrow pre-paint case (geometry read, DOM mutation the layout depends on), and only when a passive `effect` would visibly flicker. The interop hooks live in `re-frame.ui.react` (`[re-frame.ui.react :as react]`) and take React's own `setup`→cleanup shape (a `setup` fn returning a cleanup fn or `nil`) — *unlike* `ui/effect`'s body-return shape:
+
+```clojure
+;; before — measurement in :component-did-mount (pre-paint), Form-3
+(r/create-class
+ {:component-did-mount (fn [this] (place! (rdom/dom-node this) (measure anchor)))
+  :reagent-render      (fn [] [:div.popover …])})
+
+;; after — pre-paint semantics preserved by the layout effect, node via use-ref
+(ui/defview popover [{:keys [anchor]}]
+  (let [el (react/use-ref)]
+    (react/use-layout-effect
+      (fn [] (place! (.-current el) (measure anchor)) nil)   ; runs BEFORE paint; nil = no cleanup
+      [anchor])
+    [:div.popover {:ref el} …]))
+```
+
+Everything else — listeners, focus, deferrable work — stays on the passive `effect` below. This is a targeted door, not a hooks-migration framework.
 
 ### `effect`'s signature (verify against `ui.cljc` — REQUIRED)
 
@@ -163,15 +184,22 @@ Keep the caveat: views using refs/effects need `ui/client-only` (or restructure)
 
 **The decision: this is a *second state model* — restructure it into app-db.** There is no direct re-frame.ui equivalent, and that is deliberate: a shared top-level ratom (and `add-watch`/`track!`/`run!` reactions driving effects) was a **latent concurrency bug in Reagent too**. The move is a *causal-event* restructure: the reads become subs, the writes become events, and an `add-watch` becomes the event handler that made the change (the handler carries the consequence) — **not** a mechanical rewrite to `effect`. A watcher fires *synchronously mid-`swap!`, before render*; an effect runs *after commit* — swapping one for the other is a behaviour change no diff review catches. **Compat escape:** the views on this store stay on Reagent until the store is restructured. This is a dataflow re-model the skill scopes and names; the author does it.
 
-## MIG-28 — computed / dynamic DOM props → `ui/spread`
+## MIG-28 — computed / dynamic DOM props → `ui/spread-safe` or `ui/spread`
+
+**The decision: which spread?** re-frame.ui ships an *ergonomic fork* (both DOM elements only) — reach for the safe form first, and drop to the generic one only when the props are genuinely opaque.
+
+- **Literal owned props + a caller-forwarded attr map → `ui/spread-safe`** (the component-library shape, and the ergonomic default). `(ui/spread-safe owned caller)` takes a **literal** `owned` map — the compiler analyses it exactly like an element's props map, so a literal `:value`/`:checked` co-present with its handler **retains the controlled-input synchrony door** — and merges the runtime `caller` attrs over it. A compiler-visible **deny law** (enforced in *every* build) keeps `caller` from clobbering the structural/controlled/owned keys `:key` `:ref` `:value` `:checked` and the component's own `:on-*` handlers; owned props win a collision and `:class` composes. This is the shape a reusable input/control uses to forward a consumer's `data-*`/`aria-*`/`:class` without losing its own guarantees:
 
 ```clojure
-;; before → after
-[:input (merge props {:type "text" :value (or draft "")})]
-=> [:input (ui/spread (merge props {:type "text" :value (or draft "")}))]
+;; before — a control forwards the caller's attrs onto its <input>, holding its own value + handler
+[:input (merge attrs {:type "text" :value (:title draft) :on-input on-input})]
+;; after — owned props literal (sync door KEPT); caller attrs spread safely (deny law applies)
+[:input (ui/spread-safe {:type "text" :value (:title draft) :on-input on-input} attrs)]
 ```
 
-The rewrite is emitted (`ui/spread` is the one generic runtime prop-map conversion, DOM elements only) — but it carries a **named check the human weighs**: a spread site forfeits the static manifest row *and* the controlled-input synchrony door (which needs a provably-literal `:value`/`:checked` co-present on the element). Decision: shrink the spread to genuinely pass-through props and lift `:value`/handlers back to literals, or accept the dynamic site knowingly. **Component call sites stay literal-map (MIG-01), never `ui/spread`.** See the **bare-symbol trap** ([`gotchas.md`](gotchas.md)) — a bare symbol *child* is content, never a spread.
+- **A genuinely opaque runtime props map → `ui/spread`** (the visible-cost escape). `(ui/spread base overrides)` is the one *generic* runtime conversion for a map the compiler cannot see into. It **forfeits the static manifest row *and* the controlled-input synchrony door** (which needs a provably-literal `:value`/`:checked` on the element). Weigh it knowingly: shrink the spread to genuinely pass-through props and lift `:value`/handlers back to literals where you can — or, if the owned/forwarded split is clean, prefer `ui/spread-safe`.
+
+**Component call sites stay literal-map (MIG-01), never a spread.** See the **bare-symbol trap** ([`gotchas.md`](gotchas.md)) — a bare symbol *child* is content, never a spread.
 
 ## MIG-22 — third-party Reagent wrapper components (re-com et al.)
 
@@ -197,6 +225,6 @@ The outward direction (a compiled view *inside* a Reagent tree) needs the `ui/->
 | **MIG-13** | markup-returning `(map (fn …) xs)` in child position | Rewrite to a keyed `for` (`(for [t ts] [item {:key (:id t) :t t}])`) — mechanical only when the fn is a literal with a keyed hiccup body; confirm the candidate. |
 | **MIG-26** | ambient `subscribe`/`dispatch` in a plain unregistered `defn` | Grep for these — they throw `:rf.error/no-frame-context`. Preference order: (1) register as a view; (2) hoist the op to the nearest registered ancestor and pass values down; (3) explicit `{:frame f}`. |
 | **MIG-27** | fn-valued prop on an **internal-view** call site | **Legal and opaque** (a plain fn prop is an identity-compared value — *not* a compile error; non-gating). *Recommend*, don't force: forward a data vector where you want tool-visibility (`:on-commit [:commit]`, child places it at its DOM `:on-*` site), or `ui/handler`/`ui/render-fn` where a phase/stable-identity is genuinely needed. |
-| **MIG-30** | runtime-built markup helper (`(md/render …)` walking an AST) | No compiled spelling for runtime hiccup *data*. Template-ise the callee into `defview` branches (then MIG-01 applies), or route genuinely data-driven markup to `re-frame.ui.data` (a separate artifact), or hold the view. |
+| **MIG-30** | runtime-built markup helper (`(md/render …)` walking an AST) | No compiled spelling for runtime hiccup *data*. Template-ise the callee into `defview` branches (then MIG-01 applies), or hold the view on Reagent. There is **no `re-frame.ui.data` today** — the runtime UI interpreter is a reserved future wave-2 artifact (a *possible future home*, not a namespace you can require now). |
 
 Every row above is a view the skill leaves whole until the decision is made. Decide it, then convert the whole view or hold the whole view — never a partial body.

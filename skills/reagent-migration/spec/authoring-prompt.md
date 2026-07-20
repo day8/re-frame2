@@ -16,7 +16,7 @@
 >
 > *Then write the skill with the file structure locked in `design.md` §4: `SKILL.md` (router) + six reference leaves (`mental-model`, `catalog-mechanical` (M-tier, before→after), `catalog-judgment` (D-tier, "how to DECIDE"), `catalog-reject` (R-tier, the experimental-honesty backbone), `procedure` (incremental closed-subtree), `gotchas`) + three `spec/` meta-docs + `evals/evals.json`. Every leaf one level deep from `SKILL.md`; each leaf ≤250 lines / ≤16 KB.*
 >
-> *Cardinal rules to bake into `SKILL.md`: (1) AI judgment, not a codemod; (2) the whole view is the unit — never half-migrate; (3) incremental, never big-bang; (4) cite `MIG-NN` ids; (5) views only — name dataflow changes; (6) the author runs build/render/tests, not the skill.*
+> *Cardinal rules to bake into `SKILL.md`: (1) AI judgment, not a codemod; (2) the whole view is the unit — never half-migrate; (3) incremental, never big-bang; (4) cite `MIG-NN` ids; (5) views only — name dataflow changes; (6) the skill runs the noninteractive compile/test gates itself (verify-as-you-go, under the trust-the-explicit-invoker baseline); the programmer owns the interactive visual confirmation.*
 >
 > *Front-matter `description` is "pushy" and self-limiting: trigger on Reagent-view→re-frame.ui phrasing (compiled views, reg-view→defview, deref-drop, adopt the experimental substrate, the Reagent view surfaces `r/atom`/`r/with-let`/`r/create-class`/`adapt-react-class`/`:dangerouslySetInnerHTML`), AND state the negatives: the v1→v2 migration is `re-frame-migration`, authoring is `re-frame2`, and staying on Reagent is fine.*
 >
