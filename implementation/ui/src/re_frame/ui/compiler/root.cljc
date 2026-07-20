@@ -789,32 +789,77 @@
                 ~(plans-thunk-form plans)
                 ~(react-opts-form nil opts)))))))))
 
+(defn- static-capability-offender
+  "The render-static transitive static-capability proof (Spec 004C §3, EP-0034
+  §2 no-silent-elision): given the ROOT form's own `{:caps :deps}` facts and the
+  ambient build's per-view `view-static` index, return `{:view-id .. :caps ..}`
+  for the FIRST server-reachable view (or the root form itself,
+  `:rf.root/root-form`) that carries a runtime-requiring capability, or nil when
+  the whole server-reachable closure is static-safe.
+
+  Cycle-safe: the closure follows direct compiled-view dependencies breadth-first
+  over a `seen` set, so a self-recursive or mutually-recursive view terminates.
+  A view-id absent from the index (compiled in another build/context) contributes
+  no known capability and is skipped — the proof catches the KNOWN interactive
+  views loaded in this render's build."
+  [own-facts index]
+  (if (seq (:caps own-facts))
+    {:view-id :rf.root/root-form :caps (:caps own-facts)}
+    (loop [queue (vec (:deps own-facts)), seen #{}]
+      (when (seq queue)
+        (let [vid   (peek queue)
+              queue (pop queue)]
+          (if (contains? seen vid)
+            (recur queue seen)
+            (let [{:keys [caps deps]} (get index vid)]
+              (if (seq caps)
+                {:view-id vid :caps caps}
+                (recur (into queue deps) (conj seen vid))))))))))
+
 (defn render-static-form
   "`(ui/render-static root-form)` — the pure `:server`-phase static-HTML render
   (Spec 004C §3; Spec 011 §Phase flip). JVM-ONLY, the counterpart of the client
   mount verbs: it compiles the LITERAL root form to the versioned JVM structural
-  tree and hands it to `re-frame.ssr/emit-ui-tree`, folding it to an INERT HTML
-  string — NO manifest, NO hydration payload, NO phase flip (a `client-only` site
-  renders its capability-free fallback and stops there; there is no fallback pass
-  to flip away from). It is the static-page path, not the SSR-then-hydrate path.
+  tree and folds it to an INERT HTML string through `re-frame.ssr/emit-ui-tree`
+  (late-resolved — see INDEPENDENCE) — NO manifest, NO hydration payload, NO phase
+  flip (a `client-only` site renders its capability-free fallback and stops there;
+  there is no fallback pass to flip away from). It is the static-page path, not the
+  SSR-then-hydrate path.
 
-  Three invariants, all reusing the mount-surface machinery:
+  Four invariants, all reusing the mount-surface machinery:
 
     - LITERAL ROOT FORM — `analyze-root` rejects a runtime-assembled vector with
       the SAME `:rf.ui.compile/runtime-root-form` compile error mount / render! /
       hydrate-root / ui.test-render raise (a macro sees the literal form; a fn
       cannot). This is the kind-label delta a fn could not honour.
+    - NO SILENT ELISION (Spec 004C §3, EP-0034 §2) — a runtime-requiring
+      capability (subs, committed handlers, effects, refs, context, foreign / lazy
+      heads) anywhere in the root's SERVER-REACHABLE view closure is a loud
+      `:rf.ui.compile/static-root-requires-runtime` build error with source
+      coordinates, never a capability dropped from the static output. The proof is
+      transitive: `compiler/view-static-facts` projects each compiled view's own
+      server-reachable capabilities + direct-view dependencies into the
+      `view-static` build index, and `static-capability-offender` closes over it
+      cycle-safe. `use-id` is exempt (an inert deterministic id is static-safe);
+      `ui/client-only` stays legal (only its capability-free fallback is
+      server-reachable — a static root never flips).
     - IDENTITY PARTICIPATION (§7) — with no opts the root-id derives from the
       single mounted view, so `resolve-root-identity` enforces exactly one view
-      (`:rf.ui.compile/no-single-mounted-view` otherwise); the render itself needs
-      no id (no manifest is emitted), but the static root is identity-bearing the
-      way the derivation default is. Layer-2 duplicate detection (server render
-      time, S5) is the SSR host's per-response registry, not the macro's.
-    - INDEPENDENCE — the macro EMITS a `re-frame.ssr/emit-ui-tree` call rather
-      than requiring it, so `re-frame.ui` never statically depends on
-      `re-frame.ssr` (Spec 011 §wall — no `ui → ssr` static require). The emitted
-      code runs where the server render already has `re-frame.ssr` on the
-      classpath.
+      (`:rf.ui.compile/no-single-mounted-view` otherwise). The derived identity is
+      RETAINED and registered into the Layer-1 build-tier duplicate-root-id index
+      via `register-root-site!`, exactly like mount / render! / hydrate-root — a
+      second site resolving to the same root-id is `:rf.error/duplicate-root-id`.
+      Layer-2 duplicate detection (server render time, S5) is the SSR host's
+      per-response registry, not the macro's.
+    - INDEPENDENCE — the macro emits a call to the ui-side late-resolution seam
+      `re-frame.ui.tree/emit-static-html` (NOT a bare `re-frame.ssr/emit-ui-tree`
+      reference), so `re-frame.ui` never statically depends on `re-frame.ssr` (Spec
+      011 §wall — no `ui → ssr` static require) AND the caller's namespace carries
+      no compile-time `re-frame.ssr` reference: a documented render-static call in
+      a namespace that requires only `re-frame.ui` compiles and renders (the seam
+      loads the emitter at render time) instead of failing with a raw
+      `ClassNotFoundException`. A missing `day8/re-frame2-ssr` artefact is the
+      ruled, typed `:rf.error/ssr-artefact-missing`, never a raw host exception.
 
   Expanding in a CLJS build is a compile error (`:rf.ui.compile/ui-render-static-jvm-only`)
   — CLJS has no structural trees (the client emitter targets React directly), and
@@ -831,19 +876,56 @@
                "in a .clj / .cljc-on-JVM server render namespace, and mount in the "
                "browser with ui/mount / ui/hydrate-root")
           nil))
-  (let [coords (source-coords form false)]
+  (let [coords (source-coords form false)
+        ns-sym (ns-name *ns*)]
     (anchored coords
       (fn []
-        (let [e (-> (env/make-env {:host :clj :ns-sym (ns-name *ns*)})
+        (let [e (-> (env/make-env {:host :clj :ns-sym ns-sym})
                     (env/with-locals (keys menv)))
-              {:keys [ast views]} (analyze-root e 'ui/render-static root-form)]
-          ;; Identity participation (§7): no opts ⇒ derive from the single mounted
-          ;; view; reuse the exact one-view invariant + its frozen compile id.
-          (resolve-root-identity 'ui/render-static {} views)
+              {:keys [ast views]} (analyze-root e 'ui/render-static root-form)
+              ;; Identity participation (§7): no opts ⇒ derive from the single
+              ;; mounted view; reuse the exact one-view invariant + its frozen
+              ;; compile id.
+              {:keys [root-id provenance]} (resolve-root-identity
+                                            'ui/render-static {} views)]
           (print-warnings! e 'ui/render-static)
-          ;; Emit (not require) the SSR serialiser over the JVM structural tree —
-          ;; `~'` keeps `re-frame.ui` free of any static `re-frame.ssr` require.
-          `(~'re-frame.ssr/emit-ui-tree
+          ;; No-silent-elision proof (Spec 004C §3, EP-0034 §2): a pure :server
+          ;; static render cannot honour a live-runtime capability, so any
+          ;; runtime-requiring capability in the root's server-reachable view
+          ;; closure (subs, committed handlers, effects, refs, context, foreign /
+          ;; lazy heads) is a loud BUILD error with source coordinates — never a
+          ;; silently dropped capability. `ui/client-only` stays legal (only its
+          ;; capability-free fallback is server-reachable); `use-id` is exempt.
+          (when-let [{:keys [view-id caps]}
+                     (static-capability-offender
+                      (compiler/view-static-facts ast @(:sites e))
+                      (compiler/build-view-static))]
+            (fail :rf.ui.compile/static-root-requires-runtime
+                  (str "ui/render-static: the static root's server-reachable view "
+                       "closure requires runtime capability "
+                       (str/join ", " (map name (sort caps)))
+                       (if (= :rf.root/root-form view-id)
+                         " in the root form itself"
+                         (str " (via view " (pr-str view-id) ")"))
+                       " — render-static is the pure :server static-HTML path (no "
+                       "subs, handlers, effects, refs, context, or foreign/lazy "
+                       "heads; no manifest, no hydration, no phase flip). Mount "
+                       "this tree in the browser with ui/mount / ui/hydrate-root, "
+                       "or move the live subtree behind a ui/client-only with a "
+                       "capability-free fallback")
+                  {:root-id root-id :offending-view view-id
+                   :capabilities (vec (sort caps))}))
+          ;; Layer-1 identity registration (§7): the static root participates in
+          ;; the build-tier duplicate-root-id index exactly like mount / render! /
+          ;; hydrate-root — the derived identity is retained, not discarded.
+          (register-root-site! 'ui/render-static root-id provenance ns-sym coords)
+          ;; Emit a call to the ui-side late-resolution seam (NOT a bare
+          ;; `re-frame.ssr/emit-ui-tree` reference) so the caller's namespace
+          ;; carries no compile-time `re-frame.ssr` reference — a missing SSR
+          ;; artefact is the ruled typed `:rf.error/ssr-artefact-missing`, not a
+          ;; raw ClassNotFoundException. `re-frame.ui` still takes no static
+          ;; require on `re-frame.ssr` (the resolve is late, at render time).
+          `(~'re-frame.ui.tree/emit-static-html
             (~'re-frame.ui.tree/render-root-tree
              (fn [] ~(emit-jvm/emit-node ast)))))))))
 

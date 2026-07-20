@@ -51,6 +51,7 @@
 
 (def views       ::views)        ; view-id -> [template-fp hook-sig] (digest)
 (def ^:private view-declarations ::view-declarations) ; view-id -> [ns var]
+(def view-static ::view-static)  ; view-id -> {:caps #{..} :deps #{..}} (static-root proof, Spec 004C §3)
 (def roots       ::roots)        ; Layer-1 root-site index
 (def plans       ::plans)        ; Layer-1 frame-plan index
 (def descriptors ::descriptors)  ; Root Descriptor index
