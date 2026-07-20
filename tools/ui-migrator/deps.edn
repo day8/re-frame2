@@ -1,0 +1,40 @@
+;; day8/re-frame2-ui-migrator — W1 Reagent -> re-frame.ui migrator.
+;;
+;; The doc-10 mechanical rewriter: transforms Reagent view code into
+;; re-frame.ui compiled-view code per the canonical MIG-01..35 rule table
+;; (ai/findings/new-substrate-synthesis/prep/w1-migrator-rule-table.md;
+;; source of record for the obligation). Repo migration is its first consumer;
+;; ships with the W2 migration skill (the tool's flag vocabulary and the
+;; skill's Type A/B guidance are kept in agreement).
+;;
+;; Standalone, self-contained artefact: scanner + conservative codemod over
+;; SOURCE TEXT via rewrite-clj (zippers over the node tree, formatting +
+;; comments preserved). It never loads, requires, or executes re-frame2 or
+;; re-frame.ui itself, so it runs against any Reagent corpus on a bare JVM
+;; with no re-frame2 build in the loop. Bundle-isolation therefore holds by
+;; construction: this artefact is not on any shadow-cljs :source-path and
+;; nothing under implementation/ requires it.
+;;
+;; Programmatic entry points:
+;;   (re-frame.ui.migrator/scan-string s opts)     -> [finding ...]
+;;   (re-frame.ui.migrator/scan-file    path)      -> [finding ...]
+;;   (re-frame.ui.migrator/scan-paths   paths)     -> [finding ...]
+;;   (re-frame.ui.migrator/rewrite-string s opts)  -> {:source .. :findings ..}
+;;   (re-frame.ui.migrator/rewrite-file! path opts) -> {:path .. :changed? .. :findings ..}
+{:paths ["src"]
+ :deps  {org.clojure/clojure     {:mvn/version "1.12.4"}
+         rewrite-clj/rewrite-clj {:mvn/version "1.1.49"}}
+ :aliases
+ {;; `clojure -M:test` — fixtures over representative Reagent snippets, one or
+  ;; more per MIG rule + adversarial/negative cases + an idempotence sweep.
+  ;; Plain cognitect test-runner (NOT re-frame2 test-quiet) so the artefact
+  ;; stays self-contained and the test JVM never pulls the implementation tree.
+  :test {:extra-paths ["test"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}
+
+  ;; `clojure -M:run PATH ...`           -> scan a file set and print findings.
+  ;; `clojure -M:run --rewrite PATH ...` -> dry-run the mechanical rewrite.
+  ;; `clojure -M:run --rewrite --write PATH ...` -> rewrite IN PLACE.
+  :run {:main-opts ["-m" "re-frame.ui.migrator"]}}}

@@ -10,6 +10,7 @@ tools=(
   tools/story-mcp
   tools/mcp-base
   tools/mcp-conformance/wire-vocab
+  tools/ui-migrator
 )
 
 for tool in "${tools[@]}"; do
