@@ -23,18 +23,27 @@
     - the `ui/event` form submit — `preventDefault` then dispatch the submit
       vector, running client-side validation;
     - the `:editor/can-submit?` FLOW gating the submit button through a live sub;
-    - the view's ONE lifecycle contract — unmount releases the article owner
-      exactly once (its `effect` cleanup dispatches `[:editor/release-article]`),
-      and a re-render (the hot-reload path) never leaks a spurious release;
+    - the view's re-render / unmount invariant — the native view attaches no
+      owner and holds no local ephemera, so a re-render (the hot-reload path)
+      neither loses the edited draft nor leaks, and a clean unmount emits no
+      domain cleanup dispatch (the ROUTE owns the article read and releases it
+      on route leave — nothing rides the view);
     - the counter and dashboard interactions (event vectors, `local`, a keyed
       list, a controlled filter).
 
   The editor's dataflow is the REAL `article_editor.cljs` registration (required
   below), unchanged by this stage — only its VIEW is native re-frame.ui here.
-  The owner-release DOMAIN logic is pinned in the reagent-adapter suite
-  `realworld_resources_cljs_test`; this suite pins the native VIEW's contribution
-  (the unmount dispatch), so it spies `:editor/release-article` rather than
-  standing up the whole resource runtime."
+  Resource ownership and release are a ROUTING concern, not a view one: the
+  `:realworld.editor/edit` route declares `:realworld/article` as a `:resources`
+  entry (routing.cljs), so the runtime owns the read under
+  `[:route :realworld.editor/edit nav-token]` and RELEASES that owner on every
+  route leave. `article_editor.cljs` deliberately registers no
+  `:editor/release-article` event, and that route-owned release is proved by the
+  route-owner tests in the reagent-adapter suite `realworld_resources_cljs_test`.
+  This native suite adds nothing to the resource lifecycle — it proves the
+  narrower, view-local fact that the native view mounts, drives its interactions,
+  and re-renders / unmounts without emitting any domain cleanup dispatch, because
+  the view owns no owner and there is nothing at the view tier to leak."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
