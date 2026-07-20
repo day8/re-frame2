@@ -120,8 +120,8 @@ Here's the mental shift, and it's the whole numbered-pages trick: **changing pag
 ```clojure
 (rf/reg-event :home/go-to-page
   (fn [_ [_ page]]
-    {:fx [[:dispatch [:rf.route/navigate :app/home {}
-                      {:query (if (> page 1) {:page page} {})}]]]}))
+    {:fx [[:dispatch [:rf.route/navigate {:to :app/home
+                                          :query (if (> page 1) {:page page} {})}]]]}))
 
 (rf/reg-sub :home/page
   :<- [:rf.route/query]
@@ -130,18 +130,14 @@ Here's the mental shift, and it's the whole numbered-pages trick: **changing pag
 
 Notice the event has *no fetch in it* — no HTTP, no resource call. It just navigates. The route declaration from step 2 turns that navigation into the right `ensure`. That's the seam doing its job, and it's why the [event handler](../../core/glossary.md#event-handler) stays a pure function returning a tiny [effect map](../../core/glossary.md#effect-map).
 
-!!! warning "Gotcha — navigate takes three args"
-
-    It's `(navigate target path-params opts)`: target, then path-params `{}`, then the opts map carrying `:query`. The opts always go in the *third* slot — dropping a `{:query …}` map into the second (params) slot is the classic mistake the router rejects with `:rf.error/navigate-arity-misuse`.
-
 A filter — a tag, a search term — is just one more params key and one more query param. Carry it across page changes with the route's `:query-retain` (a set of query keys the router threads through subsequent navigations even when the caller didn't supply them). But reset to page 1 when the *filter* changes, because a new filter is a fresh list, and "page 2 of the old filter" means nothing. That reset is just a navigation that drops `:page` while setting the new filter:
 
 ```clojure
 (rf/reg-event :home/set-tag
   (fn [_ [_ tag]]
     ;; New filter ⇒ fresh list ⇒ back to page 1: set :tag, DROP :page.
-    {:fx [[:dispatch [:rf.route/navigate :app/home {}
-                      {:query (cond-> {} tag (assoc :tag tag))}]]]}))
+    {:fx [[:dispatch [:rf.route/navigate {:to :app/home
+                                          :query (cond-> {} tag (assoc :tag tag))}]]]}))
 ```
 
 The filter then joins the resource's `:params-schema` and the route's `:query` schema, and the route's `:params` fn threads it through alongside the page — one more key on each of the two seams, no new machinery.

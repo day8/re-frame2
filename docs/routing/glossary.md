@@ -7,7 +7,7 @@ re-frame2's optional routing capability — the URL is an *input* to your app, t
 Change the route by dispatching navigation — the URL is an input, the active [route](#route) a [subscription](../core/glossary.md#subscription) you read like any other. Because it's an event, navigation is traceable, interceptable, and rewound by time-travel.
 
 ```clojure
-(rf/dispatch [:rf.route/navigate :app/article {:id "abc"}])
+(rf/dispatch [:rf.route/navigate {:to :app/article :params {:id "abc"}}])
 ```
 
 Related: [The model](concepts.md).

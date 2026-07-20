@@ -269,7 +269,7 @@ One wrap, from the inside out. A deeper chain just wraps more times.
 |---|---|---|
 | Artefact | `(:require [re-frame.routing])` | Once at boot |
 | Table | `reg-route` id / metadata / **path** | Including `:rf.route/not-found` |
-| Change | `[:rf.route/navigate …]` or `route-link` | Params 2nd, opts 3rd |
+| Change | `[:rf.route/navigate {…}]` or `route-link` | One request map (`:to` / `:params` / …) |
 | Read | `[:rf.route/id]` / `params` / `query` / … | Ordinary subs |
 | Browser | `:url-bound? true` on the frame | One owner of the address bar |
 | Data | `:on-match` or `:resources` | Loaders as data |

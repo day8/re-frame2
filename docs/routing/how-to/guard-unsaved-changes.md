@@ -69,9 +69,9 @@ A "Save & close" button should leave *without* the prompt — the changes aren't
 (rf/reg-event :editor/save-and-close
   (fn [{:keys [db]} _]
     {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))   ;; now clean
-     :fx [[:dispatch [:rf.route/navigate :app/article
-                      {:id (get-in db [:editor :id])}
-                      {:bypass-guards? #{:leave}}]]]}))                ;; skip the prompt
+     :fx [[:dispatch [:rf.route/navigate {:to     :app/article
+                                          :params {:id (get-in db [:editor :id])}
+                                          :bypass-guards? #{:leave}}]]]}))    ;; skip the prompt
 ```
 
 Saving makes the draft and saved snapshots equal, so the guard would pass anyway — but `:bypass-guards? #{:leave}` makes the intent explicit and is the right tool whenever you *know* it's safe to leave. (The set form also lets you skip the target's `:can-enter` — `#{:enter}` — or both — `#{:leave :enter}`.)
@@ -82,11 +82,11 @@ Because the whole flow is events and a subscription, the test needs no browser, 
 
 ```clojure
 ;; Land on the editor and make the draft dirty.
-(rf/dispatch-sync [:rf.route/navigate :app/article-editor {:id "intro"}])
+(rf/dispatch-sync [:rf.route/navigate {:to :app/article-editor :params {:id "intro"}}])
 (rf/dispatch-sync [:editor/edit-field :title "changed"])   ;; draft ≠ saved
 
 ;; Try to leave — it should be blocked and parked, not committed.
-(rf/dispatch-sync [:rf.route/navigate :app/home])
+(rf/dispatch-sync [:rf.route/navigate {:to :app/home}])
 (is (= :app/article-editor @(rf/subscribe [:rf.route/id])))     ;; still here
 (is (some?                  @(rf/subscribe [:rf/pending-navigation])))  ;; parked
 

@@ -247,13 +247,9 @@ On success Conduit replies `{:user {... :token "<jwt>"}}`. The success handler s
             ;; :replace? true so the login URL never lands on the back stack —
             ;; pressing Back after signing in shouldn't return you to /login.
             [:dispatch (if return-to
-                         [:rf.route/navigate (:id return-to) (:params return-to) {:replace? true}]
-                         [:rf.route/navigate :conduit/home nil {:replace? true}])]]})))
+                         [:rf.route/navigate {:to (:id return-to) :params (:params return-to) :replace? true}]
+                         [:rf.route/navigate {:to :conduit/home :replace? true}])]]})))
 ```
-
-!!! note "Mind the `navigate` arity — params is 2nd, opts is 3rd"
-
-    `[:rf.route/navigate target params opts]`: path-params go in the second slot, options (`:replace?`, `:scroll`, `:fragment`) in the third. Slipping an opts key like `:replace?` into the *params* slot is the classic swap, and the runtime rejects it fail-loud with `:rf.error/navigate-arity-misuse` rather than navigating somewhere surprising. When a route takes no path-params, pass `nil` in the second slot (as `:conduit/home` does above) to reach the third.
 
 ### Failure: structured errors back into the same view
 
@@ -495,24 +491,23 @@ There's one trap here, and it's the kind that passes every casual test. Navigati
 
 That normaliser is `nav-target` below. The link-click and URL-bar cases carry a raw URL string rather than a route id — and so can `:rf.route/navigate`, whose `{:url "/settings"}` *escape-hatch* target (deep links, redirects) is a URL, not a route id. All three lean on `routing/match-url` to turn that URL back into a route before the guard reads its `:tags`; skip it on the navigate branch and a logged-out `[:rf.route/navigate {:url "/settings"}]` walks in.
 
-`:rf.route/navigate` has a **third** target form too: the reserved `:rf.route/self` — *stay on the current route, change only the query* (search, pagination, tabs). It is not a route id; the runtime resolves it from the current route slice, so `nav-target` takes that slice (`current`) and resolves self the same way. This closes the trap's nastiest corner: a session that *expires while the user is already on `/settings`* would otherwise self-navigate (a filter toggle, `?page=2`) straight past a guard that only knows how to read route ids and URLs — the raw keyword carries no `:requires-auth` tag. Resolved to `:conduit.user/settings`, the self-nav is gated and the stale session is bounced to login:
+`:rf.route/navigate` has a **third** shape too: an *in-place* request — no `:to` and no `:url` — meaning *stay on the current route, change only the query* (search, pagination, tabs). It names no route id; the runtime resolves the target from the current route slice, so `nav-target` takes that slice (`current`) and resolves it the same way. This closes the trap's nastiest corner: a session that *expires while the user is already on `/settings`* would otherwise navigate in place (a filter toggle, `?page=2`) straight past a guard that only knows how to read route ids and URLs — the request carries no route id to tag-check. Resolved to `:conduit.user/settings`, the in-place nav is gated and the stale session is bounced to login:
 
 ```clojure
 (defn- nav-target
   "Normalise any navigation event to {:id route-id :params m};
    nil for non-navigation events (the guard stands aside). `current` is the
-   current route slice ([:rf.runtime/routing :current]) — the reserved
-   :rf.route/self target resolves against it, as the runtime resolves it."
-  [[event-id a b] current]
+   current route slice ([:rf.runtime/routing :current]) — an in-place navigate
+   request resolves against it, as the runtime resolves it."
+  [[event-id a] current]
   (case event-id
-    :rf.route/navigate          (cond
-                                  (= :rf.route/self a)                ;; reserved "stay here" target
-                                  {:id (:route-id current) :params (or (:params current) {})}
-                                  (map? a)                            ;; {:url ...} escape-hatch target
-                                  (when-let [m (routing/match-url (:url a))]
-                                    {:id (:route-id m) :params (or (:params m) {})})
-                                  :else                               ;; route-id target
-                                  {:id a :params (or b {})})
+    :rf.route/navigate          (let [{:keys [to url params]} a]      ;; a is the request map
+                                  (cond
+                                    to  {:id to :params (or params {})}
+                                    url (when-let [m (routing/match-url url)]
+                                          {:id (:route-id m) :params (or (:params m) {})})
+                                    :else                              ;; in-place: stay on the current route
+                                    {:id (:route-id current) :params (or (:params current) {})}))
     :rf.route/url-requested           (if-let [to (:to a)]
                                   {:id to :params (or (:params a) {})}
                                   (when-let [m (routing/match-url (:url a))]
@@ -526,7 +521,7 @@ That normaliser is `nav-target` below. The link-click and URL-bar cases carry a 
   {:before
    (fn [ctx]
      ;; The route slice is framework runtime-db state — read it from the
-     ;; :rf.db/runtime coeffect so the reserved :rf.route/self target resolves
+     ;; :rf.db/runtime coeffect so an in-place navigate request resolves
      ;; to the protected route the user is already on.
      (let [{:keys [id params]} (nav-target (get-in ctx [:coeffects :event])
                                            (get-in ctx [:coeffects :rf.db/runtime
@@ -541,14 +536,14 @@ That normaliser is `nav-target` below. The link-click and URL-bar cases carry a 
                        (assoc-in (get-in ctx [:coeffects :db])
                                  [:auth :return-to] {:id id :params params}))
              (assoc-in [:effects :fx]
-                       [[:dispatch [:rf.route/navigate :conduit.auth/login]]]))
+                       [[:dispatch [:rf.route/navigate {:to :conduit.auth/login}]]]))
          ctx)))})
 ```
 
 You register the guard once, under the id `:conduit/auth-guard` — exactly like registering an event or a sub — and then the frame's chain *references* that id. A few pieces are doing precise work:
 
 - **`routing/match-url`** is the URL codec from `re-frame.routing` (`(:require [re-frame.routing :as routing])`) — **not** the `rf/` front porch. It's a pure function, `url → {:route-id :params :query :fragment :validation-failed?}` (or `nil` for a URL that matches nothing), and it runs on both hosts. `nav-target` uses it for the two cases that arrive as a raw URL string.
-- **The current route slice** (`current`, read from the `:rf.db/runtime` coeffect at `[:rf.runtime/routing :current]`) is what resolves the reserved `:rf.route/self` target — a self-nav means "the route I'm already on," so the guard reads that route's id from the slice, exactly as the runtime does, and then checks its `:tags`.
+- **The current route slice** (`current`, read from the `:rf.db/runtime` coeffect at `[:rf.runtime/routing :current]`) is what resolves an *in-place* navigate request — no `:to`/`:url` means "the route I'm already on," so the guard reads that route's id from the slice, exactly as the runtime does, and then checks its `:tags`.
 - **`rf/handler-meta :route id`** reads the route's [registration](../../core/glossary.md#registration) metadata — including its `:tags` — without activating it. It's the introspection seam pair tools use too, so the guard asks the registry the same question Xray would.
 - **`:rf/skip-handler? true`** tells the runtime to skip the event's own handler. For a navigation that means the protected route never commits and its `:on-match` loads (`[:settings/load]`) never fire — a signed-out user can't even trigger the route's data fetch.
 - **The stash** lands the destination at `[:auth :return-to]` — the same spot `submit-success` read earlier — and the guard dispatches the login navigation instead.
@@ -591,7 +586,7 @@ Teardown is just setup reversed, in one event. Wire `(dispatch [:auth/logout])` 
   (fn [{:keys [db]} _]
     {:db (assoc db :auth {:user nil :token nil})
      :fx [[:auth.session/persist {:token nil}]
-          [:dispatch [:rf.route/navigate :conduit/home]]]}))
+          [:dispatch [:rf.route/navigate {:to :conduit/home}]]]}))
 ```
 
 Nothing else to unhook, which is the nice part. The bearer interceptor reads app-db per request, so the header stops the instant the token is `nil`. The guard starts intercepting again for the same reason. State went away, and behaviour followed. That's the whole dividend of keeping the session *in* app-db rather than in scattered closures: there's exactly one place to clear, and everything that read it goes quiet on its own.

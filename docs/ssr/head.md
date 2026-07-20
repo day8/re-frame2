@@ -25,7 +25,7 @@ can name a head id.
        :meta    [{:name "description" :content summary}
                  {:property "og:title" :content title}
                  {:property "og:image" :content image}]
-       :link    [{:rel "canonical" :href (routing/route-url :route/article params)}]
+       :link    [{:rel "canonical" :href (routing/route-url {:to :route/article :params params})}]
        :json-ld [{"@context" "https://schema.org"
                   "@type"    "Article"
                   "headline" title}]})))

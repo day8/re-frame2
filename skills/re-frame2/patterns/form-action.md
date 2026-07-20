@@ -69,10 +69,10 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
                (update-in [:cart :items] (fnil conj []) (select-keys form-params [:item-id :quantity]))
                (assoc-in  [:cart :add-form :status] :submitted))
        :fx [[:rf.server/redirect {:status 303 :location "/cart"}]   ;; server only
-             [:dispatch [:rf.route/navigate :route/cart]]]})))      ;; client only — shipped routing event
+             [:dispatch [:rf.route/navigate {:to :route/cart}]]]})))  ;; client only — shipped routing event
 ```
 
-The success/failure effects are the only platform-divergent slot. `:rf.server/redirect` is the server-only POST-redirect-GET fx; on the client, navigate via the shipped routing event `[:rf.route/navigate :route/cart]` (dispatched through `:fx`) — `:platforms` gating no-ops the server redirect on the client. (`:rf.route/navigate` is the framework's programmatic-navigation event, registered by `day8/re-frame2-routing`; there is **no** `:rf.nav/navigate` fx. If you need a bare URL push rather than a route id, register an **app-owned** fx such as `:cart.nav/navigate` — the framework does not expose `:rf.nav/push-url` as a route-aware navigation surface.)
+The success/failure effects are the only platform-divergent slot. `:rf.server/redirect` is the server-only POST-redirect-GET fx; on the client, navigate via the shipped routing event `[:rf.route/navigate {:to :route/cart}]` (dispatched through `:fx`) — `:platforms` gating no-ops the server redirect on the client. (`:rf.route/navigate` is the framework's programmatic-navigation event, registered by `day8/re-frame2-routing`; there is **no** `:rf.nav/navigate` fx. If you need a bare URL push rather than a route id, register an **app-owned** fx such as `:cart.nav/navigate` — the framework does not expose `:rf.nav/push-url` as a route-aware navigation surface.)
 
 ## CSRF
 

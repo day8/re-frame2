@@ -231,18 +231,17 @@ The fix is to normalise all three to one target, then redirect identically:
 (defn- nav-target
   "Normalise a navigation event to {:id <route-id> :params <map>}; nil for
    non-navigation events (the guard short-circuits). `current` is the current
-   route slice ([:rf.runtime/routing :current]) — the reserved :rf.route/self
-   target resolves against it, exactly as the runtime resolves it."
-  [[ev-id a b] current]
+   route slice ([:rf.runtime/routing :current]) — an in-place navigate request
+   resolves against it, exactly as the runtime resolves it."
+  [[ev-id a] current]
   (case ev-id
-    :rf.route/navigate          (cond
-                                  (= :rf.route/self a)                   ;; reserved "stay here" target
-                                  {:id (:route-id current) :params (or (:params current) {})}
-                                  (map? a)                               ;; {:url ...} escape-hatch target
-                                  (when-let [{:keys [route-id params]} (routing/match-url (:url a))]
-                                    {:id route-id :params (or params {})})
-                                  :else                                  ;; route-id target
-                                  {:id a :params (or b {})})
+    :rf.route/navigate          (let [{:keys [to url params]} a]          ;; a is the request map
+                                  (cond
+                                    to  {:id to :params (or params {})}
+                                    url (when-let [{:keys [route-id params]} (routing/match-url url)]
+                                          {:id route-id :params (or params {})})  ;; {:url ...} escape hatch
+                                    :else                                 ;; in-place: stay on the current route
+                                    {:id (:route-id current) :params (or (:params current) {})}))
     :rf.route/url-requested           (let [{:keys [to params url]} a]     ;; route-link click
                                   (cond
                                     to  {:id to :params (or params {})}
@@ -261,7 +260,7 @@ Now the guard itself. An *event* interceptor's `ctx` splits into two halves: `:c
   {:before
    (fn [ctx]
      ;; The current route slice is framework runtime-db state — read it from the
-     ;; :rf.db/runtime coeffect so the reserved :rf.route/self target resolves to
+     ;; :rf.db/runtime coeffect so an in-place navigate request resolves to
      ;; the protected route the user is already on.
      (if-let [{:keys [id params]} (nav-target (get-in ctx [:coeffects :event])
                                               (get-in ctx [:coeffects :rf.db/runtime
@@ -275,22 +274,22 @@ Now the guard itself. An *event* interceptor's `ctx` splits into two halves: `:c
                          (assoc-in (get-in ctx [:coeffects :db])
                                    [:auth :return-to] {:id id :params params}))
                (assoc-in [:effects :fx]
-                         [[:dispatch [:rf.route/navigate :app/login]]]))
+                         [[:dispatch [:rf.route/navigate {:to :app/login}]]]))
            ctx))
        ctx))})
 ```
 
 Two helpers do the reading, and both are *pure* — they compute from their arguments without touching app-db, which is exactly why the guard can call them inline:
 
-- **`routing/match-url`** parses a URL string into a map — `{:route-id :params :query :fragment :validation-failed?}` — or `nil` when nothing matches. (Its inverse, `routing/route-url`, builds a URL from a route id and params.) Note the namespace: it lives in `re-frame.routing`, **not** on the `rf/` facade. `nav-target` reaches for it in **three** places: the link-click and URL-bar events carry a raw URL, and `:rf.route/navigate` accepts a `{:url "/settings"}` **escape-hatch target** (deep links, redirects) that is a URL, not a route id — resolve it the same way the runtime does, or a logged-out `[:rf.route/navigate {:url "/settings"}]` slips past the tag check.
-- **The reserved `:rf.route/self` target** is the *third* form `:rf.route/navigate` accepts — *stay on the current route, change only the query* (search, pagination, tabs). It is not a route id; the runtime resolves it from the current route slice, so the guard resolves it the same way, off `current`. Miss it and the guard fails **open** exactly where it hurts: a session that expires *while the user sits on a protected route* can self-navigate (`?page=2`, a tab switch) and — because the raw keyword carries no `:requires-auth` tag — slip past the check. That is why the guard reads the current slice from the `:rf.db/runtime` coeffect and threads it into `nav-target`: resolved to `:app/settings`, the self-nav is gated and the expired session is bounced to login.
+- **`routing/match-url`** parses a URL string into a map — `{:route-id :params :query :fragment :validation-failed?}` — or `nil` when nothing matches. (Its inverse, `routing/route-url`, builds a URL from an address map.) Note the namespace: it lives in `re-frame.routing`, **not** on the `rf/` facade. `nav-target` reaches for it in **three** places: the link-click and URL-bar events carry a raw URL, and `:rf.route/navigate` accepts a `{:url "/settings"}` **escape-hatch** request (deep links, redirects) that is a URL, not a route id — resolve it the same way the runtime does, or a logged-out `[:rf.route/navigate {:url "/settings"}]` slips past the tag check.
+- **An in-place navigate request** is the *third* shape `:rf.route/navigate` accepts — no `:to` and no `:url`, meaning *stay on the current route, change only the query* (search, pagination, tabs). It names no route id; the runtime resolves the target from the current route slice, so the guard resolves it the same way, off `current`. Miss it and the guard fails **open** exactly where it hurts: a session that expires *while the user sits on a protected route* can navigate in place (`?page=2`, a tab switch) and — because the request carries no route id to tag-check — slip past. That is why the guard reads the current slice from the `:rf.db/runtime` coeffect and threads it into `nav-target`: resolved to `:app/settings`, the in-place nav is gated and the expired session is bounced to login.
 - **`rf/handler-meta`** reads back the metadata you stamped at registration. `(rf/handler-meta :route id)` returns that route's registration map; the guard pulls its `:tags` and checks for `:requires-auth`.
 
 The redirect works by *skip-and-dispatch*. `:rf/skip-handler?` — the public short-circuit primitive an interceptor's `:before` sets on its ctx — stops the original handler, so the protected slice never commits and its `:on-match` loads never fire. The guard then dispatches the login navigation itself.
 
 !!! warning "Gotcha — don't rewrite the event in place"
 
-    The runtime picks the handler from the *original* event id, so editing the event in `:before` would just run the wrong handler. Use skip-and-dispatch instead. And stash the target in app-db, not on the navigate opts — the navigate handler drops unknown opts, so a target smuggled onto the options map would simply vanish.
+    The runtime picks the handler from the *original* event id, so editing the event in `:before` would just run the wrong handler. Use skip-and-dispatch instead. And stash the target in app-db, not on the navigate request — the navigate handler rejects unknown keys **loud** (`:rf.error/navigate-bad-request`), so a target smuggled onto the request map would blow up rather than ride along.
 
 !!! warning "Gotcha — a bad URL is a non-match, not a crash"
 
@@ -346,8 +345,8 @@ A guard's headline feature is returning the user to exactly where they were head
     (let [return-to (get-in db [:auth :return-to])]
       {:db (update db :auth dissoc :return-to)
        :fx [[:dispatch (if return-to
-                         [:rf.route/navigate (:id return-to) (:params return-to)]
-                         [:rf.route/navigate :app/home])]]})))
+                         [:rf.route/navigate {:to (:id return-to) :params (:params return-to)}]
+                         [:rf.route/navigate {:to :app/home}])]]})))
 ```
 
 Why read *and clear*? Because a stash that lingers is a footgun. The user logs in directly from `/login` an hour later, and a `:return-to` left over from this morning silently teleports them somewhere they never asked to go. Consume the stash in the same handler that reads it and the bounce target lives exactly as long as one login round-trip — no longer.
@@ -382,7 +381,7 @@ Now logout itself. There's one subtlety, and the ordering is the whole game: res
                (assoc-in [:auth :token] nil))
        :fx [[:auth.session/persist {:token nil}]
             [:dispatch [:rf.resource/clear-scope {:scope old-scope :cause :logout}]]
-            [:dispatch [:rf.route/navigate :app/home]]]})))
+            [:dispatch [:rf.route/navigate {:to :app/home}]]]})))
 ```
 
 `clear-scope` earns its keep: it removes that scope's cache entries, releases their owners, aborts in-flight requests nothing else owns, suppresses late replies (by scope-plus-generation checks), and emits a trace row explaining what was removed, aborted, and left alone. Every other scope stays intact, and there's no hand-maintained list of keys to forget (see [Server state: resources](../../resources/concepts.md)). Don't use resources? Drop that one `:fx` row and the rest stands.

@@ -49,22 +49,21 @@ Guard `:rf.route/navigate` alone and the third row defeats you: a logged-out rea
 
 (defn- nav-target
   "Normalise any navigation event to {:id <route-id> :params <map>}, or nil.
-  `current` is the current route slice ([:rf.runtime/routing :current]) — the
-  reserved :rf.route/self target resolves to the route you are already on, so
-  pass it in and the guard resolves self exactly as the runtime does."
-  [[ev-id a b] current]
+  `current` is the current route slice ([:rf.runtime/routing :current]) — an
+  in-place navigate request (no :to / :url) means the route you are already on,
+  so pass it in and the guard resolves it exactly as the runtime does."
+  [[ev-id a] current]
   (case ev-id
     :rf.route/navigate
-    (cond
-      (= :rf.route/self a)                               ;; reserved "stay here" target
-      {:id (:route-id current) :params (or (:params current) {})}
+    (let [{:keys [to url params]} a]                     ;; a is the request map
+      (cond
+        to  {:id to :params (or params {})}              ;; route-id destination
 
-      (map? a)                                           ;; {:url ...} escape-hatch target
-      (when-let [{:keys [route-id params]} (rf.routing/match-url (:url a))]
-        {:id route-id :params (or params {})})
+        url (when-let [{:keys [route-id params]} (rf.routing/match-url url)]
+              {:id route-id :params (or params {})})     ;; {:url ...} escape hatch
 
-      :else                                              ;; route-id target — unchanged
-      {:id a :params (or b {})})
+        :else                                            ;; in-place: stay on the current route
+        {:id (:route-id current) :params (or (:params current) {})}))
 
     :rf.route/url-requested
     (let [{:keys [to params url]} a]
@@ -88,16 +87,16 @@ route id — so the guard resolves it through `match-url` exactly as the runtime
 reading the route's `:tags`. Guard only the route-id form and a logged-out
 `[:rf.route/navigate {:url "/settings"}]` walks straight in.
 
-`:rf.route/navigate` carries a **third** target form: the reserved `:rf.route/self`,
-which means *stay on the current route; change only the query* (search, pagination, tab
-switches). It is not a registered route id — the runtime resolves it from the current route
-slice, so the guard must too. Miss it and the check fails **open** in the one place it
+`:rf.route/navigate` carries a **third** shape: an *in-place* request — no `:to` and no
+`:url` — which means *stay on the current route; change only the query* (search, pagination,
+tab switches). It names no route id, so the runtime resolves the target from the current
+route slice, and the guard must too. Miss it and the check fails **open** in the one place it
 matters most: a reader whose session has expired *while sitting on a protected route* can
-self-navigate (a `?page=2`, a tab switch) and the guard, seeing the literal keyword rather
-than the route they're on, waves it through. Resolving `:rf.route/self` against the current
-slice — `(:route-id current)` — makes the guard see `:app/settings`'s `:requires-auth` tag
-and fail **closed**, bouncing the expired session to login. That's why the interceptor reads
-the current slice out of the `:rf.db/runtime` coeffect and threads it into `nav-target`.
+navigate in place (a `?page=2`, a tab switch) and the guard, seeing a request with no route
+id to check, waves it through. Resolving the in-place request against the current slice —
+`(:route-id current)` — makes the guard see `:app/settings`'s `:requires-auth` tag and fail
+**closed**, bouncing the expired session to login. That's why the interceptor reads the
+current slice out of the `:rf.db/runtime` coeffect and threads it into `nav-target`.
 
 ## 3. Redirect with skip-and-dispatch
 
@@ -109,8 +108,8 @@ Now the guard itself: one interceptor, registered once, that runs `:before` ever
   {:before
    (fn [ctx]
      ;; The current route slice is framework runtime-db state — read it from
-     ;; the :rf.db/runtime coeffect so the reserved :rf.route/self target
-     ;; resolves to the protected route the reader is already on.
+     ;; the :rf.db/runtime coeffect so an in-place navigate request resolves
+     ;; to the protected route the reader is already on.
      (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event])
                                        (get-in ctx [:coeffects :rf.db/runtime
                                                     :rf.runtime/routing :current]))]
@@ -120,7 +119,7 @@ Now the guard itself: one interceptor, registered once, that runs `:before` ever
            (-> ctx
                (assoc :rf/skip-handler? true)                    ;; protected route never commits
                (assoc-in [:effects :fx]
-                         [[:dispatch [:rf.route/navigate :app/login]]]))
+                         [[:dispatch [:rf.route/navigate {:to :app/login}]]]))
            ctx))
        ctx))})              ;; not a navigation ⇒ pass through untouched
 ```

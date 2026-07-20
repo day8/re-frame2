@@ -16,7 +16,7 @@ For the full model from scratch, read [The model](concepts.md); this page assume
 | `useSearchParams()` | `@(subscribe [:rf.route/query])` | A separate map from path params — never merged into one bag. `?page=2` arrives as the integer `2`. |
 | `loader` function | [`:on-match`](concepts.md#loaders-declaring-a-pages-data) (events) / `:resources` (data) | The [loader](glossary.md#loader) — but as *data* (a vector of event vectors, or a list of resource decls), not a function you call. |
 | `useLoaderData()` | An ordinary [subscription](../core/glossary.md#subscription) | The loader writes to [app-db](../core/glossary.md#app-db); your [view](../core/glossary.md#view) reads it like any other state. No special hook. |
-| `useNavigate()` → `navigate("/x")` | `(dispatch [:rf.route/navigate :route params])` | [Navigation is an event](concepts.md#move-2-navigation-is-an-event) — traceable, interceptable, and rewound by time-travel. |
+| `useNavigate()` → `navigate("/x")` | `(dispatch [:rf.route/navigate {:to :route :params params}])` | [Navigation is an event](concepts.md#move-2-navigation-is-an-event) — traceable, interceptable, and rewound by time-travel. |
 | `<Link to>` / `<NavLink>` | `[route-link {:to :route}]` | Renders a real `<a href>`, intercepts plain clicks, *defers* cmd/shift/middle-click to the browser. |
 | `useNavigation().state` (`"loading"`) | `@(subscribe [:rf.route/transition])` | A global `:idle`/`:loading`/`:error` you read anywhere — never threaded through a component. |
 | `errorElement` / `useRouteError()` | `:on-error` + `@(subscribe [:rf.route/error])` | A structured [error record](../core/glossary.md#error-record) in state, plus an optional event to respond. |

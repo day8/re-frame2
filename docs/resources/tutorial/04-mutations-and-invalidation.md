@@ -112,7 +112,7 @@ A resource is "a subscription you read and an event you fire" (a [*subscription*
   (fn [{:keys [db]} [_ slug favorited?]]
     (if (nil? (get-in db [:auth :user]))
       ;; Logged out, a favorite click goes to login instead of a 401.
-      {:fx [[:dispatch [:rf.route/navigate :conduit.auth/login]]]}
+      {:fx [[:dispatch [:rf.route/navigate {:to :conduit.auth/login}]]]}
       {:fx [[:dispatch [:rf.mutation/execute
                         {:mutation (if favorited? :conduit/unfavorite :conduit/favorite)
                          :params   {:slug slug}
@@ -461,7 +461,7 @@ When the runtime accepts the write's reply, it dispatches `[:editor/replied repl
       (let [article (:article value)]
         {:db (assoc db :editor (editor-slice (:slug article) (draft-from-article article)))
          :fx [[:dispatch [:rf.mutation/clear {:instance :editor/save}]]
-              [:dispatch [:rf.route/navigate :conduit.article/show {:slug (:slug article)}]]]}))))
+              [:dispatch [:rf.route/navigate {:to :conduit.article/show :params {:slug (:slug article)}}]]]}))))
 ```
 
 That `{:keys [status value]}` is the reply map's public shape: `:status` tells you how the write settled, and `:value` carries the decoded result on `:ok`. It's the same closed envelope every managed-async surface in re-frame2 produces — [the uniform reply](../../core/glossary.md#the-uniform-reply).

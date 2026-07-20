@@ -30,7 +30,7 @@ Throughout, `rf` is the `re-frame.core` facade alias (`[re-frame.core :as rf]`).
   ```
 - **Description**: Register a route as data.
 
-  - `id` — keyword dispatched against later (`[:rf.route/navigate :route/cart]`).
+  - `id` — keyword dispatched against later (`[:rf.route/navigate {:to :route/cart}]`).
   - `metadata` — map of match events and guards (keys below).
   - `path` — the URL shape; colon-prefixed segments capture into `:params`.
 
@@ -128,28 +128,28 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (route-url route-id path-params) → URL string
-  (route-url route-id path-params query-params) → URL string
-  (route-url route-id path-params query-params fragment) → URL string
+  (route-url {:to route-id :params path-params :query query-params :fragment fragment}) → URL string
   ```
-- **Description**: Render a route to a URL — the inverse of `match-url`. Pure; JVM-runnable.
+- **Description**: Render a route to a URL — the inverse of `match-url`. Takes one **address map**; pure; JVM-runnable.
 
-  - The 4-arity appends `#fragment` when `fragment` is a non-empty string (`nil` / `""` append nothing).
+  - `:to` is the only required key (requests spell the route id `:to`; facts spell it `:route-id`). `:params`, `:query`, and `:fragment` are optional.
+  - `:fragment` appends `#fragment` when it is a non-empty string (`nil` / `""` append nothing).
   - Nil-valued query keys are silently elided. A nil required path param is an error.
   - Query keys are emitted percent-encoded, in a deterministic canonical order.
+  - **Address-only.** `:url`, `:query-merge`, policy keys (`:replace?` / `:scroll` / `:bypass-guards?`), and any unknown key reject **loud** (`:rf.error/route-url-validation`, `:reason :bad-address-keys`) rather than being silently ignored. There is no in-place form — a pure helper cannot read the current route.
 
   Throws:
-  - `:rf.error/no-such-route` — `route-id` not registered.
+  - `:rf.error/no-such-route` — `:to` route not registered.
   - `:rf.error/missing-route-param` — a required path segment's param is nil or absent.
-  - `:rf.error/route-url-validation` — `path-params` / `query-params` fail the route's `:params` / `:query` schemas.
+  - `:rf.error/route-url-validation` — `:params` / `:query` fail the route's `:params` / `:query` schemas, or the map carries non-address keys.
   - `:rf.error/route-url-non-edn-value` — non-EDN param/query values or a non-string fragment.
 - **Example**:
   ```clojure
   ;; with (rf/reg-route :user/show {} "/users/:id") registered:
-  (rf.routing/route-url :user/show {:id 42})            ;; => "/users/42"
+  (rf.routing/route-url {:to :user/show :params {:id 42}})        ;; => "/users/42"
 
   ;; query params are appended and percent-encoded:
-  (rf.routing/route-url :search {} {:q "hello world"})  ;; => "/search?q=hello%20world"
+  (rf.routing/route-url {:to :search :query {:q "hello world"}})  ;; => "/search?q=hello%20world"
   ```
 
 ### `malformed-url?`
@@ -498,7 +498,7 @@ Standard events the runtime dispatches (or you dispatch) around routing.
 
 | Event | Notes |
 |---|---|
-| `:rf.route/navigate` | Navigate to a registered route. Arities: `[:rf.route/navigate target]` / `[:rf.route/navigate target params]` / `[:rf.route/navigate target params opts]`. `target` is a route id, the reserved `:rf.route/self` (stay on the current route, reshape only the query), or a `{:url "..."}` map. `params` (2nd slot) are path params. `opts` (3rd slot) recognises `:query`, `:query-merge`, `:replace?`, `:scroll`, `:fragment`, `:bypass-guards?`. |
+| `:rf.route/navigate` | Navigate via one request map: `[:rf.route/navigate {request}]`. Address keys `:to` (route id) / `:url` (raw-URL escape hatch) / `:params` / `:query` / `:fragment`; policy keys `:replace?` / `:scroll` / `:bypass-guards?`; edit key `:query-merge`. `:to` xor `:url`; `:url` excludes `:params` / `:query` / `:query-merge`. Omit both `:to` and `:url` for an *in-place* request that patches the current location (`:query-merge`, or a `:query` / `:fragment` present by key). A structurally-invalid request rejects **loud** with `:rf.error/navigate-bad-request` before any guard runs. |
 | `:rf.route/handle-url-change` | URL-change handler for popstate / initial load / SSR (default scroll `:restore`). A co-equal sibling of `:rf.route/transitioned`: same slice-rewrite logic, not a delegate. Override it for custom URL-change handling. |
 | `:rf.route/transitioned` | URL-change handler for forward navigation — a link click or programmatic push (default scroll `:top`). The runtime dispatches this; you read it. |
 | `:rf.route/url-requested` | The user clicked a framework-owned link. `route-link` synthesises this event; you usually let the default handler take it. |
