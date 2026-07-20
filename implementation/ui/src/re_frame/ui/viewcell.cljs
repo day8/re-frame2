@@ -136,24 +136,88 @@
         (reactive/with-capture cell thunk)))
     (reactive/with-capture cell thunk)))
 
+;; ---------------------------------------------------------------------------
+;; DEV-only render-key DOM stamp (rf2-ny34u; Spec 004 §View identity — Source ↔
+;; DOM navigation).
+;;
+;; The compiler stamps the STATIC host-root annotation (`data-rf2-source-coord` /
+;; `data-rf-view`) at render (rf2-hac8p), but the per-commit render-key does not
+;; exist at render time — it is minted at CONNECTED COMMIT inside
+;; `reactive/commit!` (reactive.cljc), AFTER the child host element has already
+;; committed (reading it at render is stale-by-one / nil-at-mount, an I-1/I-2
+;; violation). So the substrate stamps it HERE, in the ViewCell's reconcile
+;; layout effect, onto the committed host-root DOM node — the same node the
+;; static annotation rides — as `data-rf-render-key`, reading the just-minted key
+;; back through the `reactive/render-key` reader. reactive.cljc's commit path
+;; stays host-agnostic (it also runs headless on the JVM plain-atom host, which
+;; has no DOM node); the DOM-specific stamp lives at this React commit site.
+;;
+;; DEBUG-ONLY, production-erased (I-12, exactly like the static annotation):
+;; every hook and branch below sits behind `^boolean js/goog.DEBUG`, so Closure
+;; constant-folds the gate to false and DCEs the whole thing — the host-node ref,
+;; the `data-rf-render-key` literal, and the `setAttribute` — under :advanced +
+;; goog.DEBUG=false. A production ViewCell keeps exactly its two layout effects
+;; and stamps nothing.
+;; ---------------------------------------------------------------------------
+
+(defn- stampable-host-root?
+  "True when `element` is a compiler-owned host element (a React element whose
+  type is a tag STRING, so React attaches a DOM node to a ref placed on it) that
+  carries no authored `:ref`. This is the same root the static host-root
+  annotation lands on. A view / foreign-component / fragment root has no DOM node
+  to stamp, and a host root the author already `:ref`s is left untouched rather
+  than clobbering the user's ref — such a view forgoes the DOM-attribute
+  convenience (its render-key is still readable via `reactive/render-key`)."
+  [element]
+  (and (react/isValidElement element)
+       (string? (.-type element))
+       (nil? (.. element -props -ref))))
+
 (defn- use-commit-and-lifecycle!
-  "Publish an observation-only capture and own React visibility lifecycle."
-  [cell root-incarnation capture]
-  ;; Reconcile after every committed render. There is deliberately no cleanup:
-  ;; retained observation owners live on the cell, not on a render.
-  (react/useLayoutEffect
-    (fn reconcile []
-      (reactive/commit! cell capture)
-      js/undefined))
-  ;; Connect via commit above; cleanup releases ownership on both unmount and
-  ;; Activity hide. Root enrolment deliberately survives hide so root teardown
-  ;; can reap an entirely-hidden subtree.
-  (react/useLayoutEffect
-    (fn lifecycle []
-      (when (some? root-incarnation)
-        (reactive/attach-root! cell root-incarnation))
-      (fn cleanup [] (reactive/disconnect! cell)))
-    #js [root-incarnation]))
+  "Publish an observation-only capture, own React visibility lifecycle, and — in
+  DEV only — stamp the per-commit render-key onto the committed host-root DOM
+  node. Returns the element to render: in DEV a clone of `element` carrying a
+  stable host-node ref when the root is a stampable host element; unchanged in
+  production (the whole DEV arm DCEs)."
+  [cell root-incarnation capture element]
+  ;; DEV: capture the committed host-root DOM node so the reconcile effect can
+  ;; stamp render-key onto it. Both hooks are goog.DEBUG-gated, so production
+  ;; carries neither — its ViewCell keeps exactly the two layout effects below.
+  (let [host-ref (when ^boolean js/goog.DEBUG (react/useRef nil))
+        host-cb  (when ^boolean js/goog.DEBUG
+                   (react/useCallback
+                     (fn capture-host-node [node] (set! (.-current host-ref) node))
+                     #js []))]
+    ;; Reconcile after every committed render. There is deliberately no cleanup:
+    ;; retained observation owners live on the cell, not on a render.
+    (react/useLayoutEffect
+      (fn reconcile []
+        (reactive/commit! cell capture)
+        ;; render-key is minted inside `commit!` above (reactive.cljc). Stamp it
+        ;; onto the just-committed host node so DOM-oriented tooling can read
+        ;; which render produced the on-screen node. No-op when there is no host
+        ;; node (a non-stampable root) or no render-key (a non-connected commit
+        ;; publishes no record). Production-erased with the whole DEV plane.
+        (when ^boolean js/goog.DEBUG
+          (let [node (some-> host-ref .-current)
+                rk   (reactive/render-key cell)]
+            (when (and node (some? rk))
+              (.setAttribute node "data-rf-render-key" (str rk)))))
+        js/undefined))
+    ;; Connect via commit above; cleanup releases ownership on both unmount and
+    ;; Activity hide. Root enrolment deliberately survives hide so root teardown
+    ;; can reap an entirely-hidden subtree.
+    (react/useLayoutEffect
+      (fn lifecycle []
+        (when (some? root-incarnation)
+          (reactive/attach-root! cell root-incarnation))
+        (fn cleanup [] (reactive/disconnect! cell)))
+      #js [root-incarnation])
+    ;; DEV: return the host-root clone carrying the stable node ref; production
+    ;; returns the element untouched (this whole arm folds away under :advanced).
+    (if (and ^boolean js/goog.DEBUG (stampable-host-root? element))
+      (react/cloneElement element #js {:ref host-cb})
+      element)))
 
 (defn- use-frame-context!
   "Register the calling component as a real React CONSUMER of the shared frame
@@ -289,8 +353,8 @@
         [element capture event-capture]
         (capture-reactive-and-events
          owner frame-id
-         #(capture-with-overrides cell overrides (with-current-frame frame-id thunk)))]
-    (use-commit-and-lifecycle! cell root-incarnation capture)
+         #(capture-with-overrides cell overrides (with-current-frame frame-id thunk)))
+        element (use-commit-and-lifecycle! cell root-incarnation capture element)]
     (use-event-commit-and-lifecycle! owner event-capture)
     element))
 
@@ -328,8 +392,7 @@
         overrides              (use-sub-revision! cell)
         [element capture]      (capture-with-overrides
                                 cell overrides (with-current-frame frame-id thunk))]
-    (use-commit-and-lifecycle! cell root-incarnation capture)
-    element))
+    (use-commit-and-lifecycle! cell root-incarnation capture element)))
 
 (defn render-dev
   "Stable Fast Refresh wrapper: the full hook superset regardless of the
@@ -345,8 +408,8 @@
         [element capture event-capture]
         (capture-reactive-and-events
          owner frame-id
-         #(capture-with-overrides cell overrides (with-current-frame frame-id thunk)))]
-    (use-commit-and-lifecycle! cell root-incarnation capture)
+         #(capture-with-overrides cell overrides (with-current-frame frame-id thunk)))
+        element (use-commit-and-lifecycle! cell root-incarnation capture element)]
     (use-event-commit-and-lifecycle! owner event-capture)
     element))
 

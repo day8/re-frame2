@@ -3797,7 +3797,12 @@
 
 (defn render-key
   "The integer :render-key of the cell's most-recent connected commit, or nil.
-  Module-global monotonic and fresh per connected commit (tool/test read)."
+  Module-global monotonic and fresh per connected commit (tool/test read).
+
+  The React ViewCell commit site (`re-frame.ui.viewcell`) reads this back right
+  after `commit!` to stamp `data-rf-render-key` onto the committed host-root DOM
+  node (dev only; rf2-ny34u) — the DOM-navigation counterpart to the compiler's
+  static `data-rf-view` / `data-rf2-source-coord` host-root annotation."
   [^ViewCell cell]
   (:render-key (commit-record cell)))
 
