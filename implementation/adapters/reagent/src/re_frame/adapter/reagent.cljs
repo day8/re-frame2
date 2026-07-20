@@ -4,8 +4,6 @@
   (:require [reagent.core :as r]
             [reagent.ratom :as ratom]
             [reagent.dom.client :as rdc]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.adapter.resource-lease :as resource-lease]
             [re-frame.substrate.spine :as spine]
             [re-frame.views :as views]))
 
@@ -53,57 +51,6 @@
   a plain synchronous flush (still runs `f` and drains the render queue),
   so a `:node-test` runner with no real React render path still flushes."
   (:flush-views! spine-fns))
-
-;; ---- resource-lease mount-lifecycle helper -------------------------------
-;;
-;; Lease identity and ordering are shared across adapter families so mixed
-;; trees cannot mint colliding owners. This namespace supplies only stock
-;; Reagent's component and context wiring.
-
-(def with-resource-lease
-  "Reagent component that takes a resource liveness lease for its mounted
-  lifetime. It is the Form-3 counterpart of the UIx and Helix
-  `use-resource-lease` hook. On mount it
-  dispatches `:rf.resource/ensure` with an app-minted `[:lease …]` owner; on
-  unmount it releases that lease via `:rf.resource/release-owner`.
-
-  Call it as a Reagent component with the resource descriptor and a body
-  thunk (a 0-arg fn returning hiccup — the children rendered while the lease
-  is held):
-
-      [reagent/with-resource-lease
-       {:resource :my/feed :scope :rf.scope/global :params {:page 0}}
-       (fn [] [feed-view])]
-
-  Or with opts (a map between the descriptor and the body thunk):
-
-      [reagent/with-resource-lease
-       {:resource :my/feed :scope … :params …}
-       {:cause :dashboard-widget :frame :some-frame}
-       (fn [] [feed-view])]
-
-  `descriptor` is the resource-instance identity `{:resource :scope
-  :params}` (the ensure payload's read keys, Spec 016 §Events). `opts`:
-    :cause  — recorded on the ensure (observability; free-form data value).
-              Defaults to `[:lease :mount]`.
-    :frame  — pin the lease to an explicit frame id, bypassing ambient
-              resolution — which, when `:frame` is omitted, reads the
-              dynamic `with-frame` binding FIRST, then the surrounding
-              `frame-provider` (SCOPE) / `frame-root` (ENSURE) React
-              context, else raises `:rf.error/no-frame-context`.
-
-  The component is one stable Form-3 class, not a Form-2 that creates a new
-  class on every render. It resolves the target frame during render, then uses
-  that captured target in commit-phase callbacks. On `[frame descriptor
-  cause]` changes it releases the old target before ensuring the new one while
-  retaining the same owner token. Value-equal inputs do not churn the lease.
-  SSR runs no lifecycle methods, so ownership is client-only."
-  (resource-lease/make-resource-lease-component
-    {:current-component r/current-component
-     ;; Reagent promotes `:context-type` to React's static `contextType`.
-     :build-class (fn [class-map]
-                    (r/create-class
-                      (assoc class-map :context-type adapter-context/frame-context)))}))
 
 (def adapter
   "The Reagent adapter map. Pass to `(rf/init! ...)` to install:

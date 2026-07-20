@@ -15,12 +15,7 @@
             [reagent2.dom.client       :as rdc]
             [reagent2.impl.template    :as template]
             [re-frame.substrate.spine   :as spine]
-            [re-frame.views            :as views]
-            ;; Both dependencies are in core and introduce no stock-Reagent
-            ;; edge. The lease factory owns shared lifecycle semantics; context
-            ;; supplies the React frame context.
-            [re-frame.adapter.resource-lease :as resource-lease]
-            [re-frame.adapter.context  :as adapter-context]))
+            [re-frame.views            :as views]))
 
 ;; ---- shared ratom-spine wiring --------------------------------------------
 ;;
@@ -71,78 +66,6 @@
   The promise-returning `reagent2.dom.client/flush-views!` remains available
   when callers need deterministic Suspense ordering."
   (:flush-views! spine-fns))
-
-;; ---- resource-lease mount-lifecycle helper -------------------------------
-;;
-;; Lease identity and ordering are shared across adapter families so mixed
-;; trees cannot mint colliding owners. The published namespace matches the
-;; stock adapter, so both artefacts expose the same Var. Slim's restricted
-;; create-class map cannot carry `:context-type`; contextType is attached to
-;; the returned class without introducing a stock-Reagent dependency.
-
-(def with-resource-lease
-  "reagent-slim component that takes a resource liveness lease for its mounted
-  lifetime. It is the slim Form-3
-  counterpart of the UIx / Helix `use-resource-lease` hook and the shape-twin
-  of `re-frame.adapter.reagent/with-resource-lease`. On mount it dispatches
-  `:rf.resource/ensure` with an app-minted `[:lease …]` owner; on unmount it
-  releases that lease via `:rf.resource/release-owner`. Use it so a view
-  declaratively OWNS a polled / cached resource for as long as it is mounted.
-
-  Call it as a component with the resource descriptor and a body thunk:
-
-      [reagent-slim/with-resource-lease
-       {:resource :my/feed :scope :rf.scope/global :params {:page 0}}
-       (fn [] [feed-view])]
-
-  Or with opts (a map between the descriptor and the body thunk):
-
-      [reagent-slim/with-resource-lease
-       {:resource :my/feed :scope … :params …}
-       {:cause :dashboard-widget :frame :some-frame}
-       (fn [] [feed-view])]
-
-  `descriptor` is the resource-instance identity `{:resource :scope :params}`
-  (the ensure payload's read keys, Spec 016 §Events). `opts`:
-    :cause  — recorded on the ensure (observability; free-form data value).
-              Defaults to `[:lease :mount]`.
-    :frame  — pin the lease to an explicit frame id, bypassing ambient
-              frame-provider / dynamic-var resolution.
-
-  Frame resolution and timing: the lease frame is
-  resolved in `:reagent-render` via `resolve-lease-frame` — explicit `:frame`
-  opt, else `frame/require-current-frame!` (dynamic-var FIRST, then the
-  React-context tier). Resolving at RENDER time keeps the dynamic-var tier
-  able to win and mirrors the twin.
-
-  Re-lease on change: a `:component-did-update` diffs the render-time
-  `[frame descriptor cause]` against the held lease and, on any change,
-  RELEASES the old lease then ENSURES the new target (same token) — so a
-  descriptor whose `:params` change across re-renders releases the old
-  resource and ensures the new one WITHOUT waiting for unmount; a value-equal
-  descriptor holds ONE lease with no churn.
-
-  Idempotency: the lease owner is minted ONCE per instance and reused across
-  re-leases, so a hot-reload re-mount settles to exactly one held lease.
-  Under SSR (`render-to-string`) lifecycle methods do not run, so the
-  acquire/release is a natural no-op — a client-lifetime concern.
-
-  The shared factory owns lease identity and lifecycle; this Var only supplies
-  slim's current-component reader and context wiring."
-  (resource-lease/make-resource-lease-component
-    {:current-component r/current-component
-     ;; The slim create-class cap (IMPL-SPEC §6.1) excludes
-     ;; `:context-type`, so React contextType is wired directly on the returned
-     ;; class AFTER `create-class` — mirroring `reagent2.impl.template/
-     ;; fn-to-class`'s `:contextType` threading and the reg-view
-     ;; `{:contextType frame-context}` wiring, so the in-flight component's
-     ;; `.-context` carries the enclosing frame-provider's frame for the shared
-     ;; factory's React-context tier. Set post-hoc (never a `:context-type` map
-     ;; key crossing into stock Reagent) keeps slim bundle isolation intact.
-     :build-class (fn [class-map]
-                    (let [klass (r/create-class class-map)]
-                      (set! (.-contextType ^js klass) adapter-context/frame-context)
-                      klass))}))
 
 (def adapter
   "The reagent-slim adapter map. Pass to `(rf/init! ...)` to install, using

@@ -57,8 +57,8 @@
   ([id msg data] (throw (env/compile-error id msg data))))
 
 (defn- parse-defview-forms
-  "Parse `[docstring? opts-map? argv & body]`. The body is partitioned after
-  symbol resolution into a leading lease-declaration prefix plus one template."
+  "Parse `[docstring? opts-map? argv & body]`. The body is zero or more leading
+  `(effect …)` statements followed by one final template."
   [vname forms]
   (let [[docstring forms] (if (string? (first forms))
                             [(first forms) (rest forms)]
@@ -99,30 +99,6 @@
               {:view vname :id id})))
     {:docstring docstring :opts opts :argv argv :body body}))
 
-(defn- split-defview-body
-  "Return `[lease-forms body-forms]` for the closed v1 body grammar:
-
-      direct-resolved-lease* (effect …)* final-template
-
-  Leading `(lease descriptor)` declarations are peeled here; the remaining
-  `body-forms` (leading `(effect …)` statements, then the one final template)
-  are analyzed as a hooks-region body. A conditional lease keeps the
-  declaration direct and makes its descriptor conditional; no arbitrary
-  statement body is opened."
-  [e vname body]
-  (loop [leases [] forms (seq body)]
-    (cond
-      (nil? forms)
-      (fail :rf.ui.compile/multi-form-body
-            (str "defview " vname ": leading lease declarations must be "
-                 "followed by a template form")
-            {:view vname})
-
-      (ana/lease-declaration-form? e (first forms))
-      (recur (conj leases (first forms)) (next forms))
-
-      :else [leases (vec forms)])))
-
 (defn- capabilities [ast]
   (let [caps (volatile! #{})]
     (letfn [(scan [n]
@@ -157,8 +133,8 @@
 (def ^:private runtime-requiring-site-caps
   "Site-kind -> the runtime-requiring capability token render-static rejects.
   Every one names a live-runtime need a pure `:server` static render cannot
-  honour (a sub read, a committed handler, a lease/frame read, a host hook)."
-  {:events :handler :subs :sub :leases :lease :frame-ops :frame
+  honour (a sub read, a committed handler, a frame read, a host hook)."
+  {:events :handler :subs :sub :frame-ops :frame
    :locals :local :effects :effect :dispatch-fns :dispatch-fn})
 
 (defn view-static-facts
@@ -170,7 +146,7 @@
      :deps <set of directly-referenced view-ids>}
 
   `:caps` unions the runtime-requiring SITE kinds (subs / committed handlers /
-  leases / frame reads / host locals / effects / dispatch-fns), the
+  frame reads / host locals / effects / dispatch-fns), the
   re-frame.ui.react host hooks (use-ref -> `:ref`, use-context -> `:context`,
   use-effect family -> `:effect`; `use-id` is EXEMPT — an inert deterministic id
   is static-safe), and foreign heads (`:foreign`, which a `react/lazy` head folds
@@ -291,24 +267,14 @@
         ;; deferred callback).
         e       (-> (env/with-locals e0 header-syms)
                     (assoc :hooks-region? true))
-        [lease-forms body-forms] (split-defview-body e vname body)
-        lease-declarations
-        (mapv #(ana/analyze-lease-declaration e %1 %2)
-              (range) lease-forms)
-        ast     (ana/analyze-view-body e body-forms)
+        ast     (ana/analyze-view-body e body)
         _       (doseq [w @(:warnings e)]
                   (binding [*out* *err*]
                     (println (str "WARNING re-frame.ui [" view-id "] "
                                   (:id w) ": " (:msg w)))))
         sites   @(:sites e)
         ast-projection (ana/template-fingerprint-projection ast)
-        tf      (fingerprint/template-fingerprint
-                 (if (seq lease-declarations)
-                   {:leases (mapv (comp ana/template-fingerprint-projection
-                                        :descriptor)
-                                  lease-declarations)
-                    :template ast-projection}
-                   ast-projection))
+        tf      (fingerprint/template-fingerprint ast-projection)
         ;; The HMR hook signature: `local` sites (all `:local`) and `effect`
         ;; sites (each `:connect`/`:deps`) in source order. Adding, removing, or
         ;; changing the KIND of a host hook changes the signature, so the dev
@@ -367,7 +333,6 @@
                  :docstring docstring
                  :header hdr
                  :slots slots
-                 :lease-declarations lease-declarations
                  :ast ast
                  :manifest manifest
                  :closed-keys closed-keys

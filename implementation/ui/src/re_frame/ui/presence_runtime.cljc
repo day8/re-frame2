@@ -1,8 +1,7 @@
 (ns re-frame.ui.presence-runtime
   "Presence — declarative enter/exit retention (Spec 004 §Presence, S4).
   (Named `-runtime` to avoid the CLJS var↔namespace munging clash with the
-  public `re-frame.ui/presence` var — the same split as `lease` ↔
-  `re-frame.ui.lease-descriptor`.)
+  public `re-frame.ui/presence` var.)
   DELIBERATELY BOUNDED: not an animation system. The three-phase keyed
   retention machine plus the `:timeout-ms` terminal safety bound, and nothing
   more (no easing, no curves, no presence-event bus).
@@ -12,7 +11,7 @@
   the incoming set the child is RETAINED in `:unmounting` (its exit transition
   runs against that phase) until the `:timeout-ms` safety bound fires, then the
   removal is terminal and EXACTLY-ONCE (React unmounts the retained subtree, so
-  every lease / effect it owns is released). Removal-then-reinsertion of a key
+  every subscription / effect it owns is released). Removal-then-reinsertion of a key
   interrupts the exit and re-enters at `:present`.
 
   `(presence-phase)` is the single phase read — `react/useContext` on CLJS,

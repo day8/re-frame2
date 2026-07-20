@@ -389,7 +389,7 @@
 
 (defn emit-defview
   [{:keys [vname view-id docstring header ast manifest closed-keys children?
-           lease-declarations self-fqn]}]
+           self-fqn]}]
   (let [;; The DEV view-evidence DOM annotation for this view's compiler-owned
         ;; host root — the source coordinate + view id, in today's attribute
         ;; vocabulary (Spec 004 §View identity), via the cross-host
@@ -400,18 +400,9 @@
         annotate {:source-coord (source-coord/format-source-coord
                                  view-id (:source manifest))
                   :view-tag     (source-coord/format-view-id view-id)}
-        body     (binding [*self-fqn* self-fqn]
+        rendered (binding [*self-fqn* self-fqn]
                    (emit-node (mark-host-root-annotation ast annotate)))
         bind     (:binding-form header)
-        lease-binds
-        (vec
-         (mapcat (fn [{:keys [descriptor]}]
-                   [(gensym "lease")
-                    `(re-frame.ui.lease-descriptor/validate-descriptor! ~descriptor)])
-                 lease-declarations))
-        rendered (if (seq lease-binds)
-                   `(let [~@lease-binds] ~body)
-                   body)
         var-meta (cond-> {:rf.ui/view true
                           :rf.ui/view-id view-id
                           :rf.ui/children? children?}

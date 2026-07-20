@@ -6,7 +6,7 @@
 
     defview          the ONE component form (macro; .cljc — two emitters)
     custom-element   the RULED custom-element declaration (macro)
-    sub / lease      the reactive-read grammar (compiles at S1; reads
+    sub              the reactive-read grammar (compiles at S1; reads
                      land S2 — calling at S1 raises the pending error)
     raw / html /
     raw-fn / spread  interop compile forms (analyzed in templates)
@@ -60,7 +60,6 @@
   (:refer-clojure :exclude [spread dispatch-fn])
   (:require [re-frame.error :as error]
             [re-frame.ui.hooks]
-            [re-frame.ui.lease-descriptor]
             [re-frame.ui.presence-runtime :as presence-rt]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.route-link-seam :as rl]
@@ -340,23 +339,6 @@
         "Pass the read value into the helper or extract a defview")
    {:extra {:query query}}))
 
-(defn lease
-  "Compiler-owned `(lease descriptor)` authoring form.
-
-  Accepted direct leading declarations in `defview` lower to a compact
-  site-bearing internal capture on CLJS and pure descriptor validation on the
-  JVM. This var exists for symbol resolution only. A direct call—including a
-  helper or macro-hidden call the view compiler cannot index—fails loudly; the
-  runtime never invents an invisible dynamic ownership site."
-  [descriptor]
-  (error/throw-error!
-   :rf.error/ui-tree-malformed 're-frame.ui/lease
-   (str "ui/lease executed outside compiler lowering — it is a lexical "
-        "defview declaration, not a callable ownership helper. Put the direct "
-        "lease form before the view's final template")
-   {:recovery :use-leading-lease-declaration
-    :extra {:descriptor-summary (error/diag-value-summary descriptor)}}))
-
 (defn frame
   "(frame) is the compiler-owned ops-bundle body form: inside a compiled
   view it returns the frame-locked operation bundle
@@ -437,7 +419,7 @@
 
   Effects synchronise with the host world (measurement, chart/animation
   libraries attached via a ref); app state goes through events. Dispatch from
-  an effect with `(ui/dispatch-fn)`. `sub`/`lease`/`frame` inside an effect
+  an effect with `(ui/dispatch-fn)`. `sub`/`frame` inside an effect
   body are compile errors (a deferred callback owns no render-time site).
 
   On the JVM structural render effects DO NOT run — they are recorded as
@@ -701,7 +683,7 @@
   render-fn [i x] …)}]) — the parameterized markup a reusable view accepts —
   and a ui/slot argument. The library invokes it through ui/slot.
 
-  A slot body is PURE render phase: sub / lease / frame (and dispatch / hooks /
+  A slot body is PURE render phase: sub / frame (and dispatch / hooks /
   local / effect) inside are compile errors. A STATEFUL replacement part is a
   pure slot body that MOUNTS a static defview — the defview owns its state, so
   the slot body stays pure.

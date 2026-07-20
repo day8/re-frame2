@@ -66,7 +66,7 @@
    ;; `:diagnostics` carries the compile-tier a11y findings (S4-C) — INCLUDING
    ;; suppressed ones, which stay manifest facts with their reason but never
    ;; print. Every other kind is a lowering/ownership site.
-   :sites     (atom {:events [] :subs [] :leases [] :htmls [] :frame-ops []
+   :sites     (atom {:events [] :subs [] :htmls [] :frame-ops []
                      :slots [] :locals [] :effects [] :dispatch-fns [] :react []
                      :diagnostics []})})
 

@@ -9,7 +9,6 @@
             [helix.hooks         :as helix-hooks]
             [re-frame.frame             :as frame]
             [re-frame.substrate.spine   :as spine]
-            [re-frame.adapter.resource-lease :as resource-lease]
             [re-frame.adapter.use-frame :as use-frame-hook]
             [re-frame.views.frame-boundary :as boundary]))
 
@@ -137,21 +136,6 @@
   yields a map locked to the new frame. No options map, no variants — for
   an explicit frame call `(rf/capture-frame frame-id)` directly."
   use-frame-hook/use-frame)
-
-(def use-resource-lease
-  "Helix hook that takes a resource liveness lease for the calling
-  component's mounted lifetime. On
-  mount it dispatches `:rf.resource/ensure` with an app-minted `[:lease …]`
-  owner; on unmount it releases that lease via `:rf.resource/release-owner`.
-  Use it when a view owns a polled or cached resource while mounted.
-
-      (use-resource-lease {:resource :my/feed :scope :rf.scope/global
-                           :params {:page 0}})
-
-  Pair it with `use-subscribe` to read the data; this hook only manages
-  liveness and returns nil. `:cause` annotates the ensure, and `:frame` pins
-  ownership to an explicit frame."
-  resource-lease/use-resource-lease)
 
 (def flush-views!
   "Flush pending Helix renders synchronously. Wraps React's act() —

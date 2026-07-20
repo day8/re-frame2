@@ -1515,9 +1515,7 @@
 ;; is simply unbound (a no-op) when day8/re-frame2-ui is absent from the
 ;; classpath. The disconnected-cell obligation is pinned by
 ;; `reactive-frame-teardown-cljs-test`'s
-;; `frame-destroy-reaps-an-activity-hidden-cell`; the connected resource-only
-;; obligation by `resource-lease-reconcile-cljs-test`'s
-;; `resource-only-cells-are-discoverable-while-connected-and-hidden`.
+;; `frame-destroy-reaps-an-activity-hidden-cell`.
 ;;
 ;; The hook ALSO prunes the destroyed id's install record (rf2-vxgfnd.30 (a)):
 ;; `installed-plan-entry` only HID a dead record behind a liveness guard, so a
