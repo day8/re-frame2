@@ -237,11 +237,14 @@
 
 (defn- count-keyless
   "Count the flattened children whose runtime `.-key` is nil — the elements
-  `collect-elements` DROPS (an unkeyed child cannot be retention-tracked, so it
+  `collect-elements` DROPS (a keyless child cannot be retention-tracked, so it
   never renders). The analyzer guarantees a `:key` FORM on every presence child,
-  but the form's VALUE can be nil at runtime (`{:key (:id x)}` with a missing
-  `:id`), which compile cannot catch. This parallel dev-only walk lets the render
-  path warn about the otherwise-silent drop; the drop itself stays in
+  but the form's runtime VALUE can be `undefined` (e.g. a JS-interop read of an
+  absent property), which React's jsx-runtime leaves as a nil `.-key` — compile
+  cannot catch it. NOTE a CLJS-nil key value is a different case: jsx coerces it
+  to the string \"null\" (a valid key), so `{:key (:id x)}` with a missing `:id`
+  RENDERS rather than dropping. This parallel dev-only walk lets the render path
+  warn about the otherwise-silent drop; the drop itself stays in
   `collect-elements`, unconditional in production."
   [n x]
   (cond
@@ -280,11 +283,11 @@
   (when ^boolean js/goog.DEBUG
     (dotimes [_ n]
       (js/console.warn
-       (str "presence: a child under a (ui/presence …) boundary has a nil "
-            "runtime key and was DROPPED — it never renders. Presence tracks "
-            "children BY KEY, so ensure every child's :key expression (e.g. "
-            "(:id x)) is non-nil at render time. Outside a boundary React would "
-            "index-key and warn; under one the child silently vanishes."))))
+       (str "presence: a keyless child under a (ui/presence …) boundary was "
+            "DROPPED — its :key evaluated to `undefined` (a nil React key), so "
+            "it never renders. Presence tracks children BY KEY; give the child a "
+            "defined key. (A CLJS-nil key value becomes the string \"null\" and "
+            "renders — a nil React key comes from an `undefined` value.)"))))
   nil)
 
 (defn- incoming-identities
