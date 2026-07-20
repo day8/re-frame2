@@ -645,6 +645,19 @@
 (defonce ^:private phase-context
   (react/createContext :client))
 
+(defn hydration-adopting?
+  "A hook — true ONLY while a HYDRATING root renders its `:server`-phase
+  ADOPTION pass (its first render, before the post-commit flip), false on every
+  ordinary client mount (which reads the `:client` context default). This is the
+  ROOT-SCOPED HYDRATION FACT `PhaseFlipper` already installs for `ui/client-only`
+  (rf2-3omxp): `presence` consults it on its first render so a server-adopted
+  presence child begins `:present` — matching the server markup — instead of
+  re-entering `:mounting` and fabricating an enter transition on hydrate
+  (rf2-uqe1b). Reads the SAME `phase-context` `ClientOnly` reads, so the two stay
+  in lockstep: no second signal, no change to the hydrate-root path."
+  []
+  (= :server (react/useContext phase-context)))
+
 (defn ^:private ClientOnly
   ;; The phase-conditional runtime for one compiled `ui/client-only` site: a
   ;; React function component that SUBSCRIBES to the root-scoped phase context
