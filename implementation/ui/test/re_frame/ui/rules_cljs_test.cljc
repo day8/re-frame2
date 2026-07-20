@@ -1021,3 +1021,156 @@
          "the dropped :x-el is evicted through the real producer")
      (is (= #{:label} (rules/custom-element-properties :y-el))
          "the surviving :y-el is retained")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-lkv72 (rf2-4vm19 arm 2) — the warm-watch/file-edit fixture and the
+;; removed-source GRAPH DELTA.
+;;
+;; Arm 1 (#6434/#6450) shipped the DETERMINATION: `reconcile-sources` evicts a
+;; touched-but-unstaged row, keeps a re-staged one, and keys every row under one
+;; real build identity. Arm 2 EXERCISES that determination under a warm
+;; (incremental) rebuild and asserts the delta on the ledger's SOURCE-MEMBERSHIP
+;; graph itself — `ledger-sources`, the runtime mirror of the compile side's
+;; `:build-sources` — a stronger claim than the projected element rows: the graph
+;; delta, not just the classification.
+;;
+;; Bounded by construction (no live watch server, no Chromium): the fixture
+;; simulates a saved-file edit/remove/rename by driving the REAL ordered seam —
+;; `notify-reload!` (^:dev/before-load) → shadow's `before-load-src` firing every
+;; `SHADOW_NS_RESET` entry (the installed producer, NOT a direct
+;; `note-reloaded-sources!`) → the surviving sources' re-registrations →
+;; `commit-reload!` (^:dev/after-load). The file event is simulated; the ordering
+;; and the producer seam are real.
+;; ---------------------------------------------------------------------------
+
+(deftest removed-source-graph-delta-on-remove-rename-and-move
+  ;; DUAL-HOST (the seam is host-agnostic): the membership graph loses a REMOVED
+  ;; source's row, SWAPS the row on a ns RENAME, and PRESERVES ownership on a
+  ;; same-namespace MOVE. Asserted on `ledger-sources` — the [build ns] set —
+  ;; which no prior test observed.
+  (let [b (rules/current-build-id)]
+    ;; REMOVE: app.a's file is deleted (re-runs via the reset, declares nothing);
+    ;; app.b is untouched.
+    (rules/reset-custom-elements!)
+    (rules/register-custom-element! :a-el {:properties #{:a}} 'app.a)
+    (rules/register-custom-element! :b-el {:properties #{:b}} 'app.b)
+    (is (= #{[b 'app.a] [b 'app.b]} (rules/ledger-sources))
+        "both saved sources are live in the membership graph")
+    (rules/notify-reload!)
+    (rules/note-reloaded-sources! ['app.a])            ; app.a removed this cycle
+    (rules/commit-reload!)
+    (is (= #{[b 'app.b]} (rules/ledger-sources))
+        "the removed source drops out of the membership graph — the delta")
+    (is (= #{} (rules/custom-element-properties :a-el))
+        "and its element rows are evicted (defence in depth on the projection)")
+    (is (= #{:b} (rules/custom-element-properties :b-el))
+        "the untouched source keeps its row and its classification")
+
+    ;; RENAME: app.a → app.a2 (the file's ns changes). The old ns is reset/removed
+    ;; and the new ns re-runs, so the graph SWAPS the row.
+    (rules/reset-custom-elements!)
+    (rules/register-custom-element! :r-el {:properties #{:r}} 'app.a)
+    (rules/notify-reload!)
+    (rules/note-reloaded-sources! ['app.a])            ; old ns removed
+    (rules/register-custom-element! :r-el {:properties #{:r}} 'app.a2) ; new ns runs
+    (rules/commit-reload!)
+    (is (= #{[b 'app.a2]} (rules/ledger-sources))
+        "a ns rename swaps the membership row — old removed, new present")
+    (is (= #{:r} (rules/custom-element-properties :r-el))
+        "the renamed-in source classifies its element")
+
+    ;; MOVE: same ns, different file. The ns re-runs declaring the same element,
+    ;; so ownership is PRESERVED — the row stays under the same [build ns] key.
+    (rules/reset-custom-elements!)
+    (rules/register-custom-element! :m-el {:properties #{:m}} 'app.moved)
+    (rules/notify-reload!)
+    (rules/note-reloaded-sources! ['app.moved])
+    (rules/register-custom-element! :m-el {:properties #{:m}} 'app.moved)
+    (rules/commit-reload!)
+    (is (= #{[b 'app.moved]} (rules/ledger-sources))
+        "a same-namespace move preserves ownership — the row survives under the
+         same [build ns] key")
+    (is (= #{:m} (rules/custom-element-properties :m-el))
+        "and the moved source keeps its classification")))
+
+#?(:cljs
+   (defn- run-warm-rebuild!
+     "The bounded warm-watch/file-edit fixture: drive ONE warm (incremental)
+     rebuild through the REAL shipped reload path, in shadow's real order —
+     `notify-reload!` (^:dev/before-load), then shadow's `before-load-src` firing
+     every `SHADOW_NS_RESET` entry for each reloaded/removed source (the installed
+     producer, NOT a direct `note-reloaded-sources!`), then the surviving sources'
+     re-registrations, then `commit-reload!` (^:dev/after-load).
+
+     `:reloaded` is the coll of ns-syms shadow reports reset this cycle (an edited
+     source, a deleted one, or the old ns a rename left behind); `:registrations`
+     is a coll of `[tag decl ns]` the surviving/new sources re-run. Models a
+     saved-file edit/remove/rename WITHOUT a live watch server — the file event is
+     simulated, the ordering and the producer seam are real. The removed-source
+     signal travels ONLY through the producer, so the fixture has teeth: strip the
+     producer (or its lifecycle annotation) and the reset is never noted, the
+     removed source is never evicted, and the delta assertions redden."
+     [{:keys [reloaded registrations]}]
+     (rules/notify-reload!)                                  ; ^:dev/before-load
+     (doseq [ns reloaded] (fire-shadow-ns-reset! ns))        ; before-load-src → real producer
+     (doseq [[tag decl ns] registrations]
+       (rules/register-custom-element! tag decl ns))         ; surviving sources re-run
+     (rules/commit-reload!)))                                 ; ^:dev/after-load
+
+#?(:cljs
+   (deftest warm-rebuild-through-the-real-producer-under-one-real-build-id
+     ;; The headline arm-2 fixture: the warm-watch/file-edit path end to end
+     ;; through the SHIPPED producer, under ONE real (non-::default) dev build
+     ;; identity resolved at the runtime seam. The rf2-4vm19 ruling resolves the
+     ;; "chosen build-topology contract" AC to proving ONE real build's identity
+     ;; through the whole cycle (NOT two-build isolation), and this drives that:
+     ;; the delete and rename deltas fire ONLY because the producer conveys the
+     ;; reset (the delete case is red without it — notify+commit alone evict
+     ;; nothing), so this is a live FAIL-BEFORE lever on producer/annotation
+     ;; load-bearingness.
+     (let [original (unchecked-get (shadow-build-id-carrier) "build_id")]
+       (try
+         (set-shadow-build-id! "app")
+         (rules/install-reload-source-producer!)      ; producer now resolves + tags :app
+         (is (= :app (rules/current-build-id))
+             "precondition: the seam resolves a REAL build identity, not ::default")
+
+         ;; DELETE: app.a removed (re-runs declaring nothing), app.b untouched.
+         (rules/reset-custom-elements!)
+         (rules/register-custom-element! :x-el {:properties #{:help-text}} 'app.a)
+         (rules/register-custom-element! :b-el {:properties #{:b}} 'app.b)
+         (is (= #{[:app 'app.a] [:app 'app.b]} (rules/ledger-sources))
+             "both sources are live in the graph under the real build id")
+         (run-warm-rebuild! {:reloaded ['app.a] :registrations []})
+         (is (= #{[:app 'app.b]} (rules/ledger-sources))
+             "delete: the removed source drops out of the graph — through the
+              producer, keyed under :app, no page reload")
+         (is (= #{} (rules/custom-element-properties :x-el))
+             "its element rows are gone")
+         (is (= #{:b} (rules/custom-element-properties :b-el))
+             "the untouched source is preserved")
+
+         ;; RENAME: app.a → app.a2 through the real path.
+         (rules/reset-custom-elements!)
+         (rules/register-custom-element! :r-el {:properties #{:r}} 'app.a)
+         (run-warm-rebuild! {:reloaded      ['app.a]
+                             :registrations [[:r-el {:properties #{:r}} 'app.a2]]})
+         (is (= #{[:app 'app.a2]} (rules/ledger-sources))
+             "rename: the graph swaps the row old→new, under :app, through the producer")
+         (is (= #{:r} (rules/custom-element-properties :r-el))
+             "the renamed-in source classifies its element")
+
+         ;; MOVE: same ns, new file — ownership preserved.
+         (rules/reset-custom-elements!)
+         (rules/register-custom-element! :m-el {:properties #{:m}} 'app.moved)
+         (run-warm-rebuild! {:reloaded      ['app.moved]
+                             :registrations [[:m-el {:properties #{:m}} 'app.moved]]})
+         (is (= #{[:app 'app.moved]} (rules/ledger-sources))
+             "move: a same-namespace move preserves ownership under :app")
+         (is (= #{:m} (rules/custom-element-properties :m-el))
+             "the moved source keeps its classification")
+         (finally
+           ;; restore the real carrier and re-install so every other producer test
+           ;; finds exactly one re-frame.ui producer tagged with the ambient id.
+           (set-shadow-build-id! original)
+           (rules/install-reload-source-producer!))))))
