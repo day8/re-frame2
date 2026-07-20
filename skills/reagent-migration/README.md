@@ -64,7 +64,7 @@ skills/reagent-migration/
 │   ├── procedure.md           # incremental, closed-subtree passes
 │   └── gotchas.md             # bare-symbol trap, whole-view coherence, keyed-child, staged-gap
 ├── evals/
-│   └── evals.json             # trigger fixtures + one behavioural fixture per M/D/R tier
+│   └── evals.json             # trigger fixtures + behavioural fixtures across the M/D/R tiers
 └── spec/
     ├── design.md              # locked design decisions
     ├── inputs.md              # canonical inputs the skill leans on

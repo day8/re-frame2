@@ -47,6 +47,8 @@ Print the commands; the author runs them (cardinal rule 6). **"Compiles" is nece
 
 Only when a subtree is green do you scope the next one. If a view surfaces a new gap mid-pass, hold it (rule 2) and keep going.
 
+**A single file converted in isolation is PROVISIONAL.** If a view's callers live in *other* files that are still Reagent, converting just its file leaves it un-rendered — a compiled `defview` cannot be consumed by an unconverted Reagent parent (the outward bridge is unshipped, [`catalog-reject.md`](catalog-reject.md)). It is not *proven* until a **compiled** caller — a converted route component or parent view — mounts it through the compiled path and you render it. Treat such a file as provisional (it compiles, but "compiles ≠ renders") until its mounting caller is also compiled. That is exactly why the unit of a pass is a *closed subtree*, not a lone file.
+
 ## Resuming an interrupted migration
 
 Because each pass is a closed subtree left in a compiling, rendering, tested state, an interrupted migration resumes cleanly: the converted subtrees are done, the held views are recorded with their reasons, and the next closed subtree is the next unit. There is no global half-state to reconcile — that is the payoff of never big-banging.
