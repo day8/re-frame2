@@ -26,10 +26,14 @@
       [:rf/hydration] in app-db and a `data-testid='hydrated'` element
       switches from `not-hydrated` to `hydrated`.
     - `:rf.ssr/check-version` (always) and `:rf.ssr/check-schema-digest`
-      (when the payload carries a digest) fxs run. The runtime emits
-      `:rf.ssr/compatibility-check-skipped` traces when the late-bind
-      hooks aren't registered — captured by the trace listener installed
-      below and exposed on `window.__rf_trace_events()`.
+      (when the payload carries a digest) fxs run. `check-version`
+      resolves its client-side actual from the SSR artefact's compiled-in
+      pattern-protocol constant, so it always resolves and never skips.
+      Only `:rf.ssr/check-schema-digest` can emit
+      `:rf.ssr/compatibility-check-skipped` — and only when its
+      `:schemas/app-schemas-digest` late-bind hook isn't registered —
+      captured by the trace listener installed below and exposed on
+      `window.__rf_trace_events()`.
     - `verify-hydration!` is invoked post-first-render with the resolved
       client tree. On the happy path (no hash baked in the payload) the
       check no-ops cleanly; a sibling testbed (`ssr_hydration_mismatch/`)
