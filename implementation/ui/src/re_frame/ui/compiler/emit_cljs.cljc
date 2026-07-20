@@ -16,6 +16,7 @@
   both hosts' test suites can golden the emission as data."
   (:require [clojure.string :as str]
             [clojure.walk :as walk]
+            [re-frame.source-coords :as source-coord]
             [re-frame.ui.compiler.analyze :as ana]
             [re-frame.ui.rules :as rules]
             ;; JVM-only: a self-recursive view completes the same-named `:refer`
@@ -325,18 +326,55 @@
          props-form
          (when (:present? key-info) [(:expr key-info)])))
 
-(defn- jsx-call [tag-form pairs children-forms key-info]
-  (let [nch           (count children-forms)
-        multi?        (> nch 1)
-        children-form (cond
-                        (zero? nch) nil
-                        (= 1 nch)   (first children-forms)
-                        :else       `(cljs.core/array ~@children-forms))
-        props-form    (ordered-literal-object
-                       (concat (map (fn [{:keys [name form]}] [name form]) pairs)
-                               (when (some? children-form)
-                                 [["children" children-form]])))]
-    (jsx-runtime-call multi? tag-form props-form key-info)))
+(defn- annotate-host-root-props
+  "Stamp the DEV view-evidence DOM annotation onto a compiler-owned host root's
+  props object: `data-rf2-source-coord` (the `<ns>:<sym>:<line>:<col>` source
+  coordinate — click-to-source) and `data-rf-view` (the view id — the record
+  identity Xray matches its hover-highlight against). This is today's attribute
+  vocabulary (Spec 004 §View identity — Source ↔ DOM navigation; Spec 006
+  §Source-coord annotation + §View tagging contract), reusing the ONE cross-host
+  `re-frame.source-coords` value projections so the compiler-owned host root and
+  the Reagent/UIx/Helix adapter walks emit byte-identical attribute values by
+  construction — existing Xray click-to-source works day one.
+
+  The stamp sits behind `^boolean js/goog.DEBUG`, so under :advanced +
+  goog.DEBUG=false Closure constant-folds the gate to false and DCEs the whole
+  branch — the literal `data-rf2-source-coord` / `data-rf-view` strings never
+  reach the production bundle (both are on the standard elision sentinel set).
+  The props object is mutated in place BEFORE it reaches the JSX runtime, exactly
+  as the trusted-markup spread branch sets `dangerouslySetInnerHTML`.
+
+  The per-commit integer `render-key` is deliberately NOT stamped here: it is
+  minted at CONNECTED COMMIT in the ViewCell layout effect (`reactive/commit*`),
+  which runs AFTER this child host element has already committed, so no honest
+  value for THIS commit exists at render time. Stamping render-key onto the DOM
+  is therefore a commit-time concern owned by the substrate, not the compiler."
+  [props-form {:keys [source-coord view-tag]}]
+  (let [p (gensym "rf-ui-host-root")]
+    `(let [~p ~props-form]
+       (when ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
+         (cljs.core/unchecked-set ~p "data-rf2-source-coord" ~source-coord)
+         (cljs.core/unchecked-set ~p "data-rf-view" ~view-tag))
+       ~p)))
+
+(defn- jsx-call
+  ([tag-form pairs children-forms key-info]
+   (jsx-call tag-form pairs children-forms key-info nil))
+  ([tag-form pairs children-forms key-info annotate]
+   (let [nch           (count children-forms)
+         multi?        (> nch 1)
+         children-form (cond
+                         (zero? nch) nil
+                         (= 1 nch)   (first children-forms)
+                         :else       `(cljs.core/array ~@children-forms))
+         props-form    (ordered-literal-object
+                        (concat (map (fn [{:keys [name form]}] [name form]) pairs)
+                                (when (some? children-form)
+                                  [["children" children-form]])))]
+     (jsx-runtime-call multi? tag-form
+                       (cond-> props-form
+                         annotate (annotate-host-root-props annotate))
+                       key-info))))
 
 (defn- emit-element [node st inline?]
   (let [static?       (:static? node)
@@ -441,8 +479,11 @@
       :else
       (let [pairs (element-prop-pairs st node inner-inline?)
             chs   (children-forms st (:children node) inner-inline?)
-            ;; prebuilt static props object under a dynamic key
-            call  (jsx-call tag-str pairs chs key-info)]
+            ;; prebuilt static props object under a dynamic key. A DEV-gated
+            ;; view-evidence annotation rides the host root's props when this
+            ;; element is the view's compiler-owned root (marked by
+            ;; `mark-host-root-annotation`); it DCEs in production.
+            call  (jsx-call tag-str pairs chs key-info (:rf.ui/annotate node))]
         (if (and static? (not inline?))
           (hoist! st :el call)
           call)))))
@@ -779,11 +820,36 @@
 ;; defview
 ;; ---------------------------------------------------------------------------
 
+(defn- mark-host-root-annotation
+  "Stamp the view-evidence DOM-annotation marker onto the view's effective host
+  root — the DOM `:element` the compiler owns at the top of the render. The
+  UNCONDITIONAL wrappers (`:hook-prefix` effect prefix, an authored `:let` /
+  `:letfn`) are transparent — the marker rides through to the element they wrap.
+  A non-element effective root (a fragment, another view/foreign component, or a
+  conditional / loop) is NOT a single compiler-owned host node, so it carries no
+  annotation — the same host-root exemption the adapter source-coord walk applies
+  to a non-DOM root. `emit-element` reads the marker off the plain element and
+  stamps the props behind the goog.DEBUG gate (see `annotate-host-root-props`)."
+  [ast annotate]
+  (case (:op ast)
+    :element (assoc ast :rf.ui/annotate annotate)
+    (:hook-prefix :let :letfn) (update ast :body mark-host-root-annotation annotate)
+    ast))
+
 (defn emit-defview
   [{:keys [vname view-id display-name docstring header slots ast manifest
            closed-keys children? lease-declarations self-fqn]}]
   (let [st         (doto (new-state vname) (swap! assoc :self-fqn self-fqn))
-        body       (->> (emit-node ast st false)
+        ;; The DEV view-evidence DOM annotation for this view's compiler-owned
+        ;; host root — the source coordinate + view id, in today's attribute
+        ;; vocabulary (Spec 004 §View identity). Marked onto the effective root
+        ;; element and stamped behind the goog.DEBUG gate; a non-element root
+        ;; carries none. Compile-time literals via the cross-host
+        ;; `re-frame.source-coords` projections (parity with the adapter walks).
+        annotate   {:source-coord (source-coord/format-source-coord
+                                   view-id (:source manifest))
+                    :view-tag     (source-coord/format-view-id view-id)}
+        body       (->> (emit-node (mark-host-root-annotation ast annotate) st false)
                         (hoist-literal-sub-queries st))
         leases     (mapv #(update % :descriptor
                                   (partial hoist-literal-sub-queries st))
