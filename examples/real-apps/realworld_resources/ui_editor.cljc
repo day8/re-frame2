@@ -39,8 +39,9 @@
    Reagent page released on `:component-will-unmount`; native re-frame.ui has no
    dispatch-at-unmount (a committed dispatcher rejects firing from a disconnected
    view — the leaked-listener law), and a view-declared `(ui/lease {:resource …})`
-   is a different, unconditional model that does not fit an edit-mode-only,
-   dynamic-slug, app-minted owner. So the native view owns no lease — there is
+   is a different ownership model — the framework would own the whole lease
+   lifecycle — but this owner is app-minted (route-minted, released by the
+   `:editor/*` events), not view-scoped. So the native view owns no lease — there is
    nothing at the view tier to leak — and the resource lifecycle stays where the
    `realworld_resources` suite already proves it."
   (:require [re-frame.ui :as ui :refer [defview sub]]))
