@@ -355,6 +355,16 @@ jobs:
         working-directory: implementation/scripts/api-manifest
         run: clojure -M -m re-frame.api-manifest.gen --check
 
+      # The re-frame.ui AI context sheet (rf2-u53yy.8). Its compile-rejection
+      # roster is GENERATED from the compiler's own env/fail! / env/warn!
+      # didactic messages in analyze.cljc; this check regenerates the sheet in
+      # memory and reds until skills/re-frame2-ui-context/SKILL.md is
+      # regenerated — so a reworded / added / removed compiler diagnostic can
+      # never silently drift the sheet.
+      - name: Regenerate re-frame.ui context sheet + assert no drift
+        working-directory: implementation/scripts/api-manifest
+        run: clojure -M -m re-frame.api-manifest.ui-context --check
+
       - name: Assert spec/API.md projection matches the manifest
         working-directory: implementation/scripts/api-manifest
         run: clojure -M -m re-frame.api-manifest.api-md-check
