@@ -543,6 +543,30 @@
        (catch java.io.FileNotFoundException _ nil))))
 
 #?(:clj
+   (defn- strip-host-root-annotation
+     "Recursively drop the DEV host-root view-evidence annotation
+     (`:data-rf2-source-coord` / `:data-rf-view` — the compiler-emit stamp,
+     rf2-hac8p) from a JVM structural `tree`. `render-static` is the pure
+     `:server`, NON-hydrating static-HTML path (Spec 011 §Phase flip): it carries
+     NO manifest, NO hydration payload, and NO dev / adoption markers, so the
+     compiler's DEBUG-gated host-root annotation — present in the tree the
+     compiled views build (matching the client render, which the SSR-then-hydrate
+     `render-to-string` hiccup path relies on) — is stripped HERE before the pure
+     static serialisation, exactly as `goog.DEBUG=false` / `-Dre-frame.debug=false`
+     erases it in a production build. Only this render-static seam strips it; the
+     hydrating `render-to-string` path (a separate `re-frame.ssr.emit` hiccup
+     serialiser) is untouched."
+     [node]
+     (if (map? node)
+       (let [node (if-let [a (:attrs node)]
+                    (let [a (dissoc a :data-rf2-source-coord :data-rf-view)]
+                      (if (seq a) (assoc node :attrs a) (dissoc node :attrs)))
+                    node)]
+         (cond-> node
+           (:children node) (update :children #(mapv strip-host-root-annotation %))))
+       node)))
+
+#?(:clj
    (defn emit-static-html
      "Fold a JVM structural `tree` to an inert HTML string through the SSR
      artefact's `re-frame.ssr/emit-ui-tree`, resolved LATE (see
@@ -554,10 +578,14 @@
      re-frame.ssr`. When the `day8/re-frame2-ssr` artefact is absent from the
      server classpath this raises the ruled, typed
      `:rf.error/ssr-artefact-missing` naming the artefact — never a raw host
-     exception, never a fallback."
+     exception, never a fallback.
+
+     The DEV host-root view-evidence annotation (rf2-hac8p) is stripped from the
+     tree first (see `strip-host-root-annotation`): render-static is the pure,
+     non-hydrating static-HTML path and carries no dev / adoption markers."
      [tree]
      (if-let [emit (resolve-ssr-emitter)]
-       (emit tree)
+       (emit (strip-host-root-annotation tree))
        (error/throw-error!
         :rf.error/ssr-artefact-missing
         'ui/render-static

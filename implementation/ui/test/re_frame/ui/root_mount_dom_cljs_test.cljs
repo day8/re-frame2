@@ -161,6 +161,14 @@
 (defn- mount-main! [c]
   (ui/mount [mini-app {:title "hello S1c"}] c {:root-id :dom-smoke/main}))
 
+(defn- strip-view-evidence
+  "Drop the DEV host-root view-evidence annotation the compiler stamps on a
+  view's compiler-owned root element in dev builds (rf2-hac8p). This smoke pins
+  the rendered template shape, not the annotation — whose own coverage is the
+  emit-annotation tests, the parity corpus, and test:elision."
+  [html]
+  (str/replace html #"\s+data-rf(?:2-source-coord|-view)=\"[^\"]*\"" ""))
+
 (deftest mount-smoke
   (when (browser?)
     (let [c (container)
@@ -168,7 +176,7 @@
       (is (some? root))
       (is (= :dom-smoke/main (client/root-id-of root)))
       (is (re-find #"<div class=\"mini-app\"><h1>hello S1c</h1></div>"
-                   (.-innerHTML c))
+                   (strip-view-evidence (.-innerHTML c)))
           "the compiled root template renders through the React root")
       (is (contains? (client/live-root-ids) :dom-smoke/main))
       (let [entry (client/live-root-entry :dom-smoke/main)]

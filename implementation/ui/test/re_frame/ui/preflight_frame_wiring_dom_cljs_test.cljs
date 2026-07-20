@@ -18,6 +18,7 @@
   the `:browser-test` build; under `:node-test` every DOM body gates on
   `(browser?)` and exits early."
   (:require [cljs.test :refer [deftest is use-fixtures async]]
+            [clojure.string :as str]
             ["react" :as React]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
@@ -29,6 +30,15 @@
             [re-frame.ui.frames :as frames]))
 
 (defn- browser? [] (exists? js/document))
+
+(defn- strip-view-evidence
+  "Drop the DEV host-root view-evidence annotation the compiler stamps on a
+  view's compiler-owned root element in dev builds (rf2-hac8p). These pins assert
+  the frame-provider's transparent scoping / rendered template shape, not the
+  annotation — whose own coverage is the emit-annotation tests, the parity
+  corpus, and test:elision."
+  [html]
+  (str/replace html #"\s+data-rf(?:2-source-coord|-view)=\"[^\"]*\"" ""))
 
 ;; ---------------------------------------------------------------------------
 ;; The canonical React act() helper (rf2-vxgfnd.89 template; rf2-powx4d sweep)
@@ -441,7 +451,7 @@
        #(ui/mount [scoping-view {:frame-id :app/live}] c
                   {:root-id :dom-pf/scoped}))
       (is (re-find #"<div class=\"wrap\"><div class=\"mini\">inside</div></div>"
-                   (.-innerHTML c))
+                   (strip-view-evidence (.-innerHTML c)))
           "the frame-provider scopes transparently — children render through it"))))
 
 ;; NOTE: the absent-frame fail-loud (`require-scope-frame!` throwing
@@ -499,7 +509,8 @@
                (is (some? root))
                (is (contains? (client/live-root-ids) :dom-absent/root)
                    "the settled root-id + container accept a clean retry")
-               (is (re-find #"<div class=\"mini\">scoped</div>" (.-innerHTML c))
+               (is (re-find #"<div class=\"mini\">scoped</div>"
+                            (strip-view-evidence (.-innerHTML c)))
                    "the provider scopes the now-live frame transparently")
                (act! #(ui/unmount! root)))
              (catch :default e
