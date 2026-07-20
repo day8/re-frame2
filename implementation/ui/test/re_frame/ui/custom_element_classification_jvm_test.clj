@@ -42,7 +42,23 @@
 (defview undeclared-element-view []
   [:ce-plain {:accent-color "x" :data-y "y"}])
 
-(defn- element [view] (first (:children (tree/render view {}))))
+(defn- strip-view-evidence
+  "Recursively drop the DEV host-root view-evidence annotation
+  (:data-rf2-source-coord / :data-rf-view) the compiler stamps on each view's
+  compiler-owned root element (rf2-hac8p). This suite asserts the RULED
+  property-vs-attribute classification, not the host-root annotation (own
+  coverage: the emit-annotation tests, the parity corpus, test:elision)."
+  [node]
+  (if (map? node)
+    (let [node (if-let [a (:attrs node)]
+                 (let [a (dissoc a :data-rf2-source-coord :data-rf-view)]
+                   (if (seq a) (assoc node :attrs a) (dissoc node :attrs)))
+                 node)]
+      (cond-> node
+        (:children node) (update :children #(mapv strip-view-evidence %))))
+    node))
+
+(defn- element [view] (strip-view-evidence (first (:children (tree/render view {})))))
 
 (deftest declared-name-is-a-property-undeclared-is-an-attribute
   (let [el (element declared-props-view)]

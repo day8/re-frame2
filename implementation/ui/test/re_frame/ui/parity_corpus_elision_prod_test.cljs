@@ -115,6 +115,33 @@
         x))
     :else x))
 
+;; --- DEV-only host-root view-evidence annotation (rf2-hac8p) ----------------
+;; The compiler stamps `data-rf2-source-coord` / `data-rf-view` on each view's
+;; compiler-owned host root behind the DEBUG gate — goog.DEBUG on CLJS,
+;; interop/debug-enabled? on the JVM. In THIS advanced bundle (goog.DEBUG=false)
+;; the CLJS emitter DCEs the whole stamp, so the react side carries none. The
+;; shared JVM truth, however, is computed in the compiler's OWN JVM where
+;; interop/debug-enabled? is true (a compile-time regime, not a production SSR
+;; build), so it carries the annotation. A real production SSR JVM
+;; (`-Dre-frame.debug=false`) gates the SAME stamp OFF — so stripping the
+;; DEV-only annotation from the JVM truth here recovers the true-production shape
+;; and meets the advanced-CLJS side in one semantic space. This mirrors the CLJS
+;; DCE exactly as `strip-ce-property-props` above mirrors the empty runtime
+;; property registry. A pure walk: no global state, no test-order coupling.
+(defn- strip-view-evidence
+  [x]
+  (cond
+    (vector? x) (mapv strip-view-evidence x)
+    (map? x)
+    (let [x (if-let [a (:attrs x)]
+              (let [a (dissoc a "data-rf2-source-coord" "data-rf-view")]
+                (if (seq a) (assoc x :attrs a) (dissoc x :attrs)))
+              x)]
+      (if (:children x)
+        (assoc x :children (mapv strip-view-evidence (:children x)))
+        x))
+    :else x))
+
 ;; ---------------------------------------------------------------------------
 ;; Tooth (i) — the build IS the elided / production regime
 ;; ---------------------------------------------------------------------------
@@ -168,7 +195,7 @@
   (doseq [{:keys [id] :as c} fx/cases]
     (let [html   (render-case c)
           react  (strip-ce-property-props (ph/html->semantic html))
-          jvm    (ph/expand-trusted (get jvm-semantics id))
+          jvm    (strip-view-evidence (ph/expand-trusted (get jvm-semantics id)))
           diff   (when (not= jvm react) (ph/first-divergence jvm react))]
       (is (= jvm react)
           (str "advanced-CLJS/JVM parity divergence in case " id

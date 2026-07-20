@@ -9,7 +9,8 @@
   children raise :rf.error/jvm-host-op lazily (only when their branch
   renders); `ui/raw`/`ui/raw-fn` PROP values become opaque markers
   WITHOUT evaluating their expressions (they may be host-only)."
-  (:require [re-frame.ui.compiler.analyze :as ana]
+  (:require [re-frame.source-coords :as source-coord]
+            [re-frame.ui.compiler.analyze :as ana]
             [re-frame.ui.rules :as rules]))
 
 (def ^:private props-sym 'rf-ui-props)
@@ -109,8 +110,31 @@
           [{} {}]
           events))
 
+(defn- static-form
+  "The `:static` slot value form for a `tree/element` call. `static` is the
+  compile-time-normalized literal attr map (or nil). When `annotate` is present
+  — this element is the view's compiler-owned host root, marked by
+  `mark-host-root-annotation` — the DEV view-evidence annotation
+  (`data-rf2-source-coord` + `data-rf-view`, today's attribute vocabulary per
+  Spec 004 §View identity / Spec 006 §Source-coord annotation + §View tagging
+  contract) merges onto the static attrs behind `re-frame.interop/debug-enabled?`
+  (the JVM counterpart to the CLJS `goog.DEBUG` stamp — true by default, off under
+  `-Dre-frame.debug=false`). So a dev JVM/SSR render carries the SAME host-root
+  evidence the CLJS emit stamps (byte-identical values via the one cross-host
+  `re-frame.source-coords` projection), and a production SSR build drops it —
+  symmetric with the CLJS `:advanced` + goog.DEBUG=false DCE."
+  [static annotate]
+  (if annotate
+    (let [{:keys [source-coord view-tag]} annotate]
+      `(cond-> ~(or static {})
+         re-frame.interop/debug-enabled?
+         (assoc :data-rf2-source-coord ~source-coord
+                :data-rf-view ~view-tag)))
+    (when (seq static) static)))
+
 (defn- emit-element [node]
   (let [{:keys [props]} node
+        annotate  (:rf.ui/annotate node)
         tag       (:tag node)
         key-info  (:key props)
         child-forms (if (:html node)
@@ -124,7 +148,7 @@
             sugar (get-in props [:class :base-str])]
         `(re-frame.ui.tree/element
           ~tag
-          {:static ~(when (seq sugar) {:class sugar})
+          {:static ~(static-form (when (seq sugar) {:class sugar}) annotate)
            :dyn    (merge ~(:base spread) ~(:overrides spread))
            :key?   ~(:present? key-info)
            :key-val ~(:expr key-info)
@@ -159,7 +183,7 @@
                           (:attrs props))]
         `(re-frame.ui.tree/element
           ~tag
-          {:static ~(when (seq static) static)
+          {:static ~(static-form static annotate)
            :norm   ~(when (seq norm) norm)
            :dyn    ~(when (seq dyn) dyn)
            :events ~(when (seq stat-ev) stat-ev)
@@ -187,7 +211,7 @@
                           (:attrs props))]
         `(re-frame.ui.tree/element
           ~tag
-          {:static ~(when (seq static) static)
+          {:static ~(static-form static annotate)
            :norm   ~(when (seq norm) norm)
            :dyn    ~(when (seq dyn) dyn)
            :events ~(when (seq stat-ev) stat-ev)
@@ -345,10 +369,39 @@
 ;; defview
 ;; ---------------------------------------------------------------------------
 
+(defn- mark-host-root-annotation
+  "Stamp the view-evidence DOM-annotation marker onto the view's effective host
+  root — the DOM `:element` the compiler owns at the top of the render. The
+  UNCONDITIONAL wrappers (`:hook-prefix` effect prefix, an authored `:let` /
+  `:letfn`) are transparent — the marker rides through to the element they wrap.
+  A non-element effective root (a fragment, another view/foreign component, or a
+  conditional / loop) is NOT a single compiler-owned host node, so it carries no
+  annotation — the same host-root exemption the CLJS emit and the adapter
+  source-coord walk apply to a non-DOM root. `emit-element` reads the marker off
+  the plain element and merges the annotation into its `:static` attrs behind the
+  `interop/debug-enabled?` gate (see `static-form`). The JVM twin of
+  `re-frame.ui.compiler.emit-cljs/mark-host-root-annotation`."
+  [ast annotate]
+  (case (:op ast)
+    :element (assoc ast :rf.ui/annotate annotate)
+    (:hook-prefix :let :letfn) (update ast :body mark-host-root-annotation annotate)
+    ast))
+
 (defn emit-defview
   [{:keys [vname view-id docstring header ast manifest closed-keys children?
            lease-declarations self-fqn]}]
-  (let [body     (binding [*self-fqn* self-fqn] (emit-node ast))
+  (let [;; The DEV view-evidence DOM annotation for this view's compiler-owned
+        ;; host root — the source coordinate + view id, in today's attribute
+        ;; vocabulary (Spec 004 §View identity), via the cross-host
+        ;; `re-frame.source-coords` projections (byte-identical to the CLJS emit
+        ;; and the adapter walks by construction). Marked onto the effective root
+        ;; element and merged behind the `interop/debug-enabled?` gate; a
+        ;; non-element root carries none.
+        annotate {:source-coord (source-coord/format-source-coord
+                                 view-id (:source manifest))
+                  :view-tag     (source-coord/format-view-id view-id)}
+        body     (binding [*self-fqn* self-fqn]
+                   (emit-node (mark-host-root-annotation ast annotate)))
         bind     (:binding-form header)
         lease-binds
         (vec

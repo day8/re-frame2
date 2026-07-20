@@ -52,6 +52,18 @@
                         :requires #{'re-frame.ui} :source ""}}
    :output {}})
 
+(defn- strip-view-evidence
+  "Drop the DEV host-root view-evidence annotation (:data-rf2-source-coord /
+  :data-rf-view) the compiler stamps on a view's compiler-owned root element
+  (rf2-hac8p). This suite asserts custom-element property classification, not the
+  host-root annotation (own coverage: the emit-annotation tests, the parity
+  corpus, test:elision)."
+  [node]
+  (if-let [a (:attrs node)]
+    (let [a (dissoc a :data-rf2-source-coord :data-rf-view)]
+      (if (seq a) (assoc node :attrs a) (dissoc node :attrs)))
+    node))
+
 (defn- classify-consumer
   "Under `prepared`'s compiler-env (which the hook seeded at prepare),
   macroexpand + eval a consumer defview using `:ce-two` and render it; return the
@@ -66,7 +78,8 @@
       (eval (compiler/defview*
              (with-meta (list 'defview 'probe [] template) {:line 1})
              {} 'probe (list [] template)))
-      (first (:children (tree/render @(resolve (symbol (str view-ns) "probe")) {}))))))
+      (strip-view-evidence
+       (first (:children (tree/render @(resolve (symbol (str view-ns) "probe")) {})))))))
 
 (deftest two-source-order-permutations-classify-identically
   (let [decl-first (do (build/reset-build!) (harvest/reset-harvested!)
@@ -99,8 +112,9 @@
       (eval (compiler/defview*
              (with-meta (list 'defview 'probe [] template) {:line 1})
              {} 'probe (list [] template)))
-      (let [node (first (:children (tree/render
-                                    @(resolve 'probe.undeclared/probe) {})))]
+      (let [node (strip-view-evidence
+                  (first (:children (tree/render
+                                     @(resolve 'probe.undeclared/probe) {}))))]
         (is (nil? (:rf.ui/property-props node))
             "an undeclared tag is not seeded -> attribute")
         (is (= {:model "m"} (:attrs node)))))))
