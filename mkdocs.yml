@@ -198,6 +198,13 @@ nav:
       - "Mental model": core/re-frame.ui/mental-model.md
       - "Build a view": core/re-frame.ui/build-a-view.md
       - "Reactivity and ownership": core/re-frame.ui/reactivity-and-ownership.md
+      - "State: the four inputs": core/re-frame.ui/state.md
+      - "Events and handlers": core/re-frame.ui/events-and-handlers.md
+      - "Custom elements": core/re-frame.ui/custom-elements.md
+      - "Presence: exit animations": core/re-frame.ui/presence.md
+      - "Testing with ui.test": core/re-frame.ui/testing.md
+      - "SSR and hydration": core/re-frame.ui/ssr.md
+      - "Interop and the closed grammar": core/re-frame.ui/interop-and-limits.md
     - "Testing":
       - core/testing/index.md
       - "Event handlers": core/testing/event-handlers.md

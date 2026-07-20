@@ -108,7 +108,8 @@ placeholders don't cover, or to decide whether to dispatch at all — reach for
 
 And for imperative work that dispatches nothing — driving a foreign widget,
 flipping local state — there's `ui/handler`. The guiding rule: **a handler is
-data until it can't be**, and each non-data form names exactly what it needs.
+data until it can't be**, and each non-data form names exactly what it needs. The
+[events and handlers page](events-and-handlers.md) walks the full decision table.
 
 ## State and lifecycle are body forms
 
@@ -123,6 +124,7 @@ four explicit body forms rather than a component-shape change:
 | `frame` | The committed-frame ops bundle, for the rare imperative or foreign-callback case. |
 
 The [build-a-view walkthrough](build-a-view.md) uses `local` and an event; the
+[state page](state.md) takes all four inputs in turn, and the
 [reactivity page](reactivity-and-ownership.md) explains why `local` sits outside
 re-frame2's epochs and app-db does not.
 
