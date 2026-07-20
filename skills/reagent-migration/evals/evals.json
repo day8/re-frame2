@@ -80,7 +80,7 @@
        "Routes the host/DOM work (focus the node on mount) to (effect :connect …), with the body's RETURN value as the cleanup — a trailing (fn [] …), NOT the React useEffect shape (a setup fn that returns a cleanup fn), which compiles but silently never runs.",
        "Recognises there is NO dispatch-at-unmount in native re-frame.ui: (ui/dispatch-fn) fails loud at disconnect with :rf.error/dispatch-disconnected (the leaked-listener law), so an effect cleanup is NOT a place to smuggle the domain release.",
        "Re-homes the unmount domain work (the [:resource/release] dispatch) OUT of the view — to the causal events that end the resource's life — and names those events / the minting owner for the author (cardinal rule 5); the migrated view becomes a pure defview that owns no lease.",
-       "Mentions the view-declared (ui/lease …) only as the alternative for a genuinely view-scoped, unconditional resource (framework releases at teardown, no dispatch) — not for an app-minted / conditional / dynamically-keyed owner."
+       "Mentions the view-declared (ui/lease …) as the alternative only when the resource lifetime genuinely follows the view site (framework releases at teardown, no dispatch — valid even if activation is conditional or params are dynamic); here the owner is app-minted (route-minted, released by the causal events), so it re-homes rather than becoming a view lease."
      ]}
   ]
 }

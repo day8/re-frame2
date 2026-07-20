@@ -27,7 +27,7 @@
     [:div {:on-click [... ]} (when open? …)]))    ; @open? → open?, (reset! open? v) → (set-open! v)
 ```
 
-`local` returns a **three-tuple** `[value set! update!]`. Map `@a` → `value`, `(reset! a v)` → `(set! v)`, and — load-bearing — `(swap! a f args)` → `(update! f args)`, which applies `(f current & args)` to the *latest* host state so multiple same-turn writers compose. **Never** emit `(set-open! (f open? …))` over a committed render value — that is last-write-wins. `with-let`'s `finally` clause maps to `effect` cleanup. Setter/updater are host-only; a render-phase mutation fails loud.
+`local` returns a **three-tuple** `[value set! update!]`. Map `@a` → `value`, `(reset! a v)` → `(set! v)`, and — load-bearing — `(swap! a f args)` → `(update! f args)`, which applies `(f current & args)` to the *latest* host state so multiple same-turn writers compose. **Never** emit `(set-open! (f open? …))` over a committed render value — that is last-write-wins. `with-let`'s `finally` clause maps to `effect` cleanup **only for host teardown**; a `finally` that *dispatches* a domain event instead follows MIG-17 (there is no dispatch-at-unmount — re-home it to the causal events; see *Domain work on unmount* below). Setter/updater are host-only; a render-phase mutation fails loud.
 
 ## MIG-17 — Form-3 / `r/create-class` lifecycle
 
@@ -79,13 +79,13 @@ Two forms, both a **leading statement** in a `defview`'s top region (before the 
 
 ### Domain work on unmount re-homes OUT of the view (no dispatch-at-unmount)
 
-The deepest correction, and the one a skill-only migration gets wrong: a Reagent view that dispatched a domain event from `:component-will-unmount` (release a lease, mark a draft abandoned) has **no compiled equivalent, by design**. Native re-frame.ui has **no dispatch-at-unmount**. The framework's own words on the committed dispatcher (`ui.cljc`, `dispatch-fn`):
+A Reagent view that dispatched a domain event from `:component-will-unmount` (release a lease, mark a draft abandoned) has **no compiled equivalent, by design**. Native re-frame.ui has **no dispatch-at-unmount**. The framework's own words on the committed dispatcher (`ui.cljc`, `dispatch-fn`):
 
 > *… it FAILS LOUD in every non-connected state (`:rf.error/dispatch-disconnected`) — the leaked-listener detector for an external callback that outlived its view.*
 
 An unmount cleanup fires while the view is disconnecting, so a `(ui/dispatch-fn)` call there is rejected — the **leaked-listener law**. You cannot dispatch domain work at unmount, and an `effect` cleanup is **not** a place to smuggle it in.
 
-**So re-home the resource lifecycle out of the view.** The hand-migrated reference states it directly (its docstring):
+**So re-home the resource lifecycle out of the view.** The canonical `re-frame.ui` editor reference states it in its docstring:
 
 > *"The Reagent page released on `:component-will-unmount`; native re-frame.ui has no dispatch-at-unmount (a committed dispatcher rejects firing from a disconnected view — the leaked-listener law) … So the native view owns no lease — there is nothing at the view tier to leak — and the resource lifecycle stays where the … suite already proves it."*
 
@@ -107,7 +107,7 @@ The pattern, abstractly: the resource was minted by a *causal event* (a route ma
 (ui/defview editor [] [editor-form])
 ```
 
-**When the resource genuinely IS view-scoped and unconditional**, the compiled owner is a *view-declared* lease — a leading `(ui/lease {:resource :ns/thing …})` declaration the framework acquires on connect and **releases at teardown for you (no dispatch)**. But that is an *unconditional, view-lifetime* model: it does not fit an app-minted, conditionally-held, or dynamically-keyed owner (an edit-mode-only, per-key lease). For those, re-home to the events — as the reference did. Decide which with the author; either way, **the view never dispatches at unmount.**
+**When the resource lifetime genuinely follows this view site's presence**, the compiled owner is a *view-declared* lease — a leading `(ui/lease {:resource :ns/thing …})` declaration the framework acquires on connect and **releases at teardown for you (no dispatch)**. That lease is valid **even when its activation is conditional or its params are dynamic** — the descriptor may evaluate to `nil` (not held) or to a `{:resource … :params …}` map at render time, and the framework owns ensure/retarget/release across those changes. What a view lease does **not** fit is an **app-minted** owner — one an event, route, or machine created: keep causal ownership in the dataflow and release via the causal *end* events, exactly as the reference did. Choosing a view lease over causal ownership is an **ownership-model decision** to make with the author, not a mechanical migration — and routes/events/machines remain the preferred causal owners (Spec 004, I-11). Either way, **the view never dispatches at unmount.**
 
 ## MIG-18 — non-conforming `:on-*` handlers
 
