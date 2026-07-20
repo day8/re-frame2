@@ -33,15 +33,81 @@
 
 ```clojure
 ;; before
-(r/create-class {:component-did-mount #(init! …)
-                 :should-component-update …
-                 :reagent-render (fn [] [:div …])})
+(r/create-class {:component-did-mount     #(focus! …)
+                 :component-will-unmount   #(dispatch [:resource/release])
+                 :should-component-update  …
+                 :reagent-render           (fn [] [:div …])})
 ```
 
-**The decision: decompose each lifecycle body into host work vs domain work.** Mechanical parts first: delete `:should-component-update` (memo-by-default makes it dead), and extract `:reagent-render` as the view body (the other rules apply to it). Then, per lifecycle body:
+**The decision: decompose each lifecycle body into host work vs domain work.** Mechanical parts first: delete `:should-component-update` (memo-by-default makes it dead), and extract `:reagent-render` as the view body (the other rules apply to it). Then, per lifecycle body, split by *what the body does*:
 
-- **Host / DOM work** (focus a node, wire a listener, measure) → `(effect :connect …)`. Note: `:connect` cleanup runs at each *disconnect*, not once at unmount — dev StrictMode replays connect/disconnect, so the cleanup must be disconnect-idempotent.
-- **Domain work** ("mark viewed", "load on mount") → a route/domain **event** through the dataflow (name it for the author). There is deliberately **no** `:on-mount` primitive; domain-on-mount is a dispatch, not a lifecycle hook.
+- **Host / DOM work** (focus a node, wire a listener, measure, attach a chart) → `(effect :connect …)`. Its signature is a trap — read **the `effect` signature** below before you emit one.
+- **Domain work on MOUNT** ("mark viewed", "load on mount") → a route/domain **event** through the dataflow (name it for the author). There is deliberately **no** `:on-mount` primitive; domain-on-mount is a dispatch through the dataflow, not a lifecycle hook.
+- **Domain work on UNMOUNT** ("release the lease", "mark the draft abandoned") → **re-home it OUT of the view** — see **Domain work on unmount** below. There is **no dispatch-at-unmount** in native re-frame.ui; you do **not** preserve it as an `effect` cleanup.
+
+### `effect`'s signature (verify against `ui.cljc` — REQUIRED)
+
+`effect` is a compiler-owned form whose contract is *unlike* React's `useEffect`, and it is documented only in `re-frame.ui`'s source. **Read the `effect` docstring in `implementation/ui/src/re_frame/ui.cljc` before you emit one** (the framework's `effect` var carries the authoritative arglist + cleanup semantics). The shape is easy to get subtly wrong in a way that *compiles but silently never runs the cleanup* — a leak with no error.
+
+Two forms, both a **leading statement** in a `defview`'s top region (before the final template):
+
+```clojure
+(effect [dep …] body…)     ; runs body after commit whenever a dep changes (compared by rf=)
+(effect :connect body…)    ; runs body at each connect (mount / reveal); cleanup at each disconnect
+```
+
+**The body forms run directly** — you do *not* pass a setup function. **The body's RETURN value, when it is a function, is the cleanup.** So the cleanup is a *trailing* `(fn [] …)`, not an inner lambda:
+
+```clojure
+;; RIGHT — the setup forms run at connect; the trailing fn is the cleanup
+(effect :connect
+  (let [node @ref
+        on-key (fn [e] …)]
+    (.addEventListener node "keydown" on-key)
+    (fn [] (.removeEventListener node "keydown" on-key))))   ; ← body's return = cleanup
+
+;; WRONG — the React useEffect shape (a setup fn that RETURNS a cleanup fn).
+;; The body evaluates to a single function, so the framework registers THAT
+;; function as the cleanup and NEVER runs your setup at connect. Compiles,
+;; leaks silently — no error.
+(effect :connect
+  (fn [] (.addEventListener node "keydown" on-key)
+         (fn [] (.removeEventListener node "keydown" on-key))))
+```
+
+`:connect` cleanup runs at each *disconnect*, not once at unmount, and dev StrictMode replays connect/disconnect — so the cleanup must be idempotent (the **StrictMode idempotency** gotcha, [`gotchas.md`](gotchas.md)). `sub`/`lease`/`frame` inside an effect body are compile errors. To dispatch from an effect, capture `(ui/dispatch-fn)` in the view body and call it — **but that dispatcher fails loud at disconnect**, which is exactly why unmount domain-work re-homes (next).
+
+### Domain work on unmount re-homes OUT of the view (no dispatch-at-unmount)
+
+The deepest correction, and the one a skill-only migration gets wrong: a Reagent view that dispatched a domain event from `:component-will-unmount` (release a lease, mark a draft abandoned) has **no compiled equivalent, by design**. Native re-frame.ui has **no dispatch-at-unmount**. The framework's own words on the committed dispatcher (`ui.cljc`, `dispatch-fn`):
+
+> *… it FAILS LOUD in every non-connected state (`:rf.error/dispatch-disconnected`) — the leaked-listener detector for an external callback that outlived its view.*
+
+An unmount cleanup fires while the view is disconnecting, so a `(ui/dispatch-fn)` call there is rejected — the **leaked-listener law**. You cannot dispatch domain work at unmount, and an `effect` cleanup is **not** a place to smuggle it in.
+
+**So re-home the resource lifecycle out of the view.** The hand-migrated reference states it directly (its docstring):
+
+> *"The Reagent page released on `:component-will-unmount`; native re-frame.ui has no dispatch-at-unmount (a committed dispatcher rejects firing from a disconnected view — the leaked-listener law) … So the native view owns no lease — there is nothing at the view tier to leak — and the resource lifecycle stays where the … suite already proves it."*
+
+The pattern, abstractly: the resource was minted by a *causal event* (a route match, a "start editing" event), and it is released by the *causal events that end its life* (navigating away, deleting, finishing) — **not** by the view's teardown. The migrated view becomes a **pure render** of subs; it owns no lease, so there is nothing at the view tier to leak.
+
+```clojure
+;; before — a Form-3 view owns the lease and releases it at unmount
+(defn editor []
+  (let [{:keys [dispatch]} (rf/capture-frame)]
+    (r/create-class
+     {:component-will-unmount (fn [_] (dispatch [:resource/release]))
+      :reagent-render         (fn [] [editor-form])})))
+
+;; after — the view owns no lease; it is a pure defview.
+;; The lease RE-HOMES to the dataflow: the route / "start" event MINTS it
+;;   (e.g. [:lease :resource id]); the causal events that end the resource's
+;;   life RELEASE it. Name those events for the author (cardinal rule 5) — the
+;;   skill does not write them, it scopes them.
+(ui/defview editor [] [editor-form])
+```
+
+**When the resource genuinely IS view-scoped and unconditional**, the compiled owner is a *view-declared* lease — a leading `(ui/lease {:resource :ns/thing …})` declaration the framework acquires on connect and **releases at teardown for you (no dispatch)**. But that is an *unconditional, view-lifetime* model: it does not fit an app-minted, conditionally-held, or dynamically-keyed owner (an edit-mode-only, per-key lease). For those, re-home to the events — as the reference did. Decide which with the author; either way, **the view never dispatches at unmount.**
 
 ## MIG-18 — non-conforming `:on-*` handlers
 

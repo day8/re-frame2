@@ -51,6 +51,11 @@ Dynamic query args pass through (`(sub [:item id])`). A `subscribe` that is *sto
 ;; before → after
 {:on-input #(dispatch [:typed (-> % .-target .-value)])}
 => {:on-input [:typed :rf.ui/value]}
+
+;; leading LITERAL args sit ahead of the placeholder — the placeholder is
+;; positional, projected into its own slot at dispatch time:
+{:on-input #(dispatch [:edit-field :title (-> % .-target .-value)])}
+=> {:on-input [:edit-field :title :rf.ui/value]}
 ```
 
 **MIG-06 — `preventDefault`/`stopPropagation` become an options map:**

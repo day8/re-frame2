@@ -39,9 +39,13 @@ The fix for all three is the same structural move: **extract a keyed child view*
 
 The head must resolve statically. This has no mechanical rewrite — bind the attrs and split the branches, or route to `re-frame.ui.data`, or hold the view (MIG-21, [`catalog-reject.md`](catalog-reject.md)). Don't try to be clever with a computed head; the compiler will reject it.
 
+## StrictMode replays effects — `:connect` cleanup runs per-disconnect, not once
+
+Reagent's `:component-will-unmount` runs **once**, at the real unmount. An `effect`'s cleanup is different: `(effect :connect …)` cleanup runs at **each disconnect**, and React dev **StrictMode deliberately replays** connect→disconnect→connect on the first mount to smoke out effects that aren't idempotent. So an `effect` cleanup must be **idempotent** — safe to run more than once, and safe when its setup half ran more than once (`ui.cljc`: *"StrictMode dev replay is expected and MUST be idempotent-safe — that is what cleanup is for"*). A cleanup that assumes exactly-once (decrement a shared counter, pop a stack, release a token a single time) double-fires in dev and corrupts that state. Write host teardown that tolerates replay: remove the exact listener you added, dispose the chart instance you created, guard a token release. This is a per-disconnect **host** concern only — it is never a place for domain dispatch (MIG-17: no dispatch-at-unmount).
+
 ## Computed props vs the controlled-input door
 
-`ui/spread` (MIG-28) is legal, but a spread on an `:input`/`:select` **forfeits the controlled-input synchrony door** — the compiler needs a *provably-literal* `:value`/`:checked` co-present on the element to guarantee controlled-input behaviour. If you spread a map that carries `:value`, you can silently lose that guarantee. Lift `:value`/`:checked` and the handlers back to literal props on the element; spread only the genuinely pass-through remainder.
+`ui/spread` (MIG-28) is legal, but a spread on an `:input`/`:select` **forfeits the controlled-input synchrony door**. The door needs the `:value`/`:checked` **entry to appear literally on the element's props map** — the *key* present as a literal map entry, so the compiler can see it. This is **not** a requirement that the *value* be a constant: a controlled `:value (:title draft)` is a perfectly good dynamic expression — what must be literal is the **`:value` key's presence on the element**, not the value routed in through a `(ui/spread (merge … {:value …}))`. Fold `:value` into a spread map and the compiler can no longer prove the entry is there, so you silently lose the synchrony guarantee. Lift `:value`/`:checked` (and the input's handlers) back to literal entries on the element; spread only the genuinely pass-through remainder.
 
 ## The staged-gap trap — never emit an unshipped form
 
