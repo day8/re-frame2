@@ -146,6 +146,10 @@
     ;; macro rejects a CLJS expansion (no structural trees in the browser; a CLJS
     ;; expansion would emit the JVM tree + SSR serialiser into a browser bundle)
     :rf.ui.compile/ui-render-static-jvm-only
+    ;; render-static no-silent-elision proof (S5, rf2-uv7n6) — a runtime-requiring
+    ;; capability anywhere in the static root's server-reachable view closure is a
+    ;; loud build error, never a silently dropped capability (EP-0034 §2)
+    :rf.ui.compile/static-root-requires-runtime
     ;; a11y-diagnostic suppression grammar (S4-C, rf2-74vlo) — a malformed
     ;; ^{:rf.ui/suppress {<id> "reason"}} is loud, never a silent no-op
     :rf.ui.compile/bad-suppress})
@@ -191,7 +195,10 @@
     test_render_jvm_test     bad-test-render-form / bad-test-root
     render_static_jvm_test   ui-render-static-jvm-only (re-frame.ssr artefact —
                              render-static is a JVM/server surface, so its CLJS-
-                             expansion rejection is exercised where it renders)
+                             expansion rejection is exercised where it renders) +
+                             static-root-requires-runtime (the no-silent-elision
+                             proof needs the build view-static index populated —
+                             not reachable by macroexpanding a single form)
     custom_element_conflict_jvm_test
                              custom-element-conflict (needs TWO declaring
                              sources in one build — not reachable by
@@ -212,7 +219,8 @@
     :rf.ui.compile/client-entry-on-jvm
     :rf.ui.compile/bad-test-render-form
     :rf.ui.compile/bad-test-root
-    :rf.ui.compile/ui-render-static-jvm-only})
+    :rf.ui.compile/ui-render-static-jvm-only
+    :rf.ui.compile/static-root-requires-runtime})
 
 (def ^:private direct-call-ids
   "Ids exercised by a direct analyzer-fn call below (defensive sites the

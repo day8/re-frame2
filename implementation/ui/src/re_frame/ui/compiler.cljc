@@ -149,6 +149,71 @@
       (scan ast))
     @caps))
 
+;; ---------------------------------------------------------------------------
+;; Per-view static-render facts (Spec 004C §3 / EP-0034 §2 — the render-static
+;; no-silent-elision proof)
+;; ---------------------------------------------------------------------------
+
+(def ^:private runtime-requiring-site-caps
+  "Site-kind -> the runtime-requiring capability token render-static rejects.
+  Every one names a live-runtime need a pure `:server` static render cannot
+  honour (a sub read, a committed handler, a lease/frame read, a host hook)."
+  {:events :handler :subs :sub :leases :lease :frame-ops :frame
+   :locals :local :effects :effect :dispatch-fns :dispatch-fn})
+
+(defn view-static-facts
+  "The SERVER-REACHABLE static-render facts for one analyzed body — the small
+  internal projection the render-static transitive proof closes over (Spec 004C
+  §3, EP-0034 §2 no-silent-elision):
+
+    {:caps <set of runtime-requiring capability tokens in THIS body>
+     :deps <set of directly-referenced view-ids>}
+
+  `:caps` unions the runtime-requiring SITE kinds (subs / committed handlers /
+  leases / frame reads / host locals / effects / dispatch-fns), the
+  re-frame.ui.react host hooks (use-ref -> `:ref`, use-context -> `:context`,
+  use-effect family -> `:effect`; `use-id` is EXEMPT — an inert deterministic id
+  is static-safe), and foreign heads (`:foreign`, which a `react/lazy` head folds
+  into). `:deps` are the view references to close over transitively.
+
+  A `ui/client-only` subtree is skipped: the JVM emitter renders only its
+  capability-free FALLBACK, so the browser-only child is not server-reachable —
+  its views and capabilities never reach the static output and must not be
+  counted (a static root never flips)."
+  [ast sites]
+  (let [deps     (volatile! #{})
+        foreign? (volatile! false)]
+    (letfn [(walk [n]
+              (when (map? n)
+                (if (= :client-only (:op n))
+                  ;; browser-only child never reaches the JVM tree; only the
+                  ;; capability-free fallback does.
+                  (walk (:fallback n))
+                  (do
+                    (when (= :view (:op n))    (vswap! deps conj (:view-id n)))
+                    (when (= :foreign (:op n)) (vreset! foreign? true))
+                    (doseq [[_ v] n]
+                      (cond
+                        (map? v)    (walk v)
+                        (vector? v) (run! walk v)))))))]
+      (walk ast))
+    {:caps (cond-> (into (into #{}
+                               (keep (fn [[kind cap]]
+                                       (when (seq (get sites kind)) cap)))
+                               runtime-requiring-site-caps)
+                         (keep {:ref :ref :context :context :effect :effect
+                                :layout-effect :effect :effect-event :effect})
+                         (map :kind (:react sites)))
+             @foreign? (conj :foreign))
+     :deps @deps}))
+
+(defn build-view-static
+  "The ambient build's per-view static-render facts index (view-id ->
+  `{:caps :deps}`) — the read `re-frame.ui/render-static`'s transitive proof
+  closes over (Spec 004C §3). Per-build like every other registry read."
+  []
+  (build/aggregate build/view-static))
+
 (defn- source-coords [form cljs?]
   (let [m (meta form)]
     (cond-> {:file (if cljs?
@@ -321,6 +386,13 @@
              :namespace ns-sym
              :declaration [ns-sym vname]
              :existing-declaration conflict}))
+    ;; Per-view static-render facts for the render-static transitive proof
+    ;; (Spec 004C §3 / EP-0034 §2). Keyed per declaring ns like every other
+    ;; registry row, so a recompiled / removed source replaces / evicts its
+    ;; contribution; not folded into the build digest (derived from the same
+    ;; source the `views` digest already tracks).
+    (build/contribute! build/view-static ns-sym view-id
+                       (view-static-facts ast sites))
     (if cljs?
       ;; Direct no-pass REPL evaluation may replace the runtime view body, but
       ;; carries no digest assignment. Only a successful configured file/watch

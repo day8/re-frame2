@@ -525,3 +525,42 @@
   (reactive/with-slice-memo
     (fn []
       (assoc (thunk) :rf.ui/tree-version tree-version))))
+
+#?(:clj
+   (defn resolve-ssr-emitter
+     "Late-resolve `re-frame.ssr/emit-ui-tree` on the JVM — the SSR artefact's
+     pure tree -> HTML serialiser. Returns the resolved var (loading
+     `re-frame.ssr` on demand if it is on the classpath but not yet required),
+     or nil when the artefact is absent. The `hydrate-root` late-require
+     precedent: `re-frame.ui` takes NO static require on `re-frame.ssr`, so a
+     server namespace that requires only `re-frame.ui` still renders (the emitter
+     is loaded here, at render time), and Spec 011's `ui -> ssr` static wall
+     stays intact. Extracted as its own seam so the artefact-absent branch is
+     drivable in a test."
+     []
+     (try
+       (requiring-resolve 're-frame.ssr/emit-ui-tree)
+       (catch java.io.FileNotFoundException _ nil))))
+
+#?(:clj
+   (defn emit-static-html
+     "Fold a JVM structural `tree` to an inert HTML string through the SSR
+     artefact's `re-frame.ssr/emit-ui-tree`, resolved LATE (see
+     `resolve-ssr-emitter`). This is the runtime seam `re-frame.ui/render-static`
+     emits a call to instead of naming `re-frame.ssr/emit-ui-tree` directly — a
+     direct emit compiled a hard `re-frame.ssr` reference into the caller's
+     namespace, so a documented render-static call in a namespace that required
+     only `re-frame.ui` failed to COMPILE with a raw `ClassNotFoundException:
+     re-frame.ssr`. When the `day8/re-frame2-ssr` artefact is absent from the
+     server classpath this raises the ruled, typed
+     `:rf.error/ssr-artefact-missing` naming the artefact — never a raw host
+     exception, never a fallback."
+     [tree]
+     (if-let [emit (resolve-ssr-emitter)]
+       (emit tree)
+       (error/throw-error!
+        :rf.error/ssr-artefact-missing
+        'ui/render-static
+        (str "re-frame.ui/render-static requires day8/re-frame2-ssr on the "
+             "classpath; add it to deps and require re-frame.ssr at app boot.")
+        {:extra {:maven "day8/re-frame2-ssr" :require-ns "re-frame.ssr"}}))))
