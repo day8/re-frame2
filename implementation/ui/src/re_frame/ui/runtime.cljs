@@ -535,6 +535,37 @@
         (unchecked-set caller-obj "className" (str owned-class " " caller-class))))
     caller-obj))
 
+;; ---------------------------------------------------------------------------
+;; ui/spread at a FOREIGN component call site (rf2-u53yy.5)
+;; ---------------------------------------------------------------------------
+
+(defn foreign-spread-props
+  "Merge a FOREIGN component spread's forwarded runtime map (`fwd`) UNDER its
+  LITERAL compiled props object (`literal-obj`). The literal props — the
+  component's own compiled handlers and props — WIN every key collision; the
+  forwarded map fills in the rest. A foreign boundary is OPEN: its props pass
+  through UNCONVERTED (no DOM rule table, no kebab→camel, no handler
+  classification — the foreign head owns its own prop ABI), so each forwarded
+  key is the author keyword's verbatim name (`namespace/name`, matching the
+  compiler's `prop-slot-name`) and its value is set as-is.
+
+  Mirrors `spread-safe-props`' owned-wins layering, minus the deny law — a
+  foreign boundary defends no owned/structural key (there is no per-slot memo
+  comparator or slot ABI to protect). NIL-MEANS-ABSENT: a compiled literal prop
+  whose dynamic value normalizes to nil sits in `literal-obj` as an explicit
+  null; layer key-by-key skipping nil so a nil literal stays ABSENT and the
+  forwarded value survives. Returns the merged JS object."
+  [fwd literal-obj]
+  (let [o (js-obj)]
+    (when (some? fwd)
+      (doseq [[k v] fwd]
+        (unchecked-set o (if-some [ns* (namespace k)] (str ns* "/" (name k)) (name k)) v)))
+    (doseq [k (js/Object.keys literal-obj)]
+      (let [v (unchecked-get literal-obj k)]
+        (when (some? v)
+          (unchecked-set o k v))))
+    o))
+
 (defn jsx-spread2
   "jsx over a runtime-built (spread) props object, children attached."
   [t props-obj children-arr]

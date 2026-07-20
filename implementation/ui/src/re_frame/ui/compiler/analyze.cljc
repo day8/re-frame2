@@ -2134,23 +2134,93 @@
               :classification kind
               :literal? false}))))
 
-(defn- analyze-component-props
-  "View/foreign call-site props (Q2/Q3/Q4): literal map required; :key
-  extracted (never a prop); :children as an explicit key rejected
-  (children are positional). Bare fn values: rejected at a FOREIGN boundary
-  (the narrow bare-fn law — invoker/phase unknown), but LEGAL as an opaque
-  identity-compared value at an INTERNAL-view boundary (C-13a) — the framework
-  never invokes it and promises no phase; ui/handler/ui/render-fn opt a phase
-  in. `ui/event`/`ui/handler` are the explicit committed callbacks at either."
+(defn- analyze-foreign-spread
+  "Parse `(ui/spread …)` in a FOREIGN component's props position (rf2-u53yy.5):
+  an OPTIONAL leading LITERAL map — the component's own props, analysed exactly
+  like a literal call-site props map (compiled `ui/handler`/`ui/event`/
+  `ui/render-fn`, prop-key checks, `:key`/`:ref` extraction) — plus an opaque
+  forwarded runtime map. The forwarded map is the visible foreign-boundary
+  opt-in: a foreign head's props are open and pass through UNCONVERTED (there is
+  no per-slot memo comparator or slot ABI to defend, so nothing is converted),
+  and the compiled LITERAL props WIN any key collision — mirroring
+  `ui/spread-safe`'s owned-wins layering, minus the deny law. The forwarded map
+  marks the site `:dynamic` in the manifest exactly as a dynamic handler
+  expression does. -> `[literal-map spread-node|nil]`.
+
+  Shapes: `(ui/spread runtime-map)` — the plain forwarded map, no literal part;
+  `(ui/spread literal-map runtime-map)` — literal part plus the forwarded map. A
+  leading literal map is the literal part; a leading non-map expression is the
+  forwarded map."
   [e head-info props-form]
-  (when (and (some? props-form) (not (map? props-form)))
+  (let [args (rest props-form)
+        n    (count args)]
+    (when-not (<= 1 n 2)
+      (env/fail! e :rf.ui.compile/bad-spread
+                 (str "(ui/spread runtime-map) or (ui/spread literal-part "
+                      "runtime-map) at the foreign component " (:sym head-info))
+                 {:form props-form}))
+    (let [[a b]   args
+          literal (if (map? a)
+                    a
+                    (when (= n 2)
+                      (env/fail! e :rf.ui.compile/bad-spread
+                                 (str "(ui/spread literal-part runtime-map) — the "
+                                      "first argument must be a LITERAL props map "
+                                      "(analysed for the component's compiled "
+                                      "handlers and props); the second is the "
+                                      "opaque forwarded runtime map")
+                                 {:form props-form})))
+          runtime (cond
+                    (= n 2)  b
+                    (map? a) nil
+                    :else    a)]
+      [(or literal {})
+       (when (some? runtime)
+         (let [identity (event-site-identity e :spread props-form)]
+           (add-event-site! e identity
+                            {:prop :spread :handler :opaque
+                             :classification :spread :serializable? false
+                             :sync? false})
+           (merge identity {:base (walk-expr e [:spread :base] runtime)})))])))
+
+(defn- analyze-component-props
+  "View/foreign call-site props (Q2/Q3/Q4): a literal map — or, at a FOREIGN
+  head only, `(ui/spread …)` (rf2-u53yy.5, the foreign wrapper idiom). :key
+  extracted (never a prop); :children as an explicit key rejected (children are
+  positional). Bare fn values: rejected at a FOREIGN boundary (the narrow
+  bare-fn law — invoker/phase unknown), but LEGAL as an opaque identity-compared
+  value at an INTERNAL-view boundary (C-13a) — the framework never invokes it
+  and promises no phase; ui/handler/ui/render-fn opt a phase in. `ui/event`/
+  `ui/handler` are the explicit committed callbacks at either. `ui/spread` at an
+  INTERNAL view is rejected — an internal view requires a literal props map (its
+  generated per-slot memo comparator and slot ABI need the literal keys)."
+  [e head-info props-form]
+  (let [spread? (spread-form? e props-form)
+        view?   (= :view (:kind head-info))]
+   (cond
+    (and spread? view?)
+    (env/fail! e :rf.ui.compile/spread-internal-view
+               (str "(ui/spread …) at the internal view " (:view-id head-info)
+                    " — an internal view requires a LITERAL props map: its "
+                    "generated per-slot memo comparator and slot ABI need the "
+                    "literal keys. ui/spread is admitted at a FOREIGN component "
+                    "call site (its props are open and pass through unconverted) "
+                    "and in a DOM/custom element's props position")
+               {:head (:sym head-info)})
+
+    (and (some? props-form) (not (map? props-form)) (not spread?))
     (env/fail! e :rf.ui.compile/dynamic-props-map
                (str "component call sites take a LITERAL props map — a wholly-"
                     "dynamic props expression is not v1 grammar (conservative "
-                    "S1 pin; ui/spread converts dynamic maps for DOM elements "
-                    "only)")
-               {:head (:sym head-info) :form props-form}))
-  (let [m (or props-form {})]
+                    "S1 pin). At a FOREIGN component forward a runtime map with "
+                    "(ui/spread literal-part runtime-map); a DOM/custom element "
+                    "also takes (ui/spread base overrides)")
+               {:head (:sym head-info) :form props-form})
+
+    :else
+    (let [[m spread-node] (if spread?
+                            (analyze-foreign-spread e head-info props-form)
+                            [(or props-form {}) nil])]
     (doseq [k (keys m)]
       (when-not (keyword? k)
         (env/fail! e :rf.ui.compile/non-keyword-prop
@@ -2235,16 +2305,20 @@
       (let [key-form* (if (and (contains? m :key) (not (literal-scalar? key-form)))
                         (walk-expr e [:component-key] key-form)
                         key-form)]
-      {:key {:present? (contains? m :key) :expr key-form*
-             :literal? (literal-scalar? key-form)}
-       :entries entries
-       :ref ref-a}))))
+      (cond-> {:key {:present? (contains? m :key) :expr key-form*
+                     :literal? (literal-scalar? key-form)}
+               :entries entries
+               :ref ref-a}
+        spread-node (assoc :spread spread-node))))))))
 
 (defn- analyze-component [e form]
   (let [head      (nth form 0)
         info      (env/classify-head e head)
         second*   (nth form 1 nil)
-        has-props (map? second*)
+        ;; a `(ui/spread …)` second form is PROPS at a component head, not a
+        ;; child — admitted at a FOREIGN head (rf2-u53yy.5), rejected at an
+        ;; internal view by analyze-component-props (literal props required).
+        has-props (or (map? second*) (spread-form? e second*))
         props     (analyze-component-props e info (when has-props second*))
         child-fs  (vec (if has-props (drop 2 form) (drop 1 form)))
         ;; a view/foreign boundary ENDS the static top region (S1c):

@@ -161,7 +161,7 @@ and reactive-escape rejection as a hand-written `let` + `if`.
 |---|---|
 | `[:div.cls#id {…} …]` | DOM element; **literal head required** |
 | `[view-sym {…} & children]` | internal view (compile-resolved Var) |
-| `[ForeignComponent {…} …]` | foreign React component (open props; JS values pass through) |
+| `[ForeignComponent {…} …]` | foreign React component (open props; JS values pass through; also accepts `(ui/spread …)` — §Interop) |
 | `[:<> …]` | fragment |
 | `(for [x xs] [item {:key …}])` | keyed list → direct JS array; missing key = build failure |
 | `(ui/presence …)` | declarative enter/exit retention (§Presence) |
@@ -666,11 +666,11 @@ enter/exit retention is out of scope):
 | Surface | Contract |
 |---|---|
 | `(ui/raw react-element)` | embed an existing React element (child position; SSR paths need a `client-only` sibling fallback) |
-| `[ForeignComponent {…}]` | foreign React head; open props, JS values pass through; callbacks per §The decision table |
+| `[ForeignComponent {…}]` | foreign React head; open props, JS values pass through; callbacks per §The decision table. Also takes `(ui/spread literal-part runtime-map)` — the foreign-props position rule below |
 | `(ui/->react view)` | export a view as a React component — the outward migration bridge. **v1, lands S6** with the migration wave. Contract: the compat-boundary contract §3, whose rules stay in their committed homes (no `spec/004A` appendix lands) — memoised per view id (returns the stable shell), no new React root/manifest/preflight; the exported view scopes frames, never creates them |
 | `(ui/element type props & children)` | runtime-chosen element/component **[WAVE-2]** |
 | `(ui/view id)` | registry-addressed component; production use requires production registry entries (dev-only string ids cannot serve prod lookup) **[WAVE-2]** |
-| `(ui/spread base overrides)` | the one generic runtime prop-map conversion — **v1**; the conversion architecture's single dynamic-map path, driven by the owning rule table |
+| `(ui/spread base overrides)` | the one generic runtime prop-map conversion — **v1**; the conversion architecture's single dynamic-map path, driven by the owning rule table. In a **DOM/custom element**'s props position both maps are runtime, converted through the rule table, later-arg-wins. At a **FOREIGN component** call site it takes `(ui/spread literal-part runtime-map)` (the foreign-props position rule below) |
 | `(ui/spread-safe owned caller)` | the **literal safe-spread policy** (S3) — a component library forwards a consumer's runtime attr map onto an internal element without clobbering owned props or forfeiting the sync door. `owned` is a LITERAL props map (analysed as element props, so a controlled owned site keeps the door); the structural/controlled/identity keys `:key`/`:ref`/`:value`/`:checked` and the owned `:on-*` handlers are denied to `caller` in **every build** (§The safe-spread policy) |
 | `(ui/portal node child)` | React portal; frame context passes through **[WAVE-2]** |
 | `(ui/client-only {:fallback tpl} client-tpl)` | browser-only subtree; the fallback is mandatory and MUST be capability-free (compiler-checked); the JVM and first hydration render the fallback, then one root phase-flip swaps all sites in a single update (per [011 §Phase flip](011-SSR.md#phase-flip)) |
@@ -683,6 +683,49 @@ tools, or guide fixtures — guide examples authored by this project do not coun
 independent demand for platform-scale features). The seven wrappers of the foreign
 React-interop tier — `re-frame.ui.react` — carry their own call-shape contract in
 §The React interop tier below.
+
+### `ui/spread` at a foreign component call site
+
+A component call site takes a **literal props map** — the internal-view seam needs
+those literal keys for its generated per-slot memo comparator and slot ABI, so a
+wholly-dynamic props expression there is a compile error
+(`:rf.ui.compile/dynamic-props-map`). A **foreign** head has neither invariant:
+its props are *open* and pass through **unconverted** (the foreign component owns
+its own prop ABI), and there is no comparator or slot ABI to defend. The standard
+wrapper idiom — accept a map, forward it onto a foreign component — is therefore
+admitted there through the visible `ui/spread` opt-in:
+
+```clojure
+[DatePicker (ui/spread {:selected date :on-change (ui/handler [v] (pick! v))}
+                       forwarded-props)]
+```
+
+- **Two shapes.** `(ui/spread literal-part runtime-map)` is a **literal** props map
+  plus an opaque forwarded map; `(ui/spread runtime-map)` is the plain forwarded
+  map alone (no literal part). A leading literal map is the literal part; a leading
+  non-map expression is the forwarded map.
+- **The literal part is analysed normally** — handler classification
+  (`ui/event`/`ui/handler`/`ui/render-fn`), prop-key checks, the bare-fn law,
+  `:key`/`:ref` extraction, `:children`-as-a-prop rejection — exactly as a literal
+  call-site props map. So a committed callback still compiles to a per-site-stable
+  identity.
+- **The runtime part is an intentionally opaque foreign-boundary map.** It passes
+  through unconverted (keys are the author keyword's verbatim name; no rule table,
+  no kebab→camel, no handler classification) and marks the call site `:dynamic` in
+  the manifest, exactly as a dynamic handler expression does. Choosing `ui/spread`
+  is the visible cost.
+- **The literal props win any key collision.** The forwarded map is layered
+  *under* the compiled literal props — mirroring `ui/spread-safe`'s owned-wins
+  layering, minus the deny law (a foreign boundary defends no owned/structural
+  key). A compiled committed callback can never be silently clobbered by the
+  opaque forwarded map. (This differs from a DOM element's
+  `(ui/spread base overrides)`, whose two runtime maps merge later-arg-wins.)
+- **INTERNAL views keep the literal-props requirement.** `(ui/spread …)` at an
+  internal-view call site is `:rf.ui.compile/spread-internal-view` — no generic
+  internal-view prop spreading, and `ui/spread-safe` remains the DOM/component-
+  library forwarding policy. On the JVM a foreign component is a host-op boundary
+  (its props never enter the structural tree), so a foreign spread renders under
+  the same `ui/client-only` rule as any foreign head.
 
 ### Trusted markup — what `ui/html` does not do
 
@@ -1431,7 +1474,7 @@ a conflict is resolved in that order and is a defect in this table.
 | §Interop — `ui/error-boundary` | **S3** | phase semantics; `:reset-key`; server-policy contrast |
 | §Interop — `ui/client-only` | **S3** → completes **S5** | capability-free fallback check (S3); SSR phase flip (S5) |
 | §`ui/route-link` — framework-provided compiled view | **S3** | ordinary-defview compilation (no intrinsic branch); strategy-encoded href truth; handler-free path-form SSR shell; the routing-owned late-bound seam (`:routing/link-model` / `:routing/activate-link!`) + `:rf.error/routing-artefact-missing` when routing is absent; the click law (plain-left intercept + `:source :router` committed-frame dispatch; modifier / middle / native deferral; caller `:on-click`-first veto) is [012](012-Routing.md)'s |
-| §Interop — `ui/spread` | **S1** | with the conversion-table row above |
+| §Interop — `ui/spread` | **S1** | with the conversion-table row above; plus the foreign-props position rule (§`ui/spread` at a foreign component call site) — literal part analysed normally, opaque forwarded map layered under it, `:rf.ui.compile/spread-internal-view` at an internal view |
 | §The safe-spread policy — `ui/spread-safe` | **S3** | owned-key deny in dev AND advanced builds (G-17); `aria-*`/`data-*`/`title`/`:class`/`:style` passthrough per the 004B table; allowed `:on-*` classify through the handler table; the controlled split — policy retains the sync door, general spread forfeits it (both asserted) |
 | §Interop — `ui/->react` | **S6** | compat-boundary fixtures, both nesting directions (the compat-boundary contract) |
 | §The React interop tier — `re-frame.ui.react` | **S3** | the seven wrappers' call shapes; the position law (finite-site analyzer extension — conditional/inside-fn rejection); the hook-signature-hash `:react` extension + the one-time remount wave; JVM host-render rows; HMR remount/preservation. Declared until then |
