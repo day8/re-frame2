@@ -135,9 +135,9 @@
             "the cell observes frame A (first-class multi-frame membership)")
         (is (reactive/cell-observes-frame? cell fb)
             "the cell observes frame B"))
-      (testing "each observation captured its own live node identity + owned lease"
+      (testing "each observation captured its own live node identity + owned handle"
         (is (every? :owned? obs)
-            "an owned subscription node lease reports :owned? true in each frame")
+            "an owned subscription node handle reports :owned? true in each frame")
         (is (every? (fn [o] (integer? (:target-id o))) obs)
             "each observed live node identity is captured (:target-id)")
         (is (every? (fn [o] (integer? (:version o))) obs)

@@ -323,9 +323,9 @@
     (testing "current? holds for the unchanged live handle"
       (is (true? (obs/current? handle target))))
     (testing "a second acquire shares the SAME canonical node (ref 2)"
-      (let [lease2 (obs/acquire! target (fn [_]))]
+      (let [handle2 (obs/acquire! target (fn [_]))]
         (is (= 2 (ref-count [:obs/items])))
-        (obs/release! lease2)
+        (obs/release! handle2)
         (is (= 1 (ref-count [:obs/items])) "release detached exactly one ref")))
     (testing "release! on the last owner disposes the slot synchronously
               (the 1 → 0 edge, in-tick)"
@@ -635,7 +635,7 @@
     (testing "current? treats the disposed node as not-current → retarget"
       (is (false? (obs/current? handle target))))
     (testing "the next acquire re-resolves the NEW canonical node"
-      (let [lease2 (obs/acquire! target (fn [_]))]
+      (let [handle2 (obs/acquire! target (fn [_]))]
         (is (not (identical? (:reaction old-entry)
                              (:reaction (entry [:obs/items]))))
             "the cache holds a fresh node, not the disposed one")
@@ -644,7 +644,7 @@
                   it can never decrement the NEW node's ref"
           (obs/release! handle)
           (is (= 1 (ref-count [:obs/items]))))
-        (obs/release! lease2)
+        (obs/release! handle2)
         (is (nil? (entry [:obs/items])))))))
 
 (deftest hmr-disposal-notification-carries-post-bump-registry-epoch
@@ -661,7 +661,7 @@
   (seed-items! [:a])
   (let [target (items-target)
         notes  (atom [])
-        _lease (obs/acquire! target (fn [n] (swap! notes conj n)))]
+        _handle (obs/acquire! target (fn [n] (swap! notes conj n)))]
     (reg-items!)                                   ;; the HMR re-registration
     (is (= 1 (count @notes)))
     (is (= :hmr (:cause (first @notes))))

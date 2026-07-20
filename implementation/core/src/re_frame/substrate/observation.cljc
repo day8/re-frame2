@@ -2040,7 +2040,7 @@
      :frame-incarnation :live}))
 
 (defn acquire!
-  "Commit-only: acquire ownership of `target`, returning a LEASE — the owner
+  "Commit-only: acquire ownership of `target`, returning a HANDLE — the owner
   token (identity equality, never `=`).
 
   For a `:subscription` target the canonical node is RE-RESOLVED by

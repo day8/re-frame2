@@ -309,7 +309,7 @@
 (def ^:private transparent-macro-fqns
   "Closed macro set whose arguments are host-independent expression slots,
   with no user-authored binders. Preserve their spelling while recursively
-  lowering explicit sub/lease calls."
+  lowering explicit sub/frame calls."
   (into #{}
         (mapcat (fn [s] [(symbol "clojure.core" (name s))
                          (symbol "cljs.core" (name s))]))
@@ -317,7 +317,7 @@
 
 (defn- deferred-expr-root?
   "Expression roots whose value is evaluated by a later host callback, not by
-  the view's render capture. `sub`/`lease` below these roots would be
+  the view's render capture. `sub`/`frame` below these roots would be
   phase-divergent between the JVM data host and React."
   [expr-root]
   (or (and (= :handler (first expr-root))
@@ -603,7 +603,7 @@
 
 (defn reject-reactive-binding!
   "Reject a reactive authoring escape reaching an EVALUATED destructuring
-  expression — an executable `(sub …)`/`(lease …)`/`(frame)` call OR a bare
+  expression — an executable `(sub …)`/`(frame)` call OR a bare
   reactive authoring var — anywhere in a binding pattern. Binding patterns are
   consumed by the host compiler, not expression rewriting, so such a position
   can never own a lexical render site: the manifest would under-declare and the
@@ -641,7 +641,7 @@
   [e verb form]
   (env/fail! e :rf.ui.compile/impure-slot-body
              (str "(" verb " …) inside a ui/render-fn slot body — a slot body is "
-                  "a PURE render fragment; sub / lease / frame (and dispatch / "
+                  "a PURE render fragment; sub / frame (and dispatch / "
                   "hooks) are not permitted. Read the value in the OWNING view and "
                   "pass its committed value into the slot's arguments; a stateful "
                   "part MOUNTS a defview that owns its own state")
@@ -650,7 +650,7 @@
 (defn rewrite-expr
   "Rewrite an opaque expression, lowering resolved unshadowed `(sub q)` calls
   to the serialized two-argument runtime shape and recording stable lexical
-  sub/lease ids. The returned form MUST be threaded into the AST.
+  sub ids. The returned form MUST be threaded into the AST.
 
   `expr-root` names the containing AST slot; recursive paths then distinguish
   every nested expression without a fragile global/preorder ordinal. Binding
@@ -747,7 +747,7 @@
              ;; grammar: every name is in scope for every initializer AND the
              ;; body (mutual recursion), and each initializer is a `fn*` whose
              ;; body is deferred — so routing an initializer through `rw`
-             ;; (→ `rw-fn`) makes a render-time `sub`/`lease` inside it illegal,
+             ;; (→ `rw-fn`) makes a render-time `sub`/`frame` inside it illegal,
              ;; while a visible `sub` in the OUTER body still lowers to a site.
              (let [bindings (second f)]
                (if-not (and (vector? bindings) (even? (count bindings)))
@@ -1102,7 +1102,7 @@
                                            (rest f)))))
 
                    ;; A DEFERRED callback body (fn / ui/event / raw-fn / event-arg)
-                   ;; hosts no render-time reactive site — sub/lease/frame are
+                   ;; hosts no render-time reactive site — sub/frame are
                    ;; already illegal here (rejected above) — so there is nothing
                    ;; for lexical site analysis to protect. Opaque host macros
                    ;; (`..`, `doto`, `case` in expression position, …) are
@@ -1163,9 +1163,9 @@
 
                ;; A BARE reactive authoring var reaching this leaf is a
                ;; value-flow escape. Every SOUND reactive site is consumed above
-               ;; as a direct call head (`(sub q)`/`(lease d)`/`(frame)` → an
+               ;; as a direct call head (`(sub q)`/`(frame)` → an
                ;; indexed runtime site) or rejected pre-expansion under a macro.
-               ;; A bare `sub`/`lease`/`frame` symbol here instead flows as a
+               ;; A bare `sub`/`frame` symbol here instead flows as a
                ;; VALUE — into a computed callee `((if p sub inc) q)`, a let
                ;; alias `(let [f sub] (f q))`, an argument, or a collection —
                ;; where the analyzer cannot own a lexical render site, so the
@@ -1193,7 +1193,7 @@
                  f)))]
      ;; A `ui/render-fn` slot body is a DEFERRED render: it executes inside a
      ;; DIFFERENT view (the library seam that invokes the slot), so every
-     ;; expression it walks is deferred — sub/lease/frame there would be
+     ;; expression it walks is deferred — sub/frame there would be
      ;; phase-divergent and owner-wrong, exactly as in a fn/ui-event callback.
      (rw form (cond-> #{}
                 (or (deferred-expr-root? expr-root) (:in-render-fn? e))
@@ -1426,7 +1426,7 @@
         ;; A ui/event handler is a SITE, like a literal vector: capturing a loop
         ;; binding needs per-row committed slots (its own bindings shadow, so they
         ;; are excluded from the capture check). Its body is a deferred callback,
-        ;; so render-time sub/lease/frame inside it are rejected by the fn walk.
+        ;; so render-time sub/frame inside it are rejected by the fn walk.
         (let [binders (set (env/binding-syms bindings))
               form*   (walk-expr e [:handler k :ui-event]
                                  (with-meta (apply list 'fn bindings body)
@@ -2029,8 +2029,8 @@
 ;; consumer call site (a component prop value, or an inline ui/slot argument),
 ;; so its body is COMPILED — the closed template grammar, no runtime hiccup.
 ;; The body is a DEFERRED render (the library seam invokes it later, in a
-;; different view), so `:in-render-fn?` seeds the deferred scope: sub/lease/
-;; frame reads and the dispatch/hook surface (event handlers, refs) inside are
+;; different view), so `:in-render-fn?` seeds the deferred scope: sub/frame
+;; reads and the dispatch/hook surface (event handlers, refs) inside are
 ;; didactic `impure-slot-body` errors. Statically-referenced internal view
 ;; heads REMAIN legal — a stateful part is a pure slot body mounting a static
 ;; defview that owns its own state (the wave-2 registered-`ui/view` coverage
@@ -2117,7 +2117,7 @@
     (let [identity (event-site-identity e k form)
           binders  (set (env/binding-syms bindings))
           ;; The body is a DEFERRED callback (the invoker calls it later), so the
-          ;; fn walk rejects render-time sub/lease/frame inside it. Its own
+          ;; fn walk rejects render-time sub/frame inside it. Its own
           ;; bindings shadow, so they are excluded from the loop-capture check.
           form*    (walk-expr e [:component-prop k kind]
                               (with-meta (apply list 'fn bindings body) (meta form)))]
@@ -2802,7 +2802,7 @@
                               config)
                         (meta config)))]
         ;; config values are opaque runtime expressions (evaluated at
-        ;; preflight) — walk them for sub/lease site indexing only
+        ;; preflight) — walk them for sub site indexing only
         {:op :frame-root
          :frame-id id
          :config config*
@@ -2861,7 +2861,7 @@
           target* (if (literal-scalar? target)
                     target
                     (walk-expr e [:frame-provider :frame] target))]
-      ;; the :frame target is a runtime expression — walk it for sub/lease
+      ;; the :frame target is a runtime expression — walk it for sub
       ;; site indexing (a sub in the target expression is still a site)
       {:op :frame-provider
        :frame target*
@@ -2939,7 +2939,7 @@
 (defn- analyze-effect-statement
   "Analyze one leading `(effect …)` statement -> the lowered runtime call form.
   `(effect [deps…] body…)` compares deps by rf= (value deps); `(effect :connect
-  body…)` runs at each connect. The body is a DEFERRED callback (sub/lease/frame
+  body…)` runs at each connect. The body is a DEFERRED callback (sub/frame
   inside are rejected); it is spliced before the template by `analyze-hooks-body`."
   [e index form]
   ;; The purity fence is TRANSITIVE: a render-fn slot body inherits the enclosing
@@ -2967,7 +2967,7 @@
                  (str "(effect [deps…] body…) / (effect :connect body…) needs a "
                       "body form after the deps")
                  {:form form}))
-    (letfn [(body-fn [] ; the deferred callback fn — the fn walk rejects sub/lease/frame
+    (letfn [(body-fn [] ; the deferred callback fn — the fn walk rejects sub/frame
               (walk-expr e [:effect index :body]
                          (with-meta (apply list 'fn [] body) (meta form))))]
       (cond
@@ -3121,7 +3121,7 @@
                    "for needs a binding pair before modifiers" {:form form}))
       ;; Rewrite in evaluation order. The first collection evaluates once per
       ;; view render; after its binding every later collection/modifier is
-      ;; row-scoped and therefore rejects sub/lease sites.
+      ;; row-scoped and therefore rejects sub sites.
       (let [[e-final rewritten]
             (loop [scope e
                    first-coll? true
@@ -3210,7 +3210,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn analyze-view-body
-  "Analyze a defview body remainder (after leading lease declarations): zero or
+  "Analyze a defview body remainder: zero or
   more leading `(effect …)` statements, then exactly ONE final template. The
   env must carry `:hooks-region? true` and `:self-id`. Returns the body AST
   (a `:hook-prefix` node when effect statements are present)."
@@ -3330,7 +3330,7 @@
 ;; A symbol head classifies by RESOLUTION at expansion time (the Q5 rule,
 ;; env/classify-head), but two reservations run in `analyze`'s dispatch
 ;; AHEAD of `env/classify-head`: the frame-boundary heads (frame-root /
-;; frame-provider) and the reactive-authoring verbs (sub / lease / frame,
+;; frame-provider) and the reactive-authoring verbs (sub / frame,
 ;; rf2-vxgfnd.266). Both key on Var resolution — so a head equal to the view
 ;; being `defview`d right now (`:self`) that ALSO resolves to a referred
 ;; public authoring Var (`(defview sub [] [sub …])` in a namespace that
@@ -3386,7 +3386,7 @@
         (self-head? e head) (analyze-component e form)
         (frame-root-head? e head) (analyze-frame-root e form)
         (frame-provider-head? e head) (analyze-frame-provider e form)
-        ;; Reserve sub/lease/frame BEFORE generic component classification
+        ;; Reserve sub/frame BEFORE generic component classification
         ;; (rf2-vxgfnd.266): a reactive authoring verb can never be
         ;; reclassified as a :foreign component with an empty manifest.
         (reactive-authoring-head-kind e head)

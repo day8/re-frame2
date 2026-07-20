@@ -156,9 +156,8 @@ function assertNoProductionSentinels(blob) {
 // The compiled-view substrate declares NO dependency on the optional Resources
 // artefact (day8/re-frame2-resources): production `re-frame.ui` never pulls its
 // runtime onto the classpath, so its internal sentinel never reaches an advanced
-// UI bundle. (Before the view-lifetime lease removal this rode the "lease-free"
-// companion; the lease was the only UI→Resources bridge, so with it gone the
-// boundary is proved directly, independent of any lease surface.)
+// UI bundle. The boundary is proved directly here: production `re-frame.ui`
+// carries no bridge into the Resources runtime at all.
 function assertResourcesDependencyBoundary(blob, uiDepsOverride = null) {
   const resourcesSource = fs.readFileSync(
     path.join(IMPL, 'resources', 'src', 're_frame', 'resources.cljc'), 'utf8');

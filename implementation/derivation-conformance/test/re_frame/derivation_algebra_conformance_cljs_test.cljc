@@ -993,7 +993,7 @@
               "owner A is absent from EVERY composed graph edge's :owner")
           (is (empty? param-edges-b)
               "no realized route-owned :param edge survives — route B owns no resource, and route A's activation edge is released"))
-        (testing "release is a LEASE release, NOT GC deletion — the entry may
+        (testing "release is an owner release, NOT GC deletion — the entry may
                   legitimately remain cached but owner-free (the runtime seam agrees)"
           (is (not (contains? (:active-owners entry-b) owner-a))
               "the runtime entry no longer lists owner A among its :active-owners"))))))
