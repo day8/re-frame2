@@ -12,6 +12,11 @@
    example, while this one shows where a larger app draws its own payload
    boundary — which is to say, what it's willing to send down the wire."
   (:require [re-frame.core :as rf]
+            ;; The SSR artefact owns the hydration pattern-protocol version as a
+            ;; compiled-in constant; the payload sources `:rf/version` from it
+            ;; rather than pinning a literal, so a future bump reaches every
+            ;; producer for free.
+            [re-frame.ssr.payload-policy :as payload-policy]
             #?(:cljs [cljs.reader :as reader])))
 
 (def ssr-app-slice-keys
@@ -61,7 +66,7 @@
   (`{:rf.db/app … :rf.db/runtime …}`, e.g. `(rf/frame-state-value frame-id)`).
   This is what the server embeds and the client reads back."
   [{:rf.db/keys [app runtime]} render-tree]
-  {:rf/version     1
+  {:rf/version     payload-policy/pattern-protocol-version  ;; the SSR-owned constant, not a literal
    :rf/app-db      (exportable-app-db app)
    :rf/runtime-db  (exportable-runtime-db runtime)
    :rf/render-hash (rf/render-tree-hash render-tree)})

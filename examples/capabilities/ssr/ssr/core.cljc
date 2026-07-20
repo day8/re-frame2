@@ -74,6 +74,11 @@
             ;; inside EDN string literals — so the payload still reads back
             ;; byte-for-byte on the client.
             #?(:clj [re-frame.ssr.html-helpers :as html])
+            ;; Server-side only: the SSR artefact owns the hydration
+            ;; pattern-protocol version as a compiled-in constant. The payload
+            ;; sources `:rf/version` from it rather than pinning a literal, so a
+            ;; future bump flows through without editing every producer.
+            #?(:clj [re-frame.ssr.payload-policy :as payload-policy])
             #?(:cljs [reagent.dom.client :as rdc])
             #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])
             ;; The client mount step — the payload-vs-client-only React-root
@@ -320,7 +325,7 @@
                  ;; both use. A deployment that *does* want to carry one stamps
                  ;; a stable id both sides agree on ahead of time — never a
                  ;; per-request gensym.
-                 payload  {:rf/version     1
+                 payload  {:rf/version     payload-policy/pattern-protocol-version  ;; the SSR-owned constant, not a literal
                            :rf/app-db      final-db        ;; app-db partition
                            :rf/runtime-db  final-runtime   ;; serializable runtime-db projection
                            :rf/render-hash render-hash}]

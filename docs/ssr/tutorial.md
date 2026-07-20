@@ -142,11 +142,12 @@ The HTML alone isn't enough. When the browser's JavaScript boots, it needs the *
 
 ```clojure
 ;; cf. examples/capabilities/ssr/ssr/core.cljc — the render + payload half
-;; (one new require: #?(:clj [re-frame.ssr.html-helpers :as html]) — the escaper)
+;; (two new requires: #?(:clj [re-frame.ssr.html-helpers :as html]) — the escaper —
+;;  and #?(:clj [re-frame.ssr.payload-policy :as payload-policy]) for the version constant)
 (rf/with-frame fid
   (let [hiccup  ((rf/view :app/root))
         page    (ssr/render-to-string hiccup {:emit-hash? true})
-        payload {:rf/version     1
+        payload {:rf/version     payload-policy/pattern-protocol-version  ;; the SSR-owned constant, not a hand-pinned literal
                  :rf/app-db      (rf/app-db-value fid)       ;; your state
                  :rf/runtime-db  (:rf.db/runtime (rf/frame-state-value fid))   ;; the framework's (route, machines)
                  :rf/render-hash (ssr/render-tree-hash hiccup)}]  ;; Step 5's tripwire

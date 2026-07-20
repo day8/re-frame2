@@ -30,7 +30,9 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
-            [re-frame.ssr.payload-policy :as payload-policy]))
+            [re-frame.ssr.payload-policy :as payload-policy]
+            #?(:clj  [re-frame.test-support :refer [with-trace-recorder!]]
+               :cljs [re-frame.test-support :refer-macros [with-trace-recorder!]])))
 
 (def sample-app-db
   ;; Plain app-db keys only — framework durable state lives in the
@@ -463,11 +465,28 @@
     (is (= 7 (:rf/version
                (payload-policy/build-payload :rf/default {} "h" {:version "7"})))))
 
-  (testing "a SEMVER-string :version is rejected → falls back to the v1 = 1 default"
-    (let [v (:rf/version
-              (payload-policy/build-payload :rf/default {} "h" {:version "1.0.0"}))]
-      (is (= 1 v) "non-integer semver string is rejected, not shipped")
-      (is (int? v))))
+  (testing "a SEMVER-string :version is rejected → falls back to the v1 = 1 default,
+            emitting exactly one :rf.ssr/invalid-version warning (rf2-latm0)"
+    (with-trace-recorder! [traces]
+      (let [v (:rf/version
+                (payload-policy/build-payload :rf/default {} "h" {:version "1.0.0"}))]
+        (is (= 1 v) "non-integer semver string is rejected, not shipped")
+        (is (int? v))
+        ;; The rejection is not silent: coerce-version emits a
+        ;; :rf.ssr/invalid-version warning carrying the rejected source value and
+        ;; a top-level :recovery :rejected-and-fell-back, so a stray non-integer
+        ;; :version surfaces in dev/CI rather than defaulting quietly.
+        (let [hits (filterv #(= :rf.ssr/invalid-version (:operation %)) @traces)]
+          (is (= 1 (count hits))
+              (str "expected exactly one :rf.ssr/invalid-version trace; saw: "
+                   (pr-str (mapv :operation @traces))))
+          (when (seq hits)
+            (let [ev (first hits)]
+              (is (= :warning (:op-type ev)))
+              (is (= "1.0.0" (-> ev :tags :value))
+                  "the rejected source value rides the trace")
+              (is (= :rejected-and-fell-back (:recovery ev))
+                  ":recovery rides at top-level per Spec 009")))))))
 
   (testing "no :version → the SSR-owned pattern-protocol constant (v1 = 1)"
     ;; rf2-qfb1i: the late-bind version hook was removed — with no explicit
