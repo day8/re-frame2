@@ -213,7 +213,7 @@
 
 (defn explain-render
   "Why did view `view-id`'s live incarnations render? Each occurrence projects the
-  bounded render CAUSES (the `:value`/`:hmr`/`:disposed` cause set), the occurrence
+  bounded render CAUSES (the `:subscription`/`:hmr`/`:disposed` cause set), the occurrence
   and batch counters, the first/latest movement epochs, the moving observation
   targets, and EXPLICIT loss accounting (`:dropped` with an `:exact?` flag — a
   count is a completeness claim only when exact). With no arg, every retained

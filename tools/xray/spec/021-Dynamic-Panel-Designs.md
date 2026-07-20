@@ -775,9 +775,10 @@ six shipped causes — `:mount` / `:subscription` / `:story-override` / `:local-
 producer emits neither, so Xray does NOT fabricate one — absent evidence is tolerated
 explicitly (each renders only when its named trigger lands a framework emit). The
 MOUNTED VIEW EVIDENCE section above reads the CUMULATIVE `explain-render` window,
-whose cause union stays `#{:value :hmr :disposed}` (the per-commit vector is a
-separate raw reader Xray does not yet consume; the `:value`→`:subscription` port
-rename is a tracked follow-up). Likewise a legacy `reg-view` adapter host (no compiled
+whose cause union is `#{:subscription :hmr :disposed}` — unified port-wide with the
+observation port and the per-commit record vocabulary (rf2-ao46i, RULING 2). The
+per-commit `:rf.view/causes` vector is a separate raw reader Xray does not yet
+consume. Likewise a legacy `reg-view` adapter host (no compiled
 manifests / no ViewCell substrate) renders exactly today's zero-row state.
 
 **Ownership + span receipt (rf2-vxgfnd.286).** The stable id
@@ -837,7 +838,7 @@ order, projected from `re-frame.ui.tool/explain-render` (rf2-vxgfnd.95.7) —
      :connection :connected|:disconnected
      :lifecycle {:intervals [{:state _ :reason _ :proof _} …] :dropped n :exact? b}
      :first-epoch e0 :latest-epoch eN :count n :batches b
-     :causes #{:value :hmr :disposed}
+     :causes #{:subscription :hmr :disposed}
      :targets [tk …] :targets-exact? bool
      :dropped-count d :dropped-exact? bool}
 

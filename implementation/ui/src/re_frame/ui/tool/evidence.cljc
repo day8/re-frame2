@@ -299,7 +299,7 @@
     :latest-epoch   — the most recent window's latest movement
     :count          — total invalidation OCCURRENCES across every batch
     :batches        — how many flushed batches delivered evidence
-    :causes         — the union cause set (:value/:hmr/:disposed — ≤3)
+    :causes         — the union cause set (:subscription/:hmr/:disposed — ≤3)
     :targets        — bounded non-owning EDN sample of moving targets
     :targets-exact? — false when a target needed an opaque/bounded marker
     :dropped        — bounded loss SET of distinct omitted targets; its

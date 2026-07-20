@@ -154,8 +154,8 @@ S3 view evidence is a dev/test-only projection with **no production egress**
 props schema, per-prop docs/defaults, declared render-slot sites, interop sites,
 capability cost, and site counts — the one projection Story, docs, Xray, and
 agents consume. Sibling projections: `mounted-views`, `explain-render` (the
-`:value`/`:hmr`/`:disposed` render-cause set), `view-dependencies`. The certified S3
-cumulative cause union is exactly `#{:value :hmr :disposed}`; host-state writers
+`:subscription`/`:hmr`/`:disposed` render-cause set), `view-dependencies`. The certified S3
+cumulative cause union is exactly `#{:subscription :hmr :disposed}`; host-state writers
 (`local`) are proven through G-15's writer-composition and render-count evidence,
 **not** a cumulative-set `:local-state` cause row. A `:local-state` render cause DID
 ship at S6 (`rf2-vxgfnd.98.1`) — as one kind in the per-commit `:rf.view/causes`

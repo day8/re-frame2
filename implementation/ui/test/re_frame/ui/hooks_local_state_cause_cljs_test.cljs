@@ -49,7 +49,7 @@
 (def ^:private enrol-dirty! @#'reactive/enrol-dirty!)
 
 (defn- fan-value! [cell query]
-  (enrol-dirty! cell {:cause :value
+  (enrol-dirty! cell {:cause :subscription
                       :target {:kind :subscription :frame-id fid :query query}
                       :node-key 7 :node-version 3 :frame-epoch 1})
   (reactive/flush-pending!))

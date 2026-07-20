@@ -59,7 +59,7 @@ of the schema this EP specifies.
 **Shipped:** the five `re-frame.ui.tool` projections; occurrence-shaped
 instance records (`:occurrence` ordinal + `:view-id` + `:root-id` +
 `:connection` + `:lifecycle` intervals + bounded render evidence) with explicit
-loss accounting; and a bounded render-cause **set** — `#{:value :hmr
+loss accounting; and a bounded render-cause **set** — `#{:subscription :hmr
 :disposed}`. Host-state writers (`local`) are proven through G-15's writer
 composition and render count, not a `:local-state` cause row — that render
 cause is specified for S6, not shipped at S3.
@@ -163,13 +163,13 @@ exactly as `tools/xray/spec/021` §3.4.1 does; nothing is emitted for these):
   using only the view-global remount counter; honest per-instance attribution needs
   a teardown→remount pairing signal (cross-surface + a fiddly closing rule).
 
-**Schema version + vocabulary residue.** The record + roster ship under
+**Schema version + vocabulary.** The record + roster ship under
 `re-frame.ui.tool/schema-version` **3** (bumped from 2 in this same change; Xray,
 Story, and Pair move in lockstep so none degrades to `[]`). The `:value`→
-`:subscription` rename lands on the per-commit record surface only; the observation
-**port keyword** and Xray's **cumulative** `explain-render` window keep the
-`#{:value :hmr :disposed}` vocabulary — the port-wide vocabulary unification is a
-separate cross-substrate move (a tracked follow-up), not part of this bump.
+`:subscription` rename first landed on the per-commit record surface; the port-wide
+unification (rf2-ao46i, RULING 2) then carried it to the observation **port keyword**
+and Xray's **cumulative** `explain-render` window, so the whole substrate now speaks
+the one `#{:subscription :hmr :disposed}` vocabulary — no two-vocabulary residue.
 
 ### Two evidence layers
 

@@ -197,7 +197,7 @@
                      reaction          (node-reaction)
                      [nan-hits nan-rm] (install-nan-sentinel! reaction)
                      ;; An INDEPENDENT probe handle on the SAME node: its
-                     ;; `on-change` is the `{:cause :value}` note channel that
+                     ;; `on-change` is the `{:cause :subscription}` note channel that
                      ;; the mounted cell's own (cell-dirtying) `on-change`
                      ;; cannot surface. Same port, same node, same notify sweep
                      ;; — the standard public `acquire!`, not a test bridge.
@@ -235,7 +235,7 @@
                            "the Reagent host watch FIRED for NaN→NaN — make-watch-handler
                             genuinely ran, so the green assertions below are non-vacuous")
                        (is (empty? @notes)
-                           "ZERO {:cause :value} notes — node-value= suppressed the fan-out
+                           "ZERO {:cause :subscription} notes — node-value= suppressed the fan-out
                             (a raw not= at the seam would fan a phantom movement)")
                        (is (= ver0 (:version (obs/read probe)))
                            "node version UNMOVED — NaN=NaN under the movement law")
@@ -253,8 +253,8 @@
                    (fn []
                      (testing "positive control — a REAL move moves all four EXACTLY once"
                        (is (= 1 (count @notes))
-                           "exactly one {:cause :value} note for the real movement")
-                       (is (= :value (:cause (first @notes))))
+                           "exactly one {:cause :subscription} note for the real movement")
+                       (is (= :subscription (:cause (first @notes))))
                        (is (= (inc ver0) (:version (obs/read probe)))
                            "the real move advanced the node version EXACTLY once")
                        (is (= (inc rev0) (reactive/revision cell))

@@ -77,7 +77,7 @@
   {:first-epoch 1
    :latest-epoch 1
    :count 1
-   :causes #{:value}
+   :causes #{:subscription}
    :targets []
    :dropped #{}
    :dropped-exact? true})
@@ -562,7 +562,7 @@
    :latest-epoch   2
    :count          3
    :batches        1
-   :causes         #{:value}
+   :causes         #{:subscription}
    :targets        (vec targets)
    :targets-exact? true
    :dropped        (set dropped)
@@ -623,7 +623,7 @@
         (is (= 1 (:batches ev)))
         (is (= 1 (:first-epoch ev)))
         (is (= 2 (:latest-epoch ev)))
-        (is (= #{:value} (:causes ev))))
+        (is (= #{:subscription} (:causes ev))))
       (is (= bounded-evidence-keys
              (set (keys (:evidence (entry-for ::legacy-direct)))))
           "migration adds no keys"))

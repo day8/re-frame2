@@ -1875,7 +1875,7 @@
   advancement — the core-local `node-value=` `rf=` spelling, NOT raw `not=`
   (rf2-vxgfnd.185). A watchable host notifies its watches on EVERY write,
   value-blind, so a NaN→NaN recompute fires this callback with `prev`/`nu`
-  both NaN; raw `not=` treats NaN≠NaN and would fan a `:cause :value`
+  both NaN; raw `not=` treats NaN≠NaN and would fan a `:cause :subscription`
   notification for NO value movement, while `advance-node-record!` (also
   `node-value=`) leaves the version unchanged — a value-movement notification
   without value movement that dirties a downstream ViewCell against a stable
@@ -1892,7 +1892,7 @@
                 last' {:value nu :version (:version rec) :node-key (:node-key rec)}]
             (swap! state assoc :last last')
             (fan-out! (:on-change st)
-                      {:cause          :value
+                      {:cause          :subscription
                        :target         (:target st)
                        :node-key       (:node-key rec)
                        :node-version   (:version rec)
@@ -2063,7 +2063,7 @@
   evidence comparison's job, invariant 5).
 
   `on-change` MUST be constant-work (mark-dirty with the payload
-  `{:cause :value|:hmr|:disposed :target … :node-key … :node-version …
+  `{:cause :subscription|:hmr|:disposed :target … :node-key … :node-version …
   :frame-epoch … :registry-epoch …}`; it never computes — I-5).
 
   For a `:story-override` target returns the STATIC handle: `:owned? false`

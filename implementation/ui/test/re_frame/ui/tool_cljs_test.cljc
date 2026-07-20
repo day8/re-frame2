@@ -326,7 +326,7 @@
         sink (evidence/installed-sink)]
     ;; drive real evidence: 8 shown + 2 dropped distinct targets in one window
     (doseq [i (range 10)]
-      (sink cell {:first-epoch 1 :latest-epoch 1 :count 1 :causes #{:value}
+      (sink cell {:first-epoch 1 :latest-epoch 1 :count 1 :causes #{:subscription}
                   :targets [[:sub :rf/default [:demo/q i]]]
                   :dropped #{} :dropped-exact? true}))
     (let [res (tool/explain-render :demo/why)
@@ -334,7 +334,7 @@
       (is (= tool/schema-version (:rf.ui.tool/version res)))
       (is (= :demo/why (:view-id res)))
       (is (= 1 (count (:occurrences res))))
-      (is (= #{:value} (:causes occ)) "the projected render cause")
+      (is (= #{:subscription} (:causes occ)) "the projected render cause")
       (is (= 10 (:render-count occ)) "every occurrence counted")
       (is (= 8 (count (:targets (:observations occ)))) "shown sample capped at 8")
       (is (true? (:identity-exact? (:observations occ)))
