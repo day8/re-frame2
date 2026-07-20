@@ -371,20 +371,46 @@
 
 (defn- mark-host-root-annotation
   "Stamp the view-evidence DOM-annotation marker onto the view's effective host
-  root — the DOM `:element` the compiler owns at the top of the render. The
+  root(s) — the DOM `:element`(s) the compiler owns at the top of the render. The
   UNCONDITIONAL wrappers (`:hook-prefix` effect prefix, an authored `:let` /
   `:letfn`) are transparent — the marker rides through to the element they wrap.
-  A non-element effective root (a fragment, another view/foreign component, or a
-  conditional / loop) is NOT a single compiler-owned host node, so it carries no
-  annotation — the same host-root exemption the CLJS emit and the adapter
-  source-coord walk apply to a non-DOM root. `emit-element` reads the marker off
-  the plain element and merges the annotation into its `:static` attrs behind the
-  `interop/debug-enabled?` gate (see `static-form`). The JVM twin of
-  `re-frame.ui.compiler.emit-cljs/mark-host-root-annotation`."
+
+  A COMMON CONDITIONAL root is narrowly DESCENDED so its concrete DOM arms are
+  tagged: `if` / `if-not` / `when` / `when-not` / `cond` (each an `:if`), `case`
+  (its clauses + default), and the if-let family (`if-let` / `when-let` /
+  `if-some` / `when-some`, which desugar to `:let` over `:if`). So a view rooted
+  at `(if loading? [:spinner] [:page])` tags whichever arm renders. Spec 006
+  exempts only the render that yields nil; a later concrete DOM output must be
+  tagged. The recursion RETAINS the per-branch host-root exemptions: a branch
+  that is nil (`:nothing`, e.g. a one-arm `when`'s absent else), a fragment,
+  another view/foreign component, or a loop (`:for`) is NOT a single
+  compiler-owned host node and carries no annotation — the same exemption the
+  CLJS emit and the adapter source-coord walk apply to a non-DOM root.
+
+  `emit-element` reads the marker off the plain element and merges the annotation
+  into its `:static` attrs behind the `interop/debug-enabled?` gate (see
+  `static-form`). The JVM twin of
+  `re-frame.ui.compiler.emit-cljs/mark-host-root-annotation`, kept BYTE-IDENTICAL:
+  a prop/attribute annotation is inherently cross-emitter, so the two walks MUST
+  descend the same forms or a conditional-rooted view diverges under the
+  JVM<->CLJS parity gate and SSR/client hydration."
   [ast annotate]
   (case (:op ast)
     :element (assoc ast :rf.ui/annotate annotate)
     (:hook-prefix :let :letfn) (update ast :body mark-host-root-annotation annotate)
+    :if   (-> ast
+              (update :then mark-host-root-annotation annotate)
+              (update :else mark-host-root-annotation annotate))
+    :case (-> ast
+              (update :clauses
+                      (fn [clauses]
+                        (mapv (fn [[test branch]]
+                                [test (mark-host-root-annotation branch annotate)])
+                              clauses)))
+              (update :default
+                      (fn [d]
+                        (if (= ::ana/none d) d
+                            (mark-host-root-annotation d annotate)))))
     ast))
 
 (defn emit-defview

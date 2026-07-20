@@ -36,6 +36,17 @@
             (nth x 3 nil)))
         (forms-of form)))
 
+(defn- stamp-count
+  "How many `(cljs.core/unchecked-set _ attr _)` stamps `form` carries for `attr`
+  — one per annotated host element (a conditional root stamps one per concrete
+  DOM arm)."
+  [form attr]
+  (count (filter (fn [x]
+                   (and (seq? x)
+                        (= 'cljs.core/unchecked-set (first x))
+                        (= attr (nth x 2 nil))))
+                 (forms-of form))))
+
 (defn- annotation-gate
   "The `(when <gate> …)` form wrapping the source-coord stamp, or nil. Matches the
   `when` by NAME — the emitter's syntax-quote resolves it against the host core
@@ -84,17 +95,45 @@
       (is (= "app.wrap:boxed:9:2" (data-attr-set form "data-rf2-source-coord")))
       (is (= ":app.wrap/boxed" (data-attr-set form "data-rf-view"))))))
 
-(deftest non-element-roots-carry-no-annotation
-  (testing "a conditional root is not a single compiler-owned host node"
+(deftest common-conditional-roots-annotate-each-concrete-dom-arm
+  ;; rf2-hac8p audit obligation #1: the walk descends common conditional roots so
+  ;; whichever arm renders is tagged (Spec 006 exempts only the render that yields
+  ;; nil). Every branch carries the SAME view identity — the annotation is the
+  ;; view's, not the branch's.
+  (testing "an (if …) root stamps BOTH element arms"
     (let [form (cljs-emit 'app.cond 'branchy '(if x [:a] [:b]) 3 4)]
-      (is (nil? (annotation-gate form)))
-      (is (not (str/includes? (pr-str form) "data-rf2-source-coord"))
-          "no host-root annotation on a non-element effective root")
-      (is (not (str/includes? (pr-str form) "data-rf-view")))))
+      (is (some? (annotation-gate form)))
+      (is (= 2 (stamp-count form "data-rf2-source-coord"))
+          "both arms of the conditional host root carry the source coord")
+      (is (= 2 (stamp-count form "data-rf-view")))
+      (is (= "app.cond:branchy:3:4" (data-attr-set form "data-rf2-source-coord")))
+      (is (= ":app.cond/branchy" (data-attr-set form "data-rf-view")))))
+  (testing "a one-arm (when …) tags the concrete arm; the absent nil arm is exempt"
+    (let [form (cljs-emit 'app.cond 'maybe '(when x [:p "y"]) 5 1)]
+      (is (= 1 (stamp-count form "data-rf-view"))
+          "the element arm is tagged; the implicit nil else carries none")))
+  (testing "a (cond …) — nested (if …) — tags every reachable element arm"
+    (let [form (cljs-emit 'app.cond 'picker
+                          '(cond (= k :a) [:a "A"] (= k :b) [:b "B"] :else [:c "C"]) 2 2)]
+      (is (= 3 (stamp-count form "data-rf-view")))))
+  (testing "a (case …) tags every clause branch AND the default"
+    (let [form (cljs-emit 'app.cond 'chooser '(case k :a [:a] :b [:b] [:c]) 6 3)]
+      (is (= 3 (stamp-count form "data-rf-view"))
+          "two clause branches + the default, each a concrete host element")))
+  (testing "the if-let family (let over if) descends to both arms"
+    (let [form (cljs-emit 'app.cond 'bound '(if-let [v x] [:a v] [:b]) 7 3)]
+      (is (= 2 (stamp-count form "data-rf-view"))))))
+
+(deftest non-host-roots-carry-no-annotation
   (testing "a fragment root is exempt (no positional host node)"
     (let [form (cljs-emit 'app.frag 'grouped '[:<> [:p] [:p]] 1 1)]
       (is (nil? (annotation-gate form)))
-      (is (not (str/includes? (pr-str form) "data-rf2-source-coord"))))))
+      (is (zero? (stamp-count form "data-rf2-source-coord")))))
+  (testing "per-branch exemption survives the conditional descent: an element arm
+            is tagged, a fragment arm is not"
+    (let [form (cljs-emit 'app.mix 'mixed '(if x [:<> [:p] [:p]] [:div "d"]) 4 4)]
+      (is (= 1 (stamp-count form "data-rf-view"))
+          "only the [:div] element arm is tagged; the fragment arm carries none"))))
 
 (deftest render-key-is-not-stamped-on-the-dom-at-render-time
   ;; render-key is minted at connected commit (reactive/commit*), AFTER this
