@@ -213,8 +213,8 @@ a permissive alternative, and those refusals are half an EP's value.
 ## Backwards Compatibility
 
 Pre-alpha; no shims. `local`'s two-tuple destructuring sites migrate to the
-three-tuple (the migration skill's `swap!` rewrite retargets to `update!`,
-retiring its MANUAL flag on multi-writer idioms). The sync-door widening is
+three-tuple (the migration skill's `swap!` rewrite retargets to `update!` for
+multi-writer idioms). The sync-door widening is
 strictly additive at proven-controlled sites — no narrower door was ever
 shipped law — and the v1 API freeze is not
 reopened: deltas #4/#5 entered under the freeze's own delta protocol.

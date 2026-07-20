@@ -181,9 +181,11 @@ platform-scale features — the rule that keeps resumability research-tier.
 
 The library alone is not the program. Fifteen workstreams decompose everything
 beyond it: the Reagent→`re-frame.ui` migration skill (W1 — an AI skill,
-`skills/reagent-migration`, not a codemod tool), its sibling migration +
-authoring skills (W2/W6), the
-docs/guide rewrite (W3), examples gaining `re-frame.ui` variants while
+`skills/reagent-migration`, not a codemod tool; the former W2 sibling migration
+skill is absorbed into this single skill), the authoring skills (W6), the
+additive `docs/core/re-frame.ui` guide (W3 — its wholesale docs rewrite
+superseded by the shipped additive guide, later growth demand-driven), examples
+gaining `re-frame.ui` variants while
 `substrates/` is **retained** minus its Helix arm (W4), the hot-zone spec-tree
 waves (W5), tool evidence consumption into Xray/Story/Pair (W7a, S3 — debugging
 is the *first* consumer, not the last), the tools' own UIs migrating as the
@@ -210,9 +212,9 @@ The external story is a **two-step migration**. Step 1 moves a v1 Reagent/re-com
 app's *dataflow* to re-frame2 with views unchanged on the coexisting Reagent
 adapter — gaining Xray, epochs, Story, schemas, and machines immediately. Step 2
 optionally migrates views to `ui` per subtree, on the app's schedule, with the
-migration skill — its rule table carries the mechanical rewrites and flags the
-judgment-tier call sites for review rather than guessing. re-com widgets are
-the last movers; their
+migration skill — it applies the M-tier mechanical rewrites and reasons through
+the D-tier judgment cases with the author rather than guessing. re-com widgets
+are the last movers; their
 `ui`-native answer is a directed program of its own, with substrate readiness
 delivered at S3 per EP-0035.
 
@@ -226,8 +228,9 @@ retained under the tree's `reviews/` directory as durable evidence. The tree
 itself is removed at S7, once every cited contract has its spec home and no live
 brief dangles. Until then: `drafts/*` survive until their owning stage consumes
 them (spec merges under the atomic-landing rule, or the W1/W3/W7a/W9/W11
-workstreams for the skill/docs/CI-facing drafts); `guide/` moves to `docs/guide`
-at S6 (W3); `skill/` moves to `skills/` at S6 (W6); `spikes/` and `reviews/`
+workstreams for the skill/docs/CI-facing drafts); `guide/` is overtaken by the
+shipped additive `docs/core/re-frame.ui` guide (W3), not relocated; `skill/`
+moves to `skills/` at S6 (W6); `spikes/` and `reviews/`
 remain historical evidence referenced from this EP family.
 
 ### Risks
@@ -356,8 +359,9 @@ baseline is a recorded comparison, not a standing gate.
 - **Migration ships as an AI skill (2026-07-20).** W1 is the
   Reagent→`re-frame.ui` migration skill (`skills/reagent-migration`), not a
   codemod tool; the skill's rule table and fixture corpus carry the mechanical
-  tier and flag the judgment tiers for review. W2 lands as a sibling skill of
-  the existing v1 migration skill rather than an extension of it.
+  tier and reason through the judgment tiers with the author. W1 absorbed the
+  former W2 into this single sibling skill of the existing v1 migration skill
+  rather than shipping a second one.
 
 ## Open Issues
 
