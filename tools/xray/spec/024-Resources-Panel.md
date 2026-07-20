@@ -411,9 +411,9 @@ stacked sections:
    read off each row's raw `:scoped-key`, NOT the truncated/redacted display
    previews, so long-or-colliding params and distinct redacted scopes
    cannot false-trip or be missed; the surfaced output is summarized for
-   privacy), and the **orphaned-owner lint** (an app-minted `[:lease …]` owner
-   pinning an entry with no observed release; route / machine / ssr
-   owners are framework-released and not linted).
+   privacy), and the **orphaned-owner lint** (an app-minted `[:dashboard/opened …]`
+   (or other app-kind) owner pinning an entry with no observed release; route /
+   machine / ssr owners are framework-released and not linted).
 
 When the host has **no resources registered AND no live instances**, the
 panel renders the silent-by-default caption.
@@ -438,7 +438,7 @@ against [Spec 009 §Where trace emission lives](../../../spec/009-Instrumentatio
 |---|---|---|
 | `:rf.resource/registered` | lifecycle | `registry.cljc` (first-time `reg-resource`) |
 | `:rf.resource/scope-resolved` | lifecycle | `scope_registry.cljc` (a named `reg-resource-scope` resolver resolved a `{:from-db …}` reference — EP-0016 D3; carries the resolver id, declared input names + values, whole-db flag, the resolved scope, and `:resolved-nil?`) |
-| `:rf.resource/owner-attached` | lifecycle | `events.cljc` (ensure — a new lease lands) |
+| `:rf.resource/owner-attached` | lifecycle | `events.cljc` (ensure — a new owner lands) |
 | `:rf.resource/cache-hit` | dedupe | `events.cljc` (ensure — fresh-skip cache serve) |
 | `:rf.resource/deduped` | dedupe | `events.cljc` (ensure — join in-flight work) |
 | `:rf.resource/work-started` | lifecycle | `events.cljc` (work-LEDGER row created — the transport request started; carries `:status :running` + `:superseded`) |
@@ -456,7 +456,7 @@ against [Spec 009 §Where trace emission lives](../../../spec/009-Instrumentatio
 | `:rf.resource/refetch-decision` | lifecycle | `events.cljc` (per-entry refetch decision) |
 | `:rf.resource/revalidate-scan` | lifecycle | `events.cljc` (focus/reconnect scan summary) |
 | `:rf.resource/route-plan` | lifecycle | `route.cljc` (route-entry resource planning) |
-| `:rf.resource/owner-released` | lifecycle | `events.cljc` + `ssr.cljc` (lease released) |
+| `:rf.resource/owner-released` | lifecycle | `events.cljc` + `ssr.cljc` (owner released) |
 | `:rf.resource/stale-scheduled` | gc | `timers.cljc` (stale timer armed) |
 | `:rf.resource/stale-fired` | gc | `events.cljc` (stale timer fired) |
 | `:rf.resource/gc-scheduled` | gc | `timers.cljc` (GC timer armed) |

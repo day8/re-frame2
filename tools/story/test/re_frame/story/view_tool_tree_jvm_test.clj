@@ -11,7 +11,7 @@
       visibility, no DOM, no live root;
     - a `:sub-overrides` pin flows THROUGH the render into the tree (Story
       observes a pinned value) while `view-evidence` labels that override
-      `:owned? false` — Story never owns the reactive lease core lowered to a
+      `:owned? false` — Story never owns the reactive handle core lowered to a
       static `:story-override` target;
     - `view-evidence` reads the REAL emitted manifest (`:compiled-view? true`),
       and tolerates an uncompiled view (`:compiled-view? false`).
@@ -88,7 +88,7 @@
     (testing "Story surfaces that override as NON-OWNING (:owned? false)"
       (let [ev (view-tool/view-evidence greeting-id {[:greeting/text] "pinned"})]
         (is (false? (:owned? (:observation ev)))
-            "Story observes; core owns the static :story-override lease")
+            "Story observes; core owns the static :story-override handle")
         (is (= [:greeting/text] (:query (first (:overrides (:observation ev))))))
         (is (= "pinned" (:value (first (:overrides (:observation ev))))))))
     (rf/destroy-frame! f)))

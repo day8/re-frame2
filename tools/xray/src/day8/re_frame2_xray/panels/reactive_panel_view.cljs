@@ -765,22 +765,19 @@
 ;; Event-site provenance + dependency sites, read from the versioned public
 ;; `view-manifest`/`view-dependencies`/`view-event-sites` projections for the
 ;; compiled views present in the evidence. Honest about what it cannot know:
-;; a `:dynamic` sub/lease query or an opaque handler is labelled so — the tier
+;; a `:dynamic` sub query or an opaque handler is labelled so — the tier
 ;; never claims a raw callback's internals are inspectable.
 
 (defn- dependencies-summary
-  "One-line dependency summary — sub + lease counts with a `:dynamic` tally
+  "One-line dependency summary — subscription count with a `:dynamic` tally
   (query shapes that carry a captured local, projected honestly). nil when a
   view declares no dependency sites."
-  [{:keys [subscriptions leases]}]
+  [{:keys [subscriptions]}]
   (let [subs-n   (count subscriptions)
-        leases-n (count leases)
         dyn-subs (count (filter :dynamic? subscriptions))]
-    (when (or (pos? subs-n) (pos? leases-n))
+    (when (pos? subs-n)
       (str subs-n " sub" (when (not= 1 subs-n) "s")
-           (when (pos? dyn-subs) (str " (" dyn-subs " dynamic)"))
-           (when (pos? leases-n)
-             (str " · " leases-n " lease" (when (not= 1 leases-n) "s")))))))
+           (when (pos? dyn-subs) (str " (" dyn-subs " dynamic)"))))))
 
 (defn- event-site-label
   "Human label for one event-handler site — `:on-click · literal ·
@@ -870,7 +867,7 @@
                [view-site-row v]))
        [:p {:data-testid "rf-xray-reactive-view-sites-caption"
             :style destroyed-caption-style}
-        "Declared subscription/lease + event-handler sites from the compiler
+        "Declared subscription + event-handler sites from the compiler
          manifest (before-mount evidence; :dynamic queries + opaque handlers
          labelled, never fabricated)"]])))
 

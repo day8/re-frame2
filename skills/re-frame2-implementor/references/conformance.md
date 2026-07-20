@@ -102,7 +102,7 @@ From [`spec/conformance/README.md` §Capability tagging](https://day8.github.io/
                   known-skips the broad capability
 :resources/*      Resources reads (EP 016, D3 Q10) — six resources-*.edn fixtures:
                   :resources/ensure / dedupe / stale-suppression / scope-fail-closed /
-                  lease-gc / keep-previous (enumerate from the fixtures). A Q10=yes
+                  owner-release-gc / keep-previous (enumerate from the fixtures). A Q10=yes
                   port claims :resources/* and runs them. The MUTATION half is
                   corpus-behind: spec/016 mandates reg-mutation / :rf.mutation/execute
                   but the corpus defines no mutation tags/fixtures yet — self-test

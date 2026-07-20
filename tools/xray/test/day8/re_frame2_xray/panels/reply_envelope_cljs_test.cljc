@@ -320,7 +320,7 @@
   [{:id 1 :operation :rf.sub/run :tags {}}
    {:id 2 :operation :rf.resource/work-started
     :time 100 :tags {:work/id [:rf.work/resource :k 1] :rf.frame/id :f
-                     :generation 1 :owner [:lease :a]}}
+                     :generation 1 :owner [:dashboard/opened :a]}}
    {:id 3 :operation :rf.resource/fetch-started
     :time 110 :tags {:work/id [:rf.work/http :req 1] :rf.frame/id :f}}
    {:id 4 :operation :rf.resource/work-abort-requested
@@ -886,7 +886,7 @@
   {[:rf.work/resource :k 2]
    {:work/id [:rf.work/resource :k 2] :work/kind :resource :work/frame :f
     :resource/key [:s :article/by-id {:id 1}] :generation 2 :status :running
-    :owners #{[:lease :a]} :causes [[:ensure :article/by-id]] :cancellable? true
+    :owners #{[:dashboard/opened :a]} :causes [[:ensure :article/by-id]] :cancellable? true
     :started-at 1000 :transport :rf.http/managed}
    [:rf.work/resource :k 1]
    {:work/id [:rf.work/resource :k 1] :work/kind :resource :work/frame :f
@@ -904,7 +904,7 @@
       (is (= :running (:status row)))
       (is (true? (:live? row)))
       (is (= :f (:frame row)))
-      (is (= [[:lease :a]] (:owners row)))
+      (is (= [[:dashboard/opened :a]] (:owners row)))
       (is (= :rf.http/managed (:transport row)))
       ;; PRIVACY: cause summarized
       (is (= "vector" (:type (first (:causes row)))))))

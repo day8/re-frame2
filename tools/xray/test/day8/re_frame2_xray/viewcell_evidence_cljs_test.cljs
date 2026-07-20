@@ -84,7 +84,7 @@
 
 (defn- rc!
   "Render (probe) `queries` under the host frame, then commit — the cell
-  ends observing them through REAL subscription leases (the ui
+  ends observing them through REAL subscription handles (the ui
   tool-evidence-test technique for driving genuine observation-port
   fan-out)."
   [cell queries]
@@ -129,7 +129,7 @@
   (frame/replace-app-db! fid {:a 1})
   (let [cell (rc! (reactive/make-cell ::v) [[:vce/a]])]
     ;; a REAL port fan-out: re-registering the sub fires each committed
-    ;; site's live lease `on-change` with the rich `:hmr` payload
+    ;; site's live handle `on-change` with the rich `:hmr` payload
     (rf/reg-sub :vce/a (fn [db _] (:a db)))
     (reactive/flush-pending!)
 
@@ -169,7 +169,7 @@
 
     (testing "occurrence identity is stable across further batches"
       (let [id-before (:occurrence (first (viewcell-evidence/rows)))]
-        ;; a real re-render re-acquires fresh leases on the re-registered
+        ;; a real re-render re-acquires fresh handles on the re-registered
         ;; nodes before any further movement can fan out to this cell
         (rc! cell [[:vce/a]])
         (rf/reg-sub :vce/a (fn [db _] (:a db)))

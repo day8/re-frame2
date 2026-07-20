@@ -79,7 +79,7 @@
   "Arm a REAL retained exit due at 300ms of logical time. Its removal
   callback stands in for the app-visible consequence of the terminal
   unmount — a mounted boundary's removal releases the retained subtree's
-  leases; headless, a dispatched event is the observable."
+  handles; headless, a dispatched event is the observable."
   []
   (presence-rt/schedule-exit!
     300 #(router/dispatch-sync! [:presence/exited] {:frame shared/presence-frame})))

@@ -8,7 +8,7 @@ Declarative server-state: a **named, cached read** of remote state that views re
 > |---|---|---|
 > | `useQuery({ queryKey, queryFn })` in a component | `reg-resource` registers; a route/event *ensures*; a view *subscribes* | Views are **passive reads** — they never trigger a fetch. Fetching is **causal** (route entry, event, machine), never a render side effect. |
 > | the `queryKey` array | `[scope resource-id params]` triple | **Scope is mandatory and fail-closed** — the tenant / user / locale / impersonation leak boundary is declared, not inferred. There is no silent shared cache. |
-> | active observers (a mounted component keeps data alive) | **active owners** (route / machine / lease) vs **causes** (trace metadata) | Liveness is **explicit** (an owner with a release path), decoupled from rendering. A view mounting does not pin the cache. |
+> | active observers (a mounted component keeps data alive) | **active owners** (route / machine / app event) vs **causes** (trace metadata) | Liveness is **explicit** (an owner with a release path), decoupled from rendering. A view mounting does not pin the cache. |
 > | `select` option | an ordinary `reg-sub` over `[:rf.resource/data …]` | No `:select` key — projections are subscriptions (EP-0004 parametric inputs). |
 > | `queryClient.invalidateQueries` | `[:rf.resource/invalidate-tags …]` (scoped) | Invalidation is **data** an event dispatches, **scoped by default** — and a mutation can invalidate facts in *different* scopes precisely with per-target **descriptors** (`{:scope … :tags …}`); visible in trace/Xray. |
 > | `useMutation` | `reg-mutation` + `[:rf.mutation/execute …]` (see [`resources-mutations.md`](resources-mutations.md)) | Keyed by **instance id** so concurrent submissions never clobber; success patches/populates entries then invalidates tags. |
@@ -28,7 +28,7 @@ Three roles never blur:
 
 - **Views are passive.** A `[:rf/resource …]` subscription reads cached state; it never fetches.
 - **Causes explain why work happened.** `[:route-entry …]`, `[:manual …]`, `:focus`, `:reconnect` — trace/diagnostic metadata that does not change liveness.
-- **Owners keep a resource alive** (a liveness lease) and have a matching **release path**. Route owners carry the nav-token; machine owners are released on actor-destroy; app-minted leases need an explicit `:rf.resource/release-owner`.
+- **Owners keep a resource alive** (a liveness owner) and have a matching **release path**. Route owners carry the nav-token; machine owners are released on actor-destroy; app-minted event owners need an explicit `:rf.resource/release-owner`.
 
 ## Canonical declaration
 
@@ -73,7 +73,7 @@ Sibling subs project single facts: `:rf.resource/data`, `:rf.resource/status`, `
  {:resource :article/by-slug
   :scope    :rf.scope/global
   :params   {:slug "welcome"}
-  :owner    [:route :route/article nav-token]      ;; liveness lease (needs a release path)
+  :owner    [:route :route/article nav-token]      ;; liveness owner (needs a release path)
   :cause    [:route-entry :route/article nav-token]}]
 
 [:rf.resource/refetch  {:resource :article/by-slug :scope :rf.scope/global
@@ -199,7 +199,7 @@ Routes are not required, but when a load is route-scoped, declare it on the rout
 - **Fetching from a view / subscription.** Views are passive reads. A render must never trigger a fetch — `ensure` from the route or an event. (A subscription that "fetches" is a category error; v1 has no subscription-side fetch.)
 - **Hand-editing the resource cache.** `:rf.runtime/resources` is framework-owned runtime-db state; never `assoc-in` into it from a `:db` handler. Use the `:rf.resource/*` events.
 - **An implicit / forgotten scope.** A user-scoped read registered global (or with no scope) is the leak the fail-closed policy kills. Declare scope intent once, at registration. **The subtle case: an optional-auth read** — public to read, but its payload folds in a viewer-relative flag (`favorited` / `following` / your-rating). "The endpoint is public" is not "the bytes are the same for everyone"; scope it by viewer, not global.
-- **An owner with no release path.** An app-minted lease (`[:lease …]`) that is never released pins an entry alive and keeps it refetching on focus/reconnect — a slow leak. Xray lints orphaned owners; mint a lease only with a matching `:rf.resource/release-owner`.
+- **An owner with no release path.** An app-minted event owner (`[:dashboard/opened …]`) that is never released pins an entry alive and keeps it refetching on focus/reconnect — a slow leak. Xray lints orphaned owners; mint an app owner only with a matching `:rf.resource/release-owner`.
 - **A manual refresh as an owner.** A button click that just wants fresh data is a **cause**, not an owner — it should not keep the entry alive.
 - **Re-implementing a `:select` hook.** Project with an ordinary `reg-sub` over `[:rf.resource/data …]`; the subscription graph is the projection layer.
 - **Keying a cache/lookup by host `=` over normalized EDN.** The scoped key's identity is the **`CEDN-1` byte comparison**, not host `=`. Host equality over a normalized EDN value is **not** sufficient unless it preserves EDN *kind*: in CLJS `(= [:a 1] '(:a 1))` is `true`, but a vector and a list are distinct `CEDN-1` identities (different type tags), so a hand-rolled `assoc`-into-a-host-map keyed on raw params can collide two distinct reads or miss a hit. Sorting map keys is necessary but not sufficient — kind-collapse still bites. Let the framework compute the key (`:scope` + `:params` flow through the canonical rule); never derive your own resource key from `(= params-a params-b)` or a host hash over raw params. See [`../references/cross-cutting/path-and-identity.md`](../references/cross-cutting/path-and-identity.md) §Canonical EDN identity (`CEDN-1`) — the "CEDN-1 byte trap" callout.
@@ -209,7 +209,7 @@ Write-side anti-patterns (app-workflow-on-`reg-mutation`, `:cross-scope?` overus
 
 ## Worked examples
 
-- **`examples/capabilities/resources/resources/`** — focused **read-side** demo: route-driven page load (`:resources` route metadata), event-driven `ensure` under an app `[:lease …]` owner with a release path, manual refresh as a *cause* (not owner), a machine-owned resource. Views read through passive `[:rf.resource/*]` subs; scope is the fail-closed leak boundary (explicit `:rf.scope/global` claim).
+- **`examples/capabilities/resources/resources/`** — focused **read-side** demo: route-driven page load (`:resources` route metadata), event-driven `ensure` under an app-minted event owner (`[:dashboard/opened …]`-style) with a release path, manual refresh as a *cause* (not owner), a machine-owned resource. Views read through passive `[:rf.resource/*]` subs; scope is the fail-closed leak boundary (explicit `:rf.scope/global` claim).
 - **Write side** — the mutation counterpart (call-site `:reply-to`, scoped invalidation descriptors, populate-as-authoritative-load, named `reg-resource-scope` resolvers — including the **viewer-representation** boundary for optional-auth reads: "public" is not "global") is worked end-to-end in `examples/real-apps/realworld_resources/`; see [`resources-mutations.md`](resources-mutations.md).
 
 For the hand-rolled-slice shape Resources *supersedes*, `examples/real-apps/realworld_http/articles.cljs` is the closest reference (slice-form Pattern-RemoteData over `[:articles]`).

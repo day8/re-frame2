@@ -35,7 +35,7 @@ Rejected at compile time — the compiler resolves heads statically. Bind the at
 (reg-sub :q (fn [db] (dispatch [:log]) (:x db)))    ; a side effect in a sub body
 ```
 
-Subs are **pure** in re-frame.ui; the effectful part belongs in a lease/event, not the sub. This is a *dataflow-side* finding surfaced in the report — never a view rewrite. The view's own `@(subscribe …)` deref converts fine (MIG-02) once the sub body is made pure. (Purely a heads-up for the author's dataflow layer; not a reason to hold the view.)
+Subs are **pure** in re-frame.ui; the effectful part belongs in an event, not the sub. This is a *dataflow-side* finding surfaced in the report — never a view rewrite. The view's own `@(subscribe …)` deref converts fine (MIG-02) once the sub body is made pure. (Purely a heads-up for the author's dataflow layer; not a reason to hold the view.)
 
 ### MIG-20 — a shared ratom store (recap)
 

@@ -7,7 +7,7 @@
       view-id, stamping the tier `:rf.ui.tool/version` through;
     - labels the variant's observation overrides `:owned? false` — honest
       NON-OWNERSHIP (Story observes; core owns the static `:story-override`
-      lease);
+      handle);
     - tolerates ABSENCE explicitly: an uncompiled view → `:compiled-view? false`
       with nil manifest but a still-live tier; no evidence tool → empty
       `:mounted`/`:render` rather than a fabricated record;
@@ -151,7 +151,7 @@
                [:item 7]       {:name "widget"}})]
     (is (= 2 (count rows)))
     (is (every? #(false? (:owned? %)) rows)
-        "Story observes through the override door; it never owns the lease")
+        "Story observes through the override door; it never owns the handle")
     (is (every? #(= :story-override (:kind %)) rows))
     (testing "each row carries its exact query vector + pinned value"
       (let [by-q (into {} (map (juxt :query identity)) rows)]

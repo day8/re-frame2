@@ -95,7 +95,7 @@ Full loop in [`references/procedure.md`](references/procedure.md). The shape:
 
 ## Gotchas
 
-The traps that mangle a view silently → [`references/gotchas.md`](references/gotchas.md): the **bare-symbol trap** (`[:li item]` — `item` is *content*, not a spread props map; never auto-spread it), **whole-view coherence** (rule 2), **keyed-child extraction** (a `sub`/`lease` or a loop-capturing handler inside a `for` is a compile error — extract a keyed child view), **dynamic tag heads** (`[(if big? :h1 :h2) …]` has no compiled form), and **data-vectors-are-not-hiccup** (`[:buy 1]` in an `:on-click` is an event, not an element).
+The traps that mangle a view silently → [`references/gotchas.md`](references/gotchas.md): the **bare-symbol trap** (`[:li item]` — `item` is *content*, not a spread props map; never auto-spread it), **whole-view coherence** (rule 2), **keyed-child extraction** (a `sub` or a loop-capturing handler inside a `for` is a compile error — extract a keyed child view), **dynamic tag heads** (`[(if big? :h1 :h2) …]` has no compiled form), and **data-vectors-are-not-hiccup** (`[:buy 1]` in an `:on-click` is an event, not an element).
 
 ## Done checklist
 

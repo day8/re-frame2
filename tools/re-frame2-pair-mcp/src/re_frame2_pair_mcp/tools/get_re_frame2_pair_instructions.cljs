@@ -88,7 +88,7 @@
     "                          in one round-trip. The complement to read-dom — no\n"
     "                          testids needed; rides the view<->DOM map.\n"
     "  read-view-manifest — compiled-view manifest (props/sites). :view-id.\n"
-    "  read-view-dependencies — compiled-view sub/lease sites. :view-id.\n"
+    "  read-view-dependencies — compiled-view subscription sites. :view-id.\n"
     "  read-view-event-sites — compiled-view :on-* handler sites. :view-id.\n"
     "  read-mounted-views — connected-instance records (HMR hot-swap read).\n"
     "  explain-render — why a compiled view rendered (causes/loss). :view-id?\n"
