@@ -31,7 +31,8 @@
   The JVM structural node lives in `re-frame.ui.tree/presence` (a fragment
   carrying the `:rf.ui/presence {:phase :present :timeout-ms n}` diagnostic
   marker, §004B); this namespace's JVM arm is `presence-phase` only."
-  #?(:cljs (:require ["react" :as react])))
+  #?(:cljs (:require ["react" :as react]
+                     [re-frame.ui.runtime :as runtime])))
 
 ;; ---------------------------------------------------------------------------
 ;; reconcile — the PURE three-phase entry derivation (both hosts)
@@ -323,15 +324,33 @@
         ;; forceUpdate cell — the setter identity is stable across renders.
         tick       (react/useState 0)
         force!     (fn [] ((aget tick 1) inc))
+        ;; The ROOT-SCOPED HYDRATION FACT (rf2-uqe1b). A hook, so read
+        ;; unconditionally: true ONLY while a hydrating root renders its
+        ;; `:server`-phase adoption pass, false on every ordinary client mount.
+        ;; Consulted for the FIRST render's seed only (below).
+        adopting?  (runtime/hydration-adopting?)
         ;; committed state (source of truth) — mutated ONLY in the effect /
         ;; removal callbacks, never during render, so `reconcile` reads a stable
         ;; snapshot and a StrictMode double-render is idempotent.
-        st         (react/useRef nil)]
+        st         (react/useRef nil)
+        incoming-pairs (incoming-identities incoming)
+        incoming-keys  (mapv first incoming-pairs)]
     (when (nil? (.-current st))
-      (set! (.-current st) #js {:entries [] :elements {} :timers {}}))
+      ;; FIRST render seed. On a HYDRATING root the server already emitted these
+      ;; keyed children with `:present` styling (the JVM structural render's
+      ;; `:present` phase), so seed them `:present` — the client's first render
+      ;; then matches the server markup: no className mismatch and no fabricated
+      ;; enter transition (rf2-uqe1b). An ordinary client mount (`adopting?`
+      ;; false) seeds no entries, so `reconcile` classifies the incoming keys
+      ;; `:mounting` and the enter transition runs, unchanged (pinned by
+      ;; presence-dom-cljs-test).
+      (set! (.-current st)
+            #js {:entries  (if adopting?
+                             (mapv (fn [k] {:key k :phase :present}) incoming-keys)
+                             [])
+                 :elements {}
+                 :timers   {}}))
     (let [state    (.-current st)
-          incoming-pairs (incoming-identities incoming)
-          incoming-keys  (mapv first incoming-pairs)
           ;; keep the latest element for every incoming key; retained keys keep
           ;; their last-seen element.
           elements (merge (.-elements state) (into {} incoming-pairs))
