@@ -544,7 +544,7 @@
 
   opts may carry :first-diff-path, :failing-id, AND :server-hash.
   The :server-hash opt overrides the
-  [:rf.runtime/ssr :hydration :server-hash] slot in app-db — useful
+  [:rf.runtime/ssr :hydration :server-hash] slot in runtime-db — useful
   when the user's :rf/hydrate handler doesn't populate that slot
   (e.g. fixture-overridden handlers).
 

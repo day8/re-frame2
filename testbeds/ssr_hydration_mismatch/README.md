@@ -3,7 +3,8 @@
 The deliberate-mismatch surface. The payload bakes a known-wrong
 `:rf/render-hash` (`"deadbeef"`) into the static `index.html`. The
 browser-side `run` dispatches `:rf/hydrate` (so the bogus hash lands
-at `[:rf/hydration :server-hash]`), renders the view, and calls
+in runtime-db at `[:rf.runtime/ssr :hydration :server-hash]`), renders
+the view, and calls
 `verify-hydration!` — which computes the client-side hash, compares,
 disagrees, and emits `:rf.ssr/hydration-mismatch` per
 [`spec/011-SSR.md` §Hydration-mismatch detection](../../spec/011-SSR.md).
@@ -15,7 +16,7 @@ structured payload visible inline.
 | `data-testid` | What it carries / proves |
 |---|---|
 | `ssr-hydration-mismatch` | Root marker. |
-| `hydrated` / `not-hydrated` | Discriminator on `:rf/hydration` presence. |
+| `hydrated` / `not-hydrated` | Discriminator on the `[:rf.runtime/ssr :hydration]` metadata presence in runtime-db (read via a `reg-runtime-sub`). |
 | `mismatch-banner` / `mismatch-banner-empty` | Pre-mismatch the `-empty` variant is rendered; post-mismatch the banner with the structured payload replaces it. |
 | `mismatch-server-hash` | The payload's `:rf/render-hash` (`"deadbeef"`). |
 | `mismatch-client-hash` | The runtime's computed hash for the resolved client tree — an 8-char lowercase hex string per Spec 011 §Hydration-mismatch detection. |
@@ -29,7 +30,7 @@ structured payload visible inline.
 |---|---|
 | §Hydration-mismatch detection | `verify-hydration!` reads the server hash, computes the client hash, emits `:rf.ssr/hydration-mismatch` on disagreement with structured tags (`:server-hash`, `:client-hash`, `:failing-id`, `:recovery`). |
 | §Mismatch recovery and configuration | Default posture is `:warned-and-replaced` — the trace fires but the client renders against the seeded state and the page stays interactive. |
-| §The `:rf/hydrate` event | The server-hash is stashed at `[:rf/hydration :server-hash]` automatically by the framework-registered handler — user code didn't have to participate. |
+| §The `:rf/hydrate` event | The server-hash is stashed in runtime-db at `[:rf.runtime/ssr :hydration :server-hash]` automatically by the framework-registered handler — user code didn't have to participate. |
 
 ## Why a known-wrong hex string instead of a "real" mismatch
 
@@ -50,16 +51,30 @@ shape (8 lowercase-hex chars).
 
 ## Running
 
+This surface is a dev / Xray observation target — it is **not** staged
+by any smoke gate (the adapter-smoke orchestrator serves only the three
+adapter smokes under `implementation/adapters/<name>/testbed/`). Build
+and view it by hand.
+
 From `implementation/`:
 
 ```bash
-shadow-cljs watch testbeds/ssr-hydration-mismatch
-# Or via the orchestrator:
-npm run test:adapter-smokes
+npm run dev -- :testbeds/ssr-hydration-mismatch
+# …or a one-shot compile:
+npx shadow-cljs compile :testbeds/ssr-hydration-mismatch
 ```
 
-Build id `testbeds/ssr-hydration-mismatch`; served at
-`/testbed-ssr-hydration-mismatch/`.
+Shadow-cljs build id is `:testbeds/ssr-hydration-mismatch`; `main.js`
+lands in `implementation/out/examples/testbed-ssr-hydration-mismatch/`.
+To view the mismatch banner in a browser, stage this testbed's
+`index.html` next to that `main.js` and serve the directory:
+
+```bash
+cp testbeds/ssr_hydration_mismatch/index.html out/examples/testbed-ssr-hydration-mismatch/
+npx http-server out/examples/testbed-ssr-hydration-mismatch -p 8080
+# open http://127.0.0.1:8080/ — verify-hydration! fires
+# :rf.ssr/hydration-mismatch and the mismatch-banner renders its payload.
+```
 
 ## Cross-references
 

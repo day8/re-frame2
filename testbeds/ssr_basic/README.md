@@ -15,7 +15,7 @@ shape the JVM-side `render-to-string` + payload builder would emit per
 | `data-testid` | What it carries / proves |
 |---|---|
 | `ssr-basic` | Root marker — visible from first byte (pre-rendered). |
-| `not-hydrated` / `hydrated` | Discriminator on `:rf/hydration` presence in app-db. The static HTML ships the `not-hydrated` marker; first render after `:rf/hydrate` swaps to `hydrated`. |
+| `not-hydrated` / `hydrated` | Discriminator on the `[:rf.runtime/ssr :hydration]` metadata presence in runtime-db (read via a `reg-runtime-sub`). The static HTML ships the `not-hydrated` marker; first render after `:rf/hydrate` swaps to `hydrated`. |
 | `count` | Seeded via payload's `:rf/app-db {:count 7}`. Click `inc` mutates → re-render → count++. |
 | `title` | Seeded via payload's `:rf/app-db {:title "seeded"}`. Click `set-title` writes `"hydrated"`. |
 | `resp-status` / `resp-ct` / `resp-cookies-count` / `resp-cookie-name` | Materialise the payload's `:rf/response` slice — proves per-request `:rf.server/*` accumulator round-trips through the wire into the view layer. |
@@ -31,7 +31,7 @@ cljs vars.
 |---|---|
 | §Hydration is a defined protocol | Payload arrives, `:rf/hydrate` replaces app-db, client renders. |
 | §Payload scope (canonical boundary) | The four required keys plus optional `:rf/response`; nothing else on the wire. |
-| §The `:rf/hydrate` event | `:replace-app-db` policy carries the server's slice verbatim; `[:rf/hydration]` metadata stashed. |
+| §The `:rf/hydrate` event | `:replace-app-db` policy carries the server's slice verbatim; hydration metadata stashed in runtime-db at `[:rf.runtime/ssr :hydration]`. |
 | §Hydration-mismatch detection | `verify-hydration!` invoked post first-render; no mismatch when server-hash is nil (baseline). |
 | §`:rf.ssr/check-version` (rf2-69ad2) | Fx dispatched as part of `:rf/hydrate`'s `:fx`; trace event surfaces via the listener. |
 | §Response storage substrate | The payload-carried `:rf/response` shape exercises the canonical `{:status :headers :cookies :redirect}` accumulator. |
@@ -49,19 +49,34 @@ cljs vars.
 
 ## Running
 
+This surface is a dev / Xray observation target — it is **not** staged
+by any smoke gate. The adapter-smoke orchestrator
+(`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`)
+compiles + serves only the three adapter smokes under
+`implementation/adapters/<name>/testbed/`; top-level `testbeds/**` stay
+in-tree as observation targets. Build and view this one by hand.
+
 From `implementation/`:
 
 ```bash
-shadow-cljs watch testbeds/ssr-basic
-# Or via the orchestrator:
-npm run test:adapter-smokes
+# Watch-compile (the dev launcher seeds the on-disk checkout root so
+# 'open in editor' resolves):
+npm run dev -- :testbeds/ssr-basic
+# …or a one-shot compile:
+npx shadow-cljs compile :testbeds/ssr-basic
 ```
 
-Shadow-cljs build id is `testbeds/ssr-basic`; output lands in
-`implementation/out/testbeds/ssr-basic/`. The orchestrator
-(`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`) stages this
-testbed's `index.html` next to `main.js` and serves the directory
-at `/ssr-basic/`.
+Shadow-cljs build id is `:testbeds/ssr-basic`; `main.js` lands in
+`implementation/out/examples/testbed-ssr-basic/`. To watch the hydration
+round-trip in a browser, stage this testbed's `index.html` next to that
+`main.js` and serve the directory with any static file server:
+
+```bash
+cp testbeds/ssr_basic/index.html out/examples/testbed-ssr-basic/
+npx http-server out/examples/testbed-ssr-basic -p 8080
+# open http://127.0.0.1:8080/ — the data-testid='hydrated' marker
+# flips from 'not-hydrated' once :rf/hydrate lands the runtime-db metadata.
+```
 
 ## Cross-references
 

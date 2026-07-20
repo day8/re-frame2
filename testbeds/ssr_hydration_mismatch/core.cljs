@@ -3,8 +3,8 @@
 
   Per [spec/011-SSR.md §Hydration-mismatch detection]: after the first
   client render, `verify-hydration!` recomputes the structural hash of
-  the resolved render-tree, reads the server hash stashed at
-  `[:rf/hydration :server-hash]`, and emits
+  the resolved render-tree, reads the server hash stashed in runtime-db
+  at `[:rf.runtime/ssr :hydration :server-hash]`, and emits
   `:rf.ssr/hydration-mismatch` (op-type `:error`, recovery
   `:warned-and-replaced`) on disagreement.
 
@@ -33,6 +33,10 @@
       not crash."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
+            ;; SSR hydration metadata is durable runtime-db state, so the
+            ;; :hydrated? discriminator is a runtime-db sub (reg-runtime-sub
+            ;; lives on the re-frame.subs surface).
+            [re-frame.subs :as subs]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.ssr :as ssr]
@@ -101,7 +105,12 @@
 
 (rf/reg-sub :count     (fn [db _] (or (:count db) 0)))
 (rf/reg-sub :mismatch  (fn [db _] (:mismatch db)))
-(rf/reg-sub :hydrated? (fn [db _] (boolean (:rf/hydration db))))
+;; The SSR hydration metadata is durable runtime-db state — the `:rf/hydrate`
+;; handler stashes it at [:rf.runtime/ssr :hydration] in the runtime-db
+;; partition (NOT app-db). So :hydrated? is a runtime-db sub reading the
+;; canonical source.
+(subs/reg-runtime-sub :hydrated?
+  (fn [rt _] (boolean (get-in rt [:rf.runtime/ssr :hydration]))))
 
 ;; ----------------------------------------------------------------------------
 ;; Views
@@ -180,9 +189,9 @@
     (rf/with-frame :rf/default
       (when payload
         ;; HOT PATH — :rf/hydrate replaces app-db; the payload's
-        ;; :rf/render-hash 'deadbeef' is stashed at
-        ;; [:rf/hydration :server-hash] so verify-hydration! can compare
-        ;; against the client's computed hash.
+        ;; :rf/render-hash 'deadbeef' is stashed in runtime-db at
+        ;; [:rf.runtime/ssr :hydration :server-hash] so verify-hydration!
+        ;; can compare against the client's computed hash.
         (rf/dispatch-sync [:rf/hydrate payload])))
     (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]])
 
