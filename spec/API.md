@@ -453,7 +453,7 @@ The shared React Context that backs `frame-provider` / `frame-root` lives in `re
 | API | M/Fn | Signature | Status | Tier | Spec |
 |---|---|---|---|---|---|
 | `match-url` | Fn | `(match-url url)` → `{:route-id :params :query :fragment :validation-failed? ?:validation-error}` or `nil` (`:validation-error` present only on a validation failure) | v1 | advanced | 012 |
-| `route-url` | Fn | `(route-url route-id path-params [query-params [fragment]])` → URL string (2-/3-/4-arity; the 4-arity emits a `#fragment`) | v1 | advanced | 012 |
+| `route-url` | Fn | `(route-url {:to route-id :params path-params :query query-params :fragment fragment})` → URL string (single address-map arity; strictly address-only — `:url` / `:query-merge` / policy / unknown keys reject loud) | v1 | advanced | 012 |
 | `route-link` | Fn (registered view at `:route/link`) | `[rf/route-link {:to :route-id :params {...} :query {...} :fragment "..." & html-attrs} & children]` | v1 | advanced | 012 |
 | `history-url-strategy` | Var (map) | The DEFAULT `:url-strategy` — HTML5 History, path-form. `re-frame.routing/history-url-strategy`, NOT on the `re-frame.core` façade (routing bundle isolation) | v1 | advanced | 012 |
 | `hash-url-strategy` | Var (map) | `#`-prefixed `:url-strategy` for no-server-rewrite static hosting / secretary-era v1 migrations. `re-frame.routing/hash-url-strategy` | v1 | advanced | 012 |
