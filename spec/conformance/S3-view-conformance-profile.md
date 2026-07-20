@@ -154,11 +154,14 @@ S3 view evidence is a dev/test-only projection with **no production egress**
 props schema, per-prop docs/defaults, declared render-slot sites, interop sites,
 capability cost, and site counts — the one projection Story, docs, Xray, and
 agents consume. Sibling projections: `mounted-views`, `explain-render` (the
-`:value`/`:hmr`/`:disposed` render-cause set), `view-dependencies`. The shipped
-cause union is exactly `#{:value :hmr :disposed}`; host-state writers (`local`)
-are proven through G-15's writer-composition and render-count evidence, **not** a
-`:local-state` cause row — a `:local-state` render cause is specified for S6
-(`rf2-vxgfnd.98.1`), not shipped at S3. All of it is
+`:value`/`:hmr`/`:disposed` render-cause set), `view-dependencies`. The certified S3
+cumulative cause union is exactly `#{:value :hmr :disposed}`; host-state writers
+(`local`) are proven through G-15's writer-composition and render-count evidence,
+**not** a cumulative-set `:local-state` cause row. A `:local-state` render cause DID
+ship at S6 (`rf2-vxgfnd.98.1`) — as one kind in the per-commit `:rf.view/causes`
+vector on the reactive substrate's committed-instance record, under
+`re-frame.ui.tool/schema-version` 3 (EP-0033 §S6 view-evidence delta) — but this S3
+`explain-render` cumulative set stays the certified S3 surface. All of it is
 absent from advanced production bundles (`tool_evidence_elision_prod_test`,
 `tool_view_elision_prod_test`, `sub_overrides_elision_prod_test`).
 
@@ -192,7 +195,7 @@ roster. The S3-specific arms this profile certifies:
 | **G-7** | dev↔prod **structural** equivalence over the generated corpus (Layer 1 — wired by the advanced parity-corpus prod-elision proof, debug off); `client-only` fallback; committed-DOM/events/owner **mounted** behaviour named-open under the S6 leaf (`rf2-55zsd`) |
 | **G-8** | real Chromium **and** WebKit controlled-input matrix — IME composition, caret restoration, event ordering, pre-paint — through the reusable event-prefix component, with the deliberate async-door regression as the tooth |
 | **G-11** | exact production absence of the debug + absence rosters (view evidence, manifest, HMR shell, source-coord, `re-frame.ui.test`) from advanced bundles |
-| **G-15** | atomic-local writer matrix — N same-turn `update!` writers land; fn-value `set!` stores exactly; **mixed `update!`+dispatch**; StrictMode replay; JVM typed failure; writer composition + render count (not a `:local-state` cause row — that cause is specified for S6); HMR ride |
+| **G-15** | atomic-local writer matrix — N same-turn `update!` writers land; fn-value `set!` stores exactly; **mixed `update!`+dispatch**; StrictMode replay; JVM typed failure; writer composition + render count (not a cumulative-set `:local-state` cause row — that cause ships at S6 in the per-commit `:rf.view/causes` vector); HMR ride |
 | **G-16** | render-slot parity across both emitters; keyed reorder under slots; purity diagnostics inside slot bodies; manifest slot sites |
 | **G-17** | safe-spread owned-key rejection in dev **and** advanced builds; `aria-*`/`data-*` pass; the policy form retains the sync door where general `spread` forfeits it |
 | **G-18** | library façade isolation — an advanced build importing one view retains no unused siblings (fixture-first; a substrate packaging change is justified only if it fails structurally) |

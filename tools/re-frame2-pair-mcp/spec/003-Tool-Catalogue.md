@@ -2631,7 +2631,7 @@ capability bits, template / hook fingerprints, and per-kind
 
 ```clojure
 ;; read-view-manifest {:view-id ":my.app/counter"}
-{:ok? true :rf.ui.tool/version 2 :view-id :my.app/counter
+{:ok? true :rf.ui.tool/version 3 :view-id :my.app/counter
  :doc "..." :source {...}
  :props [{:key :label :doc "..." :schema :string}]
  :site-counts {:subs 2 :events 1 ...}}
@@ -2648,7 +2648,7 @@ manifest, so available before mount. Requires `:view-id`.
 
 ```clojure
 ;; read-view-dependencies {:view-id ":my.app/row"}
-{:ok? true :rf.ui.tool/version 2 :view-id :my.app/row
+{:ok? true :rf.ui.tool/version 3 :view-id :my.app/row
  :subscriptions [{:query [:total] :dynamic? false}
                  {:query-id :item :dynamic? true}]}
 ```
@@ -2666,7 +2666,7 @@ Requires `:view-id`.
 
 ```clojure
 ;; read-view-event-sites {:view-id ":my.app/form"}
-{:ok? true :rf.ui.tool/version 1 :view-id :my.app/form
+{:ok? true :rf.ui.tool/version 3 :view-id :my.app/form
  :handlers [{:prop :on-click :site-kind :literal :handler [:submit] :serializable? true}
             {:prop :on-input :site-kind :dynamic :handler :opaque :serializable? false :sync? true}]}
 ```
@@ -2694,7 +2694,7 @@ evidence the tier already records.
 
 ```clojure
 ;; read-mounted-views {}
-{:ok? true :rf.ui.tool/version 1
+{:ok? true :rf.ui.tool/version 3
  :views [{:occurrence 3 :view-id :my.app/row :connection :connected
           :lifecycle {:intervals [] :dropped 0 :exact? true}
           :evidence {...}}]}
@@ -2715,7 +2715,7 @@ evidence.
 
 ```clojure
 ;; explain-render {:view-id ":my.app/row"}
-{:ok? true :rf.ui.tool/version 1 :view-id :my.app/row
+{:ok? true :rf.ui.tool/version 3 :view-id :my.app/row
  :occurrences [{:occurrence 3 :causes #{:value} :render-count 4
                 :observations {:identity-exact? true}
                 :loss {:dropped 0 :exact? true}}]}

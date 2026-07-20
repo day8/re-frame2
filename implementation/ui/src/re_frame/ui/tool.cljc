@@ -43,11 +43,19 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (def schema-version
-  "The versioned tool-evidence public-shape contract version. Bumped whenever a
-  projection's shape changes incompatibly, so a consumer reads `:rf.ui.tool/version`
+  "The versioned tool-evidence public-shape contract version. Bumped whenever the
+  evidence schema changes incompatibly, so a consumer reads `:rf.ui.tool/version`
   and reconciles rather than mis-parsing an evolved shape. v2 dropped a removed
-  view-lifetime dependency site kind and its `:site-counts` entry."
-  2)
+  view-lifetime dependency site kind and its `:site-counts` entry. v3 versions the
+  S6 committed-instance evidence schema (rf2-vxgfnd.98.1 / EP-0033 §S6 view-evidence
+  delta): the DEBUG-only per-commit committed-instance record the reactive substrate
+  now mints and exposes through `re-frame.ui.reactive/commit-record` — integer
+  `:render-key`, per-observation `:observations`, `:root-id`, `:generation`,
+  `:connection`, and the per-commit `:rf.view/causes` vector (the six shipped kinds
+  :mount / :subscription / :story-override / :local-state / :hmr / :disposed, plus
+  the :foreign-or-react honesty fallback). Consumers that pin this version exactly
+  (Xray, Story, Pair) move in lockstep so none degrades to `[]` on a mismatch."
+  3)
 
 ;; ---- manifest access (both hosts register `:view` into the registrar) --------
 

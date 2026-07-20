@@ -81,6 +81,22 @@
   (let [[_ capture] (reactive/with-capture cell (fn [] nil))]
     (reactive/commit! cell capture)))
 
+(deftest advanced-production-mints-no-committed-instance-record
+  ;; rf2-rvs56 (S6 slice d) — the S6 committed-instance record (Ruling 1/2; the
+  ;; schema-version-3 surface) is DEBUG-only: `mint-commit-record!` sits behind the
+  ;; `interop/debug-enabled?` gate, so a REAL connected production ViewCell commit
+  ;; mints NO monotonic `:render-key` and publishes NO per-commit record — the new
+  ;; `commit-record` / `render-key` public readers stay nil. This is the direct
+  ;; behavioural erasure proof for the readers slices a/b added; the companion
+  ;; bundle scan proves the record-assembly + causes strings are absent structurally.
+  (let [cell (reactive/make-cell ::prod-no-record)]
+    (commit-empty! cell)
+    (is (= :connected (reactive/lifecycle cell)) "the empty commit still connects")
+    (is (nil? (reactive/commit-record cell))
+        "production mints NO S6 committed-instance record on a connected commit")
+    (is (nil? (reactive/render-key cell))
+        "production mints NO monotonic :render-key — the record reader is nil")))
+
 (deftest advanced-production-viewcell-has-no-provisional-disconnect-machinery
   ;; rf2-vxgfnd.164 — production holds NO settle evidence, so it makes NO
   ;; Activity-hide claim. The `:activity-hidden {:proof :reconnect}` annotation is

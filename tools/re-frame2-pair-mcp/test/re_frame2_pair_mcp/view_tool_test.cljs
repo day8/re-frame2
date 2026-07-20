@@ -87,7 +87,7 @@
 (deftest view-id-tools-emit-a-guarded-projection-call
   (async done
     (let [seen (atom nil)]
-      (-> (with-captured-form! seen {:ok? true :rf.ui.tool/version 1}
+      (-> (with-captured-form! seen {:ok? true :rf.ui.tool/version 3}
             (fn []
               (view-tool/read-view-manifest-tool (fresh-conn)
                                                  #js {:view-id ":my.app/counter"})))
@@ -105,7 +105,7 @@
 (deftest explain-render-omits-the-view-id-when-absent
   (async done
     (let [seen (atom nil)]
-      (-> (with-captured-form! seen {:ok? true :rf.ui.tool/version 1 :occurrences []}
+      (-> (with-captured-form! seen {:ok? true :rf.ui.tool/version 3 :occurrences []}
             (fn []
               (view-tool/explain-render-tool (fresh-conn) #js {})))
           (.then (fn [_]

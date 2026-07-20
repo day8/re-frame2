@@ -1158,16 +1158,22 @@ path + generation, released/remounted on ambiguity.
 conformance slice certifies a bounded **subset** of it
 ([`spec/conformance/S3-view-conformance-profile.md`](conformance/S3-view-conformance-profile.md)),
 mirroring [EP-0033 §Shipped surface](../docs/EP/EP-0033-re-frame-ui-view-evidence.md#shipped-surface-and-specified-extensions).
-**Certified today:** occurrence-shaped instance records — an `:occurrence` ordinal +
+**Certified at S3:** occurrence-shaped instance records — an `:occurrence` ordinal +
 `:view-id` + `:root-id` + `:connection` + `:lifecycle` intervals + bounded render evidence
 with explicit loss accounting — and a bounded render-cause **set**, `#{:value :hmr
-:disposed}`. **Specified for S6:** the rich per-commit committed-instance record (integer
-`render-key` / `parent-render-key` / `generation`; **keyword** `frame-id`; `root-id`,
-`view-id`, connection state, observations); the full `:rf.view/causes` **vector** and its
-cause-kind roster; the `data-rf2-source-coord` + render-key DOM annotation on
-compiler-owned host roots; and the Spec 009 evidence-schema rows. That unshipped delta is
-staged to **S6** and owned by `rf2-vxgfnd.98.1`; consumers tolerate the absences
-explicitly rather than fabricating them (`tools/xray/spec/021` §3.4.1).
+:disposed}`. **Shipped at S6 (rf2-vxgfnd.98.1; EP-0033 §S6 view-evidence delta):** the
+rich per-commit committed-instance record (integer `render-key` / `generation`; `root-id`,
+`view-id`, connection state, and **per-observation** `observations` each carrying its own
+target's `frame-id`); the per-commit `:rf.view/causes` **vector** with its shipped six-kind
+roster (`:mount` / `:subscription` / `:story-override` / `:local-state` / `:hmr` /
+`:disposed`) plus the `:foreign-or-react` honesty fallback; the `data-rf2-source-coord` +
+render-key DOM annotation on compiler-owned host roots; and the Spec 009 evidence-schema
+rows — all under `re-frame.ui.tool/schema-version` 3, which Xray, Story, and Pair pin in
+lockstep. **Deferred with named triggers (never dropped):** `parent-render-key`, a
+singular record-level `frame-id` (attribution is per-observation instead), and the `:prop`
+/ `:frame`-`:context` / `:resource` / `:hydration-correction` / `:reconnect-correction` /
+`:epoch-restore` / `:hmr-remount` causes; consumers tolerate those absences explicitly
+rather than fabricating them (`tools/xray/spec/021` §3.4.1).
 
 - **Compiler manifest — what *can* happen.** Per view, dev: source coords, prop slots +
   schema, template fingerprint, hook signature, capability bits, and every site (subs
@@ -1176,13 +1182,22 @@ explicitly rather than fabricating them (`tools/xray/spec/021` §3.4.1).
   template path. No runtime values;
   useful before mount — consumed by Xray, Story, editors, and agents.
 - **Committed instance record — what *did* happen.** Published only at connected commit;
-  speculative renders publish nothing (I-1/I-2). It carries render-key,
-  parent-render-key (direct hierarchy — no Fiber or DOM walking), root-id, frame-id,
-  view-id, generation, connection state, observations, and the **`:rf.view/causes`
-  vector** (mount / subscription / story-override / prop / local-state / frame /
-  resource / hmr / hydration-correction / reconnect-correction / epoch-restore /
-  foreign-or-react) — attribution is emitted at the cause site, never reconstructed.
-  Every bounded buffer reports loss accounting (`total`/`retained`/`dropped`).
+  speculative renders publish nothing (I-1/I-2). Minted per connected commit and read via
+  `re-frame.ui.reactive/commit-record`, it carries an integer render-key (module-global
+  monotonic, fresh per commit — NOT the legacy render-time `[view-id instance-token]` wire
+  shape, and NOT the `:rf.sub/reader-render-key` of Spec 009: different identities minted
+  at different phases), root-id, view-id, generation, connection state, and a
+  **per-observation** `observations` vector — each observation carrying its own target's
+  frame-id (a cell observes a SET of frames, so the record holds no singular record-level
+  frame-id). Its **`:rf.view/causes` vector** carries the shipped six kinds — `:mount`,
+  `:subscription` (target / query / frame-id + version from→to + epoch), `:story-override`
+  (override-id + version), `:local-state`, `:hmr`, `:disposed` — plus the
+  `:foreign-or-react` honesty fallback; the sub→view relation reads off `:observations`.
+  Attribution is emitted at the cause site, never reconstructed. `parent-render-key` and
+  the `:prop` / `:frame`-`:context` / `:resource` / `:hydration-correction` /
+  `:reconnect-correction` / `:epoch-restore` / `:hmr-remount` causes are deferred with
+  named triggers (EP-0033 §S6 view-evidence delta), not emitted. Every bounded buffer
+  reports loss accounting (`total`/`retained`/`dropped`).
 - **One catalogue (runtime tier).** The evidence schemas, trace ops, and every
   **runtime** error/warning id this
   Spec names (`:rf.error/dispatch-disconnected`, `:rf.error/view-not-found`,
@@ -1406,7 +1421,7 @@ a conflict is resolved in that order and is a defect in this table.
 | §Roots and mounting — frame preflight ENSURE (runtime) + `frame-root`/`frame-provider` scoping | **S2** | preflight-exactly-once, non-reseed, StrictMode/HMR-immune fixtures |
 | §Roots and mounting — hydration + Root Manifest v1 | **S5** | manifest extension keys; multi-root hydration + failed-root isolation |
 | `ui.test` surfaces this Spec references | **S1** core (render/find/find-all/text/attrs over Tier-1 trees; the frame-targeted synchronous `dispatch!` dispatch-and-drain, no mounted variant; `query` enforces the tier split) → **S2** mounted semantics (Promise-backed `with-root`; native-CSS `query`; Promise-backed zero/thunk `flush!` on CLJS, synchronous nil on JVM; platform APIs for already-host-owned DOM mechanics, no gesture DSL) → **S4** `flush-presence!` | selector-grammar fixtures; JVM-subset enforcement; real React mount/query/total-teardown/open-drain/forgotten-await/fixed-point fixtures. Compiled event-vector delivery through native events rides the S3 handler row, not the S2 mount surface |
-| §View identity and the instrumentation surface | **S3** → budget/absence gates complete **S6** | manifests, instance records, cause vectors, Xray consumption (compile-time site anchors exist from S1; the **bounded evidence subset** asserts S3 — the full evidence schema plus the budget/absence gates complete S6, owned by `rf2-vxgfnd.98.1`); production erasure G-7/G-11 |
+| §View identity and the instrumentation surface | **S3** → full evidence schema **S6** (rf2-vxgfnd.98.1) | manifests, instance records, cause vectors, Xray consumption (compile-time site anchors exist from S1; the **bounded evidence subset** asserts S3; the full per-commit committed-instance record + six-kind `:rf.view/causes` vector assert S6 under `re-frame.ui.tool/schema-version` 3, with `parent-render-key` + a singular record `frame-id` + five further cause kinds deferred-with-triggers per EP-0033 §S6 view-evidence delta); production erasure G-7/G-11 |
 | §The JVM structural subset — structure/props/branches/lists/event intent/`ui/html` + `:rf.error/jvm-host-op` | **S1** | Tier-1 rendering against the tree contract |
 | §The JVM structural subset — subs via the pure snapshot path | **S2** | the Q32/Q22 answer: `sub` *grammar* compiles at S1, but no Stage-1 Tier-1 fixture exercises a sub read — a Tier-1 render through a sub site (frame or `:sub-overrides`) is an S2 assertion |
 | §Hot reload — the view-side contract | **S2** | the full HMR matrix ([EP-0030 §Stages S1–S7](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#stages-s1s7) places it with reactivity, deliberately early) |

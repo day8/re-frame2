@@ -64,20 +64,112 @@ loss accounting; and a bounded render-cause **set** — `#{:value :hmr
 composition and render count, not a `:local-state` cause row — that render
 cause is specified for S6, not shipped at S3.
 
-**Specified below but not yet shipped:** the integer `:render-key` /
-`:parent-render-key` / `:generation` record fields and the keyword `:frame-id`; the
-`:rf.view/causes` **vector** and its full cause-kind roster (`:mount`,
-`:subscription` with version from→to, `:prop`, `:epoch-restore`,
-`:hydration-correction`, `:reconnect-correction`, `:foreign-or-react`, …); the
-`data-rf2-source-coord` + render-key DOM annotation on compiler-owned host
+**Shipped at S6 (rf2-vxgfnd.98.1 — see §S6 view-evidence delta below):** the
+integer `:render-key` and `:generation` record fields, `:root-id`, per-observation
+`:observations`, and the per-commit `:rf.view/causes` **vector** with its shipped
+six-kind roster (`:mount`, `:subscription` with version from→to, `:story-override`,
+`:local-state`, `:hmr`, `:disposed`) plus the `:foreign-or-react` honesty fallback;
+the `data-rf2-source-coord` + render-key DOM annotation on compiler-owned host
 roots; and the Spec 009 evidence-schema rows.
 
-Consumers tolerate the absences explicitly rather than fabricating them
-(`tools/xray/spec/021` §3.4.1: the S3 producer emits no epoch-restore evidence
-op, and Xray does not invent one). The unshipped delta is staged to **S6** with
-a named owner (see Open Issues); the Spec 004 ledger
-row names its budget/absence gates for S6. The schema below is the ruled design
-intent.
+**Deliberately deferred with named triggers (never a silent drop):**
+`:parent-render-key`, the singular keyword `:frame-id` (frame attribution is
+per-observation instead), and the `:prop` / `:frame`-`:context` / `:resource` /
+`:hydration-correction` / `:reconnect-correction` / `:epoch-restore` / `:hmr-remount`
+cause kinds. Consumers still tolerate those absences explicitly rather than
+fabricating them (`tools/xray/spec/021` §3.4.1: no `:epoch-restore` / `:hmr-remount`
+evidence lands, and Xray invents neither). The dated delta below records exactly
+what shipped and enumerates each deferral's trigger; the Spec 004 §View identity
+amendment is its normative home. The schema originally sketched here is the ruled
+design intent.
+
+### S6 view-evidence delta — shipped (2026-07-21, rf2-vxgfnd.98.1)
+
+The §Two evidence layers / §Render causes design below is the ruled intent; this
+dated delta records what the S6 slice (rf2-vxgfnd.98.1, slices a–d) ACTUALLY
+shipped and where it deliberately trims or defers under the delta protocol ("trim
+deliberately, never silently drop"). It records the shipped surface; the parallel
+`spec/004-Views.md` §View identity amendment is the normative home.
+
+**Record shape (Ruling 1 — Option 1A, honest capture).** The DEBUG-only per-commit
+committed-instance record, minted at each connected commit and read via
+`re-frame.ui.reactive/commit-record`:
+
+```clojure
+{:render-key 1042            ; module-global monotonic integer, minted fresh per connected commit
+ :view-id :cart/row          ; the cell's authoring identity
+ :generation 3               ; the committed view-body generation
+ :root-id :page/shop         ; owning root incarnation (nil under no root — Tier-1/JVM)
+ :connection :connected      ; the certified three-state model, at a connected commit
+ :observations [{:kind :subscription :query [:cart/item 17]
+                 :target-id 88 :version 12 :owned? true :frame-id :shop}]
+ :rf.view/causes [{:cause :subscription :target 88 :query [:cart/item 17]
+                   :frame-id :shop :from 11 :to 12 :epoch 4}]}
+```
+
+- **`:parent-render-key` is DEFERRED out of the record** — trigger: "an Xray IA
+  review designs a hierarchy-consuming surface". No parent-capture machinery is
+  built in S6 (no `tools/xray/spec` consumer reads view parentage; capture would be
+  decoration).
+- **Frame attribution is PER-OBSERVATION, not a singular `:frame-id`.** Each
+  observation carries its own target's `:frame-id`; a cell observes a SET of frames
+  (`cell-frames` is a set by design — an override-only cell observes none), so the
+  record carries NO singular top-level `:frame-id`. This amends the singular
+  `:frame-id` sketched in §Two evidence layers.
+- Speculative renders publish nothing (I-1/I-2); production mints no record and no
+  `:render-key` — the whole plane is elided (G-7/G-11).
+
+**Causes roster (Ruling 2, as reworked — a deliberate 6-ships / 7-defers trim).**
+The per-commit `:rf.view/causes` **vector** ships six kinds plus the honesty
+fallback, each projected from an existing signal at its cause site (never a new
+capture machine, never a general evidence framework):
+
+- `:mount` — the first connected commit (`:fresh`→`:connected`); a bare `{:cause :mount}`.
+- `:subscription` — a value-movement port note carrying its ruled detail
+  `{:target :query :frame-id :from :to :epoch}` (coalesced: earliest `:from`, latest
+  `:to`). Renamed from the port's `:value` on the record surface.
+- `:story-override` — a (re)acquired static Story-override target, carrying
+  `{:override-id :version}`.
+- `:local-state` — the substrate-owned local writer bridge (gated on an `Object.is`
+  committed change); a bare marker.
+- `:hmr` — a real registrar-replacement fan-out; a bare marker.
+- `:disposed` — a `:disposed` port note; a bare marker. **`:disposed` is a ROSTER
+  ADDITION** — it ships today from the port but was absent from the specified
+  roster; recorded here so the trim protocol does not orphan a real cause.
+- `:foreign-or-react` — the honesty fallback for a commit whose pending evidence
+  window is empty.
+
+**Deferred, as deferred-with-triggers rows** (consumers keep tolerating absence
+exactly as `tools/xray/spec/021` §3.4.1 does; nothing is emitted for these):
+
+- `:prop` — trigger: an IA review designs a per-commit cause-detail surface.
+- `:frame` / `:context` — trigger: the substrate gains context-driven re-render
+  visibility (until then a context re-render falls into `:foreign-or-react`).
+- `:resource` — trigger: a resource-attribution question from dogfooding.
+- `:hydration-correction` — trigger: EP-0034's hydration probes land.
+- `:reconnect-correction` — trigger: hidden-reveal repaints confuse in dogfooding
+  (until then `:subscription` stays honest for a value that moved while hidden).
+- `:epoch-restore` — trigger: an Xray or Pair debugging surface is designed that
+  needs restore-driven commits distinguishable from ordinary `:subscription`
+  movement, naming the consumer that will read the restore attribution (restore
+  token + target epoch). Ruled option (c): restore provenance is outside
+  `perform-restore!`'s dynamic extent and headless hosts have no value-movement
+  watch, so honest emission needs a cross-artefact restore-provenance channel no
+  consumer reads; until then a restore-driven movement surfaces honestly as
+  `:subscription` (watchable hosts) or `:foreign-or-react` (headless).
+- `:hmr-remount` — trigger: a substrate remount-pairing channel tying a mount to its
+  predecessor's teardown. Deferred because a remounted instance is
+  React-indistinguishable from a fresh mount at the same view-global generation
+  using only the view-global remount counter; honest per-instance attribution needs
+  a teardown→remount pairing signal (cross-surface + a fiddly closing rule).
+
+**Schema version + vocabulary residue.** The record + roster ship under
+`re-frame.ui.tool/schema-version` **3** (bumped from 2 in this same change; Xray,
+Story, and Pair move in lockstep so none degrades to `[]`). The `:value`→
+`:subscription` rename lands on the per-commit record surface only; the observation
+**port keyword** and Xray's **cumulative** `explain-render` window keep the
+`#{:value :hmr :disposed}` vocabulary — the port-wide vocabulary unification is a
+separate cross-substrate move (a tracked follow-up), not part of this bump.
 
 ### Two evidence layers
 
@@ -254,17 +346,21 @@ its own versioned schema from day one.
 
 ## Open Issues
 
-1. **Resolved by assignment (rf2-ed1py ruling, 2026-07-19).** The
-   specified-but-unshipped evidence-schema delta (§Shipped surface and specified
-   extensions) is staged to **S6** and owned by `rf2-vxgfnd.98.1`, an
-   active child of the S6 epic. The Spec 004 ledger row's budget/absence
-   gates for S6 stand.
+1. **Shipped (rf2-vxgfnd.98.1, 2026-07-21).** The evidence-schema delta
+   (§Shipped surface and specified extensions) shipped at **S6** — the per-commit
+   committed-instance record, the six-kind `:rf.view/causes` vector, the DOM
+   annotation, and the Spec 009 rows — under `re-frame.ui.tool/schema-version` 3;
+   see §S6 view-evidence delta for the shipped shape and the deferred-with-triggers
+   rows. `:parent-render-key`, the singular `:frame-id`, and five further cause
+   kinds are deferred with named triggers, not dropped.
 2. Deferred with a named trigger: a Static-mode mounted-views/manifest-browse
    surface goes to the post-S3 IA review, triggered only if dogfooding shows
    the Views-tab + `mounted-views` assembly failing.
 
-Graduation: this EP moves to `final` when the full evidence schema asserts and
-the G-7/G-11 erasure gates complete (S6), residue as errata.
+Graduation: the S6 evidence schema now asserts (rf2-vxgfnd.98.1) and the G-7/G-11
+erasure gates hold; this EP moves to `final` once the deferred-with-triggers rows
+recorded in §S6 view-evidence delta are either triggered-and-shipped or confirmed
+errata.
 
 ## References
 
