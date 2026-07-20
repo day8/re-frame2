@@ -17,7 +17,7 @@
  :fixture/registry
  {:route
   {:route/legacy-cart {:path     "/old/cart"
-                       :on-match [[:rf.route/navigate :route/cart]]}
+                       :on-match [[:rf.route/navigate {:to :route/cart}]]}
    :route/cart        {:path "/cart"}}
 
   :event

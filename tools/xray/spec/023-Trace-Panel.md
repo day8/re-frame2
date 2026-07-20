@@ -206,7 +206,7 @@ This is **interaction wiring, not visual** — Figma need only render a generic 
 > EVENT HANDLER / COEFFECT / FLOW stages, EFFECTS ops onto EFFECT HANDLERS, etc.
 > per §3a).
 
-**Routing** `[:rf.route/navigate :app/settings]`:
+**Routing** `[:rf.route/navigate {:to :app/settings}]`:
 ```
 ○ EPOCH OPEN  :rf.route/navigate :app/settings
 ▾ ② EVENT HANDLING   COEFFECT current-route · handler ran · DB [:rf.runtime/routing :current] (or [:rf.runtime/routing :pending-navigation])

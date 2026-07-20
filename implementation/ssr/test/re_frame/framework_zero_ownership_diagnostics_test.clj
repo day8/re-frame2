@@ -118,7 +118,7 @@
     (stub-push-url!)
     (let [diags (record-ownership-diagnostics! ::routing)]
       ;; (1) :rf.route/navigate — programmatic navigation.
-      (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "intro"}}])
       (is (= :route/article (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                     [:rf.runtime/routing :current :route-id]))
           ":rf.route/navigate wrote the route slice (:rf.db/runtime applied)")

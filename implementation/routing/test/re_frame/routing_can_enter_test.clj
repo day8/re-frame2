@@ -41,7 +41,7 @@
             the guard returns false (fail-closed, :direction :enter)"
     (register-common!)
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])   ;; land signed-out
-    (rf/dispatch-sync [:rf.route/navigate :account])
+    (rf/dispatch-sync [:rf.route/navigate {:to :account}])
     (let [p (pending)]
       (is (some? p) "programmatic entry to a guarded route sets the pending slot")
       (is (= :enter    (:direction p)) ":direction is :enter")
@@ -82,7 +82,7 @@
       (events/reg-event :rf.route/entry-blocked
                     (fn [_ [_ pn]] (swap! events conj pn) {}))
       (rf/register-listener! :trace ::enter (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate :account])
+      (rf/dispatch-sync [:rf.route/navigate {:to :account}])
       (rf/unregister-listener! :trace ::enter)
       (is (= 1 (count @events)) ":rf.route/entry-blocked was dispatched once")
       (is (= :enter (:direction (first @events))) "the dispatched pending-nav carries :direction :enter")
@@ -100,7 +100,7 @@
             continue completes the entry"
     (register-common!)
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
-    (rf/dispatch-sync [:rf.route/navigate :account])
+    (rf/dispatch-sync [:rf.route/navigate {:to :account}])
     (let [p1 (pending)]
       (is (some? p1) "entry blocked while signed out")
       ;; continue WITHOUT signing in — :can-enter re-runs and re-blocks.
@@ -124,7 +124,7 @@
     (let [traces (atom [])]
       (rf/register-listener! :trace ::loop (fn [ev] (swap! traces conj ev)))
       ;; First block, then keep continuing without ever signing in.
-      (rf/dispatch-sync [:rf.route/navigate :account])
+      (rf/dispatch-sync [:rf.route/navigate {:to :account}])
       (dotimes [_ 12]
         (when-let [p (pending)]
           (rf/dispatch-sync [:rf.route/continue (:id p)])))
@@ -147,7 +147,7 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
     (let [traces (atom [])]
       (rf/register-listener! :trace ::nb (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate :account])
+      (rf/dispatch-sync [:rf.route/navigate {:to :account}])
       (rf/unregister-listener! :trace ::nb)
       (is (some (fn [ev]
                   (and (= :rf.error/can-enter-non-boolean (:operation ev))
@@ -172,7 +172,7 @@
                     (= "/account" (:url target))))
       (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
-      (rf/dispatch-sync [:rf.route/navigate :account])
+      (rf/dispatch-sync [:rf.route/navigate {:to :account}])
       (is (map? @seen) "the guard received a target map argument")
       (is (= :account (:route-id @seen)) "the target carries the resolved :route-id")
       (is (= "/account" (:url @seen)) "the target carries the requested :url")
@@ -186,12 +186,12 @@
     (register-common!)
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
     ;; #{:enter} → enters despite the guard.
-    (rf/dispatch-sync [:rf.route/navigate :account {} {:bypass-guards? #{:enter}}])
+    (rf/dispatch-sync [:rf.route/navigate {:to :account :bypass-guards? #{:enter}}])
     (is (nil? (pending)) ":bypass-guards? #{:enter} skipped the enter gate — no block")
     (is (= :account (current-id)) "entered while signed out because :enter was bypassed")
     ;; Reset to home; #{:leave} must NOT bypass enter.
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
-    (rf/dispatch-sync [:rf.route/navigate :account {} {:bypass-guards? #{:leave}}])
+    (rf/dispatch-sync [:rf.route/navigate {:to :account :bypass-guards? #{:leave}}])
     (is (some? (pending)) ":bypass-guards? #{:leave} left the enter gate ACTIVE — blocked")
     (is (= :home (current-id)) "did not enter — only :leave was bypassed")))
 
@@ -210,6 +210,6 @@
       (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/handle-url-change "/editor"])
       (rf/dispatch-sync [:editor/dirty true])          ;; make :can-leave block
-      (rf/dispatch-sync [:rf.route/navigate :account])
+      (rf/dispatch-sync [:rf.route/navigate {:to :account}])
       (is (= :leave (:direction (pending))) "the LEAVE guard blocked first")
       (is (false? @enter-ran) "the enter guard was NOT consulted — leave short-circuited"))))

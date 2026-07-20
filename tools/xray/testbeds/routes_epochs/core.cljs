@@ -210,7 +210,7 @@
   {:doc "Re-seed app-db AND navigate home. Start clean."}
   (fn handler-reset [_ _ev]
     {:db initial-db
-     :fx [[:dispatch [:rf.route/navigate :routes-epochs/home]]]}))
+     :fx [[:dispatch [:rf.route/navigate {:to :routes-epochs/home}]]]}))
 
 ;; ============================================================================
 ;; A reusable navigate driver
@@ -223,12 +223,19 @@
 ;; from the dispatched routing event.
 
 ;; A reusable navigate event-fx: every navigation rung routes through here.
+;; It projects the (route-id | {:url ...}) target + params + opts into the flat
+;; `:rf.route/navigate` request map.
 (rf/reg-event :routes-epochs/go
   {:doc "Dispatch `:rf.route/navigate` with the supplied target / params /
          opts. The shared driver behind every navigation rung."}
   (fn handler-go [{:keys [db]} [_ target params opts]]
     {:db db
-     :fx [[:dispatch [:rf.route/navigate target params (or opts {})]]]}))
+     :fx [[:dispatch [:rf.route/navigate
+                      (merge (if (map? target)
+                               target                            ;; {:url ...} form
+                               (cond-> {:to target}
+                                 (seq params) (assoc :params params)))
+                             (or opts {}))]]]}))
 
 ;; ============================================================================
 ;; REDIRECT (#6) + ROUTE-DRIVEN APP-DB LOADER (#8)
@@ -240,7 +247,7 @@
          DIFFERENT route one cascade later."}
   (fn handler-redirect [{:keys [db]} _ev]
     {:db db
-     :fx [[:dispatch [:rf.route/navigate :routes-epochs/home]]]}))
+     :fx [[:dispatch [:rf.route/navigate {:to :routes-epochs/home}]]]}))
 
 (rf/reg-event :routes-epochs/load-profile
   {:doc "Step #8's route-driven loader — fired as
@@ -276,7 +283,7 @@
          the `:can-leave` guard will block the next attempt to leave."}
   (fn handler-enter-dirty [{:keys [db]} _ev]
     {:db (assoc db :settings-dirty? true)
-     :fx [[:dispatch [:rf.route/navigate :routes-epochs/settings]]]}))
+     :fx [[:dispatch [:rf.route/navigate {:to :routes-epochs/settings}]]]}))
 
 (rf/reg-event :routes-epochs/try-leave-settings
   {:doc "Step #11 — attempt to navigate home FROM dirty settings. The
@@ -284,7 +291,7 @@
          outcome reads `blocked`, and `:rf/pending-navigation` fills."}
   (fn handler-try-leave [{:keys [db]} _ev]
     {:db db
-     :fx [[:dispatch [:rf.route/navigate :routes-epochs/home]]]}))
+     :fx [[:dispatch [:rf.route/navigate {:to :routes-epochs/home}]]]}))
 
 ;; ============================================================================
 ;; BACK / FORWARD HISTORY (#9)

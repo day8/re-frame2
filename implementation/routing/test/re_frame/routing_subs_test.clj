@@ -67,17 +67,17 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on the deepest leaf — chain walks up to the root.
-    (rf/dispatch-sync [:rf.route/navigate :route/account.profile])
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/account.profile}])
     (is (= [:route/account :route/account.settings :route/account.profile]
            @(rf/subscribe [:rf.route/chain]))
         ":rf.route/chain returns [root ... leaf]")
     ;; Mid-chain
-    (rf/dispatch-sync [:rf.route/navigate :route/account.settings])
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/account.settings}])
     (is (= [:route/account :route/account.settings]
            @(rf/subscribe [:rf.route/chain]))
         ":rf.route/chain returns the partial chain from the middle")
     ;; Root has a single-element chain
-    (rf/dispatch-sync [:rf.route/navigate :route/account])
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/account}])
     (is (= [:route/account]
            @(rf/subscribe [:rf.route/chain]))
         ":rf.route/chain returns a single-element chain for the root")))
@@ -125,7 +125,7 @@
     (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/navigate :route/cart])
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
     ;; 1. The RAW durable slice carries the active route id under :route-id.
     (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/routing :current])]
@@ -155,7 +155,7 @@
     ;; First nav: no prior route → only :rf.route/activated fires.
     (let [traces (atom [])]
       (rf/register-listener! :trace ::act1 (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate :route/from])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/from}])
       (rf/unregister-listener! :trace ::act1)
       (is (= [:route/from]
              (map #(-> % :tags :route-id)
@@ -166,7 +166,7 @@
     ;; Cross-route nav: both fire in deactivated→activated order.
     (let [traces (atom [])]
       (rf/register-listener! :trace ::act2 (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate :route/to])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/to}])
       (rf/unregister-listener! :trace ::act2)
       (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
                                 (:operation %))
@@ -183,7 +183,7 @@
     ;; Same-id navigation: neither fires (route stays active across the transition).
     (let [traces (atom [])]
       (rf/register-listener! :trace ::act3 (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate :route/to])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/to}])
       (rf/unregister-listener! :trace ::act3)
       (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
                                 (:operation %))

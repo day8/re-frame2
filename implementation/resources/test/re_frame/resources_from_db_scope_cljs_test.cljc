@@ -173,7 +173,7 @@
                   :scope {:from-db :t/session} :blocking? true}]} "/")
   (testing "route entry resolves the {:from-db} route-resource scope against
             app-db BEFORE planning, ensuring under the session scope"
-    (rf/dispatch-sync [:rf.route/navigate :t/home])
+    (rf/dispatch-sync [:rf.route/navigate {:to :t/home}])
     (let [k (session-key "jake" 1)]
       (is (some? (entry k)) "the route ensured the feed under the resolved session scope")
       (let [owner [:route :t/home (:nav-token (slice))]]
@@ -186,12 +186,12 @@
     {:resources [{:resource :t/feed :params (fn [_] {:page 1})
                   :scope {:from-db :t/session}}]} "/")
   (rf/reg-route :t/other {} "/other")
-  (rf/dispatch-sync [:rf.route/navigate :t/home])
+  (rf/dispatch-sync [:rf.route/navigate {:to :t/home}])
   (let [k     (session-key "jake" 1)
         owner [:route :t/home (:nav-token (slice))]]
     (is (contains? (:active-owners (entry k)) owner) "owner attached on entry")
     (testing "route leave releases the owner acquired under the RESOLVED scope"
-      (rf/dispatch-sync [:rf.route/navigate :t/other])
+      (rf/dispatch-sync [:rf.route/navigate {:to :t/other}])
       (is (not (contains? (:active-owners (entry k)) owner))
           "the prior route owner (resolved-scope key) is released on leave"))))
 
@@ -202,7 +202,7 @@
                   :scope {:from-db :t/session}}]} "/")
   (testing "a {:from-db} route scope resolving nil surfaces as a route
             PLANNING error on the slice, never a silent global ensure"
-    (rf/dispatch-sync [:rf.route/navigate :t/home])
+    (rf/dispatch-sync [:rf.route/navigate {:to :t/home}])
     (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice))))
         "the route slice carries the planning error")
     (is (empty? (entries)) "no entry ensured under any scope (fail-closed)")))

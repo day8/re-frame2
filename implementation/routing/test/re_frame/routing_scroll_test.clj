@@ -68,7 +68,7 @@
 
       ;; 1. Forward navigation to a route with no :scroll metadata —
       ;;    default :top.
-      (rf/dispatch-sync [:rf.route/navigate :route/articles])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/articles}])
       (is (= 1 (count @calls)) "navigate emits exactly one :rf.nav/scroll fx")
       (let [a (first @calls)]
         (is (= :top (:strategy a))
@@ -78,7 +78,7 @@
 
       ;; 2. Navigate to a route with :scroll :restore — strategy carries.
       (reset! calls [])
-      (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "intro"}}])
       (let [a (first @calls)]
         (is (= :restore (:strategy a))
             "route's :scroll :restore wins over the implicit :top default")
@@ -89,14 +89,13 @@
 
       ;; 3. Per-call :scroll override in opts trumps route metadata.
       (reset! calls [])
-      (rf/dispatch-sync [:rf.route/navigate :route/article {:id "two"}
-                         {:scroll :preserve}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "two"} :scroll :preserve}])
       (is (= :preserve (-> @calls first :strategy))
           "opts :scroll wins over route metadata")
 
       ;; 4. :scroll false on the route suppresses the fx entirely.
       (reset! calls [])
-      (rf/dispatch-sync [:rf.route/navigate :route/profile])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/profile}])
       (is (empty? @calls)
           ":scroll false on the route suppresses the :rf.nav/scroll fx")
 
@@ -271,7 +270,7 @@
                  ;; mirror the handler but supply an explicit position (no
                  ;; window on the JVM) so the save path is exercised here.
                  (routing/save-scroll-position! (:frame ctx) (:url args) [0 321])))
-    (rf/dispatch-sync [:rf.route/navigate :route/home])
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
     (routing/save-scroll-position! :rf/default "/" [0 321])
     (let [rdb (frame/frame-runtime-db-value :rf/default)]
       (is (nil? (get-in rdb [:rf.runtime/routing :scroll-positions]))
@@ -311,9 +310,9 @@
       ;; as a prior visit's capture would have.
       (routing/save-scroll-position! :rf/default "/articles/intro" [0 640])
       ;; Land on home first, then navigate to the :restore article route.
-      (rf/dispatch-sync [:rf.route/navigate :route/home])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
       (reset! calls [])
-      (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "intro"}}])
       (let [a (first @calls)]
         (is (= :restore (:strategy a))
             "the article route resolves to :restore")
@@ -337,8 +336,8 @@
   (rf/reg-route :route/other  {} "/other")
   (let [;; Cache keys built via route-url — exactly the CANONICAL keys capture
         ;; would write for the leaving slice.
-        cart-key   (routing/route-url :route/cart {} {})            ;; "/cart"
-        search-key (routing/route-url :route/search {} {:a "1" :b "2"}) ;; canonical order
+        cart-key   (routing/route-url {:to :route/cart :params {} :query {}})            ;; "/cart"
+        search-key (routing/route-url {:to :route/search :params {} :query {:a "1" :b "2"}}) ;; canonical order
         cache      (-> nil
                        (scroll/save-scroll-position cart-key   [0 640])
                        (scroll/save-scroll-position search-key [0 810]))
@@ -395,13 +394,13 @@
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       ;; Without an opts override the route's :scroll false suppresses.
-      (rf/dispatch-sync [:rf.route/navigate :route/silent])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/silent}])
       (is (empty? @calls)
           "baseline: route :scroll false suppresses the fx")
       ;; A per-call :scroll :top opt resurrects the fx on a fresh target
       ;; (override wins over the route's :scroll false).
       (reset! calls [])
-      (rf/dispatch-sync [:rf.route/navigate :route/silent2 {} {:scroll :top}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/silent2 :scroll :top}])
       (is (= :top (-> @calls first :strategy))
           "opts :scroll :top overrides the route's :scroll false → fx emits")))
 
@@ -415,7 +414,7 @@
       (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
-      (rf/dispatch-sync [:rf.route/navigate :route/loud {} {:scroll false}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/loud :scroll false}])
       (is (empty? @calls)
           "opts :scroll false suppresses despite the route's :scroll :restore")))
 
@@ -436,7 +435,7 @@
       (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
-      (rf/dispatch-sync [:rf.route/navigate :route/custom])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/custom}])
       (is (= {:behavior :smooth :block :center} (-> @calls first :strategy))
           "the resolver neither coerces nor drops an unsupported strategy")
       (is (not (m/validate nav-fx-schemas/scroll-args (first @calls)))

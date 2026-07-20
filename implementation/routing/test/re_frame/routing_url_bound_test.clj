@@ -65,7 +65,7 @@
                  (fn [{:keys [frame]} url]
                    (swap! pushed conj {:frame frame :url url})))
       ;; Default frame: pushes normally
-      (rf/dispatch-sync [:rf.route/navigate :route/home])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
       (is (= 1 (count @pushed))
           "default frame: push-url fires once")
       (is (= :rf/default (-> @pushed first :frame))
@@ -86,7 +86,7 @@
                              (true? (:url-bound? (frame/frame-meta frame))))
                      (swap! pushed conj {:frame frame :url url}))))
 
-      (rf/dispatch-sync [:rf.route/navigate :route/home]
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}]
                         {:frame :story/variant-A})
       (is (empty? @pushed)
           "non-URL-bound frame's push is suppressed by the gated fx"))))
@@ -123,13 +123,13 @@
                      (swap! pushed conj {:frame frame :url url}))))
 
       ;; :step-deck is the owner → its nav pushes the URL.
-      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :step-deck})
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}] {:frame :step-deck})
       (is (= [{:frame :step-deck :url "/home"}] @pushed)
           ":step-deck owns the URL, so its navigate pushes /home")
 
       ;; :rf/default opted out → its nav is suppressed (no longer the owner).
       (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :rf/default})
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}] {:frame :rf/default})
       (is (empty? @pushed)
           ":rf/default opted out of URL ownership, so its push is suppressed"))))
 
@@ -239,8 +239,8 @@
                    (when (= frame (routing/url-owner-frame-id))
                      (swap! pushed conj {:frame frame :url url}))))
       ;; Owner (:rf/default) pushes; the losing binding does not.
-      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :rf/default})
-      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :second-owner})
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}] {:frame :rf/default})
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}] {:frame :second-owner})
       (is (= [{:frame :rf/default :url "/home"}] @pushed)
           "only the deterministic owner's navigate pushes the URL; the loser no-ops"))))
 
@@ -295,11 +295,11 @@
                      (swap! pushed conj {:frame frame :url url}))))
       ;; The earlier-sorting duplicate navigates FIRST — under the bug it owned
       ;; the URL and this push would fire. It must no-op now.
-      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :aaa-early})
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}] {:frame :aaa-early})
       (is (empty? @pushed)
           "the earlier-sorting duplicate's push is suppressed — it is NOT the owner")
       ;; The incumbent still drives the URL.
-      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :rf/default})
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}] {:frame :rf/default})
       (is (= [{:frame :rf/default :url "/home"}] @pushed)
           "the incumbent :rf/default still pushes the URL"))))
 
@@ -317,7 +317,7 @@
                  (fn [{:keys [frame]} url]
                    (when (= frame (routing/url-owner-frame-id))
                      (swap! pushed conj {:frame frame :url url}))))
-      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :rf/default})
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}] {:frame :rf/default})
       (is (= [{:frame :rf/default :url "/home"}] @pushed)
           "the legitimate single owner drives the URL"))))
 

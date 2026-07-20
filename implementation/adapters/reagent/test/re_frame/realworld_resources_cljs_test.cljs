@@ -687,7 +687,7 @@
       (is (= :realworld/home-tag (route-id f)) "still on the tag route")
       (is (nil? (:page (route-query f))) "tag page 1 drops ?page= too")
       ;; the profile tab pages independently, on its own route + username
-      (rf/dispatch-sync [:rf.route/navigate :realworld.profile/show {:username "eve"}] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.profile/show :params {:username "eve"}}] {:frame f})
       (rf/dispatch-sync [:profile/go-to-page 3] {:frame f})
       (is (= :realworld.profile/show (route-id f)) "profile page-nav stays on the same tab")
       (is (= "eve" (:username (route-params f))) "the username is unchanged")
@@ -728,7 +728,7 @@
       ;; :realworld/article under the route owner) AND fires :on-match
       ;; [[:editor/load-article]] (the ownerless :reply-to [:editor/article-loaded]
       ;; seed ensure, which dedupes onto the route's own read).
-      (rf/dispatch-sync [:rf.route/navigate :realworld.editor/edit {:slug "hello-conduit"}] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "hello-conduit"}}] {:frame f})
       (is (some? @last-managed-args) "edit entry lowered the article read")
       (is (editor-route-owner? (entry f (article-key "hello-conduit")))
           "the article read is pinned by the ROUTE owner, not an app-minted lease")
@@ -754,7 +754,7 @@
       ;; EDIT → NEW ARTICLE: a REAL navigation to :realworld.editor/new. The route
       ;; plan releases the outgoing edit owner (route leave); :editor/initialise
       ;; (the /editor on-match) resets the slice.
-      (rf/dispatch-sync [:rf.route/navigate :realworld.editor/new] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/new}] {:frame f})
       (testing "edit→new released the route-owned read (no orphaned owner)"
         (is (not (editor-route-owner? (entry f (article-key "hello-conduit"))))
             "the outgoing edit route owner is released on edit→new")
@@ -778,7 +778,7 @@
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
-      (rf/dispatch-sync [:rf.route/navigate :realworld.editor/edit {:slug "hello-conduit"}] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "hello-conduit"}}] {:frame f})
       (reply-success! @last-managed-args
                       {:article {:slug "hello-conduit" :title "Hello, Conduit"
                                  :description "A desc" :body "Some body" :tagList []}}
@@ -790,7 +790,7 @@
       ;; ORDINARY ROUTE LEAVE — navigate to home, a route that does NOT read this
       ;; article. RED on the pre-fix code: nothing releases the editor's article
       ;; owner on this path, so the entry stays pinned active forever.
-      (rf/dispatch-sync [:rf.route/navigate :realworld/home] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home}] {:frame f})
       (is (= :realworld/home (route-id f)) "left the editor for home")
       (is (not (editor-route-owner? (entry f (article-key "hello-conduit"))))
           "leaving the editor for an unrelated route releases the article owner")
@@ -810,7 +810,7 @@
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
-      (rf/dispatch-sync [:rf.route/navigate :realworld.editor/edit {:slug "doomed"}] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "doomed"}}] {:frame f})
       (reply-success! @last-managed-args
                       {:article {:slug "doomed" :title "Doomed" :description "d"
                                  :body "b" :tagList []}}
@@ -865,7 +865,7 @@
             "token present + user unresolved → viewer scope nil (fail-closed)")
         ;; The URL syncs to a HOME deep link (stand-in). Its viewer-scoped reads
         ;; fail closed — no articles entry is stored under ANY identity.
-        (rf/dispatch-sync [:rf.route/navigate :realworld/home] {:frame f})
+        (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home}] {:frame f})
         (is (= :realworld/home (route-id f)) "cold boot lands on the home deep link")
         (is (nil? (entry f (articles-list-key (viewer-scope "alice"))))
             "no articles stored under a signed-in viewer during restore")
@@ -896,7 +896,7 @@
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op
                                                       :realworld-resources.session/persist :rf/no-op}})]
-      (rf/dispatch-sync [:rf.route/navigate :realworld.auth/login] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.auth/login}] {:frame f})
       (rf/dispatch-sync [:auth/initialise]
                         {:frame f :rf.cofx {:realworld-resources.session/token nil}})
       (is (= :idle (rf/compute-sub [:auth/state] (state-value f)))
@@ -928,7 +928,7 @@
       (is (= :restoring (rf/compute-sub [:auth/state] (state-value f))))
       (let [restore-req @last-managed-args]
         ;; deep link to a public article page
-        (rf/dispatch-sync [:rf.route/navigate :realworld.article/show {:slug "public-post"}] {:frame f})
+        (rf/dispatch-sync [:rf.route/navigate {:to :realworld.article/show :params {:slug "public-post"}}] {:frame f})
         (is (= :realworld.article/show (route-id f)))
         ;; during restore the viewer read fails closed — nothing stored anywhere
         (is (nil? (entry f (article-key "alice" "public-post"))))
@@ -1178,7 +1178,7 @@
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; Land somewhere other than home so the navigate-home is observable.
-      (rf/dispatch-sync [:rf.route/navigate :realworld.auth/register] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.auth/register}] {:frame f})
       (is (= :realworld.auth/register (route-id f)))
       (reset! last-managed-args nil)
       (rf/dispatch-sync [:ui/delete-article "hello-conduit"] {:frame f})

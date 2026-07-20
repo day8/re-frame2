@@ -61,7 +61,7 @@
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (stub-push-url!)
     (let [warns (record-runtime-warnings! ::navigate)]
-      (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "intro"}}])
       ;; The slice actually changed (proves the :rf.db/runtime effect applied).
       (is (= :route/article (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                     [:rf.runtime/routing :current :route-id]))

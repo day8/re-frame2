@@ -417,7 +417,7 @@
       (is (map? (:nodes g0)))
       (is (vector? (:edges g0)))))
   ;; Drive a navigation so the route slice is materialized in runtime-db.
-  (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}])
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}])
   (let [g     (graph/live-derivation-graph :rf/default all-contributors)
         slice (get (:nodes g) :rf/route)]
     ;; Assert setup explicitly so the remaining checks cannot pass vacuously.
@@ -786,7 +786,7 @@
   (rf/make-frame {:id :checkout/frame :doc "a frame to destroy"})
   ;; Materialize frame-owned facts: a committed route slice + a live singleton
   ;; machine snapshot, both in :checkout/frame.
-  (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}]
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}]
                     {:frame :checkout/frame})
   (rf/dispatch-sync [:upload/main [:upload/start]] {:frame :checkout/frame})
   (let [g-before (graph/live-derivation-graph :checkout/frame all-contributors)
@@ -818,7 +818,7 @@
   ;; owner identity.
   (register-one-of-each!)
   (rf/reg-route :route/about {} "/about")
-  (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}])
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}])
   (let [g-a   (graph/live-derivation-graph :rf/default all-contributors)
         slice (get (:nodes g-a) :rf/route)]
     (testing "the first navigation materialized the route-A slice"
@@ -830,7 +830,7 @@
         (is (= :route/article (:route-id slice)))
         (is (= [:route :route/article nav-token-a] owner-a)))
       ;; Supersede: a second navigation commits a new slice.
-      (rf/dispatch-sync [:rf.route/navigate :route/about {}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/about}])
       (let [g-b      (graph/live-derivation-graph :rf/default all-contributors)
             slice-b  (get (:nodes g-b) :rf/route)]
         (testing "the superseding navigation materialized the route-B slice"
@@ -896,7 +896,7 @@
                 "/articles/:slug")
   (rf/reg-route :route/about {} "/about")
   ;; --- Navigate to route A: the real navigation mints the route owner. ---
-  (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}])
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}])
   (let [owner-a    (:owner (routing-tooling/route-slice-algebra-view :rf/default))
         scope      :rf.scope/global
         params     {:slug "welcome"}
@@ -963,7 +963,7 @@
       ;; `commit-navigation`'s `:routing/on-route-entry` hook dispatches the real
       ;; `:rf.resource/release-owner {:owner owner-A}`, which drops owner A from
       ;; the entry + owner-index + work record — the genuine release path.
-      (rf/dispatch-sync [:rf.route/navigate :route/about {}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/about}])
       (let [entry-b        (get-in (frame/frame-runtime-db-value :rf/default)
                                    (resources-state/entry-path scoped-key))
             g-b            (graph/live-derivation-graph :rf/default all-contributors)
@@ -1415,7 +1415,7 @@
   ;; Keep the route params non-sensitive so this arm isolates the resource
   ;; identity projection. Normal navigation supplies a real nav-token owner.
   (rf/reg-route :route/secure-article {} "/secure")
-  (rf/dispatch-sync [:rf.route/navigate :route/secure-article {}]
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/secure-article}]
                     {:frame real-egress-frame})
   (let [nav-token   (:nav-token (get (:nodes (graph/live-derivation-graph real-egress-frame all-contributors))
                                      :rf/route))

@@ -363,7 +363,7 @@
       (let [article (:article value)]
         {:db (assoc db :editor (editor-slice (:slug article) (draft-from-article article)))
          :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
-              [:dispatch [:rf.route/navigate :realworld.article/show {:slug (:slug article)}]]]})
+              [:dispatch [:rf.route/navigate {:to :realworld.article/show :params {:slug (:slug article)}}]]]})
 
       :else
       {:db (assoc db :editor (editor-slice))
@@ -372,7 +372,7 @@
             ;; route-owned `:realworld/article` read; the delete's `[:article slug]`
             ;; invalidation then reaches an unowned entry that GC reclaims — no
             ;; orphaned owner, no refetch of the just-deleted slug.
-            [:dispatch [:rf.route/navigate :realworld/home]]]})))
+            [:dispatch [:rf.route/navigate {:to :realworld/home}]]]})))
 
 (rf/reg-event :editor/delete
   {:doc "Delete the article (edit mode only). Fires the delete mutation under the

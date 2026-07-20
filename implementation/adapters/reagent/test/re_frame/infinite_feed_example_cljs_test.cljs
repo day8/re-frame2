@@ -200,7 +200,7 @@
             nav-token owner (not the whole accumulation); the view reads the
             passive infinite view-model and settles to the merged :items on the
             reply (the route CAUSES page 0; the view never asks)"
-    (rf/dispatch-sync [:rf.route/navigate :infinite-feed.app/timeline])
+    (rf/dispatch-sync [:rf.route/navigate {:to :infinite-feed.app/timeline}])
     (let [slice     (get-in (runtime-db) [:rf.runtime/routing :current])
           nav-token (:nav-token slice)
           e         (entry)]
@@ -233,7 +233,7 @@
             (the button's on-click) derives the next page param from the loaded
             tail, fetches the next page, and APPENDS it to the merged :items; the
             view reads :fetching-next? while it is in flight (pages stay visible)"
-    (rf/dispatch-sync [:rf.route/navigate :infinite-feed.app/timeline])
+    (rf/dispatch-sync [:rf.route/navigate {:to :infinite-feed.app/timeline}])
     (reply-success! (page [{:id 0 :title "A"}] 1))
     (is (= [{:id 0 :title "A"}] (:items (feed-state))) "page 0 loaded")
     (reset! last-managed-args nil)
@@ -269,7 +269,7 @@
             is nil is the SINGLE terminal: :has-next-page? flips false, so the
             view shows the end-of-feed marker instead of the Load more button, and
             a further load-more is a no-op (no request)"
-    (rf/dispatch-sync [:rf.route/navigate :infinite-feed.app/timeline])
+    (rf/dispatch-sync [:rf.route/navigate {:to :infinite-feed.app/timeline}])
     ;; settle page 0 as a TERMINAL page (nil next-cursor).
     (reply-success! (page [{:id 0 :title "A"}] nil))
     (let [vm (feed-state)]
@@ -290,7 +290,7 @@
             every accumulated page visible and surfaces :page-error (the THIRD
             channel — 'couldn't load more, retry'), NOT the first-load :error nor
             the whole-feed :refresh-error; a successful retry clears it"
-    (rf/dispatch-sync [:rf.route/navigate :infinite-feed.app/timeline])
+    (rf/dispatch-sync [:rf.route/navigate {:to :infinite-feed.app/timeline}])
     (reply-success! (page [{:id 0 :title "A"}] 1))
     (load-more!)
     (reply-failure! {:kind :rf.http/server :status 503})
@@ -319,7 +319,7 @@
             (Spec 016 reserves :error for first-load, :page-error for load-more
             ONLY). The example's view shows the full error screen on :error; the
             inline retry on :page-error — distinct axes."
-    (rf/dispatch-sync [:rf.route/navigate :infinite-feed.app/timeline])
+    (rf/dispatch-sync [:rf.route/navigate {:to :infinite-feed.app/timeline}])
     (reply-failure! {:kind :rf.http/server :status 500})
     (let [vm (feed-state)]
       (is (false? (:has-data? vm)) "no data loaded")

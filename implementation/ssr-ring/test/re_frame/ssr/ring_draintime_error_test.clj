@@ -266,7 +266,7 @@
             ;; Drain-time error: a navigate whose :id ("zoo") fails the
             ;; route's :params predicate → reject → schema-validation-
             ;; failure, buffered against this per-request frame.
-            {:fx [[:dispatch [:rf.route/navigate :route/article {:id "zoo"}]]]}))
+            {:fx [[:dispatch [:rf.route/navigate {:to :route/article :params {:id "zoo"}}]]]}))
         (rf/reg-view* :pages/article
           (fn [] [:div.article "Article page renders"]))
 

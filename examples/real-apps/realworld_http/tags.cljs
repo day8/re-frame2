@@ -289,11 +289,11 @@
 
 (rf/reg-event :home/show-global-feed
   (fn [_ _]
-    {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {}}]]]}))
+    {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home :query {}}]]]}))
 
 (rf/reg-event :home/show-your-feed
   (fn [_ _]
-    {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {:feed following-feed-token}}]]]}))
+    {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home :query {:feed following-feed-token}}]]]}))
 
 (rf/reg-event :home/show-page
   {:doc "Jump to a 1-indexed page of the active home feed, carrying the current
@@ -306,19 +306,19 @@
   (fn [{rt :rf.db/runtime} [_ page]]
     (let [{:keys [tag feed]} (home-context rt)]
       (if tag
-        {:fx [[:dispatch [:rf.route/navigate :realworld/home-tag {:tag tag} {:query {:page page}}]]]}
+        {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home-tag :params {:tag tag} :query {:page page}}]]]}
         (let [query (cond-> {:page page} feed (assoc :feed feed))]
-          {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query query}]]]})))))
+          {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home :query query}]]]})))))
 
 (rf/reg-event :tags/apply-filter
   (fn [_ [_ tag]]
-    {:fx [[:dispatch [:rf.route/navigate :realworld/home-tag {:tag tag}]]]}))
+    {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home-tag :params {:tag tag}}]]]}))
 
 (rf/reg-event :tags/clear-filter
   (fn [_ _]
     ;; Dropping the tag means leaving the `/tag/:tag` route altogether — back
     ;; to the plain global feed at `/`, page 1.
-    {:fx [[:dispatch [:rf.route/navigate :realworld/home]]]}))
+    {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home}]]]}))
 
 (rf/reg-sub :home/selected-tag
   {:doc "The active tag — read from the `/tag/:tag` route's PATH params, since

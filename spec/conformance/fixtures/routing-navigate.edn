@@ -37,8 +37,8 @@
  :fixture/frame-config {:initial-events [[:rf/init]] :platform :client}
 
  :fixture/dispatches
- [[:rf.route/navigate :route/articles]
-  [:rf.route/navigate :route/article-detail {:id "intro"}]]
+ [[:rf.route/navigate {:to :route/articles}]
+  [:rf.route/navigate {:to :route/article-detail :params {:id "intro"}}]]
 
  :fixture/expect
  ;; The runtime's :rf.route/navigate handler writes the canonical slice

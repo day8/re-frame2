@@ -158,7 +158,7 @@
    :rf.http/decode-schemas [schema/ArticleResponse]}
   (fn [{:keys [db]} [_ slug]]
     (if (nil? (get-in db [:auth :user]))
-      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+      {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
       (if-let [article (find-article db slug)]
         (let [prior {:favorited      (:favorited article)
                      :favoritesCount (:favoritesCount article)}

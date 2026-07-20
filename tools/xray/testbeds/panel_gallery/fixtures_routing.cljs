@@ -120,10 +120,10 @@
   the panel derives FROM from that emit (NOT the live slice),
   so the FROM ◆ glyph requires the deactivated trace to be present."
   ([dispatch-id to-route nav-token]
-   [(event-dispatched-trace 1 dispatch-id [:rf.route/navigate to-route])
+   [(event-dispatched-trace 1 dispatch-id [:rf.route/navigate {:to to-route}])
     (nav-allocated-trace 2 dispatch-id to-route nav-token)])
   ([dispatch-id to-route nav-token from-route]
-   [(event-dispatched-trace 1 dispatch-id [:rf.route/navigate to-route])
+   [(event-dispatched-trace 1 dispatch-id [:rf.route/navigate {:to to-route}])
     (nav-allocated-trace 2 dispatch-id to-route nav-token)
     (deactivated-trace 3 dispatch-id from-route)]))
 

@@ -47,13 +47,13 @@
 
  :fixture/dispatches
  [;; 1. Forward navigation to a route with no :scroll meta — default :top.
-  [:rf.route/navigate :route/articles]
+  [:rf.route/navigate {:to :route/articles}]
 
   ;; 2. Forward navigation to a route declaring :scroll :restore — meta wins.
-  [:rf.route/navigate :route/article {:id "intro"}]
+  [:rf.route/navigate {:to :route/article :params {:id "intro"}}]
 
   ;; 3. :scroll false on the route suppresses the :rf.nav/scroll fx.
-  [:rf.route/navigate :route/profile]]
+  [:rf.route/navigate {:to :route/profile}]]
 
  :fixture/expect
  {:final-runtime-db {:rf.runtime/routing {:current {:route-id :route/profile :params {} :error nil}}}

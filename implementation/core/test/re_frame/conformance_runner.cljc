@@ -788,12 +788,11 @@
     :route-url
     (let [actual (cond
                    (contains? call :fragment)
-                   (routing/route-url (:route-id call) (:params call)
-                                      (or (:query call) {}) (:fragment call))
+                   (routing/route-url {:to (:route-id call) :params (:params call) :query (or (:query call) {}) :fragment (:fragment call)})
                    (:query call)
-                   (routing/route-url (:route-id call) (:params call) (:query call))
+                   (routing/route-url {:to (:route-id call) :params (:params call) :query (:query call)})
                    :else
-                   (routing/route-url (:route-id call) (:params call)))
+                   (routing/route-url {:to (:route-id call) :params (:params call)}))
           expect (:expect call)]
       {:passed? (= expect actual)
        :detail  (when (not= expect actual)
@@ -803,10 +802,7 @@
     :round-trip
     (let [matched (routing/match-url (:url call))
           rebuilt (when matched
-                    (routing/route-url (:route-id matched)
-                                       (:params matched)
-                                       (or (:query matched) {})
-                                       (:fragment matched)))]
+                    (routing/route-url {:to (:route-id matched) :params (:params matched) :query (or (:query matched) {}) :fragment (:fragment matched)}))]
       {:passed? (= (:url call) rebuilt)
        :detail  (when (not= (:url call) rebuilt)
                   (str "round-trip " (:url call) " → " rebuilt))})

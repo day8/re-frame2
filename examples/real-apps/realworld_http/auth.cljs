@@ -174,8 +174,8 @@
     (let [return-to (get-in db [:auth :return-to])]
       {:db (update db :auth dissoc :return-to)
        :fx [[:dispatch (if return-to
-                         [:rf.route/navigate (:id return-to) (:params return-to)]
-                         [:rf.route/navigate :realworld/home])]]})))
+                         [:rf.route/navigate {:to (:id return-to) :params (:params return-to)}]
+                         [:rf.route/navigate {:to :realworld/home}])]]})))
 
 ;; ============================================================================
 ;; AUTH STATE MACHINE
@@ -262,7 +262,7 @@
       {:data {:error nil}
        :fx [[:dispatch [:auth/clear-session]]
             [:auth.session/persist {:token nil}]
-            [:dispatch [:rf.route/navigate :realworld/home]]]})}
+            [:dispatch [:rf.route/navigate {:to :realworld/home}]]]})}
    :states
    {:idle
     {:on {:auth/login    {:target :submitting :action :clear-error}

@@ -209,7 +209,7 @@
   "Enter the board route and settle its first load with the canned board, so
    the optimistic writes have a live board entry to patch."
   []
-  (rf/dispatch-sync [:rf.route/navigate :linearlite.app/board])
+  (rf/dispatch-sync [:rf.route/navigate {:to :linearlite.app/board}])
   (reply-success! demo-board)
   (reset! last-managed-args nil))
 
@@ -222,7 +222,7 @@
             the :linearlite/board resource under the route nav-token owner; the
             view reads the passive board :data and settles to the issues on the
             reply (the route CAUSES the load; the view never asks)"
-    (rf/dispatch-sync [:rf.route/navigate :linearlite.app/board])
+    (rf/dispatch-sync [:rf.route/navigate {:to :linearlite.app/board}])
     (let [slice     (get-in (runtime-db) [:rf.runtime/routing :current])
           nav-token (:nav-token slice)
           e         (entry)]

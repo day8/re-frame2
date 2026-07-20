@@ -209,7 +209,7 @@
             the :articles/list resource under the route nav-token owner, the view
             reads it passively, and it settles :loaded on the reply (the route
             CAUSES the fetch; the view never asks)"
-    (rf/dispatch-sync [:rf.route/navigate :resources.app/articles])
+    (rf/dispatch-sync [:rf.route/navigate {:to :resources.app/articles}])
     (let [slice     (get-in (runtime-db) [:rf.runtime/routing :current])
           nav-token (:nav-token slice)
           lkey      (list-key)
@@ -234,7 +234,7 @@
   (testing "examples/capabilities/resources/resources — :resources.app/article-detail maps the
             URL slug into the :article/by-slug resource params, so the detail
             read is a per-slug cache entry"
-    (rf/dispatch-sync [:rf.route/navigate :resources.app/article-detail {:slug "owners-vs-causes"}])
+    (rf/dispatch-sync [:rf.route/navigate {:to :resources.app/article-detail :params {:slug "owners-vs-causes"}}])
     (let [dkey (detail-key "owners-vs-causes")]
       (is (= :loading (:status (entry dkey)))
           "the slug-keyed detail read is ensured on entry")
@@ -287,7 +287,7 @@
             fresh data but keeps nothing alive — the route owns liveness). It
             refetches an already-loaded list into :fetching while prior data stays
             visible (stale-while-revalidate)"
-    (rf/dispatch-sync [:rf.route/navigate :resources.app/articles])
+    (rf/dispatch-sync [:rf.route/navigate {:to :resources.app/articles}])
     (let [slice     (get-in (runtime-db) [:rf.runtime/routing :current])
           nav-token (:nav-token slice)
           lkey      (list-key)]
@@ -389,7 +389,7 @@
   (testing "examples/capabilities/resources/resources — :resources.app/first-slug is an ordinary
             EP-0004 sub LAYERED over the passive `[:rf.resource/data …]` input
             (Spec 016 §No :select key — projections are subs, not resource hooks)"
-    (rf/dispatch-sync [:rf.route/navigate :resources.app/articles])
+    (rf/dispatch-sync [:rf.route/navigate {:to :resources.app/articles}])
     (reply-success! @last-managed-args
                     [{:slug "resources-101" :title "Resources 101"}
                      {:slug "owners-vs-causes" :title "Owners vs Causes"}])
