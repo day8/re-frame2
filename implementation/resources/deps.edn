@@ -56,10 +56,10 @@
                        day8/re-frame2-ssr        {:local/root "../ssr"}
                        day8/re-frame2-http       {:local/root "../http"}
                        ;; TEST-ONLY machines dep for the machine→resource
-                       ;; lease-release integration test
+                       ;; owner-release integration test
                        ;; (`resources_machine_owner_release_cljs_test`): a
                        ;; machine that `ensure`s a resource under its
-                       ;; `[:machine actor-id]` owner must release that lease on
+                       ;; `[:machine actor-id]` owner must release that owner on
                        ;; actor destroy (Spec 016 §Release authority is per owner
                        ;; kind, 016:290). machines depends only on core (no
                        ;; cycle), and this is test-only so the resources

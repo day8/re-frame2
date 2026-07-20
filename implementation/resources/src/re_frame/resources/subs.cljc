@@ -44,7 +44,7 @@
   until a route/event ensures it under the new scope — the view observes the
   new key's loading/idle state, NOT the stale entry), and output `=`
   memoisation keeps the sub quiet when neither the resolved key nor the read
-  entry changed. Owner-lease handoff is the existing causal machinery: the
+  entry changed. Owner handoff is the existing causal machinery: the
   route/event that ensures under the new scope attaches the new owner, and
   route leave / `clear-scope` releases the old — the sub is a passive
   reader throughout (Spec 016 §Views stay passive)."
@@ -174,7 +174,7 @@
 
 (defn- entry-active?
   "True iff a durable cache `entry` currently holds ≥1 active owner (a
-  liveness lease). An entry with an empty / absent `:active-owners` is NOT
+  liveness owner). An entry with an empty / absent `:active-owners` is NOT
   active — it is a bare cache key no route / event / machine is keeping
   alive, and so a sub landing on it reads `:idle`/stale forever (Spec 016
   §Active owners and causes)."
@@ -200,7 +200,7 @@
         owner-index (:owner-index resources-subtree)
         ;; the byte key-ids of every entry holding ≥1 active owner — the union
         ;; of the owner-index buckets (deduped). A non-from-caller-heavy cache
-        ;; with few active leases visits a handful of keys, not the whole cache.
+        ;; with few active owners visits a handful of keys, not the whole cache.
         active-ids  (reduce-kv (fn [acc _owner ids] (into acc ids)) #{} owner-index)]
     (some (fn [k-id]
             ;; rf2-9e0tyq — the index member IS the byte key-id; read the

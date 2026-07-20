@@ -560,7 +560,7 @@
   Published as the `:http/on-frame-destroyed!` late-bind hook and called from
   core `frame/destroy-frame!` AFTER machine + resource teardown, so actor-owned
   work gets its more specific `:actor-destroyed` semantics and resource-owned
-  work gets its ledger/lease cleanup first; this generic sweep then catches the
+  work gets its ledger/owner cleanup first; this generic sweep then catches the
   remaining PLAIN managed requests (ordinary event-handler issuance with no
   actor id — the exposed path) and no-ops on any handle already cleared (the
   already-empty indexes yield no handles). Does NOT overload `:epoch-restored`.
