@@ -248,7 +248,7 @@
          and releasing it on every leave; this event fires an OWNERLESS
          `:reply-to [:editor/article-loaded]` ensure that JOINS that same read — a
          cache-hit fires the continuation immediately, an in-flight fetch fires it
-         on settle — purely to seed. It mints NO lease of its own (nothing here to
+         on settle — purely to seed. It mints NO owner of its own (nothing here to
          release), and a `/editor/A` -> `/editor/B` re-match is a fresh navigation,
          so the runtime releases the A owner and ensures B on its own — this event
          only re-seeds. The `:editor/can-submit?` flow is registered ONCE at boot
@@ -259,7 +259,7 @@
       {:db (assoc db :editor (editor-slice slug blank-draft))
        :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
             ;; Join the route-owned read to seed the baseline — no owner, so this
-            ;; ensure adds no lease and there is nothing to release. The route's
+            ;; ensure adds no owner and there is nothing to release. The route's
             ;; own `:resources` ownership handles the read's whole lifecycle.
             [:dispatch [:rf.resource/ensure
                         {:resource :realworld/article
@@ -286,7 +286,7 @@
 ;; There is deliberately NO `:editor/release-article` event. The article read is
 ;; owned by the ROUTE (`:realworld.editor/edit` `:resources`, routing.cljs), so
 ;; the runtime releases `[:route :realworld.editor/edit nav-token]` on every route
-;; leave — there is no app-minted lease for an event to release. This is MIG-17's
+;; leave — there is no app-minted owner for an event to release. This is MIG-17's
 ;; re-homing doctrine at its cleanest: the causal owner is the route, and route
 ;; leave is the causal end event.
 
@@ -351,8 +351,8 @@
          navigate to the article detail. On a successful DELETE (no `:article` in
          the reply value), clear the slice and instance and head home. Both
          continuations NAVIGATE away from the edit route, so the runtime releases
-         the route-owned article read on the way out — neither branch releases a
-         lease by hand (there is none; the route owns the read, routing.cljs). On
+         the route-owned article read on the way out — neither branch releases an
+         owner by hand (there is none; the route owns the read, routing.cljs). On
          `:error` there's nothing to do here; the form already shows it off the
          instance state."}
   (fn [{:keys [db]} [_ {:keys [status value]}]]
@@ -424,7 +424,7 @@
   (fn [dirty? _] (not dirty?)))
 
 ;; ============================================================================
-;; VIEW  (a pure Form-1 render — no lifecycle, because the view owns no lease)
+;; VIEW  (a pure Form-1 render — no lifecycle, because the view holds no owner)
 ;; ============================================================================
 ;;
 ;; Same shape as settings.cljs. The render is a pure registered `reg-view` that
@@ -433,12 +433,12 @@
 ;; the dataflow — the seed-on-load is the route's `:on-match` `:reply-to`
 ;; continuation (`:editor/article-loaded`), and the article read's teardown is the
 ;; ROUTE's (`:realworld.editor/edit` `:resources`, routing.cljs), released by the
-;; runtime on every route leave. So the view holds no lease and no reaction; it is
+;; runtime on every route leave. So the view holds no owner and no reaction; it is
 ;; a pure function of subs. This is exactly what the native `ui_editor.cljc`
 ;; rendition compiles to, and the shape MIG-17 re-homes a Form-3 editor into.
 
 (reg-view ^{:doc "The article-editor page — a pure function of subs that never
-                   dispatches out of band. It owns no article lease: the read is a
+                   dispatches out of band. It owns no article owner: the read is a
                    route `:resource` (routing.cljs), released on every route leave,
                    and the seed-on-load is the route's `:on-match` `:reply-to`
                    [:editor/article-loaded] continuation. The save/delete

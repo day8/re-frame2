@@ -56,7 +56,7 @@ all of them.
   dispatches `[:rf.resource/load-more …]` carrying a `:cause` (`[:user
   :feed/load-more]`) and, pointedly, **no `:owner`**. The route already owns the
   feed for its whole lifetime; load-more just extends that one owned entry rather
-  than minting a second lease ([owner is lifetime; cause is
+  than minting a second owner ([owner is lifetime; cause is
   explanation](../../../../docs/resources/glossary.md#owner--cause)). The view never
   fetches and **never advances a cursor** — the runtime derives the next page
   param from the loaded tail. (If you've reached for TanStack's `fetchNextPage()`

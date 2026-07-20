@@ -141,7 +141,7 @@
                on entry and RELEASES that owner on every route leave — so leaving
                the editor for ANY route (home, a profile, settings, the saved
                article, or a new draft) drops the read with no view teardown and no
-               hand-rolled lease. `:on-match [[:editor/load-article]]` resets the
+               hand-rolled owner. `:on-match [[:editor/load-article]]` resets the
                editor slice and asks to be told when that same read settles (an
                OWNERLESS `:reply-to [:editor/article-loaded]` ensure that joins the
                route's load) so it can seed the draft + baseline; it mints no owner

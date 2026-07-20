@@ -13,8 +13,8 @@ default on a generated `rf=` comparator); **templates are hiccup with the
 ambiguities removed**, compiled — never interpreted — under a closed macro
 grammar in expression positions; **event handlers are data** (event vectors with
 a closed placeholder vocabulary, plus a small explicit-form decision table for
-what genuinely is not data); view-side state and lifecycle are exactly four body
-forms (`local`, `effect`, `lease`, `frame`); every escape to the host world is a
+what genuinely is not data); view-side state and lifecycle are exactly three body
+forms (`local`, `effect`, `frame`); every escape to the host world is a
 **named interop boundary** with a stated cost. Everything else — Form-1/2/3,
 `reg-view`, positional args, ratoms, `:on-mount` — is a normative absence.
 
@@ -45,7 +45,7 @@ decisions with real rejected alternatives: an EP, not a bead.
 one component form and its props/memo/registration semantics; the template
 grammar, including the closed macro grammar in expression positions;
 handlers-as-data (the vector form, placeholders, the decision table, and the
-controlled-input synchrony door); the four body forms and the `local` placement
+controlled-input synchrony door); the three body forms and the `local` placement
 law; and the interop boundary rows. It does not own reactivity, ownership, or
 the observation port (EP-0032); evidence, manifests, and instrumentation
 (EP-0033); the component-library readiness deltas' own design records (EP-0035 —
@@ -83,7 +83,7 @@ Reagent-familiar hiccup with the ambiguities removed. Control forms (`let`/
 `for`) normalize **into the AST**; both emitters (direct React code; the JVM
 structural tree owned by 004B) see through branches. Rejected at compile time
 with didactic messages: dynamic tag heads, markup-returning `map`, keywords in
-child position, raw lazy seqs, unkeyed list items, `sub`/`lease` in loops.
+child position, raw lazy seqs, unkeyed list items, `sub` in loops.
 
 **Expression positions carry a closed macro grammar** (owning text: Spec 004
 §Template grammar): expressions are value-opaque with respect to markup but
@@ -157,7 +157,7 @@ between internal views are legal opaque values, identity-compared, with no
 implicit invocation phase; component libraries accept event vectors/prefixes and
 dispatch `(conj prefix payload…)`.
 
-### 4. Body forms — `local`, `effect`, `lease`, `frame`
+### 4. Body forms — `local`, `effect`, `frame`
 
 - **`local`:** host component-local state, deliberately outside re-frame2
   epochs — no frame-resident variant exists or is reserved. `(local init)`
@@ -175,9 +175,6 @@ dispatch `(conj prefix payload…)`.
 - **`effect`:** `rf=` value deps, cleanup on dep change/disconnect/unmount,
   StrictMode-replay-safe; `(effect :connect …)` is named for what it does —
   **there is no "once"** in a lifecycle React can replay.
-- **`lease`:** declares resource liveness, reconciled by one aggregated passive
-  effect after commit; reads stay `(sub [:rf/resource …])`; never fetches
-  during render.
 - **`frame`:** the committed-frame ops bundle
   (`{:frame :dispatch :dispatch-sync :subscribe}`), incarnation-fenced, tiered
   advanced alongside `dispatch-fn`.
@@ -228,7 +225,7 @@ thing expressed genuinely is not data, and each admission names its invoker,
 phase, identity, and cost (the decision table).
 
 **Closed grammars are what make the compiler honest.** Site indexing (every
-`sub`/`lease` a compile-indexed site; sub-free views eliding their ViewCell) is
+`sub` a compile-indexed site; sub-free views eliding their ViewCell) is
 only sound if the compiler can see every reactive call; one unaudited macro
 breaks it. The same logic closes the options map, the placeholder vocabulary,
 and the AST node set: each closure converts "anything might happen" into a

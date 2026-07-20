@@ -19,7 +19,7 @@ Concept teaching lives in the UI guide (when published under `docs/ui/`) and the
 substrate design suite. This page is the contract surface for public symbols.
 
 **Stage honesty.** Front-porch symbols below are the ruled public API. Some
-runtime behaviours (committed DOM handlers, full lease semantics, hydration
+runtime behaviours (committed DOM handlers and hydration
 manifests) land with later substrate stages; the **names and signatures** are the
 v1 surface. Where a direct call is only a compile-time resolution symbol, the
 description says so.
@@ -102,22 +102,6 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
   `subscribe` / `subscribe-once` outside views.
 - **Errors**: direct call → `:rf.error/ui-tree-malformed`.
 
-### `lease`
-
-- **Kind**: function (compile-time authoring form)
-- **Signature**: `(lease descriptor)`
-- **Description**: Declares a mounted/visible view's interest in a resource, as a
-  declaration in the `defview` body (a `nil` descriptor is an inactive declaration).
-  Returns **no data** and does **no render-time work** — the render site only records
-  the desired ownership in the immutable render capture; it never mints an owner,
-  fetches, or dispatches during render. After the view's **connected, visible
-  commit**, the passive resource reconciler queues `:rf.resource/ensure` under an
-  app-minted `[:lease …]` owner, which **loads when the cache requires it** (a fetch
-  is a downstream consequence of that ensure, not render-time work). It **releases**
-  on disconnect / hide / unmount by dispatching `:rf.resource/release-owner`. Read the
-  resource's status and data passively with `sub` — `(sub [:rf/resource …])`. See the
-  [Resource lifecycle](../resources/concepts.md). Direct calls fail loud.
-
 ### `frame`
 
 - **Kind**: function (compile-time authoring form)
@@ -152,7 +136,7 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
   function is the cleanup honoured on dep-change, disconnect, and unmount. `:connect`
   runs at each connect (mount / Activity reveal) with cleanup at each disconnect — there
   is deliberately no "once"/"mount" name. StrictMode dev replay is expected and must be
-  idempotent-safe (that is what cleanup is for). `sub`/`lease`/`frame` inside an effect
+  idempotent-safe (that is what cleanup is for). `sub`/`frame` inside an effect
   body are compile errors. On the JVM effects do not run (capability metadata only).
 - **Placement**: a leading statement in a `defview` top region (or a top-region `let`/
   `do` body) before the template (`:rf.ui.compile/hook-misplaced` otherwise).
@@ -269,7 +253,7 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
   (closed grammar, no runtime hiccup); it renders from its arguments alone. A render-fn
   value is legal in exactly two positions: a component call-site prop value
   (`[list {:row (ui/render-fn [i x] …)}]`) and a `slot` argument; the library invokes
-  it through `slot`. A render-fn body is **pure render phase** — `sub` / `lease` /
+  it through `slot`. A render-fn body is **pure render phase** — `sub` /
   `frame` are allowed, but `dispatch` / hooks / local state / effects inside are
   compile errors (a stateful replacement part is a pure slot body that mounts a static
   `defview`, which owns its state).

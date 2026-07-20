@@ -1,9 +1,8 @@
 # re-frame.adapter.reagent
 
-`re-frame.adapter.reagent` binds re-frame2's substrate-agnostic core to Reagent, the browser-default reactive substrate. Requiring it gives you four things:
+`re-frame.adapter.reagent` binds re-frame2's substrate-agnostic core to Reagent, the browser-default reactive substrate. Requiring it gives you three things:
 
 - the `adapter` spec you pass to `(rf/init! …)` at boot;
-- the `with-resource-lease` mount-lifecycle component;
 - `flush-views!`, the test helper;
 - `set-hiccup-emitter!`, the SSR render-to-string seam.
 
@@ -53,41 +52,6 @@ The slim variant is bundle-isolated: a dedicated isolation gate verifies that st
 
 The migration (a four-line swap) is in [Use UIx, Helix, or reagent-slim](../core/how-to/use-uix-helix-or-slim.md).
 
-## Components
-
-### `with-resource-lease`
-
-- **Kind**: component (Reagent Form-3 class)
-- **Signature**:
-  ```clojure
-  [with-resource-lease descriptor body-thunk]
-  [with-resource-lease descriptor opts body-thunk]
-  ```
-- **Description**: A Reagent component that holds a resource liveness lease for its mounted lifetime. It is the Reagent counterpart of the UIx / Helix `use-resource-lease` hook.
-
-  Arguments:
-  - `descriptor` — the resource-instance identity `{:resource … :scope … :params …}`.
-  - `opts` — an optional map between the descriptor and the body thunk. `:cause` is recorded on the ensure for observability (defaults to `[:lease :mount]`). `:frame` pins the lease to an explicit frame id, bypassing ambient resolution.
-  - `body-thunk` — a 0-arg fn returning the hiccup rendered while the lease is held.
-
-  Behaviour:
-  - On mount, dispatches `:rf.resource/ensure` with a per-instance `[:lease token]` owner; on unmount, dispatches `:rf.resource/release-owner` for that owner into the same frame.
-  - Frame resolution happens at render time and tries, in order: the explicit `:frame` opt, the dynamic `with-frame` binding, then the surrounding React context installed by a `frame-provider` (SCOPE) or a `frame-root` (ENSURE). If none is in scope, it raises `:rf.error/no-frame-context`. This matches the UIx / Helix `use-resource-lease` chain — a `with-frame` binding nested inside a provider or root wins over that boundary.
-  - The lease token is minted once per mounted instance, so a hot-reload re-mount settles to exactly one held lease.
-  - Under `render-to-string` (SSR) lifecycle methods do not run, so the acquire/release is a no-op.
-- **Example**:
-  ```clojure
-  [reagent-adapter/with-resource-lease
-   {:resource :my/feed :scope :rf.scope/global :params {:page 0}}
-   (fn [] [feed-view])]
-
-  ;; With opts — record a cause, pin the frame:
-  [reagent-adapter/with-resource-lease
-   {:resource :my/feed :scope :rf.scope/global :params {:page 0}}
-   {:cause :dashboard-widget :frame :session}
-   (fn [] [feed-view])]
-  ```
-
 ## Test helpers
 
 ### `flush-views!`
@@ -136,7 +100,6 @@ The migration (a four-line swap) is in [Use UIx, Helix, or reagent-slim](../core
 - [`re-frame.core`](re-frame.core.md) — the substrate-agnostic surface (`capture-frame`, `with-frame`, `with-new-frame`, `frame-provider`, `reg-view`) and the lifecycle surface (`init!`, `install-adapter!`, `destroy-adapter!`, `current-adapter`).
 - [`re-frame.adapter.uix`](re-frame.adapter.uix.md) / [`re-frame.adapter.helix`](re-frame.adapter.helix.md) — the hooks-first React substrates and their parallel adapter surfaces.
 - [`re-frame.ssr`](re-frame.ssr.md) — server-side rendering; wires `set-hiccup-emitter!` for you.
-- [`re-frame.resources`](re-frame.resources.md) — the resource runtime `with-resource-lease` leases into (`:rf.resource/ensure` / `:rf.resource/release-owner`).
 - [Use UIx, Helix, or reagent-slim](../core/how-to/use-uix-helix-or-slim.md) — the substrate-choice how-to, including the slim swap.
 - [Views](../core/views.md) — why the substrate only shows up in the view body.
 - [Adapter](../core/glossary.md#adapter) and [substrate](../core/glossary.md#substrate) — the seam, and the thing it binds to, defined.

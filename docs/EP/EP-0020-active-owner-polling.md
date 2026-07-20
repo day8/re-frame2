@@ -10,8 +10,8 @@ Type: standards-track
 > default-pause-when-hidden with `:poll-when-hidden?` reserved (OQ 2), the
 > `:poll` cause (OQ 8) and `:poll-interval-ms` spelling (OQ 7); data-derived
 > intervals (OQ 4), poll-failure back-off (OQ 5), and the per-use route/ensure
-> override (OQ 6) are reserved to future consumer-driven work; the adapter
-> `use-resource-lease` ergonomics (OQ 1) is a separate adapter bead. The
+> override (OQ 6) are reserved to future consumer-driven work; owner ergonomics
+> for an ownerless polled read (OQ 1) ride the existing causal owners. The
 > normative contract lives in [`spec/016-Resources.md` §Polling](../../spec/016-Resources.md#polling)
 > (a sibling of §Stale and GC scheduling), with the `:poll-interval-ms`
 > spec-key, the `:poll` cause, and the `:rf.resource/poll-scheduled` /
@@ -77,14 +77,14 @@ This is the load-bearing re-frame2 divergence. TanStack/SWR/RTK tie polling to a
 *mounted React component observer*: the hook that reads the query is the thing
 that keeps it polling, and unmounting the last observer stops the poll. re-frame2
 already has a sharper, framework-owned version of "is anyone looking at this":
-the **active-owner lease** ([Spec 016 §Active owners and
+the **active owner** ([Spec 016 §Active owners and
 causes](../../spec/016-Resources.md#active-owners-and-causes)). An owner is a
-liveness lease held by a route entry, a machine instance, an SSR render, or an
-app-minted lease — and it already answers exactly the question polling needs:
+liveness hold held by a route entry, a machine instance, an SSR render, or an
+app-minted owner — and it already answers exactly the question polling needs:
 *"Owners answer: should invalidation refetch now or only mark stale? **Should
 polling continue?** May the entry be garbage-collected?"* (Spec 016 line 270 —
 the spec already reserves the polling decision to the owner model). Polling
-therefore rides the lease that already exists, not a second component-observer
+therefore rides the owner that already exists, not a second component-observer
 concept. A poll is "while a live cause keeps this entry alive, keep it fresh."
 
 ## Goals
@@ -115,7 +115,7 @@ concept. A poll is "while a live cause keeps this entry alive, keep it fresh."
 
 - **No component-observer polling** — re-frame2 does not gain a
   React-hook-lifecycle poll. Polling is owner-driven (see Open Question 1 for
-  the `:lease`-on-mount ergonomics question).
+  the ownerless-read ergonomics question).
 - **No `:poll-interval-ms` as a function of data in v1** — TanStack's
   "poll until the job is done, computed from the last response" is a useful but
   larger feature (it needs the tick to re-evaluate a predicate against decoded
@@ -226,13 +226,13 @@ Semantics (MUST):
 
 ### Decision 2: polling is owner-driven and pauses fail-safe
 
-A poll is **owner-driven**: it tracks the active-owner lease, never a component
+A poll is **owner-driven**: it tracks the active owner, never a component
 observer. The pause/resume rules (MUST):
 
 | Condition | Polling state | Mechanism |
 |---|---|---|
 | Entry has ≥1 active owner, document visible | **runs** | poll timer armed; tick → `:rf.resource/refetch` cause `:poll` |
-| Entry's **last owner released** | **stops** | the same release path that drops the lease cancels the poll timer (a poll never pins an owner-free entry) |
+| Entry's **last owner released** | **stops** | the same release path that drops the owner cancels the poll timer (a poll never pins an owner-free entry) |
 | **Document hidden** (tab backgrounded) | **paused** (default) | poll ticks are suppressed while `document.visibilityState != "visible"`; resumes on tab return (which also fires the existing focus revalidation) |
 | **Frame destroyed** | **stops** | `:poll` timers released via the single `:resources/on-frame-destroyed!` teardown hook, composed with the stale/GC timer + work-ledger + listener release (`re-frame.resources.timers/release-frame!`) |
 | `:rf.resource/clear-scope` / `:rf.resource/remove` | **stops** | entry removed → `:rf.resource/cancel-timers` already cancels both timers for the key (`timers.cljc:285`); the `:poll` kind joins that cancel |
@@ -381,10 +381,10 @@ than its own EP-sized contract.
 The owner-driven choice (vs component-driven) is forced by the re-frame2 model,
 not a preference: views are passive reads ([Spec 016 §Active owners and
 causes](../../spec/016-Resources.md#active-owners-and-causes) — "Views stay
-passive"), so a *view* cannot be the thing that drives a fetch; the *owner lease*
+passive"), so a *view* cannot be the thing that drives a fetch; the *owner*
 already is the framework's "is this entry live and worth keeping fresh" concept,
 and the spec already reserves the polling decision to it (line 270). Tying
-polling to the lease means polling composes with routes, machines, SSR, and
+polling to the owner means polling composes with routes, machines, SSR, and
 restore for free — a route that owns a resource polls it while the route is
 active and stops on route leave, with no extra wiring.
 
@@ -445,31 +445,16 @@ they are kept verbatim as the record of what was ruled.
 1. **Owner ergonomics for a "just polling" read with no natural owner.** A
    dashboard widget that polls but is not route-owned or machine-owned needs
    *some* owner to keep the poll alive (an owner-free entry does not poll, by
-   design). The lease mechanism exists (`[:lease …]` app-minted owners with a
-   matching `:rf.resource/release-owner` path), but it is per-feature wiring.
-   Should this EP add a small ergonomic — e.g. an adapter-level
-   "lease-while-mounted" helper that mints a lease on mount and releases on
-   unmount — so a view can declaratively own a polled resource for its lifetime?
-   **Recommendation:** keep the v1 primitive owner-driven with the existing
-   `[:lease …]` path, and file a *separate* adapter-ergonomics bead for a
-   `use-resource-lease` / `with-resource-lease` mount-lifecycle helper (it is an
-   adapter concern, not a runtime-contract concern, and it is the only place the
-   component-observer model legitimately re-enters). This keeps EP-0020's runtime
-   contract clean while acknowledging the real ergonomic gap.
-
-   **DELIVERED (rf2-cxozh4).** The mount-lifecycle helper shipped in the adapter
-   layer, exactly as recommended — the runtime contract is untouched. Two
-   substrate-shaped surfaces over the ONE shared implementation
-   (`re-frame.adapter.resource-lease`, core/CLJS): `use-resource-lease`
-   (`re-frame.adapter.uix` / `re-frame.adapter.helix` — a React hook) and
-   `with-resource-lease` (`re-frame.adapter.reagent` — a Form-3 component). Each
-   mints a unique `[:lease …]` owner on mount (dispatching `:rf.resource/ensure`)
-   and releases it on unmount (`:rf.resource/release-owner`), carrying the
-   surrounding `frame-provider`'s frame. It is DATA-only — it `:require`s no
-   resources artefact (the two events are dispatched by keyword id), so it is
-   inert in an app without `day8/re-frame2-resources`; under SSR the lifecycle
-   never fires (a natural no-op); and the per-instance lease token is idempotent
-   under a StrictMode / hot-reload re-mount.
+   design). The causal-owner mechanism already covers it: an app-minted owner
+   naming the event that opened the widget (`[:dashboard/opened …]`) with a
+   matching `:rf.resource/release-owner` path is released on the feature's
+   teardown event, and a route-owned page polls under its `[:route …]` owner for
+   its navigation lifetime with no extra wiring.
+   **Recommendation:** keep the v1 primitive owner-driven with causal owners
+   only. A component-mount ownership helper was considered and **rejected** — the
+   component-observer model does not re-enter at any layer, runtime *or* adapter;
+   owner liveness is a property of the causal owner, not of which component
+   happens to be mounted.
 
 2. **Hidden-tab polling opt-in: ship in v1 or reserve?** TanStack
    (`refetchIntervalInBackground`), SWR (`refreshWhenHidden`), and RTK
@@ -548,7 +533,7 @@ the [§Open Issues](#open-issues) above carry the full rationale, and the
 
 | # | Decision | Resolution |
 |---|----------|-----------|
-| **R1** | Owner ergonomics for a "just polling" read with no natural owner? (Open Question 1) | Keep the v1 primitive **owner-driven** with the existing `[:lease …]` path; **file a separate adapter-ergonomics bead** for a `use-resource-lease` / `with-resource-lease` mount-lifecycle helper. The runtime contract stays clean; the component-observer model re-enters only at the adapter layer. |
+| **R1** | Owner ergonomics for a "just polling" read with no natural owner? (Open Question 1) | Keep the v1 primitive **owner-driven** with causal owners only (an app-minted `[:dashboard/opened …]` owner released on the feature's teardown event, or a `[:route …]` owner for a page). A component-mount ownership helper was **rejected** — the component-observer model does not re-enter at any layer. |
 | **R2** | Hidden-tab polling opt-in — ship in v1 or reserve? (Open Question 2) | **Ship default-pause-when-hidden in v1; reserve `:poll-when-hidden?`** for the first true-background-monitor consumer. Default safe, defer the escape hatch. |
 | **R3** | Is a poll tick unconditional or stale-gated? (Open Question 3) | **(a) unconditional** — every interval refetches an active-owned entry regardless of `:stale?` (matches all prior-art tools; the interval *is* the cadence). `:stale-after-ms` stays the separate "don't refetch on focus/route-entry unless older than X" knob. The single most load-bearing semantic ruling. |
 | **R4** | Data-derived dynamic interval / stop predicate? (Open Question 4) | **Non-Goal for v1, reserved.** When a consumer needs it, shape it as an EP-0014 declared derivation (inputs → next-interval-or-stop), not an anonymous closure. A static integer interval covers the dashboard/notification/presence majority. |
@@ -566,7 +551,7 @@ the landed focus/reconnect scan-and-refetch core for the tick, adds one resource
 policy key (`:poll-interval-ms`), one timer kind (`:poll`), one cause (`:poll`),
 and one trace op (`:rf.resource/poll-scheduled`). The load-bearing divergence
 from TanStack/SWR/RTK — **owner-driven, not component-driven** — is forced by
-re-frame2's passive-view model and is already reserved to the active-owner lease
+re-frame2's passive-view model and is already reserved to the active owner
 by the spec.
 
 The recommended cut:
@@ -577,8 +562,8 @@ The recommended cut:
 - default-pause-when-hidden, reserve `:poll-when-hidden?` (Open Question 2);
 - reserve data-derived intervals (Open Question 4) and poll-failure back-off
   (Open Question 5) to future consumer-driven work;
-- file the adapter `use-resource-lease` ergonomics as a separate bead (Open
-  Question 1);
+- keep ownerless-read ergonomics on causal owners; reject a component-mount
+  ownership helper (Open Question 1);
 - adopt the `:poll-interval-ms` spelling (Open Question 7) and the `:poll` cause
   (Open Question 8).
 

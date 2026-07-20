@@ -2,7 +2,7 @@
 
 `re-frame.adapter.helix` binds re-frame2 to the Helix React substrate. It ships as its own artefact (`day8/re-frame2-helix`) and depends on `re-frame.core`, never the reverse. A Helix app requires this namespace and passes its `adapter` Var into `(rf/init! ...)`. It exposes:
 
-- the Helix-shaped hooks `use-subscribe`, `use-frame`, `use-resource-lease`, and `use-current-frame`;
+- the Helix-shaped hooks `use-subscribe`, `use-frame`, and `use-current-frame`;
 - the `frame-provider` (SCOPE) + `frame-root` (ENSURE) components;
 - the `wrap-view` view-wrapping seam;
 - the `adapter` spec.
@@ -68,24 +68,6 @@ The substrate-agnostic carry and scoping primitives (`capture-frame`, `with-fram
     (let [count              (helix-adapter/use-subscribe [:counter/value])
           {:keys [dispatch]} (helix-adapter/use-frame)]
       (d/button {:on-click #(dispatch [:counter/inc])} "+")))
-  ```
-
-### `use-resource-lease`
-
-- **Kind**: Helix hook (function)
-- **Signature**:
-  ```clojure
-  (use-resource-lease descriptor) → nil
-  (use-resource-lease descriptor opts) → nil
-  ```
-- **Description**: Holds a resource liveness lease for the calling component's mounted lifetime. On mount it dispatches `:rf.resource/ensure` with an app-minted `[:lease …]` owner; on unmount it dispatches `:rf.resource/release-owner` for that lease. Returns nil: it manages liveness only. Read the data with `use-subscribe` on a `[:rf.resource/*]` query.
-  - `descriptor` — resource-instance identity `{:resource … :scope … :params …}`.
-  - `opts` — `:cause` (recorded on the ensure; defaults to `[:lease :mount]`) and `:frame` (pin to an explicit frame id, bypassing ambient resolution).
-  - Without `:frame`, the frame resolves through the same chain as `use-subscribe`, raising `:rf.error/no-frame-context` when no frame is in scope.
-  - Inert unless the resources artefact (`day8/re-frame2-resources`) is on the classpath to register the resource events.
-- **Example**:
-  ```clojure
-  (use-resource-lease {:resource :my/feed :scope :rf.scope/global :params {:page 0}})
   ```
 
 ### `use-current-frame`

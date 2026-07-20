@@ -100,7 +100,7 @@ This section is the normative contract, without metaphor.
 | **Registration** | A named entry created by a `reg-*` form. It has a kind, id, metadata, implementation value, provenance, and optional ownership/capability facts. |
 | **Image** | A value that selects registrations and optional inline descriptors into a candidate registration set for a frame. |
 | **Resolved image generation** | The sealed, validated registration set a frame actually runs. It includes selected registrations, framework standard registrations, provenance, replacement decisions, and capability requirements. |
-| **Frame** | A live isolated execution context. It owns app state, runtime subsystem state, queue/drain state, subscription cache, trace/history surfaces, lifecycle, adapter binding/configuration for the active substrate, capability map, host-transient leases, and a reference to one resolved image generation. |
+| **Frame** | A live isolated execution context. It owns app state, runtime subsystem state, queue/drain state, subscription cache, trace/history surfaces, lifecycle, adapter binding/configuration for the active substrate, capability map, host-transient handles, and a reference to one resolved image generation. |
 | **Frame-state value** | The EP-0001 serializable projection of a frame: app-db, runtime-db, and exposed trace/epoch projections. It excludes adapter bindings/configuration, host handles, queues, live caches, and other non-serializable runtime objects. |
 | **Event** | A vector delivered to a frame for processing. |
 | **Event stream** | The ordered sequence of events processed by a frame over its lifetime. |
@@ -202,7 +202,7 @@ This EP uses a small set of technical nouns:
 | **registration** | One named operation entry supplied with a `reg-*` form. |
 | **image** | A selected registration-set value: registrations plus their metadata, provenance, ownership, and capability facts. |
 | **resolved image generation** | The sealed validated registration set a frame resolves against while it runs. |
-| **frame** | The live isolated execution context: state, queue, caches, traces, lifecycle, active-substrate adapter binding/configuration, capability map, host-transient leases, and the resolved image generation. |
+| **frame** | The live isolated execution context: state, queue, caches, traces, lifecycle, active-substrate adapter binding/configuration, capability map, host-transient handles, and the resolved image generation. |
 | **frame-state value** | The EP-0001 serializable projection of a frame. |
 | **event** | A vector delivered to the frame for processing, such as `[:counter/inc]`. |
 | **event stream** | The ordered sequence of events processed across a frame's lifetime. |
@@ -288,7 +288,7 @@ An image may also declare the capabilities required by those registrations. That
 
 Most code should not have to name an image. Explicit images are for the cases where the default visible registration set stops being enough.
 
-Resolved generations are immutable. The runtime may physically share one resolved generation across many frames when the same image inputs resolve to the same descriptor set. That sharing is an implementation optimization, not a semantic coupling between frames. Two frames that run the same generation still have independent `app-db`, `runtime-db`, queues, caches, traces, lifecycle, adapter binding/configuration, and host-transient leases.
+Resolved generations are immutable. The runtime may physically share one resolved generation across many frames when the same image inputs resolve to the same descriptor set. That sharing is an implementation optimization, not a semantic coupling between frames. Two frames that run the same generation still have independent `app-db`, `runtime-db`, queues, caches, traces, lifecycle, adapter binding/configuration, and host-transient handles.
 
 The reference implementation MUST cache resolved generations. The minimum cache key is:
 
@@ -321,7 +321,7 @@ The live frame object owns:
 - a reference to the resolved image generation it is running;
 - the host adapter binding/configuration used by this frame;
 - the host capability map checked against the image's requirements;
-- frame-owned host-transient subsystem handles and leases, such as timers, DOM roots, in-flight requests, abort handles, and similar non-serializable runtime objects.
+- frame-owned host-transient subsystem handles, such as timers, DOM roots, in-flight requests, abort handles, and similar non-serializable runtime objects.
 
 A frame is the live execution context. Most product code targets a frame by id:
 
@@ -359,7 +359,7 @@ frame object
   resolved image generation
   adapter binding/configuration
   capability map
-  host-transient subsystem leases
+  host-transient subsystem handles
 
 frame-state value
   serializable app-db projection
@@ -1771,7 +1771,7 @@ event stream = the program
 
 ## Bead Plan / Reference Implementation
 
-1. Keep the EP-0013 realm container as a migration substrate while making the live frame object the public owner of adapter binding, capability map, frame lifecycle, and host-transient leases.
+1. Keep the EP-0013 realm container as a migration substrate while making the live frame object the public owner of adapter binding, capability map, frame lifecycle, and host-transient handles.
 2. Land or retain the live-resolution path: dispatch, subscribe, fx, cofx, view/resource lookup, and related registration resolution derive from the targeted frame.
 3. Add `rf/image` as the public constructor for selected registration-set values.
 4. Teach `rf/make-frame` to accept `:images`, always as a vector, and resolve those image values into one sealed image generation. `make-frame` always returns the live frame object; `:id` additionally registers that object in the process-local live-frame registry.

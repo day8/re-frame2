@@ -42,16 +42,16 @@
    framework lifecycle, with no view teardown involved. Seeding the edit draft's
    baseline stays a causal event: `:editor/load-article` (the route's `:on-match`)
    fires an OWNERLESS `:reply-to [:editor/article-loaded]` ensure that JOINS the
-   route's own load purely to be told when it settles — it mints no lease of its
+   route's own load purely to be told when it settles — it mints no owner of its
    own. The Reagent page released on `:component-will-unmount`; native re-frame.ui
    has no dispatch-at-unmount (a committed dispatcher rejects firing from a
    disconnected view — the leaked-listener law), so this owner CANNOT ride the
    view. It doesn't need to: the read is app-minted by a ROUTE, and a route is a
    causal owner whose end event is route leave (MIG-17 — routes/events/machines
-   are the preferred causal owners; a view lease fits only an owner whose lifetime
-   truly follows the view site, which this route-minted one does not). So the
-   native view owns no lease — there is nothing at the view tier to leak — and the
-   resource lifecycle lives in the route's `:resources`, released on every exit."
+   are the causal owners; this route-minted read's lifetime follows the route, not
+   the view site). So the native view owns no owner — there is nothing at the view
+   tier to leak — and the resource lifecycle lives in the route's `:resources`,
+   released on every exit."
   (:require [re-frame.ui :as ui :refer [defview sub]]))
 
 ;; The one stable instance id the editor form watches for the save write — the

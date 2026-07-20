@@ -101,7 +101,7 @@ exclusively through the compiler-owned form **`ui/slot`**. `ui/slot` accepts
 only `ui/render-fn` values or `nil`; the callback body is lexically visible at
 the consumer call site and therefore **compiled** (both emitters, closed
 grammar inside); the body is pure render phase —
-`sub`/`lease`/`local`/`effect`/dispatch/hooks inside are didactic errors;
+`sub`/`local`/`effect`/dispatch/hooks inside are didactic errors;
 result normalization/error behaviour, keys/occurrence identity,
 capability/fingerprint propagation, `ui.test` structural representation,
 child-like memo cost, and manifest slot sites are all specified. The

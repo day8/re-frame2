@@ -220,7 +220,7 @@ registry entry:
 - epoch/history projection state;
 - resolved image generation;
 - lifecycle hooks and teardown bookkeeping;
-- adapter binding/configuration and host-transient leases where applicable.
+- adapter binding/configuration and host-transient handles where applicable.
 
 The implementation may internally split storage for performance or layering, but
 there is one public and conceptual owner: the frame value found by frame id.

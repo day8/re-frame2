@@ -129,7 +129,7 @@
 ;; before walking the tree.
 ;;
 ;; Two things ride along with the ensure, and they answer two different
-;; questions. The owner `[:ssr request-id nav-token]` is a lease — it keeps the
+;; questions. The owner `[:ssr request-id nav-token]` is a hold — it keeps the
 ;; entry alive for exactly this server render and not a moment longer. The
 ;; cause `:ssr-preload` is the story for the trace: why this fetch happened.
 ;; Owner = how long; cause = why. See docs/resources/glossary.md#owner--cause.
@@ -144,7 +144,7 @@
                        :params   {}
                        ;; The request-id and nav-token are hard-coded for the
                        ;; demo; a real server would thread them off the actual
-                       ;; request so each render's lease is genuinely unique.
+                       ;; request so each render's owner is genuinely unique.
                        :owner    [:ssr :ssr/req-1 :ssr/nav-1]
                        :cause    :ssr-preload}]]]}))
 

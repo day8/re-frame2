@@ -478,7 +478,7 @@ forms, and ordinary function calls are accepted around reactive reads. Literal q
 are module constants; parametric sites reuse the prior query object while args are
 `rf=`; sites return the prior exact value when the new read is `rf=`. The observation
 model — the **six-operation port** (`resolve-target` · `probe` · `acquire!` ·
-`current?` · `read` · `release!`) over the target/evidence/lease split, the staged
+`current?` · `read` · `release!`) over the target/evidence/handle split, the staged
 transactional commit algorithm (acquire-before-release with rollback), and the
 **three-state lifecycle** (`:connected` / `:disconnected` / `:dead`; Activity-hide vs
 unmount are qualified retroactive annotations, never distinct runtime states) — is
@@ -1305,7 +1305,7 @@ Cell/ownership reconciliation under reload is owned by
 [006](006-ReactiveSubstrate.md) — including the guard that a re-registration landing in a
 cell's render→commit gap never paints the old body: commit checks body authority (the
 cell-local generation *and* the registered view revision) at **both** the render→commit
-boundary and again immediately before publication, releasing any newly-staged leases and
+boundary and again immediately before publication, releasing any newly-staged handles and
 re-rendering rather than committing a stale capture ([006 §Body authority under hot
 reload](006-ReactiveSubstrate.md#body-authority-under-hot-reload--the-two-point-commit-fence)).
 Compile budgets (expansion p95, watch-loop rebuild) are gated per
@@ -1470,7 +1470,7 @@ stages in small batches, 011 → S5).
 - **R-1 — staged merge.** The portability law merges immediately (the interim
   amendment); this rewrite merges atomically with the first conforming Stage-1 slice —
   "conforming" is profile-defined: the S1 rows of §Stage conformance profiles.
-- **R-2 — shapes final.** The observation port's six-operation target/evidence/lease
+- **R-2 — shapes final.** The observation port's six-operation target/evidence/handle
   ABI is final (the observation-port amendment, merged with the S2 slice, is the sole
   shape source; the merged 006 amendment carries it) — no provisional shapes remain
   anywhere in this contract.

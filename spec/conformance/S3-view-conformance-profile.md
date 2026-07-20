@@ -41,7 +41,7 @@ the real work happens at compile time in the analyzer/emitters and at runtime in
 | `ui/dispatch-fn` | stable per-view committed-frame dispatcher for imperative/foreign callbacks; retargets at commit; fails loud in every non-connected state (`:rf.error/dispatch-disconnected`) | `:rf.error/ui-tree-malformed` | **G-8** |
 | `ui/event` | committed `:on-*` handler with the live native event; result is the event vector to dispatch or `nil` (a filter); at a compiler-proven controlled site a synchronous vector result rides the **sync door**; any other synchronous result is a loud diagnostic | `:rf.error/ui-tree-malformed` | **G-8** |
 | `ui/handler` | imperative committed callback (result ignored); per-site stable; the explicit spelling of the bare-fn shorthand and the C-13a internal-view/foreign fn-prop | `:rf.error/ui-tree-malformed` | **G-8** |
-| `ui/render-fn` | pure compiled render-slot callback for an internal library seam; body is lexically visible and compiled by both emitters; `sub`/`lease`/`local`/`effect`/dispatch/hooks inside are compile errors | `:rf.error/ui-tree-malformed` | **G-16** |
+| `ui/render-fn` | pure compiled render-slot callback for an internal library seam; body is lexically visible and compiled by both emitters; `sub`/`local`/`effect`/dispatch/hooks inside are compile errors | `:rf.error/ui-tree-malformed` | **G-16** |
 | `ui/slot` | compiler-owned invocation of a `ui/render-fn` value (or `nil`); a non-render-fn value is a loud didactic error; output joins the surrounding children like any child | `:rf.error/ui-tree-malformed` | **G-16** |
 | `ui/spread-safe` | the literal safe-spread policy: owned/structural/identity keys (`:key` `:ref` `:value` `:checked`, owned `:on-*`) are denied in **every build**; `aria-*`/`data-*`/`title`/class/style pass; a controlled site under the policy form **retains** the sync door | `:rf.error/ui-spread-outside-template` | **G-17** |
 | `ui/error-boundary` | explicit error component; `:fallback` view renders on a caught render/lifecycle throw; `:on-error` dispatches after the failing commit through a live frame; `:reset-key` (compared `rf=`) clears the error | `:rf.error/ui-tree-malformed` | **G-6** |
@@ -93,7 +93,7 @@ React client behaviour).
 | `react/use-id` | host hook (`useId`) | host-generated tree-positional id token; SSR determinism rides the root contract; JVM yields a deterministic inert string | fails loud `:rf.error/ui-tree-malformed` |
 | `react/lazy` | def-level macro (`React.lazy`) | code-splitting over a foreign `load-thunk`, legal only where foreign heads are; optional `{:fallback tpl}`; not a loading-orchestration surface | compile error if called inside a view body/template (not a direct-call stub) |
 
-The S1/S2 forms S3 builds on — `defview`, `custom-element`, `sub`, `lease`,
+The S1/S2 forms S3 builds on — `defview`, `custom-element`, `sub`,
 `frame-provider`, `mount`/`create-root`/`hydrate-root`, `html`, `raw`, `spread`
 — keep their earlier contracts unchanged and are catalogued in the Spec 004
 family; the verbs, the `route-link` view, and the React interop tier above are
@@ -102,7 +102,7 @@ what froze at S3.
 ## 2. Host behaviour
 
 **JVM structural render (Tier 1, 06 §1 subset).** A `defview` renders to a
-versioned canonical tree; `sub`/`lease`/props/branches/lists/fragments and event
+versioned canonical tree; `sub`/props/branches/lists/fragments and event
 *intent* are faithful. `local` exposes its initial value; `effect`/`dispatch-fn`
 record capability metadata and their invocation raises `:rf.error/jvm-host-op`;
 `slot` output participates structurally. Handlers are recorded as intent and
@@ -125,7 +125,7 @@ owns.
 
 ## 3. HMR signature, event batching, callback law
 
-**HMR signature.** A view's hook signature (its ordered `sub`/`lease`/`local`/
+**HMR signature.** A view's hook signature (its ordered `sub`/`local`/
 `effect`/slot sites) rides the Fast-Refresh stable shell in dev; a
 hook-incompatible edit remounts. The dev shell and its revision/listener/
 descriptor/inner-Fiber machinery are `goog.DEBUG`-gated and elide in production

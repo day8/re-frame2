@@ -18,7 +18,7 @@ where this substrate is the wrong tool.
 
 "Prove" means: after normalising the control forms it understands — `let`, `if`,
 `when`, `if-let`, `when-let`, `if-some`, `when-some`, `cond`, `case`, `for`, and
-friends — every tag head, every `sub`/`lease` site, and every list identity is finite
+friends — every tag head, every `sub` site, and every list identity is finite
 and visible. Ordinary branching and binding are *free*: both arms of an `if`, every
 `cond` clause, the bound branch of an `if-let`, the body of a `for` all lower into the
 AST, so you are never forced into one linear template.
@@ -38,12 +38,11 @@ AST, so you are never forced into one linear template.
 
 ## Reactive sites must be finite
 
-Every `(sub …)` and `(lease …)` is a compile-indexed site on the view's single
+Every `(sub …)` is a compile-indexed site on the view's single
 React bridge. A `sub` may sit in a branch — it is not a hook — but no site may
-appear inside an unbounded loop, and a `lease` is stricter still: it is a *leading
-declaration*, never an expression. Both fixes are the same shape as
-[State](state.md#when-you-get-it-wrong): extract a keyed child view, or move a
-condition into a `lease` descriptor.
+appear inside an unbounded loop. The fix is the same shape as
+[State](state.md#when-you-get-it-wrong): extract a keyed child view that
+subscribes for one row.
 
 Expression positions — prop values, condition tests, `for` collections — hold
 ordinary Clojure *values*, but their lexical *syntax* is audited so every reactive
@@ -139,7 +138,7 @@ arguments alone) and the library invokes it through `ui/slot`:
 
 This is the middle of the customization taxonomy — data props, then pure render
 slots, then registered stateful views (that last tier is not in v1). A `render-fn`
-body is pure render phase: `sub`/`lease`/`frame` are allowed, but dispatch, hooks,
+body is pure render phase: `sub`/`frame` are allowed, but dispatch, hooks,
 state, and effects inside are compile errors — a stateful part is a pure slot body
 that mounts a static `defview` owning its own state.
 

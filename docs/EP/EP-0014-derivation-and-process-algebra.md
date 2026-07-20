@@ -649,8 +649,8 @@ Every node declares lifecycle:
 
 For processes, owner and cause are distinct. Owner keeps the process or cache
 entry alive. Cause explains why work happened. A button click that refreshes a
-resource is usually a cause; a route, machine, SSR request, or explicit lease is
-usually an owner.
+resource is usually a cause; a route, machine, SSR request, or app-minted event
+owner keeps it alive.
 
 ### Whole-Value Default
 
@@ -1415,7 +1415,7 @@ A conforming implementation should satisfy these checks:
 - **Lifecycle:** destroying a frame releases frame-owned graph nodes and
   host-transient state; subscription disposal releases cache-entry nodes;
   route exit releases route owners; machine destroy releases machine-owned
-  resource leases and timers.
+  resource owners and timers.
 - **Tool redaction:** graph inspection can summarize or redact sensitive
   params, scopes, and values without losing graph structure.
 - **Public API staging:** the first slice does not export a new public

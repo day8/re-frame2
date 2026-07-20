@@ -63,7 +63,7 @@ performance-parity promise for the retained Reagent/UIx/reagent-slim adapters
 ### 1. Production: specialization and the absence roster
 
 Production components carry exactly the machinery their capability bits imply —
-the closed vocabulary (`sub · local · effect · event-sites · lease ·
+the closed vocabulary (`sub · local · effect · event-sites ·
 frame-scope · presence · error-boundary · portal · client-only · trusted-html ·
 custom-element · foreign-react · dynamic-view · ui-event/handler · debug-site`)
 covers every feature that changes generated code, hydration, ownership, or
@@ -197,7 +197,7 @@ table governs.
 |---|---|
 | **G-1** direct-render parity | pure view within 10% of hand-written JSX CLJS (p50/p95) under the noise-robust estimator, plus an emitted-JS golden test pinning direct `jsx` calls (the IFn-dispatch trap) |
 | **G-2** AOT peer | ≥ UIx-AOT parity on pure views; reactive one-read ≤ 15% update-p95 over raw correct `useSyncExternalStore` |
-| **G-3** multi-read scaling | one store listener and one body invocation per ViewCell; independent lexical-site leases; at most one notification per dirty cell; queued writes settle before one read/render batch at the following host checkpoint |
+| **G-3** multi-read scaling | one store listener and one body invocation per ViewCell; independent lexical-site handles; at most one notification per dirty cell; queued writes settle before one read/render batch at the following host checkpoint |
 | **G-4** equality no-op | `rf=` results ⇒ zero revisions, zero prop/sub-driven renders, stable references |
 | **G-5** drain fan-in | eight queued update+commit epochs all execute in one run-to-completion drain and share exactly **one** read/render batch at the following host checkpoint — a drain is never split across batches; coalescing never drops writes; epoch count is never evidence of render/commit count |
 | **G-6** abandonment/disposal | 10k headless abandoned renders/cold probes and bounded mounted StrictMode/Activity cycles return every ownership surface to exact baseline |

@@ -57,7 +57,7 @@ How it behaves:
 
 - Keyed children pass through `:mounting` → `:present` → `:unmounting`. A removed
   child keeps rendering as `:unmounting` for **exactly `:timeout-ms`**, then
-  removal is terminal and exactly-once — subscriptions and leases released. The
+  removal is terminal and exactly-once — subscriptions and observation handles released. The
   timeout is the mandatory exit retention duration *and* the terminal bound; the
   boundary watches no transition events, so make it match (or exceed) your CSS
   transition time.

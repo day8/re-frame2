@@ -101,11 +101,11 @@ wait point).
 Other causes use the same entry with a different **cause** recorded for the trace:
 
 ```clojure
-;; Explicit ensure from a handler (app-minted owner lease — release on leave)
+;; Explicit ensure from a handler (app-minted event owner — release on leave)
 (rf/dispatch [:rf.resource/ensure
               {:resource :realworld/article
                :params   {:slug "hello"}
-               :owner    [:lease :article-page]
+               :owner    [:article/opened :article-page]
                :cause    [:event :article/opened]}])
 
 ;; Pull-to-refresh — new generation, no owner
@@ -224,7 +224,7 @@ Resolve the old scope **before** stripping auth from `db`.
 
 <a id="owners-and-causes-and-the-refetch-rules"></a>
 
-- **Owner** — liveness lease (route, machine, app lease). Controls GC and whether
+- **Owner** — a liveness hold (route, machine, app-event owner). Controls GC and whether
   invalidation refetches now or only marks stale.
 - **Cause** — why this fetch happened (trace / Xray). Does not keep the entry alive.
 
