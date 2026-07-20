@@ -266,7 +266,8 @@ their committed homes; no `spec/004A` appendix lands).
 - **Blessed API-table deltas (ruled under the freeze's delta protocol).**
   #1 `ui/custom-element` (2026-07-12); #2 `ui/->react`, lands S6 (2026-07-12);
   #3 `ui/spread` (2026-07-12); #4 `ui/slot` plus the internal `render-fn`
-  widening (2026-07-16); #5 `ui/spread-safe` (2026-07-16).
+  widening (2026-07-16); #5 `ui/spread-safe` (2026-07-16); #6 `render-static`
+  fn→macro (2026-07-20).
 - **Internal fn-props and the library event-prefix convention — C-13a/C-13b
   (2026-07-16).** Fn props between internal views are opaque identity-compared
   values with no implicit phase; libraries take event prefixes and `conj`

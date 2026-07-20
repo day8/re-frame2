@@ -123,14 +123,27 @@ renders `:present`.
 and frames (state worlds) are distinct, many-to-many identities; "island" is
 not vocabulary. Each independently hydratable unit ships a root manifest (root
 id, element locator, view id, props, frame-payload ids, render fingerprint,
-build digest, identifier prefix, phase); mount position is never identity;
-duplicate root ids are a build error; frame payloads install idempotently and
-order-independently. Hydration per root: validate digest + fingerprint →
-install payloads → `hydrate-root` → one root **phase flip** swaps `client-only`
-fallbacks in a single update → first connected commits acquire ownership.
-Failure scopes are precise (a mismatch fails that root; a bad payload affects
-exactly its referencing roots); no `suppressHydrationWarning`-style escape
-exists. Static roots are explicit policy — compiler proof of no client
+identifier prefix, phase); mount position is never identity; duplicate root
+ids are a build error; frame payloads install idempotently and
+order-independently. Hydration per root: **preflight** — manifest
+discovery/validation, then the idempotent payload-install decision (the
+content digest exists to reject a conflicting second install,
+`:rf.error/frame-payload-conflict`; no manifest-fingerprint verification
+channel exists on this tier — the structural render-hash belongs to the hiccup
+tier, and a compiled-tier fingerprint check is a deliberately deferred future
+leaf) → `hydrate-root` adopts the server DOM against the root's
+`:server`-phase render → one root **phase flip** swaps `client-only` fallbacks
+in a single update → first connected commits acquire ownership. Hydration
+verification is **React-native adoption**: a divergence React recovers from —
+a text-content mismatch, or a missing, extra, or wrong-type element — surfaces
+through the root's `onRecoverableError` as the `:rf.ssr/hydration-mismatch`
+diagnostic while React patches the DOM. A mismatch never fails the root, the
+compiled tier has no `:hard-error` escalation, and attribute-only mismatches
+are by design not detected (Spec 011 owns the boundary). Root *failure* is the
+distinct case: a root that throws while booting (preflight → install → hydrate
+→ the host's mount) is contained by failed-root isolation — a bad payload
+affects exactly its referencing roots, and sibling roots hydrate and stay
+interactive. Static roots are explicit policy — compiler proof of no client
 capability **and** a host declaration; "no subs, no handlers" never silently
 strips a runtime. Event vectors are retained as data in the manifest and the
 JVM tree; pre-hydration replay stays research-tier (see Scope).
@@ -216,8 +229,9 @@ the mounted suite. The substrate takes no build dependency on re-com.
 ### 5. Gate wiring status
 
 Every stage wires its own gates into CI in that stage, never later; a
-feasibility PASS never silently closes a named-open gate. S1–S4 are complete;
-the stages ahead follow
+feasibility PASS never silently closes a named-open gate. S1–S4 are complete
+and S5's surfaces are shipped and proven (the formal S5 conforming declaration
+is pending); the stages ahead follow
 [EP-0030 §Stages S1–S7](EP-0030-the-compiled-view-substrate-program.md#stages-s1s7).
 
 **Wired and green:**
@@ -262,6 +276,13 @@ the stages ahead follow
   (`parity_corpus_cljs_test`) this closes the triangle: dev-CLJS == JVM-truth
   **and** advanced-CLJS == JVM-truth, so dev == prod per generated shape across
   all 43 corpus cases, with no golden files.
+- **The S5 root-hydration family** — Root Manifest v1 with positional
+  discovery, hydration preflight + idempotent payload adoption, failed-root
+  isolation, the `emit-ui-tree` serialiser, the root-scoped `client-only`
+  phase flip, and `render-static` — proven by the focused JVM/node/browser
+  suites named in the S5 conformance profile
+  (`spec/conformance/S5-view-conformance-profile.md`), riding the existing
+  required CI jobs; the profile's formal conforming declaration is pending.
 
 **Named open:**
 
@@ -276,8 +297,6 @@ the stages ahead follow
   guide-examples corpus and has no assertion anywhere in the repository, as the
   gate's own suite states.
 - **G-2/G-9** — wire with the stages shipping their subjects.
-- Root-manifest hydration + failed-root isolation (S5 — the dual-host spike
-  passed structural output only).
 - **G-10** and the remaining absence/equivalence/budget gates, plus the
   one-time W11 trio table (S6).
 

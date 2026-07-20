@@ -256,8 +256,8 @@ its own versioned schema from day one.
 
 1. **Resolved by assignment (rf2-ed1py ruling, 2026-07-19).** The
    specified-but-unshipped evidence-schema delta (§Shipped surface and specified
-   extensions) is staged to **S6** and owned by `rf2-vxgfnd.98.1`, a
-   trigger-gated child of the S6 epic. The Spec 004 ledger row's budget/absence
+   extensions) is staged to **S6** and owned by `rf2-vxgfnd.98.1`, an
+   active child of the S6 epic. The Spec 004 ledger row's budget/absence
    gates for S6 stand.
 2. Deferred with a named trigger: a Static-mode mounted-views/manifest-browse
    surface goes to the post-S3 IA review, triggered only if dogfooding shows
