@@ -1843,6 +1843,21 @@
     (set (keys (::cycles @ledger-state)))
     #{}))
 
+(defn ledger-sources
+  "Test support: the runtime SOURCE-MEMBERSHIP graph — the set of `[build-id
+  ns-sym]` the ledger currently holds a committed contribution for. This is the
+  runtime mirror of the compile side's `:build-sources` membership (see
+  `ledger-state`): a saved source that is removed or renamed away drops out of
+  this set the moment its reload cycle is reconciled (`reconcile-sources`
+  evicts a touched-but-unstaged row), a rename swaps the old ns key for the new,
+  and a same-namespace file move keeps its key. Always empty where there is no
+  ledger (`:advanced` production allocates none). Observability only — not a
+  consumer API (classification reads `custom-element-properties`)."
+  []
+  (if reload-ledger?
+    (set (keys (::sources @ledger-state)))
+    #{}))
+
 (defn projected-aggregate
   "Test support: the aggregate the public `custom-elements` atom MUST equal — the
   pure projection of the current ledger `::sources`. A settled ledger's published
