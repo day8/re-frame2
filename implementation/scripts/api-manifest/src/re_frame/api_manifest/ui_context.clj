@@ -456,10 +456,11 @@ committed frame.
   literal foreign-component var as the head — its props are passed through; a
   **bare fn** on a foreign prop is `:rf.ui.compile/bare-fn-prop`, so wrap it in
   `(ui/handler …)` or `(ui/raw-fn …)`.
-- **Refs:** `:ref` takes a `(ui/raw-fn f)` callback ref (identity-as-protocol),
-  or the declared-`:ref`-forwarding form. A **bare fn** at `:ref` is
-  `:rf.ui.compile/bare-fn-ref`. `:ref` on a *view* is rejected
-  (`:rf.ui.compile/ref-on-view-s1`) — forward through a declared prop instead.
+- **Refs:** `:ref` takes an object ref (preferred) or a `(ui/raw-fn f)` callback
+  ref (identity-as-protocol); a **bare fn** at `:ref` is
+  `:rf.ui.compile/bare-fn-ref`. An internal **view forwards `:ref` only by
+  declaring it** in its header (React 19 ref-as-prop) — passing `:ref` to a view
+  carries it on the props object, and the callee reads it via the declared slot.
 - **Spreading props:** `(ui/spread base overrides)` is the one generic runtime
   prop-map merge, legal only in a **DOM/custom element's** props position (not
   an internal-view call). `(ui/spread-safe owned caller)` is the literal

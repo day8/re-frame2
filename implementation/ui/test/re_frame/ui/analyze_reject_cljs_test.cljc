@@ -605,9 +605,16 @@
       "callback refs must be explicit (ui/raw-fn f)")
   (is (nil? (reject-id '[:div {:ref (raw-fn (fn [el] el))} "x"]))
       "(ui/raw-fn f) is the callback-ref spelling")
-  (is (= :rf.ui.compile/ref-on-view-s1
-         (reject-id '[child-view {:ref r}]))
-      ":ref forwarding on internal views lands S3 (conservative pin)"))
+  ;; rf2-u53yy.3: an internal view forwards :ref (React 19 ref-as-prop) — an
+  ;; object ref carries through the props object; the ref contract is the
+  ;; element's, so a bare fn still needs the explicit (ui/raw-fn f).
+  (is (nil? (reject-id '[child-view {:ref object-ref}]))
+      "an object :ref forwards to an internal view (declared-ref forwarding)")
+  (is (nil? (reject-id '[child-view {:ref (raw-fn (fn [el] el))}]))
+      "(ui/raw-fn f) is the callback-ref forwarding spelling on a view")
+  (is (= :rf.ui.compile/bare-fn-ref
+         (reject-id '[child-view {:ref (fn [el] el)}]))
+      "a bare-fn :ref on an internal view still needs (ui/raw-fn f)"))
 
 (deftest ui-handler-grammar
   (is (= :rf.ui.compile/bad-ui-handler
