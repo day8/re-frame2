@@ -7,7 +7,7 @@
 This skill is not on anyone's critical path:
 
 - **It is the OPTIONAL, SECOND step.** The migration journey is two moves, in order: **(1)** re-frame v1 → re-frame2 (the *required* foundation — [re-frame-migration](re-frame-migration.md); it leaves your views on Reagent), then **(2)** — optionally — Reagent views → re-frame.ui (*this* skill). Do (2) only after (1), and only if you want the compiled-view substrate.
-- **re-frame.ui is EXPERIMENTAL.** Parts are still staged (the outward `ui/->react` bridge, an explicit-frame `sub` pin). The skill names those gaps and holds the affected views on Reagent.
+- **re-frame.ui is EXPERIMENTAL.** Parts are still staged (the outward `ui/->react` bridge, an explicit-frame `sub` pin). The skill names those gaps and holds the affected views on Reagent. It ships in `day8/re-frame2-ui`, which is currently **in-tree / pre-publication** (not yet on Maven) — the target project must be able to consume the in-tree / git-source artifact before there is anything to migrate onto.
 - **Staying on Reagent views is a first-class, fully-supported choice.** A re-frame2 app running Reagent views through the Reagent adapter is a complete, supported configuration — never a half-migrated one.
 
 ## What it does
@@ -38,7 +38,7 @@ Do **not** use it for:
 
 ## How the migration runs (incremental)
 
-The skill migrates a **closed subtree** at a time, leaf → root (a converted `ui/defview` can only be consumed by other converted views until the outward bridge ships). For each candidate view it **gates the whole view first**: if any part trips a judgment call or a capability gap, the *entire* view stays on Reagent — no half-migrated bodies. It applies the M-tier rewrites to the clean views, cleans up the requires last, and hands the author a compile + **render** + test loop before moving to the next subtree. "Compiles" is not the done-bar — a converted view must be rendered.
+The skill migrates a **closed subtree** at a time, leaf → root (a converted `ui/defview` can only be consumed by other converted views until the outward bridge ships). For each candidate view it **gates the whole view first**: a **capability gap** (or a genuine reject) holds the *entire* view on Reagent, and a **judgment call** is decided with the author, then the whole view converts or the whole view stays — never a half-migrated body. It applies the M-tier rewrites to the clean views, cleans up the requires last, then **runs the compile + test gates itself** and hands the programmer the **render** check before moving to the next subtree. "Compiles" is not the done-bar — a converted view must still be rendered and eyeballed.
 
 ## Where the skill lives
 

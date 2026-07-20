@@ -16,7 +16,7 @@ Help a programmer migrate **Reagent view code to re-frame2's `re-frame.ui`** com
 
 The same four pillars as the skill family, adapted to this domain.
 
-1. **Correctness** — the mechanical rewrites are recipe-shaped and cite a `MIG-NN` id; the judgment cases are reasoned, not guessed. The skill never *executes* the author's build/render/tests (arbitrary-code-execution trust boundary) — it prints the command and the author runs it.
+1. **Correctness** — the mechanical rewrites are recipe-shaped and cite a `MIG-NN` id; the judgment cases are reasoned, not guessed. The skill **runs the project's own noninteractive compile/test gates** (verify-as-you-go, under the repo's trust-the-explicit-invoker `allowed-tools` baseline) but leaves the interactive visual confirmation — booting and eyeballing the render — to the programmer when no connected runtime exists.
 2. **Idiomaticness** — the rewrite targets are verified against the shipped `re-frame.ui` surface (Spec 004; `implementation/ui/src/re_frame/ui.cljc`). The skill emits no staged form for a capability that hasn't landed.
 3. **Context economy** — `SKILL.md` is a router; the three tier catalogues + mental-model + procedure + gotchas leaves load on demand.
 4. **Assume training knowledge** — the agent knows Reagent, hiccup, React, re-frame2 events/subs. The skill teaches the **Reagent-view → re-frame.ui binding**: which construct is a mechanical rewrite, which is a judgment call, which is a hold.
@@ -39,7 +39,7 @@ The `MIG-01…35` ids are the framework's own Reagent→re-frame.ui rule numberi
 
 ### L4 — The whole view is the unit of migration
 
-Never half-migrate a view. Any gating hit (a judgment call, a reject, an unshipped capability) → the **entire** view stays on Reagent. A partial body neither compiles nor runs. Coherence over coverage. This is cardinal rule 2 in `SKILL.md`.
+Never half-migrate a view. A **reject or unshipped capability** holds the **entire** view on Reagent; a **judgment call** is decided with the author, then the **whole** view converts or the **whole** view holds — never a partial body (which neither compiles nor runs). Coherence over coverage. This is cardinal rule 2 in `SKILL.md`.
 
 ### L5 — Views only; name dataflow changes, never make them
 
@@ -49,9 +49,9 @@ The skill rewrites the view tier — hiccup, handlers, mounts, view-local state.
 
 Migrate leaf → root, closing a subtree from the bottom up, because the outward `ui/->react` bridge is unshipped (a converted `defview` can only be consumed by converted views). Each pass ends compiling, rendering, and tested, so an interrupted migration resumes cleanly.
 
-### L7 — The author runs build/render/tests
+### L7 — The skill runs the compile/test gates; the programmer owns visual confirmation
 
-The skill prints commands; the author executes. "Compiles" is necessary but not the done-bar — a converted subtree can compile and fail only at render (a `MIG-35` introspection call, a converted view called from unconverted Reagent). The done-bar for a subtree is compiles + renders + tests pass.
+The skill **discovers and runs the nearest safe noninteractive gate itself** (compile the subtree, run its tests) under the repo's trust-the-explicit-invoker `allowed-tools` baseline ([`skills/README.md` §Published-skill `allowed-tools` baseline](../../README.md#published-skill-allowed-tools-baseline-security-policy)) — verify-as-you-go, not an arbitrary executor (no `Bash(*)`, no migration machinery). "Compiles" is necessary but not the done-bar — a converted subtree can compile and fail only at render (a `MIG-35` introspection call, a converted view called from unconverted Reagent). The genuinely-interactive step — booting a dev build and eyeballing the render — stays with the programmer when no connected browser/runtime exists. The done-bar for a subtree is compiles + tests pass + rendered.
 
 ### L8 — Generic to ANY Reagent consumer app
 

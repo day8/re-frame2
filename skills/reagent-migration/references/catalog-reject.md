@@ -17,7 +17,9 @@
 (r/force-update c) · (r/next-tick f) · (r/after-render f)
 ```
 
-Each of these encodes a Reagent-specific assumption about *this renderer's* component object and render scheduling, and has no compiled equivalent. **The dangerous part:** these are ordinary calls, so a converted view **still compiles** with them in it — and then fails or returns `nil` at runtime, *outside a Reagent render*. The build gate does **not** catch this; you must. Restructure instead: `props`/`children` are the props map and positional children the view already receives; `force-update` dissolves under memo-by-default + committed slots; `next-tick`/`after-render` are `effect` (post-commit, with cleanup). A view that genuinely needs the introspection stays on Reagent.
+Each of these encodes a Reagent-specific assumption about *this renderer's* component object and render scheduling, and has no compiled equivalent. **The dangerous part:** these are ordinary calls, so a converted view **still compiles** with them in it — and then fails or returns `nil` at runtime, *outside a Reagent render*. The build gate does **not** catch this; you must. Restructure the introspection: `props`/`children` are the props map and positional children the view already receives; `force-update` dissolves under memo-by-default + committed slots.
+
+**The schedulers `next-tick`/`after-render` are NOT `ui/effect`** — do not equate them. Reagent's one-shot render-queue callbacks fire immediately *before the next flush* and immediately *after its queued renders* (even when nothing renders); `ui/effect` is **component-owned passive post-commit work keyed to connect / dependency changes**. Those are different phases, frequencies, and owners — a silent swap changes behaviour no diff review catches, and it **compiles**. So they stay **R-tier**: keep them on Reagent unless the author *explicitly* redesigns the work's phase, frequency, and ownership (a deliberate re-model, not a rename). A view that genuinely needs the introspection or a scheduler call stays on Reagent.
 
 ### MIG-21 — dynamic tag heads
 
@@ -25,7 +27,7 @@ Each of these encodes a Reagent-specific assumption about *this renderer's* comp
 [(if big? :h1 :h2) props …]     ; head is a runtime expression
 ```
 
-Rejected at compile time — the compiler resolves heads statically. Bind the attrs and split the branches (`(if big? [:h1 …] [:h2 …])`), or, for genuinely data-driven UI, use `re-frame.ui.data` (a separate artifact). If neither fits, the view stays on Reagent.
+Rejected at compile time — the compiler resolves heads statically. Bind the attrs and split the branches (`(if big? [:h1 …] [:h2 …])`) — that fits most cases, a *finite* set of heads. For genuinely data-driven heads there is **no available escape today**: `re-frame.ui.data` (the runtime UI interpreter) is a **reserved future wave-2 artifact — not a namespace you can require now**. So template-ise the head into `defview` branches, or the view stays on Reagent. (`re-frame.ui.data` is named here only as a *possible future home*, for direction — do not emit a require for it.)
 
 ### MIG-25 — effectful subscription bodies
 

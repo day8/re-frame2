@@ -53,7 +53,7 @@
      "expectations": [
        "Declines — Reagent component-introspection / scheduler calls have no compiled equivalent (MIG-35).",
        "Warns that r/current-component still COMPILES after conversion and fails/returns nil at runtime, so the build gate will not catch it.",
-       "Keeps the view on Reagent, or restructures away from the introspection (props/children the view already receives; effect for next-tick/after-render)."
+       "Keeps the view on Reagent, or restructures away from the introspection (props/children the view already receives); does NOT equate the schedulers r/next-tick / r/after-render with ui/effect — those stay on Reagent unless the author redesigns phase/frequency/ownership."
      ]},
 
     {"id": 18, "kind": "behavioural", "tier": "D", "name": "d-mig18-handler-split",
@@ -81,6 +81,24 @@
        "Recognises there is NO dispatch-at-unmount in native re-frame.ui: (ui/dispatch-fn) fails loud at disconnect with :rf.error/dispatch-disconnected (the leaked-listener law), so an effect cleanup is NOT a place to smuggle the domain release.",
        "Re-homes the unmount domain work (the [:resource/release] dispatch) OUT of the view — to the causal events that end the resource's life — and names those events / the minting owner for the author (cardinal rule 5); the migrated view becomes a pure defview that owns no lease.",
        "Mentions the view-declared (ui/lease …) as the alternative only when the resource lifetime genuinely follows the view site (framework releases at teardown, no dispatch — valid even if activation is conditional or params are dynamic); here the owner is app-minted (route-minted, released by the causal events), so it re-homes rather than becoming a view lease."
+     ]},
+
+    {"id": 20, "kind": "behavioural", "tier": "D", "name": "d-mig17-measure-before-paint-layout-effect",
+     "prompt": "Migrate this Reagent Form-3 view to re-frame.ui:\n(ns app.popover (:require [reagent.core :as r] [reagent.dom :as rdom]))\n(defn popover [anchor]\n  (r/create-class\n   {:component-did-mount (fn [this] (place! (rdom/dom-node this) (measure anchor)))\n    :reagent-render      (fn [a] [:div.popover])}))",
+     "expectations": [
+       "Recognises MIG-17 Form-3 and that :component-did-mount here does MEASURE-then-mutate BEFORE paint (reads geometry to place the popover), so a passive effect would measure a frame late and flicker.",
+       "Does NOT route this to (effect :connect …); routes it to re-frame.ui.react/use-ref + use-layout-effect (the measure-before-paint door), preserving the pre-paint semantics component-did-mount gave.",
+       "Uses the React interop shape for the hook — (react/use-layout-effect (fn [] … cleanup-or-nil) deps) with a setup fn returning a cleanup fn or nil — NOT ui/effect's body-return shape, and reads the node via (.-current (react/use-ref)).",
+       "Keeps ordinary listeners / focus / deferrable host work on the passive effect — the split is only for the narrow pre-paint case, not a wholesale hooks migration.",
+       "Holds/decides the WHOLE view (cardinal rule 2) rather than half-migrating it."
+     ]},
+
+    {"id": 21, "kind": "behavioural", "tier": "R", "name": "r-scheduler-not-effect",
+     "prompt": "Migrate this view to re-frame.ui:\n(ns f (:require [reagent.core :as r]))\n(defn flasher [] (r/after-render #(flash!)) [:div \"hi\"])",
+     "expectations": [
+       "Does NOT equate r/after-render (or r/next-tick) with ui/effect — they are Reagent one-shot render-queue schedulers (fire immediately before the next flush / immediately after queued renders, even when nothing renders), not component-owned passive post-commit effect work (MIG-35).",
+       "Keeps the scheduler call R-tier: holds the view on Reagent unless the author EXPLICITLY redesigns the work's phase, frequency, and ownership (a deliberate re-model, not a rename).",
+       "Warns that the call still COMPILES after conversion and misbehaves only at runtime, so the build gate will not catch a silent swap to effect."
      ]}
   ]
 }

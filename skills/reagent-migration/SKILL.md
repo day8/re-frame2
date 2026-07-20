@@ -25,6 +25,15 @@ allowed-tools:
   - Bash(rg -l *)
   - Bash(git -C * rev-parse *)
   - Bash(git -C * grep *)
+  # Run the project's OWN noninteractive compile/test gates (verify-as-you-go).
+  # These routine wildcards are blessed by the published-skill allowed-tools
+  # baseline (skills/README.md §Published-skill allowed-tools baseline —
+  # trust the explicit invoker); the skill discovers and runs the nearest safe
+  # gate, it never wildcards an arbitrary shell.
+  - Bash(npm *)
+  - Bash(npx *)
+  - Bash(clojure *)
+  - Bash(shadow-cljs *)
   - Read
   - Edit
   - Write
@@ -64,7 +73,7 @@ re-frame v1/Reagent runs your view **at render time as an ordinary function** th
 3. **Incremental, never big-bang.** Migrate one namespace / one closed subtree at a time; verify it renders and its tests pass; then move on. A bad bulk conversion is worse than none — [`references/procedure.md`](references/procedure.md).
 4. **The [MIG rule catalog](references/catalog-mechanical.md) is the shared vocabulary.** Every rewrite cites a `MIG-NN` id (the same ids the framework's own rule table uses), so the author can trace any change back to a rule. Don't invent transforms; if a construct matches no rule, treat it as a reject-and-hold (rule 2).
 5. **Views only.** This skill rewrites the **view tier** — hiccup, handlers, mounts, view-local state. It never touches events, subs, fx, machines, schemas, or routes (that dataflow is re-frame2 already, from step 1). Where a view forces a dataflow change (a new `reg-sub`, a hoisted event), the skill *names* it for the author to do — it does not reach across into the dataflow layer itself.
-6. **The author runs builds, tests, and the app — not the skill.** The skill prints the compile / test command and the author runs it; a build executes arbitrary project code. "Compiles" is necessary but not sufficient — a converted view must be *rendered* and eyeballed, because a few gaps (a converted subtree referenced from unconverted Reagent) surface only at runtime.
+6. **The skill runs the compile/test gates; the programmer owns the visual confirmation.** Migration is verify-as-you-go, so the skill **discovers and runs the nearest safe noninteractive gate itself** — compile the subtree and run its tests (`npx shadow-cljs compile …`, `npm test`, `clojure -M:test`, whatever the project uses) under the repo's trust-the-explicit-invoker `allowed-tools` baseline. "Compiles" is necessary but not sufficient — a converted view must still be *rendered* and eyeballed, because a few gaps (a converted subtree referenced from unconverted Reagent) surface only at runtime. That interactive render-and-eyeball step is the programmer's when there is no connected browser/runtime to drive (or a `re-frame2-pair` read when there is).
 
 ## The transformation catalog — organised by tier
 
@@ -82,7 +91,7 @@ Full loop in [`references/procedure.md`](references/procedure.md). The shape:
 2. **Assess the view first (rule 2).** Scan each candidate view for D/R hits. An **R** hit (a reject or an unshipped-capability construct) → hold the whole view on Reagent. A **D** hit → *decide it with the author*, then convert the whole view or hold the whole view — don't reflexively leave it behind, and don't half-migrate it (the non-gating D rules, MIG-27/28, convert with their noted check).
 3. **Apply the M-tier rewrites** to the clean views, atomically per view (a header change and all its call sites in one edit).
 4. **Fix the ns requires last** (MIG-24): add `[re-frame.ui :as ui :refer [defview sub]]`; drop `reagent.*` requires only when nothing in the namespace still needs them.
-5. **Author compiles + renders + tests** the subtree. Only then move to the next.
+5. **Compile + test the subtree (the skill runs the gates); the programmer renders + eyeballs it.** Only then move to the next.
 
 ## Gotchas
 
@@ -96,7 +105,7 @@ The traps that mangle a view silently → [`references/gotchas.md`](references/g
 - [ ] The D-tier views were *decided with the author*, not silently rewritten.
 - [ ] The R-tier / capability-gap views were left on Reagent with an honest reason ("re-frame.ui doesn't handle this yet — keep this on Reagent, or wait").
 - [ ] Requires cleaned up last (MIG-24); no orphaned `reagent.*` requires, none dropped that a held view still needs.
-- [ ] The author compiled, **rendered**, and ran the affected views' tests — and they pass.
+- [ ] The subtree compiles and its tests pass (the skill ran the gates), and the programmer has **rendered** and eyeballed the converted views.
 
 Hand off: *"Views migrated to `re-frame.ui` where it made sense; the rest stay on Reagent (a fully-supported configuration). Switch to **`re-frame2`** for new application code, or **`re-frame2-pair`** for live inspection."*
 

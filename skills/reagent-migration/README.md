@@ -31,7 +31,7 @@ This skill is **not on anyone's critical path**, and the README says so before a
 - Greenfield setup — [`re-frame2-setup`](../re-frame2-setup).
 - Live-runtime inspection — [`re-frame2-pair`](../re-frame2-pair).
 - The **dataflow layer** — the skill rewrites the *view tier* only; where a view forces a `reg-sub`/event change, it *names* it for the author, it does not make it.
-- Running the author's build / render / tests — that is the author's, in their own environment.
+- The interactive visual confirmation — booting the app and eyeballing the render — that is the programmer's, in their own environment. (The skill *does* run the project's own noninteractive compile/test gates as it goes.)
 
 ## How the skill works
 
