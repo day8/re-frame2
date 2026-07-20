@@ -1,14 +1,14 @@
 (ns re-frame.machines.lifecycle-fx.resource-release
-  "Machine→resource lease release on actor destroy.
+  "Machine→resource owner release on actor destroy.
 
   Per Spec 016 §Release authority is per owner kind (016:291):
 
     | Machine | [:machine actor-id] | Actor destroy — when the owning machine
-    instance is stopped/destroyed (005-StateMachines), its resource leases are
+    instance is stopped/destroyed (005-StateMachines), its resource owners are
     released. |
 
   (A three-part `[:machine machine-id instance-id]` owner that folds a domain
-  instance-id into the key is an APP-authoritative lease the framework does NOT
+  instance-id into the key is an APP-authoritative owner the framework does NOT
   auto-release; the framework auto-releases the runtime-owned `[:machine
   actor-id]` key only. Spec 016:291.)
 
@@ -18,11 +18,11 @@
   `tooling/node-for` emits `:owner [:machine id]`). `actor-id` is the
   registered machine-id for a singleton and the `<type>#<n>` for a spawned
   actor — the SAME id the actor's `ensure` carries as `:owner [:machine
-  actor-id]`, so releasing it drops exactly the destroyed actor's leases.
+  actor-id]`, so releasing it drops exactly the destroyed actor's owners.
 
-  Machine teardown releases the actor's resource leases. A machine that
+  Machine teardown releases the actor's resource owners. A machine that
   `ensure`d a resource under its `[:machine actor-id]` owner releases that
-  lease on destroy, so the entry is not left owner-pinned refetching /
+  owner on destroy, so the entry is not left owner-pinned refetching /
   polling forever. Resource liveness is a SEPARATE durable owner-set, not
   derived from machine state, so the release must be fired explicitly rather
   than relying on \"machine liveness is a pure function of frame-state\".
@@ -35,7 +35,7 @@
   uses (`re-frame.resources.route` dispatches it for `[:route route-id
   nav-token]` owners). The release effect drops the owner from EVERY entry it
   owns via the owner-index, so the machine side need not know the resource
-  ids; releasing a never-leased owner is a benign no-op (empty `:released`).
+  ids; releasing a never-attached owner is a benign no-op (empty `:released`).
 
   `release-owner-registered?` gates the dispatch: an app that uses machines
   WITHOUT the resources artefact has no `:rf.resource/release-owner` handler,
@@ -50,7 +50,7 @@
       returned `:fx` vector (the `:final?` auto-destroy path is a handler-style
       return, so the dispatch rides the same drain as the rest of the
       teardown's fx).
-    - `release-actor-resource-leases!` — fire the entry directly via
+    - `release-actor-resource-owners!` — fire the entry directly via
       `re-frame.fx/do-fx`. `destroy.cljc`'s `teardown-live-actor!` (the
       explicit-destroy + frame-destroy-cascade + spawn-all paths) calls this
       AFTER the actor is gone, mirroring routing's release-on-supersession.
@@ -73,16 +73,16 @@
 
 (defn release-fx-entry
   "The `[:dispatch [:rf.resource/release-owner {:owner [:machine actor-id]}]]`
-  `:fx` entry that releases the destroyed actor's resource leases, or nil when
+  `:fx` entry that releases the destroyed actor's resource owners, or nil when
   `actor-id` is nil or resources is not loaded (the guard — see ns docstring).
   Appended to `finalize-machine`'s returned `:fx` vector so the `:final?`
-  auto-destroy releases the actor's leases on the same drain as its other
+  auto-destroy releases the actor's owners on the same drain as its other
   teardown fx."
   [actor-id]
   (when (and actor-id (release-owner-registered?))
     [:dispatch [:rf.resource/release-owner {:owner [:machine actor-id]}]]))
 
-(defn release-actor-resource-leases!
+(defn release-actor-resource-owners!
   "Fire the release fx directly via `re-frame.fx/do-fx` (for the side-effecting
   teardown pipeline in `destroy.cljc`, which runs fx imperatively rather than
   returning an `:fx` vector). Guarded + no-op identically to `release-fx-entry`.

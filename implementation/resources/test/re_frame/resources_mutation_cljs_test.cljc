@@ -546,7 +546,7 @@
     ;; no prior ensure — the populate SEEDS an ownerless entry
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pgc1}])
     (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
-    (testing "the populated entry is ownerless (no liveness lease)"
+    (testing "the populated entry is ownerless (no active owner)"
       (is (empty? (:active-owners (entry rkey)))))
     (testing "rf2-h4cv5e — the success handler armed the advisory stale / GC
               timers for the populated key, mirroring the resource read path's

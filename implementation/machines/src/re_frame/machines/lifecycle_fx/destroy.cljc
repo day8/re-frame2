@@ -184,7 +184,7 @@
        spawn-order entry still needs clearing;
     8. when the swap landed, emit `:rf.machine/system-id-released` and clear
        any registrar entry (normal spawned actors have none);
-    9. release the actor's resource leases — fire
+    9. release the actor's resource owners — fire
        `:rf.resource/release-owner` for owner `[:machine actor-id]` (Spec 016
        §Release authority is per owner kind, 016:290) so a resource the actor
        `ensure`d under its machine-owner key does not leak the owner (keep
@@ -275,16 +275,16 @@
         (traces/emit-system-id-released! frame-id @sid actor-id)
         (when-not (owner-gone?)
           (registrar/unregister! :event actor-id)))
-      ;; (9) release the actor's resource leases once it is gone, so
+      ;; (9) release the actor's resource owners once it is gone, so
       ;; a `[:machine actor-id]`-owned resource does not outlive the actor and
       ;; keep refetching/polling. Rechecked after the unregister callback: a lost
-      ;; owner must not fire `:rf.resource/release-owner` against B's live leases.
+      ;; owner must not fire `:rf.resource/release-owner` against B's live owners.
       ;; Guarded on resources being loaded (machines never depends on resources).
       ;; The `:final?`-state auto-destroy path (`finalize-machine`) does NOT route
       ;; through here; it appends the symmetric `resource-release/release-fx-entry`
       ;; to its returned `:fx` instead — together they cover every destroy cause.
       (when-not (owner-gone?)
-        (resource-release/release-actor-resource-leases! frame-id actor-id))
+        (resource-release/release-actor-resource-owners! frame-id actor-id))
       db-swapped?)))
 
 (defn destroy-single-actor!

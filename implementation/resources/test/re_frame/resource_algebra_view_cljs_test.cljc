@@ -287,9 +287,9 @@
           pv     {:xs [1 2 3]}
           pl     {:xs '(1 2 3)}
           kv     (install-live-entry! :rf/default :article/by-slug scope pv
-                                      {:status :loaded :owner [:lease :v 1]})
+                                      {:status :loaded :owner [:app :v 1]})
           kl     (install-live-entry! :rf/default :article/by-slug scope pl
-                                      {:status :loaded :owner [:lease :l 1]})
+                                      {:status :loaded :owner [:app :l 1]})
           view   (resources-tooling/resource-cache-algebra-view :rf/default)]
       (is (= kv kl) "the scoped-key VECTORS are Clojure-= (the collapse routed around)")
       (is (not= (state/key-id kv) (state/key-id kl))
@@ -366,7 +366,7 @@
     (let [scope  :rf.scope/global
           params {:slug "welcome"}
           scoped-key (install-live-entry! :rf/default :plain/article scope params
-                                          {:status :loaded :owner [:lease :p 1]})
+                                          {:status :loaded :owner [:app :p 1]})
           view   (resources-tooling/resource-cache-algebra-view :rf/default)
           node   (get view (state/key-id scoped-key))]
       (is (some? node))
@@ -398,7 +398,7 @@
     (let [scope  [:rf.scope/tenant secret]
           params {:slug "x"}]
       (install-live-entry! :sens/frame :derived/article scope params
-                           {:status :loaded :owner [:lease :d 1]})
+                           {:status :loaded :owner [:app :d 1]})
       (let [view (resources-tooling/resource-cache-algebra-view :sens/frame)]
         (is (= 1 (count view)) "one node")
         (testing "the derived scope is NOT auto-redacted (no inheritance)"
@@ -417,7 +417,7 @@
       (let [scope  [:rf.scope/tenant secret]
             params {:slug "y"}]
         (install-live-entry! :sens/frame2 :derived/secret-article scope params
-                             {:status :loaded :owner [:lease :s 1]})
+                             {:status :loaded :owner [:app :s 1]})
         (let [view (resources-tooling/resource-cache-algebra-view :sens/frame2)]
           (is (= 1 (count view)) "one node in the fresh frame")
           (testing "the owner-:sensitive? key redacts the secret"

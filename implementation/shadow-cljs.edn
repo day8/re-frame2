@@ -1648,7 +1648,7 @@
 
   ;; Spec 016 — Resources worked example (rf2-jxmb4p). Declarative
   ;; server-state composed as proper re-frame2: route-driven page load,
-  ;; event-driven ensure under an app lease, manual refresh as a cause, and
+  ;; event-driven ensure under an app owner, manual refresh as a cause, and
   ;; a machine-owned resource — all read through passive [:rf.resource/*]
   ;; subs. `resources/src` is already on :source-paths above (rf2-p10npe),
   ;; so `resources.core` resolves without per-build deps. The Resources

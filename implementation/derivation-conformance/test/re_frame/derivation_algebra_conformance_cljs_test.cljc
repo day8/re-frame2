@@ -842,7 +842,7 @@
           (is (not= owner-a (:owner slice-b))
               "the route-A owner identity is no longer the live owner — released by supersession")
           (is (not= nav-token-a (:nav-token slice-b))
-              "a fresh nav-token owns the new route — the prior token's lease is gone")
+              "a fresh nav-token owns the new route — the prior token's owner is gone")
           (is (= [:route :route/about (:nav-token slice-b)] (:owner slice-b))
               "the live owner is now [:route route-B fresh-nav-token]"))))))
 
@@ -1029,7 +1029,7 @@
       (is (nil? node)
           "the :machine-instance-owned snapshot node is gone after final-state auto-destroy")
       (is (nil? (get-in rt (machine-paths/snapshot-path :job/runner)))
-          "the machine-owned snapshot is released from runtime-db (machine destroy releases its leases)"))))
+          "the machine-owned snapshot is released from runtime-db (machine destroy releases its owners)"))))
 
 #?(:cljs
    (deftest e-subscription-disposal-releases-its-cache-entry-node

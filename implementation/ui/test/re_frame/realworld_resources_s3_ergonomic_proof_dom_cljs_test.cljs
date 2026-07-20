@@ -23,7 +23,7 @@
     - the `ui/event` form submit — `preventDefault` then dispatch the submit
       vector, running client-side validation;
     - the `:editor/can-submit?` FLOW gating the submit button through a live sub;
-    - the view's ONE lifecycle contract — unmount releases the article lease
+    - the view's ONE lifecycle contract — unmount releases the article owner
       exactly once (its `effect` cleanup dispatches `[:editor/release-article]`),
       and a re-render (the hot-reload path) never leaks a spurious release;
     - the counter and dashboard interactions (event vectors, `local`, a keyed
@@ -31,7 +31,7 @@
 
   The editor's dataflow is the REAL `article_editor.cljs` registration (required
   below), unchanged by this stage — only its VIEW is native re-frame.ui here.
-  The lease-release DOMAIN logic is pinned in the reagent-adapter suite
+  The owner-release DOMAIN logic is pinned in the reagent-adapter suite
   `realworld_resources_cljs_test`; this suite pins the native VIEW's contribution
   (the unmount dispatch), so it spies `:editor/release-article` rather than
   standing up the whole resource runtime."
@@ -193,7 +193,7 @@
                   (.then
                    (fn []
                      ;; A re-render (the shape a hot reload re-runs the body in):
-                     ;; the view owns no lease, holds no local ephemera, and is a
+                     ;; the view attaches no owner, holds no local ephemera, and is a
                      ;; pure function of subs, so a re-render neither loses the
                      ;; edited draft nor leaks anything.
                      (uit/flush! #(uit/dispatch! f [:editor/blur-field :title]))))
@@ -206,7 +206,7 @@
                          "the controlled field still reflects app-db after re-render")))))
             (.then
              (fn []
-               ;; the editor view owns no lease and no host listener, so a clean
+               ;; the editor view attaches no owner and no host listener, so a clean
                ;; unmount (with-root teardown) leaks nothing — no dispatch fires
                ;; from a disconnected view, no listener outlives the mount.
                (is true "the editor unmounted cleanly (no disconnected dispatch, no leaked listener)")

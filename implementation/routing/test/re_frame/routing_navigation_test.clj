@@ -1739,7 +1739,7 @@
               "the fragment-only nav did NOT re-run the route-entry plan — no
                ensure/release/re-plan")
           (is (= token-after-full (:nav-token (nav-slice)))
-              "the owner nav-token is unchanged, so an in-flight resource lease
+              "the owner nav-token is unchanged, so an in-flight resource owner
                keyed on it stays valid"))
         (finally
           ;; Restore the prior hook binding (nil in the resources-free routing

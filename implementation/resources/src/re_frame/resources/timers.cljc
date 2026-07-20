@@ -475,7 +475,7 @@ no-ops harmlessly; cancellation must never be platform-gated). Per Spec 016
 
 ;; ---- the poll-only cancel fx (last owner released — EP-0020 §Polling) -----
 ;;
-;; Owner release leaves the entry ALIVE (it loses a lease but keeps its data +
+;; Owner release leaves the entry ALIVE (it loses an owner but keeps its data +
 ;; stale/GC policy), so a blanket `cancel-timers` would wrongly drop the GC
 ;; reaper. The `:poll` kind alone is cancelled when an entry becomes
 ;; owner-free: a poll never pins an owner-free entry, so polling STOPS the

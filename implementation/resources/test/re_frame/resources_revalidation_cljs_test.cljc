@@ -8,7 +8,7 @@
 
     1. ACTIVE-STALE SCAN — `:rf.resource/window-focused` /
        `:rf.resource/network-reconnected` scan the frame's cache entries and
-       refetch ONLY those that are BOTH active (a live `:active-owner` lease)
+       refetch ONLY those that are BOTH active (a live `:active-owner`)
        AND stale-by-policy (`state/entry-stale?` against the durable
        timestamps); fresh entries and owner-free entries are LEFT ALONE;
     2. CAUSE, NEVER OWNER — a focus/reconnect-triggered refetch carries cause
@@ -139,9 +139,9 @@
     (ensure! :rv/fresh scope "active-fresh" [:route :r 1])
     (succeed! k-af {:title "AF"})
     ;; inactive + stale (owner released after load)
-    (ensure! :rv/sw scope "inactive-stale" [:lease :x 1])
+    (ensure! :rv/sw scope "inactive-stale" [:app :x 1])
     (succeed! k-is {:title "IS"})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :x 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
     (is (empty? (:active-owners (entry k-is))) "inactive-stale entry has no owner")
     (testing "Spec 016 §Deferred slices — one window-focus scan refetches ONLY
               the active-owner STALE entry (background → :fetching, prior data

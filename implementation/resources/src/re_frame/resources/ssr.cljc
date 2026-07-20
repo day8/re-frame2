@@ -787,7 +787,7 @@
 (defn- ssr-owner?
   "True iff `owner` is an SSR owner token (`[:ssr request-id nav-token]`).
   SSR owners belong to one server render and never survive as a live
-  client-side lease. Per Spec 016 §Release authority is per owner kind."
+  client-side owner. Per Spec 016 §Release authority is per owner kind."
   [owner]
   (and (vector? owner) (= :ssr (first owner))))
 

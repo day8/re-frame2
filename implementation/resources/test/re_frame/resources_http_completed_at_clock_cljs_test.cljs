@@ -90,7 +90,7 @@
               (fn [_url _init] (js/Promise.resolve (json-200 "{\"title\":\"Welcome\"}"))))
         (rf/dispatch-sync [:rf.resource/ensure
                            {:resource :clk/article :scope :rf.scope/global
-                            :params {:slug "w"} :owner [:lease :clk 1]}]
+                            :params {:slug "w"} :owner [:app :clk 1]}]
                           {:frame :rf/default})
         (is (= :loading (:status (entry)))
             "the ensure lowered to the real transport and is in flight")

@@ -442,7 +442,7 @@
         ;; a NEW owner lands on the entry when an owner is supplied and
         ;; was not already in the active-owner set. `:rf.resource/owner-attached`
         ;; marks that liveness change distinctly from work — symmetric with the
-        ;; existing `:rf.resource/owner-released` row so the owner-lease lifecycle
+        ;; existing `:rf.resource/owner-released` row so the owner lifecycle
         ;; is a readable pair in the Xray timeline / AI-Audit (Spec 016 §Xray and
         ;; AI tooling; §Active owners and causes — owners pin liveness).
         owner-newly-attached? (and (some? owner)
@@ -890,7 +890,7 @@
         ;; copying the `ensure`/`refetch` payload shape) that would otherwise
         ;; attach a SECOND, durable owner to the feed (`:active-owners` +
         ;; `:owner-index`) and silently extend its liveness / GC lifetime until
-        ;; an explicit `:rf.resource/release-owner` — the owner-lease LEAK
+        ;; an explicit `:rf.resource/release-owner` — the owner LEAK
         ;; rf2-d095i1 characterized. Per Conventions §No silent swallow, this is
         ;; a WARNING (continuation is safe — the append path is proven correct):
         ;; emit the loud diagnostic at the point of the mistake, then NORMALIZE
@@ -1843,7 +1843,7 @@
 ;; ---- release-owner --------------------------------------------------------
 
 (defn release-owner-handler
-  "`:rf.resource/release-owner` — release a liveness lease (drop the owner
+  "`:rf.resource/release-owner` — release a liveness owner (drop the owner
   from every entry's `:active-owners` + the owner-index). Per Spec 016
   §Active owners and causes. Payload: `{:owner …}`.
 
@@ -1876,7 +1876,7 @@
         ;; entry's `:revision` when the owner was actually present (an owner
         ;; release is an authoritative durable write a later optimistic rollback
         ;; could clobber — a blind `restore-before` would otherwise RESURRECT the
-        ;; departed owner from the pre-release snapshot, re-pinning a lease no
+        ;; departed owner from the pre-release snapshot, re-pinning an owner no
         ;; live caller holds so the entry never GCs). `detach-owner` returns nil
         ;; for a nil entry, so the `when e` guard is folded in.
         rdb1       (-> (reduce

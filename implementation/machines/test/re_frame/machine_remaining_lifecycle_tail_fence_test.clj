@@ -11,7 +11,7 @@
        hook, the `:rf.machine.timer/cancelled` traces, the bare classification
        drop, the bare durable teardown projection, the `:rf.machine/destroyed`
        trace, the spawn-order forget, the `:rf.machine/system-id-released` +
-       `:rf.registry/handler-cleared` traces, and the resource-lease release. A
+       `:rf.registry/handler-cleared` traces, and the resource-owner release. A
        callback at ANY of those boundaries could destroy A / publish same-id B,
        and the whole tail continued against B. FIX: capture A's continuation +
        raw token ONCE at the effect entry, recheck after every callback-bearing

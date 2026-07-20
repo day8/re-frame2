@@ -33,7 +33,7 @@
   fail-closed read, scoped-invalidation isolation, lease-lifecycle
   non-interference) are pinned by the CLJS unit suites
   `resources_scope_leak_boundary_cljs_test.cljc` +
-  `resources_scoped_lease_lifecycle_cljs_test.cljc`; THIS surface is the live
+  `resources_scoped_owner_lifecycle_cljs_test.cljc`; THIS surface is the live
   demonstrator a tool (Xray / Story / re-frame2-pair-mcp) observes, not the
   regression vehicle."
   (:require [reagent.dom.client :as rdc]

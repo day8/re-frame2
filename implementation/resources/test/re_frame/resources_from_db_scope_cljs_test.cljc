@@ -126,7 +126,7 @@
   (testing "ensure of a {:from-db} spec-policy resource resolves the session
             scoped key from app-db (no payload :scope needed)"
     (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                            :owner [:lease :x 1]}])
+                                            :owner [:app :x 1]}])
     (is (some? (entry (session-key "jake" 1)))
         "the entry lives under the db-derived session scope")
     (is (= #{(session-key "jake" 1)} (set (keys (entries))))
@@ -142,7 +142,7 @@
   (testing "a {:from-db …} payload :scope resolves against app-db at use time"
     (rf/dispatch-sync [:rf.resource/ensure {:resource :t/notes :params {}
                                             :scope {:from-db :t/session}
-                                            :owner [:lease :n 1]}])
+                                            :owner [:app :n 1]}])
     (is (some? (entry (state/scoped-resource-key
                         [:rf.scope/session {:username "abel"}] :t/notes {}))))))
 
@@ -214,7 +214,7 @@
 (deftest sub-from-db-reads-the-same-entry-the-event-ensured
   (rf/dispatch-sync [:t/login "jake"])
   (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                          :owner [:lease :s 1]}])
+                                          :owner [:app :s 1]}])
   (settle-loaded! (session-key "jake" 1) {:articles [:a :b]})
   (testing "a {:from-db} spec-policy sub resolves the same session key and
             reads the loaded entry (no payload :scope needed)"
@@ -241,7 +241,7 @@
   (rf/dispatch-sync [:t/login "jake"])
   ;; ensure + load jake's feed
   (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                          :owner [:lease :s 1]}])
+                                          :owner [:app :s 1]}])
   (settle-loaded! (session-key "jake" 1) {:for "jake"})
   (let [q   {:resource :t/feed :params {:page 1}}
         sub (rf/subscribe [:rf/resource q])]
@@ -260,7 +260,7 @@
     (testing "ensuring + loading abel's feed makes the SAME sub read the new
               entry — the re-pointing is fully reactive"
       (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                              :owner [:lease :s 2]}])
+                                              :owner [:app :s 2]}])
       (settle-loaded! (session-key "abel" 1) {:for "abel"})
       (is (= :loaded (:status @sub)))
       (is (= {:for "abel"} (:data @sub)) "the sub now reads abel's data"))))
@@ -291,7 +291,7 @@
   (rf/dispatch-sync [:t/login "jake"])
   ;; ensure + load jake's feed under the db-derived session scope
   (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                          :owner [:lease :c 1]}])
+                                          :owner [:app :c 1]}])
   (settle-loaded! (session-key "jake" 1) {:for "jake"})
   (is (some? (entry (session-key "jake" 1))) "jake's entry loaded")
   (testing "a {:from-db …} clear-scope payload RESOLVES against app-db at use
@@ -309,7 +309,7 @@
   ;; reference AFTER logout (the resolver's :inputs are gone → resolves nil).
   (rf/dispatch-sync [:t/login "jake"])
   (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                          :owner [:lease :c 1]}])
+                                          :owner [:app :c 1]}])
   (settle-loaded! (session-key "jake" 1) {:for "jake"})
   (rf/dispatch-sync [:t/logout])
   (testing "rf2-mfnc5i / Spec 016 §clear-scope is causal — a {:from-db …}
@@ -357,7 +357,7 @@
   (let [rows (record-scope-resolved!
                (fn []
                  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                                         :owner [:lease :sr 1]}])))
+                                                         :owner [:app :sr 1]}])))
         row  (some (fn [ev] (when (= :t/session (:resource-id (:tags ev))) (:tags ev))) rows)]
     (testing "a scope-resolved row was emitted for the :t/session resolver"
       (is (some? row)))
@@ -385,7 +385,7 @@
                  (try
                    (rf/dispatch-sync [:rf.resource/ensure {:resource :t/notes :params {}
                                                            :scope {:from-db :t/session}
-                                                           :owner [:lease :sn 1]}])
+                                                           :owner [:app :sn 1]}])
                    (catch #?(:clj Throwable :cljs :default) _ nil))))
         row  (some (fn [ev] (when (= :t/session (:resource-id (:tags ev))) (:tags ev))) rows)]
     (testing "the resolution emitted a :resolved-nil? true row with a nil :scope"
@@ -441,7 +441,7 @@
   (let [rows (record-scope-resolved!
                (fn []
                  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                                         :owner [:lease :c 1]}])))]
+                                                         :owner [:app :c 1]}])))]
     (testing "the causal event-ensure resolution STILL emits a scope-resolved row"
       (is (pos? (count (filter #(= :t/session (:resource-id (:tags %))) rows)))
           "the traced causal boundary kept its evidence"))))
@@ -521,11 +521,11 @@
   ;; and marks exactly that entry stale.
   (rf/dispatch-sync [:t/login "jake"])
   (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                          :owner [:lease :j 1]}])
+                                          :owner [:app :j 1]}])
   (settle-loaded! (session-key "jake" 1) {:for "jake"})
   ;; release the owner so the invalidation MARKS STALE (a live owner would
   ;; refetch + satisfy the invalidation, masking the durable stale fact)
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :j 1]}])
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :j 1]}])
   (testing "invalidate-tags {:from-db :t/session} marks stale the SAME scoped
             key ensure resolved {:from-db :t/session} to — symmetric use-time
             resolution against the app-db coeffect (rf2-oo8cv7)"
@@ -542,14 +542,14 @@
   ;; (the scope isolation the literal-canonicalize path could not provide).
   (rf/dispatch-sync [:t/login "jake"])
   (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                          :owner [:lease :j 1]}])
+                                          :owner [:app :j 1]}])
   (settle-loaded! (session-key "jake" 1) {:for "jake"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :j 1]}])
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :j 1]}])
   (rf/dispatch-sync [:t/login "abel"])
   (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                          :owner [:lease :a 1]}])
+                                          :owner [:app :a 1]}])
   (settle-loaded! (session-key "abel" 1) {:for "abel"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :a 1]}])
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
   ;; back to jake — the resolver now derives jake's session
   (rf/dispatch-sync [:t/login "jake"])
   (testing "the {:from-db} invalidate marks ONLY the resolved (jake's) scope
@@ -568,7 +568,7 @@
   ;; handler boundary so the returned :fx is inspectable.
   (rf/dispatch-sync [:t/login "jake"])
   (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                          :owner [:lease :j 1]}])
+                                          :owner [:app :j 1]}])
   (settle-loaded! (session-key "jake" 1) {:for "jake"})
   ;; keep the owner ACTIVE (no release) so the match arms a refetch
   (testing "the active-owner refetch carries the resolved concrete scope"
@@ -619,9 +619,9 @@
             error path — the entry is NOT marked stale (fail-closed)"
     (rf/dispatch-sync [:t/login "jake"])
     (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                            :owner [:lease :j 1]}])
+                                            :owner [:app :j 1]}])
     (settle-loaded! (session-key "jake" 1) {:for "jake"})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :j 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :j 1]}])
     (rf/dispatch-sync [:t/logout])
     (rf/dispatch-sync [:rf.resource/invalidate-tags
                        {:scope {:from-db :t/session} :tags #{[:feed]}}])
@@ -674,11 +674,11 @@
   ;; exactly the entry ensure created.
   (rf/dispatch-sync [:t/login "jake"])
   (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                          :owner [:lease :m 1]}])
+                                          :owner [:app :m 1]}])
   (settle-loaded! (session-key "jake" 1) {:for "jake"})
   ;; release the owner so the invalidation MARKS STALE (a live owner would
   ;; refetch + satisfy the invalidation, masking the durable stale fact)
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :m 1]}])
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :m 1]}])
   ;; bare tag-set :invalidates ≡ :rf.scope/same (the mutation's RESOLVED
   ;; execution scope); :before-request timing fires it at execute time, so no
   ;; reply settling is needed to observe the scope the default resolved to.
@@ -708,9 +708,9 @@
     (fn [_p _ctx] {:request {:method :get :url "/gnotes"}}))
   (let [gkey (state/scoped-resource-key :rf.scope/global :t/gnotes {})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :t/gnotes :params {}
-                                            :owner [:lease :g 1]}])
+                                            :owner [:app :g 1]}])
     (settle-loaded! gkey {:g 1})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :g 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :g 1]}])
     (reg-save-mutation! {:invalidates       (fn [_p _r]
                                               [{:scope :rf.scope/global
                                                 :tags  #{[:gfact]}}])

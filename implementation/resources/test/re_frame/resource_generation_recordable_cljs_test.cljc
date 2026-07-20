@@ -101,7 +101,7 @@
    (rf/dispatch-sync
      [:rf.resource/ensure
       {:resource :gen/article :scope :rf.scope/global
-       :params {:slug "w"} :owner [:lease :gen 1]}]
+       :params {:slug "w"} :owner [:app :gen 1]}]
      (cond-> {:frame frame-id :rf.cofx {:rf/time-ms 1781078400100}}
        allocation (assoc-in [:rf.cofx :rf.resource/generation-allocation] allocation)))))
 

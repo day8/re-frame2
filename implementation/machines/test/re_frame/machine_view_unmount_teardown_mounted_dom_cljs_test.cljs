@@ -38,7 +38,7 @@
        still mounted, emits EXACTLY ONE `:rf.machine/destroyed` with
        `:reason :explicit` on the fx channel, ZERO on the registrar
        channel, clears the snapshot, unregisters the handler, and releases
-       the `[:machine id]` resource lease — while the still-mounted view
+       the `[:machine id]` resource owner — while the still-mounted view
        survives (it re-renders the now-nil snapshot). A subsequent REAL
        unmount then fires exactly one `:rf.view/unmounted` and adds NO
        further machine destroy: the two teardowns are independent even
@@ -225,7 +225,7 @@
   (testing "rf2-kmdi9 — with a participating view MOUNTED, an EXPLICIT destroy
             emits EXACTLY ONE :rf.machine/destroyed :reason :explicit on the fx
             channel, ZERO on the registrar channel, clears the snapshot,
-            unregisters the handler, and releases the [:machine id] lease — while
+            unregisters the handler, and releases the [:machine id] owner — while
             the still-mounted view survives. A later REAL unmount fires the view
             teardown and adds NO further machine destroy (independent teardowns)."
     (if-not (browser?)
@@ -248,7 +248,7 @@
             ;; Stub `:rf.resource/release-owner` (stands in for the resources
             ;; artefact — machines depends only on core, so it dispatches the
             ;; release by NAME). The recorded owner proves the machine's resource
-            ;; lease is released on destroy.
+            ;; owner is released on destroy.
             (events/reg-event :rf.resource/release-owner
               (fn [_ [_ {:keys [owner]}]] (swap! released conj owner) {}))
             (rf/reg-machine machine-id
@@ -287,13 +287,13 @@
                   "ZERO :rf.machine.lifecycle/destroyed — an explicit destroy is
                    NOT a frame-exit reap, so the registrar channel stays silent"))
 
-            ;; --- resource release (snapshot storage, handler, resource lease) ---
+            ;; --- resource release (snapshot storage, handler, resource owner) ---
             (is (nil? (mtest/snapshot frame-id machine-id))
                 "snapshot cleared — the machine's state storage is released")
             (is (nil? (registrar/lookup :event machine-id))
                 "event handler unregistered — the machine's handler resource is released")
             (is (= [[:machine machine-id]] @released)
-                "EXACTLY ONE [:machine actor-id] resource lease released on destroy")
+                "EXACTLY ONE [:machine actor-id] resource owner released on destroy")
 
             ;; --- the still-mounted view survived; now REAL-unmount it ---
             (act-fn #(rdc/unmount root))

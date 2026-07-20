@@ -13,9 +13,9 @@
   principal's entries causally, and a scoped invalidation reaches exactly the
   resolved scope.
 
-  The lease-lifecycle non-interference property (a held lease on scope A
+  The owner-lifecycle non-interference property (a held owner on scope A
   neither pins nor collects scope B's entry) is pinned by
-  `resources_scoped_lease_lifecycle_cljs_test.cljc`; the named-resolver
+  `resources_scoped_owner_lifecycle_cljs_test.cljc`; the named-resolver
   resolution mechanics (event / route / sub / clear-scope / mismatch warning)
   by `resources_from_db_scope_cljs_test.cljc`; the per-target scoped
   invalidation engine by `resources_invalidation_descriptors_cljs_test.cljc`.
@@ -135,7 +135,7 @@
 
 (deftest logout-clear-scope-removes-the-prior-principals-entries
   ;; tenant "acme" logs in, ensures + loads a feed under its tenant scope
-  (ensure-feed! "acme" 1 [:lease :acme 1] {:secret "acme-only"})
+  (ensure-feed! "acme" 1 [:app :acme 1] {:secret "acme-only"})
   (is (some? (entry (tenant-key "acme" 1))) "acme's entry loaded under its tenant scope")
   (testing "logout resolves acme's concrete scope from the pre-transition
             coeffect db and clear-scope removes every acme entry + owner —
@@ -155,7 +155,7 @@
   ;; logs out (scope cleared), then tenant "globex" logs in on the SAME frame
   ;; and a live sub (scope derived from app-db via the {:from-db} spec policy)
   ;; reads what globex sees.
-  (ensure-feed! "acme" 1 [:lease :acme 1] {:secret "acme-only"})
+  (ensure-feed! "acme" 1 [:app :acme 1] {:secret "acme-only"})
   (let [old-scope (rf/resolve-resource-scope (rf/app-db-value :rf/default) :t/tenant)]
     (rf/dispatch-sync [:rf.resource/clear-scope {:scope old-scope :cause :logout}])
     (rf/dispatch-sync [:t/logout]))
@@ -179,8 +179,8 @@
 (deftest clear-scope-isolates-the-cleared-principal-other-scopes-survive
   ;; two tenants simultaneously cached; clearing ONE leaves the other intact —
   ;; logout of acme must not collateral-clear globex.
-  (ensure-feed! "acme"   1 [:lease :acme 1]   {:for "acme"})
-  (ensure-feed! "globex" 1 [:lease :globex 1] {:for "globex"})
+  (ensure-feed! "acme"   1 [:app :acme 1]   {:for "acme"})
+  (ensure-feed! "globex" 1 [:app :globex 1] {:for "globex"})
   (is (= #{(tenant-key "acme" 1) (tenant-key "globex" 1)} (set (keys (entries))))
       "both tenants cached at once")
   (testing "clearing acme's scope removes ONLY acme's entries — globex's
@@ -204,7 +204,7 @@
   ;; acme has a loaded feed; a view subscribes with an EXPLICIT — but WRONG —
   ;; tenant scope (globex's). The wrong-scope read resolves globex's key, which
   ;; has no entry: it reads idle, NEVER acme's data.
-  (ensure-feed! "acme" 1 [:lease :acme 1] {:secret "acme-only"})
+  (ensure-feed! "acme" 1 [:app :acme 1] {:secret "acme-only"})
   (let [wrong-q {:resource :t/feed :params {:page 1}
                  :scope [:rf.scope/tenant {:tenant-id "globex"}]}
         st      (rf/subscribe [:rf/resource wrong-q])
@@ -230,7 +230,7 @@
   (rf/dispatch-sync [:rf.resource/ensure
                      {:resource :t/notes :params {}
                       :scope [:rf.scope/tenant {:tenant-id "acme"}]
-                      :owner [:lease :n 1]}])
+                      :owner [:app :n 1]}])
   (let [ka (state/scoped-resource-key [:rf.scope/tenant {:tenant-id "acme"}] :t/notes {})
         e  (entry ka)]
     (rf/dispatch-sync [:rf.resource.internal/succeeded
@@ -289,14 +289,14 @@
   ;; invalidation target, so a tag-invalidation cannot cross the principal
   ;; boundary (Spec 016 §Scoped invalidation is the default).
   ;;
-  ;; Both entries are made OWNERLESS after load (release the lease) so the
+  ;; Both entries are made OWNERLESS after load (release the owner) so the
   ;; durable :invalidated-at stale marker is observable rather than being
   ;; cleared by the active-owner refetch the invalidation would otherwise start
   ;; (Spec 016 §Invalidation 3/4 — owned entries refetch, ownerless go stale).
-  (ensure-feed! "acme"   1 [:lease :acme 1]   {:for "acme"})
-  (ensure-feed! "globex" 1 [:lease :globex 1] {:for "globex"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :acme 1]}])
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :globex 1]}])
+  (ensure-feed! "acme"   1 [:app :acme 1]   {:for "acme"})
+  (ensure-feed! "globex" 1 [:app :globex 1] {:for "globex"})
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :acme 1]}])
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :globex 1]}])
   (testing "a scoped :rf.resource/invalidate-tags reaches exactly the resolved
             scope's entries (acme), never another principal's (globex)"
     (rf/dispatch-sync [:rf.resource/invalidate-tags
@@ -312,11 +312,11 @@
   ;; the leak boundary holds across BOTH causal scope operations in one flow:
   ;; clear acme on logout, then invalidate globex's feed — each reaches only
   ;; its own principal.
-  (ensure-feed! "acme"   1 [:lease :acme 1]   {:for "acme"})
-  (ensure-feed! "globex" 1 [:lease :globex 1] {:for "globex"})
+  (ensure-feed! "acme"   1 [:app :acme 1]   {:for "acme"})
+  (ensure-feed! "globex" 1 [:app :globex 1] {:for "globex"})
   ;; globex ownerless so its :invalidated-at stale marker is observable (an
   ;; active-owner entry would refetch and clear the marker — §Invalidation 3/4).
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :globex 1]}])
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :globex 1]}])
   (testing "clearing acme then invalidating globex each stays within its own
             principal — neither operation crosses the boundary"
     (rf/dispatch-sync [:rf.resource/clear-scope

@@ -147,7 +147,7 @@
 
 (defn- load-more! [resource]
   ;; The supported idiom (rf2-bi8vg1): a load-more is OWNERLESS — the feed's
-  ;; liveness is the route/ensure owner's, never a per-page lease.
+  ;; liveness is the route/ensure owner's, never a per-page owner.
   (rf/dispatch-sync [:rf.resource/load-more
                      {:resource resource :scope :rf.scope/global
                       :params {:filter :recent}
@@ -714,10 +714,10 @@
 ;; A `:rf.resource/load-more` is OWNERLESS by contract (EP-0021): the feed's
 ;; liveness is the ROUTE owner's (the route that ensured page 0), and a
 ;; load-more is a user-caused page extension during that route's lifetime, NOT
-;; a new lease. rf2-d095i1 first proved the page reply is NOT dropped (the
+;; a new owner. rf2-d095i1 first proved the page reply is NOT dropped (the
 ;; scoped key / work-id / reply payload never carry the owner; live-entry-for-
 ;; reply matches on :rf.frame/id + :work/id + :generation) — but characterized
-;; a REAL failure mode: a stray owner attached a SECOND durable lease to the
+;; a REAL failure mode: a stray owner attached a SECOND durable owner to the
 ;; feed (:active-owners + the derived :owner-index), silently extending its
 ;; liveness / GC lifetime until an explicit :rf.resource/release-owner.
 ;;
@@ -729,7 +729,7 @@
 ;; NORMALIZES the owner to nil (it reaches NEITHER :active-owners, the
 ;; :owner-index, NOR the work record), and STILL fetches + appends the page.
 ;; :cause is untouched (attribution preserved). These tests assert that guard:
-;; the warning fires, no lease leaks, and the page still appends in order.
+;; the warning fires, no owner leaks, and the page still appends in order.
 
 (defn- record-resource-traces!
   "Run `body-fn` with a trace listener installed; return the vector of every
@@ -806,20 +806,20 @@
           (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e)) "appended in order")
           (is (= "c2" (:next-page-param e)) "cursor advanced from the appended page"))))))
 
-(deftest load-more-mistaken-owner-DROPS-the-stray-lease-NO-leak
+(deftest load-more-mistaken-owner-DROPS-the-stray-owner-NO-leak
   ;; rf2-bi8vg1 (ruled WARN-AND-IGNORE) — the guard that prevents the
-  ;; rf2-d095i1 lease leak: a stray non-route owner is IGNORED. It is NORMALIZED
+  ;; rf2-d095i1 owner leak: a stray non-route owner is IGNORED. It is NORMALIZED
   ;; to nil before the entry update, so it reaches NEITHER :active-owners NOR the
   ;; derived :owner-index NOR the work record — :active-owners is UNCHANGED, no
-  ;; second lease pins the feed, and the page still appends. :cause survives.
+  ;; second owner pins the feed, and the page still appends. :cause survives.
   (testing "page-0 ensure attaches ONLY the ensure owner"
     (let [k (load-page-0! :ml/feed (page [:a] "c1"))
           e (entry k)]
       (is (= #{[:test :w]} (:active-owners e))
-          "before the mistaken load-more, only ensure's owner holds a lease")
+          "before the mistaken load-more, only ensure's owner is attached")
       (is (= #{[:test :w]} (owners-for-key k))
           ":owner-index agrees — one owner for this key")
-      (testing "a load-more with a MISTAKEN owner does NOT attach a second lease"
+      (testing "a load-more with a MISTAKEN owner does NOT attach a second owner"
         (record-resource-traces!
           #(load-more-with-owner! :ml/feed [:wrong :owner]))
         (let [e' (entry k)]
@@ -828,25 +828,25 @@
           (is (contains? (:active-owners e') [:test :w])
               "the original ensure owner is still present")
           (is (= #{[:test :w]} (:active-owners e'))
-              ":active-owners UNCHANGED — exactly one lease still holds the feed")))
+              ":active-owners UNCHANGED — exactly one owner still holds the feed")))
       (testing "the dropped owner is absent from the derived :owner-index"
         (is (not (contains? (owner-index-keys) [:wrong :owner]))
             "the stray owner is NOT a key in :owner-index")
         (is (= #{[:test :w]} (owners-for-key k))
-            ":owner-index lists only the original lease against this feed's key"))
+            ":owner-index lists only the original owner against this feed's key"))
       (testing "the work record carries NO owner (the in-flight page is ownerless)"
         (let [e' (entry k)
               rec (work-ledger/get-record (runtime-db) (:current-work e'))]
           (is (some? rec) "a work record exists for the in-flight load-more page")
           (is (empty? (:owners rec))
               "the work record's :owners is empty — the ignored owner never joined it")))
-      (testing "no leak survives the page reply (the feed stays at one lease)"
+      (testing "no leak survives the page reply (the feed stays at one owner)"
         (reply-success! (page [:b] "c2"))
         (let [e' (entry k)]
           (is (= :loaded (:status e')) "feed settled :loaded")
           (is (= 2 (state/page-count e')) "the page still appended (warn-and-PROCEED)")
           (is (= #{[:test :w]} (:active-owners e'))
-              "still exactly one lease after settle — no durable leak to release"))))))
+              "still exactly one owner after settle — no durable leak to release"))))))
 
 (deftest load-more-mistaken-owner-PRESERVES-cause
   ;; rf2-bi8vg1 — :cause is UNTOUCHED by the owner-drop (attribution preserved):
@@ -875,4 +875,4 @@
       (let [e (entry k)]
         (is (= 2 (state/page-count e)) "the ownerless load-more appended normally")
         (is (= #{[:test :w]} (:active-owners e))
-            "still exactly the route/ensure owner — load-more added no lease")))))
+            "still exactly the route/ensure owner — load-more added no owner")))))

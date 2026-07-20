@@ -104,7 +104,7 @@
             goog.DEBUG=false — the whole warning body elides while the sub
             still returns its documented :idle projection (fail-closed kept)."
     (rf/reg-resource :sme/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
-    ;; ensure + settle scope A active (the real lease) …
+    ;; ensure + settle scope A active (the real owner) …
     (let [ka (state/scoped-resource-key {:user "a"} :sme/article {:slug "w"})]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :sme/article :scope {:user "a"}
                                               :params {:slug "w"} :owner [:route :r 1]}])
