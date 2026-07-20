@@ -10,7 +10,7 @@
   cell generation + registered-view revision and then performed an INDEPENDENT
   `swap!` to publish. A concurrent `advance-generation!` (cell-local axis) or
   same-view re-registration (registry axis) landing AFTER that sample but BEFORE
-  the swap published a generation-0 capture that connected and owned leases while
+  the swap published a generation-0 capture that connected and owned handles while
   current authority was already generation/revision 1 — a check-to-use race.
 
   These fixtures reproduce the window with a deterministic `CountDownLatch`
@@ -102,7 +102,7 @@
       (testing "the stale generation-0 capture never published or connected"
         (is (= :fresh (reactive/lifecycle cell)) "never connected")
         (is (empty? (reactive/committed-target-keys cell)) "no dependency set published")
-        (is (nil? (entry [:r/a])) "the staged lease was released — zero-owner node")
+        (is (nil? (entry [:r/a])) "the staged handle was released — zero-owner node")
         (is (= 1 (reactive/generation cell)) "the cell carries the advanced generation")
         (is (= 0 (reactive/revision cell)) "no revision advance")))))
 
@@ -135,7 +135,7 @@
       (testing "the stale revision-0 capture never published or connected"
         (is (= :fresh (reactive/lifecycle cell)) "never connected")
         (is (empty? (reactive/committed-target-keys cell)) "no dependency set published")
-        (is (nil? (entry [:r/a])) "the staged lease was released — zero-owner node")
+        (is (nil? (entry [:r/a])) "the staged handle was released — zero-owner node")
         (is (= 0 (reactive/revision cell)) "no revision advance")))))
 
 ;; ===========================================================================

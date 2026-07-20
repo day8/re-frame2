@@ -3,7 +3,7 @@
   over the REAL observation port + REAL sub-cache (plain-atom) on BOTH hosts
   (node via `test:cljs`, JVM via `clojure -M:test`). The normative source is
   03 §10 (the HMR contract): stable shells + the hook-signature hash, site
-  identity, frame non-reseed, sub replacement via lease `current?` rejection of
+  identity, frame non-reseed, sub replacement via handle `current?` rejection of
   disposed nodes, and REPL == file-save reload (one path).
 
   Every cell exercises the actual substrate primitive — no proxy:
@@ -12,16 +12,16 @@
        registration advances BODY REVISION so mounted shells see the new body.
        A template edit (same hook signature) KEEPS REMOUNT GENERATION; a hook
        edit advances it so the stable shell remounts its stable inner Fiber.
-       `sub`/`lease`/event sites are excluded from the signature, so adding your
+       `sub`/`handle`/event sites are excluded from the signature, so adding your
        first `sub` is a same-signature edit.
     2. STALE-CELL REJECTION AT COMMIT (step 1). A live cell whose generation
        advanced past its in-flight capture is stale-rejected (`:stale`) with no
        ownership touched — the same-shell reload's mark-stale-then-re-render.
     3. SITE IDENTITY survives edits. Sites are keyed by compiler-minted lexical
-       identity: a sibling site added above a lease never retargets it;
+       identity: a sibling site added above a handle never retargets it;
        a site whose query moves retargets (kept-check fails → release + acquire)
        and a shared node never churns.
-    4. SUB REPLACEMENT via lease `current?`. A committed ViewCell lease whose
+    4. SUB REPLACEMENT via handle `current?`. A committed ViewCell handle whose
        sub is re-registered is REJECTED by `current?` (the disposed canonical
        node) and re-acquired at the next commit — the ViewCell-level extension
        of the S2a-confirmed observation-port [S2-CONFIRM] queue-alignment proof
@@ -89,7 +89,7 @@
 ;; Cell 1 — hook-signature hash decides preserve vs remount (03 §10)
 ;; ===========================================================================
 ;;
-;; Real fingerprint inputs: the signature excludes `sub`/`lease`/event sites and
+;; Real fingerprint inputs: the signature excludes `sub`/`handle`/event sites and
 ;; hashes only the ordered `:locals`/`:effects` plan (the S3 host-hook surfaces).
 ;; At S2 every defview still emits the empty-plan signature, so a REAL S2 edit is
 ;; always a same-signature edit — the fixtures drive the decision with the varied
@@ -169,7 +169,7 @@
         hs   (fp/hook-signature-hash {:locals [] :effects []})
         _    (reactive/register-view-generation! vid hs)
         cell (render+commit! (reactive/make-cell vid 0) [[:r/a]])
-        lease0 (reactive/committed-lease cell (tk [:r/a]))]
+        lease0 (reactive/committed-handle cell (tk [:r/a]))]
     (is (= 1 (ref-count [:r/a])) "precondition: committed at generation 0")
     (testing "registration lands after render but before layout: the slot moved
               while the cell-local revision did not"
@@ -180,13 +180,13 @@
         (is (= :stale (reactive/commit! cell capture))
             "commit step 1 consults the authoritative slot revision")))
     (testing "no ownership was touched — the prior committed set stays installed"
-      (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a]))))
+      (is (identical? lease0 (reactive/committed-handle cell (tk [:r/a]))))
       (is (= 1 (ref-count [:r/a])) "no acquire, no release on a stale rejection"))
     (testing "a fresh render under the new generation commits normally"
       (reactive/advance-generation! cell (reactive/view-generation vid))
       (render+commit! cell [[:r/a]])
-      (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a])))
-          "the same live target retains its lease across the explicit generation seam"))))
+      (is (identical? lease0 (reactive/committed-handle cell (tk [:r/a])))
+          "the same live target retains its handle across the explicit generation seam"))))
 
 (deftest advance-generation-is-monotone
   (let [cell (reactive/make-cell ::v 2)]
@@ -200,7 +200,7 @@
   (rf/reg-sub :r/b (fn [db _] (:b db)))
   (seed! {:a 1 :b 2})
   (let [cell (render+commit! (reactive/make-cell ::v 0) [[:r/a]])
-        lease-a (reactive/committed-lease cell (tk [:r/a]))
+        handle-a (reactive/committed-handle cell (tk [:r/a]))
         [_ cap-a] (render! cell [[:r/a]])
         [_ cap-b] (render! cell [[:r/b]])]
     (is (= 0 (:generation cap-a) (:generation cap-b))
@@ -209,15 +209,15 @@
     ;; effect closure commits A; B cannot redirect the same-generation commit.
     (reactive/commit! cell cap-a)
     (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell)))
-    (is (identical? lease-a (reactive/committed-lease cell (tk [:r/a])))
-        "same-signature A preserves the exact live lease")
+    (is (identical? handle-a (reactive/committed-handle cell (tk [:r/a])))
+        "same-signature A preserves the exact live handle")
     (is (nil? (entry [:r/b])) "abandoned B owns and materialises nothing")))
 
 ;; ===========================================================================
 ;; Cell 3 — compiler site identity survives edits (not query or position)
 ;; ===========================================================================
 
-(deftest sibling-site-added-above-never-retargets-an-existing-lease
+(deftest sibling-site-added-above-never-retargets-an-existing-handle
   (rf/reg-sub :r/a (fn [db _] (:a db)))
   (rf/reg-sub :r/b (fn [db _] (:b db)))
   (seed! {:a 1 :b 2})
@@ -225,12 +225,12 @@
         site-b ::site-b
         cell   (render-sites+commit! (reactive/make-cell ::v)
                                      [[site-a [:r/a]]])
-        lease-a (reactive/committed-lease cell (tk [:r/a]))]
+        handle-a (reactive/committed-handle cell (tk [:r/a]))]
     (testing "an edit inserts a NEW compiler site ABOVE :a; :a keeps its
               lexical identity even though its traversal position moved"
       (render-sites+commit! cell [[site-b [:r/b]] [site-a [:r/a]]])
-      (is (identical? lease-a (reactive/committed-lease cell (tk [:r/a])))
-          ":a keeps the SAME lease — the prepended :b did not shift its owner")
+      (is (identical? handle-a (reactive/committed-handle cell (tk [:r/a])))
+          ":a keeps the SAME handle — the prepended :b did not shift its owner")
       (is (= #{(tk [:r/a]) (tk [:r/b])} (reactive/committed-target-keys cell)))
       (is (= 1 (ref-count [:r/a])) ":a never re-acquired")
       (is (= 1 (ref-count [:r/b])) ":b acquired fresh"))))
@@ -239,41 +239,41 @@
   (rf/reg-sub :r/p (fn [db [_ k]] (get db k)))
   (seed! {:x 10 :y 20})
   (let [cell    (render+commit! (reactive/make-cell ::v) [[:r/p :x]])
-        lease-x (reactive/committed-lease cell (tk [:r/p :x]))]
+        handle-x (reactive/committed-handle cell (tk [:r/p :x]))]
     (is (= 1 (ref-count [:r/p :x])))
     (testing "the site's query moves [:r/p :x] → [:r/p :y]: a NEW target identity,
               so the kept-check fails and the site retargets (release old +
               acquire new)"
       (render+commit! cell [[:r/p :y]])
       (is (= #{(tk [:r/p :y])} (reactive/committed-target-keys cell)))
-      (is (not (identical? lease-x (reactive/committed-lease cell (tk [:r/p :y])))))
+      (is (not (identical? handle-x (reactive/committed-handle cell (tk [:r/p :y])))))
       (is (nil? (entry [:r/p :x])) "the abandoned query's node disposed (zero-owner)")
       (is (= 1 (ref-count [:r/p :y])) "the new query acquired one owner"))))
 
 ;; ===========================================================================
-;; Cell 4 — sub replacement via lease current? (ViewCell-level; 03 §10)
+;; Cell 4 — sub replacement via handle current? (ViewCell-level; 03 §10)
 ;; ===========================================================================
 ;; The observation-port half (one coalesced :hmr notification, current? false,
 ;; fresh canonical node) is S2a-CONFIRMED in re-frame.observation-port-cljs-test
 ;; (hmr-reregistration-notifies-former-owners-once-with-cause-hmr). Here the SAME
 ;; mechanism is driven through the ViewCell commit reconciler.
 
-(deftest reregistered-sub-disposed-lease-rejected-by-current?-and-reacquired
+(deftest reregistered-sub-disposed-handle-rejected-by-current?-and-reacquired
   (rf/reg-sub :r/x (fn [db _] (:a db)))
   (seed! {:a 1})
   (let [cell   (render+commit! (reactive/make-cell ::v) [[:r/x]])
-        lease0 (reactive/committed-lease cell (tk [:r/x]))
+        lease0 (reactive/committed-handle cell (tk [:r/x]))
         tgt    (target [:r/x])]
     (is (= 1 (ref-count [:r/x])))
-    (is (true? (obs/current? lease0 tgt)) "the live lease is current before the reload")
+    (is (true? (obs/current? lease0 tgt)) "the live handle is current before the reload")
     (testing "an HMR sub re-registration disposes the canonical node"
       (rf/reg-sub :r/x (fn [db _] (inc (:a db))))   ; new body
       (is (false? (obs/current? lease0 tgt))
-          "current? REJECTS the committed lease — its node was disposed (03 §10)"))
+          "current? REJECTS the committed handle — its node was disposed (03 §10)"))
     (testing "the next commit re-acquires the NEW canonical node"
       (render+commit! cell [[:r/x]])
-      (let [lease1 (reactive/committed-lease cell (tk [:r/x]))]
-        (is (not (identical? lease0 lease1)) "a fresh lease on the new node")
+      (let [lease1 (reactive/committed-handle cell (tk [:r/x]))]
+        (is (not (identical? lease0 lease1)) "a fresh handle on the new node")
         (is (true? (obs/current? lease1 tgt)))
         (is (= 1 (ref-count [:r/x])) "exactly one owner — no cell pinned the disposed node")
         (is (= {(tk [:r/x]) 2} (reactive/committed-values cell))

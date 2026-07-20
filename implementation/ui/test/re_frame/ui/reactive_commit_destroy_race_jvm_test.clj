@@ -6,7 +6,7 @@
   `:ui/on-frame-destroyed!` sweep, which snapshots the live-cell registry and
   tears down its victims — WHILE the frame is intentionally still live — and
   only AFTERWARDS flips the liveness bit (`mark-frame-destroyed!`) and tears
-  down the sub-cache. A ViewCell commit that acquires leases and enrols a cell
+  down the sub-cache. A ViewCell commit that acquires handles and enrols a cell
   in the window BETWEEN the sweep's snapshot and the liveness flip is absent
   from the sweep's victim vector, publishes `:connected`, and then loses its
   cache underneath it during the remaining destroy recipe — the exact
@@ -17,7 +17,7 @@
   and before the liveness flip; a racing thread commits a fresh cell into that
   window; the destroy then resumes. The fix — a commit-side revalidation against
   `frame/frame-closing?` after the enrolment publish — makes the racing cell
-  JOIN the teardown (`:dead`, leases released against the still-live cache)
+  JOIN the teardown (`:dead`, handles released against the still-live cache)
   instead of stranding `:connected`. Without the fix the racing cell is left
   `:connected` on the dying frame, so this test FAILS on pre-fix code.
 
@@ -85,7 +85,7 @@
       (let [race (future
                    (.await swept 5 TimeUnit/SECONDS)
                    ;; Commit the fresh cell against the STILL-LIVE frame — it
-                   ;; acquires a lease and enrols into the live-cell registry
+                   ;; acquires a handle and enrols into the live-cell registry
                    ;; AFTER the sweep already snapshotted.
                    (let [[_ capture] (rf/with-frame fid
                                        (reactive/with-capture new-cell
@@ -104,7 +104,7 @@
              the frame-closing? revalidation — not left :connected on a frame
              whose cache is being torn down")
         (is (empty? (reactive/committed-target-keys new-cell))
-            "its lease was released against the still-live cache — no port throw
+            "its handle was released against the still-live cache — no port throw
              on a later probe of the destroyed frame"))
 
       (testing "the frame is genuinely destroyed"

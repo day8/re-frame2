@@ -14,18 +14,18 @@
       (resolve-target site-ctx)     ; render: the ONLY resolution point → target
       (probe target ?slice-memo)    ; render: pure evidence read
       (acquire! target on-change)   ; commit-only: re-resolves canonical node,
-                                    ;   +1 owner → lease
-      (current? lease target)       ; the commit kept-check, one predicate
-      (read lease)                  ; => {:value v :version n …}; typed error
+                                    ;   +1 owner → handle
+      (current? handle target)       ; the commit kept-check, one predicate
+      (read handle)                  ; => {:value v :version n …}; typed error
                                     ;   after release
-      (release! lease)              ; synchronous, idempotent
+      (release! handle)              ; synchronous, idempotent
 
   ## Mapping onto the cache contract
 
   `acquire!` is the ref-count attach of Spec 006 §Lookup algorithm plus
   callback registration; `release!` is the subscriber detach of §Reference
   counting and disposal (identity-guarded, so a node disposed-and-rebuilt out
-  from under a lease is never double-decremented); `probe` is an
+  from under a handle is never double-decremented); `probe` is an
   ownership-free read with no prior public name (`subscribe-once`
   attaches-and-detaches; `probe` never attaches). `resolve-target` and
   `current?` are the capture and kept-check layer a concurrent host requires.
@@ -37,10 +37,10 @@
   probe (no live node) computes pure against the frame's current frame-state
   snapshot through the slice-scoped memo and retains NOTHING (the 10k-cold-
   probes-retain-zero fixture pins it). Ownership is commit-only: `acquire!`
-  bumps the cache ref-count, registers the per-lease change watch (on hosts
-  whose derived values are watchable), and enrols the lease as an active owner
+  bumps the cache ref-count, registers the per-handle change watch (on hosts
+  whose derived values are watchable), and enrols the handle as an active owner
   behind the node's single, once-installed disposal hook (`release!` de-enrols
-  it, so a released lease retains no dormant closure — rf2-vxgfnd.15).
+  it, so a released handle retains no dormant closure — rf2-vxgfnd.15).
 
   ## Evidence, versions, and epochs
 
@@ -54,7 +54,7 @@
       a record dies with its reaction — no pruning, no retention. The record's
       VALUE must never transitively STRONG-reference its own reaction key:
       `java.util.WeakHashMap` is NOT an ephemeron map (a value→key path pins
-      the key forever), so the owner leases in `:owners` hold their reaction
+      the key forever), so the owner handles in `:owners` hold their reaction
       WEAKLY on the JVM (rf2-vxgfnd.37). `js/WeakMap` HAS ephemeron semantics,
       so CLJS needs no such care.
     - `:frame-epoch` — `re-frame.frame/frame-commit-epoch`: bumped once per
@@ -64,7 +64,7 @@
     - `:registry-epoch` — bumped on every `:sub` registration (first-time or
       replacement), so an HMR re-registration in the gap is visible.
 
-  `read` on a node lease additionally returns the node's `:node-key` (its
+  `read` on a node handle additionally returns the node's `:node-key` (its
   process-unique IDENTITY — the SAME key probe emits) and the CURRENT
   `:frame-epoch` / `:registry-epoch` (additive keys — the frozen
   `{:value v :version n}` contract is unchanged) so the commit reconciler gets
@@ -94,7 +94,7 @@
 
   ## Host honesty — the watch channel
 
-  Value-movement `on-change` notifications ride a per-lease `add-watch` on
+  Value-movement `on-change` notifications ride a per-handle `add-watch` on
   the cache node's derived value, and therefore exist exactly where the
   substrate's derived values are watchable (the Reagent family and the React
   spine). The headless hosts (plain-atom JVM/CLJS, test-react) ship
@@ -106,24 +106,24 @@
 
   The cause a former owner is told is INTRINSIC to why its node died, not
   decided by which drain boundary fires (rf2-r8jmdb): each queued entry is a
-  `[lease cause]` pair, the cause captured at enqueue time from the disposing
+  `[handle cause]` pair, the cause captured at enqueue time from the disposing
   cache site's `re-frame.subs.cache/*disposal-cause*` (`:hot-reload` → `:hmr`;
   frame-destroy / cache-clear / last-derefer → `:disposed`). Sub re-registration
   disposes the canonical node then notifies former owners ONCE with cause
-  `:hmr`: the reaction's dispose hook ENQUEUES the live leases tagged `:hmr`, and
+  `:hmr`: the reaction's dispose hook ENQUEUES the live handles tagged `:hmr`, and
   the queue drains at the notification boundary the re-registration closes (this
   ns's registrar replacement hook — registered AFTER `re-frame.subs.cache`'s
   invalidation hook by require order, so the drain runs once the registry
   mutation + cache eviction completed, never mid-mutation), coalesced once per
-  lease and taking ONLY the `:hmr`-tagged entries. Non-registrar disposal paths
-  (frame-destroy, explicit cache clears) tag their leases `:disposed` and drain
-  on the next tick — so a `:disposed` lease still pending when an unrelated `:sub`
+  handle and taking ONLY the `:hmr`-tagged entries. Non-registrar disposal paths
+  (frame-destroy, explicit cache clears) tag their handles `:disposed` and drain
+  on the next tick — so a `:disposed` handle still pending when an unrelated `:sub`
   re-registration drains is left for its own boundary, never swept into the
   `:hmr` drain and mislabelled.
 
   Readiness is published HONESTLY (rf2-vxgfnd.70): the node record's
   `:hook-installed?` flag is set only AFTER `interop/add-on-dispose!` has
-  actually registered the callback, never as the lease merely enrols. So a
+  actually registered the callback, never as the handle merely enrols. So a
   fresh follower — whose `register-owner!` reads that flag — can never observe a
   ready hook before the hook exists. A concurrent follower whose enrolment
   interleaves the install window (flag still unset) is told to install too: it
@@ -139,7 +139,7 @@
   cache entry before `interop/dispose!`, a reaction that is no longer the
   frame's canonical node was disposed in the window — the staged owners are
   self-drained and enqueued exactly once (`take-owners!` is the single-drain
-  point), so no acquired lease is ever left behind an uninstalled/dead hook
+  point), so no acquired handle is ever left behind an uninstalled/dead hook
   without its invalidation. If the install itself throws, the owner tears
   itself down (ref/watch/enrolment balanced) and the exception propagates
   through acquire!'s fail-loud path, leaving readiness unpublished so the node
@@ -218,7 +218,7 @@
 ;; The drain reads coverage through [[source-covered-always-on?]], which looks
 ;; the caught throwable up in the private weak association; a throwable with NO
 ;; binding — a diagnostic-only thrown category
-;; (`:rf.error/observation-malformed-target` / `…-malformed-lease` /
+;; (`:rf.error/observation-malformed-target` / `…-malformed-handle` /
 ;; `:rf.error/reentrant-graph-op`), a raw untyped consumer bug, a forged or
 ;; transplanted token, or any application spoof — reads FALSE, so the drain owns
 ;; always-on coverage and wraps it in the stable
@@ -537,7 +537,7 @@
   failing loudly on skew — artifact drift is a boot error, never undefined
   behaviour. Per Spec 006 §The internal observation port §Scope.
 
-  v2 (rf2-vxgfnd.14): `read` on a node lease additionally carries `:node-key`
+  v2 (rf2-vxgfnd.14): `read` on a node handle additionally carries `:node-key`
   — the acquired node's process-unique IDENTITY (the same key `probe` already
   emits) — so the S2b commit reconciler detects a same-id frame REINCARNATION
   across the render→commit gap even when node-version and frame/registry
@@ -689,7 +689,7 @@
 ;; ---- node records (weak identity-keyed) -------------------------------------
 ;;
 ;; Per-node observation bookkeeping — `{:node-key <int> :version <int>
-;; :value <last-observed> :owners #{lease…} :hook-installed? bool}` — keyed by the
+;; :value <last-observed> :owners #{handle…} :hook-installed? bool}` — keyed by the
 ;; cache node's reaction OBJECT in a WEAK identity-keyed table, so a record's
 ;; lifetime is exactly its reaction's: an evicted/disposed node's record
 ;; becomes unreachable with the node, and the port never prunes, scans, or
@@ -701,8 +701,8 @@
 ;; transitively STRONG-reference its own reaction KEY. `java.util.WeakHashMap`
 ;; is NOT an ephemeron map — it holds values strongly and never inspects
 ;; value→key paths, so a value reaching its key pins that key (and the whole
-;; entry) for the process lifetime. The record's `:owners` leases reach their
-;; reaction, so each lease holds it WEAKLY on the JVM (`lease-reaction`) and the
+;; entry) for the process lifetime. The record's `:owners` handles reach their
+;; reaction, so each handle holds it WEAKLY on the JVM (`handle-reaction`) and the
 ;; value→key edge is broken; an abandoned node (interrupted teardown, no
 ;; `release!`) is then collectable. `js/WeakMap` HAS ephemeron semantics, so on
 ;; CLJS the reaction is held plainly and no self-reference care is needed.
@@ -788,7 +788,7 @@
   dev-trace `extra` tags — currently `{:op :subscribe}` from
   `throw-frame-destroyed!` alone (rf2-alk8a): the port is subscribe-realm by
   construction, so the `:subscribe` realm stamp lets `error-emit` resolve the
-  `:source-coord` under the EXACT `[:sub id]` realm and egress the lease's query
+  `:source-coord` under the EXACT `[:sub id]` realm and egress the handle's query
   vector on `:event` VERBATIM as raw IDENTITY (rf2-zwgqe). Every other caller
   (`throw-no-such-sub!`, `retry-exhausted`) passes nil — unchanged."
   ([error-id where frame-id query-v reason extra]
@@ -1044,7 +1044,7 @@
   parametric `input-fn` failure, or a frame destroyed mid-build. `acquire!` IS
   the cache's ref-count attach; there is no node to own, so the port is
   fail-loud and throws the typed error mirroring the recovery taxonomy rather
-  than lease a lying `owned?`-true zero-ref reaction that re-churns every
+  than handle a lying `owned?`-true zero-ref reaction that re-churns every
   commit. `result` is the `{:recovery kind …}` map from
   `subs/acquire-cache-reaction!`. Never returns.
 
@@ -1112,97 +1112,97 @@
     (throw-frame-destroyed! 're-frame.substrate.observation/acquire!
                             frame-id query-v)))
 
-;; ---- the lease ---------------------------------------------------------------
+;; ---- the handle ---------------------------------------------------------------
 
-(deftype ObservationLease [state]
-  ;; The lease IS the owner token — an opaque host object compared by
-  ;; IDENTITY (deftype default; never `=`). Owners are keyed by lease
-  ;; identity with per-lease callbacks, so the sibling-callback-clobber bug
+(deftype ObservationHandle [state]
+  ;; The handle IS the owner token — an opaque host object compared by
+  ;; IDENTITY (deftype default; never `=`). Owners are keyed by handle
+  ;; identity with per-handle callbacks, so the sibling-callback-clobber bug
   ;; class is structurally impossible and StrictMode release/reacquire is
   ;; naturally balanced. `state` is an atom:
   ;;
-  ;;   node lease   {:lease-kind :node :target t :frame-id f :query-v q
+  ;;   node handle   {:handle-kind :node :target t :frame-id f :query-v q
   ;;                 :reaction r :on-change f :watch-key k|absent
   ;;                 :status :live|:released
   ;;                 :last {:value v :version n :node-key nk}}
-  ;;   static lease {:lease-kind :static :target t :status :live}
+  ;;   static handle {:handle-kind :static :target t :status :live}
   )
 
-(defn- lease-state
-  [lease]
-  (.-state ^ObservationLease lease))
+(defn- handle-state
+  [handle]
+  (.-state ^ObservationHandle handle))
 
-(defn lease?
-  "True when `x` is an observation-port lease (either kind)."
+(defn handle?
+  "True when `x` is an observation-port handle (either kind)."
   [x]
-  (instance? ObservationLease x))
+  (instance? ObservationHandle x))
 
 (defn owned?
-  "True when `lease` owns a real sub-cache node (`acquire!` on a
-  `:subscription` target). TOTAL and no-throw (rf2-vxgfnd.241): a non-lease reads
-  `false` rather than field-accessing [[lease-state]] and leaking a raw host
+  "True when `handle` owns a real sub-cache node (`acquire!` on a
+  `:subscription` target). TOTAL and no-throw (rf2-vxgfnd.241): a non-handle reads
+  `false` rather than field-accessing [[handle-state]] and leaking a raw host
   error (a JVM NPE / a CLJS TypeError) — the same ruled malformed-value contract
-  `current?` follows, since a value that is not a live node lease simply owns no
-  node. `lease?` short-circuits the `and` before `@(lease-state lease)`, so no
-  raw host error escapes. The static override lease reports `false` honestly — a
+  `current?` follows, since a value that is not a live node handle simply owns no
+  node. `handle?` short-circuits the `and` before `@(handle-state handle)`, so no
+  raw host error escapes. The static override handle reports `false` honestly — a
   pinned value owns nothing."
-  [lease]
-  (and (lease? lease)
-       (= :node (:lease-kind @(lease-state lease)))))
+  [handle]
+  (and (handle? handle)
+       (= :node (:handle-kind @(handle-state handle)))))
 
-(defn- throw-malformed-lease!
-  "Reject a value that is not a real [[ObservationLease]] at the shared lease
-  boundary (rf2-vxgfnd.183): `read` / `release!` field-access [[lease-state]]
+(defn- throw-malformed-handle!
+  "Reject a value that is not a real [[ObservationHandle]] at the shared handle
+  boundary (rf2-vxgfnd.183): `read` / `release!` field-access [[handle-state]]
   and then DEREF the result, so a nil / a map / any arbitrary host object would
   otherwise throw a raw `NullPointerException` (JVM) or an untyped host error
   (CLJS) carrying no `:rf.error/id` the ViewCell error boundary can classify —
   the half-hardened boundary this bead closes. Throws the typed
-  `:rf.error/observation-malformed-lease` — a distinct diagnostic in the same
-  `observation-malformed-*` family as the target category (a lease is not a
+  `:rf.error/observation-malformed-handle` — a distinct diagnostic in the same
+  `observation-malformed-*` family as the target category (a handle is not a
   target, so it earns its own id, not a shared one). Pure `throw-error!`
-  (diagnostic channel) — a non-lease reaching a lease-taking op is a
+  (diagnostic channel) — a non-handle reaching a handle-taking op is a
   substrate/consumer bug, unreachable in correct generated code, so it does NOT
   fan the always-on axis. Carries BOUNDED structural evidence only — the
   argument's host TYPE, never the value. Never returns."
-  [where lease]
+  [where handle]
   (error/throw-error!
-    :rf.error/observation-malformed-lease
+    :rf.error/observation-malformed-handle
     where
-    (str where " received a malformed observation lease (type "
-         (pr-str (type lease)) "): it is not an ObservationLease. A lease must "
+    (str where " received a malformed observation handle (type "
+         (pr-str (type handle)) "): it is not an ObservationHandle. A handle must "
          "come from acquire!; nil, a map, or any other host object is a "
-         "substrate bug — read / release! deref the lease state, so an "
-         "unvalidated non-lease would leak a bare host NPE / TypeError the "
+         "substrate bug — read / release! deref the handle state, so an "
+         "unvalidated non-handle would leak a bare host NPE / TypeError the "
          "ViewCell error boundary cannot classify.")
     {:recovery :no-recovery
-     :extra    {:lease-type (pr-str (type lease))}}))
+     :extra    {:handle-type (pr-str (type handle))}}))
 
-(defn- validate-lease!
-  "Grammar gate for the lease-taking ops (`read` / `release!`): throw the typed
-  `:rf.error/observation-malformed-lease` when `lease` is not a real
-  [[ObservationLease]], BEFORE [[lease-state]] field-accesses + derefs it
-  (rf2-vxgfnd.183). Returns `lease` when valid. (`current?` does NOT route here —
-  it is a pure no-throw kept-check predicate and returns `false` for a non-lease
+(defn- validate-handle!
+  "Grammar gate for the handle-taking ops (`read` / `release!`): throw the typed
+  `:rf.error/observation-malformed-handle` when `handle` is not a real
+  [[ObservationHandle]], BEFORE [[handle-state]] field-accesses + derefs it
+  (rf2-vxgfnd.183). Returns `handle` when valid. (`current?` does NOT route here —
+  it is a pure no-throw kept-check predicate and returns `false` for a non-handle
   per its ruled contract.)"
-  [where lease]
-  (if (lease? lease)
-    lease
-    (throw-malformed-lease! where lease)))
+  [where handle]
+  (if (handle? handle)
+    handle
+    (throw-malformed-handle! where handle)))
 
 ;; ---- weak reaction reference (JVM WeakHashMap self-reference break) ----------
 ;;
 ;; rf2-vxgfnd.37: the JVM node-records table is a `java.util.WeakHashMap` keyed
 ;; by REACTION, and its VALUE carries the node's active-owner set (`:owners`) of
-;; `ObservationLease` objects. `java.util.WeakHashMap` is NOT an ephemeron map:
+;; `ObservationHandle` objects. `java.util.WeakHashMap` is NOT an ephemeron map:
 ;; a value that transitively STRONG-references its own weak key pins that key
 ;; forever (the map holds values strongly and never inspects value→key paths).
-;; So a lease MUST NOT strong-reference its reaction, or the chain
+;; So a handle MUST NOT strong-reference its reaction, or the chain
 ;;
-;;     node-records value → :owners → lease → state → reaction (= the weak key)
+;;     node-records value → :owners → handle → state → reaction (= the weak key)
 ;;
-;; would defeat the weak key and retain every abandoned node's leases for the
-;; process lifetime. The lease state therefore holds its reaction WEAKLY on the
-;; JVM (deriving the strong reaction on demand via [[lease-reaction]]), so an
+;; would defeat the weak key and retain every abandoned node's handles for the
+;; process lifetime. The handle state therefore holds its reaction WEAKLY on the
+;; JVM (deriving the strong reaction on demand via [[handle-reaction]]), so an
 ;; otherwise-unreachable reaction — e.g. an interrupted teardown that drops a
 ;; cache/frame without completing `release!`/dispose — is GC-collectable and its
 ;; node record dies with it. CLJS needs no such care: `js/WeakMap` HAS ephemeron
@@ -1210,17 +1210,17 @@
 ;; plain reference there.
 
 (defn- weak-reaction-ref
-  "Wrap `reaction` for storage in a node lease's state: a `WeakReference` on the
+  "Wrap `reaction` for storage in a node handle's state: a `WeakReference` on the
   JVM (so the weak node-records value cannot strong-reference its own weak key —
   rf2-vxgfnd.37), the plain reaction on CLJS (`js/WeakMap` is ephemeron)."
   [reaction]
   #?(:clj  (java.lang.ref.WeakReference. reaction)
      :cljs reaction))
 
-(defn- lease-reaction
-  "Derive the STRONG reaction from a node lease's `state` map — or nil when the
+(defn- handle-reaction
+  "Derive the STRONG reaction from a node handle's `state` map — or nil when the
   JVM `WeakReference` has already been collected (the reaction became
-  unreachable while the lease outlived it: an abandoned or displaced node). CLJS
+  unreachable while the handle outlived it: an abandoned or displaced node). CLJS
   returns the plain reference. Every caller guards the nil case — a collected
   reaction is never the live canonical node, so `current?`/`read` fall back to
   the last committed observation and `release!` no-ops the cache detach."
@@ -1231,15 +1231,15 @@
 
 ;; ---- HMR / disposal notification queue ---------------------------------------
 ;;
-;; Each queued entry is a `[lease cause]` PAIR (rf2-r8jmdb): the cause is
+;; Each queued entry is a `[handle cause]` PAIR (rf2-r8jmdb): the cause is
 ;; INTRINSIC to why the node died — captured at enqueue time from the disposing
 ;; cache site's `re-frame.subs.cache/*disposal-cause*` — NOT inferred from which
-;; drain boundary fires. So a frame-destroy / cache-clear lease still pending
+;; drain boundary fires. So a frame-destroy / cache-clear handle still pending
 ;; when an unrelated `:sub` HMR re-registration drains is NEVER swept into the
 ;; `:hmr` drain and mislabelled: `drain-pending-disposals!` takes only the
 ;; entries whose intrinsic cause matches the boundary it serves (the registrar
 ;; HMR hook drains `:hmr`, the next-tick fallback drains `:disposed`), leaving
-;; the rest queued for their own boundary and delivering each lease its OWN
+;; the rest queued for their own boundary and delivering each handle its OWN
 ;; cause. A documented `on-change` payload contract fix (a consumer branching
 ;; `:hmr` = re-acquire vs `:disposed` = gone must not re-acquire a destroyed
 ;; frame).
@@ -1260,9 +1260,9 @@
   (if (= :hot-reload subs-cache/*disposal-cause*) :hmr :disposed))
 
 (defn- notify-disposal!
-  [lease cause]
-  (let [st @(lease-state lease)]
-    (when (and (= :node (:lease-kind st))
+  [handle cause]
+  (let [st @(handle-state handle)]
+    (when (and (= :node (:handle-kind st))
                (= :live (:status st)))
       (let [{:keys [on-change target frame-id last]} st]
         (fan-out! on-change
@@ -1294,7 +1294,7 @@
 
     - ALREADY COVERED ON THE ALWAYS-ON AXIS — the port's own emit-then-throw
       surfaces that fanned through `error-emit/emit-error-both!` (`read` on a
-      released lease, the probe/acquire fail-loud throws, the ABI guard, the
+      released handle, the probe/acquire fail-loud throws, the ABI guard, the
       retry-exhausted throw, and the acquire-recovery input-fn arms whose
       always-on record the sub BUILD fanned) bind the `#{:always-on :trace}`
       provenance to THAT exact throwable in the private weak association. Their
@@ -1305,7 +1305,7 @@
     - NOT COVERED ON THE ALWAYS-ON AXIS — a source that emitted ONLY on the
       diagnostic trace axis (the build's production-elided `:rf.error/sub-cycle`,
       provenance `#{:trace}`), a DIAGNOSTIC-ONLY thrown category with no fan
-      of its own (`:rf.error/observation-malformed-target` / `…-malformed-lease`
+      of its own (`:rf.error/observation-malformed-target` / `…-malformed-handle`
       / the dev `:rf.error/reentrant-graph-op` assert), a raw untyped
       consumer-callback bug (a `TypeError` / `AssertionError` / host
       `RuntimeException`), or an application ex-info trying to SPOOF a framework
@@ -1333,9 +1333,9 @@
   `:source-coord` resolves under `[:sub id]` — a macro-registered sub yields its
   exact coordinate, a programmatic one omits the slot, and a same-id event
   registration cannot steal attribution."
-  [lease cause exception]
+  [handle cause exception]
   (when-not (source-covered-always-on? exception)
-    (let [{:keys [frame-id query-v]} @(lease-state lease)
+    (let [{:keys [frame-id query-v]} @(handle-state handle)
           sub-id (first query-v)]
       (error-emit/emit-error-both!
         :rf.error/observation-on-change-failed
@@ -1362,21 +1362,21 @@
 
 (defn ^:no-doc drain-pending-disposals!
   "Drain the queued node-disposed notifications whose INTRINSIC cause is
-  `cause`, coalesced once per lease (identity), delivering only to still-live
-  leases. `cause` is `:hmr` at the sub re-registration boundary (the registrar
+  `cause`, coalesced once per handle (identity), delivering only to still-live
+  handles. `cause` is `:hmr` at the sub re-registration boundary (the registrar
   replacement hook below), `:disposed` on the next-tick fallback (frame-destroy
   / explicit cache clears). INTERNAL — exposed un-private only so the port's own
   tests can drive the fallback boundary deterministically.
 
-  Each queued entry is a `[lease intrinsic-cause]` pair (rf2-r8jmdb): this drain
+  Each queued entry is a `[handle intrinsic-cause]` pair (rf2-r8jmdb): this drain
   takes ONLY the entries whose intrinsic cause equals `cause` — atomically, via
   `swap-vals!` filtering them out in one CAS — and LEAVES the rest queued for
-  their own boundary. So a `:disposed`-tagged frame-destroy/cache-clear lease
+  their own boundary. So a `:disposed`-tagged frame-destroy/cache-clear handle
   still pending when this fires with `:hmr` is never mislabelled `:hmr`; it waits
   for the next-tick `:disposed` fallback. Because every taken entry already
   carries `cause`, delivering `cause` to each IS delivering its own cause.
 
-  Each lease's notification is CONTAINED in its own `try/catch` so one owner's
+  Each handle's notification is CONTAINED in its own `try/catch` so one owner's
   throwing `on-change` cannot starve its siblings (rf2-vxgfnd.28 — this was the
   one uncontained fan-out; it mirrors registrar's per-hook and subs.cache's
   per-reaction dispose containment). Every sibling is notified; EVERY escape is
@@ -1403,9 +1403,9 @@
                                   (distinct))
                          old)
         escapes    (reduce
-                     (fn [acc lease]
+                     (fn [acc handle]
                        (try
-                         (notify-disposal! lease cause)
+                         (notify-disposal! handle cause)
                          acc
                          (catch #?(:clj Throwable :cljs :default) t
                            ;; Surface EVERY escape EXACTLY ONCE before the
@@ -1420,7 +1420,7 @@
                            ;; :rf.error/observation-on-change-failed via the
                            ;; two-channel fan-out (rf2-q3fmqm), never promoting
                            ;; its own category onto the always-on axis.
-                           (report-disposal-notify-escape! lease cause t)
+                           (report-disposal-notify-escape! handle cause t)
                            (conj acc t))))
                      []
                      taken)]
@@ -1429,13 +1429,13 @@
   nil)
 
 (defn- enqueue-disposal!
-  [lease]
+  [handle]
   ;; Capture the node's INTRINSIC cause NOW (rf2-r8jmdb): on the dispose stack
   ;; the disposing cache site has `subs-cache/*disposal-cause*` bound, so the
   ;; entry carries the cause the node ACTUALLY died of rather than the boundary
   ;; that later drains it. Off the dispose stack (the acquire! re-check) the var
   ;; is unbound and [[enqueue-cause]] fails safe to `:disposed`.
-  (swap! pending-disposals conj [lease (enqueue-cause)])
+  (swap! pending-disposals conj [handle (enqueue-cause)])
   ;; Fallback drain boundary for non-registrar disposal paths. The HMR path
   ;; drains its `:hmr`-tagged entries earlier and synchronously (the replacement
   ;; hook below); this tick then drains any `:disposed`-tagged entries left.
@@ -1687,16 +1687,16 @@
 
      (throw-malformed-target! 're-frame.substrate.observation/probe target))))
 
-;; ---- active-owner tracking (the released-lease-retention fix) ----------------
+;; ---- active-owner tracking (the released-handle-retention fix) ----------------
 ;;
-;; rf2-vxgfnd.15: a released lease MUST NOT stay reachable from a live shared
+;; rf2-vxgfnd.15: a released handle MUST NOT stay reachable from a live shared
 ;; reaction. Rather than one non-removable `interop/add-on-dispose!` closure
-;; per lease — which accumulates one dormant closure per historical owner on
+;; per handle — which accumulates one dormant closure per historical owner on
 ;; any node an owner keeps live (an unbounded leak, and O(all owners ever) at
 ;; the eventual disposal) — the port keeps an IDENTITY-keyed set of the node's
-;; CURRENTLY-active owner leases inside the weak node record, and installs ONE
+;; CURRENTLY-active owner handles inside the weak node record, and installs ONE
 ;; node-scoped disposal hook per reaction (steady state). `acquire!` enrols the
-;; lease and installs the hook when none is CONFIRMED installed yet — the first
+;; handle and installs the hook when none is CONFIRMED installed yet — the first
 ;; owner, plus any follower whose enrolment interleaves that install window
 ;; (rf2-vxgfnd.70), whose own hook is an independent disposal fallback; `release!`
 ;; de-enrols it; node disposal snapshots-and-clears the live owners and enqueues
@@ -1704,21 +1704,21 @@
 ;; harmless). The owner set
 ;; rides the SAME weak record (and the same JVM lock discipline) as the version
 ;; bookkeeping, so it dies with the reaction — no pruning, no scan of historical
-;; owners, storage O(current owners) not O(all owners ever acquired). The lease
+;; owners, storage O(current owners) not O(all owners ever acquired). The handle
 ;; is a `deftype` compared by identity, so a plain persistent set keys it by
 ;; identity on both hosts.
 ;;
-;; Because the record VALUE now reaches leases (and a lease reaches its
+;; Because the record VALUE now reaches handles (and a handle reaches its
 ;; reaction, the weak KEY), the value→key STRONG-reference that would defeat the
 ;; JVM `java.util.WeakHashMap` weak key is broken by holding the reaction WEAKLY
-;; in each lease's state (`lease-reaction`; rf2-vxgfnd.37) — see the node-records
-;; §REACHABILITY INVARIANT above. So even a lease left enrolled by an interrupted
+;; in each handle's state (`handle-reaction`; rf2-vxgfnd.37) — see the node-records
+;; §REACHABILITY INVARIANT above. So even a handle left enrolled by an interrupted
 ;; teardown cannot pin its own node's reaction: the record dies with the
 ;; reaction on the JVM exactly as `js/WeakMap`'s ephemeron semantics already
 ;; guarantee on CLJS.
 
 (defn- register-owner!
-  "Enrol owner `lease` in `reaction`'s active-owner set within the weak node
+  "Enrol owner `handle` in `reaction`'s active-owner set within the weak node
   record (minting the record if a prior probe/observe has not — in practice
   `acquire!` observes first, so the record exists). Returns true iff the node's
   disposal hook is NOT yet CONFIRMED installed — i.e. THIS caller must install
@@ -1730,21 +1730,21 @@
   own node-scoped hook is an independent disposal fallback, and duplicate hooks
   are harmless because `take-owners!` is the single-drain point. JVM: under the
   node-records lock, the same discipline the version records use."
-  [reaction lease]
+  [reaction handle]
   #?(:clj
      (locking node-records
        (let [rec        (or (.get node-records reaction)
                             {:node-key (swap! node-key-counter inc) :version 0 :value nil})
              installed? (:hook-installed? rec)]
          (.put node-records reaction
-               (assoc rec :owners (conj (or (:owners rec) #{}) lease)))
+               (assoc rec :owners (conj (or (:owners rec) #{}) handle)))
          (not installed?)))
      :cljs
      (let [rec        (or (.get node-records reaction)
                           {:node-key (swap! node-key-counter inc) :version 0 :value nil})
            installed? (:hook-installed? rec)]
        (.set node-records reaction
-             (assoc rec :owners (conj (or (:owners rec) #{}) lease)))
+             (assoc rec :owners (conj (or (:owners rec) #{}) handle)))
        (not installed?))))
 
 (defn- mark-hook-installed!
@@ -1767,23 +1767,23 @@
   nil)
 
 (defn- deregister-owner!
-  "Remove owner `lease` from `reaction`'s active-owner set. No-op when the
-  record or the lease is absent (a disposed/rebuilt node, or a lease already
+  "Remove owner `handle` from `reaction`'s active-owner set. No-op when the
+  record or the handle is absent (a disposed/rebuilt node, or a handle already
   drained). JVM: under the node-records lock. Returns nil."
-  [reaction lease]
+  [reaction handle]
   #?(:clj
      (locking node-records
        (when-let [rec (.get node-records reaction)]
-         (when (contains? (:owners rec) lease)
-           (.put node-records reaction (update rec :owners disj lease)))))
+         (when (contains? (:owners rec) handle)
+           (.put node-records reaction (update rec :owners disj handle)))))
      :cljs
      (when-let [rec (.get node-records reaction)]
-       (when (contains? (:owners rec) lease)
-         (.set node-records reaction (update rec :owners disj lease)))))
+       (when (contains? (:owners rec) handle)
+         (.set node-records reaction (update rec :owners disj handle)))))
   nil)
 
 (defn- take-owners!
-  "Snapshot-and-clear `reaction`'s active-owner set, returning the leases that
+  "Snapshot-and-clear `reaction`'s active-owner set, returning the handles that
   were active (nil/empty when none). Called once from the node's disposal hook,
   so a re-entrant or duplicate disposal drains nothing the second time. JVM:
   under the node-records lock."
@@ -1803,7 +1803,7 @@
          owners))))
 
 (defn ^:no-doc active-owner-count
-  "INTERNAL — the number of active owner leases the port currently tracks for
+  "INTERNAL — the number of active owner handles the port currently tracks for
   `reaction` (0 when the node has no record or no live owners). Exposed
   un-private only so the port's own retention tests can assert active ownership
   returns to the current set after acquire/release churn (rf2-vxgfnd.15), on
@@ -1814,7 +1814,7 @@
 
 (defn- drain-owners!
   "Snapshot-and-clear `reaction`'s active owners and enqueue a former-owner
-  disposal notification for each still-live lease. `take-owners!` is the
+  disposal notification for each still-live handle. `take-owners!` is the
   SINGLE-DRAIN point (idempotent under the node-records lock), so whichever of
   the node's disposal hook OR `acquire!`'s handshake re-check (rf2-vxgfnd.32)
   reaches a disposed node first drains its owners; the other call finds an empty
@@ -1822,24 +1822,24 @@
   QUEUED (never a synchronous `on-change`) and rides the drain boundary (see the
   ns docstring's HMR section)."
   [reaction]
-  (doseq [lease (take-owners! reaction)]
-    (when (= :live (:status @(lease-state lease)))
-      (enqueue-disposal! lease)))
+  (doseq [handle (take-owners! reaction)]
+    (when (= :live (:status @(handle-state handle)))
+      (enqueue-disposal! handle)))
   nil)
 
 (defn- node-disposed-hook
   "The ONE node-scoped on-dispose callback for `reaction` (installed exactly
   once, on the first owner). On node disposal it drains the CURRENT active
-  owners and enqueues a former-owner notification for each still-live lease —
-  coalesced once per lease at the drain boundary (see the ns docstring's HMR
-  section). It closes over the reaction only, never a lease, so released owners
+  owners and enqueues a former-owner notification for each still-live handle —
+  coalesced once per handle at the drain boundary (see the ns docstring's HMR
+  section). It closes over the reaction only, never a handle, so released owners
   (de-enrolled by `release!`) are unreachable from it."
   [reaction]
   (fn observation-node-disposed []
     (drain-owners! reaction)))
 
 (defn- node-still-canonical?
-  "True when the lease's acquired reaction is still the frame's live cache node
+  "True when the handle's acquired reaction is still the frame's live cache node
   for its query — i.e. not disposed, not evicted, not rebuilt. A false result
   means a disposal / eviction / HMR-replacement has linearized: EVERY disposal
   path in `re-frame.subs.cache` evicts the cache entry (a cache-atom swap/reset)
@@ -1853,7 +1853,7 @@
    ;; canonical node, so the `when-let` short-circuits — never falling into the
    ;; `(identical? nil (:reaction absent-entry))` ≡ `(identical? nil nil)` trap.
    (boolean
-     (when-let [rx (lease-reaction state)]
+     (when-let [rx (handle-reaction state)]
        (node-still-canonical? state rx))))
   ([{:keys [frame-id query-v]} rx]
    (boolean
@@ -1862,14 +1862,14 @@
 
 ;; ---- acquire! -------------------------------------------------------------------
 
-;; `build-node-lease!`'s install-failure path reuses the full `release!`
+;; `build-node-handle!`'s install-failure path reuses the full `release!`
 ;; teardown (ref-count / watch / enrolment), which is defined below.
 (declare release!)
 
 (defn- make-watch-handler
-  "Per-lease change watch: constant-work — advance the node record with the
+  "Per-handle change watch: constant-work — advance the node record with the
   DELIVERED new value (no recompute, per I-5) and fan the mark-dirty payload
-  to this lease's own `on-change`.
+  to this handle's own `on-change`.
 
   The fan-out is gated on the SAME movement law that governs node-version
   advancement — the core-local `node-value=` `rf=` spelling, NOT raw `not=`
@@ -1885,9 +1885,9 @@
     (let [st @state]
       (when (and (= :live (:status st))
                  (not (node-value= prev nu)))
-        ;; The watch only fires while its reaction is live, so `lease-reaction`
+        ;; The watch only fires while its reaction is live, so `handle-reaction`
         ;; resolves; the `when-some` is belt-and-braces for a JVM weak reaction.
-        (when-some [rx (lease-reaction st)]
+        (when-some [rx (handle-reaction st)]
           (let [rec   (advance-node-record! rx nu)
                 last' {:value nu :version (:version rec) :node-key (:node-key rec)}]
             (swap! state assoc :last last')
@@ -1899,20 +1899,20 @@
                        :frame-epoch    (frame/frame-commit-epoch (:frame-id st))
                        :registry-epoch @registry-epoch*})))))))
 
-(defn- build-node-lease!
+(defn- build-node-handle!
   "Wrap a CANONICAL cached `reaction` — one `subs/acquire-cache-reaction!` has
-  already taken a real +1 reference on — in a live NODE lease. Register the
-  per-lease change watch (on watchable hosts; `add-watch` never fires
+  already taken a real +1 reference on — in a live NODE handle. Register the
+  per-handle change watch (on watchable hosts; `add-watch` never fires
   synchronously), take the baseline observation through the activated node,
-  enrol the lease as an active owner, and — whenever the node hook is not yet
+  enrol the handle as an active owner, and — whenever the node hook is not yet
   CONFIRMED installed — install the node's disposal hook (delivery is queued;
-  see the ns docstring's HMR section). `release!` de-enrols the lease, so a
-  released lease is no longer reachable from the live reaction: disposal work
+  see the ns docstring's HMR section). `release!` de-enrols the handle, so a
+  released handle is no longer reachable from the live reaction: disposal work
   stays O(current owners), never O(all owners ever acquired) (rf2-vxgfnd.15).
 
   Publishes readiness HONESTLY (rf2-vxgfnd.70): [[mark-hook-installed!]] sets
   the record's `:hook-installed?` flag only AFTER `add-on-dispose!` has actually
-  registered the callback — never as the lease enrols — so a fresh follower can
+  registered the callback — never as the handle enrols — so a fresh follower can
   never observe a ready hook before the hook exists. A concurrent follower whose
   enrolment interleaves this install window ([[register-owner!]] still saw the
   flag unset) installs its OWN node-scoped hook: an independent fallback that
@@ -1933,9 +1933,9 @@
   down cleanly (`release!` balances ref-count / watch / enrolment) and rethrow,
   leaving `:hook-installed?` unset so the node is not poisoned — a co-staged
   backstop owner keeps its own hook and future acquirers install afresh. Returns
-  the lease."
+  the handle."
   [target frame-id query reaction on-change]
-  (let [state (atom {:lease-kind :node
+  (let [state (atom {:handle-kind :node
                      :target     target
                      :frame-id   frame-id
                      :query-v    query
@@ -1943,22 +1943,22 @@
                      ;; node-records table's value cannot strong-reference its
                      ;; own weak key back into liveness (rf2-vxgfnd.37); plain
                      ;; on CLJS (js/WeakMap is ephemeron). Derived via
-                     ;; `lease-reaction` at every read.
+                     ;; `handle-reaction` at every read.
                      :reaction   (weak-reaction-ref reaction)
                      :on-change  on-change
                      :status     :live})
-        lease (->ObservationLease state)]
+        handle (->ObservationHandle state)]
     ;; Watch BEFORE the baseline observe: a watched reaction is live on the
     ;; reactive hosts, so the observe below reads through the activated node.
     (when (watchable? reaction)
-      (let [wk (gensym "rf-obs-lease")]
+      (let [wk (gensym "rf-obs-handle")]
         (add-watch reaction wk (make-watch-handler state))
         (swap! state assoc :watch-key wk)))
     (let [[rec v] (observe-node! reaction)]
       (swap! state assoc :last {:value    v
                                 :version  (:version rec)
                                 :node-key (:node-key rec)}))
-    (when (register-owner! reaction lease)
+    (when (register-owner! reaction handle)
       ;; Install the node's disposal hook, THEN publish readiness
       ;; (rf2-vxgfnd.70): a fresh follower never observes a ready hook before
       ;; the callback exists, and an install-window follower installs its OWN
@@ -1969,11 +1969,11 @@
         (interop/add-on-dispose! reaction (node-disposed-hook reaction))
         (mark-hook-installed! reaction)
         (catch #?(:clj Throwable :cljs :default) t
-          (release! lease)
+          (release! handle)
           (throw t))))
     (when-not (node-still-canonical? @state)
       (drain-owners! reaction))
-    lease))
+    handle))
 
 (def ^:private max-displacement-retries
   "Retry budget for acquire!'s live-cache-displacement retarget (rf2-vxgfnd.63).
@@ -2047,16 +2047,16 @@
   `(frame, query)` here — the captured target is an identity, never a node
   handle, so an HMR-disposed render-time node can never be pinned. The
   acquire is the cache's ref-count attach (Spec 006 §Lookup algorithm; a
-  miss builds the node through the real cache-install path), plus per-lease
-  callback registration: a unique change watch (on watchable hosts). The lease
+  miss builds the node through the real cache-install path), plus per-handle
+  callback registration: a unique change watch (on watchable hosts). The handle
   is also enrolled as an active owner behind the node's disposal hook (one hook
-  per node in steady state); `release!` de-enrols it, so a released lease never
+  per node in steady state); `release!` de-enrols it, so a released handle never
   leaks a dormant closure (rf2-vxgfnd.15). Readiness is published only AFTER the
   hook is actually installed, and a follower that enrols in the install window
   installs its own independent backstop hook rather than trusting a not-yet-
   installed one (rf2-vxgfnd.70); a disposal that races the install is also
   caught by a canonicality re-check that self-drains the staged owners
-  (rf2-vxgfnd.32 — see the ns docstring's HMR section), so no acquired lease is
+  (rf2-vxgfnd.32 — see the ns docstring's HMR section), so no acquired handle is
   left behind an uninstalled/dead hook without its invalidation. `acquire!`
   never invokes `on-change` synchronously — no
   fan-out during acquire (movement in the render→commit gap is the commit
@@ -2066,7 +2066,7 @@
   `{:cause :value|:hmr|:disposed :target … :node-key … :node-version …
   :frame-epoch … :registry-epoch …}`; it never computes — I-5).
 
-  For a `:story-override` target returns the STATIC lease: `:owned? false`
+  For a `:story-override` target returns the STATIC handle: `:owned? false`
   reported honestly, `read` yields the pinned value/version, `release!`
   no-ops, and NO callback is registered (a pinned value never invalidates);
   `current?` fails when the site's override id/version moved, which
@@ -2078,8 +2078,8 @@
   entry sub, a parametric `input-fn` failure, or a frame destroyed mid-build —
   `acquire!` throws the matching typed error (`:rf.error/sub-cycle`,
   `:rf.error/sub-input-fn-exception` / `:rf.error/sub-input-fn-bad-return`,
-  `:rf.error/frame-destroyed`) rather than lease a zero-ref recovery reaction
-  (rf2-vxgfnd.27): a lease MUST NOT report `owned?` without a real cache ref +
+  `:rf.error/frame-destroyed`) rather than handle a zero-ref recovery reaction
+  (rf2-vxgfnd.27): a handle MUST NOT report `owned?` without a real cache ref +
   attach. `:rf.error/frame-destroyed` is reserved for a VERIFIED destruction of
   the targeted frame incarnation: a `:frame-destroyed` recovery over a STILL-LIVE
   incarnation is a live-cache DISPLACEMENT (the node invalidated-and-rebuilt in
@@ -2090,18 +2090,18 @@
   still verifiably live (a pathological displacement storm winning every window),
   `acquire!` throws the TRUTHFUL `:rf.error/observation-retry-exhausted` — a
   livelock, never `:rf.error/frame-destroyed` for a frame it just proved alive
-  (rf2-vxgfnd.79). The static override lease and the public subscribe surface
+  (rf2-vxgfnd.79). The static override handle and the public subscribe surface
   keep their recover-to-nil semantics."
   [target on-change]
   (assert-not-in-fan-out! 're-frame.substrate.observation/acquire!)
   ;; Grammar gate FIRST (rf2-vxgfnd.183): reject a malformed target — including a
   ;; supported-kind-but-INCOMPLETE {:kind :story-override} that would otherwise
-  ;; mint a nil-shaped static lease — with the typed
+  ;; mint a nil-shaped static handle — with the typed
   ;; :rf.error/observation-malformed-target before any ownership host op.
   (validate-target! 're-frame.substrate.observation/acquire! target)
   (case (:kind target)
     :story-override
-    (->ObservationLease (atom {:lease-kind :static
+    (->ObservationHandle (atom {:handle-kind :static
                                :target     target
                                :status     :live}))
 
@@ -2127,10 +2127,10 @@
               ;; Canonical cached node — the real ref-count attach. Take
               ;; ownership (watch + baseline observe + first-owner disposal-hook
               ;; handshake, rf2-vxgfnd.32/.15).
-              (build-node-lease! target frame-id query reaction on-change)
+              (build-node-handle! target frame-id query reaction on-change)
               ;; No canonical node. The build handed back a NEVER-CACHED, zero-ref
               ;; recovery reaction; there is no node to attach to — `acquire!` IS
-              ;; the ref-count attach — so the port is fail-loud rather than lease
+              ;; the ref-count attach — so the port is fail-loud rather than handle
               ;; an owned?-true reaction that owns nothing (rf2-vxgfnd.27). But
               ;; first DISAMBIGUATE a live-cache DISPLACEMENT from genuine frame
               ;; destruction (rf2-vxgfnd.63): `subs/build-and-classify!` maps a
@@ -2163,14 +2163,14 @@
 ;; ---- current? -------------------------------------------------------------------
 
 (defn current?
-  "The commit kept-check, one predicate: `lease` still exactly covers
+  "The commit kept-check, one predicate: `handle` still exactly covers
   `target` ≡ not released ∧ node not disposed ∧ same frame ∧ same stabilized
-  query. An unchanged live lease is retained untouched by the caller; a
+  query. An unchanged live handle is retained untouched by the caller; a
   disposed node (HMR), a destroyed/swapped frame, a restabilized query, or a
   moved/removed override fails the check and classifies the site as
   retargeted. TOTAL, pure read; never throws.
 
-  Static (override) leases compare the consumer's OPAQUE slot identity by
+  Static (override) handles compare the consumer's OPAQUE slot identity by
   `=` and its OPAQUE movement token by the core-local spelling of the frozen
   `rf=` law. Thus an `rf=`-equal provider replacement (including NaN→NaN)
   retains, while any value/schema movement retargets, without this port
@@ -2181,22 +2181,22 @@
   cannot be proven kept is retargeted through the normal staged commit path,
   never painted stale — so the throw never propagates out of the predicate
   (rf2-sbfqy)."
-  [lease target]
-  ;; TOTAL no-throw predicate (rf2-vxgfnd.183 + rf2-sbfqy): a non-lease reads
-  ;; FALSE rather than field-accessing lease-state and leaking a host error, and
+  [handle target]
+  ;; TOTAL no-throw predicate (rf2-vxgfnd.183 + rf2-sbfqy): a non-handle reads
+  ;; FALSE rather than field-accessing handle-state and leaking a host error, and
   ;; a THROWING opaque-token equality (the app-supplied :override-id/:version, or
   ;; a subscription query's app args) is caught and read as NOT current. current?
   ;; is the commit kept-check, and a value that cannot be PROVEN kept is simply
-  ;; "not current". `and` short-circuits before `@(lease-state lease)` so a
-  ;; non-lease never derefs; the `try` guards the ONE kept-check-comparison seam
+  ;; "not current". `and` short-circuits before `@(handle-state handle)` so a
+  ;; non-handle never derefs; the `try` guards the ONE kept-check-comparison seam
   ;; so no raw equality throw escapes. The catch is LOCAL to this predicate — the
   ;; port's non-predicate ops (probe/acquire!/read/release!) keep their typed
   ;; fail-loud contracts, never blanket-swallowing equality failures.
   (when interop/debug-enabled? (note-candidate-inspection! :current?))
-  (and (lease? lease)
+  (and (handle? handle)
        (try
-         (let [st @(lease-state lease)]
-           (case (:lease-kind st)
+         (let [st @(handle-state handle)]
+           (case (:handle-kind st)
              :static
              (let [lt (:target st)]
                (and (= :story-override (:kind target))
@@ -2222,11 +2222,11 @@
 ;; ---- read -----------------------------------------------------------------------
 
 (defn read
-  "Commit-side read through a lease. On a live node lease, derefs the owned
+  "Commit-side read through a handle. On a live node handle, derefs the owned
   node fresh and returns `{:value v :version n :node-key nk :frame-epoch fe
   :registry-epoch re}` (the `:node-key`/epoch keys are additive — they hand
   the commit reconciler its invariant-5 comparison inputs without a second
-  probe). On the static override lease, returns the pinned `{:value v
+  probe). On the static override handle, returns the pinned `{:value v
   :version n}`.
 
   `:node-key` carries the acquired node's process-unique IDENTITY (the same
@@ -2241,20 +2241,20 @@
   version+epoch coincide. The unchanged-node fast path is preserved: the same
   live node reads the same key/version/epochs, so no correction fires.
 
-  `read` on a RELEASED lease throws `:rf.error/read-after-release` — always,
+  `read` on a RELEASED handle throws `:rf.error/read-after-release` — always,
   production included; it is a substrate bug, unreachable in correct
-  generated code (the render path checks `current?` first). A live lease
+  generated code (the render path checks `current?` first). A live handle
   whose node was disposed out from under it (HMR mid-gap) returns its last
   committed observation rather than touching the disposed node — `current?`
   is the gate that routes such a site to retarget."
-  [lease]
-  ;; Lease grammar gate FIRST (rf2-vxgfnd.183): reject a non-lease (nil / a map /
-  ;; any host object) with the typed :rf.error/observation-malformed-lease before
-  ;; lease-state field-accesses + derefs it and leaks a raw NPE / TypeError.
-  (validate-lease! 're-frame.substrate.observation/read lease)
+  [handle]
+  ;; Handle grammar gate FIRST (rf2-vxgfnd.183): reject a non-handle (nil / a map /
+  ;; any host object) with the typed :rf.error/observation-malformed-handle before
+  ;; handle-state field-accesses + derefs it and leaks a raw NPE / TypeError.
+  (validate-handle! 're-frame.substrate.observation/read handle)
   (when interop/debug-enabled? (note-candidate-inspection! :read))
-  (let [st @(lease-state lease)]
-    (case (:lease-kind st)
+  (let [st @(handle-state handle)]
+    (case (:handle-kind st)
       :static
       (let [t (:target st)]
         {:value (:value t) :version (:version t)})
@@ -2262,11 +2262,11 @@
       :node
       (do
         (when (= :released (:status st))
-          (let [reason (str "the observation port read a lease after release!"
+          (let [reason (str "the observation port read a handle after release!"
                             " for " (pr-str (:query-v st)) " in frame "
                             (:frame-id st) "; this is a substrate bug — the "
                             "generated commit path must current?-check before "
-                            "reading and never read a released lease.")]
+                            "reading and never read a released handle.")]
             (error-emit/emit-error-both!
               :rf.error/read-after-release
               (:query-v st) (first (:query-v st)) (:frame-id st)
@@ -2286,9 +2286,9 @@
                            :rf.sub/query-v (:query-v st)}})
                 ;; Throwable-bound emission provenance (rf2-9m4oy7): the
                 ;; emit-error-both! record above is the exactly-once emission on
-                ;; BOTH axes, attributed to THIS released lease's own frame/query.
+                ;; BOTH axes, attributed to THIS released handle's own frame/query.
                 ;; Binding it to THIS exact throwable lets a containment drain
-                ;; catching this throw (an on-change reading a released lease) see
+                ;; catching this throw (an on-change reading a released handle) see
                 ;; always-on coverage and not re-fan it under the notifying owner's
                 ;; context — while the SAME token transplanted onto a different
                 ;; exception reads uncovered.
@@ -2296,10 +2296,10 @@
         ;; Resolve the JVM WeakReference ONCE and hold the result strongly across
         ;; the canonicality check + deref. A GC between two lookups could clear
         ;; the second lookup even after the first proved the node canonical.
-        (let [rx (lease-reaction st)]
+        (let [rx (handle-reaction st)]
           (if (and (some? rx) (node-still-canonical? st rx))
             (let [[rec v] (observe-node! rx)]
-              (swap! (lease-state lease) assoc
+              (swap! (handle-state handle) assoc
                      :last {:value v :version (:version rec)
                             :node-key (:node-key rec)})
               {:value          v
@@ -2317,39 +2317,39 @@
 ;; ---- release! -------------------------------------------------------------------
 
 (defn release!
-  "Synchronously release `lease` — the subscriber detach of Spec 006
-  §Reference counting and disposal: the lease's change watch is removed, the
-  lease is de-enrolled from the node's active-owner set (so a released lease is
+  "Synchronously release `handle` — the subscriber detach of Spec 006
+  §Reference counting and disposal: the handle's change watch is removed, the
+  handle is de-enrolled from the node's active-owner set (so a released handle is
   no longer reachable from the live reaction — rf2-vxgfnd.15), and the cache
   ref-count decremented under an IDENTITY GUARD (only while the
-  cache still holds the lease's own reaction), so the 1 → 0 edge disposes
-  the node in-tick and a node disposed-or-rebuilt out from under the lease
+  cache still holds the handle's own reaction), so the 1 → 0 edge disposes
+  the node in-tick and a node disposed-or-rebuilt out from under the handle
   is a no-op (its reference died with the eviction). Idempotent — a second
-  `release!` no-ops; the static override lease no-ops entirely. Never
+  `release!` no-ops; the static override handle no-ops entirely. Never
   invokes `on-change` (no fan-out during release). Dev-asserted
   `:rf.error/reentrant-graph-op` from inside the fan-out. The live→released
-  transition also nils the lease's `:reaction` and `:on-change` — both unused
-  after release — so a consumer-retained released lease pins neither the
+  transition also nils the handle's `:reaction` and `:on-change` — both unused
+  after release — so a consumer-retained released handle pins neither the
   on-change closure nor (on CLJS) the disposed reaction (rf2-x76af2.34). Returns
   nil."
-  [lease]
+  [handle]
   (assert-not-in-fan-out! 're-frame.substrate.observation/release!)
-  ;; Lease grammar gate (rf2-vxgfnd.183): reject a non-lease with the typed
-  ;; :rf.error/observation-malformed-lease before lease-state field-accesses it —
+  ;; Handle grammar gate (rf2-vxgfnd.183): reject a non-handle with the typed
+  ;; :rf.error/observation-malformed-handle before handle-state field-accesses it —
   ;; (release! nil) must throw typed, never a raw NPE / untyped host error.
-  (validate-lease! 're-frame.substrate.observation/release! lease)
-  (let [state (lease-state lease)
+  (validate-handle! 're-frame.substrate.observation/release! handle)
+  (let [state (handle-state handle)
         [old _new] (swap-vals! state
                                (fn [st]
-                                 (if (and (= :node (:lease-kind st))
+                                 (if (and (= :node (:handle-kind st))
                                           (= :live (:status st)))
                                    ;; Drop the reaction + on-change refs as the
-                                   ;; lease goes released (rf2-x76af2.34 FINDING
+                                   ;; handle goes released (rf2-x76af2.34 FINDING
                                    ;; 2): both are unused after release (read /
                                    ;; current?/notify all short-circuit on
                                    ;; :released, and read-after-release needs
                                    ;; only :query-v/:frame-id), so a
-                                   ;; consumer-retained released lease pins
+                                   ;; consumer-retained released handle pins
                                    ;; neither the on-change closure (either host)
                                    ;; nor the CLJS reaction. #5753's .37 already
                                    ;; broke the JVM reaction strong-pin (weak
@@ -2358,24 +2358,24 @@
                                    (assoc st :status :released
                                              :reaction nil :on-change nil)
                                    st)))]
-    ;; We won the live→released transition iff `old` was a live node lease —
+    ;; We won the live→released transition iff `old` was a live node handle —
     ;; exactly-once teardown under the same swap-vals! discipline the cache
     ;; uses.
-    (when (and (= :node (:lease-kind old))
+    (when (and (= :node (:handle-kind old))
                (= :live (:status old)))
       (let [{:keys [watch-key frame-id query-v]} old
             ;; Derived weakly on the JVM (rf2-vxgfnd.37); nil iff the reaction
-            ;; was already collected (an abandoned node the lease outlived), in
+            ;; was already collected (an abandoned node the handle outlived), in
             ;; which case every teardown step below is a correct no-op — the
             ;; reference died with the eviction, exactly as for a rebuilt node.
-            reaction (lease-reaction old)]
+            reaction (handle-reaction old)]
         (when (and watch-key reaction)
           (remove-watch reaction watch-key))
-        ;; De-enrol this lease from the node's active-owner set so a released
-        ;; lease is no longer reachable from the live reaction — the node's
+        ;; De-enrol this handle from the node's active-owner set so a released
+        ;; handle is no longer reachable from the live reaction — the node's
         ;; single disposal hook then never sees it (rf2-vxgfnd.15).
         (when reaction
-          (deregister-owner! reaction lease))
+          (deregister-owner! reaction handle))
         (when-let [cache (:sub-cache (frame/frame frame-id))]
           (let [[o n] (swap-vals! cache
                                   (fn [m]
@@ -2402,7 +2402,7 @@
 ;; ALWAYS registered first — by the time this hook drains, the registry
 ;; mutation AND the cache eviction (which enqueued the former owners via the
 ;; reactions' dispose hooks) have completed. That IS "the notification
-;; boundary the re-registration closes": queued, coalesced once per lease,
+;; boundary the re-registration closes": queued, coalesced once per handle,
 ;; never delivered mid-registry-mutation.
 
 (defonce ^:private _registrar-hooks

@@ -121,7 +121,7 @@
     (testing "a second commit with no movement, stash, or new acquire is honest"
       (render+commit! cell [[[:cc/site 0] [:cc/a]]])
       (is (= [{:cause :foreign-or-react}] (causes cell))
-          "no cause pending, connected, retained leases -> the honesty fallback"))))
+          "no cause pending, connected, retained handles -> the honesty fallback"))))
 
 ;; ===========================================================================
 ;; :subscription — a :value port note, captured with its ruled DETAIL + renamed
@@ -183,7 +183,7 @@
   (seed! {:a 1})
   (let [cell (render+commit! (reactive/make-cell ::v) [[[:cc/site 0] [:cc/a]]])]
     (is (= [:mount] (cause-kinds cell)))
-    (rf/reg-sub :cc/a (fn [db _] (:a db)))     ;; real :hmr fan-out to the lease
+    (rf/reg-sub :cc/a (fn [db _] (:a db)))     ;; real :hmr fan-out to the handle
     (is (reactive/dirty? cell) "the HMR invalidation marked the cell dirty")
     (is (= #{:hmr} (:causes (reactive/pending-evidence cell)))
         "the real :hmr cause is in the pending window")

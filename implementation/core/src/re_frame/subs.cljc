@@ -669,7 +669,7 @@
 ;; cyclic entry sub (`compute-and-cache!`'s outermost catch), a parametric
 ;; `input-fn` failure (`build-and-cache!*`'s `input-error?` escaped-caching
 ;; branch), and a frame destroyed mid-build (the same branch with `cache` nil).
-;; There is no cache node to attach to, so the port must NOT lease a lying
+;; There is no cache node to attach to, so the port must NOT acquire a lying
 ;; `owned?`-true zero-ref reaction — it re-derives WHICH recovery happened and
 ;; throws the matching typed error. This out-channel carries that classification
 ;; from the build sites up to `acquire-cache-reaction!`. It is bound ONLY by the
@@ -681,7 +681,7 @@
   `acquire-cache-reaction!` around the reactive build, or nil on the public
   subscribe / compute-sub paths. The never-cached recovery sites record their
   classification into it via [[record-acquire-recovery!]]; the port reads it to
-  throw the matching typed error rather than lease a zero-ref recovery reaction."
+  throw the matching typed error rather than acquire a zero-ref recovery reaction."
   nil)
 
 (defn- record-acquire-recovery!
@@ -795,7 +795,7 @@
         (emit-sub-input-fn-error! error-kw query-id query-v frame-id e where)
         ;; Observation-port acquire path only (rf2-vxgfnd.27): record the
         ;; parametric-failure classification so `acquire!` throws the matching
-        ;; typed error instead of leasing this never-cached recovery reaction.
+        ;; typed error instead of acquiring this never-cached recovery reaction.
         ;; `emit-sub-input-fn-error!` ALREADY fanned the always-on record above,
         ;; so the port re-throws the same id WITHOUT a second fan (one record,
         ;; one throw). No-op on the subscribe / compute-sub paths.
@@ -1408,7 +1408,7 @@
                (emit-sub-cycle! frame-id query-v (:cycle (ex-data e)) :subscribe)
                ;; Observation-port acquire path only (rf2-vxgfnd.27): record the
                ;; cycle so `acquire!` throws typed `:rf.error/sub-cycle`
-               ;; (fail-loud → the ViewCell error boundary) rather than lease
+               ;; (fail-loud → the ViewCell error boundary) rather than acquire
                ;; this never-cached nil reaction. sub-cycle stays DIAGNOSTIC (009
                ;; catalogue) — the port throws the typed carrier but does NOT
                ;; promote it to the always-on axis. No-op on the subscribe path.
@@ -2271,7 +2271,7 @@
 
     {:reaction <r>}          — a CANONICAL cached node holding a real +1
                                reference: the ONLY result the caller wraps in an
-                               owning lease.
+                               owning handle.
     {:recovery <kind> …}     — the build produced a NON-NIL but NEVER-CACHED,
                                zero-ref recovery reaction instead of a canonical
                                node. `<kind>` is `:cycle` (cyclic entry sub),
@@ -2281,10 +2281,10 @@
                                before or during the build). `acquire` IS the
                                ref-count attach — there is no node to own — so
                                the caller (the fail-loud observation port) throws
-                               the matching typed error rather than lease a
+                               the matching typed error rather than acquire a
                                lying `owned?`-true zero-ref reaction.
 
-  Callers release via the identity-guarded decrement they own (the lease
+  Callers release via the identity-guarded decrement they own (the handle
   `release!`), or `unsubscribe`."
   [frame-id query-v]
   (live-frame/call-with-frame-resolution

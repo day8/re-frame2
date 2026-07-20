@@ -120,8 +120,8 @@
   (into {}
         (map (fn [[n cell]]
                [n (into {}
-                        (map (fn [[sid {:keys [query lease]}]]
-                               [sid {:query query :lease lease}]))
+                        (map (fn [[sid {:keys [query handle]}]]
+                               [sid {:query query :handle handle}]))
                         (reactive/committed-sites cell))]))
         cells-by-count))
 
@@ -142,13 +142,13 @@
   (let [rs          (vec (records cells-by-count))
         queries     (mapv :query rs)
         target-keys (mapv (comp structural-target-key :target) rs)
-        leases      (mapv :lease rs)]
+        handles      (mapv :handle rs)]
     (is (= [1 4 8 16] (sort (keys cells-by-count))))
     (is (= 29 (count rs)))
     (is (= 29 (count (set queries))) "all lexical sites read distinct queries")
     (is (= 29 (count (set target-keys))) "all lexical sites resolve distinct targets")
-    (is (every? obs/owned? leases) "every committed site owns a live lease")
-    (is (= 29 (count (set leases))) "each lexical site has an independent lease")
+    (is (every? obs/owned? handles) "every committed site owns a live handle")
+    (is (= 29 (count (set handles))) "each lexical site has an independent handle")
     (doseq [{:keys [query]} rs]
       (let [entry (cache-entry frame-id query)]
         (is (= 1 (:ref-count entry)))
@@ -158,10 +158,10 @@
   [before cells-by-count]
   (doseq [[n cell] cells-by-count
           [sid after] (reactive/committed-sites cell)]
-    (let [{before-query :query before-lease :lease} (get-in before [n sid])]
+    (let [{before-query :query before-handle :handle} (get-in before [n sid])]
       (is (= before-query (:query after)) "query identity key stays stable")
       (is (identical? before-query (:query after)) "exact query object is retained")
-      (is (identical? before-lease (:lease after)) "lease does not churn"))))
+      (is (identical? before-handle (:handle after)) "handle does not churn"))))
 
 (defn- reject-unexpectedly!
   [done f label e]

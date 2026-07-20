@@ -1,6 +1,6 @@
 (ns re-frame.ui.viewcell-server-frame-context-cljs-test
   "rf2-2rzx0 — the SERVER-render sibling of the rf2-4rwtd client fix: a compiled
-  sub/lease ViewCell must resolve its `frame-provider` frame under
+  sub/handle ViewCell must resolve its `frame-provider` frame under
   `react-dom/server`, not only under the client renderer.
 
   ## The defect this hardens
@@ -13,7 +13,7 @@
   renderer (`react-dom/server`) populates the SECONDARY slot `_currentValue2`, not
   `_currentValue`; a repository-local probe confirmed that under a Provider both
   `renderToStaticMarkup` and `renderToString` see `useContext = provider` while
-  `_currentValue = default`. So a server-rendered compiled sub/lease ViewCell with
+  `_currentValue = default`. So a server-rendered compiled sub/handle ViewCell with
   no outer dynamic binding sourced nil, `with-current-frame` bound nil, and the
   body's ambient `(sub …)` resolved no frame — raising
   `:rf.error/no-frame-context`. The client repair (rf2-4rwtd) was correct but

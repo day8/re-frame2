@@ -4,8 +4,8 @@
   One real first-party ViewCell moves OFF -> ON -> OFF -> ON under StrictMode.
   The middle transition drains value/disable/value writes to completion before
   exactly one read/render commit.  The disappearing lexical site releases its
-  exact lease, ignores already-queued dirty evidence, performs no work while
-  absent, then reacquires at the same sid with a fresh lease and the latest
+  exact handle, ignores already-queued dirty evidence, performs no work while
+  absent, then reacquires at the same sid with a fresh handle and the latest
   value."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             ["react" :as React]
@@ -43,7 +43,7 @@
         value    (when enabled?
                    ;; Deliberately rebuild an rf=-equal query on every render.
                    ;; The compiler supplies one stable lexical sid; the
-                   ;; reconciler must preserve its exact committed query/lease.
+                   ;; reconciler must preserve its exact committed query/handle.
                    (let [v (ui/sub (mapv identity
                                          [::conditional-value :slot]))]
                      (swap! evidence update :conditional-reads inc)
@@ -135,14 +135,14 @@
                  (let [[cell sid record]
                        (site-for-query-head ::conditional-value)
                        query    (:query record)
-                       lease    (:lease record)
+                       handle    (:handle record)
                        target   (:target record)
                        reaction (:reaction (cache-entry frame-id query))]
                    (is (some? cell))
                    (is (some? sid))
                    (is (= [::conditional-value :slot] query))
-                   (is (obs/owned? lease))
-                   (is (obs/current? lease target))
+                   (is (obs/owned? handle))
+                   (is (obs/current? handle target))
                    (is (= 1 (:ref-count (cache-entry frame-id query))))
                    (is (= 1 (obs/active-owner-count reaction)))
                    (reset! evidence (empty-evidence))
@@ -176,8 +176,8 @@
                                            [:first-epoch :latest-epoch :count])))
                        (is (= 1 (reactive/pending-cell-count)))
                        (is (identical?
-                            lease
-                            (:lease (reactive/committed-site cell sid))))
+                            handle
+                            (:handle (reactive/committed-site cell sid))))
                        (is (= 1 (:ref-count (cache-entry frame-id query))))
                        (is (= 1 (obs/active-owner-count reaction))))
                      (->
@@ -201,7 +201,7 @@
                            (is (= 1 (count (reactive/committed-sites cell))))
                            (is (nil? (cache-entry frame-id query)))
                            (is (zero? (obs/active-owner-count reaction)))
-                           (is (not (obs/current? lease target)))
+                           (is (not (obs/current? handle target)))
                            (is (zero? (reactive/pending-cell-count))))
                          (reset! evidence (empty-evidence))
                          (let [absent-sites    (reactive/committed-sites cell)
@@ -236,7 +236,7 @@
                                  #(uit/dispatch! f [::set-enabled true]))
                                 (.then
                                  (fn []
-                                   (testing "reappearance reuses the sid but owns a fresh lease"
+                                   (testing "reappearance reuses the sid but owns a fresh handle"
                                      (is (= "3" (.-textContent
                                                   (uit/query
                                                    root
@@ -245,18 +245,18 @@
                                            (site-for-query-head
                                             ::conditional-value)
                                            query-next    (:query record-next)
-                                           lease-next    (:lease record-next)
+                                           handle-next    (:handle record-next)
                                            reaction-next (:reaction
                                                           (cache-entry
                                                            frame-id query-next))
                                            version-next  (:version
-                                                          (obs/read lease-next))
+                                                          (obs/read handle-next))
                                            revision-next (reactive/revision cell)]
                                        (is (identical? cell cell-next))
                                        (is (= sid sid-next))
                                        (is (= query query-next))
                                        (is (not (identical? query query-next)))
-                                       (is (not (identical? lease lease-next)))
+                                       (is (not (identical? handle handle-next)))
                                        (is (= 1 (:ref-count
                                                  (cache-entry frame-id query-next))))
                                        (is (= 1
@@ -278,7 +278,7 @@
                                                     (reactive/revision cell)))
                                              (is (= (inc version-next)
                                                     (:version
-                                                     (obs/read lease-next))))
+                                                     (obs/read handle-next))))
                                              (let [record-final
                                                    (reactive/committed-site
                                                     cell sid)]
@@ -286,8 +286,8 @@
                                                     query-next
                                                     (:query record-final)))
                                                (is (identical?
-                                                    lease-next
-                                                    (:lease record-final))))
+                                                    handle-next
+                                                    (:handle record-final))))
                                              (is (= 1
                                                     (:ref-count
                                                      (cache-entry

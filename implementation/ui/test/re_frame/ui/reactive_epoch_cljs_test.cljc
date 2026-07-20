@@ -168,13 +168,13 @@
 ;;
 ;; N lexical (sub …) sites in a view share ONE ViewCell (one
 ;; useSyncExternalStore hook). The render body runs ONCE for all N sites, the
-;; commit acquires N REAL leases (deduped by target identity), and when all N
+;; commit acquires N REAL handles (deduped by target identity), and when all N
 ;; sites fan in before ONE checkpoint the cell coalesces to ONE notification —
 ;; the notification count per batch is INVARIANT to the site count. Fully against
 ;; the real port + plain-atom cache — no scheduler seam, no mock — but be
 ;; honest about WHICH invalidation channel drives the fan-in: each sub is
 ;; RE-REGISTERED (reg-sub again), so the port disposes its canonical node and
-;; fires every committed lease's REAL :hmr-cause on-change, caught at
+;; fires every committed handle's REAL :hmr-cause on-change, caught at
 ;; mark-dirty! (constant-work enrolment) and advanced once by the coalesced
 ;; flush. This is NOT the app-db value-movement channel: on plain-atom a
 ;; value move has no watch and is caught at the commit evidence comparison
@@ -187,7 +187,7 @@
 (defn- g3-scaling-case
   "One G-3 case at `n` sites: render a cell with n distinct sub sites, commit,
   then invalidate ALL n in one drain and assert exactly one body invocation, n
-  real leases, and one notification."
+  real handles, and one notification."
   [n]
   (let [ids       (mapv (fn [i] (keyword "g3" (str n "-" i))) (range n))
         queries   (mapv vector ids)
@@ -210,12 +210,12 @@
       (is (= 1 @body-runs)
           (str n " sites → ONE body invocation (one shared ViewCell, not " n ")"))
       (is (= n (count (reactive/committed-target-keys cell)))
-          (str n " distinct REAL leases acquired against the observation port"))
+          (str n " distinct REAL handles acquired against the observation port"))
       (doseq [q queries]
-        (is (= 1 (ref-count q)) "each site owns exactly one lease — deduped by target"))
+        (is (= 1 (ref-count q)) "each site owns exactly one handle — deduped by target"))
       (reactive/subscribe cell (fn [] (swap! hits inc)))
       ;; ONE batch fans in ALL n sites through the REAL port: re-registering
-      ;; each sub disposes its canonical node and fires that committed lease's
+      ;; each sub disposes its canonical node and fires that committed handle's
       ;; REAL on-change (cause :hmr) — the genuine invalidation channel the port
       ;; drives, not a scheduler seam. All n fan into the SAME ViewCell, which
       ;; enrols ONCE; the coalesced flush notifies exactly once, whatever n is.
@@ -231,7 +231,7 @@
       (is (= 1 @hits)
           (str n " sites → ONE notification per batch — scaling the site count "
                "does not scale notifications-per-batch"))
-      ;; release the case's leases so the next case starts clean
+      ;; release the case's handles so the next case starts clean
       (reactive/teardown! cell))))
 
 (deftest g3-multi-read-scaling-one-notification-per-batch
@@ -682,7 +682,7 @@
   ;; one already-omitted target N times advances `:count` by N but must NOT
   ;; inflate the loss. The fold unit is the right level here — a SAME-target
   ;; re-invalidation storm can't be staged through the real :hmr path (an HMR
-  ;; dispose fires a target's live lease exactly once), yet it is the exact
+  ;; dispose fires a target's live handle exactly once), yet it is the exact
   ;; shape that made the old occurrence-counting `:dropped` dishonest.
   (let [fold    @#'reactive/fold-evidence
         target  (fn [i] {:kind :subscription :frame-id fid :query [(keyword "r" (str "s" i))]})

@@ -278,7 +278,7 @@
 
 (deftest real-port-fanout-projects-cause-and-target
   ;; End-to-end through the REAL observation-port fan-out at this tier: an
-  ;; HMR re-registration fires each committed site's live lease `on-change`
+  ;; HMR re-registration fires each committed site's live handle `on-change`
   ;; with its rich payload; the projection must surface the cause + target.
   (rf/reg-sub :tool-ev/a (fn [db _] (:a db)))
   (seed! {:a 1})
@@ -812,7 +812,7 @@
         (is (= 2 (count (:dropped evidence))) "two distinct omissions")
         (is (true? (:dropped-exact? evidence))))
 
-      ;; a real re-render re-acquires fresh leases on the re-registered
+      ;; a real re-render re-acquires fresh handles on the re-registered
       ;; nodes before any further movement can fan out to this cell
       (rc! cell queries)
       (doseq [i (range n)]                  ;; batch 2: the SAME 10 targets

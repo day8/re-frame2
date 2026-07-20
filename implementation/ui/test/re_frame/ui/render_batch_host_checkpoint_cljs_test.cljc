@@ -15,15 +15,15 @@
 
   ## The two real invalidation channels, and why the host picks one
 
-  A committed ViewCell lease is invalidated by the observation port, and the
+  A committed ViewCell handle is invalidated by the observation port, and the
   port has more than one real channel. These fixtures use whichever one the
   host actually has:
 
     - VALUE MOVEMENT (CLJS only). `ui/adapter` on CLJS installs the retained
-      watchable React substrate, so an app-db move fires a committed lease's
+      watchable React substrate, so an app-db move fires a committed handle's
       on-change during the drain.
     - CANONICAL-NODE DISPOSAL (both hosts). Re-registering a sub disposes its
-      canonical node and fires every committed lease's real on-change — the
+      canonical node and fires every committed handle's real on-change — the
       channel HMR drives, and the one the G-3 gate already uses.
 
   On the JVM `ui/adapter` IS `plain-atom/adapter`, whose derived value owns no
@@ -87,7 +87,7 @@
 
 (defn- observe!
   "Render+commit `cell` against `[:rbhc/n]` under frame `id`, so it holds a real
-  committed lease whose on-change the port will fire."
+  committed handle whose on-change the port will fire."
   [cell id]
   (let [[_ capture] (rf/with-frame id
                       (reactive/with-capture
@@ -96,7 +96,7 @@
   cell)
 
 (defn- invalidate!
-  "ONE complete, real router drain that really invalidates the committed lease
+  "ONE complete, real router drain that really invalidates the committed handle
   on both hosts. `dispatch-sync` runs the drain to completion and commits its
   epoch; the re-registration fires the port's canonical-node-disposal on-change
   (the only push channel the JVM plain-atom realization has). Returns nil."

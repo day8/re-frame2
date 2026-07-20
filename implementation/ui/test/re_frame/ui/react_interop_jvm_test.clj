@@ -76,7 +76,7 @@
                            (let [_ (re-frame.ui.react/use-effect (fn [] nil) :nope)] [:div]))))))
 
 (deftest reactive-read-inside-a-setup-fn-is-rejected
-  ;; the setup fn is a DEFERRED callback — a sub/lease/frame inside owns no
+  ;; the setup fn is a DEFERRED callback — a sub/handle/frame inside owns no
   ;; render-time site (the same law as `effect`).
   (is (some? (compile-error '(re-frame.ui/defview v []
                                (let [_ (re-frame.ui.react/use-effect

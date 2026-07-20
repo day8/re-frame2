@@ -1,12 +1,12 @@
 (ns re-frame.observation-port-watchable-host-cljs-test
-  "rf2-vxgfnd.29 (gap a) — the observation port's per-lease VALUE-MOVEMENT
+  "rf2-vxgfnd.29 (gap a) — the observation port's per-handle VALUE-MOVEMENT
   watch channel (`make-watch-handler`, `re-frame.substrate.observation`),
   exercised end-to-end on a WATCHABLE host.
 
   The plain-atom port suites (`re-frame.observation-port-cljs-test`) are
-  IDeref-only: their derived sub values are NOT `IWatchable`, so the per-lease
+  IDeref-only: their derived sub values are NOT `IWatchable`, so the per-handle
   `add-watch` the port installs never fires and the entire `{:cause :value}`
-  fan-out — the delivered-value node-record advance, the lease `:last` update,
+  fan-out — the delivered-value node-record advance, the handle `:last` update,
   and that path's dev reentrancy guard — runs in no test there (the untested
   half of `acquire!`). This file grafts the SAME port onto the stock Reagent
   adapter, whose derived sub reactions ARE `IWatchable`
@@ -22,15 +22,15 @@
   methodological point the standard-epochs diamond fixture makes), so each
   fixture stands a `reagent.ratom/run!` driver — an auto-running reaction that
   eagerly derefs the sub, standing in for the mounted ViewCell render. It
-  warms + activates the node BEFORE the lease's baseline observe (mirroring
-  render-then-commit: no first-run priming notification on the measured lease),
+  warms + activates the node BEFORE the handle's baseline observe (mirroring
+  render-then-commit: no first-run priming notification on the measured handle),
   and keeps it on the push path so the genuine value MOVEMENT fires the watch.
 
   The push path: a `dispatch-sync` MOVES the sub's value; `reagent.ratom/flush!`
   re-runs the driver (and through it the node), and — the value changed — the
   node notifies the port watch, which advances the node record with the
   DELIVERED value (no recompute, I-5) and fans `{:cause :value …}` to the
-  lease's own `on-change`.
+  handle's own `on-change`.
 
   CLJS-only (Reagent is CLJS); ns ends in `-cljs-test` so the consolidated
   shadow-cljs `:node-test` build (`npm run test:cljs`, whose source-paths carry
@@ -87,8 +87,8 @@
 
 (def ^:private fid :rf/default)
 
-(defn- lease-state [lease] @(@#'obs/lease-state lease))
-(defn- lease-last  [lease] (:last (lease-state lease)))
+(defn- handle-state [handle] @(@#'obs/handle-state handle))
+(defn- handle-last  [handle] (:last (handle-state handle)))
 
 (defn- node-reaction []
   (:reaction (get @(:sub-cache (frame/frame fid)) [:obs/n])))
@@ -104,7 +104,7 @@
 
 ;; --- rf2-r09qj NaN-stability helpers ---------------------------------------
 
-;; The subscription target-key the ViewCell projects committed leases/values by
+;; The subscription target-key the ViewCell projects committed handles/values by
 ;; (`re-frame.ui.reactive/target-key` of a `[:sub fid query]` target).
 (defn- tk [q] [:sub fid q])
 
@@ -127,7 +127,7 @@
 
 ;; One ViewCell render+commit over the ambient frame, reading the sub through
 ;; the reactive host (so the commit's `acquire!` installs the watch-bearing
-;; lease — the make-watch-handler value-movement channel under test).
+;; handle — the make-watch-handler value-movement channel under test).
 (defn- render+commit! [cell]
   (let [[_ cap] (rf/with-frame fid
                   (reactive/with-capture cell
@@ -141,8 +141,8 @@
 
 (deftest watchable-host-value-movement-fires-cause-value-end-to-end
   (testing "on a WATCHABLE (Reagent) host, a sub value MOVEMENT fires the
-            port's per-lease watch → {:cause :value} with an ADVANCED
-            node-version and the lease :last updated to the DELIVERED value —
+            port's per-handle watch → {:cause :value} with an ADVANCED
+            node-version and the handle :last updated to the DELIVERED value —
             the make-watch-handler channel the plain-atom suites cannot reach"
     (register!)
     (rf/dispatch-sync [:obs/set-n 1])
@@ -150,43 +150,43 @@
       (ratom/flush!)                       ;; settle: node warm + active
       (let [notes  (atom [])
             target (obs/resolve-target {:frame fid :query-v [:obs/n]})
-            lease  (obs/acquire! target (fn [ev] (swap! notes conj ev)))]
+            handle  (obs/acquire! target (fn [ev] (swap! notes conj ev)))]
         (try
           ;; --- preconditions: the port armed the value-movement channel ---
-          (is (obs/lease? lease))
+          (is (obs/handle? handle))
           (is (satisfies? IWatchable (node-reaction))
               "the Reagent sub reaction IS IWatchable — the port installed its
-               per-lease value-movement watch (on a non-watchable host this
+               per-handle value-movement watch (on a non-watchable host this
                whole channel is dead, which is the very gap under test)")
-          (is (some? (:watch-key (lease-state lease)))
-              "acquire! registered a per-lease change watch key on the node")
+          (is (some? (:watch-key (handle-state handle)))
+              "acquire! registered a per-handle change watch key on the node")
           (is (empty? @notes)
               "acquire! on a WARM node fans nothing synchronously (I-5
                no-sync-fan-out holds on a watchable host too)")
-          (let [v0    (:version (lease-last lease))
-                node0 (:node-key (lease-last lease))]
-            (is (= 1 (:value (lease-last lease))) "baseline observed value")
+          (let [v0    (:version (handle-last handle))
+                node0 (:node-key (handle-last handle))]
+            (is (= 1 (:value (handle-last handle))) "baseline observed value")
             ;; --- MOVE the value; flush the reaction queue (the push) ---
             (rf/dispatch-sync [:obs/set-n 2])
             (ratom/flush!)
             (testing "the value-movement watch fired the {:cause :value} channel"
               (is (pos? (count @notes))
-                  "the port's per-lease watch fired on the value movement")
+                  "the port's per-handle watch fired on the value movement")
               (is (every? #(= :value (:cause %)) @notes)
                   "every fan-out on this path carries {:cause :value}")
               (let [ev (peek @notes)]
-                (is (= target (:target ev)) "the payload carries the lease target")
+                (is (= target (:target ev)) "the payload carries the handle target")
                 (is (= node0 (:node-key ev)) "same node — a MOVEMENT, not a rebuild")
                 (is (> (:node-version ev) v0)
                     "the delivered-value node-version ADVANCED past the baseline")
-                (is (= (:node-version ev) (:version (lease-last lease)))
-                    "the lease :last was advanced to the delivered version")
-                (is (= 2 (:value (lease-last lease)))
-                    "the lease :last holds the DELIVERED new value (no recompute)")
+                (is (= (:node-version ev) (:version (handle-last handle)))
+                    "the handle :last was advanced to the delivered version")
+                (is (= 2 (:value (handle-last handle)))
+                    "the handle :last holds the DELIVERED new value (no recompute)")
                 (is (int? (:frame-epoch ev)))
                 (is (int? (:registry-epoch ev))))))
           (finally
-            (obs/release! lease)
+            (obs/release! handle)
             (ratom/dispose! driver)))))))
 
 (deftest watchable-host-idempotent-move-does-not-fan-cause-value
@@ -199,20 +199,20 @@
       (ratom/flush!)
       (let [notes  (atom [])
             target (obs/resolve-target {:frame fid :query-v [:obs/n]})
-            lease  (obs/acquire! target (fn [ev] (swap! notes conj ev)))]
+            handle  (obs/acquire! target (fn [ev] (swap! notes conj ev)))]
         (try
           (is (empty? @notes) "acquire! on a WARM node is silent")
-          (let [v0 (:version (lease-last lease))]
+          (let [v0 (:version (handle-last handle))]
             ;; Re-commit the SAME value: the node re-runs to an equal value, so
             ;; no watch notification and no version advance.
             (rf/dispatch-sync [:obs/set-n 7])
             (ratom/flush!)
             (is (empty? @notes)
                 "an unmoved value fans nothing on the :value channel")
-            (is (= v0 (:version (lease-last lease)))
+            (is (= v0 (:version (handle-last handle)))
                 "the node-version did not advance for an equal re-commit"))
           (finally
-            (obs/release! lease)
+            (obs/release! handle)
             (ratom/dispose! driver)))))))
 
 ;; ===========================================================================
@@ -232,25 +232,25 @@
             outcome (atom :guard-not-fired)
             ;; The on-change attempts a FORBIDDEN reentrant self-release from
             ;; inside the value fan-out; the guard must throw before any
-            ;; teardown, so the lease stays intact and `finally` is a clean op.
-            lease   (atom nil)]
-        (reset! lease
+            ;; teardown, so the handle stays intact and `finally` is a clean op.
+            handle   (atom nil)]
+        (reset! handle
           (obs/acquire! target
             (fn [_ev]
               (reset! outcome
-                (try (obs/release! @lease) :released-no-throw
+                (try (obs/release! @handle) :released-no-throw
                      (catch :default e (:rf.error/id (ex-data e))))))))
         (try
-          ;; MOVE the value so the measured lease's watch fires on a warm node.
+          ;; MOVE the value so the measured handle's watch fires on a warm node.
           (rf/dispatch-sync [:obs/set-n 2])
           (ratom/flush!)
           (is (= :rf.error/reentrant-graph-op @outcome)
               "release! from inside the value-movement fan-out threw the dev
                reentrant-graph-op assert (fan-out! bound *in-owner-fan-out?*)")
-          (is (= :live (:status (lease-state @lease)))
-              "the guard threw BEFORE any teardown — the lease is untouched")
+          (is (= :live (:status (handle-state @handle)))
+              "the guard threw BEFORE any teardown — the handle is untouched")
           (finally
-            (obs/release! @lease)
+            (obs/release! @handle)
             (ratom/dispose! driver)))))))
 
 ;; ===========================================================================
@@ -270,18 +270,18 @@
       (ratom/flush!)                         ;; settle: node warm + active at NaN
       (let [notes            (atom [])
             target           (obs/resolve-target {:frame fid :query-v [:obs/n]})
-            lease            (obs/acquire! target (fn [ev] (swap! notes conj ev)))
+            handle            (obs/acquire! target (fn [ev] (swap! notes conj ev)))
             reaction         (node-reaction)
             [nan-hits nan-rm] (install-nan-sentinel! reaction)]
         (try
           ;; --- preconditions ---
-          (is (obs/lease? lease))
+          (is (obs/handle? handle))
           (is (satisfies? IWatchable reaction)
               "the Reagent sub reaction IS IWatchable — the port armed its
-               per-lease value-movement watch")
+               per-handle value-movement watch")
           (is (empty? @notes) "acquire! on a warm NaN node fans nothing")
-          (is (nan-num? (:value (lease-last lease))) "baseline observed the host NaN")
-          (let [v0 (:version (lease-last lease))]
+          (is (nan-num? (:value (handle-last handle))) "baseline observed the host NaN")
+          (let [v0 (:version (handle-last handle))]
             ;; --- MOVE NaN→NaN: app-db moves (NaN≠NaN under map =), the reaction
             ;; re-derives NaN, and Reagent's =-gated notify fires (NaN≠NaN). ---
             (rf/dispatch-sync [:obs/set-n ##NaN])
@@ -293,7 +293,7 @@
               (is (empty? @notes)
                   "NaN→NaN emitted NO {:cause :value} note — node-value= suppressed
                    the fan-out (raw not= would fan a phantom movement)")
-              (is (= v0 (:version (lease-last lease)))
+              (is (= v0 (:version (handle-last handle)))
                   "the node version did NOT advance — NaN=NaN under the movement law"))
             (testing "positive control — a REAL move fans exactly once + advances"
               (rf/dispatch-sync [:obs/set-n 5])
@@ -306,11 +306,11 @@
               ;; real move only the NO-move NaN→NaN recompute intervened (version
               ;; held at `v0`, asserted above). A +2 seam increment — the mutation
               ;; the loose `> v0` waves through — fails this assertion.
-              (is (= (inc v0) (:version (lease-last lease)))
+              (is (= (inc v0) (:version (handle-last handle)))
                   "the real value movement advanced the node version EXACTLY once")))
           (finally
             (nan-rm)
-            (obs/release! lease)
+            (obs/release! handle)
             (ratom/dispose! driver)))))))
 
 ;; ===========================================================================
@@ -387,17 +387,17 @@
       (ratom/flush!)
       (let [cell    (reactive/make-cell ::nan-host)
             renders (atom 0)]
-        (render+commit! cell)                ;; commit installs the watch-bearing lease
+        (render+commit! cell)                ;; commit installs the watch-bearing handle
         (let [unsub             (reactive/subscribe cell (fn [] (swap! renders inc)))
               reaction          (node-reaction)
               [nan-hits nan-rm] (install-nan-sentinel! reaction)
-              lease             (reactive/committed-lease cell (tk [:obs/n]))
-              ver0              (:version (obs/read lease))
+              handle             (reactive/committed-handle cell (tk [:obs/n]))
+              ver0              (:version (obs/read handle))
               rev0              (reactive/revision cell)]
           (try
-            ;; --- preconditions: a real owned, watch-bearing lease at NaN ---
-            (is (some? lease) "the ViewCell committed a lease over the watchable host")
-            (is (obs/owned? lease)
+            ;; --- preconditions: a real owned, watch-bearing handle at NaN ---
+            (is (some? handle) "the ViewCell committed a handle over the watchable host")
+            (is (obs/owned? handle)
                 "…a REAL owned observation node (so acquire! installed the watch)")
             (is (nan-num? (get (reactive/committed-values cell) (tk [:obs/n])))
                 "the committed value is the host's NaN")
@@ -410,7 +410,7 @@
             (testing "NaN→NaN leaves version + revision + render UNMOVED"
               (is (pos? @nan-hits)
                   "the host watch FIRED for NaN→NaN (the callback genuinely ran)")
-              (is (= ver0 (:version (obs/read lease)))
+              (is (= ver0 (:version (obs/read handle)))
                   "node version UNMOVED — NaN=NaN under the movement law")
               (is (= rev0 (reactive/revision cell))
                   "cell revision UNMOVED — make-watch-handler dirtied nothing")
@@ -429,7 +429,7 @@
               ;; the NO-move NaN→NaN recompute(s) intervened between `ver0` and
               ;; this single real move, so `advance-node-record!` advanced the
               ;; node version by exactly one. A +2 seam increment fails here.
-              (is (= (inc ver0) (:version (obs/read lease)))
+              (is (= (inc ver0) (:version (obs/read handle)))
                   "the real move advanced the node version EXACTLY once")
               (is (= (inc rev0) (reactive/revision cell))
                   "the real move advanced the cell revision exactly once")

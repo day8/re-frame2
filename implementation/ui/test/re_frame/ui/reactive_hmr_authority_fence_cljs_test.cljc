@@ -14,7 +14,7 @@
   The fix is one FINAL authority fence at the narrowest publication boundary —
   after all staging, evidence reads, and callback-capable hooks, immediately
   before the state publication, with nothing callback-capable between the fence
-  and the publish. If the body authority moved, only the newly staged leases are
+  and the publish. If the body authority moved, only the newly staged handles are
   released (reverse acquisition order), the prior committed set / values /
   revision / lifecycle stay untouched, and the commit returns `:stale` exactly
   as step 1 does.
@@ -102,7 +102,7 @@
       (is (empty? (reactive/committed-sites cell))
           "no dependency set published")
       (is (nil? (entry [:r/a]))
-          "the staged lease was released — the node has zero owners (disposed)")
+          "the staged handle was released — the node has zero owners (disposed)")
       (is (= 0 (reactive/revision cell))
           "no revision advance — the shell's re-registration drives the re-render"))))
 
@@ -125,7 +125,7 @@
 
 ;; ===========================================================================
 ;; The fence preserves the prior committed state and releases ONLY the staged
-;; leases (reverse order, exactly once)
+;; handles (reverse order, exactly once)
 ;; ===========================================================================
 
 (deftest fence-preserves-prior-committed-and-releases-only-staged
@@ -138,10 +138,10 @@
         cell (reactive/make-cell vid 0)]
     ;; A clean revision-0 commit installs the prior committed set (site :a).
     (reactive/commit! cell (capture-of cell [[::a [:r/a]]]))
-    (let [lease-a (reactive/committed-lease cell (tk [:r/a]))
+    (let [handle-a (reactive/committed-handle cell (tk [:r/a]))
           rev0    (reactive/revision cell)]
       (is (= :connected (reactive/lifecycle cell)))
-      (is (= 1 (ref-count [:r/a])) "prior committed lease installed")
+      (is (= 1 (ref-count [:r/a])) "prior committed handle installed")
       (testing "a later same-generation render retains :a and stages :b + :c,
                 then a re-registration fences the publish"
         (let [cap    (capture-of cell [[::a [:r/a]] [::b [:r/b]] [::c [:r/c]]])
@@ -150,14 +150,14 @@
                        (reactive/commit! cell cap))]
           (is (= :stale result) "the stale-body publish is fenced")
           (testing "prior committed :a is wholly untouched"
-            (is (identical? lease-a (reactive/committed-lease cell (tk [:r/a])))
-                "the retained lease keeps its exact identity")
+            (is (identical? handle-a (reactive/committed-handle cell (tk [:r/a])))
+                "the retained handle keeps its exact identity")
             (is (= 1 (ref-count [:r/a])) ":a never re-acquired or released")
             (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell))
                 "the published dependency set is unchanged — no staged site leaked")
             (is (= :connected (reactive/lifecycle cell)) "lifecycle unchanged")
             (is (= rev0 (reactive/revision cell)) "revision unchanged"))
-          (testing "BOTH staged leases (:b, :c) were released exactly once"
+          (testing "BOTH staged handles (:b, :c) were released exactly once"
             (is (nil? (entry [:r/b])) ":b staged then released → zero-owner node")
             (is (nil? (entry [:r/c])) ":c staged then released → zero-owner node")))))))
 
@@ -178,11 +178,11 @@
         (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell)))
         (is (= 1 (ref-count [:r/a])) "exactly one owner acquired")
         (is (= 1 (:value (reactive/committed-site cell ::a)))))
-      (let [lease-a (reactive/committed-lease cell (tk [:r/a]))]
-        (testing "a second unchanged-authority render retains the exact lease"
+      (let [handle-a (reactive/committed-handle cell (tk [:r/a]))]
+        (testing "a second unchanged-authority render retains the exact handle"
           (reactive/commit! cell (capture-of cell [[::a [:r/a]]]))
-          (is (identical? lease-a (reactive/committed-lease cell (tk [:r/a])))
-              "acquire-before-release kept the live lease untouched")
+          (is (identical? handle-a (reactive/committed-handle cell (tk [:r/a])))
+              "acquire-before-release kept the live handle untouched")
           (is (= 1 (ref-count [:r/a])) "no churn on a no-op reconcile"))))))
 
 ;; ===========================================================================
@@ -228,7 +228,7 @@
           "the fresh cell-local generation re-read fences the revision-0 publish")
       (is (= :fresh (reactive/lifecycle cell)) "a fenced candidate never connects")
       (is (empty? (reactive/committed-sites cell)) "no dependency set published")
-      (is (nil? (entry [:r/a])) "the staged lease was released — zero-owner node")
+      (is (nil? (entry [:r/a])) "the staged handle was released — zero-owner node")
       (is (= 1 (reactive/generation cell)) "the cell carries the advanced body generation")
       (is (= 0 (reactive/revision cell))
           "no revision advance — the sync/remount drives the re-render"))))
@@ -236,8 +236,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Rollback: a DROPPED prior site (non-empty to-release) survives byte-for-byte
 ;; ---------------------------------------------------------------------------
-;; When the fence fires, step 7 (release the dropped/retargeted prior leases)
-;; must NOT have run — the prior committed record keeps its exact lease, query,
+;; When the fence fires, step 7 (release the dropped/retargeted prior handles)
+;; must NOT have run — the prior committed record keeps its exact handle, query,
 ;; and value, and its node keeps its single owner. Releasing to-release ahead of
 ;; the final fence would strand the dropped site's node at zero owners.
 
@@ -250,12 +250,12 @@
         cell (reactive/make-cell vid 0)]
     (reactive/commit! cell (capture-of cell [[::a [:r/a]]]))
     (let [prior   (reactive/committed-site cell ::a)
-          lease-a (:lease prior)
+          handle-a (:handle prior)
           value-a (:value prior)
           query-a (:query prior)
           rev0    (reactive/revision cell)]
       (is (= :connected (reactive/lifecycle cell)))
-      (is (= 1 (ref-count [:r/a])) "prior committed lease installed")
+      (is (= 1 (ref-count [:r/a])) "prior committed handle installed")
       (testing "a later render DROPS :a (→ to-release) and stages :b; a
                 re-registration then fences the publish"
         (let [cap    (capture-of cell [[::b [:r/b]]])   ;; :a absent, :b new
@@ -265,8 +265,8 @@
           (is (= :stale result) "the stale-body publish is fenced")
           (testing "the DROPPED :a is preserved byte-for-byte"
             (let [now (reactive/committed-site cell ::a)]
-              (is (identical? lease-a (:lease now))
-                  "prior lease identity unchanged — step 7 never released it")
+              (is (identical? handle-a (:handle now))
+                  "prior handle identity unchanged — step 7 never released it")
               (is (identical? query-a (:query now)) "prior query object unchanged")
               (is (= value-a (:value now)) "prior value unchanged"))
             (is (= 1 (ref-count [:r/a]))
@@ -279,14 +279,14 @@
             (is (nil? (entry [:r/b])) ":b staged then released → zero-owner node")))))))
 
 ;; ---------------------------------------------------------------------------
-;; Rollback ordering: staged leases release EXACTLY ONCE, in REVERSE order
+;; Rollback ordering: staged handles release EXACTLY ONCE, in REVERSE order
 ;; ---------------------------------------------------------------------------
 ;; A zero-owner read (`entry` nil) cannot distinguish one release from two, nor
 ;; forward order from reverse. Instrument the observation port: the fence must
 ;; release the newly staged :b/:c in reverse acquisition order (log [:c :b]),
 ;; each exactly once, and must never touch the RETAINED prior :a.
 
-(deftest fence-releases-staged-leases-in-reverse-order-exactly-once
+(deftest fence-releases-staged-handles-in-reverse-order-exactly-once
   (rf/reg-sub :r/a (fn [db _] (:a db)))
   (rf/reg-sub :r/b (fn [db _] (:b db)))
   (rf/reg-sub :r/c (fn [db _] (:c db)))
@@ -295,20 +295,20 @@
         _    (reactive/register-view-generation! vid hs0)
         cell (reactive/make-cell vid 0)]
     (reactive/commit! cell (capture-of cell [[::a [:r/a]]]))   ;; connect owning :a
-    (let [acq          (atom [])           ;; [lease query] in acquisition order
+    (let [acq          (atom [])           ;; [handle query] in acquisition order
           rel          (atom [])           ;; query in release order
           real-acquire obs/acquire!
           real-release obs/release!
-          lease->query (fn [lease]
-                         (some (fn [[l q]] (when (identical? l lease) q)) @acq))
+          handle->query (fn [handle]
+                         (some (fn [[l q]] (when (identical? l handle) q)) @acq))
           cap          (capture-of cell [[::a [:r/a]] [::b [:r/b]] [::c [:r/c]]])]
       (with-redefs [obs/acquire! (fn [target on-change]
-                                   (let [lease (real-acquire target on-change)]
-                                     (swap! acq conj [lease (:query target)])
-                                     lease))
-                    obs/release! (fn [lease]
-                                   (swap! rel conj (lease->query lease))
-                                   (real-release lease))]
+                                   (let [handle (real-acquire target on-change)]
+                                     (swap! acq conj [handle (:query target)])
+                                     handle))
+                    obs/release! (fn [handle]
+                                   (swap! rel conj (handle->query handle))
+                                   (real-release handle))]
         (let [result (binding [reactive/*commit-barrier*
                                (reregister-barrier vid :post-acquire hs0)]
                        (reactive/commit! cell cap))]
@@ -316,8 +316,8 @@
           (is (= [[:r/b] [:r/c]] (mapv second @acq))
               "only the NEW sites acquire (:a retained, never re-acquired)")
           (is (= [[:r/c] [:r/b]] @rel)
-              "the fence released the staged leases in REVERSE acquisition order")
-          (is (= 2 (count @rel)) "each staged lease released EXACTLY once")
+              "the fence released the staged handles in REVERSE acquisition order")
+          (is (= 2 (count @rel)) "each staged handle released EXACTLY once")
           (is (not (some #{[:r/a]} @rel)) "the RETAINED prior :a was never released"))))))
 
 ;; ---------------------------------------------------------------------------
@@ -325,7 +325,7 @@
 ;; ---------------------------------------------------------------------------
 ;; The `:post-stage-acquire` barrier fires AFTER every acquisition returns, so
 ;; it cannot prove the fence catches an authority change that lands WHILE a
-;; lease is being acquired (a sub-cache construction hook synchronously
+;; handle is being acquired (a sub-cache construction hook synchronously
 ;; re-registering the same view). Inject it through a port wrapper instead.
 
 (deftest reregistration-inside-the-acquire-window-is-fenced
@@ -342,7 +342,7 @@
     (with-redefs [obs/acquire!
                   (fn [target on-change]
                     ;; a cache-construction hook re-registers the same view
-                    ;; WHILE the lease is acquired — advancing body revision
+                    ;; WHILE the handle is acquired — advancing body revision
                     (swap! fired inc)
                     (reactive/register-view-generation! vid hs0)
                     (real-acquire target on-change))]
@@ -352,7 +352,7 @@
             "a re-registration landing mid-acquire advances body revision and is fenced")
         (is (= :fresh (reactive/lifecycle cell)) "a fenced candidate never connects")
         (is (empty? (reactive/committed-sites cell)) "no dependency set published")
-        (is (nil? (entry [:r/a])) "the staged lease was released — zero-owner node")))))
+        (is (nil? (entry [:r/a])) "the staged handle was released — zero-owner node")))))
 
 ;; ===========================================================================
 ;; rf2-77pb08 — SETTLE the final body-authority validation WITH publication
@@ -363,7 +363,7 @@
 ;; performed an INDEPENDENT `swap!` to publish — a check-to-use gap: a
 ;; concurrent `advance-generation!` (cell-local axis) or same-view
 ;; re-registration (registry axis) landing AFTER the sample but BEFORE the swap
-;; published a stale generation-0 capture that connected and owned leases.
+;; published a stale generation-0 capture that connected and owned handles.
 ;;
 ;; `publish-commit!` closes that gap ASYMMETRICALLY — each axis carries the
 ;; strength it can on re-frame2's single-threaded CLJS host:
@@ -415,7 +415,7 @@
           "a re-registration before the final slot-identity check is rejected — the moved token fails the recheck")
       (is (= :fresh (reactive/lifecycle cell)) "a fenced candidate never connects")
       (is (empty? (reactive/committed-sites cell)) "no dependency set published")
-      (is (nil? (entry [:r/a])) "the staged lease was released — zero-owner node")
+      (is (nil? (entry [:r/a])) "the staged handle was released — zero-owner node")
       (is (= 0 (reactive/revision cell))
           "no revision advance — the shell's re-registration drives the re-render"))))
 
@@ -444,7 +444,7 @@
           "the interposed advance fails the publish compare-and-set! → :stale")
       (is (= :fresh (reactive/lifecycle cell)) "a fenced candidate never connects")
       (is (empty? (reactive/committed-sites cell)) "no dependency set published")
-      (is (nil? (entry [:r/a])) "the staged lease was released — zero-owner node")
+      (is (nil? (entry [:r/a])) "the staged handle was released — zero-owner node")
       (is (= 1 (reactive/generation cell)) "the cell carries the advanced generation")
       (is (= 0 (reactive/revision cell))
           "no revision advance — the sync/remount drives the re-render"))))
@@ -463,24 +463,24 @@
         _    (reactive/register-view-generation! vid hs0)
         cell (reactive/make-cell vid 0)]
     (reactive/commit! cell (capture-of cell [[::a [:r/a]]]))   ;; connect owning :a
-    (let [lease-a      (reactive/committed-lease cell (tk [:r/a]))
+    (let [handle-a      (reactive/committed-handle cell (tk [:r/a]))
           rev0         (reactive/revision cell)
           acq          (atom [])
           rel          (atom [])
           real-acquire obs/acquire!
           real-release obs/release!
-          lease->query (fn [lease]
-                         (some (fn [[l q]] (when (identical? l lease) q)) @acq))
+          handle->query (fn [handle]
+                         (some (fn [[l q]] (when (identical? l handle) q)) @acq))
           cap          (capture-of cell [[::a [:r/a]] [::b [:r/b]] [::c [:r/c]]])]
       (is (= :connected (reactive/lifecycle cell)))
-      (is (= 1 (ref-count [:r/a])) "prior committed lease installed")
+      (is (= 1 (ref-count [:r/a])) "prior committed handle installed")
       (with-redefs [obs/acquire! (fn [target on-change]
-                                   (let [lease (real-acquire target on-change)]
-                                     (swap! acq conj [lease (:query target)])
-                                     lease))
-                    obs/release! (fn [lease]
-                                   (swap! rel conj (lease->query lease))
-                                   (real-release lease))]
+                                   (let [handle (real-acquire target on-change)]
+                                     (swap! acq conj [handle (:query target)])
+                                     handle))
+                    obs/release! (fn [handle]
+                                   (swap! rel conj (handle->query handle))
+                                   (real-release handle))]
         (let [result (binding [reactive/*commit-barrier*
                                (reregister-barrier vid :pre-publish hs0)]
                        (reactive/commit! cell cap))]
@@ -488,18 +488,18 @@
           (is (= [[:r/b] [:r/c]] (mapv second @acq))
               "only the NEW sites acquire (:a retained, never re-acquired)")
           (is (= [[:r/c] [:r/b]] @rel)
-              "the staged leases released in REVERSE acquisition order")
-          (is (= 2 (count @rel)) "each staged lease released EXACTLY once")
+              "the staged handles released in REVERSE acquisition order")
+          (is (= 2 (count @rel)) "each staged handle released EXACTLY once")
           (is (not (some #{[:r/a]} @rel)) "the RETAINED prior :a was never released")))
       (testing "prior committed :a survives byte-for-byte"
-        (is (identical? lease-a (reactive/committed-lease cell (tk [:r/a])))
-            "the retained lease keeps its exact identity")
+        (is (identical? handle-a (reactive/committed-handle cell (tk [:r/a])))
+            "the retained handle keeps its exact identity")
         (is (= 1 (ref-count [:r/a])) ":a never re-acquired or released")
         (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell))
             "the published dependency set is unchanged — no staged site leaked")
         (is (= :connected (reactive/lifecycle cell)) "lifecycle unchanged")
         (is (= rev0 (reactive/revision cell)) "revision unchanged"))
-      (testing "BOTH staged leases were released"
+      (testing "BOTH staged handles were released"
         (is (nil? (entry [:r/b])) ":b staged then released → zero-owner node")
         (is (nil? (entry [:r/c])) ":c staged then released → zero-owner node")))))
 

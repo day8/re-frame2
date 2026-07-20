@@ -10,7 +10,7 @@
   - the shared override Context was never constructed;
   - the internal Provider is transparent;
   - compiled `ui/sub` takes the ordinary owned-node path, never a static
-    override lease;
+    override handle;
   - the compiled render path establishes NO dynamic `*sub-overrides*` binding
     (rf2-vxgfnd.216). The bundle string-scan owns the DEBUG-only validation
     sentinel, but a string can elide while the actual
@@ -22,7 +22,7 @@
     nil — a causal signal the scanner cannot see.
 
   The normal mounted browser gate supplies the DEBUG=true positive control: the
-  same provider helper produces nested static leases there. The
+  same provider helper produces nested static handles there. The
   `render-body-observes-live-sub-overrides-binding` control below supplies the
   same-optimizer positive control for the binding probe: an ambient binding in
   the render's dynamic extent IS read through by that exact body."

@@ -920,7 +920,7 @@
   a FRESH same-id incarnation created after a prior destroy fully completed.
 
   The linearization read the compiled-view ViewCell commit consults so a cell
-  that acquires leases + enrols while a frame is being torn down does not
+  that acquires handles + enrols while a frame is being torn down does not
   publish ownership onto a dying frame (rf2-vxgfnd.61). `destroying-frames` is
   populated at the TOP of `destroy-frame!` — BEFORE the `:ui/on-frame-destroyed!`
   sweep snapshots the live cells — and cleared only in `destroy-frame!`'s
@@ -3717,7 +3717,7 @@
                                       cell holds no live observers yet must
                                       still be reaped). The union is deduped +
                                       incarnation-scoped; each releases its
-                                      leases against the still-live sub-cache,
+                                      handles against the still-live sub-cache,
                                       so a later read/probe follows the
                                       dead-cell lifecycle rather than throwing
                                       :rf.error/frame-destroyed. No-op when
@@ -3959,7 +3959,7 @@
         ;; PLUS every still-disconnected but
         ;; React-retained root-owned ViewCell whose last published site values
         ;; name it (a hidden cell holds no live observers yet must still be
-        ;; reaped) — deduped + incarnation-scoped. Each releases its leases
+        ;; reaped) — deduped + incarnation-scoped. Each releases its handles
         ;; against the still-live sub-cache instead of being left live to throw
         ;; :rf.error/frame-destroyed off the observation port on its next read.
         ;; Symmetric with the machine cascade above (observers torn down against

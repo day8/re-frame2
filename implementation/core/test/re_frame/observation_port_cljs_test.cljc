@@ -168,10 +168,10 @@
      (reg-items!)
      (seed-items! [:a])
      (let [target       (items-target)
-           lease        (obs/acquire! target (fn [_]))
-           expected     (obs/read lease)
+           handle        (obs/acquire! target (fn [_]))
+           expected     (obs/read handle)
            reaction-var (ns-resolve 're-frame.substrate.observation
-                                    'lease-reaction)
+                                    'handle-reaction)
            original     (var-get reaction-var)
            calls        (atom 0)]
        (try
@@ -184,11 +184,11 @@
               (if (= 1 (swap! calls inc))
                 (original state)
                 nil))}
-           #(is (= expected (obs/read lease))
+           #(is (= expected (obs/read handle))
                 "a canonical JVM read cannot deref nil after the GC gap"))
          (is (= 1 @calls) "read resolves the weak reaction exactly once")
          (finally
-           (obs/release! lease))))))
+           (obs/release! handle))))))
 
 ;; ===========================================================================
 ;; resolve-target
@@ -302,10 +302,10 @@
   (seed-items! [:a])
   (let [target (items-target)
         notes  (atom [])
-        lease  (obs/acquire! target (fn [n] (swap! notes conj n)))]
+        handle  (obs/acquire! target (fn [n] (swap! notes conj n)))]
     (testing "acquire! built the REAL cache node and took one reference"
-      (is (obs/lease? lease))
-      (is (true? (obs/owned? lease)))
+      (is (obs/handle? handle))
+      (is (true? (obs/owned? handle)))
       (is (some? (entry [:obs/items])))
       (is (= 1 (ref-count [:obs/items])))
       (is (= #{:reaction :inputs :ref-count} (set (keys (entry [:obs/items]))))
@@ -315,13 +315,13 @@
               ([S2-CONFIRM] no-sync-fan-out)"
       (is (empty? @notes)))
     (testing "read returns value + version + current epochs"
-      (let [r (obs/read lease)]
+      (let [r (obs/read handle)]
         (is (= [:a] (:value r)))
         (is (= 0 (:version r)))
         (is (int? (:frame-epoch r)))
         (is (int? (:registry-epoch r)))))
-    (testing "current? holds for the unchanged live lease"
-      (is (true? (obs/current? lease target))))
+    (testing "current? holds for the unchanged live handle"
+      (is (true? (obs/current? handle target))))
     (testing "a second acquire shares the SAME canonical node (ref 2)"
       (let [lease2 (obs/acquire! target (fn [_]))]
         (is (= 2 (ref-count [:obs/items])))
@@ -329,12 +329,12 @@
         (is (= 1 (ref-count [:obs/items])) "release detached exactly one ref")))
     (testing "release! on the last owner disposes the slot synchronously
               (the 1 → 0 edge, in-tick)"
-      (obs/release! lease)
+      (obs/release! handle)
       (is (nil? (entry [:obs/items])) "cache slot evicted in-tick"))
     (testing "release! is idempotent — a second call no-ops"
-      (obs/release! lease)
+      (obs/release! handle)
       (is (nil? (entry [:obs/items]))))
-    (testing "no notification was ever fanned for this lease"
+    (testing "no notification was ever fanned for this handle"
       (is (empty? @notes)))))
 
 (deftest acquire-shares-with-public-subscribe-refs
@@ -342,12 +342,12 @@
   (seed-items! [:a])
   (let [_        (subs/subscribe [:obs/items] {:frame fid})
         target   (items-target)
-        lease    (obs/acquire! target (fn [_]))]
+        handle    (obs/acquire! target (fn [_]))]
     (is (= 2 (ref-count [:obs/items]))
-        "port lease + public subscribe share ONE node, two refs")
-    (obs/release! lease)
+        "port handle + public subscribe share ONE node, two refs")
+    (obs/release! handle)
     (is (= 1 (ref-count [:obs/items]))
-        "the public subscriber's ref survives the lease release")
+        "the public subscriber's ref survives the handle release")
     (is (some? (entry [:obs/items])))
     (subs/unsubscribe fid [:obs/items])
     (is (nil? (entry [:obs/items])))))
@@ -367,9 +367,9 @@
 (deftest read-after-release-is-a-typed-substrate-bug
   (reg-items!)
   (seed-items! [:a])
-  (let [lease (obs/acquire! (items-target) (fn [_]))]
-    (obs/release! lease)
-    (let [[[outcome e] records] (with-error-records #(obs/read lease))]
+  (let [handle (obs/acquire! (items-target) (fn [_]))]
+    (obs/release! handle)
+    (let [[[outcome e] records] (with-error-records #(obs/read handle))]
       (is (= :threw outcome))
       (is (= :rf.error/read-after-release (error-id e)))
       (is (some #(= :rf.error/read-after-release (:error %)) records)
@@ -381,8 +381,8 @@
 ;; `acquire!` IS the cache's ref-count attach. When the ENTRY node's OWN build
 ;; cannot produce a canonical cache node — a cyclic entry sub, a parametric
 ;; input-fn failure, or a frame destroyed mid-build — the build hands back a
-;; NON-NIL but NEVER-CACHED, zero-ref recovery reaction. The port MUST NOT lease
-;; it: a lying `owned?`-true lease is `current? false` from birth, so every
+;; NON-NIL but NEVER-CACHED, zero-ref recovery reaction. The port MUST NOT handle
+;; it: a lying `owned?`-true handle is `current? false` from birth, so every
 ;; commit retargets and rebuilds a fresh orphan + node record + disposal hook
 ;; and re-emits — structural churn. The fix: the port classifies the recovery
 ;; and throws the matching typed error (fail-loud → the ViewCell error boundary;
@@ -404,7 +404,7 @@
     (try
       (testing "acquire! fails loud with typed :rf.error/sub-cycle carrying the cycle path"
         (let [[[outcome e] records] (with-error-records #(obs/acquire! target (fn [_])))]
-          (is (= :threw outcome) "acquire! did NOT return a (lying) lease")
+          (is (= :threw outcome) "acquire! did NOT return a (lying) handle")
           (is (= :rf.error/sub-cycle (error-id e)))
           (is (= [:obs/cyc1 :obs/cyc2 :obs/cyc1] (:cycle (ex-data e)))
               "the throw carries the closing-repeat cycle path")
@@ -453,7 +453,7 @@
   ;; The JVM race: the frame's cache vanishes DURING the build (here an impure
   ;; input-fn destroys the frame), so build-and-cache!* returns a never-cached
   ;; reaction that used to bypass the caller's nil→frame-destroyed guard and be
-  ;; leased as canonical. The port now classifies it and throws typed.
+  ;; acquired as canonical. The port now classifies it and throws typed.
   (let [race-fid :obs/race-frame]
     (rf/make-frame {:id race-fid :adapter plain-atom/adapter})
     (rf/reg-sub :obs/race
@@ -461,7 +461,7 @@
                 (fn [_v _] :unreachable))
     (let [target (obs/resolve-target {:frame race-fid :query-v [:obs/race]})
           [[outcome e] records] (with-error-records #(obs/acquire! target (fn [_])))]
-      (is (= :threw outcome) "the mid-build destroy no longer slips through as a lease")
+      (is (= :threw outcome) "the mid-build destroy no longer slips through as a handle")
       (is (= :rf.error/frame-destroyed (error-id e)))
       (is (some #(= :rf.error/frame-destroyed (:error %)) records)
           "the port fanned the always-on frame-destroyed record before throwing")
@@ -476,11 +476,11 @@
   (reg-items!)
   (seed-items! [:a])
   (let [target (items-target)
-        lease  (obs/acquire! target (fn [_]))
-        r0     (obs/read lease)]
+        handle  (obs/acquire! target (fn [_]))
+        r0     (obs/read handle)]
     (is (= 0 (:version r0)))
     (seed-items! [:a :b])
-    (let [r1 (obs/read lease)]
+    (let [r1 (obs/read handle)]
       (is (= [:a :b] (:value r1)))
       (is (= 1 (:version r1))
           "the node version advanced on observed rf=-movement")
@@ -488,8 +488,8 @@
           "the frame commit epoch advanced with the frame-state install"))
     (testing "an rf=-equal reinstall does NOT advance the node version"
       (seed-items! [:a :b])
-      (is (= 1 (:version (obs/read lease)))))
-    (obs/release! lease)))
+      (is (= 1 (:version (obs/read handle)))))
+    (obs/release! handle)))
 
 ;; ===========================================================================
 ;; rf2-vxgfnd.185 — the watchable change-watch fan-out obeys the SAME movement
@@ -505,26 +505,26 @@
 ;; The plain-atom adapter's derived values are NOT watchable, so the port's real
 ;; acquire path never installs this watch; the value-movement fan-out is a
 ;; reactive/watchable-host surface. This fixture wires the PRODUCTION
-;; make-watch-handler onto a raw watchable atom EXACTLY as build-node-lease!
+;; make-watch-handler onto a raw watchable atom EXACTLY as build-node-handle!
 ;; does (weak-ref'd reaction in the state + add-watch + baseline observe), so it
 ;; exercises the real callback on both hosts.
 ;; ===========================================================================
 
 (defn- wire-node-watch!
-  "Install a node lease's change watch onto watchable `host`, mirroring
-  build-node-lease!'s wiring: the PRODUCTION make-watch-handler over the host, a
+  "Install a node handle's change watch onto watchable `host`, mirroring
+  build-node-handle!'s wiring: the PRODUCTION make-watch-handler over the host, a
   weak-ref'd reaction in the state map, and a baseline observation seeding the
   node record at the host's current value. Notifications flow to `on-change`.
-  Returns the lease `state` atom (its `:last` holds the observed version)."
+  Returns the handle `state` atom (its `:last` holds the observed version)."
   [host frame-id target on-change]
-  (let [state (atom {:lease-kind :node
+  (let [state (atom {:handle-kind :node
                      :target     target
                      :frame-id   frame-id
                      :query-v    (:query target)
                      :reaction   (#'obs/weak-reaction-ref host)
                      :on-change  on-change
                      :status     :live})]
-    (add-watch host (gensym "rf-obs-lease")
+    (add-watch host (gensym "rf-obs-handle")
                (#'obs/make-watch-handler state))
     (let [[rec v] (#'obs/observe-node! host)]
       (swap! state assoc :last {:value    v
@@ -546,7 +546,7 @@
                       (swap! hosts conj host)
                       host))]
       (let [target (items-target)
-            lease  (obs/acquire! target (fn [event] (swap! notes conj event)))
+            handle  (obs/acquire! target (fn [event] (swap! notes conj event)))
             host   (first @hosts)]
         (try
           (is (= 1 (count @hosts))
@@ -566,11 +566,11 @@
             (is (= reads-before (host-read-count host))
                 "value delivery performed ZERO additional observable reads")
             (is (= 1 (count @notes))
-                "the public lease callback received exactly one movement")
+                "the public handle callback received exactly one movement")
             (is (= :value (:cause (first @notes))))
             (is (= target (:target (first @notes)))))
           (finally
-            (obs/release! lease)))))))
+            (obs/release! handle)))))))
 
 (deftest watchable-nan-to-nan-recompute-does-not-fan-out-value-movement
   (let [target (items-target)
@@ -600,7 +600,7 @@
           (is (= (inc base-v) (:node-version note))
               "the notification carries the once-advanced node version")
           (is (= (inc base-v) (:version (:last @state)))
-              "the lease's last-observed version advanced exactly once"))))))
+              "the handle's last-observed version advanced exactly once"))))))
 
 (deftest registry-epoch-advances-on-sub-registration
   (reg-items!)
@@ -619,7 +619,7 @@
   (seed-items! [:a])
   (let [target (items-target)
         notes  (atom [])
-        lease  (obs/acquire! target (fn [n] (swap! notes conj n)))
+        handle  (obs/acquire! target (fn [n] (swap! notes conj n)))
         old-entry (entry [:obs/items])]
     (is (= 1 (ref-count [:obs/items])))
     ;; The re-registration: cache invalidation disposes the canonical node,
@@ -628,21 +628,21 @@
     ;; closes ([S2-CONFIRM] queue alignment).
     (reg-items!)
     (is (= 1 (count @notes))
-        "exactly ONE coalesced notification per lease, delivered by the time
+        "exactly ONE coalesced notification per handle, delivered by the time
          reg-sub returned")
     (is (= :hmr (:cause (first @notes))))
     (is (= target (:target (first @notes))))
     (testing "current? treats the disposed node as not-current → retarget"
-      (is (false? (obs/current? lease target))))
+      (is (false? (obs/current? handle target))))
     (testing "the next acquire re-resolves the NEW canonical node"
       (let [lease2 (obs/acquire! target (fn [_]))]
         (is (not (identical? (:reaction old-entry)
                              (:reaction (entry [:obs/items]))))
             "the cache holds a fresh node, not the disposed one")
         (is (= 1 (ref-count [:obs/items])))
-        (testing "release! on the stale lease is a no-op (identity-guarded) —
+        (testing "release! on the stale handle is a no-op (identity-guarded) —
                   it can never decrement the NEW node's ref"
-          (obs/release! lease)
+          (obs/release! handle)
           (is (= 1 (ref-count [:obs/items]))))
         (obs/release! lease2)
         (is (nil? (entry [:obs/items])))))))
@@ -691,14 +691,14 @@
       (is (= :rf.error/observation-malformed-target (error-id e))))))
 
 ;; ===========================================================================
-;; rf2-vxgfnd.183 — the CLOSED target + lease grammar at EVERY port boundary
+;; rf2-vxgfnd.183 — the CLOSED target + handle grammar at EVERY port boundary
 ;;
 ;; #5797 (rf2-vxgfnd.36) typed ONLY the unknown-`:kind` default arm. A
 ;; KNOWN-discriminator target with a malformed `:query`, an absent / wrong-domain
 ;; frame identity, or an INCOMPLETE `:story-override` still entered the accepted
 ;; arm and reached a host op — leaking an untyped `(first query)` / frame-registry
 ;; error the ViewCell cannot classify. Separately, `read` / `release!` deref the
-;; lease state with no validation, so `(read nil)` / `(release! nil)` threw a raw
+;; handle state with no validation, so `(read nil)` / `(release! nil)` threw a raw
 ;; NPE (JVM) / untyped host error (CLJS) with `(:rf.error/id (ex-data e)) == nil`.
 ;; These are the bead's three repro steps as RED-before-fix fixtures: each throws
 ;; the TYPED id, never a bare host error.
@@ -761,7 +761,7 @@
 
 (deftest incomplete-story-override-throws-typed-target
   ;; Repro 2: an incomplete {:kind :story-override} was SILENTLY accepted and
-  ;; produced a nil-shaped observation / static lease (no throw at all). It could
+  ;; produced a nil-shaped observation / static handle (no throw at all). It could
   ;; not have come from resolve-target, so it must throw the typed target error.
   (reg-items!)
   (doseq [[label t] [[:bare          {:kind :story-override}]
@@ -779,16 +779,16 @@
 (deftest complete-story-override-with-nil-value-is-a-value-not-malformed
   ;; Acceptance: presence checks distinguish a legitimate nil override value /
   ;; token (KEY present) from a missing required key. A COMPLETE override with
-  ;; :value nil probes to nil evidence and acquires a static lease — no throw.
+  ;; :value nil probes to nil evidence and acquires a static handle — no throw.
   (reg-items!)
   (let [t {:kind :story-override :query [:obs/items]
            :value nil :override-id :ov :version 0}]
     (is (nil? (:value (obs/probe t))) "nil override value probes to nil, no throw")
-    (let [lease (obs/acquire! t (fn [_]))]
-      (is (false? (obs/owned? lease)) "the override lease owns nothing")
-      (is (nil? (:value (obs/read lease))) "read yields the pinned nil value")
-      (is (true? (obs/current? lease t)) "the override lease is current against its target")
-      (obs/release! lease))))
+    (let [handle (obs/acquire! t (fn [_]))]
+      (is (false? (obs/owned? handle)) "the override handle owns nothing")
+      (is (nil? (:value (obs/read handle))) "read yields the pinned nil value")
+      (is (true? (obs/current? handle t)) "the override handle is current against its target")
+      (obs/release! handle))))
 
 (deftest malformed-target-throws-do-not-fan-the-always-on-axis
   ;; The malformed-target category is DIAGNOSTIC (a programmer defect,
@@ -803,47 +803,47 @@
     (is (empty? records)
         "diagnostic malformed-target does NOT fan the always-on axis")))
 
-(deftest read-and-release-reject-a-non-lease-typed
+(deftest read-and-release-reject-a-non-handle-typed
   ;; Repro 3: (read nil) / (release! nil) threw a raw NPE (JVM) / untyped host
   ;; error (CLJS) with (:rf.error/id (ex-data e)) == nil — the half-hardened
   ;; boundary. nil, a map, and any arbitrary host object must now throw the typed
-  ;; :rf.error/observation-malformed-lease on both hosts.
-  (doseq [bad [nil {} {:lease-kind :node} "lease" 42 [:not :a :lease]]]
-    (testing (str "read on a non-lease " (pr-str bad))
-      (is (= :rf.error/observation-malformed-lease
+  ;; :rf.error/observation-malformed-handle on both hosts.
+  (doseq [bad [nil {} {:handle-kind :node} "handle" 42 [:not :a :handle]]]
+    (testing (str "read on a non-handle " (pr-str bad))
+      (is (= :rf.error/observation-malformed-handle
              (error-id (caught #(obs/read bad))))))
-    (testing (str "release! on a non-lease " (pr-str bad))
-      (is (= :rf.error/observation-malformed-lease
+    (testing (str "release! on a non-handle " (pr-str bad))
+      (is (= :rf.error/observation-malformed-handle
              (error-id (caught #(obs/release! bad))))))))
 
-(deftest malformed-lease-throws-do-not-fan-the-always-on-axis
-  ;; The malformed-lease category is DIAGNOSTIC — it must NOT fan the always-on
+(deftest malformed-handle-throws-do-not-fan-the-always-on-axis
+  ;; The malformed-handle category is DIAGNOSTIC — it must NOT fan the always-on
   ;; axis (Spec 009), unlike the sibling :rf.error/read-after-release.
   (let [[[outcome e] records] (with-error-records #(obs/read nil))]
     (is (= :threw outcome))
-    (is (= :rf.error/observation-malformed-lease (error-id e)))
+    (is (= :rf.error/observation-malformed-handle (error-id e)))
     (is (empty? records)
-        "diagnostic malformed-lease does NOT fan the always-on axis")))
+        "diagnostic malformed-handle does NOT fan the always-on axis")))
 
-(deftest current?-on-a-non-lease-is-false-no-throw
-  ;; current? is a pure no-throw kept-check predicate: a non-lease reads FALSE
-  ;; rather than field-accessing lease-state and throwing (its ruled malformed-
-  ;; value contract). Pre-fix `@(lease-state nil)` threw a raw NPE.
+(deftest current?-on-a-non-handle-is-false-no-throw
+  ;; current? is a pure no-throw kept-check predicate: a non-handle reads FALSE
+  ;; rather than field-accessing handle-state and throwing (its ruled malformed-
+  ;; value contract). Pre-fix `@(handle-state nil)` threw a raw NPE.
   (reg-items!)
   (let [target (items-target)]
-    (doseq [bad [nil {} {:lease-kind :node} "lease" 42]]
+    (doseq [bad [nil {} {:handle-kind :node} "handle" 42]]
       (is (false? (obs/current? bad target))
-          (str "current? on a non-lease " (pr-str bad) " is false, never throws")))))
+          (str "current? on a non-handle " (pr-str bad) " is false, never throws")))))
 
 ;; ===========================================================================
 ;; rf2-vxgfnd.241 — finish the CLOSED grammar at every REAL boundary
 ;;
-;; #5847 typed the target/lease REJECTS but left four boundaries half-hardened:
+;; #5847 typed the target/handle REJECTS but left four boundaries half-hardened:
 ;;   1. resolve-target inspected `(first query-v)` before validating the query
 ;;      and could MINT an empty/non-keyword target the downstream validator only
 ;;      later rejected (a scalar query-v even leaked a raw host `(first …)`).
-;;   2. owned? was not covered by the lease validator and raw-errored on a
-;;      non-lease.
+;;   2. owned? was not covered by the handle validator and raw-errored on a
+;;      non-handle.
 ;;   3. valid-target? built `(set (keys target))` on every hot probe/acquire —
 ;;      allocating + hashing every attacker-controllable key, letting a hostile
 ;;      key's hashing escape as an untyped error and scaling with extras.
@@ -924,15 +924,15 @@
     (is (empty? records)
         "diagnostic malformed-query does NOT fan the always-on axis")))
 
-;; ---- gap 2: owned? is total (false/no-throw for a non-lease) -----------------
+;; ---- gap 2: owned? is total (false/no-throw for a non-handle) -----------------
 
-(deftest owned?-on-a-non-lease-is-false-no-throw
-  ;; owned? was not covered by the lease validator and raw-errored on a
-  ;; non-lease. Its ruled total contract mirrors current?: a non-lease is simply
+(deftest owned?-on-a-non-handle-is-false-no-throw
+  ;; owned? was not covered by the handle validator and raw-errored on a
+  ;; non-handle. Its ruled total contract mirrors current?: a non-handle is simply
   ;; "owns nothing" → false, never a raw host throw. Both hosts.
-  (doseq [bad [nil {} {:lease-kind :node} "lease" 42 [:not :a :lease]]]
+  (doseq [bad [nil {} {:handle-kind :node} "handle" 42 [:not :a :handle]]]
     (is (false? (obs/owned? bad))
-        (str "owned? on a non-lease " (pr-str bad) " is false, never throws"))))
+        (str "owned? on a non-handle " (pr-str bad) " is false, never throws"))))
 
 ;; ---- gap 3 + 4: fixed-vocabulary validation + bounded, leak-free evidence ----
 
@@ -1029,7 +1029,7 @@
 ;; interop/add-on-dispose!. A disposal that linearizes in that gap fires no hook
 ;; (the callback lands on an already-disposed reaction and is silently lost —
 ;; every substrate's -dispose snapshot-and-clears its callbacks first; the JVM
-;; Reaction's field is even unsynchronized). Pre-fix the acquired lease is left
+;; Reaction's field is even unsynchronized). Pre-fix the acquired handle is left
 ;; :hooked? with a dead callback and receives NO invalidation. The fix closes
 ;; the handshake with a canonicality re-check in acquire! that self-drains the
 ;; staged owners when the reaction is no longer the frame's live cache node.
@@ -1080,7 +1080,7 @@
                     (compare-and-set! raced? false true))
            (force-dispose-node! [:obs/items]))
          (real-add reaction f))]
-      (let [lease (obs/acquire! target (fn [n] (swap! notes conj n)))]
+      (let [handle (obs/acquire! target (fn [n] (swap! notes conj n)))]
         (is (true? @raced?) "the race fired at the first-owner hook install")
         (is (nil? (entry [:obs/items]))
             "the racing disposal evicted the canonical node during the gap")
@@ -1088,8 +1088,8 @@
                   handshake self-drain only ENQUEUES ([S2-CONFIRM]
                   no-sync-fan-out)"
           (is (empty? @notes) "no notification fired on the acquire stack"))
-        (testing "the lease is NOT current — the node was disposed under it"
-          (is (false? (obs/current? lease target))))
+        (testing "the handle is NOT current — the node was disposed under it"
+          (is (false? (obs/current? handle target))))
         ;; Drive the queued drain boundary deterministically.
         (obs/drain-pending-disposals! :disposed)
         (testing "the invalidation is STILL delivered — never silently lost to
@@ -1097,8 +1097,8 @@
           (is (= 1 (count @notes))
               "the raced first owner received exactly one disposal notification")
           (is (= :disposed (:cause (first @notes)))))
-        (testing "release! on the raced lease is a clean, identity-guarded no-op"
-          (obs/release! lease)
+        (testing "release! on the raced handle is a clean, identity-guarded no-op"
+          (obs/release! handle)
           (is (nil? (entry [:obs/items]))))))))
 
 (deftest first-owner-hook-race-drains-every-staged-owner-exactly-once
@@ -1149,37 +1149,37 @@
   (seed-items! [:a])
   (let [target (items-target)
         notes  (atom [])
-        lease  (obs/acquire! target (fn [n] (swap! notes conj n)))]
+        handle  (obs/acquire! target (fn [n] (swap! notes conj n)))]
     (testing "canonical acquire took one ref and enqueued nothing"
       (is (= 1 (ref-count [:obs/items])))
       (is (empty? @notes))
-      (is (true? (obs/current? lease target))))
+      (is (true? (obs/current? handle target))))
     (testing "a real HMR disposal delivers via the installed hook exactly once"
       (reg-items!)
       (is (= 1 (count @notes)))
       (is (= :hmr (:cause (first @notes))))
-      (obs/release! lease))))
+      (obs/release! handle))))
 
 ;; ===========================================================================
 ;; rf2-r8jmdb / rf2-x76af2.34 FINDING 1 — the disposal cause is INTRINSIC to
 ;; why the node died, not decided by which drain boundary fires.
 ;;
 ;; The port queues former-owner notifications; pre-fix the queue stored bare
-;; leases and the drain boundary STAMPED the cause (the registrar HMR hook
+;; handles and the drain boundary STAMPED the cause (the registrar HMR hook
 ;; drained the whole queue :hmr; the next-tick fallback drained it :disposed).
-;; So a frame-destroy / cache-clear lease STILL PENDING when an unrelated :sub
+;; So a frame-destroy / cache-clear handle STILL PENDING when an unrelated :sub
 ;; HMR re-registration drained was swept into the :hmr drain and delivered
 ;; {:cause :hmr} — a documented on-change payload contract violation (a consumer
 ;; branching :hmr = re-acquire vs :disposed = gone would re-acquire against a
 ;; destroyed frame → :rf.error/frame-destroyed → view error boundary; the #5752
 ;; CI symptom: evidence-target saw #{:disposed :hmr}). The fix stores each entry
-;; as a [lease cause] pair whose cause is INTRINSIC (captured at enqueue time
+;; as a [handle cause] pair whose cause is INTRINSIC (captured at enqueue time
 ;; from the disposing cache site's *disposal-cause*): the :hmr drain takes only
-;; :hmr-tagged entries, leaving the :disposed cache-clear lease for the next-tick
+;; :hmr-tagged entries, leaving the :disposed cache-clear handle for the next-tick
 ;; fallback, which delivers it its OWN :disposed cause.
 ;; ===========================================================================
 
-(deftest disposed-cause-lease-pending-during-hmr-drain-keeps-its-disposed-cause
+(deftest disposed-cause-handle-pending-during-hmr-drain-keeps-its-disposed-cause
   (reg-items!)
   (seed-items! [:a])
   (let [target (items-target)
@@ -1187,29 +1187,29 @@
     ;; Swallow next-tick so the :disposed fallback does not auto-drain — we drive
     ;; the boundaries deterministically, identical on both hosts (no sleeps).
     (with-redefs [interop/next-tick (fn [_f] nil)]
-      (let [lease (obs/acquire! target (fn [n] (swap! notes conj n)))]
+      (let [handle (obs/acquire! target (fn [n] (swap! notes conj n)))]
         (is (= 1 (ref-count [:obs/items])))
         ;; A CACHE-CLEAR disposal (intrinsic cause :cache-clear → :disposed)
-        ;; enqueues the lease; next-tick is swallowed so it stays PENDING. The
+        ;; enqueues the handle; next-tick is swallowed so it stays PENDING. The
         ;; frame stays live throughout — this is NOT a destruction.
         (subs-cache/clear-sub-cache! fid)
         (is (nil? (entry [:obs/items])) "cache-clear evicted + disposed the node")
         (is (empty? @notes) "the disposal only ENQUEUED — no synchronous fan-out")
         ;; An UNRELATED :sub HMR re-registration fires the :hmr drain boundary
-        ;; while the :disposed lease is still pending. It MUST NOT sweep it.
+        ;; while the :disposed handle is still pending. It MUST NOT sweep it.
         (reg-items!)
         (is (empty? @notes)
             "the :hmr drain took only :hmr-tagged entries — the :disposed
-             cache-clear lease was LEFT pending, never mislabelled :hmr")
-        ;; Drive the next-tick :disposed fallback deterministically: the lease
+             cache-clear handle was LEFT pending, never mislabelled :hmr")
+        ;; Drive the next-tick :disposed fallback deterministically: the handle
         ;; receives its OWN intrinsic cause.
         (obs/drain-pending-disposals! :disposed)
-        (is (= 1 (count @notes)) "the cache-clear lease was notified exactly once")
+        (is (= 1 (count @notes)) "the cache-clear handle was notified exactly once")
         (is (= :disposed (:cause (first @notes)))
             "it received {:cause :disposed} — its INTRINSIC cause — NEVER :hmr
              (pre-fix the co-pending :hmr drain delivered :hmr here)")
         (is (= target (:target (first @notes))))
-        (obs/release! lease)))))
+        (obs/release! handle)))))
 
 ;; ===========================================================================
 ;; rf2-vxgfnd.29 (gap b) — the :disposed drain boundary driven END-TO-END from
@@ -1259,7 +1259,7 @@
         (subs-cache/clear-sub-cache! fid)
         (testing "one coalescing window owns exactly one scheduled drain"
           (is (= 1 (count @captured))
-              "three independent lease enqueues across two nodes schedule ONE thunk")
+              "three independent handle enqueues across two nodes schedule ONE thunk")
           (is (empty? @items-notes))
           (is (empty? @count-notes)
               "disposal only enqueues; callbacks do not run on the cache-clear stack"))
@@ -1269,14 +1269,14 @@
           (is (= 1 (count @count-notes)) "the independently cached node delivered")
           (is (every? #(= :disposed (:cause %))
                       (concat @items-notes @count-notes))))
-        (doseq [lease [l1 l2 l3]] (obs/release! lease))
+        (doseq [handle [l1 l2 l3]] (obs/release! handle))
 
         ;; Window 2: after the first scheduled thunk returned, a freshly rebuilt
         ;; node must own exactly one NEW thunk. Destroying the frame retains the
         ;; original end-to-end epoch-zero assertion.
         (reset! captured [])
         (let [later-notes (atom [])
-              later-lease (obs/acquire! items-target
+              later-handle (obs/acquire! items-target
                                         (fn [event] (swap! later-notes conj event)))]
           (frame/destroy-frame! fid)
           (is (= 1 (count @captured))
@@ -1289,7 +1289,7 @@
             (is (= items-target (:target event)))
             (is (zero? (:frame-epoch event))
                 "the real frame-destroy delivery retains epoch-zero evidence"))
-          (obs/release! later-lease))))))
+          (obs/release! later-handle))))))
 
 (deftest scheduled-disposal-drain-recovers-its-latch-after-callback-failure
   (reg-items!)
@@ -1303,8 +1303,8 @@
     (reset! pending [])
     (reset! scheduled? false)
     (with-redefs [interop/next-tick (fn [thunk] (swap! captured conj thunk))]
-      (let [bad-lease  (obs/acquire! target (fn [_event] (throw boom)))
-            good-lease (obs/acquire! target (fn [event] (swap! healthy conj event)))]
+      (let [bad-handle  (obs/acquire! target (fn [_event] (throw boom)))
+            good-handle (obs/acquire! target (fn [event] (swap! healthy conj event)))]
         (force-dispose-node! [:obs/items])
         (is (= 1 (count @captured)) "the failing window owns one real scheduled thunk")
         (let [[[outcome thrown] records]
@@ -1323,13 +1323,13 @@
           (is (empty? @pending) "the failing window still drained the complete queue")
           (is (false? @scheduled?)
               "the scheduling latch was reset before the potentially throwing drain"))
-        (obs/release! bad-lease)
-        (obs/release! good-lease)
+        (obs/release! bad-handle)
+        (obs/release! good-handle)
 
         (testing "later work owns a fresh scheduling window and drains normally"
           (reset! captured [])
           (let [later-notes (atom [])
-                later-lease (obs/acquire! target
+                later-handle (obs/acquire! target
                                           (fn [event] (swap! later-notes conj event)))]
             (force-dispose-node! [:obs/items])
             (is (= 1 (count @captured))
@@ -1340,13 +1340,13 @@
               (is (= :disposed (:cause (first @later-notes))))
               (is (empty? @pending))
               (is (false? @scheduled?)))
-            (obs/release! later-lease)))))))
+            (obs/release! later-handle)))))))
 
 ;; ===========================================================================
-;; rf2-vxgfnd.70 — a follower must not publish a lease behind the FIRST owner's
+;; rf2-vxgfnd.70 — a follower must not publish a handle behind the FIRST owner's
 ;; still-installing hook.
 ;;
-;; PR #5737's handshake flips the node record's readiness flag as the lease
+;; PR #5737's handshake flips the node record's readiness flag as the handle
 ;; ENROLS, before interop/add-on-dispose! actually registers the callback. A
 ;; follower that reads the flag true installs no hook of its own and trusts a
 ;; hook that does not yet exist. If disposal wins before the first owner
@@ -1416,7 +1416,7 @@
              (.countDown a-proceed)
              @fa
              @fb
-             (is (some? @l1) "the first owner completed and returned its lease")
+             (is (some? @l1) "the first owner completed and returned its handle")
              (testing "no synchronous fan-out — the drain only ENQUEUED"
                (is (empty? @notes-a))
                (is (empty? @notes-b)))
@@ -1458,13 +1458,13 @@
         (is (nil? (entry [:obs/items]))
             "the sole owner's ref was released, disposing the node — no leaked ref"))
       (testing "readiness stayed unpublished — a fresh acquire installs + succeeds"
-        (let [lease (obs/acquire! target (fn [_]))]
-          (is (obs/lease? lease))
-          (is (true? (obs/owned? lease)))
+        (let [handle (obs/acquire! target (fn [_]))]
+          (is (obs/handle? handle))
+          (is (true? (obs/owned? handle)))
           (is (= 1 (ref-count [:obs/items])) "exactly one reference on the rebuilt node")
-          (is (= [:a] (:value (obs/read lease))))
-          (is (true? (obs/current? lease target)))
-          (obs/release! lease)
+          (is (= [:a] (:value (obs/read handle))))
+          (is (true? (obs/current? handle target)))
+          (obs/release! handle)
           (is (nil? (entry [:obs/items]))))))))
 
 ;; ===========================================================================
@@ -1477,7 +1477,7 @@
 ;; drain runs inside the registrar replacement hook, whose per-hook catch DROPS
 ;; the throw (no log/trace/record), swallowing even the dev
 ;; :rf.error/reentrant-graph-op assert exactly where it matters. The fix wraps
-;; each lease's notify in its own try/catch (siblings never starve), surfaces the
+;; each handle's notify in its own try/catch (siblings never starve), surfaces the
 ;; callback failure on the always-on axis (SEEN through the registrar's swallow)
 ;; via the stable :rf.error/observation-on-change-failed wrapper — the
 ;; diagnostic-only reentrant-graph-op is NEVER promoted onto the always-on axis
@@ -1490,14 +1490,14 @@
   (seed-items! [:a])
   (let [target    (items-target)
         notes-b   (atom [])
-        bad-lease (atom nil)
+        bad-handle (atom nil)
         ;; Owner A: its on-change does a FORBIDDEN reentrant release! from inside
         ;; the fan-out → throws the dev :rf.error/reentrant-graph-op assert,
         ;; escaping the notification (it does NOT catch its own throw).
-        la  (obs/acquire! target (fn [_n] (obs/release! @bad-lease)))
+        la  (obs/acquire! target (fn [_n] (obs/release! @bad-handle)))
         ;; Owner B: a well-behaved sibling that MUST still be notified.
         lb  (obs/acquire! target (fn [n] (swap! notes-b conj n)))]
-    (reset! bad-lease la)
+    (reset! bad-handle la)
     (is (= 2 (obs/active-owner-count (:reaction (entry [:obs/items]))))
         "both owners are enrolled on the shared node")
     ;; The HMR re-registration disposes the shared node and drains BOTH former
@@ -1534,7 +1534,7 @@
 ;; rf2-6ui49w — an UNTYPED throwable escaping a former-owner on-change must
 ;; SURFACE before the disposal boundary swallows it (containment preserved)
 ;;
-;; #5766 (rf2-vxgfnd.28) contained a throwing owner per-lease and re-surfaced a
+;; #5766 (rf2-vxgfnd.28) contained a throwing owner per-handle and re-surfaced a
 ;; TYPED escape on the always-on axis, but only when the throwable carried a
 ;; catalogued :rf.error/id — an UNTYPED on-change bug (a raw TypeError /
 ;; AssertionError / host RuntimeException, or a defect before any typed
@@ -1704,29 +1704,29 @@
             reaction))
          ([frame-id query-v expected-incarnation]
           (real-cc frame-id query-v expected-incarnation)))]
-      (let [[[outcome lease] records] (with-error-records #(obs/acquire! target (fn [_])))]
+      (let [[[outcome handle] records] (with-error-records #(obs/acquire! target (fn [_])))]
         (is (true? @raced?) "the displacement fired in the build→check window")
         (testing "acquire! did NOT throw or fan a false frame-destroyed while the frame is live"
-          (is (= :ok outcome) "acquire! returned a lease, not a throw")
-          (is (obs/lease? lease))
+          (is (= :ok outcome) "acquire! returned a handle, not a throw")
+          (is (obs/handle? handle))
           (is (empty? (filter #(= :rf.error/frame-destroyed (:error %)) records))
               "no false always-on frame-destroyed record was fanned")
           (is (some? (frame/frame fid)) "the frame remained live throughout"))
-        (testing "it converged on the CURRENT canonical node — an owned, current lease"
-          (is (obs/owned? lease) "the retarget adopted a real cache node")
-          (is (true? (obs/current? lease target))
-              "the lease covers the live canonical node")
+        (testing "it converged on the CURRENT canonical node — an owned, current handle"
+          (is (obs/owned? handle) "the retarget adopted a real cache node")
+          (is (true? (obs/current? handle target))
+              "the handle covers the live canonical node")
           (is (= 1 (ref-count [:obs/items])) "exactly one reference on the current node")
-          (is (= [:a] (:value (obs/read lease)))
+          (is (= [:a] (:value (obs/read handle)))
               "reads the live value through the adopted canonical node"))
         (testing "no leak — release drops the last ref and disposes the current node"
-          (obs/release! lease)
+          (obs/release! handle)
           (is (nil? (entry [:obs/items]))))))))
 
 (deftest acquire-repeated-live-displacement-is-bounded-and-converges
   ;; Repeated displacement (explicit-cache-clear style: evict only) on the first
   ;; K attempts, then quiescence. The bounded retry converges on a canonical
-  ;; current lease at attempt K+1 — it does not spin, and never fans a false
+  ;; current handle at attempt K+1 — it does not spin, and never fans a false
   ;; frame-destroyed while the frame stays live (rf2-vxgfnd.63 — the retry is
   ;; bounded and cannot spin forever under repeated HMR).
   (reg-items!)
@@ -1749,14 +1749,14 @@
             reaction))
          ([frame-id query-v expected-incarnation]
           (real-cc frame-id query-v expected-incarnation)))]
-      (let [[[outcome lease] records] (with-error-records #(obs/acquire! target (fn [_])))]
+      (let [[[outcome handle] records] (with-error-records #(obs/acquire! target (fn [_])))]
         (is (= (inc k) @builds) "converged on the very next build after K displacements")
-        (is (= :ok outcome) "acquire! converged on a lease — it did not spin or throw")
+        (is (= :ok outcome) "acquire! converged on a handle — it did not spin or throw")
         (is (empty? (filter #(= :rf.error/frame-destroyed (:error %)) records))
             "no false frame-destroyed under repeated live displacement")
-        (is (true? (obs/current? lease target)))
+        (is (true? (obs/current? handle target)))
         (is (= 1 (ref-count [:obs/items])))
-        (obs/release! lease)
+        (obs/release! handle)
         (is (nil? (entry [:obs/items])))))))
 
 (deftest acquire-genuine-destruction-in-window-still-throws-frame-destroyed
@@ -1792,7 +1792,7 @@
           (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:error %)) records)))
               "exactly one always-on frame-destroyed record was fanned")
           (is (nil? (frame/frame race-fid))
-              "the targeted incarnation is gone — nothing was leased"))))))
+              "the targeted incarnation is gone — nothing was acquired"))))))
 
 ;; ===========================================================================
 ;; rf2-vxgfnd.79 — retry EXHAUSTION over a still-LIVE incarnation must not lie
@@ -1898,8 +1898,8 @@
       (frame/replace-app-db! rfid {:v 2})
       (let [_commit-node (subs/subscribe [:obs/rv] {:frame rfid})
             commit-ev    (obs/probe target)          ;; new live node, node-key K2
-            lease        (obs/acquire! target (fn [_]))
-            r            (obs/read lease)]
+            handle        (obs/acquire! target (fn [_]))
+            r            (obs/read handle)]
         (is (= 2 (:value r)) "acquired + read the reincarnated node's value")
         (testing "the version + epoch axes COINCIDE across the reincarnation"
           (is (= (:node-version render-ev) (:version r))
@@ -1929,7 +1929,7 @@
                 "version+epoch-only comparison MISSES the reincarnation (the S2 break)")
             (is (true? (node-key-moved? r render-ev))
                 "carrying :node-key makes the reincarnation detectable as movement")))
-        (obs/release! lease)))
+        (obs/release! handle)))
     (frame/destroy-frame! rfid)))
 
 (deftest unchanged-live-node-reads-the-same-node-key-no-false-movement
@@ -1942,8 +1942,8 @@
   (let [target    (items-target)
         _live     (subs/subscribe [:obs/items] {:frame fid})
         render-ev (obs/probe target)
-        lease     (obs/acquire! target (fn [_]))
-        r         (obs/read lease)]
+        handle     (obs/acquire! target (fn [_]))
+        r         (obs/read handle)]
     (is (true? (:live? render-ev)))
     (is (= (:node-key render-ev) (:node-key r))
         "same live node ⟹ same node-key across render and commit")
@@ -1957,27 +1957,27 @@
                   (not= (:node-key rd) (:node-key pv))))]
       (is (false? (moved? r render-ev))
           "no false movement for an unchanged live node — the fast path holds"))
-    (obs/release! lease)))
+    (obs/release! handle)))
 
 (deftest reentrant-graph-op-is-dev-asserted-inside-the-fan-out
   (reg-items!)
   (seed-items! [:a])
   (let [caught (atom nil)
-        lease-ref (atom nil)
-        lease  (obs/acquire! (items-target)
+        handle-ref (atom nil)
+        handle  (obs/acquire! (items-target)
                              (fn [_n]
                                ;; graph mutation from inside the fan-out —
                                ;; must throw :rf.error/reentrant-graph-op
-                               (try (obs/release! @lease-ref)
+                               (try (obs/release! @handle-ref)
                                     (catch #?(:clj Throwable :cljs :default) e
                                       (reset! caught (error-id e))))))]
-    (reset! lease-ref lease)
+    (reset! handle-ref handle)
     ;; drive a fan-out via the HMR path
     (reg-items!)
     (is (= :rf.error/reentrant-graph-op @caught))
-    (testing "the reentrant release was rejected — the lease is still live
+    (testing "the reentrant release was rejected — the handle is still live
               and releasable outside the fan-out"
-      (obs/release! lease))))
+      (obs/release! handle))))
 
 ;; ===========================================================================
 ;; rollback release order ([S2-CONFIRM] — reverse acquisition order)
@@ -1990,7 +1990,7 @@
   ;; A prior owner holds the shared node (the "prior committed set").
   (subs/subscribe [:obs/leaf] {:frame fid})
   (is (= 1 (ref-count [:obs/leaf])))
-  ;; Stage-acquire two leases in order (leaf then solo), then unwind in
+  ;; Stage-acquire two handles in order (leaf then solo), then unwind in
   ;; REVERSE acquisition order — the k-th-failure rollback shape.
   (let [l1 (obs/acquire! (obs/resolve-target {:frame fid :query-v [:obs/leaf]}) (fn [_]))
         l2 (obs/acquire! (obs/resolve-target {:frame fid :query-v [:obs/solo]}) (fn [_]))]
@@ -2007,33 +2007,33 @@
     (is (nil? (entry [:obs/leaf])))))
 
 ;; ===========================================================================
-;; static override lease
+;; static override handle
 ;; ===========================================================================
 
-(deftest static-override-lease-honest-ownership-uniform-commit-path
+(deftest static-override-handle-honest-ownership-uniform-commit-path
   (let [target {:kind :story-override :query [:obs/items]
                 :value 99 :override-id :o1 :version 7}
-        lease  (obs/acquire! target (fn [_] (throw (ex-info "never" {}))))]
+        handle  (obs/acquire! target (fn [_] (throw (ex-info "never" {}))))]
     (testing "no callback is registered and ownership is reported honestly"
-      (is (obs/lease? lease))
-      (is (false? (obs/owned? lease))))
+      (is (obs/handle? handle))
+      (is (false? (obs/owned? handle))))
     (testing "read yields the pinned value + override version"
-      (is (= {:value 99 :version 7} (obs/read lease))))
+      (is (= {:value 99 :version 7} (obs/read handle))))
     (testing "current? holds while the site's override id/version match"
-      (is (true? (obs/current? lease target)))
-      (is (false? (obs/current? lease (assoc target :version 8)))
+      (is (true? (obs/current? handle target)))
+      (is (false? (obs/current? handle (assoc target :version 8)))
           "a moved override version retargets through the normal staged path")
-      (is (false? (obs/current? lease {:kind :subscription :frame-id fid
+      (is (false? (obs/current? handle {:kind :subscription :frame-id fid
                                        :query [:obs/items]}))
           "a kind flip (override removed) retargets"))
     (testing "release! is a no-op; read still serves the pinned value"
-      (obs/release! lease)
-      (is (= {:value 99 :version 7} (obs/read lease)))))
+      (obs/release! handle)
+      (is (= {:value 99 :version 7} (obs/read handle)))))
   (testing "static version currency follows the complete frozen rf= law"
     (let [target {:kind :story-override :query [:obs/items]
                   :value ##NaN :override-id :o1 :version ##NaN}
-          lease  (obs/acquire! target (fn [_] (throw (ex-info "never" {}))))]
-      (is (true? (obs/current? lease (assoc target
+          handle  (obs/acquire! target (fn [_] (throw (ex-info "never" {}))))]
+      (is (true? (obs/current? handle (assoc target
                                             :value ##NaN
                                             :version ##NaN)))
           "NaN→NaN is stable even though plain = rejects the movement token")))
@@ -2048,7 +2048,7 @@
 ;; current? is TOTAL across a throwing opaque-token equality (rf2-sbfqy)
 ;; ===========================================================================
 ;;
-;; A :story-override lease's :override-id / :version are OPAQUE app-supplied
+;; A :story-override handle's :override-id / :version are OPAQUE app-supplied
 ;; tokens — :override-id compared by plain `=`, :version by the core-local
 ;; `node-value=` `rf=` spelling (which calls `=`). Their HOST equality is app
 ;; code and MAY THROW. current? is the commit kept-check and is documented TOTAL
@@ -2075,27 +2075,27 @@
   (testing "acquisition of a throwing-token override target succeeds"
     (let [target {:kind :story-override :query [:obs/items]
                   :value nil :override-id :slot :version (->BoomEq)}
-          lease  (obs/acquire! target (fn [_] (throw (ex-info "never" {}))))]
-      (is (obs/lease? lease))
+          handle  (obs/acquire! target (fn [_] (throw (ex-info "never" {}))))]
+      (is (obs/handle? handle))
       (testing "current? returns false, never throws, when the VERSION compare throws"
-        (is (false? (obs/current? lease (assoc target :version (->BoomEq))))
+        (is (false? (obs/current? handle (assoc target :version (->BoomEq))))
             "a throwing opaque-version equality → conservatively NOT current"))))
   (testing "current? is total for a throwing OVERRIDE-ID equality too"
     ;; :override-id is compared by plain `=` before the version compare; a
     ;; throwing id token is likewise caught and read as not-current.
     (let [target {:kind :story-override :query [:obs/items]
                   :value nil :override-id (->BoomEq) :version 1}
-          lease  (obs/acquire! target (fn [_] (throw (ex-info "never" {}))))]
-      (is (false? (obs/current? lease (assoc target :override-id (->BoomEq)))))))
+          handle  (obs/acquire! target (fn [_] (throw (ex-info "never" {}))))]
+      (is (false? (obs/current? handle (assoc target :override-id (->BoomEq)))))))
   (testing "the guard does NOT blanket-swallow — the SAME opaque instance still reads current"
     ;; node-value='s `identical?` arm short-circuits before `=` is ever called,
-    ;; so a version token IDENTICAL in both the lease and the compared target
+    ;; so a version token IDENTICAL in both the handle and the compared target
     ;; keeps the well-formed identity path unchanged and the site stays current.
     (let [tok    (->BoomEq)
           target {:kind :story-override :query [:obs/items]
                   :value nil :override-id :slot :version tok}
-          lease  (obs/acquire! target (fn [_] (throw (ex-info "never" {}))))]
-      (is (true? (obs/current? lease target))
+          handle  (obs/acquire! target (fn [_] (throw (ex-info "never" {}))))]
+      (is (true? (obs/current? handle target))
           "an identical opaque version token retains without invoking `=`"))))
 
 ;; ===========================================================================
@@ -2257,16 +2257,16 @@
         (rf/unregister-listener! :trace ::dispose-watch)))))
 
 ;; ===========================================================================
-;; the released-lease retention fixture — rf2-vxgfnd.15
+;; the released-handle retention fixture — rf2-vxgfnd.15
 ;;
 ;; Adversarial to the exact leak the 10k-cold-probe fixture CANNOT catch (cold
-;; probes take no lease, register no callback). A permanent owner keeps a
-;; shared layer-1 node live while N leases acquire/release against the SAME
+;; probes take no handle, register no callback). A permanent owner keeps a
+;; shared layer-1 node live while N handles acquire/release against the SAME
 ;; target — the app-shell-subscription-stays-live-for-the-process shape. Every
-;; released lease must retain ZERO disposal callbacks and leave the node's
+;; released handle must retain ZERO disposal callbacks and leave the node's
 ;; active-owner set at the permanent baseline: disposal work O(current owners),
-;; never O(all owners ever acquired). On today's per-lease-hook code the
-;; reaction retains one dormant closure per released lease (1000 leaked) and
+;; never O(all owners ever acquired). On today's per-handle-hook code the
+;; reaction retains one dormant closure per released handle (1000 leaked) and
 ;; this fixture fails; after the node-scoped-hook fix it stays O(1).
 ;; ===========================================================================
 
@@ -2283,7 +2283,7 @@
        (.setAccessible f true)
        (count (.get f reaction)))))
 
-(deftest released-leases-retain-no-disposal-callbacks-on-a-shared-live-node
+(deftest released-handles-retain-no-disposal-callbacks-on-a-shared-live-node
   (reg-items!)
   (seed-items! [:a])
   (let [target    (items-target)
@@ -2303,19 +2303,19 @@
     (testing "the node survived the churn on the permanent owner's reference"
       (is (= 1 (ref-count [:obs/items])))
       (is (some? (entry [:obs/items]))))
-    (testing "released leases left the active-owner set at the permanent
+    (testing "released handles left the active-owner set at the permanent
               baseline — not one historical owner retained"
       (is (= 1 (obs/active-owner-count reaction))
           "active owners = {permanent}, not {permanent + N released}"))
     #?(:clj
-       (testing "disposal-callback STORAGE stayed O(1) — released leases
+       (testing "disposal-callback STORAGE stayed O(1) — released handles
                  retained ZERO dormant closures (the rf2-vxgfnd.15 leak)"
          (is (= callbacks-baseline (reaction-dispose-callback-count reaction))
              (str "the reaction retained a dormant disposal closure per "
-                  "released lease: baseline " callbacks-baseline
+                  "released handle: baseline " callbacks-baseline
                   ", after " n " acquire/release pairs "
                   (reaction-dispose-callback-count reaction)
-                  " (retained-released-lease-callbacks="
+                  " (retained-released-handle-callbacks="
                   (- (reaction-dispose-callback-count reaction) callbacks-baseline)
                   ")"))))
     (testing "the permanent owner is still notified once on eventual disposal —
@@ -2331,55 +2331,55 @@
         (obs/release! keep)))))
 
 ;; ===========================================================================
-;; rf2-x76af2.34 FINDING 2 — a released node lease drops its reaction +
+;; rf2-x76af2.34 FINDING 2 — a released node handle drops its reaction +
 ;; on-change refs
 ;;
 ;; #5753's .37 change broke the JVM node-records value→key strong-pin by
-;; holding the reaction WEAKLY in the lease state. This complements it: the
+;; holding the reaction WEAKLY in the handle state. This complements it: the
 ;; live→released transition also nils :reaction and :on-change — both unused
 ;; after release (read/current?/notify short-circuit on :released;
 ;; read-after-release needs only :query-v/:frame-id) — so a consumer that
-;; retains a released lease pins neither the on-change closure (either host)
+;; retains a released handle pins neither the on-change closure (either host)
 ;; nor the CLJS reaction. Hygiene, not a true leak, but it drops the dangling
-;; refs promptly and matches the "released lease retains nothing" intent.
+;; refs promptly and matches the "released handle retains nothing" intent.
 ;; ===========================================================================
 
-(deftest released-node-lease-drops-reaction-and-on-change-refs
+(deftest released-node-handle-drops-reaction-and-on-change-refs
   (reg-items!)
   (seed-items! [:a])
   (let [target    (items-target)
         on-change (fn [_] :never)
-        lease     (obs/acquire! target on-change)
-        state     (@#'obs/lease-state lease)]
-    (testing "a live node lease holds its reaction + on-change"
+        handle     (obs/acquire! target on-change)
+        state     (@#'obs/handle-state handle)]
+    (testing "a live node handle holds its reaction + on-change"
       (is (= :live (:status @state)))
       (is (some? (:reaction @state)))
       (is (some? (:on-change @state))))
-    (obs/release! lease)
-    (testing "the released lease dropped both refs — nothing dangling"
+    (obs/release! handle)
+    (testing "the released handle dropped both refs — nothing dangling"
       (is (= :released (:status @state)))
       (is (nil? (:reaction @state)) "the reaction ref was dropped on release")
       (is (nil? (:on-change @state)) "the on-change closure was dropped on release"))
     (testing "read-after-release still throws from :query-v/:frame-id alone"
       (is (= :rf.error/read-after-release
-             (error-id (try (obs/read lease)
+             (error-id (try (obs/read handle)
                             (catch #?(:clj Throwable :cljs :default) e e))))))
     (testing "release! stays idempotent after the drop"
-      (obs/release! lease)
+      (obs/release! handle)
       (is (= :released (:status @state))))))
 
 ;; ===========================================================================
 ;; the JVM WeakHashMap self-reference leak fixture — rf2-vxgfnd.37
 ;;
 ;; The JVM node-records table is a process-global java.util.WeakHashMap keyed by
-;; REACTION; its VALUE carries :owners, a strong set of ObservationLease objects,
-;; and each lease's state references its reaction. java.util.WeakHashMap is NOT
+;; REACTION; its VALUE carries :owners, a strong set of ObservationHandle objects,
+;; and each handle's state references its reaction. java.util.WeakHashMap is NOT
 ;; an ephemeron map, so a value transitively STRONG-referencing its own weak key
 ;; pins that key forever:
-;;   node-records value → :owners → lease → state → reaction (= the weak key)
+;;   node-records value → :owners → handle → state → reaction (= the weak key)
 ;; An interrupted teardown (a committed owner whose cache/frame is dropped
-;; WITHOUT release!/dispose) then leaks the reaction + lease for the process
-;; lifetime. The fix holds the reaction WEAKLY in the lease state, breaking the
+;; WITHOUT release!/dispose) then leaks the reaction + handle for the process
+;; lifetime. The fix holds the reaction WEAKLY in the handle state, breaking the
 ;; value→key edge, so the entry is collectable once the reaction is otherwise
 ;; unreachable. This is a deterministic WeakReference proof: an enrolled,
 ;; abandoned reaction becomes collectable, and a matched un-enrolled control
@@ -2419,19 +2419,19 @@
              "a dropped, un-enrolled reaction is collectable")))
      (testing "ENROLLED — a committed owner left by an INTERRUPTED teardown does
                NOT pin its reaction through the weak node-records value (rf2-vxgfnd.37)"
-       (let [lease-box (volatile! (obs/acquire! (items-target) (fn [_])))
+       (let [handle-box (volatile! (obs/acquire! (items-target) (fn [_])))
              rx-box    (volatile! (:reaction (entry [:obs/items])))
              rx-ref    (java.lang.ref.WeakReference. ^Object @rx-box)
-             lease-ref (java.lang.ref.WeakReference. ^Object @lease-box)]
+             handle-ref (java.lang.ref.WeakReference. ^Object @handle-box)]
          (is (= 1 (obs/active-owner-count @rx-box))
-             "the lease is enrolled as an active owner in the weak node record")
+             "the handle is enrolled as an active owner in the weak node record")
          ;; Interrupted teardown: evict the cache entry (dropping the cache's
          ;; strong ref to the reaction) WITHOUT release! — so the owner is NEVER
-         ;; de-enrolled and :owners still holds the lease. The ONLY remaining
-         ;; strong path to the reaction is node-records value → :owners → lease →
+         ;; de-enrolled and :owners still holds the handle. The ONLY remaining
+         ;; strong path to the reaction is node-records value → :owners → handle →
          ;; state → reaction. Pre-fix (strong :reaction) that pins the weak key.
          (swap! (sub-cache) dissoc [:obs/items])
-         (vreset! lease-box nil) ;; drop the last ordinary strong refs
+         (vreset! handle-box nil) ;; drop the last ordinary strong refs
          (vreset! rx-box nil)
          (is (gc-until-cleared? rx-ref)
              (str "the abandoned reaction is GC-collectable — the weak "
@@ -2439,10 +2439,10 @@
                   "key (this assertion FAILS on PR #5710's strong :reaction)"))
          ;; The reaction (weak KEY) is gone; a WeakHashMap operation now expunges
          ;; the stale entry, dropping the map's strong ref to the VALUE (record →
-         ;; :owners → lease), which the next GC reclaims.
+         ;; :owners → handle), which the next GC reclaims.
          (.size ^java.util.Map @#'obs/node-records)
-         (is (gc-until-cleared? lease-ref)
-             "the abandoned lease was reclaimed once its node record's weak key died")))))
+         (is (gc-until-cleared? handle-ref)
+             "the abandoned handle was reclaimed once its node record's weak key died")))))
 
 ;; ===========================================================================
 ;; rf2-wbkjk9 — exact-once first-emission provenance in the disposal-notify
@@ -2453,7 +2453,7 @@
 ;; truthy :rf.error/id. Two defects:
 ;;
 ;;   1. DOUBLE EMISSION — a callback that calls an observation op which
-;;      emits-then-throws (obs/read on a released lease) got its category
+;;      emits-then-throws (obs/read on a released handle) got its category
 ;;      fanned TWICE: once at the source (with the source's correct
 ;;      frame/query attribution) and once by the drain (with the NOTIFYING
 ;;      owner's context overwriting it). Two always-on records for one
@@ -2480,7 +2480,7 @@
 ;;     category onto the always-on axis.
 ;;
 ;; Red-before-fix: with the provenance/choke-point repair reverted, the
-;; released-lease fixtures below observe TWO read-after-release records
+;; released-handle fixtures below observe TWO read-after-release records
 ;; (the second with stolen attribution) and the spoof fixtures observe the
 ;; application id fanned as a framework category.
 ;; ===========================================================================
@@ -2495,15 +2495,15 @@
   (reg-items!)
   (reg-other!)
   (seed-items! [:a])
-  ;; A lease on a DIFFERENT sub, already released — reading it is the
+  ;; A handle on a DIFFERENT sub, already released — reading it is the
   ;; deterministic emit-then-throw composition: obs/read first fans
-  ;; :rf.error/read-after-release (with the RELEASED lease's own
+  ;; :rf.error/read-after-release (with the RELEASED handle's own
   ;; [:obs/other] attribution), then throws the marked typed error.
   (let [released (obs/acquire! (other-target) (fn [_]))]
     (obs/release! released)
     (let [live (obs/acquire! (items-target) (fn [_n] (obs/read released)))]
       ;; HMR re-registration of :obs/items drains the :hmr boundary; the
-      ;; live owner's on-change reads the released lease.
+      ;; live owner's on-change reads the released handle.
       (let [[[outcome _] records] (with-error-records #(reg-items!))]
         (is (= :ok outcome) "the registrar isolates the replacement hook")
         (let [rar (filterv #(= :rf.error/read-after-release (:error %)) records)]
@@ -2512,7 +2512,7 @@
                     already-fanned typed escape (rf2-wbkjk9)"
             (is (= 1 (count rar))))
           (testing "the surviving record keeps the SOURCE's attribution (the
-                    released lease's own sub), never the notifying owner's
+                    released handle's own sub), never the notifying owner's
                     [:obs/items] context"
             (is (= :obs/other (:event-id (first rar))))
             (is (= [:obs/other] (:event (first rar))))))
@@ -2530,7 +2530,7 @@
           _        (obs/release! released)
           boom     (ex-info "untyped on-change boom" {::boom true})
           notes    (atom [])
-          ;; Owner A — already-fanned typed: reads the released lease.
+          ;; Owner A — already-fanned typed: reads the released handle.
           la (obs/acquire! (items-target) (fn [_n] (obs/read released)))
           ;; Owner B — untyped consumer bug.
           lb (obs/acquire! (items-target) (fn [_n] (throw boom)))
@@ -2746,7 +2746,7 @@
       (obs/release! la))))
 
 (deftest drain-two-channel-fanout-composes-with-first-emission-provenance
-  ;; An ALREADY-FANNED typed escape (the released-lease read) gains neither a
+  ;; An ALREADY-FANNED typed escape (the released-handle read) gains neither a
   ;; second always-on record NOR a second trace event from the drain: the
   ;; source's own emit-error-both! is the one two-channel emission.
   (reg-items!)
@@ -3094,11 +3094,11 @@
   (reg-items!)
   (seed-items! [:a])
   ;; An AUTHENTIC port-minted throwable, bound `#{:always-on :trace}` at its
-  ;; source: reading a lease AFTER release! throws :rf.error/read-after-release,
+  ;; source: reading a handle AFTER release! throws :rf.error/read-after-release,
   ;; which the port fans on the always-on axis and binds to THAT exact throwable.
-  (let [setup-lease (obs/acquire! (items-target) (fn [_]))
-        _           (obs/release! setup-lease)
-        auth-ex     (try (obs/read setup-lease)
+  (let [setup-handle (obs/acquire! (items-target) (fn [_]))
+        _           (obs/release! setup-handle)
+        auth-ex     (try (obs/read setup-handle)
                          (catch #?(:clj Throwable :cljs :default) e e))
         ;; The token an attacker could scrape from the authentic throwable's
         ;; ex-data. Pre-fix it was present there (and transplantable); post-fix it
@@ -3174,7 +3174,7 @@
 ;;      record (production silence).
 ;;   2. THROWING CLASSIFICATION — a throwable whose `hashCode`/`equals` THROWS makes
 ;;      `provenance-by-throwable.get` itself escape `source-covered-always-on?`,
-;;      propagating out of the drain's per-lease catch, aborting the reduce before
+;;      propagating out of the drain's per-handle catch, aborting the reduce before
 ;;      healthy siblings drain and replacing the first-original rethrow — breaking
 ;;      the full-drain / first-original-identity law.
 ;;

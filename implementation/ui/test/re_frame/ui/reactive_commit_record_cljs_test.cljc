@@ -122,7 +122,7 @@
           "each observation carries its OWN target's frame-id — per-observation
            attribution, not a single fabricated frame fact")
       (is (every? :owned? obs)
-          "an owned subscription node lease reports :owned? true")
+          "an owned subscription node handle reports :owned? true")
       (is (every? (fn [o] (integer? (:target-id o))) obs)
           "the observed live node identity is captured (:target-id)")
       (is (every? (fn [o] (integer? (:version o))) obs)
