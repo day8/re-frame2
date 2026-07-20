@@ -30,9 +30,9 @@ The setup is the same as the [core testing pages](../core/testing/index.md): a J
 ```clojure
 (deftest article-urls-round-trip
   ;; route → URL
-  (is (= "/articles/intro" (rf.routing/route-url :app/article {:id "intro"})))
+  (is (= "/articles/intro" (rf.routing/route-url {:to :app/article :params {:id "intro"}})))
   (is (= "/search?q=clojure&page=2#results"
-         (rf.routing/route-url :app/search {} {:q "clojure" :page 2} "results")))
+         (rf.routing/route-url {:to :app/search :query {:q "clojure" :page 2} :fragment "results"})))
   ;; URL → route — schemas validate AND coerce, so :page comes back an int
   (let [m (rf.routing/match-url "/search?q=clojure&page=2")]
     (is (= :app/search (:route-id m)))
@@ -44,7 +44,7 @@ The setup is the same as the [core testing pages](../core/testing/index.md): a J
 
 !!! warning "Gotcha — the nil-policy asymmetry is worth a test of its own"
 
-    A `nil` **path** param is a hard error — `route-url` throws `:rf.error/missing-route-param`, because there's no URL to build without the segment; a `nil` **query** param is *silently elided* (`{:page nil}` just omits the key). If your app leans on the elision — "only add `?sort=` when chosen" — pin it: `(is (= "/search?q=x" (rf.routing/route-url :app/search {} {:q "x" :sort nil})))`.
+    A `nil` **path** param is a hard error — `route-url` throws `:rf.error/missing-route-param`, because there's no URL to build without the segment; a `nil` **query** param is *silently elided* (`{:page nil}` just omits the key). If your app leans on the elision — "only add `?sort=` when chosen" — pin it: `(is (= "/search?q=x" (rf.routing/route-url {:to :app/search :query {:q "x" :sort nil}})))`.
 
 ## 2. Navigation through a test frame
 
@@ -53,7 +53,7 @@ The wiring — navigate event in, slice out — is a [pipeline-run test](../core
 ```clojure
 (deftest navigate-writes-the-slice
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/dispatch-sync [:rf.route/navigate :app/article {:id "intro"}])
+    (rf/dispatch-sync [:rf.route/navigate {:to :app/article :params {:id "intro"}}])
     (is (= :app/article @(rf/subscribe [:rf.route/id])))
     (is (= {:id "intro"} @(rf/subscribe [:rf.route/params])))))
 ```
@@ -90,10 +90,10 @@ The `:can-leave` flow is deliberately testable without a browser: the guard is a
   ;; so it rides :initial-events; the body dispatches only the moves under test
   (rf/with-new-frame [f (rf/make-frame
                           {:initial-events
-                           [[:rf.route/navigate :app/article-editor {:id "intro"}]
+                           [[:rf.route/navigate {:to :app/article-editor :params {:id "intro"}}]
                             [:editor/typed "draft text"]]})]
     ;; try to leave: the navigation parks, the slice doesn't move
-    (rf/dispatch-sync [:rf.route/navigate :app/home])
+    (rf/dispatch-sync [:rf.route/navigate {:to :app/home}])
     (is (some? @(rf/subscribe [:rf/pending-navigation])))
     (is (= :app/article-editor @(rf/subscribe [:rf.route/id])))
 

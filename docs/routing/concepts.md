@@ -37,7 +37,7 @@ To *build* a three-page app step by step, use the [tutorial](tutorial.md).
   "/articles/:id")
 
 ;; 2. Navigation is an event.
-(rf/dispatch [:rf.route/navigate :app/article {:id "intro"}])
+(rf/dispatch [:rf.route/navigate {:to :app/article :params {:id "intro"}}])
 
 ;; 3. The root view reads the active route through an ordinary subscription.
 (rf/reg-view article-page []
@@ -127,16 +127,18 @@ ranking cascade: [API `reg-route`](../api/re-frame.routing.md#reg-route).
 <a id="move-2-navigation-is-an-event"></a>
 
 ```clojure
-(rf/dispatch [:rf.route/navigate :app/article {:id "intro"}])
+(rf/dispatch [:rf.route/navigate {:to :app/article :params {:id "intro"}}])
 
-;; Params 2nd, opts 3rd — empty params when you only have opts:
-(rf/dispatch [:rf.route/navigate :app/search {} {:query {:q "clojure" :page 2}}])
-(rf/dispatch [:rf.route/navigate :app/login {} {:replace? true}])
-(rf/dispatch [:rf.route/navigate :app/article {:id "intro"} {:fragment "section-2"}])
+;; One request map — address, policy, and edit keys all sit side by side:
+(rf/dispatch [:rf.route/navigate {:to :app/search :query {:q "clojure" :page 2}}])
+(rf/dispatch [:rf.route/navigate {:to :app/login :replace? true}])
+(rf/dispatch [:rf.route/navigate {:to :app/article :params {:id "intro"} :fragment "section-2"}])
 ```
 
-| Opt | Effect |
+| Key | Effect |
 |---|---|
+| `:to` | Destination route id (`:url` is the raw-URL alternative) |
+| `:params` | Path params for `:to` |
 | `:replace?` | `replaceState` instead of `pushState` |
 | `:query` | Replace query wholesale |
 | `:query-merge` | Edit current query (`nil` removes a key) |
@@ -147,17 +149,15 @@ ranking cascade: [API `reg-route`](../api/re-frame.routing.md#reg-route).
 <a id="navigate-in-place"></a>
 <a id="navigate-in-place-change-the-query-stay-on-the-route"></a>
 
-**Stay on this route, change query** — reserved target `:rf.route/self`:
+**Stay on this route, change query** — omit the destination for an *in-place* request:
 
 ```clojure
-(rf/dispatch [:rf.route/navigate :rf.route/self {} {:query-merge {:page 2}}])
+(rf/dispatch [:rf.route/navigate {:query-merge {:page 2}}])
 ```
 
-!!! warning "Params is 2nd, opts is 3rd"
-
-    `[:rf.route/navigate :app/cart {:replace? true}]` dumps opts into **params** and
-    fails loud (`:rf.error/navigate-arity-misuse`). Use
-    `[:rf.route/navigate :app/cart {} {:replace? true}]`.
+A request with no `:to` / `:url` patches the current location: `:query-merge` folds
+into the current query, `:query` replaces it wholesale, `:fragment` moves the anchor.
+The route and its params carry over untouched.
 
 ### Linking from views
 
@@ -446,7 +446,7 @@ form on the wire; client re-encodes on hydrate).
 ### Codec by hand
 
 ```clojure
-(rf.routing/route-url :app/article {:id "intro"})
+(rf.routing/route-url {:to :app/article :params {:id "intro"}})
 ;; => "/articles/intro"
 (rf.routing/match-url "/articles/intro")
 ;; => {:route-id :app/article :params {:id "intro"} …}

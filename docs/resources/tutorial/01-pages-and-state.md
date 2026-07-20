@@ -321,21 +321,17 @@ And navigation? `rf/route-link` renders a real `<a href="...">` and turns a plai
 To navigate from code — after a successful form submit, say — it's an event like everything else:
 
 ```clojure
-(rf/dispatch [:rf.route/navigate :conduit.article/show {:slug "welcome-to-conduit"}])
+(rf/dispatch [:rf.route/navigate {:to :conduit.article/show :params {:slug "welcome-to-conduit"}}])
 ```
 
-`:rf.route/navigate` takes the target route id first and the route's **path params** second. When you need to tune *how* the navigation happens, a third **opts** map comes after the params:
+`:rf.route/navigate` takes a single **request map**: the target route id in `:to`, the route's path params in `:params`, and any keys that tune *how* the navigation happens sit right alongside them:
 
 ```clojure
 ;; Replace the current history entry instead of pushing a new one —
 ;; the Back button won't return to the URL you're leaving. Handy for
 ;; redirects and login-flow returns.
-(rf/dispatch [:rf.route/navigate :conduit/home {} {:replace? true}])
+(rf/dispatch [:rf.route/navigate {:to :conduit/home :replace? true}])
 ```
-
-!!! warning "Gotcha — params is slot two, opts is slot three"
-
-    Both are maps, so they're easy to swap, and the swap is the classic mistake: `[:rf.route/navigate :conduit/home {:replace? true}]` *reads* like "navigate, replacing history," but it parses as "navigate with a path-param called `:replace?`" — which `:conduit/home` doesn't have. The runtime catches exactly this case and rejects the navigation with `:rf.error/navigate-arity-misuse`, naming the misplaced key, rather than silently doing the wrong thing. To pass opts, give an explicit (possibly empty) params map first: `[:rf.route/navigate :conduit/home {} {:replace? true}]`.
 
 One verb, `dispatch`, whether the user clicked a link, pressed Back, or your handler decided to move. Every path funnels into the same state change — which is why, when something goes wrong, there's only ever one place to look.
 
@@ -343,7 +339,7 @@ One verb, `dispatch`, whether the user clicked a link, pressed Back, or your han
 
     The route table is bidirectional, and that fact is exposed as two **pure** functions you can call anywhere — in a handler, in a test, on the JVM during server rendering. They live in `re-frame.routing`, not on the `rf/` facade:
 
-    - `(re-frame.routing/route-url :conduit.article/show {:slug "welcome-to-conduit"})` → `"/article/welcome-to-conduit"`. Builds the URL string from a route id and params. It does **not** navigate — it's a string-builder. `:rf.route/navigate` uses it internally.
+    - `(re-frame.routing/route-url {:to :conduit.article/show :params {:slug "welcome-to-conduit"}})` → `"/article/welcome-to-conduit"`. Builds the URL string from an address map. It does **not** navigate — it's a string-builder. `:rf.route/navigate` uses it internally.
     - `(re-frame.routing/match-url "/article/welcome-to-conduit")` → `{:route-id :conduit.article/show :params {:slug "..."} :query {} :fragment nil ...}`, or `nil` when nothing matches. The inverse direction.
 
     You won't need either in this part — `route-link` and `:rf.route/navigate` cover the app's own navigation — but they're the functions tests and SSR call to turn a route into a URL without an app-db in hand.

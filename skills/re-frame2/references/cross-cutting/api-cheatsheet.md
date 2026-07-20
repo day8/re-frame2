@@ -69,7 +69,7 @@ The public composition model is `image → frame → event stream`; there is **n
 | Surface | Shape |
 |---|---|
 | `re-frame.routing/match-url` | `(url)` → `{:route-id :params :query :fragment ...}` or `nil` — owned-ns surface, **not** on the `rf/` façade (the `reg-route` registration macro stays on `rf/`) |
-| `re-frame.routing/route-url` | `(route-id path-params)` / `(... query-params)` / `(... query-params fragment)` → `"/url"` — 4-arity appends `#fragment` (nil/empty omitted, percent-encoded); owned-ns surface, **not** on the `rf/` façade |
+| `re-frame.routing/route-url` | `({:to route-id :params … :query … :fragment …})` → `"/url"` — one address-only map (`:to` required); `:fragment` appends `#frag` (nil/empty omitted, percent-encoded); `:url` / `:query-merge` / policy / unknown keys reject loud; owned-ns surface, **not** on the `rf/` façade |
 
 ## HTTP — `day8/re-frame2-http`
 

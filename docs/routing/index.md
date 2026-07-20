@@ -15,7 +15,7 @@ testable like everything else.
   "/articles/:id")                    ;; path is the third slot, not a metadata key
 
 @(rf/subscribe [:rf.route/params])    ;; => {:id "hello"}
-(rf/dispatch [:rf.route/navigate :app/article {:id "hello"}])
+(rf/dispatch [:rf.route/navigate {:to :app/article :params {:id "hello"}}])
 ```
 
 Route [loaders](glossary.md#loader) run on the server too — one data-fetch story
