@@ -1,9 +1,9 @@
 # EP-0035: Component-Library Readiness
 
-Status: accepted
+Status: final
 Type: standards-track
 Created: 2026-07-16
-Resolution: accepted 2026-07-16 (directed)
+Resolution: accepted 2026-07-16 (directed); final 2026-07-20
 
 ## Abstract
 
@@ -17,11 +17,14 @@ trigger-gated candidate with a recorded ruling.
 The normative homes are the Spec 004 rewrite (handler synchrony law, local
 placement law, render slots, spread),
 [`spec/004B-UI-Tree-and-Conversion.md`](../../spec/004B-UI-Tree-and-Conversion.md)
-(conversion table), [`spec/008-Testing.md`](../../spec/008-Testing.md) (gate
-roster), and [`spec/009-Instrumentation.md`](../../spec/009-Instrumentation.md)
-(diagnostic rows); per EP-0009, where this EP and the spec differ, the spec
-governs. The package shipped with the S3 conformance slice; the trigger-gated
-candidates remain gated on the triggers recorded in Resolved Decisions.
+(conversion table), [`spec/008-Testing.md`](../../spec/008-Testing.md) (G-17/G-18
+gate rows),
+[`spec/conformance/S3-view-conformance-profile.md`](../../spec/conformance/S3-view-conformance-profile.md)
+(G-8/G-15/G-16 rows), and
+[`spec/009-Instrumentation.md`](../../spec/009-Instrumentation.md) (diagnostic
+rows); per EP-0009, where this EP and the spec differ, the spec governs. The
+package shipped with the S3 conformance slice; the trigger-gated candidates
+remain gated on the triggers recorded in Resolved Decisions.
 
 ## Motivation
 
