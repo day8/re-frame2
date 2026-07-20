@@ -157,10 +157,11 @@ committed frame.
   literal foreign-component var as the head — its props are passed through; a
   **bare fn** on a foreign prop is `:rf.ui.compile/bare-fn-prop`, so wrap it in
   `(ui/handler …)` or `(ui/raw-fn …)`.
-- **Refs:** `:ref` takes a `(ui/raw-fn f)` callback ref (identity-as-protocol),
-  or the declared-`:ref`-forwarding form. A **bare fn** at `:ref` is
-  `:rf.ui.compile/bare-fn-ref`. `:ref` on a *view* is rejected
-  (`:rf.ui.compile/ref-on-view-s1`) — forward through a declared prop instead.
+- **Refs:** `:ref` takes an object ref (preferred) or a `(ui/raw-fn f)` callback
+  ref (identity-as-protocol); a **bare fn** at `:ref` is
+  `:rf.ui.compile/bare-fn-ref`. An internal **view forwards `:ref` only by
+  declaring it** in its header (React 19 ref-as-prop) — passing `:ref` to a view
+  carries it on the props object, and the callee reads it via the declared slot.
 - **Spreading props:** `(ui/spread base overrides)` is the one generic runtime
   prop-map merge, legal only in a **DOM/custom element's** props position (not
   an internal-view call). `(ui/spread-safe owned caller)` is the literal
@@ -368,7 +369,6 @@ not edit it by hand.
 - **`:rf.ui.compile/react-hook-bad-deps`** — (react/ setup deps): deps must be a literal vector (compared per slot by Object.is)
 - **`:rf.ui.compile/react-hook-misplaced`** — (react/ …) is a host hook — legal ONLY where it evaluates unconditionally, once per render: the straight-line top region of a defview body (an outer let binding). It cannot run in a loop, branch, deferred callback, render-fn slot, or root expression — React's hook order must be static. Hoist it to the top of the view body, or extract a keyed child view
 - **`:rf.ui.compile/react-lazy-misplaced`** — (react/lazy …) is DEF-LEVEL only — bind it at the top level: (def HeavyChart (react/lazy load-thunk {:fallback tpl})), then use the component as a foreign head [HeavyChart {…}]. Calling it inside a view body mints a new component type per render and remount-loops
-- **`:rf.ui.compile/ref-on-view-s1`** — :ref at an internal-view call site — internal views forward :ref only by declaring it, and declared ref forwarding lands S3. (Conservative S1 pin.)
 - **`:rf.ui.compile/rejected-prop-spelling`** — is not a prop — one spelling per name, ambiguities removed. Use
 - **`:rf.ui.compile/render-fn-misplaced`**
   - (ui/render-fn …) is a render-slot callback value — legal ONLY as a component call-site prop value or a ui/slot argument, never as a plain expression. The library invokes it through ui/slot
