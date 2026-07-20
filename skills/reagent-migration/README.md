@@ -9,7 +9,7 @@ A `Skill` that helps `Claude Code` **migrate Reagent view code to re-frame2's ex
 This skill is **not on anyone's critical path**, and the README says so before anything else:
 
 - **It is the OPTIONAL, SECOND step.** The migration journey is two moves, in order: **(1)** re-frame v1 → re-frame2 (the *required* foundation — the [`re-frame-migration`](../re-frame-migration) skill; it leaves your views on Reagent), then **(2)** — optionally — Reagent views → re-frame.ui (*this* skill). Do (2) only after (1), and only if you want the compiled-view substrate.
-- **re-frame.ui is EXPERIMENTAL.** Parts are still staged (SSR emit, the outward `ui/->react` bridge, an explicit-frame `sub` pin). The skill names those gaps and holds the affected views on Reagent.
+- **re-frame.ui is EXPERIMENTAL.** Parts are still staged (the outward `ui/->react` bridge, an explicit-frame `sub` pin). The skill names those gaps and holds the affected views on Reagent.
 - **Staying on Reagent views is a first-class, fully-supported choice.** A re-frame2 app running Reagent views through the Reagent adapter is a complete, supported configuration. The skill never implies you *should* move to re-frame.ui.
 
 **When to reach for it (narrow):** you are *already on re-frame2* and *specifically want to trial the experimental `re-frame.ui` substrate* for some views. That is the whole trigger.
@@ -20,7 +20,7 @@ This skill is **not on anyone's critical path**, and the README says so before a
 - **The transformation catalog**, organised by what you do with each rule (`MIG-NN` ids matching the framework's own rule table):
   - **M-tier ("do this")** — unambiguous mechanical rewrites with a before→after each: `reg-view`→`defview`, deref-drop, dispatch-lifting, prop respelling, key-meta→prop, plain hiccup, mount, ns requires, `dangerouslySetInnerHTML`→`ui/html`, and more.
   - **D-tier ("how to DECIDE")** — the judgment cases where the skill earns its keep: Form-2/`with-let` local state (app-db vs `local`), Form-3 lifecycle (effect vs domain event), derived state (`track`/`cursor`/`reaction`), the ratom-as-store restructure, computed DOM props + the bare-symbol trap, third-party Reagent wrappers.
-  - **R-tier ("don't migrate — stay on Reagent, or wait")** — the honesty backbone: genuine rejects (Reagent introspection/scheduler, dynamic tag heads, effectful subs) and the experimental capability gaps (SSR emit, the outward bridge, the `sub` frame-pin, compiled `route-link`).
+  - **R-tier ("don't migrate — stay on Reagent, or wait")** — the honesty backbone: genuine rejects (Reagent introspection/scheduler, dynamic tag heads, effectful subs) and the experimental capability gaps that remain unshipped (the outward `ui/->react` bridge, the `sub` frame-pin).
 - **An incremental procedure** — migrate a closed subtree at a time, leaf → root; verify it compiles, renders, and passes tests; iterate. Never big-bang.
 - **The gotchas** — the bare-symbol trap (`[:li item]` is content, not a spread), whole-view coherence, keyed-child extraction, dynamic tag heads, and the staged-gap trap.
 

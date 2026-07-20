@@ -43,6 +43,38 @@
 - **Host / DOM work** (focus a node, wire a listener, measure) → `(effect :connect …)`. Note: `:connect` cleanup runs at each *disconnect*, not once at unmount — dev StrictMode replays connect/disconnect, so the cleanup must be disconnect-idempotent.
 - **Domain work** ("mark viewed", "load on mount") → a route/domain **event** through the dataflow (name it for the author). There is deliberately **no** `:on-mount` primitive; domain-on-mount is a dispatch, not a lifecycle hook.
 
+## MIG-18 — non-conforming `:on-*` handlers
+
+A DOM/custom-element `:on-*` handler whose body **fails the three clean shapes** (MIG-04/05/06) — mixed local work plus a dispatch, a *guarded* dispatch, a dispatch of a non-literal / helper-routed vector, or pure imperative work with no dispatch at all:
+
+```clojure
+;; before — mixed local work + dispatch
+{:on-click (fn [e] (.preventDefault e) (when ok? (dispatch [:save])))}
+```
+
+**The decision: split local work from app intent, then pick the compiled form.** A converted `defview` has **no ambient `dispatch`** in scope, so this is not a one-line lift:
+
+- **A bare fn stays legal** on a DOM `:on-*` (the narrow bare-fn law). But imperative dispatch *inside* that fn obtains the committed dispatcher via **`(ui/dispatch-fn)`** in the view body (per-view stable; reads the committed frame at call time; fails loud with `:rf.error/dispatch-disconnected` when the view is disconnected).
+- **A guarded or payload-extracting dispatch** → **`ui/event`**: a `nil` return means *no dispatch*, which is exactly the guard (`when ok?`) expressed as data-with-a-filter.
+- **Pure imperative work** whose return is irrelevant → **`ui/handler`**; work that computes and **returns a vector to dispatch** → **`ui/event`**.
+- **Mixed**: the local work stays a fn; the app intent becomes a vector on the natural element.
+
+Coupled to MIG-16's state decision (local work often reads/writes view-local state), which is why a MIG-18 hit **gates the view** — decide it whole with the author.
+
+## MIG-23 — SSR (`render-to-string` / hydrate)
+
+```clojure
+;; before
+(reagent.dom.server/render-to-string [app])
+```
+
+**The decision: which SSR path?** re-frame.ui ships both — pick by intent:
+
+- **Static-page (non-hydrating) HTML** — the compiled counterpart of React's `renderToStaticMarkup` → **`(ui/render-static [app-root])`**. Pure `:server` phase, no manifest, no hydration payload; a `ui/client-only` site renders its capability-free fallback and stops. JVM/server only; the root form must be literal.
+- **SSR-then-hydrate** — server-emit then adopt on the client → **`re-frame.ssr/hydrate!`** (seed state, no `:render-tree-fn` for a compiled root) **then `ui/hydrate-root`** (per Spec 011). The `reagent.dom.client/hydrate-root` mount from MIG-15 routes here.
+
+Keep the caveat: views using refs/effects need `ui/client-only` (or restructure) for the server phase. (The genuinely-still-unshipped SSR pieces are none of the above — `render-static` and `hydrate-root` shipped; verify any exotic SSR helper against `ui.cljc`'s exports before assuming it exists.)
+
 ## MIG-19 — derived state (`r/track` / `r/cursor` / `reaction`)
 
 ```clojure
@@ -100,6 +132,5 @@ The outward direction (a compiled view *inside* a Reagent tree) needs the `ui/->
 | **MIG-26** | ambient `subscribe`/`dispatch` in a plain unregistered `defn` | Grep for these — they throw `:rf.error/no-frame-context`. Preference order: (1) register as a view; (2) hoist the op to the nearest registered ancestor and pass values down; (3) explicit `{:frame f}`. |
 | **MIG-27** | fn-valued prop on an **internal-view** call site | **Legal and opaque** (a plain fn prop is an identity-compared value — *not* a compile error; non-gating). *Recommend*, don't force: forward a data vector where you want tool-visibility (`:on-commit [:commit]`, child places it at its DOM `:on-*` site), or `ui/handler`/`ui/render-fn` where a phase/stable-identity is genuinely needed. |
 | **MIG-30** | runtime-built markup helper (`(md/render …)` walking an AST) | No compiled spelling for runtime hiccup *data*. Template-ise the callee into `defview` branches (then MIG-01 applies), or route genuinely data-driven markup to `re-frame.ui.data` (a separate artifact), or hold the view. |
-| **MIG-32** | `[rf/route-link {…} …]` and framework-shipped Reagent view heads | No ruled compiled `route-link` counterpart yet — a plain `[:a {:href …}]` is **not** equivalent (the runtime doesn't intercept plain anchors). Hold the view on Reagent pending the ruling. (Capability gap → R-tier.) |
 
 Every row above is a view the skill leaves whole until the decision is made. Decide it, then convert the whole view or hold the whole view — never a partial body.

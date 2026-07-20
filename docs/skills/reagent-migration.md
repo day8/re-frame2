@@ -7,7 +7,7 @@
 This skill is not on anyone's critical path:
 
 - **It is the OPTIONAL, SECOND step.** The migration journey is two moves, in order: **(1)** re-frame v1 → re-frame2 (the *required* foundation — [re-frame-migration](re-frame-migration.md); it leaves your views on Reagent), then **(2)** — optionally — Reagent views → re-frame.ui (*this* skill). Do (2) only after (1), and only if you want the compiled-view substrate.
-- **re-frame.ui is EXPERIMENTAL.** Parts are still staged (SSR emit, the outward `ui/->react` bridge, an explicit-frame `sub` pin). The skill names those gaps and holds the affected views on Reagent.
+- **re-frame.ui is EXPERIMENTAL.** Parts are still staged (the outward `ui/->react` bridge, an explicit-frame `sub` pin). The skill names those gaps and holds the affected views on Reagent.
 - **Staying on Reagent views is a first-class, fully-supported choice.** A re-frame2 app running Reagent views through the Reagent adapter is a complete, supported configuration — never a half-migrated one.
 
 ## What it does
@@ -18,7 +18,7 @@ It then applies a transformation catalog organised by what you do with each rule
 
 - **M-tier ("do this")** — unambiguous mechanical rewrites, before→after each: `reg-view`→`ui/defview`, deref-drop, dispatch-lifting, prop respelling, key-meta→prop, plain hiccup, mount, ns requires, `:dangerouslySetInnerHTML`→`ui/html`.
 - **D-tier ("how to DECIDE")** — the judgment cases the skill reasons through: Form-2/`with-let` local state (app-db vs `local`), Form-3 lifecycle (effect vs domain event), derived state (`track`/`cursor`/`reaction`), the ratom-as-store restructure, computed DOM props + the bare-symbol trap, third-party Reagent wrappers.
-- **R-tier ("don't migrate — stay on Reagent, or wait")** — the honesty backbone: genuine rejects (Reagent introspection/scheduler, dynamic tag heads, effectful subs) and the experimental capability gaps (SSR emit, the outward bridge, the `sub` frame-pin, compiled `route-link`).
+- **R-tier ("don't migrate — stay on Reagent, or wait")** — the honesty backbone: genuine rejects (Reagent introspection/scheduler, dynamic tag heads, effectful subs) and the experimental capability gaps that remain unshipped (the outward `ui/->react` bridge, the `sub` frame-pin).
 
 This is an **AI skill that applies judgment, not a codemod** — there is no rewrite-clj tool to run. For an ambiguous view it *reasons* about the right re-frame.ui shape rather than emitting a flag. It rewrites the **view tier** only; where a view forces a dataflow change (a new `reg-sub`, a hoisted event), it *names* it for the author rather than editing the dataflow layer.
 

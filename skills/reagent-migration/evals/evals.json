@@ -38,14 +38,14 @@
        "Does not reach into the dataflow layer itself; it names the reg-event/reg-sub for the author when app-db is the answer."
      ]},
 
-    {"id": 15, "kind": "behavioural", "tier": "R", "name": "r-decline-ssr-capability-gap",
+    {"id": 15, "kind": "behavioural", "tier": "D", "name": "d-route-ssr-static-vs-hydrate",
      "prompt": "Migrate this to re-frame.ui:\n(ns app.render (:require [reagent.dom.server :as s]))\n(defn render-page [] (s/render-to-string [app]))",
      "expectations": [
-       "Declines to migrate the view — keeps it on Reagent (MIG-23).",
-       "Names the reason honestly: the re-frame.ui SSR / emit path is staged (S5) and has not shipped yet.",
-       "Does NOT emit a placeholder or a made-up form for the unshipped stage.",
-       "Frames staying on Reagent as a fully-supported configuration, not a failure — 'keep this on Reagent, or wait for the SSR stage'.",
-       "Points the author at the frozen re-frame.ssr compat path in the interim."
+       "Treats MIG-23 as a shipped SSR transform, NOT a decline — ui/render-static and ui/hydrate-root have shipped.",
+       "Routes by intent: a static-page (non-hydrating) render maps to (ui/render-static [app-root]) — the compiled counterpart of React's renderToStaticMarkup.",
+       "Names the SSR-then-hydrate path as the alternative and asks which the app wants: re-frame.ssr/hydrate! (state only, no :render-tree-fn) then ui/hydrate-root (Spec 011).",
+       "Keeps the caveat: views using refs/effects need ui/client-only (or restructure) for the pure server phase.",
+       "Does NOT hold the view as an unshipped capability gap."
      ]},
 
     {"id": 16, "kind": "behavioural", "tier": "R", "name": "r-decline-reagent-introspection",
@@ -54,6 +54,15 @@
        "Declines — Reagent component-introspection / scheduler calls have no compiled equivalent (MIG-35).",
        "Warns that r/current-component still COMPILES after conversion and fails/returns nil at runtime, so the build gate will not catch it.",
        "Keeps the view on Reagent, or restructures away from the introspection (props/children the view already receives; effect for next-tick/after-render)."
+     ]},
+
+    {"id": 18, "kind": "behavioural", "tier": "D", "name": "d-mig18-handler-split",
+     "prompt": "Migrate this view to re-frame.ui:\n(ns f (:require [re-frame.core :refer [dispatch]]))\n(defn save-btn [] [:button {:on-click (fn [e] (.preventDefault e) (when @dirty? (dispatch [:save])))} \"Save\"])",
+     "expectations": [
+       "Recognises MIG-18 — the handler is not one of the three clean shapes (mixed guard + dispatch), so it is a judgment call, not an automatic lift.",
+       "Routes the guarded dispatch to ui/event (a nil return means no dispatch — the guard expressed as data-with-a-filter), not a bare fn.",
+       "Notes that a converted defview has no ambient dispatch; imperative dispatch would go through (ui/dispatch-fn) in the view body.",
+       "Holds/decides the WHOLE view (the guard reads view-local state, coupling it to the MIG-16 state decision) — no half-migrated body."
      ]},
 
     {"id": 17, "kind": "behavioural", "tier": "M", "name": "m-negative-bare-symbol-not-spread",

@@ -41,11 +41,7 @@ The ratom-as-store second state model ([`catalog-judgment.md`](catalog-judgment.
 
 ## Capability gaps — staged, not yet shipped ("wait")
 
-These are the parts of re-frame.ui that are *declared but not landed*. The skill must **name the gap and hold the view** — never emit a placeholder for an unshipped stage.
-
-### MIG-23 — the SSR emit path
-
-`reagent.dom.server/render-to-string` (and `hydrate-root` mounts) map to re-frame.ui's `emit-ui-tree` / `render-static` serialisation path, which is **staged (S5) and not yet shipped**. Until it lands, keep the frozen `re-frame.ssr` compat path for server-rendered views. Views using refs/effects additionally need `client-only`/restructure for SSR.
+These are the parts of re-frame.ui that are *declared but not landed*. The skill must **name the gap and hold the view** — never emit a placeholder for an unshipped stage. (Two former gaps have since shipped and moved out: **SSR** — `ui/render-static` for the static-page path and `ui/hydrate-root` + `re-frame.ssr/hydrate!` for SSR-then-hydrate — is now MIG-23 guidance in [`catalog-judgment.md`](catalog-judgment.md); and the compiled **`route-link`** is now the MIG-32 head-rename in [`catalog-mechanical.md`](catalog-mechanical.md). Always re-verify a "not shipped" claim against `implementation/ui/src/re_frame/ui.cljc`'s exports before making it.)
 
 ### The outward `ui/->react` bridge
 
@@ -55,17 +51,13 @@ A converted `ui/defview` **cannot be referenced from an unconverted Reagent body
 
 The shipped `sub` is **arity-1** — there is no exported spelling to pin a `sub`/op to an explicit non-committed frame (`@(subscribe [:q] {:frame f})`, MIG-03). Scope the subtree with `ui/frame-provider {:frame f}` where that fits; otherwise hold the view until the pin surface ships.
 
-### The compiled `route-link` (MIG-32)
-
-`re-frame.ui` ships no ruled compiled counterpart of the stock-Reagent `route-link` yet, and a plain `[:a {:href …}]` is **not** an equivalent (the router does not intercept plain anchors). Any view using `route-link` — which, in a routed app, is most of them — stays on Reagent pending the framework ruling.
-
 ## How to phrase a hold to the author
 
 Be specific and non-apologetic. Name the construct, name the gap, name the safe home:
 
-> *"`article-view` uses `render-to-string` for SSR. re-frame.ui's server-emit
-> path is staged and hasn't shipped yet, so I'm keeping this view on Reagent —
-> that's a fully-supported configuration. We can revisit when the SSR stage
-> lands."*
+> *"`legacy-panel` renders a compiled child into an unconverted Reagent parent.
+> re-frame.ui's outward `ui/->react` bridge hasn't shipped yet, so I'm keeping
+> this view on Reagent — that's a fully-supported configuration. We can revisit
+> when the bridge lands, or convert the parent too."*
 
 A held view is not a failure of the migration. Holding the right views is what makes the migration *honest* — and re-frame.ui being experimental means there will be held views. That is expected.
