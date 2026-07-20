@@ -1790,7 +1790,7 @@
     :fixture/args  {:view-id ":my.app/counter"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"        true]
-     ["re-frame.ui.tool/view-manifest"  {:ok? true :rf.ui.tool/version 2
+     ["re-frame.ui.tool/view-manifest"  {:ok? true :rf.ui.tool/version 3
                                          :view-id :my.app/counter :doc "A counter."
                                          :props [] :site-counts {:subs 1 :events 1}}]
      [:default                          nil]]
@@ -1798,7 +1798,7 @@
     ["re-frame.ui.tool/view-manifest" "cljs.core/exists?"]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :view-id :my.app/counter :rf.ui.tool/version 2}
+     :edn-submap {:ok? true :view-id :my.app/counter :rf.ui.tool/version 3}
      :edn-contains-keys #{:site-counts}}}
 
    {:fixture/id    :read-view-manifest/missing-view-id
@@ -1817,7 +1817,7 @@
     :fixture/args  {:view-id ":my.app/row"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"           true]
-     ["re-frame.ui.tool/view-dependencies" {:ok? true :rf.ui.tool/version 2
+     ["re-frame.ui.tool/view-dependencies" {:ok? true :rf.ui.tool/version 3
                                             :view-id :my.app/row
                                             :subscriptions [{:query [:total] :dynamic? false}]}]
      [:default                             nil]]
@@ -1847,7 +1847,7 @@
     :fixture/args  {:view-id ":my.app/form"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"           true]
-     ["re-frame.ui.tool/view-event-sites"  {:ok? true :rf.ui.tool/version 1
+     ["re-frame.ui.tool/view-event-sites"  {:ok? true :rf.ui.tool/version 3
                                             :view-id :my.app/form
                                             :handlers [{:prop :on-click :site-kind :literal
                                                         :handler [:submit] :serializable? true}
@@ -1880,7 +1880,7 @@
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"        true]
-     ["re-frame.ui.tool/mounted-views"  {:ok? true :rf.ui.tool/version 1
+     ["re-frame.ui.tool/mounted-views"  {:ok? true :rf.ui.tool/version 3
                                          :views [{:occurrence 3 :view-id :my.app/row
                                                   :connection :connected
                                                   :lifecycle {:intervals [] :dropped 0 :exact? true}
@@ -1890,7 +1890,7 @@
     ["re-frame.ui.tool/mounted-views"]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :rf.ui.tool/version 1}
+     :edn-submap {:ok? true :rf.ui.tool/version 3}
      :edn-contains-keys #{:views}}}
 
    {:fixture/id    :read-mounted-views/empty-but-versioned
@@ -1899,7 +1899,7 @@
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"        true]
-     ["re-frame.ui.tool/mounted-views"  {:ok? true :rf.ui.tool/version 1 :views []}]
+     ["re-frame.ui.tool/mounted-views"  {:ok? true :rf.ui.tool/version 3 :views []}]
      [:default                          nil]]
     :fixture/expect
     {:isError? false
@@ -1911,7 +1911,7 @@
     :fixture/args  {:view-id ":my.app/row"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"         true]
-     ["re-frame.ui.tool/explain-render"  {:ok? true :rf.ui.tool/version 1
+     ["re-frame.ui.tool/explain-render"  {:ok? true :rf.ui.tool/version 3
                                           :view-id :my.app/row
                                           :occurrences [{:occurrence 3 :causes #{:value}
                                                          :render-count 4

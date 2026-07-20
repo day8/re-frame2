@@ -767,10 +767,17 @@ scheduler — each stamped `:rf.ui.tool/version`:
   `:literal` / `:normalized` / `:dynamic` with `:serializable?`) — the COMPILED
   VIEW SITES section (§3.4.2), available BEFORE mount.
 
-The epoch-restore render cause is a named EP-0033 cause, but the S3 producer
-(.95.6) emits no epoch-restore evidence op, so Xray does NOT fabricate one —
-absent evidence is tolerated explicitly (the cause renders only when a future
-framework emit lands). Likewise a legacy `reg-view` adapter host (no compiled
+Under S6 (rf2-vxgfnd.98.1) the substrate now mints a per-commit `:rf.view/causes`
+vector on the committed-instance record (`re-frame.ui.reactive/commit-record`) with
+six shipped causes — `:mount` / `:subscription` / `:story-override` / `:local-state`
+/ `:hmr` / `:disposed` — plus the `:foreign-or-react` fallback. `:epoch-restore` and
+`:hmr-remount` remain DEFERRED-with-triggers (EP-0033 §S6 view-evidence delta): the
+producer emits neither, so Xray does NOT fabricate one — absent evidence is tolerated
+explicitly (each renders only when its named trigger lands a framework emit). The
+MOUNTED VIEW EVIDENCE section above reads the CUMULATIVE `explain-render` window,
+whose cause union stays `#{:value :hmr :disposed}` (the per-commit vector is a
+separate raw reader Xray does not yet consume; the `:value`→`:subscription` port
+rename is a tracked follow-up). Likewise a legacy `reg-view` adapter host (no compiled
 manifests / no ViewCell substrate) renders exactly today's zero-row state.
 
 **Ownership + span receipt (rf2-vxgfnd.286).** The stable id
