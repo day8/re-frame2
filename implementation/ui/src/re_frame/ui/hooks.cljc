@@ -145,23 +145,37 @@
   [body-fn]
   (let [c (body-fn)] (if (fn? c) c js/undefined)))
 
+(defn- deps-token
+  "Render-time pure token for an authored deps vector held in the useRef cell
+  `ref`. Returns one internal token whose identity changes iff the authored deps
+  stop being `rf=` (VALUE equality) against the previous render's deps — a
+  distinct-but-`rf=`-equal deps value keeps the SAME token, so React's own
+  cleanup→setup does not fire. Deriving the token during render is a pure
+  function of (prev, deps): equal deps yield the same token, so a StrictMode
+  double-render (or any re-render with `rf=`-equal deps) is idempotent. Because
+  the comparison is kernel-internal (a held previous-deps slot, not React's
+  native deps array) the authored deps arity may vary between renders behind a
+  fixed one-element React deps array.
+
+  This is re-frame.ui's ONE effect-dependency equality doctrine — the same `rf=`
+  the memo/prop comparator and the native `effect` tier use, shared verbatim by
+  the react-interop wrappers, never a second per-tier regime."
+  [^js ref deps]
+  (let [prev ^js (.-current ref)]
+    (if (and (some? prev) (eq/rf= (.-deps prev) deps))
+      (.-token prev)
+      (let [t #js {}]
+        (set! (.-current ref) #js {:deps deps :token t})
+        t))))
+
 (defn effect-value
   "Passive host effect with `rf=` VALUE deps. A stable per-effect token changes
   identity only when the deps stop being `rf=`, so React's own `useEffect`
   drives cleanup-then-setup on dep change, on disconnect/unmount, and under
   StrictMode replay — no hand-rolled scheduling."
   [body-fn deps]
-  (let [ref   (react/useRef nil)
-        prev  (.-current ref)
-        ;; Deriving the token during render is a pure function of (prev, deps):
-        ;; equal deps yield the same token, so a StrictMode double-render (or any
-        ;; re-render with rf=-equal deps) is idempotent.
-        token (if (and (some? prev) (eq/rf= (.-deps prev) deps))
-                (.-token prev)
-                (let [t #js {}]
-                  (set! (.-current ref) #js {:deps deps :token t})
-                  t))]
-    (react/useEffect #(run-effect body-fn) #js [token])
+  (let [ref (react/useRef nil)]
+    (react/useEffect #(run-effect body-fn) #js [(deps-token ref deps)])
     js/undefined))
 
 (defn effect-connect
@@ -195,57 +209,34 @@
   ([] (react/useRef nil))
   ([initial] (react/useRef initial)))
 
-(defn- deps-object-is-equal?
-  "Per-slot `Object.is` comparison of two authored deps vectors — React's
-  effect-dependency equality (a synchronisation input, NOT a repaint value: a
-  distinct value-equal host object IS a change here). An arity change is never
-  equal. `rf=` stays the memo/prop comparator; effects use this."
-  [prev nxt]
-  (let [n (count prev)]
-    (and (== n (count nxt))
-         (loop [i 0]
-           (or (== i n)
-               (and ^boolean (js/Object.is (nth prev i) (nth nxt i))
-                    (recur (inc i))))))))
-
-(defn- effect-deps-token
-  "Render-time pure token for a react effect's authored deps held in the useRef
-  cell `ref`: one internal token whose identity changes iff any slot changed by
-  `Object.is` or the arity changed — so React owns cleanup→setup and the authored
-  deps arity stays compiler-managed behind a fixed one-element React deps array."
-  [^js ref deps]
-  (let [prev ^js (.-current ref)]
-    (if (and (some? prev) (deps-object-is-equal? (.-deps prev) deps))
-      (.-token prev)
-      (let [t #js {}]
-        (set! (.-current ref) #js {:deps deps :token t})
-        t))))
-
 (defn use-effect
   "react/use-effect lowering target — `useEffect` (passive, after paint). Both
   arities allocate the same fixed hook shape (a held deps cell + the effect), so
   editing deps presence is a same-signature edit. No-deps ⇒ a fresh token every
-  render (runs after every commit); deps ⇒ per-slot `Object.is`."
+  render (runs after every commit); deps ⇒ `rf=` VALUE deps via the shared
+  `deps-token` — a distinct-but-`rf=`-equal CLJS deps value does NOT rerun (the
+  one equality doctrine shared with `effect` and memo, never a second per-tier
+  regime)."
   ([setup]
    (let [_ref (react/useRef nil)]
      (react/useEffect #(run-effect setup) #js [#js {}]))
    js/undefined)
   ([setup deps]
    (let [ref (react/useRef nil)]
-     (react/useEffect #(run-effect setup) #js [(effect-deps-token ref deps)]))
+     (react/useEffect #(run-effect setup) #js [(deps-token ref deps)]))
    js/undefined))
 
 (defn use-layout-effect
   "react/use-layout-effect lowering target — `useLayoutEffect` (after DOM
   mutation, before paint): the measure-before-paint door. Same fixed hook shape
-  and `Object.is` deps contract as `use-effect`."
+  and `rf=` value-deps contract as `use-effect`."
   ([setup]
    (let [_ref (react/useRef nil)]
      (react/useLayoutEffect #(run-effect setup) #js [#js {}]))
    js/undefined)
   ([setup deps]
    (let [ref (react/useRef nil)]
-     (react/useLayoutEffect #(run-effect setup) #js [(effect-deps-token ref deps)]))
+     (react/useLayoutEffect #(run-effect setup) #js [(deps-token ref deps)]))
    js/undefined))
 
 (defn use-effect-event

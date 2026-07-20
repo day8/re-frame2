@@ -59,7 +59,7 @@ This is the one job [`app-db`](../glossary.md#app-db), [subscriptions](../glossa
      "…panel content…"]))
 ```
 
-The deps vector `[anchor-bottom viewport]` is compared per slot by `Object.is` — React's own effect-dependency rule — so the panel re-measures whenever the anchor moves or the viewport resizes, and not otherwise.
+The deps vector `[anchor-bottom viewport]` is compared by `rf=` (value equality) against the previous render's deps — re-frame.ui's one effect-dependency doctrine, shared with `effect` and memo — so the panel re-measures whenever the anchor moves or the viewport resizes, and not otherwise. A rebuilt-but-value-equal deps vector is the same dep (no re-measure); host/foreign values fall through to identity.
 
 ---
 

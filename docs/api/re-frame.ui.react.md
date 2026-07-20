@@ -40,16 +40,18 @@ JVM structural render it is an inert ref (`current` nil, stays nil).
 after paint). `setup` is a zero-arg fn returning a cleanup fn or nil, honoured on dep
 change, disconnect, and unmount; StrictMode dev replay is expected and must be
 idempotent-safe. The one-arg form runs after every commit; a `deps` vector is compared
-per authored slot by **`Object.is`** — React's own effect-dependency rule (a distinct
-value-equal host value *is* a change; `rf=` stays the memo/prop comparator). `[]` deps ⇒
-connect-only. Effects do not run on the JVM (capability metadata only).
+by **`rf=`** (VALUE equality) against the previous render's deps — the one equality
+doctrine shared with the native `effect` and the memo/prop comparator, never a second
+per-tier regime. A distinct-but-value-equal CLJS deps value is **not** a change (it does
+not rerun); a value-different one does; host/foreign values fall through to identity. `[]`
+deps ⇒ connect-only. Effects do not run on the JVM (capability metadata only).
 
 ### `use-layout-effect`
 
 `(react/use-layout-effect setup)` / `(… setup deps)` → nil (`useLayoutEffect`, after DOM
 mutation, **before paint**) for measure-then-mutate work that would flicker under passive
 timing — the native component-library measure-before-paint door
-([recipe](../core/how-to/measure-before-paint.md)). Same setup/cleanup/`Object.is`-deps
+([recipe](../core/how-to/measure-before-paint.md)). Same setup/cleanup/`rf=`-value-deps
 contract as `use-effect`.
 
 ### `use-effect-event`

@@ -997,11 +997,15 @@ below; `lazy` is a def-level constructor, exempt from the position law but subje
 own.
 
 **The deps law.** Everywhere this tier takes a deps vector, deps are a CLJS vector
-compared `rf=` per slot against the previous render's vector (arity change ⇒ re-run) —
-the one equality doctrine already shared by `effect` and memo, never a second per-tier
-regime. `rf=` is a strict refinement of React's `Object.is`-only deps comparison: every
-pair `Object.is` calls equal, `rf=` calls equal, so a wrapper never re-runs *more* often
-than React would, and the extra equalities are value-equal immutable CLJS data where a
+compared by `rf=` (VALUE equality) against the previous render's vector (arity change ⇒
+re-run) — the one equality doctrine already shared by `effect` and memo, never a second
+per-tier regime. The semantics are **value semantics, stated plainly**: a
+distinct-but-`rf=`-equal deps value no longer re-runs the effect — a rebuilt-but-equal
+CLJS collection is the same dep — while a value-different one re-runs; host/foreign values
+(plain JS objects, functions, React elements) fall through to identity. This is a strict
+refinement of React's native identity-based deps rule: every dep pair React would call
+equal, `rf=` also calls equal, so a wrapper never re-runs *more* often than a native
+`useEffect` would, and the extra equalities are value-equal immutable CLJS data where a
 skipped re-run is unobservable. Because the comparison is kernel-internal (a held
 previous-deps slot, not React's native deps array), deps arity may vary between renders
 without touching React's hook order — the property the position law relies on.
