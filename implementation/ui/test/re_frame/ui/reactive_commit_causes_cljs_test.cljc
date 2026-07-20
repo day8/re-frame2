@@ -293,6 +293,49 @@
         "the racing :local-state fold is INCLUDED in the published record, not erased")))
 
 ;; ===========================================================================
+;; eww3k (Fence): a SUBSCRIPTION folded during publication is FENCED to the
+;; correction commit it actually drove — NOT back-attributed to this record
+;; ===========================================================================
+
+(deftest a-subscription-folded-during-publication-is-fenced-to-its-own-commit
+  ;; rf2-eww3k: the render waterline fences a movement that drove NO already-rendered
+  ;; commit. A subscription 2->3 drives render N; a fresh 3->4 movement lands in the
+  ;; publish barrier (ABOVE the render's waterline). The current record must describe
+  ;; ONLY 2->3 (not a back-attributed 2->4), the cell must stay dirty, and the racing
+  ;; 3->4 must own the NEXT commit rather than falling back to :foreign-or-react.
+  ;; Deterministic on both hosts (single-threaded CLJS runs one CAS iteration).
+  (rf/reg-sub :cc/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell  (render+commit! (reactive/make-cell ::v) [[[:cc/site 0] [:cc/a]]])
+        fired (atom false)]
+    ;; 2->3 is pending and drives render N (fan-cause! flushes it forward)
+    (fan-cause! cell :subscription [:cc/a] {:node-key 7 :node-version 3 :epoch 1})
+    (binding [reactive/*commit-publish-barrier*
+              (fn [c]
+                (when (compare-and-set! fired false true)
+                  ;; a NEW movement 3->4 lands in the take->publish window — it drove
+                  ;; no already-rendered commit; it marks the cell dirty for a correction
+                  (enrol-dirty! c {:cause        :subscription
+                                   :target       {:kind :subscription :frame-id fid :query [:cc/a]}
+                                   :node-key     7
+                                   :node-version 4
+                                   :frame-epoch  2})))]
+      (render+commit! cell [[[:cc/site 0] [:cc/a]]]))
+    (is @fired "the publication barrier fired inside the take->publish window")
+    (testing "the record describes ONLY the movement its render saw (2->3), not 2->4"
+      (let [sub (cause-of cell :subscription)]
+        (is (= 2 (:from sub)) "the earliest :from of the render's own window")
+        (is (= 3 (:to sub))   "the barrier-time 3->4 is NOT back-attributed to this record")))
+    (testing "the racing 3->4 stayed pending and drives the correction commit"
+      (is (reactive/dirty? cell) "the barrier-time movement marked the cell dirty")
+      (reactive/flush-pending!)
+      (render+commit! cell [[[:cc/site 0] [:cc/a]]])
+      (let [sub (cause-of cell :subscription)]
+        (is (= 3 (:from sub)) "the correction commit owns the racing move")
+        (is (= 4 (:to sub))
+            "the fenced cause drives its own commit — never left as :foreign-or-react")))))
+
+;; ===========================================================================
 ;; Canonical order — the cause vector is deterministic across hosts/runs
 ;; ===========================================================================
 

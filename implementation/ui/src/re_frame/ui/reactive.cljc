@@ -572,20 +572,24 @@
   ;;                             ;   in production (elided) + between flushes
   ;;    :listeners {k -> fn}     ; useSyncExternalStore subscribers
   ;;    :intervals [interval]     ; lifecycle facts (dev/tool; 03 §4)
-  ;;    :pending-commit-causes {kind -> detail} ; DEBUG-only commit-cause map,
-  ;;                             ;   keyed by S6 cause kind
-  ;;                             ;   (:subscription/:hmr/:disposed/:local-state)
-  ;;                             ;   -> its ruled detail (subscription carries
-  ;;                             ;   target/query/frame-id + version from->to +
-  ;;                             ;   epoch; the rest are {}), accumulated since the
-  ;;                             ;   last connected commit — captured at the cause
-  ;;                             ;   SITE (`note-commit-cause` in `enrol-dirty-window!`
-  ;;                             ;   for port notes; the hooks local-state bridge
-  ;;                             ;   `note-local-state!`). The NEXT connected commit
-  ;;                             ;   PROJECTS them into the :rf.view/causes record
-  ;;                             ;   vector and clears the slot (atomic take/publish).
-  ;;                             ;   ABSENT in production (elided) and whenever no
-  ;;                             ;   cause is pending (Ruling 2, reworked rf2-qkq2k)
+  ;;    :pending-commit-causes [{:cause kind …detail} …] ; DEBUG-only APPEND-ONLY
+  ;;                             ;   vector of PORT folds (:subscription/:hmr/
+  ;;                             ;   :disposed), one distinct entry per move, captured
+  ;;                             ;   at the cause SITE (`note-commit-cause` in
+  ;;                             ;   `enrol-dirty-window!`). A subscription entry
+  ;;                             ;   carries target/query/frame-id + version from->to
+  ;;                             ;   + epoch; the rest are bare. A connected commit
+  ;;                             ;   drains only entries AT/BEFORE the render's
+  ;;                             ;   captured :cause-waterline into :rf.view/causes
+  ;;                             ;   (coalesced per identity) and keeps the residual
+  ;;                             ;   (later folds) for the next commit (rf2-eww3k /
+  ;;                             ;   rf2-sy536, atomic take/publish). ABSENT in
+  ;;                             ;   production (elided) and when no fold is pending
+  ;;    :local-state-committed? bool ; DEBUG-only COMMIT-TIME flag: a substrate local
+  ;;                             ;   write React actually committed (`note-local-state!`).
+  ;;                             ;   Read + cleared by the next connected commit as the
+  ;;                             ;   :local-state cause (NOT waterline-fenced — it is a
+  ;;                             ;   commit-time fact). ABSENT in production + when unset
   ;;    :commit-record {…}|nil}  ; DEBUG-only S6 committed-instance record from
   ;;                             ;   the most-recent CONNECTED commit (Ruling 1/2;
   ;;                             ;   integer render-key + per-observation
@@ -1072,7 +1076,15 @@
   (rf2-vxgfnd.174); on CLJS this is a passthrough (the module holder owns the
   synchronous pass), so the hot path allocates nothing extra."
   [^ViewCell cell thunk]
-  (let [cap (volatile! (fresh-capture (:generation @(state cell))))]
+  (let [s0  @(state cell)
+        ;; DEBUG-only cause WATERLINE (rf2-eww3k): the count of pending port folds
+        ;; at the instant this render begins. The commit drains only folds at/before
+        ;; it, so a fold arriving after this render (a movement that drove no
+        ;; already-rendered commit) is fenced to the render it actually drove. DCE'd
+        ;; whole in production (`interop/debug-enabled?` is build-constant).
+        cap (volatile! (cond-> (fresh-capture (:generation s0))
+                         interop/debug-enabled?
+                         (assoc :cause-waterline (count (:pending-commit-causes s0)))))]
     (binding [*ambient* {:cell cell :capture cap :owner (capture-owner)}]
       #?(:clj  (with-slice-memo (fn [] (let [el (thunk)] [el @cap])))
          :cljs (let [el (thunk)] [el @cap])))))
@@ -1436,11 +1448,18 @@
 ;;                    read straight off the `:subscription` port-note axes (:target,
 ;;                    :node-key, :node-version, :frame-epoch). `:from` is the
 ;;                    version before the movement (the port advances it by one per
-;;                    move); a coalesced window keeps the EARLIEST :from and the
-;;                    LATEST :to so the record spans the whole movement honestly.
+;;                    move); repeated moves of the SAME target coalesce at DRAIN to
+;;                    one record keeping the EARLIEST :from and the LATEST :to/:epoch
+;;                    so it spans the whole movement honestly, while two DISTINCT
+;;                    targets stay two records (rf2-sy536).
 ;;   - :hmr / :disposed  bare markers — no ruled detail.
-;; :story-override (identity + version) and :mount are classified at commit time
-;; from lifecycle/override facts (see `commit-causes`), not from a port note.
+;; Folds are held as an APPEND-ONLY vector (each move a distinct entry); the drain
+;; is FENCED by a render waterline captured with the immutable render capture, so a
+;; fold arriving after that render (including one racing the publish barrier) is
+;; kept for the next render rather than back-attributed here (rf2-eww3k).
+;; :story-override (identity + version) and :mount and :local-state are classified
+;; at commit time from lifecycle/override/host-write facts (see `commit-causes`),
+;; not from the pending port-fold vector.
 ;; The whole plane is DEBUG-only (production-erased, G-7/G-11).
 ;; ---------------------------------------------------------------------------
 
@@ -1463,25 +1482,25 @@
     :disposed     [:disposed {}]
     nil))
 
-(defn- merge-commit-cause
-  "Merge a captured `[kind detail]` into the carry-forward `:pending-commit-causes`
-  map (`m`, nil = empty). Last-writer-wins per kind, EXCEPT a subscription keeps
-  the EARLIEST `:from` so a coalesced window spans first-from -> latest-to."
-  [m kind detail]
-  (let [m (or m {})]
-    (if-some [prior (get m kind)]
-      (assoc m kind (cond-> detail
-                      (contains? prior :from)
-                      (assoc :from (or (:from prior) (:from detail)))))
-      (assoc m kind detail))))
+(defn- fold-commit-cause
+  "Append a captured `[kind detail]` port fold to the append-only
+  `:pending-commit-causes` vector (`v`, nil = empty) as a DISTINCT entry
+  `{:cause kind …ruled-detail}`. Coalescing per causal identity and the
+  render-waterline FENCE both happen at DRAIN time (`mint-commit-record!`), never
+  here — so a fold is never retroactively merged into a cause an earlier render
+  already captured (rf2-eww3k), and two distinct targets never collapse into one
+  fabricated cross-target span (rf2-sy536)."
+  [v kind detail]
+  (conj (or v []) (assoc detail :cause kind)))
 
 (defn- note-commit-cause
-  "Fold `payload`'s ruled commit-cause detail into `s`'s `:pending-commit-causes`.
-  Pure state transition (the DEBUG arm of the ONE linearizable enrolment swap);
-  a payload with no commit cause leaves `s` untouched."
+  "Fold `payload`'s ruled commit-cause detail onto `s`'s append-only
+  `:pending-commit-causes` vector. Pure state transition (the DEBUG arm of the ONE
+  linearizable enrolment swap); a payload with no commit cause leaves `s`
+  untouched."
   [s payload]
   (if-some [[kind detail] (commit-cause-fact payload)]
-    (update s :pending-commit-causes merge-commit-cause kind detail)
+    (update s :pending-commit-causes fold-commit-cause kind detail)
     s))
 
 (defonce ^:private evidence-sink
@@ -3306,25 +3325,29 @@
 
 (defn note-local-state!
   "DEBUG-only bridge (Ruling 2 :local-state): the substrate-owned local writer
-  (`re-frame.ui.hooks` `local-state` `set!`/`update!`) records that a host-only
-  local mutation drove `cell`'s next re-render. React (not the ViewCell
-  scheduler) owns that re-render, so there is no flush to carry the cause through
-  the pending window — the writer stashes `:local-state` DIRECTLY into the
-  carry-forward slot the next connected commit projects into :rf.view/causes
-  (`:local-state` carries no ruled detail, so its record is a bare marker).
+  (`re-frame.ui.hooks` `local-state`) records that a host-only local mutation drove
+  `cell`'s re-render. React (not the ViewCell scheduler) owns that re-render, so
+  there is no pending-window flush to carry the cause — and, unlike a port fold,
+  the write is confirmed only at COMMIT time (post-render), so it is NOT a
+  render-fenced pending fold. The writer instead sets the commit-time
+  `:local-state-committed?` FLAG, which `mint-commit-record!` reads (like
+  `mounting?`) and clears for THIS commit's :rf.view/causes (`:local-state` carries
+  no ruled detail, so its record is a bare marker). Being a commit-time flag rather
+  than a pre-render fold is what keeps it eligible for the very commit whose layout
+  phase confirms it, immune to the eww3k render-waterline fence (rf2-eww3k).
 
-  The CALLER gates this on an actually-committed value change (`re-frame.ui.hooks`
-  `note-committed-local-change!`): React 19.2 Object.is-BAILS a no-op setter
-  without rendering, so stashing on every setter invocation would leave a stale
-  marker that contaminates a LATER unrelated commit (rf2-qkq2k). This fn therefore
-  only ever runs for a write React will actually commit.
+  The CALLER (`re-frame.ui.hooks`) fires this only for an ACTUALLY-COMMITTED value
+  change: React 19.2 bails a no-op setter (and a same-batch net-zero `0->1->0`)
+  WITHOUT committing, so noting on every setter invocation left a stale marker that
+  contaminated a LATER unrelated commit (rf2-qkq2k / rf2-bvqu0). Setting the same
+  boolean flag twice is idempotent, so a StrictMode replay is harmless.
 
   No-op on a nil cell (a `local` used outside a live capture) and elided whole in
   production. Never marks the cell dirty or advances a revision — React already
   re-renders, so double-scheduling is deliberately avoided. Returns nil."
   [^ViewCell cell]
   (when (and interop/debug-enabled? (some? cell))
-    (swap! (state cell) update :pending-commit-causes merge-commit-cause :local-state {}))
+    (swap! (state cell) assoc :local-state-committed? true))
   nil)
 
 (def ^:private ^:const cause-order
@@ -3350,6 +3373,23 @@
   `:foreign-or-react` is the standalone honesty fallback (not in the order)."
   [:mount :story-override :subscription :local-state :hmr :disposed])
 
+(defn- coalesce-kinds
+  "Coalesce the drained fold vector `eligible` into ONE record per cause kind
+  (`{kind -> record}`): last-writer-wins per kind, EXCEPT a `:subscription` keeps
+  the EARLIEST `:from` so a same-target window spans first-from -> latest-to. Each
+  fold already carries its `:cause`. (rf2-sy536 makes this identity-aware so two
+  DISTINCT targets stay two records rather than collapsing.)"
+  [eligible]
+  (reduce (fn [m entry]
+            (let [kind (:cause entry)]
+              (if-some [prior (get m kind)]
+                (assoc m kind (cond-> entry
+                                (contains? prior :from)
+                                (assoc :from (or (:from prior) (:from entry)))))
+                (assoc m kind entry))))
+          {}
+          eligible))
+
 (defn- commit-causes
   "Project THIS connected commit's :rf.view/causes vector — a vector of DETAILED
   cause RECORDS (Ruling 2, reworked rf2-qkq2k), each `{:cause <kind> …ruled-fields}`
@@ -3361,10 +3401,14 @@
                       static Story override; carries the ruled identity + version
                       (`:override-id` / `:version`). Classification, not
                       reconstruction.
-    - :subscription / :hmr / :disposed / :local-state
-                      captured at their cause site into `:pending-commit-causes`
-                      (`note-commit-cause` at the port note; `note-local-state!`
-                      for the local writer). :subscription carries its ruled
+    - :local-state    `local-state?` — the commit-time host-write flag set by the
+                      substrate local writer (`note-local-state!`), confirmed only
+                      at commit (post-render), so it is a COMMIT-TIME fact, not a
+                      render-fenced pending fold. Bare marker.
+    - :subscription / :hmr / :disposed
+                      captured at their cause site into the render-fenced
+                      `:pending-commit-causes` vector (`note-commit-cause` at the
+                      port note). :subscription carries its ruled
                       target/query/frame-id + version :from->:to + :epoch detail;
                       the rest are bare markers.
     - :foreign-or-react
@@ -3372,18 +3416,17 @@
                       (a foreign React re-render, or a headless value move caught at
                       commit step 5 with no evidence window). Never has detail.
 
-  `present` is a MAP {kind -> ruled-detail}; each kind projects to a record in
-  `cause-order`. `:hmr-remount` / `:epoch-restore` are deferred (see `cause-order`)
-  and never appear. Empty is impossible: the fallback always yields one record."
-  [pending mounting? override-detail]
-  (let [present (cond-> (or pending {})
-                  mounting?       (assoc :mount {})
-                  override-detail (assoc :story-override override-detail))
-        ordered (into []
-                      (keep (fn [kind]
-                              (when-some [detail (get present kind)]
-                                (assoc detail :cause kind))))
-                      cause-order)]
+  `eligible` is the render-fenced fold vector (rf2-eww3k); each kind projects to a
+  record in `cause-order`. `:hmr-remount` / `:epoch-restore` are deferred (see
+  `cause-order`) and never appear. Empty is impossible: the fallback always yields
+  one record."
+  [eligible mounting? override-detail local-state?]
+  (let [present (cond-> (coalesce-kinds eligible)
+                  mounting?       (assoc :mount {:cause :mount})
+                  override-detail (assoc :story-override
+                                         (assoc override-detail :cause :story-override))
+                  local-state?    (assoc :local-state {:cause :local-state}))
+        ordered (into [] (keep present) cause-order)]
     (if (seq ordered)
       ordered
       [{:cause :foreign-or-react}])))
@@ -3394,12 +3437,15 @@
   `*completion-barrier*` idiom). Bound to a `(fn [cell] …)`,
   `mint-commit-record!` calls it at the ONE deterministic point BETWEEN reading
   `:pending-commit-causes` and the `compare-and-set!` that publishes the record +
-  clears the stash, so a fixture can interleave a concurrent cause fold
+  advances the stash, so a fixture can interleave a concurrent cause fold
   (`enrol-dirty!` / `note-local-state!`) INSIDE the take->publish window and prove
-  the racing cause is never erased (rf2-qkq2k). Because publication is a
+  the racing cause is never LOST (rf2-qkq2k). Because publication is a
   compare-and-set! RETRY loop, a fold landing in the barrier window fails the CAS
-  and the mint re-reads — INCLUDING the freshly-folded cause rather than losing
-  it to the old unconditional `dissoc`."
+  and the mint re-reads over the fresh state. What that fold then does is decided
+  by the eww3k WATERLINE, not erased: a PORT fold (subscription/hmr/disposed) lands
+  ABOVE the render waterline, so it is FENCED into the residual stash and drives
+  the next commit (rf2-eww3k); the commit-time `:local-state` FLAG is read fresh
+  and belongs to THIS commit. Neither is dropped by an unconditional clear."
   nil)
 
 (defn- mint-commit-record!
@@ -3415,17 +3461,24 @@
   :foreign-or-react. `mounting?` is the cell's PRE-connect lifecycle fact
   (`:fresh`), read by the caller before `connect!`. Returns the record.
 
+  RENDER-WATERLINE FENCE (rf2-eww3k). The pending-cause vector is drained only up
+  to the render's captured `:cause-waterline` (the fold count when THIS render
+  began); folds ABOVE it — a movement that drove no already-rendered commit,
+  including one racing in the publish barrier — stay in the residual stash and
+  drive the next commit rather than being back-attributed here.
+
   ATOMIC take/publish (rf2-qkq2k CAS fix). The stash read + record publish + stash
-  clear are ONE `compare-and-set!` over the value read at the top of the loop, so a
-  concurrent cause fold on the JVM host (a racing `enrol-dirty!` / `note-local-state!`
-  between the read and the clear) can no longer be erased by an unconditional
-  `dissoc`: a fold that commits BEFORE the CAS fails it (the loop re-reads and
-  INCLUDES the fresh cause), and one AFTER the clear enrols a fresh next stash.
-  `next-render-key!` is minted ONCE before the loop, so a retry never wastes a key.
-  Single-threaded CLJS runs exactly one iteration."
+  advance + `:local-state` flag clear are ONE `compare-and-set!` over the value read
+  at the top of the loop, so a concurrent cause fold on the JVM host (a racing
+  `enrol-dirty!` / `note-local-state!` between the read and the advance) can no
+  longer be LOST: a fold that commits BEFORE the CAS fails it (the loop re-reads,
+  fences it by the waterline, and keeps it as residual), and one AFTER enrols a
+  fresh next stash. `next-render-key!` is minted ONCE before the loop, so a retry
+  never wastes a key. Single-threaded CLJS runs exactly one iteration."
   [^ViewCell cell cap new-order new-by mounting? to-acquire]
   (let [st         (state cell)
         st0        @st
+        waterline  (:cause-waterline cap)
         override-detail (some (fn [sid]
                                 (let [t (:target (new-by sid))]
                                   (when (= :story-override (:kind t))
@@ -3439,11 +3492,18 @@
                     :connection    :connected
                     :observations  (project-observations new-order new-by)}]
     (loop []
-      (let [s      @st
-            causes (commit-causes (:pending-commit-causes s) mounting? override-detail)
-            record (assoc base :rf.view/causes causes)
-            next-s (-> (assoc s :commit-record record)
-                       (dissoc :pending-commit-causes))]
+      (let [s        @st
+            pending  (or (:pending-commit-causes s) [])
+            n        (count pending)
+            cut      (if (and waterline (< waterline n)) waterline n)
+            eligible (subvec pending 0 cut)
+            residual (subvec pending cut)
+            causes   (commit-causes eligible mounting? override-detail
+                                    (boolean (:local-state-committed? s)))
+            record   (assoc base :rf.view/causes causes)
+            next-s   (-> (assoc s :commit-record record)
+                         (assoc :pending-commit-causes residual)
+                         (dissoc :local-state-committed?))]
         (when-some [barrier *commit-publish-barrier*] (barrier cell))
         (if (compare-and-set! st s next-s)
           record
