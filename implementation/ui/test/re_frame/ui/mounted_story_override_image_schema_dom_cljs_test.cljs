@@ -3,7 +3,7 @@
 
   This is deliberately one end-to-end Tier-3 fixture: a real React context,
   frame provider, inline image registration, compiled lexical `ui/sub` site,
-  ViewCell capture/commit, static leases, view HMR, and root teardown.  It
+  ViewCell capture/commit, static handles, view HMR, and root teardown.  It
   complements the resolver/schema unit tests by making token and ownership
   behaviour observable at the mounted boundary.
 
@@ -70,20 +70,20 @@
             cell))
         (reactive/current-live-cells)))
 
-(defn- lease-state*
-  [lease]
-  @(@#'obs/lease-state lease))
+(defn- handle-state*
+  [handle]
+  @(@#'obs/handle-state handle))
 
-(defn- assert-static-lease!
-  [lease expected-value]
-  (let [state (lease-state* lease)]
-    (is (false? (obs/owned? lease))
+(defn- assert-static-handle!
+  [handle expected-value]
+  (let [state (handle-state* handle)]
+    (is (false? (obs/owned? handle))
         "a Story pin reports no subscription ownership")
-    (is (eq/rf= expected-value (:value (obs/read lease))))
-    (is (= :static (:lease-kind state)))
+    (is (eq/rf= expected-value (:value (obs/read handle))))
+    (is (= :static (:handle-kind state)))
     (is (= :live (:status state)))
-    (is (= #{:lease-kind :target :status} (set (keys state)))
-        "the static lease carries no frame, reaction, watch, or callback")))
+    (is (= #{:handle-kind :target :status} (set (keys state)))
+        "the static handle carries no frame, reaction, watch, or callback")))
 
 (defn- image-with-schema
   [image-id schema ordinary-value]
@@ -191,17 +191,17 @@
                               (uit/query root "[data-role='outer-after']")))))
            (let [cell       (cell-with-committed-value initial-value)
                  [sid site] (only-site cell)
-                 lease      (:lease site)]
+                 handle      (:handle site)]
              (is (some? cell))
              (is (= :story-override (get-in site [:target :kind])))
              (is (identical? initial-value (:value site)))
-             (assert-static-lease! lease initial-value)
+             (assert-static-handle! handle initial-value)
              (is (empty? @(:sub-cache (frame/frame frame-id)))
                  "a static hit materializes no frame cache node")
              (reset! seen {:cell cell
                            :sid sid
                            :query (:query site)
-                           :lease lease
+                           :handle handle
                            :revision (reactive/revision cell)
                            :remount (reactive/view-remount-generation
                                      ::story-value)})
@@ -210,12 +210,12 @@
                #(@control {[::image-value] equal-value}))
               (.then
                (fn []
-                 (let [{:keys [cell sid query lease revision]} @seen
+                 (let [{:keys [cell sid query handle revision]} @seen
                        current-cell (cell-with-committed-value initial-value)
                        site         (reactive/committed-site current-cell sid)]
                    (testing "rf=-equal provider replacement is an exact keep"
                      (is (identical? cell current-cell))
-                     (is (identical? lease (:lease site)))
+                     (is (identical? handle (:handle site)))
                      (is (identical? query (:query site))
                          "the compiler-indexed site keeps its exact query object")
                      (is (identical? initial-value (:value site))
@@ -227,30 +227,30 @@
                     #(@control {[::image-value] js/NaN})))))
               (.then
                (fn []
-                 (let [{:keys [cell sid lease]} @seen
+                 (let [{:keys [cell sid handle]} @seen
                        site       (reactive/committed-site cell sid)
-                       nan-lease  (:lease site)
-                       nan-target (:target (lease-state* nan-lease))]
+                       nan-handle  (:handle site)
+                       nan-target (:target (handle-state* nan-handle))]
                    (testing "moving from a map to NaN retargets exactly once"
                      (is (js/Number.isNaN (:value site)))
-                     (is (not (identical? lease nan-lease)))
-                     (assert-static-lease! nan-lease js/NaN)
+                     (is (not (identical? handle nan-handle)))
+                     (assert-static-handle! nan-handle js/NaN)
                      (is (= "NaN" (.-textContent
                                     (uit/query root "[data-role='target']")))))
-                   (swap! seen assoc :lease nan-lease
+                   (swap! seen assoc :handle nan-handle
                                      :target nan-target
                                      :revision (reactive/revision cell))
                    (uit/flush! #(@control {[::image-value] js/NaN})))))
               (.then
                (fn []
-                 (let [{:keys [cell sid query lease target revision]} @seen
+                 (let [{:keys [cell sid query handle target revision]} @seen
                        site  (reactive/committed-site cell sid)
-                       state (lease-state* (:lease site))]
+                       state (handle-state* (:handle site))]
                    (testing "NaN→NaN provider replacement is an exact rf= keep"
-                     (is (identical? lease (:lease site)))
+                     (is (identical? handle (:handle site)))
                      (is (identical? target (:target state))
-                         "the retained lease keeps its exact captured target")
-                     (is (obs/current? lease (:target site))
+                         "the retained handle keeps its exact captured target")
+                     (is (obs/current? handle (:target site))
                          "the prior target covers the freshly captured NaN target")
                      (is (identical? query (:query site)))
                      (is (js/Object.is js/NaN (:value site)))
@@ -261,56 +261,56 @@
                     #(@control {[::image-value] changed-value})))))
               (.then
                (fn []
-                 (let [{:keys [cell sid lease]} @seen
+                 (let [{:keys [cell sid handle]} @seen
                        site      (reactive/committed-site cell sid)
-                       new-lease (:lease site)]
+                       new-handle (:handle site)]
                    (testing "a changed provider value retargets the same site"
                      (is (= changed-value (:value site)))
-                     (is (not (identical? lease new-lease)))
-                     (assert-static-lease! new-lease changed-value)
+                     (is (not (identical? handle new-handle)))
+                     (assert-static-handle! new-handle changed-value)
                      (is (= "changed" (.-textContent
                                        (uit/query root "[data-role='target']")))))
-                   (swap! seen assoc :lease new-lease)
+                   (swap! seen assoc :handle new-handle)
                    (uit/flush! #(@control {})))))
               (.then
                (fn []
-                 (let [{:keys [cell sid lease]} @seen
+                 (let [{:keys [cell sid handle]} @seen
                        site       (reactive/committed-site cell sid)
-                       node-lease (:lease site)
+                       node-handle (:handle site)
                        reaction   (:reaction
                                    (get @(:sub-cache (frame/frame frame-id))
                                         [::image-value]))]
                    (testing "removing the override retargets to one ordinary owner"
                      (is (= :subscription (get-in site [:target :kind])))
-                     (is (not (identical? lease node-lease)))
-                     (is (obs/owned? node-lease))
+                     (is (not (identical? handle node-handle)))
+                     (is (obs/owned? node-handle))
                      (is (= 1 (cache-owner-count frame-id)))
                      (is (= ordinary-v1 (:value site)))
                      (is (= "ordinary-image-v1"
                             (.-textContent
                              (uit/query root "[data-role='target']")))))
-                   (swap! seen assoc :node-lease node-lease
+                   (swap! seen assoc :node-handle node-handle
                                      :node-reaction reaction)
                    (uit/flush!
                     #(@control {[::image-value] changed-value})))))
               (.then
                (fn []
-                 (let [{:keys [cell sid node-lease node-reaction]} @seen
+                 (let [{:keys [cell sid node-handle node-reaction]} @seen
                        site       (reactive/committed-site cell sid)
-                       new-static (:lease site)]
+                       new-static (:handle site)]
                    (testing "re-adding the pin releases the ordinary owner"
                      (is (= :story-override (get-in site [:target :kind])))
-                     (assert-static-lease! new-static changed-value)
-                     (is (false? (obs/current? node-lease (:target site))))
-                     (is (= :released (:status (lease-state* node-lease))))
+                     (assert-static-handle! new-static changed-value)
+                     (is (false? (obs/current? node-handle (:target site))))
+                     (is (= :released (:status (handle-state* node-handle))))
                      (is (zero? (obs/active-owner-count node-reaction)))
                      (is (empty? @(:sub-cache (frame/frame frame-id)))))
-                   (swap! seen assoc :lease new-static
+                   (swap! seen assoc :handle new-static
                                      :revision (reactive/revision cell)
                                      :generation (reactive/generation cell))
 
                    ;; A same-schema image replacement is silent to a
-                   ;; callback-free lease. The following view HMR is what
+                   ;; callback-free handle. The following view HMR is what
                    ;; deliberately re-renders/re-validates the site.
                    (rf/make-frame
                     {:id frame-id
@@ -320,22 +320,22 @@
                                [:or :int :double
                                 [:map [:label :string]]]
                                ordinary-v2)]})
-                   (testing "image movement alone cannot wake a static lease"
+                   (testing "image movement alone cannot wake a static handle"
                      (is (identical?
                           new-static
-                          (:lease (reactive/committed-site cell sid))))
+                          (:handle (reactive/committed-site cell sid))))
                      (is (= (:revision @seen) (reactive/revision cell)))
                      (is (empty? @errors)))
                    (uit/flush! republish-story-view!))))
               (.then
                (fn []
-                 (let [{:keys [cell sid query lease revision remount generation]}
+                 (let [{:keys [cell sid query handle revision remount generation]}
                        @seen
                        site (reactive/committed-site cell sid)]
                    (testing "same-schema image replacement plus same-shape HMR keeps ownership"
                      (is (identical? cell
                                      (cell-with-committed-value changed-value)))
-                     (is (identical? lease (:lease site)))
+                     (is (identical? handle (:handle site)))
                      (is (identical? query (:query site)))
                      (is (= revision (reactive/revision cell)))
                      (is (> (reactive/generation cell) generation))
@@ -352,16 +352,16 @@
                                ::image-v3 :int 17)]})
                    (testing "schema movement alone is not a static invalidation channel"
                      (is (identical?
-                          lease
-                          (:lease (reactive/committed-site cell sid))))
+                          handle
+                          (:handle (reactive/committed-site cell sid))))
                      (is (= revision (reactive/revision cell)))
                      (is (empty? @errors)))
                    (uit/flush! republish-story-view!))))
               (.then
                (fn []
-                 (let [{:keys [cell sid lease remount]} @seen
+                 (let [{:keys [cell sid handle remount]} @seen
                        site      (reactive/committed-site cell sid)
-                       nil-lease (:lease site)
+                       nil-handle (:handle site)
                        ;; Scope to THIS frame's own failures. `errors` is a
                        ;; PROCESS-GLOBAL trace listener (every `:op-type :error`
                        ;; across every namespace), so an `:operation`-only count
@@ -378,10 +378,10 @@
                        failure  (first failures)]
                    (testing "HMR revalidates against the new image and installs a nil HIT"
                      (is (contains? (reactive/current-live-cells) cell))
-                     (is (not (identical? lease nil-lease)))
+                     (is (not (identical? handle nil-handle)))
                      (is (= :story-override (get-in site [:target :kind]))
                          "invalid override remains a HIT, not an ordinary miss")
-                     (assert-static-lease! nil-lease nil)
+                     (assert-static-handle! nil-handle nil)
                      (is (= "nil" (.-textContent
                                    (uit/query root "[data-role='target']"))))
                      (is (= remount
@@ -398,32 +398,32 @@
                      (is (= changed-value (-> failure :tags :received)))
                      (is (some? (-> failure :tags :explain)))
                      (is (re-find #":int" (-> failure :tags :reason))))
-                   (swap! seen assoc :lease nil-lease)
+                   (swap! seen assoc :handle nil-handle)
                    (uit/flush! #(@control {[::image-value] 7})))))
               (.then
                (fn []
-                 (let [{:keys [cell sid lease]} @seen
+                 (let [{:keys [cell sid handle]} @seen
                        site       (reactive/committed-site cell sid)
-                       valid-lease (:lease site)]
+                       valid-handle (:handle site)]
                    (testing "a later schema-valid pin retargets normally"
                      (is (identical? cell (cell-with-committed-value 7)))
-                     (is (not (identical? lease valid-lease)))
-                     (assert-static-lease! valid-lease 7)
+                     (is (not (identical? handle valid-handle)))
+                     (assert-static-handle! valid-handle 7)
                      (is (= "7" (.-textContent
                                  (uit/query root "[data-role='target']"))))
                      (is (empty? @(:sub-cache (frame/frame frame-id)))))
-                   (swap! seen assoc :lease valid-lease
+                   (swap! seen assoc :handle valid-handle
                                      :revision (reactive/revision cell))
                    (uit/flush! #(rf/destroy-frame! f)))))
               (.then
                (fn []
-                 (let [{:keys [cell sid lease revision]} @seen]
+                 (let [{:keys [cell sid handle revision]} @seen]
                    (testing "a static pin owns no frame lifetime or callback"
                      (is (nil? (frame/frame frame-id)))
                      (is (= :connected (reactive/lifecycle cell)))
                      (is (identical?
-                          lease
-                          (:lease (reactive/committed-site cell sid))))
+                          handle
+                          (:handle (reactive/committed-site cell sid))))
                      (is (= revision (reactive/revision cell)))
                      (is (zero? (reactive/pending-cell-count)))
                      (is (= "7" (.-textContent

@@ -97,10 +97,10 @@
       (is (= {:state :disconnected :reason :unmounted :proof :host-teardown}
              (peek (reactive/intervals cell)))
           "the prior disconnect is upgraded to :unmounted {:proof :host-teardown}"))
-    (testing "the dead cell holds no leases and no pending notification"
+    (testing "the dead cell holds no handles and no pending notification"
       (is (empty? (reactive/committed-target-keys cell)))
       (is (false? (reactive/dirty? cell)))
-      (is (nil? (ref-count fid [:rt/a])) "the lease was released, ref-count gone"))))
+      (is (nil? (ref-count fid [:rt/a])) "the handle was released, ref-count gone"))))
 
 (deftest dead-cell-fails-loud-on-recommit-no-resume
   (rf/reg-sub :rt/a (fn [db _] (:a db)))
@@ -347,7 +347,7 @@
   ;; (nil-root, reconnectable) cell inside A's window. Pre-fix, `teardown-root!`
   ;; kept every nil-root captured cell (absence-of-a-known-different-root was
   ;; read as ownership), so the bystander was force-dead. A must be reaped; the
-  ;; unattached sibling must stay alive and reconnectable with unchanged lease.
+  ;; unattached sibling must stay alive and reconnectable with unchanged handle.
   (rf/reg-sub :rt/a (fn [db _] (:a db)))
   (let [fid    (make-frame! :rt/frame {:a 1})
         inc-a  (reactive/make-root-incarnation)
@@ -370,11 +370,11 @@
       (is (not= :dead (reactive/lifecycle bare))
           "explicit teardown must not kill a captured cell it cannot prove it owns")
       (is (= :disconnected (reactive/lifecycle bare)) "left a plain reconnectable hide"))
-    (testing "the bystander reconnects cleanly and reacquires its lease"
+    (testing "the bystander reconnects cleanly and reacquires its handle"
       (reactive/settle-disconnect! bare)
       (render+commit! bare fid [[:rt/a]])
       (is (= :connected (reactive/lifecycle bare)) "reconnected, never :dead")
-      (is (= 1 (ref-count fid [:rt/a])) "reacquired a live lease — never disposed")
+      (is (= 1 (ref-count fid [:rt/a])) "reacquired a live handle — never disposed")
       (is (= 1 (first (rf/with-frame fid
                         (reactive/with-capture bare
                           (fn [] (reactive/sub-read ::site [:rt/a]))))))
@@ -413,7 +413,7 @@
       (is (= :connected (reactive/lifecycle cell-b))
           "a sibling root's cell is neither annotated nor killed")
       (is (= 1 (ref-count fid [:rt/a]))
-          "the sibling's lease is neither released nor churned"))
+          "the sibling's handle is neither released nor churned"))
     (testing "the sibling cell still reads live"
       (is (= 1 (first (rf/with-frame fid
                         (reactive/with-capture cell-b

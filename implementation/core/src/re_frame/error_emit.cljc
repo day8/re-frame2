@@ -171,13 +171,13 @@
 
   A SUPERSET of [[sub-error-categories]] (whose narrower purpose is `[:sub id]`
   SOURCE-COORD resolution). It ALSO includes the two observation-port
-  categories whose `:event` is the lease's query vector but whose source-coord
+  categories whose `:event` is the handle's query vector but whose source-coord
   is deliberately NOT `[:sub]`-resolved:
-    - `:rf.error/read-after-release`         (`observation/read` on a released lease)
+    - `:rf.error/read-after-release`         (`observation/read` on a released handle)
     - `:rf.error/observation-retry-exhausted`(`observation/acquire!` — fired for a
                                              frame it KNOWS is LIVE, so the
                                              coincidental-path match genuinely bites)
-  Both pass the lease's `query-v` through `observation/emit-and-throw!` /
+  Both pass the handle's `query-v` through `observation/emit-and-throw!` /
   `observation/read`. The realm-AMBIGUOUS `:rf.error/frame-destroyed` is handled
   separately in [[raw-identity-query-vector-event?]] — it carries a query vector
   only in the `:subscribe` operation realm."
@@ -545,7 +545,7 @@
 ;; Several fail-loud sites EMIT their category's canonical record (through
 ;; [[emit-error-both!]] / [[dispatch-on-error!]]) and THEN throw the matching
 ;; canonical typed error — e.g. the observation port's `read` on a released
-;; lease. A boundary that CATCHES such a throwable to keep draining siblings
+;; handle. A boundary that CATCHES such a throwable to keep draining siblings
 ;; (a containment drain, e.g. the port's disposal-notification drain) cannot
 ;; otherwise tell a throwable whose category is ALREADY visible from one that
 ;; has never been fanned: re-dispatching every caught typed throwable

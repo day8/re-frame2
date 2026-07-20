@@ -25,7 +25,7 @@
       double-render, time-sliced tear-off) acquire no ownership and publish no
       speculative capture state to the ViewCell.
     - the reconcile layout effect runs after EVERY committed render and is
-      idempotent (kept-check retains unchanged leases untouched); the
+      idempotent (kept-check retains unchanged handles untouched); the
       lifecycle layout effect (empty deps) owns connect/disconnect, so
       React unmount / Activity hide releases owners and reveal reacquires
       and corrects before paint.

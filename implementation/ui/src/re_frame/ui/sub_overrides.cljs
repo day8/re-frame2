@@ -5,7 +5,7 @@
   compiled view reads the nearest value through an ordinary hook and binds the
   host-neutral `re-frame.ui.reactive/*sub-overrides*` door only while its own
   body executes.  The reactive core then lowers a hit through the real
-  observation port to a callback-free static lease.
+  observation port to a callback-free static handle.
 
   This is deliberately not a public `re-frame.ui` API.  Story owns the author
   surface; this namespace owns only the first-party React carriage.  Both the

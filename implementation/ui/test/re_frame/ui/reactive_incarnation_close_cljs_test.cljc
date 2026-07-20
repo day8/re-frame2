@@ -7,14 +7,14 @@
   stranding `:connected`. But that check keyed on the BARE frame-id: a same-id
   DESTROY + RECREATE in the render→commit gap left the reused id NOT closing
   (`frame-closing?` false — the replacement is live and the old marker cleared),
-  so a commit holding the DESTROYED incarnation's lease would publish `:connected`
+  so a commit holding the DESTROYED incarnation's handle would publish `:connected`
   against the REPLACEMENT. The fix compares the incarnation TOKEN
   (`frame/frame-incarnation-token`) captured at ACQUIRE against the live token, so
   a commit resolves against exactly the incarnation it targeted.
 
   Staging is deterministic and host-agnostic via the `reactive/*commit-barrier*`
   test seam: it fires synchronously INSIDE `commit!` at `:post-acquire` — after
-  the lease is acquired + read but BEFORE the publish — exactly the window
+  the handle is acquired + read but BEFORE the publish — exactly the window
   rf2-vxgfnd.88 names. The fixture reincarnates the frame there, so no threads
   are needed; `.cljc` ending `-cljs-test` graft-checks it on node (`test:cljs`)
   AND JVM (`clojure -M:test`) against the REAL observation port + sub-cache
@@ -59,7 +59,7 @@
 ;; Failure-1: an old-incarnation commit must NOT survive on the replacement id
 ;; ===========================================================================
 
-(deftest acquire-before-incarnation-snapshot-cannot-pair-a-lease-from-a-with-token-b
+(deftest acquire-before-incarnation-snapshot-cannot-pair-a-handle-from-a-with-token-b
   (rf/reg-sub :ic/a (fn [db _] (:a db)))
   (let [fid     :ic/acquire-snapshot
         _       (make-frame! fid {:a 1})
@@ -71,7 +71,7 @@
     (binding [reactive/*commit-barrier*
               (fn [phase _]
                 (when (= :post-stage-acquire phase)
-                  ;; The lease now belongs to A, but the subsequent frame-id
+                  ;; The handle now belongs to A, but the subsequent frame-id
                   ;; lookup would see B. `current?` must reject that pairing.
                   (frame/destroy-frame! fid)
                   (make-frame! fid {:a 99})))]
@@ -102,10 +102,10 @@
     (let [[_ capture] (rf/with-frame fid
                         (reactive/with-capture
                          cell (fn [] (reactive/sub-read ::site [:ic/a]))))]
-    ;; commit: step 4 acquires A's lease + step 5 reads it (A still live), THEN
+    ;; commit: step 4 acquires A's handle + step 5 reads it (A still live), THEN
     ;; the :post-acquire seam fully destroys A and recreates B under the same id
     ;; BEFORE the publish. The incarnation-safe revalidation must join THIS commit
-    ;; (which holds A's lease) to A's teardown, never publish :connected on B.
+    ;; (which holds A's handle) to A's teardown, never publish :connected on B.
     (binding [reactive/*commit-barrier*
               (fn [phase _]
                 (when (= :post-acquire phase)
@@ -119,9 +119,9 @@
           "the reused id is NOT closing — bare-id frame-closing? MISSES this (the pre-fix hole)"))
     (testing "the commit resolved against the incarnation it ACQUIRED (A), not the id"
       (is (= :dead (reactive/lifecycle cell))
-          "the cell holding A's lease joined A's teardown — not left :connected on B")
+          "the cell holding A's handle joined A's teardown — not left :connected on B")
       (is (empty? (reactive/committed-target-keys cell))
-          "A's stale lease is released — no old ownership survives on the replacement id"))
+          "A's stale handle is released — no old ownership survives on the replacement id"))
     (testing "the replacement incarnation B is wholly untouched and commits cleanly"
       ;; Reset the slice PROBE MEMO for clean isolation. A cold probe caches its
       ;; computed value under a `(frame, frame-epoch, registry-epoch)` tag whose

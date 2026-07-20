@@ -615,7 +615,7 @@ server in sight (guide 01):
 
 A runtime-assembled vector is the same compile error as at `mount` (§3). In both
 forms, `{:sub-overrides {query value}}` combines freely — it is the explicit JVM
-override door ([006 §The static override lease](006-ReactiveSubstrate.md#the-static-override-lease)),
+override door ([006 §The static override handle](006-ReactiveSubstrate.md#the-static-override-handle)),
 with `:owned? false` honesty unchanged. Registrations come from the loaded namespaces;
 `ui.test` has no frame constructor — mint one with `rf/make-frame`
 ([002 §`make-frame`](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)),

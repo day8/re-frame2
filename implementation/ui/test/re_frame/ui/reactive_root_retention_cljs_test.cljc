@@ -13,7 +13,7 @@
   Membership is now WEAK (WeakHashMap keyset on the JVM; js/WeakRef set +
   FinalizationRegistry reaper on CLJS), preserving BOTH registry consumers:
 
-    - lease/root/frame TEARDOWN DISCOVERY of hidden cells — a genuinely
+    - handle/root/frame TEARDOWN DISCOVERY of hidden cells — a genuinely
       Activity-hidden cell is strongly reachable from React's retained fiber
       (`use-cell`'s useRef), so its weak entry lives exactly as long as
       Activity retention and `teardown-root!`/`teardown-frame!` still find it
@@ -433,7 +433,7 @@
     (testing "root teardown still reaps the hidden cell through weak membership"
       (reactive/teardown-root! incarnation (fn [] nil))
       (is (= :dead (reactive/lifecycle hidden))
-          "lease-teardown discovery of hidden-but-alive cells is preserved")
+          "handle-teardown discovery of hidden-but-alive cells is preserved")
       (is (= 0 (reactive/root-cell-count incarnation))))))
 
 ;; ===========================================================================
@@ -467,7 +467,7 @@
            ;; churn: mount + ordinary reconciliation unmount, keyed-list
            ;; style. Hold each churned cell only WEAKLY once its cycle ends —
            ;; React drops the fiber, so nothing else references it (its
-           ;; leases were already released at disconnect!).
+           ;; handles were already released at disconnect!).
            refs        (mapv (fn [i]
                                (let [cell (mount! (keyword "ret" (str "row-" i))
                                                   incarnation fid [[:ret/a]])]
@@ -485,7 +485,7 @@
               no longer strongly retains the ordinary-unmount population")
          (is (= 1 (reactive/root-cell-count incarnation))
              "membership returned to baseline: exactly the hidden sibling"))
-       (testing "…while the hidden sibling stayed reapable for lease teardown"
+       (testing "…while the hidden sibling stayed reapable for handle teardown"
          (is (= :disconnected (reactive/lifecycle hidden)))
          (reactive/teardown-root! incarnation (fn [] nil))
          (is (= :dead (reactive/lifecycle hidden)))

@@ -18,7 +18,7 @@
   the value-movement `on-change` watch channel exists only on watchable
   hosts, so on a headless (non-watchable) host movement is caught at the
   commit evidence comparison (step 5), not by a callback — for EVERY acquired
-  lease, RETAINED as well as staged (rf2-vxgfnd.39), since a retained site has
+  handle, RETAINED as well as staged (rf2-vxgfnd.39), since a retained site has
   no watch to self-correct there.
 
   ## The ViewCell (03 §2)
@@ -43,7 +43,7 @@
   A render pass records each executed site's resolved target + probe
   evidence + value into a per-pass CAPTURE (ownership-free), keyed by the
   compiler-issued lexical site id. Equal queries at distinct sites therefore
-  own distinct balanced leases while still sharing the subscription node.
+  own distinct balanced handles while still sharing the subscription node.
   The exact immutable capture travels beside its host element into the
   selected layout/passive effect closure; it is never published speculatively
   by render. Layout reconciles the committed dependency set against that
@@ -229,7 +229,7 @@
 
 (def ^:const expected-observation-port-abi
   "The observation-port ABI version this reactive consumer is written against —
-  v2 (rf2-vxgfnd.14): `read` on a node lease carries `:node-key`, which
+  v2 (rf2-vxgfnd.14): `read` on a node handle carries `:node-key`, which
   `evidence-moved?` compares to classify a same-id frame REINCARNATION across
   the render→commit gap as MOVEMENT even when node-version + frame/registry
   epochs coincide. Asserted against the live port at load
@@ -254,7 +254,7 @@
 (def ^:dynamic *sub-overrides*
   "Override door: a map of query-vector → pinned value, or nil. A HIT
   resolves the site to a `:story-override` target — the pinned value IS the
-  resolution (no node), and commit acquires a STATIC lease
+  resolution (no node), and commit acquires a STATIC handle
   (`:owned? false`, callback-free). Seeded by the JVM `ui.test/render`
   door (an explicit `binding`) and, on CLJS, by the landed React-context
   carriage — `re-frame.ui.sub-overrides` reads the nearest mounted override
@@ -286,11 +286,11 @@
 
     - `rf=`-equal provider replacement (same validated value, NaN-to-NaN
       included) → version unchanged under the movement law → the
-      kept-check retains the static lease (no retarget).
+      kept-check retains the static handle (no retarget).
     - nested providers → the CLOSEST enclosing override wins (the innermost
       `*sub-overrides*` binding / React-context map) → its value is the token.
     - value movement under `rf=` → version differs → the site retargets to
-      a fresh static lease carrying the new value.
+      a fresh static handle carrying the new value.
     - HMR / schema change → the override is re-validated against the
       CURRENT registration each render; a schema that now rejects a
       previously-valid value flips the surfaced value to nil, moving the
@@ -560,8 +560,8 @@
   ;;                             ;   `settle-disconnect!` clears it. Production
   ;;                             ;   has no field, lookup, or provisional branch
   ;;    :committed {sid -> {:query exact-query :target target :value value
-  ;;                        :lease lease|nil}}
-  ;;                             ; lexical site records. `:lease nil` survives
+  ;;                        :handle handle|nil}}
+  ;;                             ; lexical site records. `:handle nil` survives
   ;;                             ; disconnect for exact query/value reuse and
   ;;                             ; hidden-cell frame attribution; absence means
   ;;                             ; the site was conditional/dropped
@@ -1114,7 +1114,7 @@
   "Deliver the revision notification to EVERY listener of `cell`. Each
   listener is contained in its own try/catch so one throwing consumer cannot
   starve its sibling listeners on the same cell (mirroring the observation
-  port's per-lease disposal containment); the FIRST escape is rethrown AFTER
+  port's per-handle disposal containment); the FIRST escape is rethrown AFTER
   every listener has been delivered — surfaced, never starving (rf2-owwbyl).
 
   Escape PRESENCE is tracked independently of the escape's own value: JavaScript
@@ -1180,7 +1180,7 @@
   ;; frame-destroy sweep (`teardown-frame!`). A cell enrols on `connect!`,
   ;; when it starts observing subscriptions, and leaves on `disconnect!` (React
   ;; unmount / Activity hide) or `teardown!` (it goes :dead). Its committed
-  ;; subscription leases define reactive observation/flush scope. A disconnected
+  ;; subscription handles define reactive observation/flush scope. A disconnected
   ;; cell leaves the set, so an unmounted cell never lingers here (no retention
   ;; leak). `defonce` (module-lived); tests clear it via `reset-scheduler!`.
   (atom #{}))
@@ -1210,7 +1210,7 @@
   ;; (the `useRef` in `use-cell`), so its entry lives precisely as long as
   ;; Activity retention and stays discoverable for `teardown-root!` /
   ;; `teardown-frame!`; a reconciliation-unmounted cell becomes unreachable
-  ;; (its leases were already released at `disconnect!`, and nothing can ever
+  ;; (its handles were already released at `disconnect!`, and nothing can ever
   ;; reconnect a cell nothing references), so it collects and its entry clears
   ;; — the teardown scans lose nothing, per 03 §4 "the cell is garbage". The
   ;; per-host weak plumbing (`make-weak-member-set` etc.) lives beside
@@ -1827,7 +1827,7 @@
 (defn- cell-frames
   "The set of frame-ids `cell`'s committed subscription sites observe.
 
-  Only records with a live lease are currently observed. A static Story-
+  Only records with a live handle are currently observed. A static Story-
   override target names NO frame (the pinned value IS the
   resolution — there is no node and no observed frame), so an OVERRIDE-ONLY
   cell observes no frame and this returns `#{}`. The frame-scope membership
@@ -1837,8 +1837,8 @@
   mixing `sub` and override sites observes exactly its `sub` sites' frames."
   [^ViewCell cell]
   (into #{}
-        (keep (fn [{:keys [target lease]}]
-                (when (and lease (= :subscription (:kind target)))
+        (keep (fn [{:keys [target handle]}]
+                (when (and handle (= :subscription (:kind target)))
                   (:frame-id target))))
         (vals (:committed @(state cell)))))
 
@@ -1850,7 +1850,7 @@
 
 (defn- cell-retained-frame?
   "True when `cell`'s last published lexical subscription site records name
-  `frame-id`. Records survive an Activity disconnect with `:lease nil`,
+  `frame-id`. Records survive an Activity disconnect with `:handle nil`,
   providing bounded exact query/value history plus frame attribution for hidden
   root-owned cells."
   [^ViewCell cell frame-id]
@@ -2050,7 +2050,7 @@
   nil)
 
 (defn- on-change-fn
-  "Build the per-lease `on-change` the commit registers on each acquired
+  "Build the per-handle `on-change` the commit registers on each acquired
   target (Spec 006 §The internal observation port). Constant-work: enrol
   `cell` for a coalesced flush and — in DEV/tool builds only — fold the port's
   rich invalidation payload (`:cause`/`:target`/`:frame-epoch`, plus the
@@ -2108,7 +2108,7 @@
 ;; ---- root-incarnation ownership (03 §4; rf2-vxgfnd.85) ----------------------
 ;;
 ;; `live-cells` is the connected discoverability surface a FRAME-destroy sweep
-;; consults: subscription leases contribute reactive-observation frames.
+;; consults: subscription handles contribute reactive-observation frames.
 ;; The membership is dropped the instant the cell disconnects, so it cannot
 ;; survive an Activity hide. Root teardown needs an ownership association that
 ;; DOES survive a transient hide: the `root-cells` registry keyed by a per-mount
@@ -2511,17 +2511,17 @@
    (weak-live-count (get @root-cells incarnation) incarnation)))
 
 (defn- release-committed!
-  "Release every live lexical-site lease and retain each exact query/target/
-  value record with `:lease nil`. A disconnect therefore owns nothing while a
+  "Release every live lexical-site handle and retain each exact query/target/
+  value record with `:handle nil`. A disconnect therefore owns nothing while a
   reconnect can still stabilize exact objects per site. Idempotent."
   [^ViewCell cell]
   (let [st (state cell)]
-    (doseq [{:keys [lease]} (vals (:committed @st))]
-      (when lease (obs/release! lease)))
+    (doseq [{:keys [handle]} (vals (:committed @st))]
+      (when handle (obs/release! handle)))
     (swap! st update :committed
            (fn [sites]
              (reduce-kv (fn [out sid record]
-                          (assoc out sid (assoc record :lease nil)))
+                          (assoc out sid (assoc record :handle nil)))
                         (empty sites)
                         sites)))))
 
@@ -2619,7 +2619,7 @@
 
 (defn disconnect!
   "Effects-cleanup transition (React unmount OR Activity hide —
-  indistinguishable at this moment): release lease owners (hidden UI must
+  indistinguishable at this moment): release handle owners (hidden UI must
   not poll) and emit `:disconnected {:reason :unknown}`. The cell is
   reconnectable — a later commit on the same cell reacquires and
   corrects. Idempotent. Returns the cell.
@@ -2662,7 +2662,7 @@
 (defn teardown!
   "Explicit host/root teardown (root unmount, parent teardown, frame
   destroy): the frame/adapter/root is destroyed under this cell's handle —
-  the retained interval is proven an unmount. Detaches leases, marks the
+  the retained interval is proven an unmount. Detaches handles, marks the
   cell `:dead` (no resume), annotates, and de-enrols it from the live-cell
   registry. Wired from core's frame-destroy path via `teardown-frame!` (the
   `:ui/on-frame-destroyed!` late-bind hook `re-frame.ui.frames` registers).
@@ -2691,14 +2691,14 @@
   retained subscription targets name frame `frame-id`, plus every still-
   disconnected root-owned ViewCell whose last published site values name it, to
   `:dead` (03 §4 dead-cell lifecycle). Each
-  matched cell's leases are detached, its pending notification dropped, and
+  matched cell's handles are detached, its pending notification dropped, and
   its retained interval proven an unmount (`:unmounted {:proof
   :host-teardown}`) — so a subsequent read/probe on such a cell follows the
   dead-cell lifecycle instead of throwing `:rf.error/frame-destroyed` off the
   observation port. Fired from core's `frame/destroy-frame!` through the
   `:ui/on-frame-destroyed!` late-bind hook wired in `re-frame.ui.frames`;
   the sweep runs while the frame is still live, so each cell releases its
-  leases against the live sub-cache (symmetric with `disconnect!`). The
+  handles against the live sub-cache (symmetric with `disconnect!`). The
   connected membership test uses `cell-retained-frame?`: committed
   subscription targets provide observation attribution. An Activity-hidden cell
   holds no live subscription owners, so its bounded root ownership plus retained
@@ -2884,7 +2884,7 @@
   Ordering-robust and re-entrancy-safe by save/restore. If `unmount-thunk`
   THROWS, the original host error still propagates, but an EXPLICIT
   `root-incarnation` is a framework ownership token: every cell belonging to
-  that exact generation is force-dead and its leases are released before the
+  that exact generation is force-dead and its handles are released before the
   throw escapes. React may have consumed the host Root handle even though its
   synchronous flush refused; retaining connected observations after the client
   releases that handle would create unreachable framework ownership. The fresh
@@ -3064,7 +3064,7 @@
 ;; ---- frame-close revalidation: incarnation-safe (rf2-vxgfnd.88, extends .61) ---
 ;;
 ;; A commit publishing ownership must resolve against the EXACT frame incarnation
-;; it acquired its leases from — never merely the reused frame-id. `destroy-frame!`
+;; it acquired its handles from — never merely the reused frame-id. `destroy-frame!`
 ;; + a fresh same-id construction mints a DISTINCT incarnation token
 ;; (`frame/frame-incarnation-token` — the record's `:drain-lock`, stable across one
 ;; incarnation, distinct across destroy+recreate), so comparing the token captured
@@ -3081,8 +3081,8 @@
   close revalidation resolves against."
   [committed]
   (persistent!
-   (reduce (fn [acc {:keys [target lease]}]
-             (if (and lease (= :subscription (:kind target)))
+   (reduce (fn [acc {:keys [target handle]}]
+             (if (and handle (= :subscription (:kind target)))
                (let [fid (:frame-id target)]
                  (assoc! acc fid (frame/frame-incarnation-token fid)))
                acc))
@@ -3115,7 +3115,7 @@
                      commit ACQUIRE the FRESH incarnation while the render probed
                      the destroyed one — the `:node-key` reincarnation
                      `evidence-moved?` must correct before paint (rf2-vxgfnd.93).
-    :post-stage-acquire — after leases are acquired, BEFORE the incarnation
+    :post-stage-acquire — after handles are acquired, BEFORE the incarnation
                      snapshot/current validation.
     :post-acquire  — after validation + the evidence read, BEFORE the publish.
                      A full destroy of the ACQUIRED incarnation + a fresh same-id
@@ -3155,7 +3155,7 @@
   revision and THEN performed an INDEPENDENT `swap!` to publish — a check-to-use
   gap. An `advance-generation!` (cell-local axis) or a same-view re-registration
   (registry axis) landing AFTER the sample but BEFORE the swap published a
-  stale-generation capture that connected and owned leases while current
+  stale-generation capture that connected and owned handles while current
   authority had already moved. Re-reading the authority a third time only MOVES
   the race to between that read and the swap; it is not a linearization point.
 
@@ -3284,14 +3284,14 @@
   "Project this render's captured sites into the per-commit :observations vector,
   in compiler render order. PURE PROJECTION of data the capture already holds —
   the resolved site target plus its ownership-free probe evidence — so it makes
-  no port call, reads no lease, and performs no NEW capture (Ruling 1: the frame
+  no port call, reads no handle, and performs no NEW capture (Ruling 1: the frame
   is 'already captured per-site').
 
   Each observation carries its TARGET'S :frame-id — the amended per-observation
   frame attribution (nil for a Story override, which resolves against no frame).
   :target-id / :version are the node identity + version THIS render observed
   (nil when probed cold, or for a static override); :owned? is true for an owned
-  subscription node lease and false for a static Story-override lease."
+  subscription node handle and false for a static Story-override handle."
   [new-order new-by]
   (mapv (fn [sid]
           (let [{:keys [target evidence query]} (get new-by sid)
@@ -3453,29 +3453,29 @@
   "Run the 8-step layout commit for `cell` against the exact immutable
   `capture` returned beside the committed host element by `with-capture`.
   Idempotent: an unchanged committed set + capture reconciles to a
-  no-op (kept-check retains every lease untouched), so StrictMode's
+  no-op (kept-check retains every handle untouched), so StrictMode's
   release/reacquire replay is naturally balanced.
 
   1. Reject a stale-generation capture (HMR) — return `:stale`, the host
      re-renders (no ownership touched).
   2. A `:dead` cell fails loudly — reconnection after teardown is not
      allowed.
-  3. Kept-check every previously-committed site with `(current? lease
-     target)`; unchanged live leases are RETAINED untouched, a failed check
+  3. Kept-check every previously-committed site with `(current? handle
+     target)`; unchanged live handles are RETAINED untouched, a failed check
      (disposed node, frame swap, restabilized query, moved override)
      classifies the site as retargeted.
   4. STAGE-acquire every newly-observed or retargeted target BEFORE
      releasing anything (acquire-before-release — a shared node never falls
      through its zero-owner edge). On ANY acquisition failure every staged
-     lease is synchronously released in REVERSE acquisition order, the
+     handle is synchronously released in REVERSE acquisition order, the
      prior committed set stays installed, and the typed error propagates.
   5. Compare each acquired node's version + frame/registry epochs against
-     the render's probe evidence — for BOTH retained and staged leases, so a
+     the render's probe evidence — for BOTH retained and staged handles, so a
      retained site's movement is caught here on a non-watchable headless host
      that has no value-movement watch (rf2-vxgfnd.39).
   6. Publish the committed site values + the new dependency set (retained +
      staged) — before the user can interact with the new DOM.
-  7. Release the prior leases of dropped + retargeted sites.
+  7. Release the prior handles of dropped + retargeted sites.
   8. If any evidence moved in the render→commit gap, advance the revision
      and notify — React corrects BEFORE paint.
 
@@ -3520,15 +3520,15 @@
               retained   (persistent!
                            (reduce
                              (fn [acc [sid prior]]
-                               (let [lease (:lease prior)]
-                                 (if (and lease
+                               (let [handle (:handle prior)]
+                                 (if (and handle
                                           (contains? new-set sid)
-                                          (obs/current? lease
+                                          (obs/current? handle
                                                         (:target (new-by sid))))
                                    (assoc! acc sid
                                            (assoc (select-keys (new-by sid)
                                                                [:query :target :value])
-                                                  :lease lease))
+                                                  :handle handle))
                                  acc)))
                              (transient {})
                              committed))
@@ -3536,7 +3536,7 @@
               to-release (persistent!
                            (reduce
                              (fn [acc [sid record]]
-                               (if (or (retained? sid) (nil? (:lease record)))
+                               (if (or (retained? sid) (nil? (:handle record)))
                                  acc
                                  (assoc! acc sid record)))
                              (transient {})
@@ -3550,7 +3550,7 @@
                              acc
                              (let [sid    (first ks)
                                    target (:target (new-by sid))
-                                   lease  (try
+                                   handle  (try
                                             (obs/acquire! target on-change)
                                             (catch #?(:clj Throwable :cljs :default) e
                                               ;; rollback: release staged in
@@ -3558,13 +3558,13 @@
                                               ;; prior committed set stays
                                               ;; installed; propagate the throw.
                                               (doseq [[_ record] (rseq acc)]
-                                                (obs/release! (:lease record)))
+                                                (obs/release! (:handle record)))
                                               (throw e)))]
                                (recur (rest ks)
                                       (conj acc
                                             [sid (assoc (select-keys (new-by sid)
                                                                      [:query :target :value])
-                                                        :lease lease)])))))
+                                                        :handle handle)])))))
               staged-map (into {} staged)
               candidate (merge retained staged-map)
               ;; A JVM fixture can destroy/recreate the just-acquired frame in
@@ -3574,17 +3574,17 @@
               incarnations (committed-frame-incarnations candidate)
               candidate-current?
               (every? (fn [[sid record]]
-                        (obs/current? (:lease record) (:target (new-by sid))))
+                        (obs/current? (:handle record) (:target (new-by sid))))
                       candidate)]
           (if-not candidate-current?
             (do
-              ;; One of the acquired/retained leases belonged to an incarnation
+              ;; One of the acquired/retained handles belonged to an incarnation
               ;; that vanished before a trustworthy snapshot could be paired
               ;; with it. Roll back only newly staged ownership, preserve the
               ;; prior committed set, and synchronously invalidate so the host
               ;; re-probes the current incarnation before paint.
               (doseq [[_ record] (rseq staged)]
-                (obs/release! (:lease record)))
+                (obs/release! (:handle record)))
               (advance-revision! cell)
               cell)
             (let [
@@ -3592,10 +3592,10 @@
               ;; retained) against the render's probe evidence, so movement in the
               ;; render→commit gap is caught before paint (invariant 5).
               ;;
-              ;;   - STAGED leases: their freshly-installed watch could not have
+              ;;   - STAGED handles: their freshly-installed watch could not have
               ;;     fired for a pre-acquire gap move, so step 5 is the SOLE catch
               ;;     on every host.
-              ;;   - RETAINED leases: on a WATCHABLE host their live watch already
+              ;;   - RETAINED handles: on a WATCHABLE host their live watch already
               ;;     caught the move (the cell is pending; its scheduled flush
               ;;     corrects before paint), but on a NON-WATCHABLE headless host
               ;;     there is NO watch — so step 5 is the ONLY catch. Without this
@@ -3607,7 +3607,7 @@
               ;; is observed here; the two catches are kept distinct because the
               ;; step-8 advance treats them differently (see below).
               moved-in? (fn [[sid record]]
-                          (evidence-moved? (obs/read (:lease record))
+                          (evidence-moved? (obs/read (:handle record))
                                            (:evidence (new-by sid))))
               staged-moved?   (boolean (some moved-in? staged))
               retained-moved? (boolean (some moved-in? retained))
@@ -3633,7 +3633,7 @@
           ;; IMMEDIATELY BEFORE that CAS (registry axis — best-effort under the
           ;; single-threaded CLJS host), so no pause interposed before the CAS can
           ;; publish a stale capture. On rejection it publishes NOTHING; we release
-          ;; ONLY the newly staged leases in reverse acquisition order, leaving the
+          ;; ONLY the newly staged handles in reverse acquisition order, leaving the
           ;; prior committed set / values / lifecycle untouched, and return :stale
           ;; exactly as step 1 does (the re-registration already notified the shell,
           ;; so a fresh render at the new body is inbound; unlike the
@@ -3645,14 +3645,14 @@
                                          new-committed))
             (do
               (doseq [[_ record] (rseq staged)]
-                (obs/release! (:lease record)))
+                (obs/release! (:handle record)))
               :stale)
             (do
               ;; step 6 (publish exact per-site query/value + dependency set)
               ;; already completed atomically inside publish-commit!.
-              ;; step 7 — release dropped + retargeted prior leases
+              ;; step 7 — release dropped + retargeted prior handles
               (doseq [[_ record] to-release]
-                (obs/release! (:lease record)))
+                (obs/release! (:handle record)))
               ;; lifecycle: connect (reconnect annotation when re-committing a
               ;; hidden cell). This ENROLS the cell into the live-cell registry —
               ;; the discoverability publish a frame-destroy sweep consults.
@@ -3667,7 +3667,7 @@
               ;;       destroyed, OR a fresh same-id incarnation replaced it in the
               ;;       render→commit gap. The bare-id `frame-closing?` MISSES this once
               ;;       the old incarnation's teardown completed and cleared its marker
-              ;;       while a replacement went live under the id — so an old lease
+              ;;       while a replacement went live under the id — so an old handle
               ;;       would otherwise survive on the replacement id (rf2-vxgfnd.88).
               ;;       Token identity (`frame/frame-incarnation-token`, the record's
               ;;       `:drain-lock`, distinct per incarnation) resolves the commit to
@@ -3744,7 +3744,7 @@
   use `committed-sites` to inspect ownership identity."
   [^ViewCell cell]
   (into #{}
-        (comp (filter :lease) (map (comp target-key :target)))
+        (comp (filter :handle) (map (comp target-key :target)))
         (vals (:committed @(state cell)))))
 
 (defn committed-values
@@ -3757,18 +3757,18 @@
             (transient {})
             (vals (:committed @(state cell))))))
 
-(defn committed-lease
-  "Legacy target-keyed installed lease projection, or nil. If two sites share
-  a target this returns one of their distinct leases; use `committed-site`."
+(defn committed-handle
+  "Legacy target-keyed installed handle projection, or nil. If two sites share
+  a target this returns one of their distinct handles; use `committed-site`."
   [^ViewCell cell tk]
-  (some (fn [{:keys [target lease]}]
-          (when (= tk (target-key target)) lease))
+  (some (fn [{:keys [target handle]}]
+          (when (= tk (target-key target)) handle))
         (vals (:committed @(state cell)))))
 
 (defn committed-sites
-  "The canonical `{sid -> {:query :target :value :lease}}` lexical ownership
+  "The canonical `{sid -> {:query :target :value :handle}}` lexical ownership
   map for `cell` (internal tool/test seam). Disconnected records remain with
-  `:lease nil`; conditionally absent sites are not present."
+  `:handle nil`; conditionally absent sites are not present."
   [^ViewCell cell]
   (:committed @(state cell)))
 

@@ -6,15 +6,15 @@
     - render probes WITHOUT ownership — 10k abandoned renders retain zero
       (G-6 / the S-3 §5 cold-probe exit criterion), mirrored at the
       ViewCell layer;
-    - commit installs + reads; the kept-check retains unchanged leases
-      UNTOUCHED (same lease object, no re-acquire) so re-commit is a no-op;
+    - commit installs + reads; the kept-check retains unchanged handles
+      UNTOUCHED (same handle object, no re-acquire) so re-commit is a no-op;
     - dependency change drops + acquires; a shared node never churns;
     - transactional multi-acquire: acquisition-3-of-3-throws rolls the
-      staged leases back in REVERSE order, the prior committed set stays
+      staged handles back in REVERSE order, the prior committed set stays
       installed, and a shared node survives;
     - moved evidence in the render→commit gap advances the revision (step
       5/8);
-    - the static override lease (Story-override door, JVM spelling) — a
+    - the static override handle (Story-override door, JVM spelling) — a
       pinned value owns nothing; a version move retargets;
     - the three-state lifecycle facts + qualified retroactive annotations
       (:activity-hidden {:proof :reconnect}; :unmounted {:proof
@@ -25,7 +25,7 @@
   hosts. Host honesty: plain-atom derived values are not watchable, so the
   value-movement `on-change` channel is a reactive-host surface — here
   movement is caught at the commit evidence comparison (step 5), exactly
-  the headless contract. Step 5 reads EVERY acquired lease, RETAINED as well
+  the headless contract. Step 5 reads EVERY acquired handle, RETAINED as well
   as staged, so a retained site's headless movement (which has no watch to
   self-correct) is caught too (rf2-vxgfnd.39)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
@@ -95,7 +95,7 @@
       (dotimes [_ 10000]
         (render! cell [[:r/a] [:r/b]]))
       (is (empty? (reactive/committed-target-keys cell))
-          "no lease is installed by rendering alone")
+          "no handle is installed by rendering alone")
       (is (nil? (entry [:r/a])) "no cache entry materialised by the cold probes")
       (is (nil? (entry [:r/b]))
           "the 10k-abandoned-renders-retain-zero property holds at the cell"))))
@@ -164,7 +164,7 @@
         q2  (mapv identity [:r/p :x])
         cell (render-sites+commit! (reactive/make-cell ::parametric)
                                    [[sid q1]])
-        lease1 (:lease (reactive/committed-site cell sid))
+        lease1 (:handle (reactive/committed-site cell sid))
         resolve* obs/resolve-target
         resolved-query (atom nil)
         [_ capture]
@@ -180,7 +180,7 @@
     (is (identical? q1 (get-in (reactive/site-records capture) [sid :query])))
     (reactive/commit! cell capture)
     (is (identical? q1 (:query (reactive/committed-site cell sid))))
-    (is (identical? lease1 (:lease (reactive/committed-site cell sid)))
+    (is (identical? lease1 (:handle (reactive/committed-site cell sid)))
         "rf=-equal rerender neither retargets nor churns ownership")
     (dotimes [_ 10000]
       (render-sites! cell [[sid (mapv identity [:r/p :x])]]))
@@ -197,19 +197,19 @@
         a (reactive/committed-site cell ::site-a)
         b (reactive/committed-site cell ::site-b)]
     (is (= #{::site-a ::site-b} (set (keys (reactive/committed-sites cell)))))
-    (is (not (identical? (:lease a) (:lease b)))
+    (is (not (identical? (:handle a) (:handle b)))
         "target equality never collapses lexical owner tokens")
     (is (identical? q1 (:query a)))
     (is (identical? q2 (:query b)))
     (is (= 2 (ref-count [:r/a]))
         "the shared cache node has one reference per lexical owner")
-    (let [lease-b (:lease b)
+    (let [handle-b (:handle b)
           q2-next (mapv identity [:r/a])]
       (render-sites+commit! cell [[::site-b q2-next]])
       (is (= #{::site-b} (set (keys (reactive/committed-sites cell))))
           "conditional disappearance removes only the absent sid")
-      (is (identical? lease-b
-                      (:lease (reactive/committed-site cell ::site-b))))
+      (is (identical? handle-b
+                      (:handle (reactive/committed-site cell ::site-b))))
       (is (identical? q2 (:query (reactive/committed-site cell ::site-b))))
       (is (= 1 (ref-count [:r/a]))))))
 
@@ -227,9 +227,9 @@
                     (swap! operations conj [:acquire (:query target)])
                     (acquire* target on-change))
                   obs/release!
-                  (fn [lease]
+                  (fn [handle]
                     (swap! operations conj [:release])
-                    (release* lease))]
+                    (release* handle))]
       (render-sites+commit! cell [[sid [:r/p :y]]]))
     (is (= [[:acquire [:r/p :y]] [:release]] @operations)
         "retarget stages the new owner before dropping the prior owner")
@@ -237,15 +237,15 @@
     (is (nil? (entry [:r/p :x])))
     (is (= 1 (ref-count [:r/p :y])))))
 
-(deftest recommit-retains-lease-untouched
+(deftest recommit-retains-handle-untouched
   (rf/reg-sub :r/a (fn [db _] (:a db)))
   (seed! {:a 1})
   (let [cell   (render+commit! (reactive/make-cell ::v) [[:r/a]])
-        lease0 (reactive/committed-lease cell (tk [:r/a]))]
+        lease0 (reactive/committed-handle cell (tk [:r/a]))]
     (is (= 1 (ref-count [:r/a])))
     (render+commit! cell [[:r/a]])
-    (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a])))
-        "an unchanged live lease is retained UNTOUCHED — same object, no re-acquire")
+    (is (identical? lease0 (reactive/committed-handle cell (tk [:r/a])))
+        "an unchanged live handle is retained UNTOUCHED — same object, no re-acquire")
     (is (= 1 (ref-count [:r/a])) "re-commit does not churn the ref-count")))
 
 (deftest dependency-change-drops-and-acquires
@@ -273,13 +273,13 @@
     ;; probe all three (all registered, all cold — no cache nodes yet)
     ;; make the THIRD acquire throw: unregister :r/c between render and commit
     (subs/clear-sub :r/c)
-    (testing "the k-th acquisition failure rolls the staged leases back and
+    (testing "the k-th acquisition failure rolls the staged handles back and
               leaves the prior (empty) committed set installed"
       (is (= :rf.error/no-such-sub
              (throws-id #(reactive/commit! cell capture)))
           "the acquisition's typed error propagates")
       (is (empty? (reactive/committed-target-keys cell))
-          "no lease is installed — the reconcile aborted")
+          "no handle is installed — the reconcile aborted")
       (is (nil? (entry [:r/a]))
           "staged :r/a was released on rollback (reverse order) → disposed")
       (is (nil? (entry [:r/b])) "staged :r/b likewise disposed"))))
@@ -290,7 +290,7 @@
   (rf/reg-sub :r/c (fn [db _] (:c db)))
   (seed! {:a 1 :b 2 :c 3})
   (let [cell   (render+commit! (reactive/make-cell ::v) [[:r/a]])
-        lease0 (reactive/committed-lease cell (tk [:r/a]))]
+        lease0 (reactive/committed-handle cell (tk [:r/a]))]
     (is (= 1 (ref-count [:r/a])) ":a committed with one owner")
     ;; new render observes :a (retained) + :b (new) + :c (new); :c will throw
     (let [[_ capture] (render! cell [[:r/a] [:r/b] [:r/c]])]
@@ -299,7 +299,7 @@
              (throws-id #(reactive/commit! cell capture)))))
     (testing "the node shared with the prior committed set survives rollback"
       (is (= 1 (ref-count [:r/a])) ":a keeps its prior owner — never re-acquired, never released")
-      (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a]))))
+      (is (identical? lease0 (reactive/committed-handle cell (tk [:r/a]))))
       (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell))
           "the prior committed set remains exactly installed")
       (is (nil? (entry [:r/b])) "the solely-rolled-back node disposed on its zero-owner edge"))))
@@ -328,32 +328,32 @@
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-vxgfnd.39 — a RETAINED site's movement is caught at step 5 too. On a
-;; NON-WATCHABLE headless host (plain-atom) a retained lease has NO
+;; NON-WATCHABLE headless host (plain-atom) a retained handle has NO
 ;; value-movement watch, so the commit evidence comparison is the ONLY
-;; correction — and it must read retained leases, not only staged ones.
+;; correction — and it must read retained handles, not only staged ones.
 ;; Pre-fix, step 5 read `staged` alone: a retained site's gap-movement was
 ;; caught by NOTHING (`:values` published the stale render value, the revision
 ;; never advanced, no watch existed to correct it).
 ;; ---------------------------------------------------------------------------
 
-(deftest retained-lease-movement-caught-at-commit-step-5
+(deftest retained-handle-movement-caught-at-commit-step-5
   (rf/reg-sub :r/a (fn [db _] (:a db)))
   (seed! {:a 1})
   (let [cell   (render+commit! (reactive/make-cell ::v) [[:r/a]])
-        lease0 (reactive/committed-lease cell (tk [:r/a]))]
+        lease0 (reactive/committed-handle cell (tk [:r/a]))]
     (is (= 0 (reactive/revision cell)) "precondition: committed, no revision yet")
     (is (= {(tk [:r/a]) 1} (reactive/committed-values cell)))
     (let [[_ capture] (render! cell [[:r/a]])] ;; render B probes value 1
       (seed! {:a 2})                        ;; move in the render→commit gap
-      (reactive/commit! cell capture))      ;; kept-check RETAINS the lease
-    (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a])))
-        "the site was RETAINED (same lease) — a kept, not staged/retargeted, site")
+      (reactive/commit! cell capture))      ;; kept-check RETAINS the handle
+    (is (identical? lease0 (reactive/committed-handle cell (tk [:r/a])))
+        "the site was RETAINED (same handle) — a kept, not staged/retargeted, site")
     (is (= 1 (reactive/revision cell))
         "a RETAINED site's gap-movement is caught at the commit evidence
          comparison (step 5) — the revision advances so the host re-renders
          before paint; pre-fix this was caught by nothing (rf2-vxgfnd.39)")))
 
-(deftest retained-lease-unmoved-does-not-false-advance
+(deftest retained-handle-unmoved-does-not-false-advance
   ;; The retained step-5 read must not introduce false movement: an unchanged
   ;; retained site reads the same version/node-key across the render→commit gap.
   (rf/reg-sub :r/a (fn [db _] (:a db)))
@@ -444,18 +444,18 @@
     (is (= 1 @hits) "an unsubscribed listener is not notified")))
 
 ;; ===========================================================================
-;; Static override lease (03 §3; item 5 — the named Tier-3 obligation,
+;; Static override handle (03 §3; item 5 — the named Tier-3 obligation,
 ;; headless spelling)
 ;; ===========================================================================
 
-(deftest static-override-lease-owns-nothing
+(deftest static-override-handle-owns-nothing
   ;; the override door bypasses the node entirely — the pinned value IS the
   ;; resolution; the sub need not even be registered
   (binding [reactive/*sub-overrides* {[:r/a] 99}]
     (let [cell (render+commit! (reactive/make-cell ::v) [[:r/a]])]
       (is (= #{[:override [:r/a]]} (reactive/committed-target-keys cell)))
       (is (= {[:override [:r/a]] 99} (reactive/committed-values cell)))
-      (is (false? (obs/owned? (reactive/committed-lease cell [:override [:r/a]])))
+      (is (false? (obs/owned? (reactive/committed-handle cell [:override [:r/a]])))
           "a pinned override owns no real subscription node")
       (is (nil? (entry [:r/a])) "no cache node is built for an override"))))
 
@@ -463,13 +463,13 @@
   (let [cell (reactive/make-cell ::v)]
     (binding [reactive/*sub-overrides* {[:r/a] 99}]
       (render+commit! cell [[:r/a]]))
-    (let [lease0 (reactive/committed-lease cell [:override [:r/a]])]
+    (let [lease0 (reactive/committed-handle cell [:override [:r/a]])]
       (binding [reactive/*sub-overrides* {[:r/a] 100}]
         (render+commit! cell [[:r/a]]))
       (is (= {[:override [:r/a]] 100} (reactive/committed-values cell))
           "the moved override retargets through the normal staged path")
-      (is (not (identical? lease0 (reactive/committed-lease cell [:override [:r/a]])))
-          "current? failed on the version move ⇒ a fresh static lease"))))
+      (is (not (identical? lease0 (reactive/committed-handle cell [:override [:r/a]])))
+          "current? failed on the version move ⇒ a fresh static handle"))))
 
 ;; ===========================================================================
 ;; Three-state lifecycle + retroactive annotations (03 §4; item 4)
@@ -636,19 +636,19 @@
   (rf/reg-sub :r/coll (fn [db _] (:coll db)))
   (seed! {:coll [1 2 3] :n 1})
   (let [cell  (render+commit! (reactive/make-cell ::v) [[:r/coll]])
-        lease (reactive/committed-lease cell (tk [:r/coll]))
+        handle (reactive/committed-handle cell (tk [:r/coll]))
         v0    (get (reactive/committed-values cell) (tk [:r/coll]))
-        ver0  (:version (obs/read lease))]
+        ver0  (:version (obs/read handle))]
     (is (= 0 (reactive/revision cell)) "precondition: committed, no revision yet")
     (is (some? ver0) "the live node has a port version")
     ;; Force the sub to RECOMPUTE — a sibling db key (:n) moves, so the frame
     ;; commits a new epoch and the reaction re-derives — but keep :coll rf=-EQUAL
     ;; (a fresh-identity, structurally-equal vector).
     (seed! {:coll [1 2 3] :n 2})
-    (is (= ver0 (:version (obs/read lease)))
+    (is (= ver0 (:version (obs/read handle)))
         "G-4: the rf=-equal recompute left the PORT VERSION un-advanced —
          advance-node-record!'s equality gate suppressed the version bump")
-    ;; Re-render + commit: the retained lease reads an un-advanced version, so
+    ;; Re-render + commit: the retained handle reads an un-advanced version, so
     ;; step 5 finds no movement and step 8 advances NOTHING.
     (render+commit! cell [[:r/coll]])
     (is (= 0 (reactive/revision cell))
@@ -666,12 +666,12 @@
                           :cljs js/NaN)))
   (seed! {:tick 0})
   (let [cell  (render+commit! (reactive/make-cell ::nan) [[:r/nan]])
-        lease (reactive/committed-lease cell (tk [:r/nan]))
-        ver0  (:version (obs/read lease))]
+        handle (reactive/committed-handle cell (tk [:r/nan]))
+        ver0  (:version (obs/read handle))]
     (testing "repeated observation of a stable NaN does not move the node"
       (dotimes [i 3]
         (seed! {:tick (inc i)})
-        (is (= ver0 (:version (obs/read lease)))
+        (is (= ver0 (:version (obs/read handle)))
             "NaN is self-equal for observation-node versioning")))
     (testing "render→commit reconciliation therefore cannot self-schedule forever"
       (dotimes [_ 3]

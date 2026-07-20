@@ -8,7 +8,7 @@
   bounded StrictMode + Activity ownership cycles and checks every retained
   framework/DOM/scheduler surface against an exact baseline.  The override
   smoke publishes nested values through the first-party React context and
-  proves compiled `ui/sub` commits the observation port's real static lease.
+  proves compiled `ui/sub` commits the observation port's real static handle.
 
   Browser-only bodies — the `-dom-cljs-test` suffix enrols this namespace in
   `:browser-test`; the node runner loads it too and skips the DOM bodies."
@@ -88,7 +88,7 @@
    ;; `ui/sub`'s slice memo and the observation port's node-disposal handoff
    ;; both use next-tick work, independently of the dirty-cell microtask.
    ;; A root can therefore look owner-clean while one of these retains the
-   ;; last slice/lease until the next host turn.  Exact baseline comparison
+   ;; last slice/handle until the next host turn.  Exact baseline comparison
    ;; includes both queue contents AND their scheduled latches.
    :slice-memo-live?       (some? @@#'reactive/slice-memo*)
    :pending-disposals      (count @@#'obs/pending-disposals)
@@ -148,13 +148,13 @@
                                [ui/frame-provider {:frame f}
                                 [equality-view {:evidence evidence}]]]]
            (let [cell             (cell-for target-k)
-                 lease            (reactive/committed-lease cell target-k)
-                 initial-version  (:version (obs/read lease))
+                 handle            (reactive/committed-handle cell target-k)
+                 initial-version  (:version (obs/read handle))
                  initial-revision (reactive/revision cell)
                  initial-ref      (get (reactive/committed-values cell) target-k)
                  initial-computes @equality-computes]
              (is (some? cell))
-             (is (obs/owned? lease) "the control runs through a real node lease")
+             (is (obs/owned? handle) "the control runs through a real node handle")
              (reset! evidence {:bodies 0 :root-commits 0})
              (->
               (uit/flush! #(uit/dispatch! f [::equal-noop]))
@@ -165,13 +165,13 @@
                  (testing "rf=-equal output advances no mounted render surface"
                    (is (= "1" (.-textContent
                                 (uit/query root "[data-role='equal-value']"))))
-                   (is (= initial-version (:version (obs/read lease))))
+                   (is (= initial-version (:version (obs/read handle))))
                    (is (= initial-revision (reactive/revision cell)))
                    (is (= {:bodies 0 :root-commits 0} @evidence))
                    (is (identical?
                         initial-ref
                         (get (reactive/committed-values cell) target-k))))
-                 (let [equal-version (:version (obs/read lease))]
+                 (let [equal-version (:version (obs/read handle))]
                    (->
                     (uit/flush! #(uit/dispatch! f [::equal-control]))
                     (.then
@@ -180,7 +180,7 @@
                          (is (= "2" (.-textContent
                                       (uit/query root "[data-role='equal-value']"))))
                          (is (= (inc equal-version)
-                                (:version (obs/read lease))))
+                                (:version (obs/read handle))))
                          (is (= (inc initial-revision)
                                 (reactive/revision cell)))
                          (is (= {:bodies 1 :root-commits 1} @evidence))
@@ -271,7 +271,7 @@
                                 hidden-key))))
                ;; Exercise the observation port's independent disposal queue
                ;; while both compiled owners are still real. with-root then
-               ;; releases their leases; the outer quiescence wait must drain
+               ;; releases their handles; the outer quiescence wait must drain
                ;; the queued former-owner handoff before baseline comparison.
                (rf/clear-sub-cache! frame-id)))))))
 
@@ -349,7 +349,7 @@
    (ui/raw (React/createElement override-provider-tree nil))
    [override-value {:role "ordinary"}]])
 
-(deftest mounted-override-provider-uses-static-leases-and-restores-lifo
+(deftest mounted-override-provider-uses-static-handles-and-restores-lifo
   (when (browser?)
     (rf/reg-sub ::provider-value (fn [db _] (:provider-value db)))
     (let [f          (rf/make-frame {:initial-events [[:rf/set-db {:provider-value "ordinary"}]]})
@@ -377,19 +377,19 @@
                     override-values
                     (map #(get (reactive/committed-values %) override-k)
                          override-cells)
-                    static-leases
-                    (map #(reactive/committed-lease % override-k)
+                    static-handles
+                    (map #(reactive/committed-handle % override-k)
                          override-cells)
                     ordinary-cell (cell-for sub-key)
-                    node-lease    (reactive/committed-lease ordinary-cell sub-key)]
-                (testing "compiled ui/sub lowered provider hits to real static leases"
+                    node-handle    (reactive/committed-handle ordinary-cell sub-key)]
+                (testing "compiled ui/sub lowered provider hits to real static handles"
                   (is (= 3 (count override-cells)))
                   (is (= {"outer" 2 "inner" 1} (frequencies override-values)))
-                  (is (every? (complement obs/owned?) static-leases))
+                  (is (every? (complement obs/owned?) static-handles))
                   (is (= #{"outer" "inner"}
-                         (set (map (comp :value obs/read) static-leases)))))
+                         (set (map (comp :value obs/read) static-handles)))))
                 (testing "outside the Provider ordinary observation ownership resumes"
-                  (is (obs/owned? node-lease))
+                  (is (obs/owned? node-handle))
                   (is (= 1 (cache-owner-count frame-id)))
                   (vreset! ordinary-rx
                            (:reaction

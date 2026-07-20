@@ -310,7 +310,7 @@ generic React spine. Disposal fences new public Root creation across the complet
 two-phase lifecycle (public-root snapshot drain **and** generic-spine cleanup), snapshots
 one exact generation, and attempts every Root in that snapshot even if a sibling throws.
 It never refreshes the snapshot or chases a same-id replacement it did not acquire. Each exact
-incarnation releases its registry claim, ViewCells, and observation leases at the **settlement
+incarnation releases its registry claim, ViewCells, and observation handles at the **settlement
 boundary** — not merely when the host `.unmount` returns (see [§Public Root teardown lifecycle and
 settlement](#public-root-teardown-lifecycle-and-settlement)); a throwing
 host unmount remains observable but cannot strand siblings. If React consumed a
@@ -403,7 +403,7 @@ Settlement fires in the two cases a cell-connectivity probe would miss:
   on any cell — closing the gap where a cell-connectivity probe mis-read a still-scheduled deferred
   teardown as synchronous and released the claim early.
 - **A throwing host `.unmount`.** The exact generation is force-dead (every cell of that
-  incarnation reaped, its leases released) and the host error rethrows, but `on-settled` is NOT
+  incarnation reaped, its handles released) and the host error rethrows, but `on-settled` is NOT
   fired. The container cannot be proven free in-process, so the claim **fails closed** — quarantined
   `:tearing-down` (`:cleanup-failure?`), never released into a possibly-still-scheduled React
   teardown. A second `unmount!` is a no-op (the tearing-down guard); recovery is a fresh container.
@@ -1204,13 +1204,13 @@ no `:value`/`:version`** for the `:subscription` kind.
   The pinned value rides the target because the value IS the resolution — there is no
   node to re-resolve. Resolution happens **once, at render**; the captured target —
   never a re-resolution — is what commit acquires (load-bearing: commit must not
-  consult context again). An override target acquires no derivation lease and reports
+  consult context again). An override target acquires no derivation handle and reports
   **`:owned? false`** honestly; override changes are a typed render cause; sub
   output-schema validation still applies to override values.
 
 The `site-ctx` carrier — how a compiled site presents ambient frame, pins, and the
 override context to `resolve-target` — is host-internal and not part of the port ABI.
-The ABI is the target/evidence/lease value shapes plus the six operations' semantics.
+The ABI is the target/evidence/handle value shapes plus the six operations' semantics.
 
 ### Probe evidence
 
@@ -1253,12 +1253,12 @@ These are normative (R-2). Each names the bug class it deletes.
    disposal](#reference-counting-and-disposal)) mid-reconciliation. *(Deletes:
    zero-owner disposal churn — dispose-then-rebuild of a node both old and new sets
    use.)*
-4. **Release is synchronous and idempotent.** Releasing a lease detaches ownership
+4. **Release is synchronous and idempotent.** Releasing a handle detaches ownership
    in-tick (the 1 → 0 edge disposes synchronously, per the cache contract), and a second
-   release of the same lease is a no-op. *(Deletes: deferred-release windows; cleanup
+   release of the same handle is a no-op. *(Deletes: deferred-release windows; cleanup
    paths that double-release under error recovery.)*
 5. **Moved evidence corrects before paint.** At commit, **each acquired node** — both
-   the leases **retained** from the prior committed set and the newly **staged** ones —
+   the handles **retained** from the prior committed set and the newly **staged** ones —
    has its identity (`:node-key`), version, and the frame/registry epochs compared against
    the render's probe evidence; any movement in the render→commit gap — including a same-id
    frame **reincarnation** the `:node-key` axis catches when version + epochs coincide —
@@ -1299,10 +1299,10 @@ These are normative (R-2). Each names the bug class it deletes.
 ```clojure
 (resolve-target site-ctx)     ; render: the ONLY resolution point → target
 (probe target ?slice-memo)    ; render: pure evidence read (shape above)
-(acquire! target on-change)   ; commit-only: re-resolves canonical node, +1 owner → lease
-(current? lease target)       ; the commit kept-check, one predicate
-(read lease)                  ; => {:value v :version n :node-key k :frame-epoch fe :registry-epoch re}; typed error after release
-(release! lease)              ; synchronous, idempotent (second call no-ops)
+(acquire! target on-change)   ; commit-only: re-resolves canonical node, +1 owner → handle
+(current? handle target)       ; the commit kept-check, one predicate
+(read handle)                  ; => {:value v :version n :node-key k :frame-epoch fe :registry-epoch re}; typed error after release
+(release! handle)              ; synchronous, idempotent (second call no-ops)
 ```
 
 Mapping onto the cache contract: `acquire!` is the ref-count attach of
@@ -1317,7 +1317,7 @@ The movement-evidence axes are realised as: a per-node observation **version** t
 advances whenever it observes the node's value change by `rf=`; the node's process-unique
 **`:node-key`** identity (the same key `probe` emits — the reincarnation-identity axis);
 the frame's **commit epoch** (one bump per physical frame-state install); and a
-**registry epoch** (one bump per `:sub` registration). `read` on a node lease
+**registry epoch** (one bump per `:sub` registration). `read` on a node handle
 additionally returns the acquired node's `:node-key` and the CURRENT `:frame-epoch` /
 `:registry-epoch` alongside the frozen `{:value v :version n}` keys (**additive** — the
 frozen shape is unchanged), so the commit reconciler's invariant-5 comparison needs no
@@ -1328,18 +1328,18 @@ registry epochs coincide** across the two incarnations — a version+epoch tie
 `dissoc-frame!`'s commit-epoch restart can produce, which a version+epoch-only comparison
 would misread as unchanged.
 
-### Lease semantics
+### Handle semantics
 
-- **The lease IS the owner token.** Leases are opaque host objects with **identity**
-  equality — never `=`. Owners are keyed by lease identity with **per-lease unique
+- **The handle IS the owner token.** Handles are opaque host objects with **identity**
+  equality — never `=`. Owners are keyed by handle identity with **per-handle unique
   callbacks**, which makes the sibling-callback-clobber bug class structurally
   impossible and makes StrictMode's release/reacquire naturally balanced. ⟨S-3
   fixtures 4, 5⟩
 - **`current?`** ≡ not released ∧ node not disposed ∧ same frame ∧ same stabilized
-  query. It is the single commit kept-check: an unchanged live lease is **retained
+  query. It is the single commit kept-check: an unchanged live handle is **retained
   untouched**; a disposed node (HMR), a frame swap, or a restabilized query fails the
   check and classifies the site as retargeted. It is a **pure no-throw predicate** — a
-  value that is not a lease reads `false`, not an error (per
+  value that is not a handle reads `false`, not an error (per
   [§Error contract](#error-contract--internally-fail-loud-publicly-recover-to-nil)).
 - **Read-after-release** throws typed `:rf.error/read-after-release`, always — it is a
   substrate bug, never an app error. It costs nothing: the commit path checks
@@ -1347,14 +1347,14 @@ would misread as unchanged.
   unreachable in correct generated code. ⟨S-3 µ⟩
 - **HMR node replacement.** Sub re-registration disposes the canonical node *then*
   notifies former owners once with cause `:hmr`. Two idempotence extensions carry the
-  whole story: `release!` on a lease whose node was disposed out from under it is a
+  whole story: `release!` on a handle whose node was disposed out from under it is a
   no-op, and `current?` treats a disposed node as "not current", so the next render
   probes fresh and the next commit acquires the new canonical node. No cell can pin a
   disposed node. ⟨S-3 fixture 8⟩
 
-### The static override lease
+### The static override handle
 
-`acquire!` on a `:story-override` target returns a **static lease** — one uniform
+`acquire!` on a `:story-override` target returns a **static handle** — one uniform
 commit path with honest ownership reporting:
 
 - `:owned? false` — tools and instance records show the site as not owning a real
@@ -1375,7 +1375,7 @@ commit path with honest ownership reporting:
   current** and the site retargets through the normal staged path rather than escaping
   the predicate — never weakening the fail-loud contract of the port's non-predicate ops.
 
-*(Shape ruled and final; the lease semantics are pinned by the port's own fixtures, and
+*(Shape ruled and final; the handle semantics are pinned by the port's own fixtures, and
 the Tier-3 mounted Story-context fixture landed with the ViewCell layer.)*
 
 ### Transactional multi-acquire — staging and rollback
@@ -1383,9 +1383,9 @@ the Tier-3 mounted Story-context fixture landed with the ViewCell layer.)*
 Commit's dependency reconciliation is transactional — **binding**:
 
 1. Every newly-observed or retargeted target is acquired **before anything is
-   released** (invariant 3), and the resulting leases are **staged** — provisional,
+   released** (invariant 3), and the resulting handles are **staged** — provisional,
    not yet installed.
-2. **On any acquisition failure**, every newly acquired staged lease is
+2. **On any acquisition failure**, every newly acquired staged handle is
    **synchronously released** — in reverse acquisition order, so layered acquisitions
    unwind symmetrically (the ordering is observable only in dispose traces)
    *(confirmed, S2a: `release!` is identity-guarded and order-independent-safe, and the
@@ -1395,11 +1395,11 @@ Commit's dependency reconciliation is transactional — **binding**:
    published values, the reconcile aborts, and the acquisition's typed error
    propagates.
 3. Only after every staged acquisition has succeeded does commit release the prior
-   leases of dropped/retargeted sites and install retained + staged leases as the
+   handles of dropped/retargeted sites and install retained + staged handles as the
    committed dependency set.
 
 The first-failure case is safe by ordering alone (nothing has been released); the
-k-th-failure case is safe by rollback (staged leases 1..k-1 cannot leak). Nodes shared
+k-th-failure case is safe by rollback (staged handles 1..k-1 cannot leak). Nodes shared
 with the prior committed set survive rollback trivially — their prior owner is still
 attached; nodes created solely by a rolled-back acquisition dispose on their zero-owner
 edge, correctly. A multi-target reconcile-failure fixture at the ViewCell layer is a
@@ -1429,7 +1429,7 @@ generation, checked at **two points**:
    authoritative revision (a same-shell re-registration mid-commit). So commit **re-reads**
    the authority at the narrowest boundary — after all callback-capable work, with nothing
    callback-capable between it and the publish swap — and refuses to publish a stale
-   capture: it releases **only the newly-staged leases** (reverse acquisition order),
+   capture: it releases **only the newly-staged handles** (reverse acquisition order),
    leaves the prior committed set, published values, and lifecycle untouched, and returns
    `:stale`. No revision advances, because the re-registration already notified the shell
    and a fresh render at the new body is inbound.
@@ -1457,14 +1457,14 @@ Conservative rules written ahead of S-3 exercise, now confirmed by the S2a
 implementation:
 
 - `acquire!` and `release!` themselves **never invoke `on-change` synchronously** — no
-  fan-out during acquire/release. Acquire returns state via the lease; movement in the
+  fan-out during acquire/release. Acquire returns state via the handle; movement in the
   render→commit gap is the commit evidence comparison's job (invariant 5), not a
   callback's. *(Confirmed, S2a — watch registration never fires synchronously and the
   release path removes the watch before the decrement; fixture-pinned.)*
 - **HMR-disposal notifications queue.** The dispose-then-notify-once-with-cause-`:hmr`
   ordering IS S-3-validated; the delivery turn is: the notification rides the same
   constant-work mark-dirty path, queued at dispose, and is flushed at the notification
-  boundary the re-registration closes — coalesced once per lease, never delivered
+  boundary the re-registration closes — coalesced once per handle, never delivered
   mid-registry-mutation. *(Confirmed, S2a — the queue drains at the port's registrar
   replacement hook, which by require order runs strictly after the cache invalidation
   hook, i.e. after the registry mutation and cache eviction complete; non-registrar
@@ -1477,10 +1477,10 @@ The port and the public read API split deliberately — **binding**:
 
 - **The port is fail-loud everywhere except its two predicates.** Every port operation
   that can fail throws typed, with one deliberate exception: the kept-check predicates
-  **`current?` and `owned?` are total and never throw**. Handed a released lease, a
-  disposed node, or a value that is not a lease at all, each returns `false` rather than
-  field-accessing the lease state and leaking a raw host error (a JVM `NullPointerException`,
-  a CLJS `TypeError`) — a value that is not a live node lease is simply not current, and
+  **`current?` and `owned?` are total and never throw**. Handed a released handle, a
+  disposed node, or a value that is not a handle at all, each returns `false` rather than
+  field-accessing the handle state and leaking a raw host error (a JVM `NullPointerException`,
+  a CLJS `TypeError`) — a value that is not a live node handle is simply not current, and
   owns no node. `current?` is total across its comparisons too: the tokens it weighs —
   a static override's opaque `:override-id`/`:version`, a subscription query's app args —
   are **app-supplied, so their host equality may throw**; a comparison that cannot
@@ -1502,9 +1502,9 @@ The port and the public read API split deliberately — **binding**:
     malformed query-vector, validating the query's shape before it inspects the query
     or mints a target: the port's only resolution point cannot hand back a target its
     own consumers would reject.
-  - `:rf.error/observation-malformed-lease` — a value that is not an `ObservationLease`,
-    at `read` or `release!` — the two operations that deref the lease state. This is the
-    lease-side sibling of the malformed-target category, and the boundary the predicates
+  - `:rf.error/observation-malformed-handle` — a value that is not an `ObservationHandle`,
+    at `read` or `release!` — the two operations that deref the handle state. This is the
+    handle-side sibling of the malformed-target category, and the boundary the predicates
     above are exempt from.
   - `:rf.error/read-after-release` (always), `:rf.error/reentrant-graph-op` (dev),
     `:rf.error/observation-retry-exhausted` (`acquire!` exhausting its bounded
@@ -1512,7 +1512,7 @@ The port and the public read API split deliberately — **binding**:
     `:rf.error/observation-port-version-mismatch` (the ABI load guard).
 
   The two `observation-malformed-*` categories are **diagnostic-channel only**: a
-  malformed target or lease is a substrate bug unreachable in correct generated code,
+  malformed target or handle is a substrate bug unreachable in correct generated code,
   not a production condition an off-box shipper acts on, so neither fans the always-on
   error-emit axis the way the entry-condition categories do. Both carry bounded,
   normalized structural evidence — a kind class, a key count, an offending host type —
@@ -1545,7 +1545,7 @@ The port and the public read API split deliberately — **binding**:
   are first-class, so both temperatures recover identically. Port-entry conditions
   remain fail-loud.)*
 - **`acquire!` fails loud when the ENTRY node's own build cannot cache.** `acquire!` IS
-  the ref-count **attach** ([§The port operations](#the-port-operations-final)) — it must return a lease over a REAL cached node holding a
+  the ref-count **attach** ([§The port operations](#the-port-operations-final)) — it must return a handle over a REAL cached node holding a
   real reference. Three build outcomes hand back a **non-nil but never-cached, zero-ref
   recovery reaction** instead of a canonical node: a **cyclic entry sub** (the target's
   own query sits on a `:<-` cycle, so the build recovers to a nil-yielding reaction that
@@ -1554,12 +1554,12 @@ The port and the public read API split deliberately — **binding**:
   producers](#subscription-input-producers--app-db-reader-static-parametric-input-fn)), and a **frame destroyed mid-build** (the frame's cache vanished between the
   port's liveness check and the build's cache-install step — the JVM race). In every
   case there is **no node to own**, so `acquire!` is **fail-loud** and throws the typed
-  error mirroring the condition rather than lease a reaction that owns nothing:
+  error mirroring the condition rather than handle a reaction that owns nothing:
   `:rf.error/sub-cycle` (cyclic entry sub), `:rf.error/sub-input-fn-exception` /
   `:rf.error/sub-input-fn-bad-return` (parametric failure), `:rf.error/frame-destroyed`
   (mid-build destroy race — the same catalogue id and throwing surface a
-  destroyed-frame entry already uses). **The invariant is binding: a lease MUST NOT
-  report `owned?` true without a real cache ref + attach** — a lease that claims
+  destroyed-frame entry already uses). **The invariant is binding: a handle MUST NOT
+  report `owned?` true without a real cache ref + attach** — a handle that claims
   ownership of an uncached zero-ref reaction is `current? false` from birth, so every
   commit retargets and rebuilds a fresh orphan + node record + disposal hook and
   re-emits — structural churn instead of one honest typed throw. (rf2-vxgfnd.27.)
@@ -1581,7 +1581,7 @@ The port and the public read API split deliberately — **binding**:
     against the targeted frame's **incarnation token** (captured while the frame is
     verified live): on a still-live incarnation it **retargets** to the current canonical
     node by re-running the acquire — a **bounded** retry gated on the incarnation staying
-    live, so it converges on a canonical current lease (no false frame-destroyed, no
+    live, so it converges on a canonical current handle (no false frame-destroyed, no
     leaked displaced reaction) and cannot spin forever under repeated HMR; only a
     nil/changed incarnation is the mid-build destroy race that fans + throws
     `:rf.error/frame-destroyed`. The retry preserves the no-synchronous-`on-change`
@@ -1625,9 +1625,9 @@ port fires while draining queued HMR / disposal notifications
 consumer defect. This clause is **binding** (rf2-6ui49w + rf2-wbkjk9 + rf2-q3fmqm +
 rf2-w55bh0):
 
-- **Containment (full sibling drain).** Each queued lease's notification runs inside its
+- **Containment (full sibling drain).** Each queued handle's notification runs inside its
   **own** `try/catch`, so one owner's throwing `on-change` never starves its siblings —
-  every still-live lease in the drain is notified. This mirrors the registrar's per-hook
+  every still-live handle in the drain is notified. This mirrors the registrar's per-hook
   and the sub-cache's per-reaction dispose containment; it closes the one uncontained
   fan-out (rf2-vxgfnd.28).
 - **Exact-once surfacing past a swallowing boundary.** Both real drain boundaries
@@ -1648,7 +1648,7 @@ rf2-w55bh0):
   never `:rf.error/id` truthiness or a reconstructible ex-data shape, never a global
   seen-error registry (rf2-w55bh0):
   - **Already covered on the always-on axis** — the port's own emit-then-throw surfaces
-    that fanned through `emit-error-both!` (`read` on a released lease, the fail-loud
+    that fanned through `emit-error-both!` (`read` on a released handle, the fail-loud
     probe/acquire throws, the ABI guard, the retry-exhausted throw, the acquire-recovery
     input-fn arms). Their record IS the exactly-once emission and carries the **source's**
     correct attribution, so the drain adds **nothing** on either channel — no
@@ -1656,7 +1656,7 @@ rf2-w55bh0):
   - **Not covered on the always-on axis** — a source that emitted **only** on the
     diagnostic trace axis (the production-elided `:rf.error/sub-cycle`), a diagnostic-only
     thrown category with no fan of its own (`:rf.error/observation-malformed-target` /
-    `…-malformed-lease` / the dev `:rf.error/reentrant-graph-op` assert), a raw untyped
+    `…-malformed-handle` / the dev `:rf.error/reentrant-graph-op` assert), a raw untyped
     consumer bug (`TypeError` / `AssertionError` / host `RuntimeException`), or an
     application ex-info **spoofing** a framework category — all read FALSE. Production
     observability is still owed, so the drain adds **exactly one** stable catalogued
@@ -2093,7 +2093,7 @@ Both impls share the dynamic-var tier (`re-frame.frame/*current-frame*`, set by 
 > the render pass consults the override context **once per site, at render**, and a HIT
 > resolves the site's captured target to `{:kind :story-override …}` — the pinned value
 > rides the target — instead of a real sub-cache node. Commit acquires that exact
-> captured target as a **static lease** (`:owned? false` reported honestly, `read`
+> captured target as a **static handle** (`:owned? false` reported honestly, `read`
 > yields the pinned value, `release!` no-ops, no callback) — there is no deref-time
 > re-consult and no constant reaction. Everything else in this section is unchanged and
 > applies to both mechanisms: the honesty boundary (an override NEVER reaches

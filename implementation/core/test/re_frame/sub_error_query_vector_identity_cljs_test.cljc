@@ -136,7 +136,7 @@
 ;; 2. Every query-vector-bearing category — enumerated STRUCTURALLY, not by a
 ;;    `sub-*` prefix. Includes the two observation-port categories the bead did
 ;;    NOT name (`:rf.error/read-after-release`,
-;;    `:rf.error/observation-retry-exhausted`) but which pass the lease's query
+;;    `:rf.error/observation-retry-exhausted`) but which pass the handle's query
 ;;    vector on a LIVE frame — found by reading the emit sites.
 ;; ---------------------------------------------------------------------------
 

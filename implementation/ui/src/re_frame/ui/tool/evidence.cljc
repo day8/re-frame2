@@ -952,7 +952,7 @@
 ;; lifecycle-fact log. Those live on the ViewCell (03 §4). Projecting them HERE —
 ;; where the engine already holds the cell behind its non-owning weak key — keeps
 ;; the public facade handle-free: only the ordinal, the authoring view id, and
-;; bounded serializable data ever egress. No ViewCell, lease, or React object.
+;; bounded serializable data ever egress. No ViewCell, handle, or React object.
 
 (def ^:private lifecycle-interval-keys
   ;; The serializable lifecycle-fact keys (03 §4). `:state` is the EMITTED runtime
@@ -998,7 +998,7 @@
   never enrols, so nothing here is fabricated. A currently-connected cell reads
   `:connection :connected`; an Activity-hidden cell the tool deliberately retains
   reads `:connection :disconnected` and carries the honest hide-vs-unmount
-  interval labels (rf2-un54gv / 03 §4). No ViewCell, lease, or React object
+  interval labels (rf2-un54gv / 03 §4). No ViewCell, handle, or React object
   egresses — only the ordinal, the view id, and bounded serializable data. nil in
   a production build, where the debug evidence plane is elided."
   []

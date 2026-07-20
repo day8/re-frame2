@@ -71,7 +71,7 @@
     (is (= :md (:default (:size by-key))) "…and the per-prop default")
     (is (true? (:optional? (:size by-key))))))
 
-(deftest real-sub-lease-and-event-sites-project-with-honesty
+(deftest real-sub-handle-and-event-sites-project-with-honesty
   (let [rid (:reactive ids)]
     (testing "site counts reflect the real emission"
       (let [vm (tool/view-manifest rid)]

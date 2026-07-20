@@ -29,7 +29,7 @@
   cases (28 views, incl. the S4 presence / custom-element rows — for custom
   elements, the tag / children / non-property attrs; see the property-prop
   note by `render-case`). What it does NOT cover: mounted production-wrapper
-  BEHAVIOUR (retention timers, event targets, sub/lease ownership, cleanup)
+  BEHAVIOUR (retention timers, event targets, sub/handle ownership, cleanup)
   and custom-element DOM property APPLICATION — Layer 2, owned by the S6 leaf
   rf2-55zsd (per-wrapper mounted causal fixtures).
 

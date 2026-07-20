@@ -3,7 +3,7 @@
   ADVANCED production bundle.
 
   This is NOT one of the host-render `cond` wrapper shapes rf2-55zsd enumerated
-  (those select the frame/sub/lease/event ViewCell carriage) — it is orthogonal
+  (those select the frame/sub/handle/event ViewCell carriage) — it is orthogonal
   DOM emission: the `attr-pair` `:property` branch in
   `re-frame.ui.compiler.emit_cljs` (\"properties pass through\") lowers a DECLARED
   `:properties` name to its camelCase JS property spelling as a STRING key and

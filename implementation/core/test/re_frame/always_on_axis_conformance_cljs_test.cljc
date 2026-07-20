@@ -193,7 +193,7 @@
     ;; PR). Both are THROWING port surfaces that fan the always-on record
     ;; through `emit-error-both!` → `dispatch-on-error!` BEFORE the typed
     ;; throw, so a boundary-swallowed throw still reaches off-box shippers:
-    ;; `read-after-release` is the substrate-bug read of a released lease
+    ;; `read-after-release` is the substrate-bug read of a released handle
     ;; (armed in production); `observation-port-version-mismatch` is the
     ;; R-6 lockstep ABI boot guard (`assert-port-abi-version!`). The port's
     ;; own suite (`observation_port_cljs_test.cljc`) pins the real emit
@@ -211,7 +211,7 @@
     ;;
     ;; rf2-6ui49w: an UNTYPED throwable escaping a former-owner `on-change`
     ;; callback during the observation port's HMR / disposal notification drain
-    ;; (`drain-pending-disposals!`) was contained per-lease + re-thrown after the
+    ;; (`drain-pending-disposals!`) was contained per-handle + re-thrown after the
     ;; drain, but BOTH real boundaries discard that rethrow (registrar's per-hook
     ;; catch on the `:hmr` path, an unobserved next-tick Future on `:disposed`),
     ;; so an untyped consumer-callback bug vanished silently. The port now wraps

@@ -104,7 +104,7 @@
   (rf/reg-sub :obs/n (fn [db _] (:n db)))
   (rf/reg-event :obs/set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)})))
 
-;; The subscription target-key the ViewCell projects committed leases/values by
+;; The subscription target-key the ViewCell projects committed handles/values by
 ;; (`re-frame.ui.reactive/target-key` of a `[:sub fid query]` target).
 (defn- tk [q] [:sub fid q])
 
@@ -158,7 +158,7 @@
 
 ;; ONE movement at the mount. `dispatch-sync` moves app-db inside React `act`;
 ;; `ratom/flush!` then drains Reagent's queue so the WATCHED sub Reaction
-;; re-runs and notifies its watchers (the port's per-lease watch among them).
+;; re-runs and notifies its watchers (the port's per-handle watch among them).
 ;; `uit/flush!` alternates framework notification and React commits to a fixed
 ;; point, so any render the movement EARNED has committed by the time the
 ;; returned Promise resolves — and a movement that earned none has provably
@@ -196,7 +196,7 @@
                      cell              (first mounted)
                      reaction          (node-reaction)
                      [nan-hits nan-rm] (install-nan-sentinel! reaction)
-                     ;; An INDEPENDENT probe lease on the SAME node: its
+                     ;; An INDEPENDENT probe handle on the SAME node: its
                      ;; `on-change` is the `{:cause :value}` note channel that
                      ;; the mounted cell's own (cell-dirtying) `on-change`
                      ;; cannot surface. Same port, same node, same notify sweep
@@ -216,9 +216,9 @@
                        "the compiled sub-reading view mounted exactly one ViewCell")
                    (is (satisfies? IWatchable reaction)
                        "the mounted cell reads a Reagent Reaction — an IWatchable host,
-                        so the port armed its per-lease value-movement watch")
-                   (is (obs/owned? (reactive/committed-lease cell (tk [:obs/n])))
-                       "…through a REAL owned observation lease taken by the mounted commit")
+                        so the port armed its per-handle value-movement watch")
+                   (is (obs/owned? (reactive/committed-handle cell (tk [:obs/n])))
+                       "…through a REAL owned observation handle taken by the mounted commit")
                    (is (nan-num? (get (reactive/committed-values cell) (tk [:obs/n])))
                        "the mounted cell committed the host's NaN")
                    (is (= "NaN" (mounted-text root))

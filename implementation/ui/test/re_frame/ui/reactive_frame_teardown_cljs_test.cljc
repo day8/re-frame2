@@ -5,7 +5,7 @@
   `:ui/on-frame-destroyed!` (registered in `re-frame.ui.frames`), which sweeps
   every currently-connected ViewCell whose retained subscription targets OR
   resource-incarnation records name the destroyed frame (resource ownership is
-  not read observation) to `:dead` (03 §4 dead-cell lifecycle): leases detached,
+  not read observation) to `:dead` (03 §4 dead-cell lifecycle): handles detached,
   pending notification dropped, the retained interval proven an unmount
   (`:unmounted {:proof :host-teardown}`).
 
@@ -152,15 +152,15 @@
         "a frame-destroy under a mounted cell proves the interval an unmount
          (03 §4 — :unmounted {:proof :host-teardown})")))
 
-(deftest frame-destroy-detaches-leases-and-drops-pending
+(deftest frame-destroy-detaches-handles-and-drops-pending
   (rf/reg-sub :td/a (fn [db _] (:a db)))
   (let [fid  (make-frame! :td/frame {:a 1})
         cell (render+commit! (reactive/make-cell ::v) fid [[:td/a]])
         rev0 (reactive/revision cell)]
     (frame/destroy-frame! fid)
-    (testing "the dead cell holds no leases and no pending notification"
+    (testing "the dead cell holds no handles and no pending notification"
       (is (empty? (reactive/committed-target-keys cell))
-          "teardown detached every committed lease")
+          "teardown detached every committed handle")
       (is (false? (reactive/dirty? cell))
           "no stale pending notification lingers in the dirty registry"))
     (testing "a flush cannot re-render the dead cell into a port throw"
@@ -207,7 +207,7 @@
       (is (= :connected (reactive/lifecycle cell-b))
           "a cell observing a DIFFERENT live frame is untouched")
       (is (= 1 (ref-count fb [:td/a]))
-          "the sibling frame's lease is neither released nor churned")
+          "the sibling frame's handle is neither released nor churned")
       (is (reactive/cell-observes-frame? cell-b fb)))
     (testing "the sibling frame still reads live"
       (is (= 2 (first (rf/with-frame fb

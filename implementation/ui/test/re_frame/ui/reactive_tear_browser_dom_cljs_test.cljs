@@ -15,7 +15,7 @@
   observation port → ViewCell → `useSyncExternalStore` → React —
   under the WATCHABLE first-party `re-frame.ui` adapter, whose derived
   values are `IWatchable`, so a sub value-movement fires the
-  port's per-lease `on-change` watch — the real trigger of the tear the
+  port's per-handle `on-change` watch — the real trigger of the tear the
   .40 fix addresses. Two sibling ViewCells share one sub
   (each `defview` instance owns its own `useSyncExternalStore`); one
   `dispatch-sync` drains a parent plus eight queued events (each runs its
@@ -61,7 +61,7 @@
   (and (exists? js/document) (some? (.-createElement js/document))))
 
 ;; The WATCHABLE first-party adapter makes a sub value-movement fire the
-;; observation port's per-lease `on-change` watch — the watch-fired
+;; observation port's per-handle `on-change` watch — the watch-fired
 ;; invalidation the .40 fix targets. `:ambient-frame nil` opts out of the
 ;; fixture's default ambient scope so the compiled views resolve their frame
 ;; ONLY from the enclosing `frame-provider`, across async re-renders too.
@@ -152,7 +152,7 @@
           (is (= [1 1] @leaf-render-values)
               "initial mount rendered each sibling exactly once")
           ;; MOVE the sub through eight queued events (update + commit each) in one
-          ;; synchronous drain. Each move fires each lease's `on-change`, but
+          ;; synchronous drain. Each move fires each handle's `on-change`, but
           ;; dirty-cell identity dedup arms ONE microtask read/render pass; no
           ;; event causes its own render.
           (rf/dispatch-sync [:rf.tear/burst] {:frame frame-kw})

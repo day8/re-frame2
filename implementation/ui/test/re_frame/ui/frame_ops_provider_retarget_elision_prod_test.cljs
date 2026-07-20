@@ -7,13 +7,13 @@
   every view onto the stable `render-dev` superset, so a dev fixture cannot
   exercise it). Here:
 
-    - a FRAME-ONLY view (`(frame)`, no sub, no lease) compiles to
+    - a FRAME-ONLY view (`(frame)`, no sub, no handle) compiles to
       `viewcell/render-frame` — a real frame-context consumer;
-    - a SUB-ONLY view (a `sub`, no `(frame)`, no lease) compiles to
+    - a SUB-ONLY view (a `sub`, no `(frame)`, no handle) compiles to
       `viewcell/render-subs`, which ALSO consumes the frame context because its
       sub target resolves against the ambient frame (rf2-vxgfnd.253);
     - a `(frame)`+`sub` view compiles to the SAME `viewcell/render-subs` — the
-      `-frame` variants collapsed once sub/lease wrappers consume context
+      `-frame` variants collapsed once sub/handle wrappers consume context
       unconditionally;
     - a genuinely frame-INDEPENDENT view compiles to the inert direct
       `React.memo` path and must NOT re-render on a provider retarget.
@@ -22,8 +22,8 @@
   `host-render` cond routes the frame-only view back to the inert path, and
   removing the leading `use-frame-context!` from `render-subs` stops the
   sub-only / `(frame)`+`sub` views consuming context — either way those views
-  memo-bail the retarget and the B-resolution assertions go red. The lease
-  wrappers' twin lives in `ambient-lease-provider-retarget-elision-prod-test`."
+  memo-bail the retarget and the B-resolution assertions go red. The handle
+  wrappers' twin lives in `ambient-handle-provider-retarget-elision-prod-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react-dom" :as ReactDOM]
             [re-frame.core :as rf]
@@ -67,7 +67,7 @@
     [:output {:data-role "prod-frame-sub"} (str frame "=" n)]))
 
 (defview prod-sub-only
-  "A `sub`, NO `(frame)`, no lease → render-subs. Its sub target resolves
+  "A `sub`, NO `(frame)`, no handle → render-subs. Its sub target resolves
   against the AMBIENT frame, so a provider retarget must repaint it to B and
   detach A even though it never names the frame (rf2-vxgfnd.253)."
   []
@@ -76,7 +76,7 @@
     [:output {:data-role "prod-sub-only"} (str n)]))
 
 (defview prod-independent
-  "No (frame), no sub, no lease → inert direct React.memo path."
+  "No (frame), no sub, no handle → inert direct React.memo path."
   []
   (let [_ (tick-independent!)]
     [:output {:data-role "prod-independent"} "static"]))
