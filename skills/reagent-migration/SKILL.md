@@ -52,7 +52,7 @@ This skill is **not** on anyone's critical path. Three facts frame every use:
 1. **It is OPTIONAL and SECOND.** The migration journey is two moves, in order:
    - **(1) re-frame v1 → re-frame2** — the *required* foundation, owned by the **[`re-frame-migration`](../re-frame-migration)** skill. This moves events, subscriptions, `app-db`, effects, and boot. It leaves your **views on Reagent** via the fully-supported Reagent adapter.
    - **(2) Reagent views → re-frame.ui** — *this* skill. Optional. Do it only *after* (1), and only if you specifically want the compiled-view substrate.
-2. **re-frame.ui is EXPERIMENTAL.** Say so to the author plainly; do not oversell it. Parts of it are still staged (the outward `ui/->react` bridge, an explicit-frame `sub` pin). This skill names those gaps honestly and tells the author to keep the affected views on Reagent, or wait.
+2. **re-frame.ui is EXPERIMENTAL.** Say so to the author plainly; do not oversell it. Parts of it are still staged (an explicit-frame `sub` pin). This skill names those gaps honestly and tells the author to keep the affected views on Reagent, or wait.
 3. **Staying on Reagent views is a FIRST-CLASS, fully-supported choice.** A re-frame2 app running Reagent views through the Reagent adapter is a complete, supported configuration — not a half-migrated one. The Reagent adapter is actively maintained and lives on alongside `re-frame.ui`. **Never imply the author "should" move to `re-frame.ui`.**
 
 **When to use this skill (narrow and self-limiting):** the author is *already on re-frame2*, and *specifically wants to trial the experimental `re-frame.ui` substrate* for some or all of their views. That is the whole trigger. Anything short of both halves → they stay on Reagent, and this skill has no job.
@@ -81,7 +81,7 @@ The rule catalog is split three ways by **what you do with the rule**, not by co
 
 - **[`references/catalog-mechanical.md`](references/catalog-mechanical.md) — M-tier ("do this").** Unambiguous, safe, observably-identical rewrites with a before→after for each: `reg-view`/Form-1 → `ui/defview` (MIG-01), deref-drop (MIG-02), dispatch-lifting + `%`-extraction + `preventDefault` (MIG-04/05/06), key-meta → prop (MIG-07), foreign heads (MIG-09), prop respelling (MIG-11), `doall` strip (MIG-12), plain hiccup pass-through (MIG-14), mount (MIG-15), ns requires (MIG-24), callback ref → `ui/raw-fn` (MIG-29), `capture-frame` → `(frame)` (MIG-31), compiled `route-link` (MIG-32), adapter boot (MIG-33), `dangerouslySetInnerHTML` → `ui/html` (MIG-34). Apply these directly.
 - **[`references/catalog-judgment.md`](references/catalog-judgment.md) — D-tier ("here's how to DECIDE").** The cases that earn the skill its keep: view-local state (MIG-16 Form-2/`with-let`), lifecycle (MIG-17 Form-3), non-conforming `:on-*` handlers (MIG-18), SSR path routing (MIG-23), derived state (MIG-19 `track`/`cursor`/`reaction`), the ratom-as-store restructure (MIG-20), computed DOM props + the bare-symbol trap (MIG-28), third-party Reagent wrappers (MIG-22), and the callback-prop / loop-key / foreign-boundary decisions (MIG-27/08/10/13/30/03/26). For each: the *decision* the AI makes, not a flag.
-- **[`references/catalog-reject.md`](references/catalog-reject.md) — R-tier ("don't migrate this — stay on Reagent, or wait").** The honesty backbone. Genuine rejects with no compiled equivalent (Reagent introspection/scheduler MIG-35, dynamic tag heads MIG-21, effectful sub bodies MIG-25) **and** the experimental capability gaps that remain unshipped (the outward `ui/->react` bridge, the explicit-frame arity-1 `sub` pin MIG-03). This list is what makes the migration honest: some views should not move yet.
+- **[`references/catalog-reject.md`](references/catalog-reject.md) — R-tier ("don't migrate this — stay on Reagent, or wait").** The honesty backbone. Genuine rejects with no compiled equivalent (Reagent introspection/scheduler MIG-35, dynamic tag heads MIG-21, effectful sub bodies MIG-25) **and** the experimental capability gaps that remain unshipped (the explicit-frame arity-1 `sub` pin MIG-03). This list is what makes the migration honest: some views should not move yet.
 
 ## The procedure (incremental)
 
@@ -115,7 +115,7 @@ Hand off: *"Views migrated to `re-frame.ui` where it made sense; the rest stay o
 - **Don't sell re-frame.ui as required or production-ready.** It is experimental and optional; the Reagent adapter is a first-class, supported home for views indefinitely.
 - **Don't half-migrate a view** (cardinal rule 2) — coherence over coverage.
 - **Don't auto-spread a bare symbol child** (`[:li item]`) — it is content, not props (the bare-symbol trap).
-- **Don't emit a staged form** for a gap that hasn't shipped (the `ui/->react` bridge, the `sub` frame-pin) — name the gap and hold the view on Reagent.
+- **Don't emit a staged form** for a gap that hasn't shipped (the `sub` frame-pin) — name the gap and hold the view on Reagent.
 - **Don't reach into the dataflow layer** — name the `reg-sub`/event the view needs; let the author write it (cardinal rule 5).
 
 ---

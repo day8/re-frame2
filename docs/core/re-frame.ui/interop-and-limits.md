@@ -85,6 +85,43 @@ Real apps embed React that someone else wrote. The doors are explicit and narrow
   `effect` are the component story. See the
   [`re-frame.ui.react` reference](../../api/re-frame.ui.react.md).
 
+### Exporting a view outward: `ui/->react`
+
+`ui/raw` embeds foreign React *inward*; `ui/->react` is the reverse — it exports a
+compiled view *outward* as a React component a legacy or foreign React/UIx/Helix
+tree can render. It is the incremental-adoption bridge: migrate a leaf or a panel
+to `defview` and drop it into the shell you have not migrated yet.
+
+```clojure
+;; Once, at the boundary — `cart-row` is an ordinary defview:
+(def CartRow (ui/->react cart-row))
+
+;; Then, in the foreign React/UIx/Helix parent, render it like any component:
+;;   <CartRow frame={the-frame} item={row} />
+```
+
+The bridge is deliberately thin:
+
+- **Memoised per view identity** — repeated `(ui/->react cart-row)` returns the
+  *same* component object, so a foreign parent re-render never remounts the
+  exported subtree.
+- **No new React root, no manifest, no preflight** — the exported subtree renders
+  inside the root the foreign parent owns. Frame *creation* stays with your app's
+  boot/event code; an exported view only *scopes* and *resolves* frames.
+- **The frame** comes from the ambient chain — a `frame-provider`/`frame-root`
+  above it in the tree (they share one React context object across substrates) —
+  or from a **supplied `frame` prop** (a frame-id keyword or a live frame value),
+  which scopes the subtree without owning it. With neither, a frame-scoped read
+  fails loud with `:rf.error/no-frame-context` — never a silent default.
+- **One shallow props rule** — each prop the parent passes maps to the view's
+  prop-ABI slot by exact name (write the slot names directly from a JS codebase);
+  `children` and `ref` pass through preserved. Only the reserved `frame` prop is
+  consumed by the bridge. There is no camelisation and no deep conversion.
+
+SSR is not supported through the outward bridge in v1 (a compiled component is not
+renderable on a legacy server path); render a placeholder container server-side and
+let the subtree mount client-side, or migrate that page's whole root to a `ui` root.
+
 ### Library render slots
 
 When a reusable view accepts *parameterised markup* — a row renderer, a cell
@@ -164,9 +201,6 @@ island behind a thin `ui/raw` boundary, not a `defview` full of runtime structur
 
 Honesty about what is *not* here yet, so you don't hunt for it:
 
-- **`ui/->react`** — export a view as a React component for incremental migration
-  into a React codebase. **Planned for a later stage; not shipped.** Don't build
-  against it today.
 - **`ui/element`, `ui/view`, `ui/portal`, `re-frame.ui.data/render`** — a
   runtime-chosen head, a registry-addressed component, a portal, the data
   interpreter. **Wave-2: not in v1**, gated behind demand. `ui/raw` covers

@@ -33,7 +33,14 @@
   Passive `use-effect` stays the home for listeners and deferrable work.
 
   The six hook vars exist for symbol resolution only; a direct call fails
-  loudly. The compiler rewrites the authored form to the lowered runtime call."
+  loudly. The compiler rewrites the authored form to the lowered runtime call.
+
+  The OUTWARD bridge `ui/->react` (rf2-u53yy.2) — a compiled view exported as a
+  React component for a foreign React/UIx/Helix parent — is the outward
+  counterpart to `ui/raw`. Its public authoring name is `re-frame.ui/->react`
+  and its CLJS runtime lives in `re-frame.ui.runtime/->react-component` (kin to
+  the other facade/emitter runtime helpers); it is not part of this resolution
+  tier's `react/*` call surface."
   (:refer-clojure :exclude [lazy])
   #?(:cljs (:require-macros [re-frame.ui.react]))
   (:require [re-frame.error :as error]

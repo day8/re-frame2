@@ -179,7 +179,7 @@ dispatch `(conj prefix payload…)`.
 | `ui/slot` | compiler-owned invocation of `ui/render-fn` values at **internal** render seams (row/cell/part renderers): only `render-fn` or `nil`; body compiled under the closed grammar, pure render phase; keys/fingerprints/`ui.test` structure preserved | shipped (S3–S4; delta #4) |
 | `ui/client-only` | mandatory capability-free fallback; one root phase-flip | shipped (S3); the phase flip completes S5 |
 | `ui/error-boundary` | the explicit error component — catches render/lifecycle throws; `:on-error` dispatches after the failing commit; `:reset-key` clears | shipped (S3) |
-| `ui/->react` | the outward migration bridge (export a view as a React component) | v1; lands S6 (delta #2) |
+| `ui/->react` | the outward migration bridge (export a view as a React component) — memoised per view identity; scopes a supplied frame without owning it; no root/manifest/preflight; one shallow props rule (children + ref preserved) | shipped (S6 delta #2; rf2-u53yy.2 — ahead of the migration wave) |
 | `ui/element` / `ui/view` / `ui/portal` / `re-frame.ui.data` | wave-2, demand-gated — no v1 existence. General `ui/element` is rejected outright; `ui/view` stays gated on an open-set-identity trigger; `ui/portal` is covered in part by the inline + top-layer overlay plan (EP-0035 records the rulings) | — |
 
 The foreign-React hook tier (`re-frame.ui.react`, seven wrappers) belongs to

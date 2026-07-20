@@ -26,7 +26,7 @@ The rule table is itself verified against these; the skill is downstream of that
 - **`spec/004-Views.md`** — the compiled-view output-template grammar, the handler law, the removed forms, `ui/defview`, `sub`, `local`, `effect`, the handler forms.
 - **`spec/004B-UI-Tree-and-Conversion.md`** — prop-spelling / conversion legality (the MIG-11 name table, the `ui/html` node form, `ui/spread` conversion).
 - **`spec/004C-Roots-and-Mount.md`** — the mount grammar and root identity (MIG-15/33).
-- **`implementation/ui/src/re_frame/ui.cljc`** — the shipped export surface. A rewrite target is only emitted if it is exported here; staged-but-unshipped surfaces (the `ui/->react` bridge, the `sub` frame-pin) are named as gaps, never emitted. (SSR `render-static`/`hydrate-root` and compiled `route-link` are exported here and so are real transforms.)
+- **`implementation/ui/src/re_frame/ui.cljc`** — the shipped export surface. A rewrite target is only emitted if it is exported here; staged-but-unshipped surfaces (the `sub` frame-pin) are named as gaps, never emitted. (SSR `render-static`/`hydrate-root`, compiled `route-link`, and the outward `ui/->react` bridge are exported here and so are real transforms.)
 
 ## 4. Tertiary inputs (shape the discipline, not quoted)
 
@@ -46,5 +46,5 @@ When the framework's `MIG` rule table changes:
 
 1. **A rule's tier changes** (M↔D↔R) → move its treatment between `catalog-mechanical` / `catalog-judgment` / `catalog-reject`, and re-check `procedure.md`'s gate list.
 2. **A new rule is added** → add a before→after (M) or a decision (D) or a hold (R) to the matching catalogue, and add a fixture-grounded eval if it exercises a new class.
-3. **A staged capability SHIPS** (the remaining gaps are `ui/->react` and the `sub` frame-pin; SSR `render-static`/`hydrate-root` and compiled `route-link` already made this move) → move it out of `catalog-reject.md`'s capability-gap section into the mechanical/judgment catalogue with its now-real target, and update the staged-gap gotcha. **Verify against `ui.cljc`'s exports before trusting a "shipped" claim** — the staged-target caveat is a claim about that file.
+3. **A staged capability SHIPS** (the remaining gap is the `sub` frame-pin; SSR `render-static`/`hydrate-root`, compiled `route-link`, and the outward `ui/->react` bridge already made this move) → move it out of `catalog-reject.md`'s capability-gap section into the mechanical/judgment catalogue with its now-real target, and update the staged-gap gotcha. **Verify against `ui.cljc`'s exports before trusting a "shipped" claim** — the staged-target caveat is a claim about that file.
 4. **The shipped export surface changes** → re-verify every emitted target against `implementation/ui/src/re_frame/ui.cljc`.

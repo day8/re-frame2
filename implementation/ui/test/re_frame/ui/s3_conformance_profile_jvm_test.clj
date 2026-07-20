@@ -163,7 +163,11 @@
      presence presence-phase
      ;; S5 render-static (rf2-oo5lb): the pure :server static-HTML render macro —
      ;; not part of the S3 surface (the S4 guard partitions it into its S5 bucket)
-     render-static})
+     render-static
+     ;; S6 ->react (rf2-u53yy.2): the OUTWARD interop bridge — export a compiled
+     ;; view as a foreign React component. Not part of the S3 surface; CLJS
+     ;; delegates to re-frame.ui.runtime/->react-component, a JVM call is a host-op
+     ->react})
 
 ;; The S3-specific gate arms this profile certifies (07 §5 / EP-0034 §4): every
 ;; verb gate PLUS the two non-verb S3 arms — G-11 (HMR shell + view-evidence /

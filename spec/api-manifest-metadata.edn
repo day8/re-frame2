@@ -300,10 +300,10 @@
   ;;     Hence :runtime-verified? true. The later-stage verbs named here when
   ;;     this note was written have since SHIPPED and are rowed below —
   ;;     local / effect / dispatch-fn (S3), error-boundary / client-only (S3),
-  ;;     presence / presence-phase (S4). `->react` (S6) is the ONE remaining
-  ;;     spec/API.md §Compiled views verb with no live Var, so it is the only
-  ;;     re-frame.ui entry left on the :api-md-known-unmanifested allowlist
-  ;;     below. Tiers are
+  ;;     presence / presence-phase (S4), render-static (S5), and `->react`
+  ;;     (S6 — rf2-u53yy.2, the outward bridge shipped ahead of the migration
+  ;;     wave). With `->react` rowed, NO re-frame.ui verb remains on the
+  ;;     :api-md-known-unmanifested allowlist below. Tiers are
   ;;     verbatim from spec/API.md §Compiled views; :kind is the source form
   ;;     (html is a `defn`, not a macro).
   ;;     `frame` (rf2-vxgfnd.184) is the S2 compiled ops-bundle body form —
@@ -413,6 +413,19 @@
   ;; JVM row landed with this feature; the CLJS probe reconciles it (re-frame.ui
   ;; is fully-rowed, both directions).
   {:namespace "re-frame.ui" :var "render-static"  :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S5" :runtime-verified? true}
+  ;; ->react (rf2-u53yy.2 — the ratified UIx-review outward bridge, shipped ahead
+  ;; of its nominal S6 migration wave) — export a compiled view as a React
+  ;; component a FOREIGN React/UIx/Helix tree can render (the inward half is
+  ;; `ui/raw`). A resolution `defn`: CLJS delegates to
+  ;; `re-frame.ui.runtime/->react-component` (an internal, un-manifested runtime
+  ;; ns, kin to spread->props / client-only), a JVM call raises
+  ;; :rf.error/jvm-host-op. Memoised per view identity; scopes a supplied `frame`
+  ;; without owning it; creates no root / manifest / preflight; ONE shallow
+  ;; props-conversion rule preserving children + ref. Its live public var + the
+  ;; `export-surface-is-exactly-the-blessed-set` JVM row landed with this feature;
+  ;; the CLJS probe reconciles it (re-frame.ui is fully-rowed, both directions),
+  ;; so it LEAVES the :api-md-known-unmanifested allowlist below.
+  {:namespace "re-frame.ui" :var "->react"        :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S6" :runtime-verified? true}
   ;; re-frame.ui.react (rf2-vxgfnd.95.4) — the frozen seven-wrapper React interop
   ;; tier (Spec 004 §The React interop tier). Six host hooks (use-ref /
   ;; use-effect / use-layout-effect / use-effect-event / use-context / use-id)
@@ -451,7 +464,10 @@
    ;; presence / presence-phase shipped S4 (rf2-uckeg) — now rowed under
    ;; :cljs-only above, so they left this allowlist and their API.md tier is
    ;; reconciled against the manifest like every other shipped verb.
-   "->react"}               ; spec/API.md §Compiled views — S6 React-component export bridge, unshipped
+   ;; ->react shipped S6 (rf2-u53yy.2, ahead of the migration wave) — now rowed
+   ;; under :cljs-only above, so it left this allowlist too; re-frame.ui now has
+   ;; NO entry left on this allowlist.
+   }
    ;; error-boundary / client-only shipped S3 (rf2-vxgfnd.95.3) — now rowed
    ;; under :cljs-only above (alongside handler).
    ;; EP-0001 two-partition frame contract (rf2-xtlzrk) — SPEC landed ahead of

@@ -780,3 +780,51 @@
                                                     payload native?))}
                    :clj  {:href href}))
      children]))
+
+;; ---------------------------------------------------------------------------
+;; The outward interop bridge — `ui/->react` (rf2-u53yy.2)
+;; ---------------------------------------------------------------------------
+
+(defn ->react
+  "(ui/->react view) => a React component
+
+  Export a compiled re-frame.ui `view` (a `defview` value) as a React component
+  a FOREIGN React/UIx/Helix tree can render — the OUTWARD half of the foreign
+  boundary. `ui/raw` is the inward half (a foreign React element inside a
+  compiled view); this is the reverse (a compiled view subtree inside a
+  legacy/foreign React parent), the incremental-adoption bridge:
+
+      (def CartRow (ui/->react cart-row))   ;; then render <CartRow …/> anywhere
+
+  Contract (settled — Spec 004 §The React interop tier; the compat-boundary
+  contract §3):
+
+    - STABLE, memoised per view identity: repeated `(ui/->react view)` calls —
+      and, in DEV, the HMR generations that retain the view's stable shell —
+      return the IDENTICAL component object, so a foreign parent re-render never
+      remounts the exported subtree.
+    - Creates NO React root, mints NO root manifest, runs NO host preflight: the
+      exported subtree renders inside the host root the foreign parent owns.
+      Frame creation stays with the host app's boot/event infrastructure — an
+      exported view scopes and resolves frames, it never creates them.
+    - Scopes a SUPPLIED frame without owning it: the ONE reserved prop `frame`
+      (a frame-id keyword or a live frame value) scopes the view's subtree
+      through the shared React frame context (SCOPE-only — nothing created,
+      refreshed, or destroyed; a target naming no live frame fails loud). With
+      no `frame` prop the exported view resolves its frame by the ordinary
+      ambient chain (a foreign `frame-provider`/`frame-root` above it), or fails
+      loud with `:rf.error/no-frame-context` — never a silent default.
+    - ONE shallow props-conversion rule: the foreign JS props object is handed
+      to the view by a single shallow copy, dropping only the reserved `frame`
+      key. Every other own-enumerable key is a view prop-ABI slot matched by
+      exact string name (namespace+name preserved — no camelisation, no deep
+      walk). React's own `children` and `ref` pass through under that one rule,
+      so children and ref semantics are preserved by construction.
+
+  A React component export is meaningless in a JVM structural render, so a JVM
+  call raises `:rf.error/jvm-host-op`."
+  [view]
+  #?(:clj  (tree/jvm-host-op!
+            :ui/->react
+            "(ui/->react view) exports a compiled view as a foreign React component")
+     :cljs (runtime/->react-component view)))

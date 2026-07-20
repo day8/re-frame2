@@ -47,7 +47,7 @@ The skill rewrites the view tier — hiccup, handlers, mounts, view-local state.
 
 ### L6 — Incremental, closed-subtree passes
 
-Migrate leaf → root, closing a subtree from the bottom up, because the outward `ui/->react` bridge is unshipped (a converted `defview` can only be consumed by converted views). Each pass ends compiling, rendering, and tested, so an interrupted migration resumes cleanly.
+Migrate leaf → root, closing a subtree from the bottom up — the recommended default now the outward `ui/->react` bridge has shipped: it minimises `ui/->react` boundary wrappers and keeps subtrees pure `ui`, though a converted `defview` can also be consumed by a Reagent parent through the bridge. Each pass ends compiling, rendering, and tested, so an interrupted migration resumes cleanly.
 
 ### L7 — The skill runs the compile/test gates; the programmer owns visual confirmation
 

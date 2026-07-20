@@ -15,15 +15,15 @@ Confirm all three, or stop:
 
 ## Step 1 — Scope a closed subtree
 
-Pick a namespace, or a leaf-to-root view subtree, that does **not** call *into* views staying on Reagent. This matters because of the unshipped outward bridge ([`catalog-reject.md`](catalog-reject.md), `ui/->react`): a converted `ui/defview` can only be consumed by other converted views. So convert **leaf views first, shared components last**, closing the subtree from the bottom up.
+Pick a namespace, or a leaf-to-root view subtree, that does **not** call *into* views staying on Reagent where you can avoid it. Leaf-to-root is the **recommended default**, not a hard constraint: the outward `ui/->react` bridge has shipped (MIG-22), so a converted `ui/defview` *can* be consumed by an unconverted Reagent parent — but every boundary crossing is a `ui/->react` wrapper, so converting **leaf views first, shared components last** (closing the subtree bottom-up) keeps subtrees pure `ui` and minimises boundary wrappers.
 
-Flag any *inbound* Reagent call site you can't include in the subtree — that view is a boundary; decide with the author whether the caller converts too or the boundary is embedded (`ui/raw` + `r/as-element`, MIG-22).
+Flag any *inbound* Reagent call site you can't include in the subtree — that view is a boundary; decide with the author whether the caller converts too, the boundary is embedded inward (`ui/raw` + `r/as-element`, MIG-22), or the converted child is exported outward (`ui/->react`, MIG-22).
 
 ## Step 2 — Gate every candidate view (whole-view law)
 
 Before touching a view, scan its whole body for **D/R hits** — then route by tier, not by a blanket hold:
 
-- **An R hit → hold the WHOLE view on Reagent**, honestly, and record why. That is a genuine reject with no compiled equivalent (Reagent introspection/scheduler MIG-35, dynamic tag heads MIG-21) or an unshipped capability gap (the outward `ui/->react` bridge, the explicit-frame `sub` pin MIG-03). → [`catalog-reject.md`](catalog-reject.md).
+- **An R hit → hold the WHOLE view on Reagent**, honestly, and record why. That is a genuine reject with no compiled equivalent (Reagent introspection/scheduler MIG-35, dynamic tag heads MIG-21) or an unshipped capability gap (the explicit-frame `sub` pin MIG-03). → [`catalog-reject.md`](catalog-reject.md).
 - **A D hit → decide it with the author, then convert the WHOLE view or hold the WHOLE view** — never a partial body. The judgment calls are catalogued in [`catalog-judgment.md`](catalog-judgment.md): state/lifecycle (MIG-16/17), derived state or the ratom-store restructure (MIG-19/20), the `:on-*` handler split (MIG-18), SSR path routing (MIG-23 — *shipped*, route between the static-page and hydrate paths, not a hold), computed DOM props (MIG-28), third-party wrappers (MIG-22), and the loop-key / foreign-boundary / plain-fn-ambient calls (MIG-08/10/13/26/27/30). A couple are non-gating (MIG-27/28 convert with a named check) — read the row.
 
 Do not rewrite the clean parts of a held view — a half-migrated body neither compiles nor runs (whole-view coherence, [`gotchas.md`](gotchas.md)).

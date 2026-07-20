@@ -227,7 +227,7 @@ Keep the caveat: views using refs/effects need `ui/client-only` (or restructure)
 - **Keep the subtree on Reagent** (the default) — a fully-supported mixed page.
 - **Embed it under the boundary form** `(ui/raw (r/as-element [rc/single-dropdown {…}]))` — same root, with the frame-scoping/teardown rules of the boundary contract.
 
-The outward direction (a compiled view *inside* a Reagent tree) needs the `ui/->react` bridge, which is not shipped → R-tier.
+The outward direction (a compiled view *inside* a Reagent/foreign React tree) is the **shipped** `ui/->react` bridge — no longer a hold. Export the converted leaf once, `(def CartRow (ui/->react cart-row))`, and render `CartRow` from the unconverted parent like any component. The exported component is memoised per view identity (a parent re-render never remounts it), creates no new root/manifest/preflight, and resolves its frame from the ambient chain — a `rf/frame-provider`/`rf/frame-root` above it in the Reagent tree (the shared React context object spans both tiers), or a supplied `frame` prop. Props map to the view's ABI slots by exact name; `children` and `ref` pass through. This makes the leaf→root ordering ([`procedure.md`](procedure.md)) a *recommended default* (fewer boundary wrappers, subtrees stay pure `ui`) rather than a hard constraint — a converted view that MUST be called from a view staying on Reagent now has an honest spelling.
 
 ## The other judgment calls (decide, then hold-or-convert whole)
 
