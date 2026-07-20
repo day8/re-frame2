@@ -493,7 +493,7 @@ this Spec owns only the call-site surface. `sub` never fetches (I-11).
 carries (per [002 §`capture-frame`](002-Frames.md#capture-frame--the-keystone-affordance-cljs-reference)) — for the rare in-view imperative need: a callback that must
 `dispatch` / `dispatch-sync` / `subscribe` against *this* view's frame after the render
 scope has unwound. It is the whole-bundle sibling of the one-verb `(dispatch-fn)`
-(§Effects and leases), and — like `sub` — a compile-indexed render-time site that this
+(§Effects), and — like `sub` — a compile-indexed render-time site that this
 Spec's call-site surface owns; the ops themselves are core's ([002](002-Frames.md) /
 [006](006-ReactiveSubstrate.md)). Tiered **advanced** alongside its HOLD sibling
 `dispatch-fn`: the rare-imperative-need affordance, not a day-one porch form —
@@ -600,7 +600,7 @@ semantics.
   invisible to tools and unrecoverable on replay; a value in `app-db` that turns out
   never to be read is merely slightly verbose. Prefer the recoverable failure.
 
-## Effects and leases — the view-side surface
+## Effects — the view-side surface
 
 ```clojure
 (effect [node series] (draw! node series) #(destroy!))  ; rf= value deps; cleanup fn

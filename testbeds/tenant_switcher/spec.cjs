@@ -6,7 +6,7 @@
  * consumer: one frame, two tenant scopes simultaneously live in one
  * resource cache, with the active scope deciding which entry a read can address. The
  * executable leak-boundary GUARANTEES (cross-user logout leak, wrong-scope
- * fail-closed read, scoped-invalidation isolation, lease-lifecycle
+ * fail-closed read, scoped-invalidation isolation, owner-lifecycle
  * non-interference) are pinned by the CLJS unit suites
  * (resources_scope_leak_boundary_cljs_test.cljc +
  * resources_scoped_owner_lifecycle_cljs_test.cljc); this smoke asserts the

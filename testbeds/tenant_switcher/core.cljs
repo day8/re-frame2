@@ -30,7 +30,7 @@
   This is NOT a tutorial — the bodies are minimal and there are no deliberate
   bugs or anti-pattern demos (feedback_testbeds_are_test_surfaces). The
   EXECUTABLE leak-boundary guarantees (cross-user logout leak, wrong-scope
-  fail-closed read, scoped-invalidation isolation, lease-lifecycle
+  fail-closed read, scoped-invalidation isolation, owner-lifecycle
   non-interference) are pinned by the CLJS unit suites
   `resources_scope_leak_boundary_cljs_test.cljc` +
   `resources_scoped_owner_lifecycle_cljs_test.cljc`; THIS surface is the live
@@ -183,11 +183,11 @@
     ;; Ensure the dashboard for the CURRENTLY-ACTIVE tenant. No explicit
     ;; :scope — it is derived from app-db via the resource's {:from-db
     ;; :tenant/scope} policy at use time, so this loads exactly the active
-    ;; tenant's entry. An :owner lease keeps the entry pinned for the session.
+    ;; tenant's entry. An app-minted :owner keeps the entry pinned for the session.
     {:fx [[:dispatch [:rf.resource/ensure
                       {:resource :tenant/dashboard
                        :params   {:page 1}
-                       :owner    [:lease :tenant-switcher 1]}]]]}))
+                       :owner    [:app :tenant-switcher 1]}]]]}))
 
 ;; ----------------------------------------------------------------------------
 ;; Subs

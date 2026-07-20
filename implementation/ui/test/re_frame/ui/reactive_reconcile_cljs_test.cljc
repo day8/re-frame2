@@ -164,7 +164,7 @@
         q2  (mapv identity [:r/p :x])
         cell (render-sites+commit! (reactive/make-cell ::parametric)
                                    [[sid q1]])
-        lease1 (:handle (reactive/committed-site cell sid))
+        handle1 (:handle (reactive/committed-site cell sid))
         resolve* obs/resolve-target
         resolved-query (atom nil)
         [_ capture]
@@ -180,7 +180,7 @@
     (is (identical? q1 (get-in (reactive/site-records capture) [sid :query])))
     (reactive/commit! cell capture)
     (is (identical? q1 (:query (reactive/committed-site cell sid))))
-    (is (identical? lease1 (:handle (reactive/committed-site cell sid)))
+    (is (identical? handle1 (:handle (reactive/committed-site cell sid)))
         "rf=-equal rerender neither retargets nor churns ownership")
     (dotimes [_ 10000]
       (render-sites! cell [[sid (mapv identity [:r/p :x])]]))
@@ -241,10 +241,10 @@
   (rf/reg-sub :r/a (fn [db _] (:a db)))
   (seed! {:a 1})
   (let [cell   (render+commit! (reactive/make-cell ::v) [[:r/a]])
-        lease0 (reactive/committed-handle cell (tk [:r/a]))]
+        handle0 (reactive/committed-handle cell (tk [:r/a]))]
     (is (= 1 (ref-count [:r/a])))
     (render+commit! cell [[:r/a]])
-    (is (identical? lease0 (reactive/committed-handle cell (tk [:r/a])))
+    (is (identical? handle0 (reactive/committed-handle cell (tk [:r/a])))
         "an unchanged live handle is retained UNTOUCHED — same object, no re-acquire")
     (is (= 1 (ref-count [:r/a])) "re-commit does not churn the ref-count")))
 
@@ -290,7 +290,7 @@
   (rf/reg-sub :r/c (fn [db _] (:c db)))
   (seed! {:a 1 :b 2 :c 3})
   (let [cell   (render+commit! (reactive/make-cell ::v) [[:r/a]])
-        lease0 (reactive/committed-handle cell (tk [:r/a]))]
+        handle0 (reactive/committed-handle cell (tk [:r/a]))]
     (is (= 1 (ref-count [:r/a])) ":a committed with one owner")
     ;; new render observes :a (retained) + :b (new) + :c (new); :c will throw
     (let [[_ capture] (render! cell [[:r/a] [:r/b] [:r/c]])]
@@ -299,7 +299,7 @@
              (throws-id #(reactive/commit! cell capture)))))
     (testing "the node shared with the prior committed set survives rollback"
       (is (= 1 (ref-count [:r/a])) ":a keeps its prior owner — never re-acquired, never released")
-      (is (identical? lease0 (reactive/committed-handle cell (tk [:r/a]))))
+      (is (identical? handle0 (reactive/committed-handle cell (tk [:r/a]))))
       (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell))
           "the prior committed set remains exactly installed")
       (is (nil? (entry [:r/b])) "the solely-rolled-back node disposed on its zero-owner edge"))))
@@ -340,13 +340,13 @@
   (rf/reg-sub :r/a (fn [db _] (:a db)))
   (seed! {:a 1})
   (let [cell   (render+commit! (reactive/make-cell ::v) [[:r/a]])
-        lease0 (reactive/committed-handle cell (tk [:r/a]))]
+        handle0 (reactive/committed-handle cell (tk [:r/a]))]
     (is (= 0 (reactive/revision cell)) "precondition: committed, no revision yet")
     (is (= {(tk [:r/a]) 1} (reactive/committed-values cell)))
     (let [[_ capture] (render! cell [[:r/a]])] ;; render B probes value 1
       (seed! {:a 2})                        ;; move in the render→commit gap
       (reactive/commit! cell capture))      ;; kept-check RETAINS the handle
-    (is (identical? lease0 (reactive/committed-handle cell (tk [:r/a])))
+    (is (identical? handle0 (reactive/committed-handle cell (tk [:r/a])))
         "the site was RETAINED (same handle) — a kept, not staged/retargeted, site")
     (is (= 1 (reactive/revision cell))
         "a RETAINED site's gap-movement is caught at the commit evidence
@@ -463,12 +463,12 @@
   (let [cell (reactive/make-cell ::v)]
     (binding [reactive/*sub-overrides* {[:r/a] 99}]
       (render+commit! cell [[:r/a]]))
-    (let [lease0 (reactive/committed-handle cell [:override [:r/a]])]
+    (let [handle0 (reactive/committed-handle cell [:override [:r/a]])]
       (binding [reactive/*sub-overrides* {[:r/a] 100}]
         (render+commit! cell [[:r/a]]))
       (is (= {[:override [:r/a]] 100} (reactive/committed-values cell))
           "the moved override retargets through the normal staged path")
-      (is (not (identical? lease0 (reactive/committed-handle cell [:override [:r/a]])))
+      (is (not (identical? handle0 (reactive/committed-handle cell [:override [:r/a]])))
           "current? failed on the version move ⇒ a fresh static handle"))))
 
 ;; ===========================================================================

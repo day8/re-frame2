@@ -169,7 +169,7 @@
         hs   (fp/hook-signature-hash {:locals [] :effects []})
         _    (reactive/register-view-generation! vid hs)
         cell (render+commit! (reactive/make-cell vid 0) [[:r/a]])
-        lease0 (reactive/committed-handle cell (tk [:r/a]))]
+        handle0 (reactive/committed-handle cell (tk [:r/a]))]
     (is (= 1 (ref-count [:r/a])) "precondition: committed at generation 0")
     (testing "registration lands after render but before layout: the slot moved
               while the cell-local revision did not"
@@ -180,12 +180,12 @@
         (is (= :stale (reactive/commit! cell capture))
             "commit step 1 consults the authoritative slot revision")))
     (testing "no ownership was touched — the prior committed set stays installed"
-      (is (identical? lease0 (reactive/committed-handle cell (tk [:r/a]))))
+      (is (identical? handle0 (reactive/committed-handle cell (tk [:r/a]))))
       (is (= 1 (ref-count [:r/a])) "no acquire, no release on a stale rejection"))
     (testing "a fresh render under the new generation commits normally"
       (reactive/advance-generation! cell (reactive/view-generation vid))
       (render+commit! cell [[:r/a]])
-      (is (identical? lease0 (reactive/committed-handle cell (tk [:r/a])))
+      (is (identical? handle0 (reactive/committed-handle cell (tk [:r/a])))
           "the same live target retains its handle across the explicit generation seam"))))
 
 (deftest advance-generation-is-monotone
@@ -262,19 +262,19 @@
   (rf/reg-sub :r/x (fn [db _] (:a db)))
   (seed! {:a 1})
   (let [cell   (render+commit! (reactive/make-cell ::v) [[:r/x]])
-        lease0 (reactive/committed-handle cell (tk [:r/x]))
+        handle0 (reactive/committed-handle cell (tk [:r/x]))
         tgt    (target [:r/x])]
     (is (= 1 (ref-count [:r/x])))
-    (is (true? (obs/current? lease0 tgt)) "the live handle is current before the reload")
+    (is (true? (obs/current? handle0 tgt)) "the live handle is current before the reload")
     (testing "an HMR sub re-registration disposes the canonical node"
       (rf/reg-sub :r/x (fn [db _] (inc (:a db))))   ; new body
-      (is (false? (obs/current? lease0 tgt))
+      (is (false? (obs/current? handle0 tgt))
           "current? REJECTS the committed handle — its node was disposed (03 §10)"))
     (testing "the next commit re-acquires the NEW canonical node"
       (render+commit! cell [[:r/x]])
-      (let [lease1 (reactive/committed-handle cell (tk [:r/x]))]
-        (is (not (identical? lease0 lease1)) "a fresh handle on the new node")
-        (is (true? (obs/current? lease1 tgt)))
+      (let [handle1 (reactive/committed-handle cell (tk [:r/x]))]
+        (is (not (identical? handle0 handle1)) "a fresh handle on the new node")
+        (is (true? (obs/current? handle1 tgt)))
         (is (= 1 (ref-count [:r/x])) "exactly one owner — no cell pinned the disposed node")
         (is (= {(tk [:r/x]) 2} (reactive/committed-values cell))
             "the view re-read the new body's value on the reload")))))

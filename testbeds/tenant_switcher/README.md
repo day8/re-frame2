@@ -91,7 +91,7 @@ ever address the active tenant's entry.
   This surface is the live demonstrator of the simultaneous-multi-scope shape
   (scenario 5), not a duplicate regression vehicle.
 - **No deliberate bugs / anti-pattern demos.** Idiomatic re-frame2 throughout
-  (app-db + events + subs; named scope resolver; explicit-owner lease) — a
+  (app-db + events + subs; named scope resolver; explicit app-minted owner) — a
   clean test surface (feedback_testbeds_are_test_surfaces).
 
 ## Running
