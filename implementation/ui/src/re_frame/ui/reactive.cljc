@@ -583,11 +583,21 @@
   ;;                             ;   in production (elided) + between flushes
   ;;    :listeners {k -> fn}     ; useSyncExternalStore subscribers
   ;;    :intervals [interval]     ; lifecycle facts (dev/tool; 03 §4)
+  ;;    :pending-commit-causes #{…} ; DEBUG-only raw causes
+  ;;                             ;   (:value/:hmr/:disposed/:local-state)
+  ;;                             ;   accumulated since the last connected commit —
+  ;;                             ;   fed by complete-flush! (the flushed window's
+  ;;                             ;   cause set) and the hooks local-state bridge
+  ;;                             ;   (`note-local-state!`). The NEXT connected
+  ;;                             ;   commit PROJECTS them into :rf.view/causes and
+  ;;                             ;   clears the slot. ABSENT in production (elided)
+  ;;                             ;   and whenever no cause is pending (Ruling 2)
   ;;    :commit-record {…}|nil}  ; DEBUG-only S6 committed-instance record from
-  ;;                             ;   the most-recent CONNECTED commit (Ruling 1;
+  ;;                             ;   the most-recent CONNECTED commit (Ruling 1/2;
   ;;                             ;   integer render-key + per-observation
-  ;;                             ;   observations). ABSENT in production (elided)
-  ;;                             ;   and nil before the first connect
+  ;;                             ;   observations + the per-commit :rf.view/causes
+  ;;                             ;   vector). ABSENT in production (elided) and nil
+  ;;                             ;   before the first connect
   )
 
 (defn cell?
@@ -1134,6 +1144,15 @@
       #?(:clj  (with-slice-memo (fn [] (let [el (thunk)] [el @cap])))
          :cljs (let [el (thunk)] [el @cap])))))
 
+(defn ambient-cell
+  "The ViewCell of the ambient render capture, or nil outside a render. The
+  `re-frame.ui.hooks` local-state bridge reads this at setter-mint time (which
+  runs inside `with-capture`) so a later host-only `set!`/`update!` can attribute
+  its re-render to the owning cell (`note-local-state!`; Ruling 2 :local-state).
+  Internal runtime seam."
+  []
+  (:cell *ambient*))
+
 ;; ---- useSyncExternalStore contract ------------------------------------------
 
 (defn get-snapshot
@@ -1647,9 +1666,20 @@
     (loop []
       (let [s @st]
         (when (:dirty? s)
-          (let [cleared (-> s
-                            (assoc :dirty? false :evidence nil)
-                            (update :revision inc))]
+          ;; DEBUG plane (Ruling 2): carry the flushed window's cause set
+          ;; FORWARD to the next connected commit's :rf.view/causes. The window's
+          ;; evidence is cleared here (scheduler ownership), so the causes cannot
+          ;; be re-read at the later re-render/commit — the flush stashes them.
+          ;; `interop/debug-enabled?` is a STANDALONE gate so Closure DCEs the
+          ;; whole `:pending-commit-causes` arm (and its keyword/`into`) out of the
+          ;; advanced production bundle, exactly as the invalidation-evidence fold
+          ;; already elides.
+          (let [ev-causes (when interop/debug-enabled? (seq (:causes (:evidence s))))
+                cleared   (cond-> (-> s
+                                      (assoc :dirty? false :evidence nil)
+                                      (update :revision inc))
+                            ev-causes (update :pending-commit-causes
+                                              (fnil into #{}) ev-causes))]
             (when-some [barrier *completion-barrier*] (barrier cell))
             (if (compare-and-set! st s cleared)
               [cell (when interop/debug-enabled? (:evidence s))]
@@ -2009,7 +2039,14 @@
   (letfn [(detach-and-clear! []
             (let [[detached _] (swap-vals! dirty-cells (constantly #{}))]
               (doseq [cell detached]
-                (swap! (state cell) assoc :dirty? false :evidence nil))))]
+                (swap! (state cell)
+                       (fn [m]
+                         (-> (assoc m :dirty? false :evidence nil)
+                             ;; DEBUG-only carry-forward slot (Ruling 2): a fixture
+                             ;; clean slate must not leak stashed causes across
+                             ;; tests. Absent in production, so this dissoc is a
+                             ;; no-op there.
+                             (dissoc :pending-commit-causes)))))))]
     #?(:clj  (locking dirty-cells (detach-and-clear!))
        :cljs (detach-and-clear!)))
   (reset! flush-scheduled? false)
@@ -3812,8 +3849,14 @@
 ;;     claims NO singular top-level :frame-id.
 ;;   - :parent-render-key is DEFERRED — no S6 surface consumes view parentage, so
 ;;     NO parent-capture machinery exists here.
-;;   - :rf.view/causes (the per-commit cause vector) rides a LATER slice; this
-;;     record carries no causes slot yet.
+;;   - :rf.view/causes is the per-commit cause VECTOR (Ruling 2, slice b): the
+;;     nine ruled kinds projected from their EXISTING sources, never a new capture
+;;     machine. :mount / :hmr-remount from the connect lifecycle + HMR slot;
+;;     :story-override from a (re)acquired override target; :subscription / :hmr /
+;;     :disposed / :local-state carried forward from the flushed pending-window
+;;     cause set (:value -> :subscription) via `:pending-commit-causes`; and
+;;     :foreign-or-react as the honesty fallback when a commit carries no cause.
+;;     :epoch-restore is NOT emitted here (see `commit-causes`).
 ;; ---------------------------------------------------------------------------
 
 (defonce ^:private render-key-counter
@@ -3856,23 +3899,115 @@
              :owned?    (= :subscription kind)}))
         new-order))
 
+(defn note-local-state!
+  "DEBUG-only bridge (Ruling 2 :local-state): the substrate-owned local writer
+  (`re-frame.ui.hooks` `local-state` `set!`/`update!`) records that a host-only
+  local mutation drove `cell`'s next re-render. React (not the ViewCell
+  scheduler) owns that re-render, so there is no flush to carry the cause through
+  the pending window — the writer stashes `:local-state` DIRECTLY into the
+  carry-forward slot the next connected commit projects into :rf.view/causes.
+  No-op on a nil cell (a `local` used outside a live capture) and elided whole in
+  production. Never marks the cell dirty or advances a revision — React already
+  re-renders, so double-scheduling is deliberately avoided. Returns nil."
+  [^ViewCell cell]
+  (when (and interop/debug-enabled? (some? cell))
+    (swap! (state cell) update :pending-commit-causes (fnil conj #{}) :local-state))
+  nil)
+
+(def ^:private ^:const cause-order
+  "The canonical, deterministic ordering of the S6 :rf.view/causes roster
+  (Ruling 2). A commit's cause SET is projected into a vector in this order so
+  the record is stable across hosts and runs. `:epoch-restore` keeps its ruled
+  slot for a future producer even though slice b emits none (see `commit-causes`);
+  `:foreign-or-react` is the standalone honesty fallback."
+  [:mount :hmr-remount :story-override :subscription
+   :local-state :hmr :disposed :epoch-restore :foreign-or-react])
+
+(defn- s6-cause
+  "Map a RAW pending-window / stash cause to its S6 :rf.view/causes vocabulary.
+  Only `:value` is renamed (to `:subscription`, Ruling 2); every other stashed
+  cause (`:hmr` / `:disposed` / `:local-state`) already carries its S6 spelling.
+  The `:value` -> `:subscription` rename lives HERE (projection-time), never at
+  the port note: the port keyword rename rides slice d's schema-version bump that
+  moves the pinned Xray/Pair consumers in lockstep — projecting the new vector
+  from the still-`:value` port note keeps the two vocabularies from colliding
+  before that coordinated bump."
+  [raw]
+  (case raw
+    :value :subscription
+    raw))
+
+(defn- commit-causes
+  "Project THIS connected commit's :rf.view/causes vector (Ruling 2) from
+  signals that ALREADY exist — no new capture machinery:
+
+    - :mount          `mounting?` — the cell's pre-commit lifecycle was :fresh
+                      (the :fresh->:connected transition).
+    - :hmr-remount    a mount whose view has a non-zero HMR remount generation
+                      (`view-remount-generation`) — the hook-signature-change
+                      remount key already on the HMR slot. (Honest at view
+                      granularity: a fresh instance of a previously-remounted view
+                      also reads > 0; the DEV signal is 'mounted under a remounted
+                      view'.)
+    - :story-override a (re)acquired site this commit whose target is a static
+                      Story override (`:story-override` kind) — classification of
+                      the render capture, not reconstruction.
+    - :subscription / :hmr / :disposed / :local-state
+                      the causes the last flush (or the local-state bridge)
+                      carried forward in `:pending-commit-causes`, mapped through
+                      `s6-cause`.
+    - :foreign-or-react
+                      the honesty fallback (Ruling 2) — a commit that carries no
+                      other cause (a foreign React re-render, or a headless value
+                      move caught at commit step 5 with no evidence window).
+
+  `:epoch-restore` is deliberately absent: its ruled emission — threading the
+  restore-operation token through the port fan-out — is NOT a clean projection of
+  an existing signal, because the value-movement watch fires from the DEFERRED
+  reactive commit loop, outside the restore's dynamic extent (see the worker
+  report / STOP-REPORT). Consumers already tolerate its absence (Xray 021 §3.4.1).
+  Empty by construction is impossible: the fallback always yields at least one."
+  [stash-causes mounting? remount? override?]
+  (let [present (cond-> (into #{} (map s6-cause) stash-causes)
+                  mounting? (conj :mount)
+                  remount?  (conj :hmr-remount)
+                  override? (conj :story-override))]
+    (if (empty? present)
+      [:foreign-or-react]
+      (filterv present cause-order))))
+
 (defn- mint-commit-record!
   "DEBUG-only: mint a fresh monotonic :render-key and publish the S6
-  committed-instance record onto `cell` for THIS connected commit (Ruling 1).
+  committed-instance record onto `cell` for THIS connected commit (Ruling 1/2).
   Reads the cell's just-published state, so :view-id / :generation / :root-id
   reflect the commit that connected. `:root-id` is the owning root incarnation —
   the opaque per-mount token the tool projection resolves to the authored root-id
-  name (nil under no root, e.g. Tier-1/JVM). Returns the record."
-  [^ViewCell cell cap new-order new-by]
-  (let [st     (state cell)
-        st0    @st
-        record {:render-key   (next-render-key!)
-                :view-id      (:view-id st0)
-                :generation   (:generation cap)
-                :root-id      (:root st0)
-                :connection   :connected
-                :observations (project-observations new-order new-by)}]
-    (swap! st assoc :commit-record record)
+  name (nil under no root, e.g. Tier-1/JVM). Projects the per-commit
+  :rf.view/causes vector (Ruling 2) from the carry-forward cause stash plus the
+  commit-time lifecycle / override facts, then CLEARS the stash so a subsequent
+  causeless re-render honestly reports :foreign-or-react. `mounting?` is the cell's
+  PRE-connect lifecycle fact (`:fresh`), read by the caller before `connect!`.
+  Returns the record."
+  [^ViewCell cell cap new-order new-by mounting? to-acquire]
+  (let [st        (state cell)
+        st0       @st
+        view-id   (:view-id st0)
+        override? (boolean (some (fn [sid]
+                                   (= :story-override
+                                      (:kind (:target (new-by sid)))))
+                                 to-acquire))
+        remount?  (and mounting? (pos? (view-remount-generation view-id)))
+        causes    (commit-causes (:pending-commit-causes st0)
+                                 mounting? remount? override?)
+        record    {:render-key    (next-render-key!)
+                   :view-id       view-id
+                   :generation    (:generation cap)
+                   :root-id       (:root st0)
+                   :connection    :connected
+                   :observations  (project-observations new-order new-by)
+                   :rf.view/causes causes}]
+    (swap! st (fn [m] (-> (assoc m :commit-record record)
+                          (dissoc :pending-commit-causes))))
     record))
 
 (defn- commit*
@@ -4134,15 +4269,21 @@
                             incarnations))
                 (teardown! cell)
                 (do
-                  ;; S6 committed-instance record (Ruling 1; EP-0033 §Two evidence
-                  ;; layers). Only a CONNECTED commit reaches here — a stale,
-                  ;; superseded, torn-down or never-committed (speculative) render
-                  ;; publishes nothing, so no instance is fabricated (I-1/I-2). Mint
-                  ;; a fresh monotonic :render-key + the per-commit record.
+                  ;; S6 committed-instance record (Ruling 1/2; EP-0033 §Two
+                  ;; evidence layers). Only a CONNECTED commit reaches here — a
+                  ;; stale, superseded, torn-down or never-committed (speculative)
+                  ;; render publishes nothing, so no instance is fabricated
+                  ;; (I-1/I-2). Mint a fresh monotonic :render-key + the per-commit
+                  ;; record, incl. the Ruling-2 :rf.view/causes vector. `st0` is the
+                  ;; PRE-`connect!` state read at the top of `commit*`, so its
+                  ;; `:fresh` lifecycle is the honest :mount fact (connect! has since
+                  ;; flipped it to :connected); `to-acquire` names the (re)acquired
+                  ;; sites, classifying a moved Story override.
                   ;; DEBUG-ONLY: the whole plane is production-erased (G-7/G-11), so
                   ;; this DCEs under goog.DEBUG=false and no render-key advances.
                   (when interop/debug-enabled?
-                    (mint-commit-record! cell cap new-order new-by))
+                    (mint-commit-record! cell cap new-order new-by
+                                         (= :fresh (:lifecycle st0)) to-acquire))
                   ;; step 8 — moved evidence corrects before paint. The staged catch
                   ;; always advances synchronously; a RETAINED catch advances only when
                   ;; no live watch already caught the move — a pending (`dirty?`) cell is
@@ -4220,12 +4361,13 @@
 (defn commit-record
   "The cell's most-recent CONNECTED-commit S6 committed-instance record, or nil
   when the cell has never connected — and always nil in a production build, where
-  the view-evidence plane is elided. The per-commit record (Ruling 1; EP-0033
+  the view-evidence plane is elided. The per-commit record (Ruling 1/2; EP-0033
   §Two evidence layers): integer :render-key, :view-id, :generation, :root-id,
-  :connection, and a per-observation :observations vector. There is deliberately
-  NO singular :frame-id (frame attribution is per-observation), NO
-  :parent-render-key (deferred), and no causes slot yet (a later slice).
-  Tool/test read."
+  :connection, a per-observation :observations vector, and the per-commit
+  :rf.view/causes vector (Ruling 2 — the nine ruled kinds projected from their
+  existing sources; `:epoch-restore` is not produced by slice b). There is
+  deliberately NO singular :frame-id (frame attribution is per-observation) and NO
+  :parent-render-key (deferred). Tool/test read."
   [^ViewCell cell]
   (:commit-record @(state cell)))
 
