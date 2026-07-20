@@ -33,4 +33,4 @@
     (is (nil? (tool/explain-render ::probe))))
 
   (testing "only the plain-value schema-version survives — data, not machinery"
-    (is (= 1 tool/schema-version))))
+    (is (= 2 tool/schema-version))))
