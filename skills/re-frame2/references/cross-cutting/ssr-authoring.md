@@ -67,19 +67,19 @@ The SSR pipeline calls this internally; reach for it only when emitting custom H
 
 ## `:rf.ssr/check-version` — payload version vs runtime version
 
-Dispatch from a `:rf/hydrate` handler. Compares the payload's `:rf/version` against the runtime's published `:rf2/runtime-version` hook; emits `:rf.ssr/version-mismatch` (a trace event, `:op-type :warning`) on disagreement. The hydrate handler still applies — locked best-effort posture.
+Dispatch from a `:rf/hydrate` handler. Compares the payload's `:rf/version` against the SSR artefact's compiled-in pattern-protocol version (the same value both wire ends read); emits `:rf.ssr/version-mismatch` (a trace event, `:op-type :warning`) on disagreement. The hydrate handler still applies — locked best-effort posture.
 
 Two input forms:
 
 ```clojure
-;; scalar — the reference handler's shape; client-side actual looked up via :rf2/runtime-version hook
+;; scalar — the reference handler's shape; client-side actual is the SSR artefact's compiled-in pattern-protocol constant
 [:rf.ssr/check-version version]
 
 ;; explicit map — when the caller already has both sides
 [:rf.ssr/check-version {:expected server-value :actual client-value}]
 ```
 
-`:platforms #{:client}` — server-side dispatches no-op. When no `:rf2/runtime-version` hook is registered, emits `:rf.ssr/compatibility-check-skipped` (warning) and no-ops the comparison. The fx **never throws** — degraded-but-running is the lock.
+`:platforms #{:client}` — server-side dispatches no-op. The version "actual" is the SSR artefact's compiled-in constant, so it always resolves (no `:rf.ssr/compatibility-check-skipped` for `:rf.ssr/check-version`; that skip is the schema-digest check's, when the schemas artefact is absent). The fx **never throws** — degraded-but-running is the lock.
 
 ## `:rf.ssr/check-schema-digest` — server vs client app-schema set
 
@@ -125,11 +125,11 @@ All three are catalogued in [`009 §Error event catalogue`](../../../../spec/009
 
 | Operation | When | Severity |
 |---|---|---|
-| `:rf.ssr/version-mismatch` | payload `:rf/version` ≠ client `:rf2/runtime-version` | `:op-type :warning` |
+| `:rf.ssr/version-mismatch` | payload `:rf/version` ≠ the SSR artefact's compiled-in pattern-protocol version | `:op-type :warning` |
 | `:rf.ssr/schema-digest-mismatch` | payload `:rf/schema-digest` ≠ client `:schemas/app-schemas-digest` | `:op-type :warning` |
 | `:rf.ssr/compatibility-check-skipped` | no hook registered for the relevant probe | `:op-type :warning` |
 
-These `:rf.ssr/*` events are **trace-channel** diagnostics — DCE-eligible in CLJS production builds, JVM-gated on `re-frame.debug`. **Keep them distinct from the promoted `:rf.error/ssr-*` records below:** `:rf.ssr/version-mismatch`, `:rf.ssr/schema-digest-mismatch`, `:rf.ssr/compatibility-check-skipped`, and `:rf.ssr/hydration-mismatch` are compatibility/hydration *diagnostics* that do **not** ride the always-on error-emit substrate; they elide in a production CLJS client build unless the build keeps the trace surface (`:closure-defines {goog.DEBUG true}`), and none has been promoted to a catalogued `:rf.error/*` as of EP-0008. So do not wire `register-listener!` `:errors` expecting *these* to arrive — they won't. To track this drift in production, instrument it deliberately: detect the condition in your own app code (the strict-mode hydration hook, or your `:rf/hydrate` extension) and dispatch an app event that ships through the production observability surfaces (`register-listener!` `:events` / `:errors` per [`production-observability.md`](production-observability.md)). The default `:rf2/runtime-version` / schema-digest checks remain dev-and-server diagnostics on the trace channel.
+These `:rf.ssr/*` events are **trace-channel** diagnostics — DCE-eligible in CLJS production builds, JVM-gated on `re-frame.debug`. **Keep them distinct from the promoted `:rf.error/ssr-*` records below:** `:rf.ssr/version-mismatch`, `:rf.ssr/schema-digest-mismatch`, `:rf.ssr/compatibility-check-skipped`, and `:rf.ssr/hydration-mismatch` are compatibility/hydration *diagnostics* that do **not** ride the always-on error-emit substrate; they elide in a production CLJS client build unless the build keeps the trace surface (`:closure-defines {goog.DEBUG true}`), and none has been promoted to a catalogued `:rf.error/*` as of EP-0008. So do not wire `register-listener!` `:errors` expecting *these* to arrive — they won't. To track this drift in production, instrument it deliberately: detect the condition in your own app code (the strict-mode hydration hook, or your `:rf/hydrate` extension) and dispatch an app event that ships through the production observability surfaces (`register-listener!` `:events` / `:errors` per [`production-observability.md`](production-observability.md)). The default version / schema-digest checks remain dev-and-server diagnostics on the trace channel.
 
 > **The SSR render/streaming/projection failures DO ride the always-on axis (EP-0008).** Separately from the `:rf.ssr/*` compatibility diagnostics above, the production-reachable SSR error categories — `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload`, `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, `:rf.error/ssr-ring-error-view-failed`, and `:rf.error/hydration-frame-id-mismatch` — ride the **always-on error-emit axis** (surface #4). On a long-lived JVM SSR host, an off-box shipper (Sentry / Datadog) registered via `register-listener!` `:errors` receives these structured records **even under `-Dre-frame.debug=false`**, where the dev trace surface is elided — the off-box record, not the wire response, is the telemetry. These are **non-event** records: they carry no `:event` / `:event-id` (some carry only `:frame` + `:exception` + category-specific slots), so a listener must branch on `(:error record)` and not assume the per-event shape. So you need not route SSR production drift only through the `:rf/public-error` projector or the dev trace — the always-on records ARE the production egress for these categories. (The recoverable-degradation and post-commit members are non-projecting: their riding the axis changes what shippers see, never the wire status.) See [`production-observability.md` §The promoted-SSR records](production-observability.md) and [`009 §What IS available in production`](../../../../spec/009-Instrumentation.md#what-is-available-in-production).
 

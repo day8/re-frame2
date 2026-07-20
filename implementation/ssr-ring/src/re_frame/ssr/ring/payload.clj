@@ -32,8 +32,8 @@
   by the caller when their app participates in the schema-digest
   check; nil otherwise. Version source-of-truth:
   `re-frame.ssr.payload-policy/resolve-version` — caller opt wins,
-  falling back to the `:rf2/runtime-version` late-bind hook so server
-  and client read from the same source.
+  falling back to the SSR-owned `payload-policy/pattern-protocol-version`
+  constant so server and client read from the same source.
 
   The `:rf/app-db` slice is projected per the explicit, fail-closed
   policy in `re-frame.ssr.payload-policy/apply-policy`: callers MUST declare `:payload`

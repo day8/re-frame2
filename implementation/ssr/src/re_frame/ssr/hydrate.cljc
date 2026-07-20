@@ -23,6 +23,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.projection :as projection]
             [re-frame.ssr.hash :as hash]
+            [re-frame.ssr.payload-policy :as payload-policy]
             [re-frame.trace :as trace]))
 
 (defn- client-platform?
@@ -390,11 +391,13 @@
 ;;
 ;;   - SCALAR — `[:rf.ssr/check-version <server-value>]` per the spec's
 ;;     reference :rf/hydrate handler. The fx treats the scalar as the
-;;     "expected" (server-side) value and looks up the client-side
-;;     "actual" via a late-bind hook (`:rf2/runtime-version` for version,
-;;     `:schemas/app-schemas-digest` for schema-digest). When the hook is
-;;     unavailable (e.g. version-pinning not yet implemented, or schemas
-;;     artefact not on the classpath), the fx emits a
+;;     "expected" (server-side) value and resolves the client-side
+;;     "actual": for version, the SSR artefact's compiled-in
+;;     `payload-policy/pattern-protocol-version` constant (always resolves
+;;     — the SAME value the server stamped, so a matching build compares
+;;     equal); for schema-digest, the `:schemas/app-schemas-digest`
+;;     late-bind hook. When the schema-digest hook is unavailable (schemas
+;;     artefact not on the classpath), that fx emits a
 ;;     `:rf.ssr/compatibility-check-skipped` trace and no-ops the
 ;;     comparison.
 ;;
@@ -427,14 +430,13 @@
     {:expected arg :actual (actual-lookup-fn)}))
 
 (defn- runtime-version-lookup
-  "Look up the client-side runtime version via
-  the optional `:rf2/runtime-version` late-bind hook — a host that
-  bundles a version-stamp registers it at boot. When the hook is
-  absent, returns nil and the check emits
-  `:rf.ssr/compatibility-check-skipped`."
+  "The client-side hydration pattern-protocol version: the SSR artefact's
+  compiled-in `payload-policy/pattern-protocol-version` constant — the SAME
+  value the server stamps into `:rf/version`. Both wire ends read this one
+  source of truth, so a scalar `:rf.ssr/check-version` on a matching build
+  compares equal (no host wiring, and it never resolves to nil)."
   []
-  (when-let [f (late-bind/get-fn :rf2/runtime-version)]
-    (f)))
+  payload-policy/pattern-protocol-version)
 
 (defn- schema-digest-lookup
   "Look up the active frame's `app-schemas-digest`. Sourced via the
@@ -449,19 +451,14 @@
 (defn check-version-fx
   "Handler fn for the `:rf.ssr/check-version` fx. Compares the
   payload's `:rf/version` (server) against the client runtime's
-  version via the `:rf2/runtime-version` late-bind hook."
+  pattern-protocol version — the SSR artefact's compiled-in
+  `payload-policy/pattern-protocol-version` constant (via
+  `runtime-version-lookup`). Both wire ends read one source of truth, so a
+  matching build compares equal; genuine skew emits `:rf.ssr/version-mismatch`."
   [{:keys [frame]} arg]
   (let [{:keys [expected actual]} (check-args arg runtime-version-lookup)]
     (cond
       (nil? expected) nil                              ;; nothing to check
-
-      (nil? actual)
-      (trace/emit! :warning :rf.ssr/compatibility-check-skipped
-                   {:check    :rf.ssr/check-version
-                    :expected expected
-                    :reason   "No runtime version available for comparison (no :rf2/runtime-version hook registered)."
-                    :frame    frame
-                    :recovery :skipped})
 
       (not= expected actual)
       (trace/emit! :warning :rf.ssr/version-mismatch

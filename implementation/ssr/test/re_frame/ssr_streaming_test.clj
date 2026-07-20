@@ -9,6 +9,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.html-helpers :as html]
+            [re-frame.ssr.payload-policy :as payload-policy]
             [re-frame.ssr.streaming :as streaming]
             [re-frame.ssr.streaming.constants :as wire]
             [re-frame.ssr.test-fixture :as tf]
@@ -314,47 +315,30 @@
       (is (not (contains? payload :rf/frame-id))
           "streaming final-payload omits :rf/frame-id when no stable wire id is named"))))
 
-(deftest build-final-payload-version-honours-runtime-version-hook
-  (testing "rf2-via0g / rf2-g00l2t — streaming payload :rf/version reads the
-            :rf2/runtime-version late-bind hook (mirroring the non-
-            streaming rf2-asmj1 S8 fix), not a hard-coded 1, and the hook
-            value is coerced to the canonical INTEGER pattern-protocol
-            version (per Spec-Schemas §:rf/hydration-payload). The prior
-            `(or version 1)` silently disagreed with the client-side
-            hook and defeated the :rf.ssr/version-mismatch check."
+(deftest build-final-payload-version-resolution
+  (testing "rf2-via0g / rf2-g00l2t / rf2-qfb1i — streaming payload :rf/version
+            resolves via `payload-policy/resolve-version`: the caller's
+            explicit :version opt wins, else the SSR artefact's compiled-in
+            `pattern-protocol-version` constant (the late-bind version hook
+            was removed — the SSR artefact owns the version and both wire ends
+            read the same constant). The prior `(or version 1)`
+            silently disagreed with the client and defeated the
+            :rf.ssr/version-mismatch check."
     (let [fid (make-frame {:db {:k 1}})]
-      (testing "hook present + no explicit :version → hook value wins (not 1)"
-        (late-bind/set-fn! :rf2/runtime-version (constantly 99))
-        (try
-          (let [payload (streaming/build-final-payload
-                          fid "hash"
-                          {:payload :rf.ssr.payload/whole-app-db})]
-            (is (= 99 (:rf/version payload))
-                "runtime-version hook value lands in :rf/version")
-            (is (not= 1 (:rf/version payload))
-                "the hard-coded 1 must NOT win when the hook is registered"))
-          (finally
-            (swap! late-bind/hooks dissoc :rf2/runtime-version))))
-
-      (testing "explicit :version opt wins over the hook"
-        (late-bind/set-fn! :rf2/runtime-version (constantly 99))
-        (try
-          (let [payload (streaming/build-final-payload
-                          fid "hash"
-                          {:version        42
-                           :payload :rf.ssr.payload/whole-app-db})]
-            (is (= 42 (:rf/version payload))
-                "caller-supplied :version is the highest-priority source"))
-          (finally
-            (swap! late-bind/hooks dissoc :rf2/runtime-version))))
-
-      (testing "no hook + no explicit :version → terminal v1 fallback"
-        (swap! late-bind/hooks dissoc :rf2/runtime-version)
+      (testing "no explicit :version → the SSR-owned pattern-protocol constant"
         (let [payload (streaming/build-final-payload
                         fid "hash"
                         {:payload :rf.ssr.payload/whole-app-db})]
-          (is (= 1 (:rf/version payload))
-              "absent hook + absent opt → v1 pattern-protocol stamp"))))))
+          (is (= payload-policy/pattern-protocol-version (:rf/version payload))
+              "absent :version opt → the SSR artefact's compiled-in constant")))
+
+      (testing "explicit :version opt wins over the SSR constant"
+        (let [payload (streaming/build-final-payload
+                        fid "hash"
+                        {:version 42
+                         :payload :rf.ssr.payload/whole-app-db})]
+          (is (= 42 (:rf/version payload))
+              "caller-supplied :version is the highest-priority source"))))))
 
 (deftest late-bind-hooks-published
   (testing "All three :ssr.streaming/* late-bind hooks resolve to the streaming fns"

@@ -187,7 +187,7 @@ Streaming emits the shell HTML first, then continues rendering boundary subtrees
   ```
 - **Description**: Build the `__rf_payload` final chunk. Call it after all continuations drain.
   - `opts` **MUST** carry the fail-closed `:payload` policy: a vector allowlist of top-level app-db keys, or `:rf.ssr.payload/whole-app-db` to ship the whole app-db. Omitting it throws `:rf.error/ssr-missing-payload-policy`.
-  - Optional `:version` overrides the `:rf2/runtime-version` late-bind hook as the payload's `:rf/version` source.
+  - Optional `:version` overrides the SSR artefact's compiled-in pattern-protocol constant as the payload's `:rf/version` source.
 - **Example**:
   ```clojure
   ;; After every continuation drains, build the canonical __rf_payload chunk.
@@ -656,7 +656,7 @@ Both fx are client-only (`:platforms #{:client}`). They are the payload-provenan
 
 | Fx | Args |
 |---|---|
-| `[:rf.ssr/check-version server-value]` | A scalar (the payload's `:rf/version`) or `{:expected ?:actual}`. When `:actual` is absent, the client value resolves via the `:rf2/runtime-version` late-bind hook. A mismatch emits `:rf.ssr/version-mismatch`. An unresolvable client value emits `:rf.ssr/compatibility-check-skipped`. |
+| `[:rf.ssr/check-version server-value]` | A scalar (the payload's `:rf/version`) or `{:expected ?:actual}`. When `:actual` is absent, the client value resolves from the SSR artefact's compiled-in pattern-protocol constant (the same value the server stamped, so a matching build compares equal). A mismatch emits `:rf.ssr/version-mismatch`. |
 | `[:rf.ssr/check-schema-digest server-value]` | A scalar (the payload's `:rf/schema-digest`) or `{:expected ?:actual}`. When `:actual` is absent, the client value resolves via the `:schemas/app-schemas-digest` late-bind hook (schemas artefact). A mismatch emits `:rf.ssr/schema-digest-mismatch`. An absent hook emits `:rf.ssr/compatibility-check-skipped`. |
 
 ### Subscriptions
