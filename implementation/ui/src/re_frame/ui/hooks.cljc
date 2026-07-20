@@ -62,73 +62,67 @@
         "committed handler or an (effect …), never in the render body")
    {:extra {:reason :render-phase-local-mutation}}))
 
-(defn- note-committed-local-change!
-  "DEBUG-only :local-state attribution gate (Ruling 2 + rf2-qkq2k fix). Records
-  `:local-state` on `cell` ONLY when the write is an ACTUALLY-COMMITTED value
-  change — `cur` (the LIVE host state React itself compares) differs from `nv` by
-  `Object.is`, React's own bail law. React 19.2 Object.is-BAILS a no-op setter
-  WITHOUT rendering, so noting on invocation left a stale marker that contaminated
-  a LATER unrelated commit; aligning on the same `Object.is` React uses makes the
-  note fire EXACTLY when a re-render (hence a connected commit) will. Runs inside
-  the react-set functional updater (the one place the live `cur` is authoritative,
-  correct even for chained same-turn writes); `note-local-state!` is an idempotent
-  stash that triggers no re-render, so a StrictMode double-invoke is harmless.
-  Returns `nv` (so the updater's value is unchanged)."
-  [cell cur nv]
-  (when-not ^boolean (js/Object.is cur nv)
-    (reactive/note-local-state! cell))
-  nv)
-
 (defn local-state
   "React `useState`-backed `[value set! update!]`. `set!` stores its argument
   exactly (a stored fn is a value, never an updater); `update!` applies
   `(f current & args)` to the LATEST host state so several same-turn writers
   compose (React's functional updater queues them against the live state).
 
-  DEV-only view-evidence bridge (Ruling 2 :local-state): a host-only
-  `set!`/`update!` records `:local-state` as the cause of the re-render it
-  triggers, so the ViewCell's NEXT connected commit attributes its
-  :rf.view/causes to the local write — but ONLY when the write is an
-  actually-committed value change (`note-committed-local-change!`): React 19.2
-  Object.is-bails a no-op setter without rendering, so noting on every invocation
-  contaminated a later unrelated commit (rf2-qkq2k). The owning cell is captured
-  ONCE at setter-mint time (the first render, which runs inside the ambient
-  `with-capture`); React — not the ViewCell scheduler — owns the re-render, so the
-  bridge only STASHES the cause (`reactive/note-local-state!`), never marks the
-  cell dirty or advances a revision. The whole bridge is `goog.DEBUG`-gated at
-  both ends and elides in production."
+  DEV-only view-evidence bridge (Ruling 2 :local-state): a host-only write is the
+  cause of the re-render it triggers, so the ViewCell's connected commit attributes
+  its :rf.view/causes to the local write — but ONLY when React ACTUALLY commits the
+  change (rf2-bvqu0). The state updater is PURE (it never touches the evidence
+  stash); the attribution instead rides a DEBUG `useLayoutEffect` keyed on the
+  COMMITTED value. Because a layout effect runs ONLY in the commit phase, a no-op
+  setter and a same-batch net-zero `0->1->0` — which React bails WITHOUT committing
+  — never reach it and never stash a marker (the stale-marker contamination the old
+  per-updater Object.is note left behind, rf2-qkq2k/rf2-bvqu0). A committed-value
+  ref skips the mount run (that commit is :mount, not :local-state) and makes a
+  StrictMode effect replay idempotent. The effect runs BEFORE the ViewCell's own
+  commit effect (same fiber, earlier hook slot), so `note-local-state!`'s flag is
+  set in time for that commit's record. React — not the ViewCell scheduler — owns
+  the re-render, so the bridge only sets the flag, never marks the cell dirty. The
+  whole bridge is `goog.DEBUG`-gated at both ends (and `goog.DEBUG` is
+  build-constant, so the hook order is stable within a build) and elides in
+  production."
   [init]
   (let [pair      (react/useState init)
         value     (aget pair 0)
         react-set (aget pair 1)
         ops       (react/useRef nil)]
+    ;; DEBUG-only committed-change attribution (rf2-bvqu0). The whole block — its
+    ;; useRef + useLayoutEffect included — DCEs in production; goog.DEBUG is
+    ;; build-constant, so the hook order is stable for every render of a build.
+    (when ^boolean js/goog.DEBUG
+      (let [cell      (reactive/ambient-cell)   ;; the owning cell (read during render)
+            committed (react/useRef init)]      ;; the last COMMITTED value observed
+        (react/useLayoutEffect
+         (fn note-committed-local-change []
+           ;; Runs only in a real commit phase. `#js [value]` limits it to a
+           ;; committed value CHANGE (+ the mount run, which the ref then skips).
+           (when-not ^boolean (js/Object.is (.-current committed) value)
+             (set! (.-current committed) value)
+             (reactive/note-local-state! cell))
+           js/undefined)
+         #js [value])))
     ;; The React setter identity is stable across renders, so set!/update! are
     ;; minted once and kept stable (attach them as handlers/listeners freely).
     (when (nil? (.-current ops))
-      (let [cell    (when ^boolean js/goog.DEBUG (reactive/ambient-cell))
-            setter  (fn local-set!
+      (let [setter  (fn local-set!
                       [v]
                       (when ^boolean js/goog.DEBUG
                         (when (.-v render-active) (fail-render-phase!)))
                       ;; ALWAYS the functional form: a stored fn is returned
-                      ;; verbatim, never invoked as a React updater. The DEBUG
-                      ;; :local-state note rides INSIDE the updater so it sees the
-                      ;; live `cur` React compares — fired ONLY on a real change
-                      ;; (rf2-qkq2k); production DCEs to `(fn [_] v)`.
-                      (react-set (fn [cur]
-                                   (if ^boolean js/goog.DEBUG
-                                     (note-committed-local-change! cell cur v)
-                                     v)))
+                      ;; verbatim, never invoked as a React updater. The updater is
+                      ;; PURE — :local-state attribution rides the committed-value
+                      ;; layout effect above, not this updater (rf2-bvqu0).
+                      (react-set (fn [_] v))
                       nil)
             updater (fn local-update!
                       [f & args]
                       (when ^boolean js/goog.DEBUG
                         (when (.-v render-active) (fail-render-phase!)))
-                      (react-set (fn [cur]
-                                   (let [nv (apply f cur args)]
-                                     (if ^boolean js/goog.DEBUG
-                                       (note-committed-local-change! cell cur nv)
-                                       nv))))
+                      (react-set (fn [cur] (apply f cur args)))
                       nil)]
         (set! (.-current ops) #js [setter updater])))
     [value (aget (.-current ops) 0) (aget (.-current ops) 1)]))
