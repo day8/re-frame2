@@ -4,8 +4,10 @@
 
     - use-ref: `.current` survives re-renders; a write never re-renders; the
       ref attaches to a `:ref` position;
-    - use-effect: passive, Object.is deps (a distinct value-equal host value IS
-      a change — the .95.12 correction), cleanup on dep change + unmount;
+    - use-effect: passive, `rf=` VALUE deps (a distinct-but-value-equal CLJS
+      deps value is NOT a change — rf2-u53yy.6 converged the interop tier onto
+      `rf=`, superseding the .95.12 Object.is split), cleanup on dep change +
+      unmount;
     - use-layout-effect: the readiness C-6 measure-before-paint NATIVE consumer
       (measure in the layout effect, pure geometry, apply, clean up exactly);
       StrictMode replay is idempotent-safe; unmount (reconnect) runs cleanup;
@@ -85,7 +87,7 @@
                    (fn [e] (rf/destroy-frame! f) (is false (str e)) (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; use-effect — Object.is deps, cleanup, and the rf=/Object.is distinction
+;; use-effect — rf= VALUE deps, cleanup (rf2-u53yy.6: one equality doctrine)
 ;; ---------------------------------------------------------------------------
 
 (defview effect-view []
@@ -98,7 +100,7 @@
                [dep])]
     [:span {:data-role "e"} (str dep "/" other)]))
 
-(deftest use-effect-object-is-deps-cleanup
+(deftest use-effect-value-deps-cleanup
   (if-not (browser?)
     (is true ":node — browser gate runs use-effect deps/cleanup")
     (async done
@@ -115,7 +117,7 @@
                   (.then host-turn!)
                   (.then (fn []
                            (is (= 1 (count (filter #(= (first %) :run) @log)))
-                               "an unchanged (Object.is) dep does NOT re-run")
+                               "an unchanged (rf=) dep does NOT re-run")
                            (uit/flush! #(uit/dispatch! f [::set-dep 1]))))
                   (.then host-turn!)
                   (.then (fn []
@@ -123,6 +125,55 @@
                            (is (some #(= % [:run 1]) @log) "then re-runs with the new dep")))))
             (.then (fn []
                      (is (some #(= % [:cleanup 1]) @log) "unmount runs cleanup")
+                     (rf/destroy-frame! f) (done))
+                   (fn [e] (rf/destroy-frame! f) (is false (str e)) (done))))))))
+
+;; The rf= convergence (rf2-u53yy.6): a deps SLOT holding a fresh-but-value-equal
+;; CLJS collection — rebuilt every render — keeps the SAME token, so an unrelated
+;; re-render does NOT rerun the effect. Under the superseded Object.is doctrine
+;; the distinct collection object WOULD have counted as a change and reran; under
+;; `rf=` (value equality) it is the same dep. A value-different collection reruns.
+(defview value-collection-effect-view []
+  (let [n     (ui/sub [::vn])
+        other (ui/sub [::vother])
+        ;; the dep slot is a FRESH map literal every render — object-distinct,
+        ;; but `rf=`-equal whenever n is unchanged.
+        _     (react/use-effect
+               (fn []
+                 (swap! log conj [:vrun n])
+                 (fn [] (swap! log conj [:vcleanup n])))
+               [{:k n}])]
+    [:span {:data-role "v"} (str n "/" other)]))
+
+(deftest use-effect-rf=-equal-collection-dep-skips-rerun
+  (if-not (browser?)
+    (is true ":node — browser gate runs the rf= value-deps convergence")
+    (async done
+      (rf/reg-sub ::vn (fn [db _] (:vn db)))
+      (rf/reg-sub ::vother (fn [db _] (:vother db)))
+      (rf/reg-event ::set-vn (fn [{:keys [db]} [_ v]] {:db (assoc db :vn v)}))
+      (rf/reg-event ::set-vother (fn [{:keys [db]} [_ v]] {:db (assoc db :vother v)}))
+      (reset-log!)
+      (let [f (make-frame ::veff {:vn 0 :vother 0})]
+        (-> (uit/with-root [root [ui/frame-provider {:frame f} [value-collection-effect-view]]]
+              (-> (host-turn!)
+                  (.then (fn [] (is (some #(= % [:vrun 0]) @log) "runs after mount")
+                           ;; unrelated re-render: rebuilds the {:k 0} dep slot to a
+                           ;; DISTINCT-but-rf=-equal object.
+                           (uit/flush! #(uit/dispatch! f [::set-vother 9]))))
+                  (.then host-turn!)
+                  (.then (fn []
+                           (is (= 1 (count (filter #(= (first %) :vrun) @log)))
+                               "a fresh-but-rf=-equal collection dep does NOT rerun (rf=, not Object.is)")
+                           ;; a value-different collection dep DOES rerun.
+                           (uit/flush! #(uit/dispatch! f [::set-vn 1]))))
+                  (.then host-turn!)
+                  (.then (fn []
+                           (is (some #(= % [:vcleanup 0]) @log)
+                               "a value-changed collection dep cleans up the prior run")
+                           (is (some #(= % [:vrun 1]) @log)
+                               "then reruns with the new value")))))
+            (.then (fn []
                      (rf/destroy-frame! f) (done))
                    (fn [e] (rf/destroy-frame! f) (is false (str e)) (done))))))))
 
