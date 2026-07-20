@@ -362,6 +362,16 @@ baseline is a recorded comparison, not a standing gate.
   tier and reason through the judgment tiers with the author. W1 absorbed the
   former W2 into this single sibling skill of the existing v1 migration skill
   rather than shipping a second one.
+- **ADDENDUM — `ui/->react` shipped ahead of S6 (2026-07-21, rf2-u53yy.2).**
+  Delta #2 above records `ui/->react` as *lands S6*; the outward bridge in fact
+  shipped early, as one of the ratified UIx-review features (epic `rf2-u53yy`).
+  The prior clause is preserved (EP-0009 convention): the nominal stage is still
+  S6, but the capability is **live now** — `ui/->react` exports a compiled view
+  as a React component for a foreign parent, memoised per view identity, scoping
+  a supplied frame without owning it, creating no root/manifest/preflight, under
+  one shallow props-conversion rule (children + ref preserved). W7b's dependency
+  on `->react` landing (2026-07-19 above) is now satisfied. The `spec/API.md`
+  blessed-freeze row and the api-manifest flip planned→live with this ruling.
 
 ## Open Issues
 

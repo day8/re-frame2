@@ -17,6 +17,11 @@
             [re-frame.trace :as trace :include-macros true]
             [re-frame.ui.eq :as eq]
             [re-frame.ui.events :as events]
+            ;; The outward bridge `->react-component` scopes a supplied frame
+            ;; through `frames/provider-scope-element`. `frames` is already a
+            ;; transitive dep (runtime -> events -> frames) and never requires
+            ;; runtime, so the direct require is acyclic (rf2-u53yy.2).
+            [re-frame.ui.frames :as frames]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.rules :as rules]
             [re-frame.ui.viewcell :as viewcell]))
@@ -783,3 +788,90 @@
   (react/createElement PhaseFlipper
                        #js {:rfRootId root-id :rfAdoption adoption-ref}
                        element))
+
+;; ---------------------------------------------------------------------------
+;; ui/->react — the OUTWARD interop bridge (rf2-u53yy.2)
+;;
+;; `(ui/->react view)` exports a compiled re-frame.ui view as a React component a
+;; FOREIGN React/UIx/Helix tree can render — the OUTWARD half of the foreign
+;; boundary (Spec 004 §The React interop tier; the compat-boundary contract §3).
+;; The inward half is `ui/raw`. Both traffic in plain React values and neither
+;; couples `day8/re-frame2-ui` to any compat adapter. `re-frame.ui/->react` is
+;; the public authoring name; this is its CLJS runtime (a JVM call is a
+;; host-op — a React component export has no meaning in a structural render).
+;; The bridge:
+;;
+;;   - returns a component memoised PER VIEW IDENTITY — a WeakMap keyed by the
+;;     view value — so repeated `(ui/->react view)` calls (and, in DEV, the HMR
+;;     generations that retain the view's stable shell) return the IDENTICAL
+;;     object; a foreign parent re-render never remounts the exported subtree;
+;;   - creates NO React root, mints NO root manifest, and runs NO host preflight
+;;     — the exported subtree renders inside the host root the foreign parent
+;;     owns, and frame creation stays with the host app's boot/event
+;;     infrastructure. An exported view SCOPES and resolves frames; it never
+;;     creates them (`frame-root` cannot appear in a `defview` body anyway);
+;;   - SCOPES a supplied frame without owning it: the ONE reserved prop `frame`
+;;     (a frame-id keyword or a live frame value) wraps the view in the shared
+;;     React frame-context Provider through `frames/provider-scope-element`
+;;     (SCOPE-only — the rf2-nyea0r split: providers scope, roots ensure). With
+;;     no `frame` prop the exported view resolves its frame by the ordinary
+;;     ambient chain (a foreign `frame-provider`/`frame-root` above it, sharing
+;;     the same context object), or fails loud with `:rf.error/no-frame-context`
+;;     — never a silent default;
+;;   - THE ONE shallow props-conversion rule: the foreign JS props object is
+;;     handed to the view by a single shallow copy, dropping ONLY the reserved
+;;     `frame` key. Every remaining own-enumerable key is a view prop-ABI slot,
+;;     matched by exact string name (namespace+name preserved — no camelisation,
+;;     no deep walk). React's own `children` and `ref` are ordinary props under
+;;     that rule, so children and ref semantics are preserved by construction (a
+;;     ref rides through to the view; child :ref forwarding is the view's own
+;;     contract).
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private exported-component-cache
+  ;; view value (a compiled `defview`'s React component object) -> its stable
+  ;; exported wrapper. A WeakMap keyed by the view identity, so an unreferenced
+  ;; view never pins its wrapper and `defonce` survives ns reload.
+  (js/WeakMap.))
+
+(defn- exported-view-props
+  "THE shallow props-conversion rule: a single shallow copy of the foreign JS
+  `props` object dropping ONLY the reserved `frame` key. Every other
+  own-enumerable key — the view's prop-ABI slots plus React's `children` and
+  `ref` — copies through by exact string name, uncoerced."
+  [props]
+  (let [o (js-obj)]
+    (doseq [k (js/Object.keys props)]
+      (when (not= "frame" k)
+        (unchecked-set o k (unchecked-get props k))))
+    o))
+
+(defn ->react-component
+  "Runtime of `(ui/->react view)` — see the section header above. `view` is a
+  compiled re-frame.ui view value (a `defview`'s var); the return is the stable
+  exported React component. `re-frame.ui/->react` is the public authoring name
+  and delegates here on CLJS."
+  [view]
+  (when-not (or (fn? view) (object? view))
+    (error/throw-error!
+     :rf.error/ui-tree-malformed 're-frame.ui/->react
+     (str "(ui/->react view) needs a compiled re-frame.ui view (a `defview` "
+          "value — a React component), but received " (pr-str view)
+          ". Pass the view itself, e.g. (def CartRow (ui/->react cart-row)); "
+          "not its id keyword and not a rendered form")
+     {:extra {:value view}}))
+  (or (.get exported-component-cache view)
+      (let [exported
+            (fn rf-ui->react [props]
+              (let [frame-target (unchecked-get props "frame")
+                    element      (jsx2 view (exported-view-props props))]
+                (if (some? frame-target)
+                  ;; SCOPE the supplied frame — creates/refreshes/destroys
+                  ;; nothing; a target naming no live frame fails loud.
+                  (frames/provider-scope-element frame-target #js [element])
+                  element)))]
+        (when ^boolean js/goog.DEBUG
+          (set! (.-displayName exported)
+                (str "rf.ui/->react(" (or (.-displayName view) "view") ")")))
+        (.set exported-component-cache view exported)
+        exported)))

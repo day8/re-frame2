@@ -400,7 +400,12 @@
             ;; S5 render-static (rf2-oo5lb): the pure :server static-HTML render
             ;; macro — non-hydrating (no manifest/payload/phase flip); enforces the
             ;; literal root form like the other root macros
-            render-static}
+            render-static
+            ;; S6 ->react (rf2-u53yy.2): the OUTWARD interop bridge — export a
+            ;; compiled view as a foreign React component (memoised per view id,
+            ;; scopes a supplied frame, no root/preflight). CLJS delegates to
+            ;; re-frame.ui.react/->react; a JVM call raises :rf.error/jvm-host-op
+            ->react}
          (set (keys (ns-publics 're-frame.ui))))
       "no reg-view family, no Form-1/2/3 helpers, no h macro, no view
        lookup, no ratom/cursor/reaction — Spec 004 §Removed forms"))

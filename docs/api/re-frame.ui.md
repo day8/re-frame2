@@ -349,6 +349,30 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
   `:rf.error/routing-artefact-missing` (naming the artefact, its Maven coord, and the
   link site). A plain `[:a]` stays available for intentional browser-native navigation.
 
+### `->react`
+
+- **Kind**: function (outward interop bridge)
+- **Signature**: `(->react view) → React component`
+- **Description**: Export a compiled `view` (a `defview` value) as a React component a
+  **foreign** React/UIx/Helix tree can render — the OUTWARD half of the foreign boundary
+  (`raw` is the inward half). The incremental-adoption bridge: `(def CartRow (ui/->react
+  cart-row))`, then render `CartRow` anywhere in the legacy/foreign tree.
+- **Memoised per view identity**: repeated `(->react view)` returns the **identical**
+  component object, so a foreign parent re-render never remounts the exported subtree.
+- **No root, no manifest, no preflight**: the exported subtree renders inside the root
+  the foreign parent owns; frame creation stays with the host app's boot/event code — an
+  exported view scopes and resolves frames, it never creates them.
+- **Frame**: resolved by the ordinary ambient chain (a `frame-provider`/`frame-root`
+  above it in the tree), or from a supplied **`frame` prop** (a frame-id keyword or live
+  frame value) which scopes the subtree without owning it. With neither, a frame-scoped
+  read fails loud with `:rf.error/no-frame-context` — never a silent default.
+- **Props — one shallow rule**: each prop maps to the view's prop-ABI slot by exact name
+  (write the slot names directly); `children` and `ref` pass through preserved; only the
+  reserved `frame` prop is consumed by the bridge. No camelisation, no deep conversion.
+- **JVM**: a call is a host-op error (`:rf.error/jvm-host-op`) — a React component export
+  has no meaning in a structural render. SSR through the bridge is unsupported in v1.
+- **Errors**: a non-view argument (a keyword, `nil`, …) → `:rf.error/ui-tree-malformed`.
+
 ### `presence`
 
 - **Kind**: function (compile-time authoring form)

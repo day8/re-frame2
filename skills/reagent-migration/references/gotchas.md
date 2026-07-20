@@ -49,7 +49,7 @@ React 18 dev **StrictMode deliberately replays** the mount cycle — connect→d
 
 ## The staged-gap trap — never emit an unshipped form
 
-If a construct maps to a staged capability that hasn't landed (the outward `ui/->react` bridge, the explicit-frame `sub` pin MIG-03), **do not emit a placeholder for it**. There is no forward-compatible spelling to write; a made-up form will not compile when the stage does ship, and misleads the author into thinking the view converted. Name the gap, hold the view on Reagent ([`catalog-reject.md`](catalog-reject.md)). (SSR — `ui/render-static` / `ui/hydrate-root` — and the compiled `route-link` have shipped; those are transforms now, not gaps.)
+If a construct maps to a staged capability that hasn't landed (the explicit-frame `sub` pin MIG-03), **do not emit a placeholder for it**. There is no forward-compatible spelling to write; a made-up form will not compile when the stage does ship, and misleads the author into thinking the view converted. Name the gap, hold the view on Reagent ([`catalog-reject.md`](catalog-reject.md)). (SSR — `ui/render-static` / `ui/hydrate-root` — the compiled `route-link`, and the outward `ui/->react` bridge have shipped; those are transforms now, not gaps.)
 
 ## `local` updaters vs setters (multi-writer state)
 

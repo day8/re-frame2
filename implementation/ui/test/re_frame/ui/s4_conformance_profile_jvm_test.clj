@@ -280,6 +280,15 @@
   missing 'S5 bucket' prerequisite for landing render-static."
   '#{render-static})
 
+(def s6-facade-delta
+  "The S6 facade delta — the ONE new re-frame.ui public S6 adds (rf2-u53yy.2):
+  `->react`, the OUTWARD interop bridge (export a compiled view as a foreign
+  React component). Held as its own partition SLOT so the non-S3 exact-set
+  classification recognises it as an S6 public rather than an unexpected surface
+  member. Shipped ahead of the nominal S6 migration wave as a ratified
+  UIx-review feature."
+  '#{->react})
+
 (def s4-inherits-profile
   "The frozen profile this one inherits by exact reference. A broken inheritance
   link — the file gone, or the reference dropped from §0 — is red."
@@ -325,15 +334,17 @@
                               frozen-s4-forms)))))
 
 (deftest new-public-surface-fails-loudly
-  (testing "the non-S3 facade publics partition EXACTLY into the S4 delta + the S1/S2 carry-over + the S5 delta — a NEW public var is red until it is classified"
+  (testing "the non-S3 facade publics partition EXACTLY into the S4 delta + the S1/S2 carry-over + the S5 delta + the S6 delta — a NEW public var is red until it is classified"
     (let [non-s3     s3/non-s3-facade-publics
-          classified (set/union (s4-facade-forms) s1-s2-carryover-publics s5-facade-delta)]
+          classified (set/union (s4-facade-forms) s1-s2-carryover-publics
+                                s5-facade-delta s6-facade-delta)]
       (is (= non-s3 classified)
           (str "facade classification drift — "
                "unclassified (new?) publics: " (sort (set/difference non-s3 classified))
                "; classified-but-absent: " (sort (set/difference classified non-s3))))))
   (testing "the live facade agrees — every classified name actually resolves"
-    (doseq [sym (set/union (s4-facade-forms) s1-s2-carryover-publics s5-facade-delta)]
+    (doseq [sym (set/union (s4-facade-forms) s1-s2-carryover-publics
+                           s5-facade-delta s6-facade-delta)]
       (is (some? (ns-resolve 're-frame.ui sym))
           (str "ui/" sym " is classified but does not resolve")))))
 

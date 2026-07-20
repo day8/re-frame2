@@ -292,3 +292,21 @@
          (eval-compile-error '(re-frame.ui.react/lazy
                                (fn [])
                                {:fallback [:div (re-frame.ui/sub [:x])]})))))
+
+;; ---------------------------------------------------------------------------
+;; ui/->react — the OUTWARD bridge (rf2-u53yy.2): CLJS-only. A React component
+;; export has no meaning in a JVM structural render, so a JVM call fails loud
+;; through the canonical host-op path (kin to ui/raw, ui/unmount!). Real
+;; client behaviour (mount inside foreign React, frame/sub resolution,
+;; per-view-identity memoisation, children/ref passthrough) rides the DOM suite
+;; `react_export_bridge_dom_cljs_test`.
+;; ---------------------------------------------------------------------------
+
+(defview exportable-view [{:keys [label]}] [:div.export label])
+
+(deftest ->react-is-a-host-op-on-the-jvm
+  (is (= :rf.error/jvm-host-op
+         (try (ui/->react exportable-view) nil
+              (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
+      "(ui/->react view) raises :rf.error/jvm-host-op — a React component export
+       is meaningless in a structural render (CLJS-only bridge)"))
