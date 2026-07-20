@@ -461,10 +461,15 @@ committed frame.
   `:rf.ui.compile/bare-fn-ref`. An internal **view forwards `:ref` only by
   declaring it** in its header (React 19 ref-as-prop) — passing `:ref` to a view
   carries it on the props object, and the callee reads it via the declared slot.
-- **Spreading props:** `(ui/spread base overrides)` is the one generic runtime
-  prop-map merge, legal only in a **DOM/custom element's** props position (not
-  an internal-view call). `(ui/spread-safe owned caller)` is the literal
-  safe-forward for a component library (structural/controlled keys `:key`
+- **Spreading props:** `(ui/spread base overrides)` in a **DOM/custom element's**
+  props position is the one generic runtime prop-map merge (rule-table
+  conversion, later-arg-wins). At a **foreign component** call site
+  `(ui/spread literal-part runtime-map)` is the wrapper idiom — the literal part
+  is analysed normally (compiled handlers/props), the forwarded runtime map is
+  opaque and passes through unconverted, and the literal props win a collision;
+  an **internal view** still requires a literal props map
+  (`:rf.ui.compile/spread-internal-view`). `(ui/spread-safe owned caller)` is the
+  literal safe-forward for a component library (structural/controlled keys `:key`
   `:ref` `:value` `:checked` and owned `:on-*` are denied in the caller map).
 - **Trusted markup:** `(ui/html s)` as the **sole child** of a DOM element.
 - **Custom elements:** declare with `(ui/custom-element :my-el {:properties #{…}})`

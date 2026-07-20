@@ -85,6 +85,9 @@
     :rf.ui.compile/bare-fn-ref
     :rf.ui.compile/dynamic-props-map
     :rf.ui.compile/bad-spread
+    ;; ui/spread admitted at a FOREIGN component call site; rejected at an
+    ;; internal view (literal props required) (rf2-u53yy.5)
+    :rf.ui.compile/spread-internal-view
     ;; literal safe-spread policy (S3, rf2-isdqjv)
     :rf.ui.compile/bad-spread-safe
     :rf.ui.compile/spread-safe-owned-key
@@ -460,6 +463,12 @@
    [:rf.ui.compile/bare-fn-ref '[:div {:ref (fn [el] el)} "x"] ["(ui/raw-fn f)"]]
    [:rf.ui.compile/bad-spread '[:div (spread)] ["(ui/spread base"]]
    [:rf.ui.compile/bad-spread '(spread base) ["props position"]]
+   ;; ui/spread at an INTERNAL view call site — rejected (literal props
+   ;; required); admitted only at a FOREIGN head (rf2-u53yy.5)
+   [:rf.ui.compile/spread-internal-view
+    '[child-view (spread {:a 1} m)] ["LITERAL props map" "FOREIGN"]]
+   [:rf.ui.compile/spread-internal-view
+    '[child-view (spread m)] ["LITERAL props map" "FOREIGN"]]
    ;; literal safe-spread policy (S3, rf2-isdqjv): malformed form + owned-key deny
    [:rf.ui.compile/bad-spread-safe '[:div (spread-safe dynmap caller)] ["LITERAL"]]
    [:rf.ui.compile/bad-spread-safe '[:div (spread-safe {})] ["owned caller"]]

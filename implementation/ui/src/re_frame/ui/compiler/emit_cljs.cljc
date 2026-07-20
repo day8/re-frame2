@@ -583,9 +583,36 @@
                     `(if ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
                        (re-frame.ui.runtime/warn-bare-view-alias! ~head-sym)
                        ~head-sym)
-                    head-sym)]
+                    head-sym)
+        spread    (get-in node [:props :spread])]
     (when self? (swap! st assoc :self-ref? true))
-    (jsx-runtime-call multi? head-form props-form key-info)))
+    (if spread
+      ;; ui/spread at a FOREIGN component call site (rf2-u53yy.5): the LITERAL
+      ;; part's compiled props are built as a literal object; the forwarded
+      ;; runtime map is layered UNDER them (literal wins) by
+      ;; `foreign-spread-props`, which passes the forwarded keys through
+      ;; UNCONVERTED (a foreign boundary owns its own prop ABI). Children ride
+      ;; the same jsx-spread call.
+      ;;
+      ;; EVALUATION ORDER: the authored order is `(ui/spread literal runtime)`,
+      ;; so the literal object binds BEFORE the forwarded expression — the
+      ;; single-evaluation `let` temporaries mirror the element spread branch
+      ;; and fold away under :advanced.
+      (let [literal-obj (ordered-literal-object
+                         (concat (map #(component-prop-pair % st) entries)
+                                 (when ref-a [["ref" (:form ref-a)]])))
+            lit-sym     (gensym "rf-ui-lit")
+            fwd-sym     (gensym "rf-ui-fwd")
+            props-obj   `(let [~lit-sym ~literal-obj
+                               ~fwd-sym ~(:base spread)]
+                           (re-frame.ui.runtime/foreign-spread-props ~fwd-sym ~lit-sym))]
+        (if (:present? key-info)
+          `(re-frame.ui.runtime/jsx-spread3 ~head-form ~props-obj
+                                            ~(:expr key-info)
+                                            (cljs.core/array ~@chs))
+          `(re-frame.ui.runtime/jsx-spread2 ~head-form ~props-obj
+                                            (cljs.core/array ~@chs))))
+      (jsx-runtime-call multi? head-form props-form key-info))))
 
 (defn- row-key-expr [body]
   (or (get-in body [:props :key :expr]) (get-in body [:key :expr])))

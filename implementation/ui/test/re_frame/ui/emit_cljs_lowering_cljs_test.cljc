@@ -299,6 +299,37 @@
                                        [v/card {:x 1}]]))))))
 
 ;; ---------------------------------------------------------------------------
+;; ui/spread at a FOREIGN component call site (rf2-u53yy.5)
+;; ---------------------------------------------------------------------------
+
+(deftest foreign-spread-merges-the-forwarded-map-under-the-literal-props
+  (let [form  (emitted '[ForeignComp
+                         (ui/spread {:selected d :on-change (event [v] [:pick v])}
+                                    forwarded)])
+        props (nth form 2)]
+    (is (= 're-frame.ui.runtime/jsx-spread2 (first form))
+        "a foreign spread routes through the runtime-built-props jsx helper")
+    (is (= '(re-frame.ui.runtime/warn-bare-view-alias! ForeignComp)
+           (nth (nth form 1) 2))
+        "the foreign head keeps its dev-gated bare-view-alias guard")
+    (is (= "let" (name (first props)))
+        "the merged props object binds single-evaluation temporaries")
+    (is (some #{'re-frame.ui.runtime/foreign-spread-props} (forms-of props))
+        "the literal props are layered over the forwarded map by foreign-spread-props")
+    (is (some #{'re-frame.ui.events/event-handler} (forms-of props))
+        "the literal part's ui/event compiles to a committed callback")
+    (is (= 1 (count (filter #{'forwarded} (forms-of form))))
+        "the forwarded runtime map evaluates exactly once")
+    (is (= '(cljs.core/array) (last form))
+        "no positional children on this call site")))
+
+(deftest foreign-spread-with-a-key-selects-the-three-arg-jsx-helper
+  (let [form (emitted '[ForeignComp (ui/spread {:key k :a 1} m)])]
+    (is (= 're-frame.ui.runtime/jsx-spread3 (first form))
+        "a literal :key in the spread's literal part selects the 3-arg spread jsx")
+    (is (= 'k (nth form 3)) "the key expression rides the jsx key argument")))
+
+;; ---------------------------------------------------------------------------
 ;; ui/spread + ui/html compose (rf2-29s75)
 ;;
 ;; The general-spread branch builds its props object at RUNTIME and never goes

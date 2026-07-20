@@ -213,7 +213,7 @@ Keep the caveat: views using refs/effects need `ui/client-only` (or restructure)
 
 - **A genuinely opaque runtime props map → `ui/spread`** (the visible-cost escape). `(ui/spread base overrides)` is the one *generic* runtime conversion for a map the compiler cannot see into. It **forfeits the static manifest row *and* the controlled-input synchrony door** (which needs a provably-literal `:value`/`:checked` on the element). Weigh it knowingly: shrink the spread to genuinely pass-through props and lift `:value`/handlers back to literals where you can — or, if the owned/forwarded split is clean, prefer `ui/spread-safe`.
 
-**Component call sites stay literal-map (MIG-01), never a spread.** See the **bare-symbol trap** ([`gotchas.md`](gotchas.md)) — a bare symbol *child* is content, never a spread.
+**Internal-view call sites stay literal-map (MIG-01), never a spread** — an internal view needs the literal keys for its per-slot memo comparator. A **foreign** component call site is the exception: it accepts `(ui/spread literal-part runtime-map)` (the wrapper idiom — the literal part compiles normally, the forwarded map passes through opaque, an internal view still rejects it with `:rf.ui.compile/spread-internal-view`). See the **bare-symbol trap** ([`gotchas.md`](gotchas.md)) — a bare symbol *child* is content, never a spread.
 
 ## MIG-22 — third-party Reagent wrapper components (re-com et al.)
 

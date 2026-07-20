@@ -71,12 +71,14 @@ Real apps embed React that someone else wrote. The doors are explicit and narrow
   [handler decision table](events-and-handlers.md#the-decision-table); a bare fn on
   a foreign callback prop is a compile error precisely because the compiler can't
   know the invoker's phase.
-- **`ui/spread`** merges a runtime prop map through the same conversion rule table
-  as the compiler — the one dynamic-map path, its cost visible at the call site.
-  `ui/spread-safe` is its component-library sibling: it forwards a consumer's attr
-  map onto an internal element while barring the structural/controlled keys
-  (`:key` `:ref` `:value` `:checked` and owned handlers) in every build, so a
-  library input keeps its controlled guarantee.
+- **`ui/spread`** is the one runtime prop-map form. On a **DOM/custom element**
+  (`[:div (ui/spread base attrs)]`) it merges two runtime maps through the same
+  conversion rule table as the compiler. On a **foreign component** it is the
+  wrapper idiom — accept a map, forward it — shown below. `ui/spread-safe` is its
+  component-library sibling: it forwards a consumer's attr map onto an internal
+  element while barring the structural/controlled keys (`:key` `:ref` `:value`
+  `:checked` and owned handlers) in every build, so a library input keeps its
+  controlled guarantee.
 - **`ui/html`** is the one escaping bypass — visible at the call site, you vouch
   for the string.
 - **React hooks at a genuine foreign boundary** come from `re-frame.ui.react`
@@ -84,6 +86,34 @@ Real apps embed React that someone else wrote. The doors are explicit and narrow
   tier. Inside ordinary views you never reach for them: `sub`, `local`, and
   `effect` are the component story. See the
   [`re-frame.ui.react` reference](../../api/re-frame.ui.react.md).
+
+### Forwarding props onto a foreign component: `ui/spread`
+
+A component call site normally takes a **literal props map** — an internal view
+needs the literal keys for its per-slot memo comparator, so a wholly-dynamic props
+expression there is a compile error. A **foreign** component has no such
+invariant: its props are open and pass through untouched. So the standard wrapper
+idiom — take a props map, add your own, forward the rest onto the widget — is
+admitted at a foreign head through `ui/spread`:
+
+```clojure
+(defview date-field [{:keys [date on-pick] :as props}]
+  ;; owned :selected/:on-change are compiled here; the rest of `props`
+  ;; is forwarded onto the foreign DatePicker, unconverted
+  [DatePicker (ui/spread {:selected date
+                          :on-change (ui/handler [v] (on-pick v))}
+                         (dissoc props :date :on-pick))])
+```
+
+The **literal part** (`{:selected … :on-change …}`) is analysed exactly like a
+literal call-site map — the `ui/handler` compiles to a committed, per-site-stable
+callback. The **forwarded map** is opaque: it passes through verbatim (a foreign
+head owns its own prop ABI) and marks the site dynamic. The compiled literal props
+**win** any key collision, so the forwarded map can never clobber your committed
+callback. `(ui/spread forwarded)` with no literal part forwards a map alone.
+`ui/spread` at an *internal view* stays a compile error
+(`:rf.ui.compile/spread-internal-view`) — use `ui/spread-safe` when a component
+library needs to forward a consumer's attrs onto an internal element.
 
 ### Exporting a view outward: `ui/->react`
 
@@ -178,7 +208,8 @@ island behind a thin `ui/raw` boundary, not a `defview` full of runtime structur
 | Need | Door | Notes |
 |---|---|---|
 | A React element a foreign lib already built | `ui/raw` | Boundary, not a template feature |
-| Dynamic prop maps | `ui/spread` / `ui/spread-safe` | Runtime conversion on the compiler's own rule table |
+| A runtime prop map on a DOM element | `ui/spread` / `ui/spread-safe` | Runtime conversion on the compiler's own rule table |
+| Forwarding props onto a foreign component | `ui/spread` | Literal part compiled, forwarded map opaque (internal views stay literal) |
 | Unescaped HTML you vouch for | `ui/html` | Explicit at the call site |
 | Host-only leaf under SSR | `ui/client-only` | Fallback is plain markup — [SSR](ssr.md) |
 | Parameterised markup for a library | `ui/render-fn` + `ui/slot` | Pure; compiled; no runtime hiccup |

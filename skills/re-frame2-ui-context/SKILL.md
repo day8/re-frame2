@@ -162,10 +162,15 @@ committed frame.
   `:rf.ui.compile/bare-fn-ref`. An internal **view forwards `:ref` only by
   declaring it** in its header (React 19 ref-as-prop) — passing `:ref` to a view
   carries it on the props object, and the callee reads it via the declared slot.
-- **Spreading props:** `(ui/spread base overrides)` is the one generic runtime
-  prop-map merge, legal only in a **DOM/custom element's** props position (not
-  an internal-view call). `(ui/spread-safe owned caller)` is the literal
-  safe-forward for a component library (structural/controlled keys `:key`
+- **Spreading props:** `(ui/spread base overrides)` in a **DOM/custom element's**
+  props position is the one generic runtime prop-map merge (rule-table
+  conversion, later-arg-wins). At a **foreign component** call site
+  `(ui/spread literal-part runtime-map)` is the wrapper idiom — the literal part
+  is analysed normally (compiled handlers/props), the forwarded runtime map is
+  opaque and passes through unconverted, and the literal props win a collision;
+  an **internal view** still requires a literal props map
+  (`:rf.ui.compile/spread-internal-view`). `(ui/spread-safe owned caller)` is the
+  literal safe-forward for a component library (structural/controlled keys `:key`
   `:ref` `:value` `:checked` and owned `:on-*` are denied in the caller map).
 - **Trusted markup:** `(ui/html s)` as the **sole child** of a DOM element.
 - **Custom elements:** declare with `(ui/custom-element :my-el {:properties #{…}})`
@@ -304,6 +309,8 @@ not edit it by hand.
   - (ui/slot render-fn-value arg…) needs a render-fn value (or nil) as its first argument
 - **`:rf.ui.compile/bad-spread`**
   - (ui/spread base) or (ui/spread base overrides)
+  - (ui/spread runtime-map) or (ui/spread literal-part runtime-map) at the foreign component
+  - (ui/spread literal-part runtime-map) — the first argument must be a LITERAL props map (analysed for the component's compiled handlers and props); the second is the opaque forwarded runtime map
   - (ui/spread...) belongs in a DOM element's props position: [:div (ui/spread base overrides)]
 - **`:rf.ui.compile/bad-spread-safe`**
   - (ui/spread-safe owned caller) — `owned` must be a LITERAL props map (the component's own props; the compiler proves the controlled site and keeps the sync door) and `caller` the forwarded runtime attr map
@@ -330,7 +337,7 @@ not edit it by hand.
 - **`:rf.ui.compile/dynamic-head`** — dynamic element head — heads must be literal (a keyword or a component var). Runtime-chosen components are ui/view / ui/element [WAVE-2]; ui/raw covers a runtime React element meanwhile
 - **`:rf.ui.compile/dynamic-props-map`**
   - props of must be a literal map, (ui/spread base overrides), or (ui/spread-safe owned caller)
-  - component call sites take a LITERAL props map — a wholly-dynamic props expression is not v1 grammar (conservative S1 pin; ui/spread converts dynamic maps for DOM elements only)
+  - component call sites take a LITERAL props map — a wholly-dynamic props expression is not v1 grammar (conservative S1 pin). At a FOREIGN component forward a runtime map with (ui/spread literal-part runtime-map); a DOM/custom element also takes (ui/spread base overrides)
 - **`:rf.ui.compile/frame-in-loop`**
   - (frame) must be a finite render-time site in a defview — it cannot run in a loop, deferred callback, raw-fn/ref body, or root expression. Hoist the read into the view body and let the callback capture its committed ops bundle
   - (ui/dispatch-fn) must be a finite render-time site in a defview — it cannot run in a loop, deferred callback, raw-fn/ref body, or root expression. Capture it in the view body and use it from an (effect …) or foreign callback
@@ -374,6 +381,7 @@ not edit it by hand.
   - (ui/render-fn …) is a render-slot callback value — legal ONLY as a component call-site prop value or a ui/slot argument, never as a plain expression. The library invokes it through ui/slot
   - (ui/render-fn …) is a render-slot callback value, not renderable content — invoke it with (ui/slot render-fn arg…), or pass it as a component prop value
 - **`:rf.ui.compile/slot-arity`** — (ui/slot render-fn arg…) passes arguments to an inline (ui/render-fn …) that declares parameters — a render-fn is a FIXED-arity callback, so the slot must pass exactly its declared parameters (host-identically, before invocation). Pass the missing argument(s), or drop the unused parameter(s) / Drop the surplus argument(s), or declare the extra parameter(s)
+- **`:rf.ui.compile/spread-internal-view`** — (ui/spread …) at the internal view — an internal view requires a LITERAL props map: its generated per-slot memo comparator and slot ABI need the literal keys. ui/spread is admitted at a FOREIGN component call site (its props are open and pass through unconverted) and in a DOM/custom element's props position
 - **`:rf.ui.compile/spread-safe-owned-key`** — (ui/spread-safe owned caller) — the caller map may not carry the owned/structural key; it is denied in every build so it can never clobber an owned prop. Forward it through the visible-cost (ui/spread base overrides) instead, or drop it
 - **`:rf.ui.compile/sub-in-loop`** — (sub...) must be a finite render-time site in a defview — it cannot run in a loop, deferred callback, raw-fn/ref body, or root expression. Hoist the read into the view body and let the callback capture its committed value; for rows, extract a keyed child view
 - **`:rf.ui.compile/textarea-children`**

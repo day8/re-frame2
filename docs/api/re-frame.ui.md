@@ -178,10 +178,26 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
 ### `spread`
 
 - **Kind**: function (template interop form)
-- **Signature**: `(spread base overrides)`
-- **Description**: Runtime prop-map merge through the **same conversion rule table**
-  as the compiler. Legal in a DOM element's props position only:
-  `[:div (ui/spread base attrs)]`. Direct call → `:rf.error/ui-spread-outside-template`.
+- **Signature**: `(spread base overrides)` (DOM element) · `(spread literal-part
+  runtime-map)` or `(spread runtime-map)` (foreign component)
+- **Description**: The one runtime prop-map form. Its behaviour depends on the head:
+  - **DOM / custom element** — `(ui/spread base overrides)`, e.g.
+    `[:div (ui/spread base attrs)]`: two runtime maps merged through the **same
+    conversion rule table** as the compiler (later-arg-wins).
+  - **Foreign component** — `[DatePicker (ui/spread {…} forwarded)]`: the standard
+    wrapper idiom (accept a map, forward it onto a foreign component). The optional
+    **literal part** is analysed exactly like a literal call-site props map (its
+    `ui/event`/`ui/handler`/`ui/render-fn` compile to committed callbacks, prop
+    checks run, `:key`/`:ref` extract); the **runtime map** is an opaque
+    foreign-boundary map that passes through **unconverted** (verbatim author-key
+    names — a foreign head owns its own prop ABI) and marks the site `:dynamic`.
+    The compiled literal props **win** any collision (the forwarded map is layered
+    under them, mirroring `spread-safe`'s owned-wins, minus the deny law). An
+    **internal view** rejects `ui/spread` — `:rf.ui.compile/spread-internal-view`,
+    it requires a literal props map (its per-slot memo comparator and slot ABI need
+    the literal keys).
+- **Errors**: direct call → `:rf.error/ui-spread-outside-template`; `ui/spread` at
+  an internal-view call site → `:rf.ui.compile/spread-internal-view`.
 
 ### `spread-safe`
 

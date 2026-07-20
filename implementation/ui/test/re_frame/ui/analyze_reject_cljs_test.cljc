@@ -714,7 +714,21 @@
   ;; literal-props pin): a childless view therefore rejects it outright
   (is (= :rf.ui.compile/children-not-accepted
          (reject-id '[leaf-view props-expr]))
-      "no dynamic-props back door — a non-map is a child, and leaf views take none"))
+      "no dynamic-props back door — a non-map is a child, and leaf views take none")
+  ;; rf2-u53yy.5 — ui/spread IS admitted at a FOREIGN component call site, but an
+  ;; internal view keeps the literal-props requirement (its per-slot memo
+  ;; comparator and slot ABI need the literal keys).
+  (is (nil? (reject-id '[ForeignComp (spread {:selected d :on-change (handler [v] (pick v))}
+                                             forwarded)]))
+      "a foreign head accepts (ui/spread literal-part runtime-map)")
+  (is (nil? (reject-id '[ForeignComp (spread forwarded)]))
+      "a foreign head accepts a plain forwarded map spelled through spread")
+  (is (= :rf.ui.compile/spread-internal-view
+         (reject-id '[child-view (spread {:a 1} forwarded)]))
+      "an internal view rejects ui/spread — literal props required")
+  (is (= :rf.ui.compile/spread-internal-view
+         (reject-id '[leaf-view (spread forwarded)]))
+      "the internal-view spread rejection covers the plain forwarded form too"))
 
 (deftest interop-positions
   (is (= :rf.ui.compile/html-not-sole-child

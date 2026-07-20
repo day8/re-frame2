@@ -337,6 +337,55 @@
                                         :on-select (event [e] [:pick (:id row)])}]))))))
 
 ;; ---------------------------------------------------------------------------
+;; ui/spread at a FOREIGN component call site (rf2-u53yy.5)
+;; ---------------------------------------------------------------------------
+
+(deftest foreign-spread-admits-literal-part-plus-opaque-forwarded-map
+  (testing "the literal part is analysed normally (compiled handler + props); "
+           "the forwarded runtime map is opaque and marks the site dynamic"
+    (let [{:keys [ast sites]}
+          (ana-full '[ForeignComp
+                      (spread {:selected date
+                               :on-change (handler [v] (pick! v))}
+                              forwarded-props)])
+          en (first (get-in ast [:props :entries]))]
+      (is (= :foreign (:op ast)) "a foreign head with spread is a foreign component")
+      (is (= 'forwarded-props (get-in ast [:props :spread :base]))
+          "the forwarded runtime map is carried opaque as the spread base")
+      (is (some #(= :on-change (:k %)) (get-in ast [:props :entries]))
+          "the literal part's keys are analysed as ordinary call-site props")
+      (is (= :handler (:marker (some #(when (= :on-change (:k %)) %)
+                                     (get-in ast [:props :entries]))))
+          "a ui/handler in the literal part compiles to a committed callback")
+      (is (some #(= :spread (:classification %)) (:events sites))
+          (str "the forwarded map records ONE opaque :spread event site — "
+               "the manifest marks the call site :dynamic"))))
+  (testing "the plain forwarded-map form has no literal part"
+    (let [ast (ana* '[ForeignComp (spread forwarded-props)])]
+      (is (= :foreign (:op ast)))
+      (is (= 'forwarded-props (get-in ast [:props :spread :base])))
+      (is (empty? (get-in ast [:props :entries])) "no literal part → no entries")))
+  (testing "a lone literal map spelled through spread has NO forwarded part"
+    (let [ast (ana* '[ForeignComp (spread {:a 1})])]
+      (is (= :foreign (:op ast)))
+      (is (nil? (get-in ast [:props :spread]))
+          "a literal-only spread carries no opaque forwarded map")
+      (is (= [:a] (mapv :k (get-in ast [:props :entries])))
+          "its keys are ordinary literal call-site props")))
+  (testing "children ride the same foreign spread call site"
+    (let [ast (ana* '[ForeignComp (spread {:a 1} m) [:p "kid"]])]
+      (is (= :foreign (:op ast)))
+      (is (= 1 (count (:children ast))) "positional children still analyse")))
+  (testing "an internal view rejects spread (literal props required)"
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+                 (ana* '[child-view (spread {:a 1} m)])))
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+                 (ana* '[leaf-view (spread m)]))))
+  (testing "a bare fn in a foreign spread's literal part is still rejected"
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+                 (ana* '[ForeignComp (spread {:on-select (fn [x] x)} m)])))))
+
+;; ---------------------------------------------------------------------------
 ;; ui/error-boundary + ui/client-only (rf2-vxgfnd.95.3)
 ;; ---------------------------------------------------------------------------
 
