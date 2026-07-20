@@ -95,8 +95,24 @@
 ;; Form 1 — a view reference (compile-resolved defview var/symbol)
 ;; ---------------------------------------------------------------------------
 
+(defn- strip-view-evidence
+  "Recursively drop the DEV host-root view-evidence annotation
+  (:data-rf2-source-coord / :data-rf-view) the compiler stamps on each view's
+  compiler-owned root element (rf2-hac8p). This golden asserts the boundary-node
+  tree shape, not the host-root annotation (own coverage: the emit-annotation
+  tests, the parity corpus, test:elision)."
+  [node]
+  (if (map? node)
+    (let [node (if-let [a (:attrs node)]
+                 (let [a (dissoc a :data-rf2-source-coord :data-rf-view)]
+                   (if (seq a) (assoc node :attrs a) (dissoc node :attrs)))
+                 node)]
+      (cond-> node
+        (:children node) (update :children #(mapv strip-view-evidence %))))
+    node))
+
 (deftest view-reference-renders
-  (let [tree (uit/render badge {:props {:label "hi"}})]
+  (let [tree (strip-view-evidence (uit/render badge {:props {:label "hi"}}))]
     (is (= {:view-id ::badge
             :props {:label "hi"}
             :children [{:tag :span :attrs {:class "badge"} :children ["hi"]}]

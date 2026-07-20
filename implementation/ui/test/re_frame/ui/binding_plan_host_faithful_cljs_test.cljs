@@ -39,7 +39,17 @@
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.runtime :as rt]))
 
-(defn- render [el] (rds/renderToStaticMarkup el))
+(defn- strip-view-evidence
+  "Drop the DEV host-root view-evidence annotation (`data-rf2-source-coord` /
+  `data-rf-view`) the compiler stamps on a view's compiler-owned root element
+  (rf2-hac8p). This suite's subject is the header binding plan — the bound value,
+  comparator slot set, `:or` default side effects — not the host-root annotation;
+  its own coverage is the dedicated emit-annotation tests, the parity corpus, and
+  `test:elision`."
+  [html]
+  (str/replace html #"\s+data-rf(?:2-source-coord|-view)=\"[^\"]*\"" ""))
+
+(defn- render [el] (strip-view-evidence (rds/renderToStaticMarkup el)))
 (defn- descriptor [id] (reactive/view-descriptor id))
 (defn- compare-fn [id] (:compare-fn (descriptor id)))
 (defn- prop-slot-keys [id]

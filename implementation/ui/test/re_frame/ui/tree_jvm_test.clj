@@ -14,6 +14,23 @@
 
 (defn- boom! [] (throw (ex-info "must never evaluate" {})))
 
+(defn- strip-view-evidence
+  "Recursively drop the DEV host-root view-evidence annotation
+  (:data-rf2-source-coord / :data-rf-view) the compiler stamps on each view's
+  compiler-owned root element (rf2-hac8p — the JVM `static-form` gate). These
+  structural goldens assert the canonical tree SHAPE, not the host-root
+  annotation, whose own coverage is the emit-annotation tests, the parity
+  corpus, and test:elision."
+  [node]
+  (if (map? node)
+    (let [node (if-let [a (:attrs node)]
+                 (let [a (dissoc a :data-rf2-source-coord :data-rf-view)]
+                   (if (seq a) (assoc node :attrs a) (dissoc node :attrs)))
+                 node)]
+      (cond-> node
+        (:children node) (update :children #(mapv strip-view-evidence %))))
+    node))
+
 (def ForeignThing ::not-a-view) ; resolvable var without view meta -> foreign
 
 (ui/custom-element :tree-fancy-el {:properties #{:help-text}})
@@ -118,7 +135,7 @@
                          :on-hover {:event [:row/hover 1] :prevent-default true}}
                 :children ["a"]}]}]}]
           :rf.ui/tree-version 1}
-         (tree/render rows {:ts [{:id 1 :label "a" :p :hi}]}))
+         (strip-view-evidence (tree/render rows {:ts [{:id 1 :label "a" :p :hi}]})))
       "event vectors + options maps retained verbatim as data; placeholder
        keywords stay keywords; boundaries nest; keys ride the boundary"))
 
@@ -207,7 +224,7 @@
 (deftest sub-grammar-compiles-untaken-branch-renders
   (is (= {:view-id ::subby :props {:read? false} :rf.ui/tree-version 1
           :children [{:tag :div}]}
-         (tree/render subby {:read? false}))
+         (strip-view-evidence (tree/render subby {:read? false})))
       "sub GRAMMAR compiles at S1; an untaken branch renders with no read")
   ;; S2b: reads LANDED — the staging :rf.error/ui-sub-unavailable is retired.
   ;; tree/render is frameless, so a taken read resolves the ambient frame
@@ -227,7 +244,7 @@
       "(declare ^:rf.ui/view pong) makes mutual view recursion expressible"))
 
 (deftest custom-element-and-spread-on-jvm
-  (let [el (first (:children (tree/render custom-el-user {})))]
+  (let [el (strip-view-evidence (first (:children (tree/render custom-el-user {}))))]
     (is (= {:tag :tree-fancy-el
             :attrs {:help-text "h" :data-x "d"}
             :rf.ui/property-props #{:help-text}}
@@ -241,7 +258,7 @@
 (deftest trusted-html-node
   (is (= {:tag :div :attrs {:class "content"}
           :children [{:html "<b>raw & bold</b>"}]}
-         (first (:children (tree/render trusted {}))))
+         (strip-view-evidence (first (:children (tree/render trusted {})))))
       "the trusted-HTML node variant — the single escaping bypass"))
 
 (deftest namespace-context-rows-on-jvm

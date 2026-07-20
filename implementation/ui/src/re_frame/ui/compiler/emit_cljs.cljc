@@ -426,6 +426,15 @@
                                (cljs.core/js-obj "__html" ~(:form html)))
                               ~props-sym))
                          built)
+            ;; A DEV-gated view-evidence annotation rides the host root's props
+            ;; when this spread element is the view's compiler-owned root (a
+            ;; spread element is a single DOM host node, so the same annotation
+            ;; as the plain-element branch applies — parity with emit-jvm's
+            ;; `static-form` and the adapter source-coord walk). It DCEs in
+            ;; production.
+            props-form (cond-> props-form
+                         (:rf.ui/annotate node)
+                         (annotate-host-root-props (:rf.ui/annotate node)))
             chs        (children-forms st (:children node) inner-inline?)]
         (if (:present? key-info)
           `(re-frame.ui.runtime/jsx-spread3 ~tag-str ~props-form
@@ -468,6 +477,14 @@
             props-form  `(let [~owned-sym ~owned-obj
                                ~caller-sym ~caller-obj]
                            (re-frame.ui.runtime/spread-safe-props ~caller-sym ~owned-sym))
+            ;; Host-root view-evidence annotation (DEV-gated) when this
+            ;; spread-safe element is the view's compiler-owned root — parity
+            ;; with the plain-element / `ui/spread` branches, emit-jvm, and the
+            ;; adapter source-coord walk. Rides ABOVE the owned/caller merge, so
+            ;; it stamps the final props object; it DCEs in production.
+            props-form  (cond-> props-form
+                          (:rf.ui/annotate node)
+                          (annotate-host-root-props (:rf.ui/annotate node)))
             chs         (children-forms st (:children node) inner-inline?)]
         (if (:present? key-info)
           `(re-frame.ui.runtime/jsx-spread3 ~tag-str ~props-form
