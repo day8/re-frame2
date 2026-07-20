@@ -1386,7 +1386,7 @@ Override keys are interceptor **references**, matched by exact canonical referen
        ;; Unauthenticated: stage a redirect. (Throwing from :before short-circuits
        ;; the remaining :before stages and the handler — see 002 §Interceptor chain
        ;; execution; a redirect-and-continue gate stages an :fx instead, as here.)
-       (assoc-in ctx [:effects :fx] [[:dispatch [:rf.route/navigate :route/login]]])))})
+       (assoc-in ctx [:effects :fx] [[:dispatch [:rf.route/navigate {:to :route/login}]]])))})
 
 ;; Any event that needs the gate references it by id:
 (rf/reg-event :account/update-profile

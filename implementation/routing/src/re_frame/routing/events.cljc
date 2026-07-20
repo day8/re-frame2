@@ -95,7 +95,7 @@
 ;; against the current one and skips the dispatch when nothing relevant
 ;; changed. Re-firing the loaders would re-fetch unchanged data on every
 ;; redundant navigation (clicking the already-active nav link, a
-;; duplicate `[:rf.route/navigate :route/cart]`, popstate to the current
+;; duplicate `[:rf.route/navigate {:to :route/cart}]`, popstate to the current
 ;; URL), which is the data-refetch thrash the rule forbids. The
 ;; fragment-only case (id/params/query equal, fragment changed) is the
 ;; sibling short-circuit (rf2-8oxj6); this predicate is the stricter

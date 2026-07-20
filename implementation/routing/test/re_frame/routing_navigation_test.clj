@@ -145,7 +145,7 @@
 (deftest navigate-pushes-url-with-fragment
   (testing ":rf.route/navigate with :fragment opt pushes the URL with #fragment appended"
     ;; Per Spec 012 §Fragments §Programmatic navigation with fragments:
-    ;; `[:rf.route/navigate :route/docs {:page "routing"} {:fragment "x"}]`
+    ;; `[:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "x"}]`
     ;; pushes "/docs/routing#x" via :rf.nav/push-url. The 4-arity route-url
     ;; is the canonical builder; the navigate handler routes opts → 4-arity.
     (rf/reg-route :route/docs {} "/docs/:page")
@@ -886,7 +886,7 @@
 
 (deftest identical-programmatic-renav-does-not-refire-on-match
   (testing "rf2-ee38b.8 / Spec 012 rule 3: a duplicate
-            [:rf.route/navigate :route/cart] does NOT re-fire :on-match
+            [:rf.route/navigate {:to :route/cart}] does NOT re-fire :on-match
             and does NOT allocate a new nav-token"
     (let [on-match-calls (atom 0)
           pushed         (atom 0)]
