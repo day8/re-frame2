@@ -258,41 +258,50 @@
                      (reject-unexpectedly! done "duplicate presence identities rejected" e))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Nil runtime key at a MOUNTED boundary (rf2-vz6a1)
+;; Keyless child at a MOUNTED boundary (rf2-vz6a1)
 ;;
-;; The analyzer guarantees a :key FORM on every presence child, but the form's
-;; VALUE can be nil at runtime — `toast-list`'s `{:key (:id t)}` with a toast
-;; missing :id. `collect-elements` drops a nil-keyed element (it cannot be
-;; retention-tracked), so the child hard-vanishes with no phase and no DOM. A
-;; goog.DEBUG-only warning names the silent drop; the drop itself is unchanged.
+;; A presence child whose runtime React `.-key` is nil is dropped by
+;; `collect-elements` — no phase, no DOM. The analyzer guarantees a `:key` FORM,
+;; but a nil `.-key` still arises when the key VALUE is `undefined` (a JS-interop
+;; read of an absent property): React's jsx-runtime leaves `undefined` as a null
+;; key. IMPORTANT (verified React 19): a CLJS-nil key value does NOT drop —
+;; jsx coerces `null` to the string "null" (a valid key), so `{:key (:id t)}`
+;; with a missing :id RENDERS with key "null". The genuine drop needs an
+;; `undefined` key, spelled here as `(.-id #js {})` (reading an absent prop). A
+;; goog.DEBUG-only warning names the otherwise-silent drop; the drop itself is
+;; unchanged.
 ;; ---------------------------------------------------------------------------
+
+(defview keyless-toasts []
+  (ui/presence {:timeout-ms 300}
+    [toast-card {:key "keep" :msg "kept"}]
+    ;; `(.-id #js {})` is `undefined` at runtime → jsx leaves a null `.-key` →
+    ;; `collect-elements` drops it. (A CLJS-nil key would render as "null".)
+    [toast-card {:key (.-id #js {}) :msg "dropped"}]))
 
 (deftest keyless-child-drops-with-dev-warning
   (if-not (browser?)
     (is true "mounted presence needs a DOM host — covered in the browser job")
     (async done
-      (let [f       (rf/make-frame {:initial-events
-                                    ;; the second toast has NO :id → :key is nil
-                                    ;; at runtime under `toast-list`.
-                                    [[::set-toasts [{:id 1 :msg "kept"}
-                                                    {:msg "dropped"}]]]})
+      (let [f       (rf/make-frame {})
             warns   (atom [])
             restore (capture-console-warn! warns)]
-        (-> (uit/with-root [root [ui/frame-provider {:frame f} [toast-list]]]
+        (-> (uit/with-root [root [ui/frame-provider {:frame f} [keyless-toasts]]]
               (-> (uit/flush!)
                   (.then (fn [_]
                            (restore)
-                           (testing "the nil-keyed child is dropped; the keyed one renders"
+                           (testing "the keyless (undefined-key) child is dropped; the keyed one renders"
                              (is (= 1 (count (toasts root)))
                                  "only the keyed child renders")
                              (is (= "present" (phase-of root "kept")))
                              (is (nil? (phase-of root "dropped"))
-                                 "the nil-keyed child never rendered — no phase, no DOM"))
+                                 "the keyless child never rendered — no phase, no DOM"))
                            (testing "a dev-console warning names the silent drop"
                              ;; render may run more than once (StrictMode / the
                              ;; enter flip), so assert the warning FIRED — same
                              ;; not-exactly-once shape as the duplicate-key test.
-                             (let [drops (filter #(str/includes? % "nil runtime key") @warns)]
+                             ;; "keyless child" is distinct from the dup-key warn.
+                             (let [drops (filter #(str/includes? % "keyless child") @warns)]
                                (is (seq drops) "the keyless-drop warning fired")
                                (is (some #(str/includes? % "presence") drops)
                                    "…naming the presence boundary")))))))
