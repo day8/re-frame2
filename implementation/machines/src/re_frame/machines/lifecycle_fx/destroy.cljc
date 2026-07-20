@@ -84,7 +84,7 @@
 ;; and the `:rf.registry/handler-cleared` unregister trace — any of which can
 ;; synchronously destroy A and publish a same-id successor B. Every subsequent
 ;; framework-owned action (classification / timer / spawn-order / registrar /
-;; resource-lease / the durable teardown projection) resolves a bare frame /
+;; resource-owner / the durable teardown projection) resolves a bare frame /
 ;; actor id to the CURRENT incarnation B, so running it after A is lost erases
 ;; or mutates B. The fence captures A's continuation + raw token ONCE at the
 ;; effect entry and rechecks after every callback-bearing boundary before the
@@ -187,7 +187,7 @@
     9. release the actor's resource leases — fire
        `:rf.resource/release-owner` for owner `[:machine actor-id]` (Spec 016
        §Release authority is per owner kind, 016:290) so a resource the actor
-       `ensure`d under its machine-owner key does not leak the lease (keep
+       `ensure`d under its machine-owner key does not leak the owner (keep
        refetching/polling) past the actor's death. Fired LAST, once the actor
        is gone; guarded on resources being loaded (machines never depends on
        resources), so a no-resources app is a clean no-op. Runs on BOTH explicit
@@ -609,7 +609,7 @@
   invoke-id generation]`), so a `:cancelled` teardown reply would be a
   SECOND, contradictory terminal for that work-id. `:rf.machine/join-reaped`
   suppresses that second reply; the teardown itself is IDENTICAL to the
-  keyword / imperative destroy (snapshot, timers, resource leases,
+  keyword / imperative destroy (snapshot, timers, resource owners,
   spawn-order removal).
 
   Because the reason changes terminal semantics, the runtime AUTHENTICATES

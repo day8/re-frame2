@@ -347,7 +347,7 @@
 
 (defn release-owner-from-record
   "Drop `owner` from a work record's `:owners`. Used by owner release /
-  scope clear / route supersession when a lease exits. Does NOT change the
+  scope clear / route supersession when an owner exits. Does NOT change the
   record status — the attempt stays live for any remaining owner; whether
   it is then aborted is the opportunistic-abort decision (only when NO
   owner remains). Per Spec 016 §Race (owner release while in flight aborts

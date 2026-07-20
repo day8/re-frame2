@@ -336,7 +336,7 @@
   `:rf/time-ms`)
   neither dedupes (no
   in-flight work to join) nor starts a fetch — it serves the cached value,
-  attaches the supplied owner lease, emits `:rf.resource/cache-hit`, and
+  attaches the supplied owner, emits `:rf.resource/cache-hit`, and
   (for a route-owned blocking resource) drains the blocking slot
   immediately treating the fresh entry as already-`:success`. Per Spec 016
   §Lifecycle is an FSM (a `:loaded` entry transitions to `:fetching` ONLY
@@ -439,12 +439,12 @@
                          (not in-flight?)
                          (= :loaded (:status entry))
                          (not (state/entry-stale? entry time-ms)))
-        ;; a NEW owner lease lands on the entry when an owner is supplied and
+        ;; a NEW owner lands on the entry when an owner is supplied and
         ;; was not already in the active-owner set. `:rf.resource/owner-attached`
         ;; marks that liveness change distinctly from work — symmetric with the
         ;; existing `:rf.resource/owner-released` row so the owner-lease lifecycle
         ;; is a readable pair in the Xray timeline / AI-Audit (Spec 016 §Xray and
-        ;; AI tooling; §Active owners and causes — owners are liveness leases).
+        ;; AI tooling; §Active owners and causes — owners pin liveness).
         owner-newly-attached? (and (some? owner)
                                    (not (contains? (:active-owners entry) owner)))
         ;; default the transport (a spec that declares none gets managed
@@ -463,7 +463,7 @@
                        (get-in runtime-db (state/entries-path)) scoped-key))]
     (cond
       ;; ----- fresh-skip: serve the cached value (ensure only) -------------
-      ;; A fresh `:loaded` entry needs no work — attach the owner lease,
+      ;; A fresh `:loaded` entry needs no work — attach the owner,
       ;; emit `:rf.resource/cache-hit`, drain any blocking route slot
       ;; immediately (the fresh entry IS already a success), and return
       ;; WITHOUT a new generation / fetch / work record. Per Spec 016
@@ -476,7 +476,7 @@
       ;; entry's `:revision` when a NEW owner lands (an owner attach is an
       ;; authoritative durable write a later optimistic rollback could clobber —
       ;; a blind `restore-before` would otherwise DROP a mid-flight-attached
-      ;; lease, causing premature GC). A re-attach of a present owner / a nil
+      ;; owner, causing premature GC). A re-attach of a present owner / a nil
       ;; owner is a no-op (no bump), matching `owner-newly-attached?`.
       (let [hit  (state/attach-owner entry owner)
             rdb' (-> runtime-db
@@ -507,7 +507,7 @@
             ;; revives an owner-free entry re-establishes the full timer set the
             ;; success path would have armed, never double-arming (the fx is
             ;; cancel-then-arm by construction). Gated on a previously-owner-free
-            ;; entry: a fresh-skip onto an already-owned entry adds another lease
+            ;; entry: a fresh-skip onto an already-owned entry adds another owner
             ;; but its timers are already live, so it re-arms nothing here.
             was-owner-free? (empty? (:active-owners entry))
             arm-timers?    (and owner-newly-attached? was-owner-free?)
@@ -559,7 +559,7 @@
         (trace/emit! :rf.event :rf.resource/cache-hit
                      {:rf.frame/id frame-id :resource/key scoped-key
                       :generation (:generation entry) :owner owner :cause cause})
-        ;; the cache-hit attached a new owner lease — record that distinct
+        ;; the cache-hit attached a new owner — record that distinct
         ;; liveness change (symmetric with the dedupe / fresh-load paths).
         (when owner-newly-attached?
           (trace/emit! :rf.event :rf.resource/owner-attached
@@ -572,7 +572,7 @@
           (emit-resource-replied!
             frame-id scoped-key (:rf.reply/work-id hit-reply) :ok [reply-to'] true))
         ;; arm the poll (+ re-arm stale / GC) for an owner-free entry just
-        ;; revived by a new lease, mirroring the success-path arming, and
+        ;; revived by a new owner, mirroring the success-path arming, and
         ;; append the immediate cache-hit continuation dispatch. Only emitted
         ;; when the resource declares a timer or a `:reply-to` continued.
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms poll-delay-ms)
@@ -602,9 +602,9 @@
       ;; dead work.
       (and joinable? (not force-new?))
       ;; rf2-cxwuhl — attach via `state/attach-owner` (bumps `:revision` on a new
-      ;; owner) so a dedupe-join that lands a lease mid optimistic-flight is
+      ;; owner) so a dedupe-join that lands an owner mid optimistic-flight is
       ;; visible to the settle conflict check (else a blind rollback would drop
-      ;; the joined lease). No-op bump for a re-attach / nil owner.
+      ;; the joined owner). No-op bump for a re-attach / nil owner.
       (let [joined (state/attach-owner entry owner)
             rdb'   (-> runtime-db
                        (assoc-in (state/entry-path scoped-key) joined)
@@ -626,7 +626,7 @@
                       :generation (:generation entry) :owner owner :cause cause
                       :work/id prior-work})
         ;; the ensure joined the in-flight work (no new generation) but ALSO
-        ;; attached a new owner lease — record that distinct liveness change.
+        ;; attached a new owner — record that distinct liveness change.
         (when owner-newly-attached?
           (trace/emit! :rf.event :rf.resource/owner-attached
                        {:rf.frame/id frame-id :resource/key scoped-key
@@ -799,7 +799,7 @@
                      {:rf.frame/id frame-id :resource/key scoped-key
                       :generation generation :work/id work-id
                       :status (:status entry') :owner owner :cause cause})
-        ;; a fresh load that also attaches a NEW owner lease — record the
+        ;; a fresh load that also attaches a NEW owner — record the
         ;; liveness change distinctly from the work it kicked off (symmetric
         ;; with `:rf.resource/owner-released`).
         (when owner-newly-attached?
@@ -835,7 +835,7 @@
   a new generation; supersede + suppress any in-flight prior request by
   generation). Per Spec 016 §Events and §Race and in-flight semantics.
   Payload: `{:resource :scope :params :owner :cause}` — like `ensure`, a
-  supplied `:owner` is attached as a lease (both route through the shared
+  supplied `:owner` is attached as an owner (both route through the shared
   `ensure-load` core)."
   [cofx [_event-id payload]]
   (ensure-load cofx payload {:force-new? true :where 'rf.resource/refetch}))
@@ -885,10 +885,10 @@
         ;; EP-0021 / rf2-bi8vg1 — `:rf.resource/load-more` is OWNERLESS by
         ;; contract: the feed's liveness is the ROUTE owner's (the route that
         ;; ensured page 0), and a load-more is a user-caused page extension
-        ;; during that route's lifetime, NOT a new lease. A supplied `:owner` is
+        ;; during that route's lifetime, NOT a new owner. A supplied `:owner` is
         ;; a recognised-but-unhonourable input (a plausible mistake — a consumer
         ;; copying the `ensure`/`refetch` payload shape) that would otherwise
-        ;; attach a SECOND, durable lease to the feed (`:active-owners` +
+        ;; attach a SECOND, durable owner to the feed (`:active-owners` +
         ;; `:owner-index`) and silently extend its liveness / GC lifetime until
         ;; an explicit `:rf.resource/release-owner` — the owner-lease LEAK
         ;; rf2-d095i1 characterized. Per Conventions §No silent swallow, this is
@@ -936,7 +936,7 @@
                                        "liveness is the route owner's (the route that "
                                        "ensured page 0). The owner is IGNORED (it is "
                                        "NOT attached to :active-owners / :owner-index, "
-                                       "so no durable lease leaks) and the page still "
+                                       "so no durable owner leaks) and the page still "
                                        "fetches + appends. Remove :owner from the "
                                        "load-more payload. Per Spec 016 §Causal event "
                                        "— load-more.")}))
@@ -1087,7 +1087,7 @@
   A load-more is **OWNERLESS** (rf2-bi8vg1): the feed's liveness is the ROUTE
   owner's (the route that ensured page 0), so a load-more carries NO `:owner`.
   A supplied `:owner` is IGNORED with a `:rf.warning/resource-load-more-owner-ignored`
-  (it is not attached to `:active-owners` / `:owner-index`, so no durable lease
+  (it is not attached to `:active-owners` / `:owner-index`, so no durable owner
   leaks) and the page still fetches + appends. Per Spec 016 §Causal event —
   load-more. Payload: `{:resource :scope :params :cause}`."
   [cofx [_event-id payload]]
@@ -1236,7 +1236,7 @@
 ;; reuses the ordinary lifecycle primitives:
 ;;
 ;;   - ACTIVE OWNERS decide WHICH entries are worth refetching — only an entry
-;;     with a live lease (`:active-owners` non-empty) is scanned (an inactive
+;;     with a live owner (`:active-owners` non-empty) is scanned (an inactive
 ;;     entry is GC fodder, not a revalidation target);
 ;;   - DURABLE stale/fresh timestamps decide WHETHER — `state/entry-stale?`
 ;;     (the single shared freshness derivation the subs / SSR / stale-timer
@@ -1306,7 +1306,7 @@
 (defn- active-stale-scan
   "Pure scan: given the frame's `runtime-db` value and the live `clock-ms`,
   return the vector of `{:resource/key :scope :resource :params}` for every
-  cache entry that is active (has at least one `:active-owner` — a live lease
+  cache entry that is active (has at least one `:active-owner` — a live owner
   worth refetching), stale-by-policy (`state/entry-stale?` against the
   durable timestamps), AND not already mid-revalidation (no LIVE in-flight
   refetch — `entry-revalidation-in-flight?`). Fresh entries, owner-free
@@ -1419,7 +1419,7 @@
 ;;
 ;;   - ACTIVE OWNER gate — a poll never pins an owner-free entry; the instant
 ;;     the last owner releases, polling STOPS (no re-arm). (Owners are
-;;     liveness leases; a poll is a freshness mechanism, never a liveness one
+;;     liveness owners; a poll is a freshness mechanism, never a liveness one
 ;;     — Spec 016 §Active owners and causes / §Polling.)
 ;;   - DEFAULT-PAUSE-WHEN-HIDDEN — the firing thunk stamps host `:hidden?`
 ;;     onto the payload (read at the host boundary, never an ambient cascade
@@ -1584,7 +1584,7 @@
   Algorithm (Spec 016 §Invalidation):
     1. find entries whose produced `:tags` intersect the invalidated `:tags`;
     2. mark each matched entry stale (durable `:invalidated-at` fact);
-    3. refetch the matched entries that have ACTIVE OWNERS (a live lease
+    3. refetch the matched entries that have ACTIVE OWNERS (a live owner
        needs fresh data now) — by dispatching `:rf.resource/refetch`;
     4. leave the matched OWNERLESS entries stale / GC-eligible (their stale?
        sub derives true from `:invalidated-at`; their GC timer reaps them);
@@ -1849,7 +1849,7 @@
 
   Per Spec 016 §Race (owner release while a request is in flight aborts
   ONLY when no remaining owner needs that work record — a shared request is
-  NOT cancelled just because one route / machine / lease went away). This
+  NOT cancelled just because one route / machine / owner went away). This
   drops the owner from the durable entry + index AND from the linked work
   record's `:owners`; for any in-flight attempt whose `:owners` are now
   EMPTY it emits a best-effort `:rf.http/managed-abort` (opportunistic) and

@@ -480,7 +480,7 @@ no-ops harmlessly; cancellation must never be platform-gated). Per Spec 016
 ;; reaper. The `:poll` kind alone is cancelled when an entry becomes
 ;; owner-free: a poll never pins an owner-free entry, so polling STOPS the
 ;; instant the last owner releases (the same release path that drops the
-;; lease). The poll-fired re-check is the belt-and-braces (a poll timer that
+;; owner). The poll-fired re-check is the belt-and-braces (a poll timer that
 ;; fires for a now-owner-free entry refetches nothing and does not re-arm);
 ;; this proactive cancel makes the stop deterministic + prompt.
 

@@ -775,7 +775,7 @@
 ;;   1. recompute `:tag-index` / `:owner-index` from the installed `:entries`
 ;;      (never trust the wire — Spec 016 §Restore and replay part 5);
 ;;   2. reconcile owners by kind — SSR owners (`[:ssr request-id nav-token]`)
-;;      do NOT survive as live client leases (they belong to a settled
+;;      do NOT survive as live client owners (they belong to a settled
 ;;      server render); they are dropped as orphans (Spec 016 §Restore and
 ;;      replay part 4 / §Release authority is per owner kind);
 ;;   3. clear each entry's transient `:current-work` pointer (the work it
@@ -856,7 +856,7 @@
   `[entry' dropped-orphans]`. Drops:
 
     - SSR owners (`[:ssr …]`) — they belong to one settled server render and
-      never survive as a live client lease (Spec 016 §Restore and replay
+      never survive as a live client owner (Spec 016 §Restore and replay
       part 4);
     - ORPHANED route owners (`[:route route-id nav-token]`) per
       `route-owner-policy` (`route-owner-orphan?`): on HYDRATION
@@ -868,7 +868,7 @@
       focus/reconnect (part 4).
 
   Also clears the transient `:current-work` pointer (the attempt it pointed
-  at did not cross the wire / no longer exists — part 2). Machine / lease /
+  at did not cross the wire / no longer exists — part 2). Machine / app-event /
   live-nav route owners ride through unchanged (their liveness is reconciled
   by their own subsystem)."
   [entry route-owner-policy]
