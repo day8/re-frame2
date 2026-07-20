@@ -225,7 +225,7 @@
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :hh/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :hh/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:lease :hh 1]}])
+                        :params {:slug "w"} :owner [:app :hh 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (testing "a host-side side-table slot exists for [frame-id work-id]
                 (host-side, NOT runtime-db — Spec 016 §Frame work ledger)"
@@ -245,7 +245,7 @@
   (rf/reg-resource :sc/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :sc/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :sc/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :sc 1]}])
+                                            :params {:slug "w"} :owner [:app :sc 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
                          {:resource/key scoped-key :work/id wid :generation 1
@@ -289,7 +289,7 @@
   (let [scoped-key   (state/scoped-resource-key :rf.scope/global :fa/article {:slug "w"})
         completed-at  1781649764112]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :fa/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :fa 1]}])
+                                            :params {:slug "w"} :owner [:app :fa 1]}])
     (let [wid (:current-work (entry scoped-key))]
       ;; rf2-rl27r2: a failure reply is a managed-async completion with a reply
       ;; token, so it carries causal completion time — script the reply token's
@@ -315,7 +315,7 @@
   (let [scoped-key   (state/scoped-resource-key :rf.scope/global :ab/article {:slug "w"})
         completed-at  1781649764112]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ab/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :ab 1]}])
+                                            :params {:slug "w"} :owner [:app :ab 1]}])
     (let [wid (:current-work (entry scoped-key))]
       ;; rf2-rl27r2: a cancellation is a completion — script the reply token's
       ;; causal `:rf/time-ms` and assert the terminal :cancelled outcome carries
@@ -342,7 +342,7 @@
   (rf/reg-resource :sa/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :sa/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :sa/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :sa 1]}])
+                                            :params {:slug "w"} :owner [:app :sa 1]}])
     (let [wid1 (:current-work (entry scoped-key))]
       ;; a newer refetch supersedes (generation 2) — the gen-1 work row settles
       ;; :suppressed (superseded) and the entry advances to generation 2.
@@ -373,7 +373,7 @@
     (rf/make-frame {:id fa :doc "frame A"})
     (rf/make-frame {:id fb :doc "frame B"})
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cfa/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :b 1]}]
+                                            :params {:slug "w"} :owner [:app :b 1]}]
                       {:frame fb})
     (let [wid-b      (:current-work (entry fb scoped-key))
           before     (entry fb scoped-key)]
@@ -402,7 +402,7 @@
   (rf/reg-resource :ss/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :ss/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ss/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :ss 1]}])
+                                            :params {:slug "w"} :owner [:app :ss 1]}])
     (let [wid1 (:current-work (entry scoped-key))]
       ;; a newer refetch supersedes (generation 2) — opportunistic abort fires
       (rf/dispatch-sync [:rf.resource/refetch {:resource :ss/article :scope :rf.scope/global
@@ -434,14 +434,14 @@
                                             :cause [:route-entry :r 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :dd/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :x 2]
+                                              :params {:slug "w"} :owner [:app :x 2]
                                               :cause [:event :open]}])
       (testing "Spec 016 §Race — a second ensure while in flight JOINS the
                 existing work record (owner attached, cause appended, no new
                 record / generation)"
         (is (= 1 (count (ledger))) "exactly one work record (no new attempt)")
         (let [r (record wid)]
-          (is (= #{[:route :r 1] [:lease :x 2]} (:owners r)))
+          (is (= #{[:route :r 1] [:app :x 2]} (:owners r)))
           (is (= [[:route-entry :r 1] [:event :open]] (:causes r))))))))
 
 ;; ===========================================================================
@@ -455,17 +455,17 @@
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ro/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:route :r 1]}])
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ro/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :x 2]}])
+                                            :params {:slug "w"} :owner [:app :x 2]}])
     (let [wid (:current-work (entry scoped-key))]
       (testing "Spec 016 §Race — releasing ONE of two owners does NOT abort
                 the shared in-flight work (the other owner still needs it)"
         (rf/dispatch-sync [:rf.resource/release-owner {:owner [:route :r 1]}])
         (is (not (contains? (set @aborts) (req wid))) "shared request not aborted")
-        (is (= #{[:lease :x 2]} (:owners (record wid))) "owner dropped from row")
+        (is (= #{[:app :x 2]} (:owners (record wid))) "owner dropped from row")
         (is (= :running (:status (record wid))) "row still running"))
       (testing "releasing the LAST owner orphans the attempt → opportunistic
                 abort + :abort-requested row (Spec 016 §Race)"
-        (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :x 2]}])
+        (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 2]}])
         (is (contains? (set @aborts) (req wid)) "orphaned request best-effort aborted")
         (is (= :abort-requested (:status (record wid))))))))
 
@@ -478,7 +478,7 @@
   (let [scope-a {:user "a"}
         ka (state/scoped-resource-key scope-a :cs/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cs/article :scope scope-a
-                                            :params {:slug "w"} :owner [:lease :a 1]}])
+                                            :params {:slug "w"} :owner [:app :a 1]}])
     (let [wid (:current-work (entry ka))]
       (rf/dispatch-sync [:rf.resource/clear-scope {:scope scope-a :cause :logout}])
       (testing "Spec 016 §clear-scope — the in-flight work row is settled
@@ -491,7 +491,7 @@
   (rf/reg-resource :rm/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :rm/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :rm/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :rm 1]}])
+                                            :params {:slug "w"} :owner [:app :rm 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource/remove {:resource :rm/article :scope :rf.scope/global
                                               :params {:slug "w"}}])
@@ -513,7 +513,7 @@
         ka           (state/scoped-resource-key scope-a :cst/article {:slug "w"})
         completed-at 1781649764222]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cst/article :scope scope-a
-                                            :params {:slug "w"} :owner [:lease :a 1]}])
+                                            :params {:slug "w"} :owner [:app :a 1]}])
     (let [wid (:current-work (entry ka))]
       (rf/dispatch-sync [:rf.resource/clear-scope {:scope scope-a :cause :logout}]
                         {:rf.cofx {:rf/time-ms completed-at}})
@@ -529,7 +529,7 @@
   (let [scoped-key   (state/scoped-resource-key :rf.scope/global :rmt/article {:slug "w"})
         completed-at 1781649764333]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :rmt/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :rm 1]}])
+                                            :params {:slug "w"} :owner [:app :rm 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource/remove {:resource :rmt/article :scope :rf.scope/global
                                               :params {:slug "w"}}]
@@ -549,7 +549,7 @@
         scoped-key (state/scoped-resource-key :rf.scope/global :fd/article {:slug "w"})]
     (rf/make-frame {:id fa :doc "teardown frame"})
     (rf/dispatch-sync [:rf.resource/ensure {:resource :fd/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :fd 1]}]
+                                            :params {:slug "w"} :owner [:app :fd 1]}]
                       {:frame fa})
     (let [wid (:current-work (entry fa scoped-key))]
       (testing "before destroy the host handle + generation high-water exist
@@ -658,10 +658,10 @@
       (rf/make-frame {:id fb :doc "frame B"})
       ;; both frames ensure the SAME global-scope resource — same scoped key.
       (rf/dispatch-sync [:rf.resource/ensure {:resource :xf/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :a 1]}]
+                                              :params {:slug "w"} :owner [:app :a 1]}]
                         {:frame fa})
       (rf/dispatch-sync [:rf.resource/ensure {:resource :xf/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :b 1]}]
+                                              :params {:slug "w"} :owner [:app :b 1]}]
                         {:frame fb})
       (let [wid-a (:current-work (entry fa scoped-key))
             wid-b (:current-work (entry fb scoped-key))

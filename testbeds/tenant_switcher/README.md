@@ -87,7 +87,7 @@ ever address the active tenant's entry.
   CLJS unit tests
   ([`resources_scope_leak_boundary_cljs_test.cljc`](../../implementation/resources/test/re_frame/resources_scope_leak_boundary_cljs_test.cljc)
   scenarios 1/2/3 +
-  [`resources_scoped_lease_lifecycle_cljs_test.cljc`](../../implementation/resources/test/re_frame/resources_scoped_lease_lifecycle_cljs_test.cljc)).
+  [`resources_scoped_owner_lifecycle_cljs_test.cljc`](../../implementation/resources/test/re_frame/resources_scoped_owner_lifecycle_cljs_test.cljc)).
   This surface is the live demonstrator of the simultaneous-multi-scope shape
   (scenario 5), not a duplicate regression vehicle.
 - **No deliberate bugs / anti-pattern demos.** Idiomatic re-frame2 throughout

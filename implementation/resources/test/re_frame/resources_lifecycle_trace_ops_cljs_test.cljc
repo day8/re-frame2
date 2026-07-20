@@ -6,7 +6,7 @@
     1. `:rf.resource/registered`     — one row per FIRST-TIME `reg-resource`
                                        (frame-agnostic; first-time-only,
                                        symmetric with :rf.route/registered);
-    2. `:rf.resource/owner-attached` — a NEW owner lease landing on an entry,
+    2. `:rf.resource/owner-attached` — a NEW owner attached to an entry,
                                        both on a fresh load (`:joined-in-flight?`
                                        false) and on a dedupe join (true), and
                                        NOT re-emitted for an already-present
@@ -136,7 +136,7 @@
           "re-registration emits no :rf.resource/registered"))))
 
 ;; ===========================================================================
-;; 2. :rf.resource/owner-attached — a new lease landing on an entry
+;; 2. :rf.resource/owner-attached — a new owner attached to an entry
 ;; ===========================================================================
 
 (deftest owner-attached-on-fresh-load
@@ -147,11 +147,11 @@
           traces (record-resource-traces!
                    #(rf/dispatch-sync
                       [:rf.resource/ensure {:resource :oa/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :oa 1]}]))
+                                            :params {:slug "w"} :owner [:app :oa 1]}]))
           evs    (by-op traces :rf.resource/owner-attached)]
       (is (= 1 (count evs)) "one owner-attached on a fresh load with an owner")
       (let [tags (:tags (first evs))]
-        (is (= [:lease :oa 1] (:owner tags))           ":owner in tags")
+        (is (= [:app :oa 1] (:owner tags))           ":owner in tags")
         (is (= scoped-key     (:resource/key tags))    ":resource/key in tags")
         (is (false?           (:joined-in-flight? tags)) "fresh load: not a join")))))
 
@@ -165,25 +165,25 @@
     (let [traces (record-resource-traces!
                    #(rf/dispatch-sync
                       [:rf.resource/ensure {:resource :oa/join :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :x 2]}]))
+                                            :params {:slug "w"} :owner [:app :x 2]}]))
           evs    (by-op traces :rf.resource/owner-attached)]
       (is (seq (by-op traces :rf.resource/deduped)) "the second ensure deduped")
       (is (= 1 (count evs)) "one owner-attached for the NEW owner on the join")
       (let [tags (:tags (first evs))]
-        (is (= [:lease :x 2] (:owner tags))            "the newly-joined owner")
+        (is (= [:app :x 2] (:owner tags))            "the newly-joined owner")
         (is (true?           (:joined-in-flight? tags)) "join: :joined-in-flight? true")))))
 
 (deftest owner-attached-not-re-emitted-for-existing-owner
   (rf/reg-resource :oa/same (article-spec) article-spec-request)
   (testing "re-ensuring with an owner ALREADY on the entry does NOT re-emit
-            owner-attached (the lease did not change)"
+            owner-attached (the owner did not change)"
     (rf/dispatch-sync
       [:rf.resource/ensure {:resource :oa/same :scope :rf.scope/global
-                            :params {:slug "w"} :owner [:lease :same 1]}])
+                            :params {:slug "w"} :owner [:app :same 1]}])
     (let [traces (record-resource-traces!
                    #(rf/dispatch-sync
                       [:rf.resource/ensure {:resource :oa/same :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :same 1]}]))]
+                                            :params {:slug "w"} :owner [:app :same 1]}]))]
       (is (empty? (by-op traces :rf.resource/owner-attached))
           "no owner-attached when the owner was already present"))))
 
@@ -249,7 +249,7 @@
     (let [scoped-key (state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
       (rf/dispatch-sync
         [:rf.resource/ensure {:resource :sp/article :scope :rf.scope/global
-                              :params {:slug "w"} :owner [:lease :sp 1]}])
+                              :params {:slug "w"} :owner [:app :sp 1]}])
       (let [wid1 (:current-work (entry scoped-key))
             traces
             (record-resource-traces!
@@ -288,7 +288,7 @@
     (let [scoped-key (state/scoped-resource-key :rf.scope/global :rev/article {:slug "w"})]
       (rf/dispatch-sync
         [:rf.resource/ensure {:resource :rev/article :scope :rf.scope/global
-                              :params {:slug "w"} :owner [:lease :rev 1]}])
+                              :params {:slug "w"} :owner [:app :rev 1]}])
       (let [wid1 (:current-work (entry scoped-key))
             traces
             (record-resource-traces!
@@ -348,7 +348,7 @@
       ;; load it once, then settle to :loaded (fresh: stale-after 60s)
       (rf/dispatch-sync
         [:rf.resource/ensure {:resource :ch/article :scope :rf.scope/global
-                              :params {:slug "w"} :owner [:lease :ch 1]}])
+                              :params {:slug "w"} :owner [:app :ch 1]}])
       (let [wid (:current-work (entry scoped-key))]
         (rf/dispatch-sync
           [:rf.resource.internal/succeeded
@@ -359,12 +359,12 @@
             traces (record-resource-traces!
                      #(rf/dispatch-sync
                         [:rf.resource/ensure {:resource :ch/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :ch 2]}]))
+                                              :params {:slug "w"} :owner [:app :ch 2]}]))
             hits   (by-op traces :rf.resource/cache-hit)]
         (is (= 1 (count hits)) "one :rf.resource/cache-hit on the fresh ensure")
         (let [tags (:tags (first hits))]
           (is (= scoped-key (:resource/key tags)) ":resource/key in tags")
-          (is (= [:lease :ch 2] (:owner tags))    "the newly-attached owner in tags"))
+          (is (= [:app :ch 2] (:owner tags))    "the newly-attached owner in tags"))
         (testing "fresh-skip starts NO new load: no fetch-started / work-started"
           (is (not (contains? (ops traces) :rf.resource/fetch-started))
               "no fetch-started on a cache-hit")
@@ -377,8 +377,8 @@
             (is (= gen-before (:generation e)) "no new generation")
             (is (identical? data-before (:data e)) "same data value (cache served)")
             (is (nil? (:current-work e)) "no in-flight work record")
-            (is (contains? (:active-owners e) [:lease :ch 2]) "new owner attached")))
-        (testing "the new owner lease is recorded as :rf.resource/owner-attached"
+            (is (contains? (:active-owners e) [:app :ch 2]) "new owner attached")))
+        (testing "the new owner is recorded as :rf.resource/owner-attached"
           (let [oa (by-op traces :rf.resource/owner-attached)]
             (is (= 1 (count oa)) "one owner-attached for the newly-attached owner")
             (is (false? (:joined-in-flight? (:tags (first oa))))
@@ -392,14 +392,14 @@
     (let [scoped-key (state/scoped-resource-key :rf.scope/global :ch/stale {:slug "w"})]
       (rf/dispatch-sync
         [:rf.resource/ensure {:resource :ch/stale :scope :rf.scope/global
-                              :params {:slug "w"} :owner [:lease :st 1]}])
+                              :params {:slug "w"} :owner [:app :st 1]}])
       (let [wid (:current-work (entry scoped-key))]
         (rf/dispatch-sync
           [:rf.resource.internal/succeeded
            {:resource/key scoped-key :work/id wid :generation 1 :data {:title "W"}}]))
       ;; make it stale WITHOUT auto-refetch: release the owner, then invalidate
       ;; (an inactive matched entry is marked stale but not refetched)
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :st 1]}])
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :st 1]}])
       (rf/dispatch-sync [:rf.resource/invalidate-tags
                          {:scope :rf.scope/global :tags #{[:article "w"]}}])
       (is (some? (:invalidated-at (entry scoped-key))) "entry marked stale")
@@ -407,7 +407,7 @@
             traces (record-resource-traces!
                      #(rf/dispatch-sync
                         [:rf.resource/ensure {:resource :ch/stale :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :st 2]}]))]
+                                              :params {:slug "w"} :owner [:app :st 2]}]))]
         (testing "a stale ensure refetches (fetch/work-started), NOT a cache-hit"
           (is (not (contains? (ops traces) :rf.resource/cache-hit))
               "no cache-hit on a stale entry")

@@ -164,7 +164,7 @@
     ;; `reserved-reply-keys-rejected` against `build-managed-args`.)
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :rr/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:lease :rr 1]}])
+                        :params {:slug "w"} :owner [:app :rr 1]}])
     (is (nil? @last-managed-args)
         "a :request with a reserved reply key never reaches the transport")))
 
@@ -185,7 +185,7 @@
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :lo/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :lo/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:lease :lo 1]}])
+                        :params {:slug "w"} :owner [:app :lo 1]}])
     (let [args @last-managed-args]
       (testing "the runtime supplies :request-id + the internal reply targets"
         (is (some? (:request-id args)))
@@ -218,7 +218,7 @@
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :sv/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :sv/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:lease :sv 1]}])
+                        :params {:slug "w"} :owner [:app :sv 1]}])
     (is (= :loading (:status (entry scoped-key))))
     (testing "Spec 014/016 — the decoded data arrives in the APPENDED
               transport result ({:status :ok :value …}), not inline"
@@ -234,7 +234,7 @@
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :fe/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :fe/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:lease :fe 1]}])
+                        :params {:slug "w"} :owner [:app :fe 1]}])
     (testing "Spec 016 §Status semantics — a first-load failure settles
               :error from the APPENDED transport failure envelope"
       (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
@@ -248,7 +248,7 @@
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :bg/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :bg/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:lease :bg 1]}])
+                        :params {:slug "w"} :owner [:app :bg 1]}])
     (reply-success! @last-managed-args {:title "Welcome"})
     (rf/dispatch-sync [:rf.resource/refetch
                        {:resource :bg/article :scope :rf.scope/global
@@ -274,7 +274,7 @@
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :sp/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:lease :sp 1]}])
+                        :params {:slug "w"} :owner [:app :sp 1]}])
     (let [gen1-args @last-managed-args]
       ;; a newer refetch forces generation 2 (the prior gen-1 work is now stale)
       (rf/dispatch-sync [:rf.resource/refetch
@@ -314,7 +314,7 @@
   (let [k (state/scoped-resource-key :rf.scope/global :ab1/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :ab1/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:lease :ab1 1]}])
+                        :params {:slug "w"} :owner [:app :ab1 1]}])
     (is (= :loading (:status (entry k))))
     (let [wid (:current-work (entry k))]
       (testing "rf2-z70ujl — a FIRST-load abort reply (the real
@@ -338,7 +338,7 @@
   (let [k (state/scoped-resource-key :rf.scope/global :ab2/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :ab2/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:lease :ab2 1]}])
+                        :params {:slug "w"} :owner [:app :ab2 1]}])
     (reply-success! @last-managed-args {:title "Loaded"})
     (rf/dispatch-sync [:rf.resource/refetch
                        {:resource :ab2/article :scope :rf.scope/global
@@ -374,7 +374,7 @@
   (let [k (state/scoped-resource-key :rf.scope/global :ab3/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :ab3/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:lease :ab3 1]}])
+                        :params {:slug "w"} :owner [:app :ab3 1]}])
     (let [gen1-args @last-managed-args
           gen1-wid  (:current-work (entry k))]
       ;; supersede with a forced refetch → gen 2 is the live work
@@ -409,10 +409,10 @@
   (let [k (state/scoped-resource-key :rf.scope/global :ab4/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :ab4/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:lease :ab4 1]}])
+                        :params {:slug "w"} :owner [:app :ab4 1]}])
     (let [args @last-managed-args
           wid  (:current-work (entry k))]
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :ab4 1]}])
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :ab4 1]}])
       (testing "rf2-z70ujl — when the orphaned in-flight attempt's abort reply
                 lands it settles cancellation, NOT a user-visible error"
         (reply-failure! args (aborted-failure wid :user))
@@ -442,7 +442,7 @@
     (rf/make-frame {:id fa :doc "frame stamp frame A"})
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :ff/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:lease :ff 1]}]
+                        :params {:slug "w"} :owner [:app :ff 1]}]
                       {:frame fa})
     (testing "rf2-eu2ifi — the reply verification payload stamps the issuing
               frame's qualified :rf.frame/id (so the receiving handler can
@@ -461,11 +461,11 @@
     ;; both frames issue the SAME resource at the SAME generation (gen 1) —
     ;; the collision case the bare-work-id correlation could not tell apart.
     (rf/dispatch-sync [:rf.resource/ensure {:resource :xf/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :a 1]}]
+                                            :params {:slug "w"} :owner [:app :a 1]}]
                       {:frame fa})
     (let [a-payload (nth (:on-success @last-managed-args) 1)]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :xf/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :b 1]}]
+                                              :params {:slug "w"} :owner [:app :b 1]}]
                         {:frame fb})
       (is (= 1 (:generation (entry fa k))) "frame A entry on gen 1")
       (is (= 1 (:generation (entry fb k))) "frame B entry on gen 1 (same gen — collision case)")
@@ -501,13 +501,13 @@
       (reset! last-managed-args nil)
       (rf/dispatch-sync [:rf.resource/ensure
                          {:resource :dj/article :scope :rf.scope/global
-                          :params {:slug "w"} :owner [:lease :x 2]}])
+                          :params {:slug "w"} :owner [:app :x 2]}])
       (testing "Spec 016 §Race — a second ensure while in flight JOINS: no
                 new generation, no second transport lowering, owner attached"
         (let [e (entry scoped-key)]
           (is (= gen1 (:generation e)) "no new generation on dedupe/join")
           (is (contains? (:active-owners e) [:route :r 1]))
-          (is (contains? (:active-owners e) [:lease :x 2])))
+          (is (contains? (:active-owners e) [:app :x 2])))
         (is (nil? @last-managed-args)
             "the join did NOT lower a second managed-HTTP request"))
       (testing "the single in-flight reply satisfies the joined owners"
@@ -568,7 +568,7 @@
   (rf/reg-resource :crab/article (article-spec) article-spec-request)
   (let [k (state/scoped-resource-key :rf.scope/global :crab/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :crab/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :crab 1]}])
+                                            :params {:slug "w"} :owner [:app :crab 1]}])
     (let [wid        (:current-work (entry k))
           request-id (work-ledger/managed-request-id :rf/default wid)
           aborted    (seed-in-flight! request-id (atom []))]
@@ -600,7 +600,7 @@
         k  (state/scoped-resource-key :rf.scope/global :fdab/article {:slug "w"})]
     (rf/make-frame {:id fa :doc "teardown-abort frame"})
     (rf/dispatch-sync [:rf.resource/ensure {:resource :fdab/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :fdab 1]}]
+                                            :params {:slug "w"} :owner [:app :fdab 1]}]
                       {:frame fa})
     (let [wid        (:current-work (entry fa k))
           request-id (work-ledger/managed-request-id fa wid)
@@ -646,7 +646,7 @@
     ;; ---- first incarnation: start a load; capture the reply addressing ----
     (rf/make-frame {:id fr :doc "reuse frame — first incarnation"})
     (rf/dispatch-sync [:rf.resource/ensure {:resource :rab/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :rab 1]}]
+                                            :params {:slug "w"} :owner [:app :rab 1]}]
                       {:frame fr})
     (let [old-payload    (nth (:on-success @last-managed-args) 1)
           old-wid        (:current-work (entry fr k))
@@ -673,7 +673,7 @@
       (reset! last-managed-args nil)
       (rf/make-frame {:id fr :doc "reuse frame — second incarnation"})
       (rf/dispatch-sync [:rf.resource/ensure {:resource :rab/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :rab 2]}]
+                                              :params {:slug "w"} :owner [:app :rab 2]}]
                         {:frame fr})
       (let [new-wid     (:current-work (entry fr k))
             new-payload (nth (:on-success @last-managed-args) 1)]

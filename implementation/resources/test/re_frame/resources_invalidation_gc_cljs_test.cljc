@@ -11,10 +11,10 @@
        index for the key is REPLACED (old tags removed); one decision summary
        + per-entry detail; no-match distinction (match in another scope vs no
        tag anywhere);
-    2. ACTIVE OWNERS (liveness leases) + owner-index + :rf.resource/release-
+    2. ACTIVE OWNERS + owner-index + :rf.resource/release-
        owner — release drops the owner from the entry + index + work record;
        an in-flight attempt is aborted ONLY when NO owner remains (a shared
-       request is not cancelled because one lease went away); causes never
+       request is not cancelled because one owner went away); causes never
        create liveness;
     3. CLEAR-SCOPE — removes the scope's entries, recomputes indexes,
        cancels their timers, and SUPPRESSES a late reply by the entry-vanish
@@ -160,14 +160,14 @@
   (let [sa {:user "a"} sb {:user "b"}
         ka (state/scoped-resource-key sa :iv/article {:slug "w"})
         kb (state/scoped-resource-key sb :iv/article {:slug "w"})]
-    (ensure! :iv/article sa "w" [:lease :a 1])
+    (ensure! :iv/article sa "w" [:app :a 1])
     (succeed! ka {:title "A"})
-    (ensure! :iv/article sb "w" [:lease :b 1])
+    (ensure! :iv/article sb "w" [:app :b 1])
     (succeed! kb {:title "B"})
     ;; release both owners so the invalidation marks stale WITHOUT refetching
     ;; (a refetch would satisfy + clear the invalidation, masking the test)
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :a 1]}])
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :b 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :b 1]}])
     (rf/dispatch-sync [:rf.resource/invalidate-tags
                        {:scope sa :tags #{[:article "w"]}}])
     (testing "Spec 016 §Invalidation — scoped by DEFAULT: only the in-scope
@@ -181,12 +181,12 @@
   (let [sa {:user "a"} sb {:user "b"}
         ka (state/scoped-resource-key sa :ivx/article {:slug "w"})
         kb (state/scoped-resource-key sb :ivx/article {:slug "w"})]
-    (ensure! :ivx/article sa "w" [:lease :a 1])
+    (ensure! :ivx/article sa "w" [:app :a 1])
     (succeed! ka {:title "A"})
-    (ensure! :ivx/article sb "w" [:lease :b 1])
+    (ensure! :ivx/article sb "w" [:app :b 1])
     (succeed! kb {:title "B"})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :a 1]}])
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :b 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :b 1]}])
     ;; cross-scope is the AUDITED escape — it MUST carry :cause (rf2-7r8kgd) and
     ;; is scope-AGNOSTIC, so it carries NO :scope (rf2-oo8cv7 closed union — a
     ;; :scope alongside :cross-scope? true is rejected, see the conflict test).
@@ -226,9 +226,9 @@
         ka (state/scoped-resource-key sa :ivt/article {:slug "w"})
         t1 1781078400123
         t2 1781078999999]
-    (ensure! :ivt/article sa "w" [:lease :a 1])
+    (ensure! :ivt/article sa "w" [:app :a 1])
     (succeed! ka {:title "A"})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :a 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
     (rf/dispatch-sync [:rf.resource/invalidate-tags
                        {:scope sa :tags #{[:article "w"]}}]
                       {:rf.cofx {:rf/time-ms t1}})
@@ -286,12 +286,12 @@
   (let [sa {:user "a"} sb {:user "b"}
         ka (state/scoped-resource-key sa :ivxn/article {:slug "w"})
         kb (state/scoped-resource-key sb :ivxn/article {:slug "w"})]
-    (ensure! :ivxn/article sa "w" [:lease :a 1])
+    (ensure! :ivxn/article sa "w" [:app :a 1])
     (succeed! ka {:title "A"})
-    (ensure! :ivxn/article sb "w" [:lease :b 1])
+    (ensure! :ivxn/article sb "w" [:app :b 1])
     (succeed! kb {:title "B"})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :a 1]}])
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :b 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :b 1]}])
     (testing "rf2-pvdae1 — cross-scope? true with NO :scope is allowed
               (scope-agnostic) and invalidates the tag in every scope (with
               :cause, the audited escape, per rf2-7r8kgd)"
@@ -393,9 +393,9 @@
     (ensure! :ivr/article scope "active" [:route :r 1])
     (succeed! kact {:title "Active"})
     ;; inactive entry (owner released)
-    (ensure! :ivr/article scope "inactive" [:lease :x 1])
+    (ensure! :ivr/article scope "inactive" [:app :x 1])
     (succeed! kin {:title "Inactive"})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :x 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
     (rf/dispatch-sync [:rf.resource/invalidate-tags
                        {:scope scope :tags #{[:article "active"] [:article "inactive"]}}])
     (testing "Spec 016 §Invalidation 3-4 — the active-owner entry refetches
@@ -414,7 +414,7 @@
                    article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :tagrep/article {:slug "w"})]
-    (ensure! :tagrep/article scope "w" [:lease :t 1])
+    (ensure! :tagrep/article scope "w" [:app :t 1])
     (succeed! k {:rev 1})
     (testing "first load produces version-1 tags"
       (is (= #{[:article "w"] [:rev 1]} (:tags (entry k))))
@@ -444,21 +444,21 @@
         k     (state/scoped-resource-key scope :sh/article {:slug "w"})]
     ;; two owners ensure the SAME in-flight key (dedupe joins)
     (ensure! :sh/article scope "w" [:route :r 1])
-    (ensure! :sh/article scope "w" [:lease :x 1])
-    (is (= #{[:route :r 1] [:lease :x 1]} (:active-owners (entry k))))
+    (ensure! :sh/article scope "w" [:app :x 1])
+    (is (= #{[:route :r 1] [:app :x 1]} (:active-owners (entry k))))
     (let [wid (:current-work (entry k))]
       (reset! aborts [])
       (rf/dispatch-sync [:rf.resource/release-owner {:owner [:route :r 1]}])
       (testing "Spec 016 §Race — releasing ONE owner of a shared in-flight
                 request does NOT abort it (a remaining owner still needs it)"
-        (is (= #{[:lease :x 1]} (:active-owners (entry k))) "one owner dropped")
+        (is (= #{[:app :x 1]} (:active-owners (entry k))) "one owner dropped")
         (is (= [] @aborts) "no abort emitted (work still owned)")
-        (is (= #{[:lease :x 1]} (:owners (work-ledger/get-record (runtime-db) wid)))
+        (is (= #{[:app :x 1]} (:owners (work-ledger/get-record (runtime-db) wid)))
             "work record owners updated"))
       (testing "releasing the LAST owner orphans the in-flight attempt →
                 opportunistic abort (best-effort; stale suppression is the
                 real boundary)"
-        (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :x 1]}])
+        (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
         (is (empty? (:active-owners (entry k))) "entry now owner-free")
         ;; rf2-sxyrzk — abort carries the frame-QUALIFIED transport request-id
         ;; (`managed-request-id`), NOT the bare work-id (the managed-HTTP
@@ -508,7 +508,7 @@
   (rf/reg-resource :njt/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :njt/article {:slug "w"})]
-    (ensure! :njt/article scope "w" [:lease :a 1])
+    (ensure! :njt/article scope "w" [:app :a 1])
     (let [wid1 (:current-work (entry k))
           gen1 (:generation (entry k))]
       ;; a direct internal aborted settle marks the work TERMINAL :cancelled
@@ -519,7 +519,7 @@
           "the directly-aborted work row is terminal :cancelled")
       (testing "rf2-v4ygg5 — a subsequent ensure does NOT join the terminal
                 work; it starts a fresh generation"
-        (ensure! :njt/article scope "w" [:lease :a 2])
+        (ensure! :njt/article scope "w" [:app :a 2])
         (let [e (entry k)]
           (is (= (inc gen1) (:generation e)) "fresh generation")
           (is (not= wid1 (:current-work e)) "a new live work id"))))))
@@ -532,7 +532,7 @@
   (rf/reg-resource :clr/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :clr/article {:slug "w"})]
-    (ensure! :clr/article scope "w" [:lease :c 1])
+    (ensure! :clr/article scope "w" [:app :c 1])
     (let [stale-wid (:current-work (entry k))]
       (rf/dispatch-sync [:rf.resource/clear-scope {:scope scope :cause :logout}])
       (is (nil? (entry k)) "entry removed by clear-scope")
@@ -546,7 +546,7 @@
       (testing "a recreated entry in the same scope gets a HIGHER generation
                 (monotone host-side allocator), so the old reply's work-id can
                 never re-match (anti-recycling)"
-        (ensure! :clr/article scope "w" [:lease :c 2])
+        (ensure! :clr/article scope "w" [:app :c 2])
         (is (= 2 (:generation (entry k))) "recreated entry on a fresh generation")
         (rf/dispatch-sync [:rf.resource.internal/succeeded
                            {:resource/key k :work/id stale-wid :generation 1
@@ -563,7 +563,7 @@
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :tm/article {:slug "w"})]
     (reset! scheduled-timers [])
-    (ensure! :tm/article scope "w" [:lease :tm 1])
+    (ensure! :tm/article scope "w" [:app :tm 1])
     (succeed! k {:title "W"})
     (testing "Spec 016 §Stale and GC scheduling — a successful load emits one
               :rf.resource/schedule-timers fx carrying the durable delays
@@ -585,7 +585,7 @@
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :np/article {:slug "w"})]
     (reset! scheduled-timers [])
-    (ensure! :np/article scope "w" [:lease :np 1])
+    (ensure! :np/article scope "w" [:app :np 1])
     (succeed! k {:title "W"})
     (testing "a resource declaring no explicit GC policy still arms the
               DEFAULT GC timer (no more silent infinite lingering); stale
@@ -604,7 +604,7 @@
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :npn/article {:slug "w"})]
     (reset! scheduled-timers [])
-    (ensure! :npn/article scope "w" [:lease :npn 1])
+    (ensure! :npn/article scope "w" [:app :npn 1])
     (succeed! k {:title "W"})
     (testing ":gc-after-ms :never arms no timer at all (no schedule-timers fx)"
       (is (= [] @scheduled-timers)))))
@@ -650,9 +650,9 @@
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :gc/article {:slug "w"})]
     ;; load + release owner → owner-free + idle → GC-eligible
-    (ensure! :gc/article scope "w" [:lease :gc 1])
+    (ensure! :gc/article scope "w" [:app :gc 1])
     (succeed! k {:title "W"})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gc 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gc 1]}])
     (testing "Spec 016 §Stale and GC scheduling — a fired GC timer RE-CHECKS:
               an owner-free + idle entry is removed"
       (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
@@ -669,7 +669,7 @@
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :gce/article {:slug "w"})]
     (reset! scheduled-timers [])
-    (ensure! :gce/article scope "w" [:lease :gce 1])
+    (ensure! :gce/article scope "w" [:app :gce 1])
     (fail! k :transient-500)   ;; first load fails → :error (no usable data)
     (testing "rf2-ar9pcx / Spec 016 §Stale and GC scheduling — a first-load
               `:error` settle arms the GC timer (so the errored entry can be
@@ -683,7 +683,7 @@
         (is (nil? (get-in args [:timers :poll])) "no poll timer for an errored entry")))
     (testing "the owner releases → owner-free + idle + :error; the fired GC
               re-check collects the errored entry (no longer leaked)"
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gce 1]}])
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gce 1]}])
       (is (empty? (:active-owners (entry k))) "entry now owner-free")
       (is (= :error (:status (entry k))) "still :error, idle (no current-work)")
       (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
@@ -703,7 +703,7 @@
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :gca/article {:slug "w"})]
     (reset! scheduled-timers [])
-    (ensure! :gca/article scope "w" [:lease :gca 1])
+    (ensure! :gca/article scope "w" [:app :gca 1])
     (abort! k)   ;; first-load aborted → :idle (no usable data)
     (testing "rf2-kz5op1 / Spec 016 §Cancellation is opportunistic / §Stale and
               GC scheduling — a first-load ABORT settle arms the GC timer (so
@@ -718,7 +718,7 @@
         (is (nil? (get-in args [:timers :poll])) "no poll timer for an aborted entry")))
     (testing "the owner releases → owner-free + idle; the fired GC re-check
               collects the aborted entry (no longer leaked)"
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gca 1]}])
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gca 1]}])
       (is (empty? (:active-owners (entry k))) "entry now owner-free")
       (is (= :idle (:status (entry k))) "still :idle, no current-work")
       (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
@@ -779,7 +779,7 @@
   (rf/reg-resource :gck/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :gck/article {:slug "w"})]
-    (ensure! :gck/article scope "w" [:lease :gck 1])
+    (ensure! :gck/article scope "w" [:app :gck 1])
     (succeed! k {:title "W"})
     (testing "Spec 016 §Stale and GC scheduling — a fired GC timer RE-CHECKS
               owner sets after wake; an entry with a live owner is NOT removed
@@ -794,8 +794,8 @@
         k     (state/scoped-resource-key scope :gcf/article {:slug "w"})]
     ;; ensure without ever succeeding → in flight (owner released, still
     ;; :current-work)
-    (ensure! :gcf/article scope "w" [:lease :gcf 1])
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gcf 1]}])
+    (ensure! :gcf/article scope "w" [:app :gcf 1])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gcf 1]}])
     (is (some? (:current-work (entry k))) "still in flight")
     (testing "Spec 016 §Stale and GC scheduling — a fired GC timer RE-CHECKS
               the generation / in-flight pointer; an in-flight entry is NOT
@@ -809,7 +809,7 @@
   (rf/reg-resource :gcr/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :gcr/article {:slug "w"})]
-    (ensure! :gcr/article scope "w" [:lease :gcr 1])
+    (ensure! :gcr/article scope "w" [:app :gcr 1])
     (succeed! k {:title "W"})
     (reset! scheduled-timers [])
     (testing "rf2-07693y — a GC timer firing while the entry is still OWNED
@@ -824,7 +824,7 @@
         (is (nil? (get-in args [:timers :stale])) "stale timer NOT re-armed on a GC skip")))
     (testing "the owner releases AFTER the original deadline; the rescheduled
               GC re-check now finds the entry owner-free + idle and collects it"
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gcr 1]}])
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gcr 1]}])
       (is (empty? (:active-owners (entry k))) "entry now owner-free")
       (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
       (is (nil? (entry k)) "the rescheduled GC re-check collected the now-inactive entry"))))
@@ -834,8 +834,8 @@
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :gci/article {:slug "w"})]
     ;; in flight + owner-free (owner released while loading)
-    (ensure! :gci/article scope "w" [:lease :gci 1])
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gci 1]}])
+    (ensure! :gci/article scope "w" [:app :gci 1])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gci 1]}])
     (is (some? (:current-work (entry k))) "in flight, owner-free")
     (reset! scheduled-timers [])
     (testing "rf2-07693y — a GC timer firing while the entry is IN-FLIGHT skips
@@ -875,7 +875,7 @@
   (rf/reg-resource :sf/article (article-spec {:stale-after-ms 60000}) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :sf/article {:slug "w"})]
-    (ensure! :sf/article scope "w" [:lease :sf 1])
+    (ensure! :sf/article scope "w" [:app :sf 1])
     (succeed! k {:title "W"})
     (let [before (entry k)]
       (testing "Spec 016 §Stale and GC scheduling — the stale-timer re-check
@@ -911,7 +911,7 @@
   (rf/reg-resource :rmt/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :rmt/article {:slug "w"})]
-    (ensure! :rmt/article scope "w" [:lease :rmt 1])
+    (ensure! :rmt/article scope "w" [:app :rmt 1])
     (succeed! k {:title "W"})
     ;; arm a real long timer so remove has something to cancel. rf2-9e0tyq —
     ;; the timer side-table key's resource-key element is the byte key-id.

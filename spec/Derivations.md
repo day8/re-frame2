@@ -221,7 +221,7 @@ Lifecycle is part of the fact's contract — **a graph that shows data dependenc
 {:lifecycle :machine-instance         :owner [:machine :upload/main]}
 ```
 
-For processes, **owner and cause are distinct**. The *owner* keeps the process or cache entry alive; the *cause* explains why work happened. A button click that refreshes a resource is usually a cause; a route, machine, SSR request, or explicit lease is usually an owner. (Resources formalize this as active owners vs causes — [016](016-Resources.md).)
+For processes, **owner and cause are distinct**. The *owner* keeps the process or cache entry alive; the *cause* explains why work happened. A button click that refreshes a resource is usually a cause; a route, machine, SSR request, or an explicit app event is usually an owner. (Resources formalize this as active owners vs causes — [016](016-Resources.md).)
 
 ## The node shape
 
@@ -843,7 +843,7 @@ A conforming implementation should satisfy these checks (the [EP-0014 §Validati
 - **Storage classification** — ephemeral outputs do not appear in durable frame-state; app-db outputs appear in app-db; runtime-db outputs appear in runtime-db; host-transient state declares teardown. No node uses `:remote` as a storage class — external authority is the separate `:authority` axis.
 - **Materialization** — a materialized derivation's output path contains the same whole value its derivation function computes from the same inputs.
 - **Evaluation policy** — on-demand reads cause no durable writes; after-event derivations obey event atomicity; reply-driven processes suppress stale replies by declared identity.
-- **Lifecycle** — destroying a frame releases frame-owned graph nodes and host-transient state; subscription disposal releases cache-entry nodes; route exit releases route owners; machine destroy releases machine-owned leases and timers.
+- **Lifecycle** — destroying a frame releases frame-owned graph nodes and host-transient state; subscription disposal releases cache-entry nodes; route exit releases route owners; machine destroy releases machine-owned owners and timers.
 - **Tool redaction** — graph inspection can summarize or redact sensitive params, scopes, and values without losing graph structure, *including* a live resource node's **identity-embedded** scope/params (the scoped key in the node key, `:id`, `:output`, `:inputs`, `:work-ledger`, and edge endpoints), which the value-path egress walk cannot reach and a tool projects into stable opaque handles ([§Redaction metadata](#redaction-metadata-ep-0014-issue-1-disposition-ep-0015)).
 - **Public-API staging** — slice-1 exports **no** new public authoring primitive or stable graph-accessor name; any public API requires a later recorded ruling after the internal shape proves stable.
 - **Whole-value / delta law** — every derivation is correct as a whole-value function; any provided `:step-delta` passes the commuting law against whole-value recomputation. Implementations with no delta support still conform.

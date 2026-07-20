@@ -502,14 +502,14 @@
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :a/article {:slug "welcome"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :a/article :scope :rf.scope/global
-                        :params {:slug "welcome"} :owner [:lease :test 1]}])
+                        :params {:slug "welcome"} :owner [:app :test 1]}])
     (testing "ensure transitions the (no-data) entry to :loading and mints
               a generation + current-work pointer"
       (let [e (entry scoped-key)]
         (is (= :loading (:status e)))
         (is (= 1 (:generation e)))
         (is (some? (:current-work e)))
-        (is (contains? (:active-owners e) [:lease :test 1]))))
+        (is (contains? (:active-owners e) [:app :test 1]))))
     (testing "the transport was lowered (the capturing :rf.http/managed fx
               saw the runtime-owned request-id + reply addressing)"
       (is (some? @last-managed-args))
@@ -539,7 +539,7 @@
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :ss/article {:slug "w"})
         data1      {:title "Welcome" :body [1 2 3]}]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ss/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :ss 1]}])
+                                            :params {:slug "w"} :owner [:app :ss 1]}])
     (let [wid1 (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
                          {:resource/key scoped-key :work/id wid1 :generation 1 :data data1}]))
@@ -564,7 +564,7 @@
   (rf/reg-resource :rf2/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :rf2/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :rf2/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :rf2 1]}])
+                                            :params {:slug "w"} :owner [:app :rf2 1]}])
     (let [wid1 (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
                          {:resource/key scoped-key :work/id wid1 :generation 1
@@ -590,7 +590,7 @@
   (rf/reg-resource :fl/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :fl/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :fl/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :fl 1]}])
+                                            :params {:slug "w"} :owner [:app :fl 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/failed
                          {:resource/key scoped-key :work/id wid :generation 1
@@ -609,7 +609,7 @@
   (rf/reg-resource :st/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :st/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :st/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :st 1]}])
+                                            :params {:slug "w"} :owner [:app :st 1]}])
     (let [wid1 (:current-work (entry scoped-key))]
       ;; a newer refetch supersedes (generation 2)
       (rf/dispatch-sync [:rf.resource/refetch {:resource :st/article :scope :rf.scope/global
@@ -637,13 +637,13 @@
                                             :params {:slug "w"} :owner [:route :r 1]}])
     (let [gen1 (:generation (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :dd/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :x 2]}])
+                                              :params {:slug "w"} :owner [:app :x 2]}])
       (testing "Spec 016 §Race — a second ensure while in flight JOINS (no
                 new generation), attaching the new owner"
         (let [e (entry scoped-key)]
           (is (= gen1 (:generation e)) "no new generation on dedupe")
           (is (contains? (:active-owners e) [:route :r 1]))
-          (is (contains? (:active-owners e) [:lease :x 2])))))))
+          (is (contains? (:active-owners e) [:app :x 2])))))))
 
 ;; ===========================================================================
 ;; 8. Per-frame ISOLATION (frame A invisible to frame B)
@@ -660,7 +660,7 @@
               loaded in frame A is invisible in frame B"
       (rf/dispatch-sync [:rf.resource/ensure
                          {:resource :iso/article :scope :rf.scope/global
-                          :params {:slug "w"} :owner [:lease :a 1]}]
+                          :params {:slug "w"} :owner [:app :a 1]}]
                         {:frame fa})
       (let [wid (:current-work (entry fa scoped-key))]
         (rf/dispatch-sync [:rf.resource.internal/succeeded
@@ -688,7 +688,7 @@
              @(rf/subscribe [:rf/resource q])))
       (is (nil? (entry scoped-key)) "subscribing did not cause a fetch / entry"))
     (rf/dispatch-sync [:rf.resource/ensure {:resource :sub/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :s 1]}])
+                                            :params {:slug "w"} :owner [:app :s 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
                          {:resource/key scoped-key :work/id wid :generation 1
@@ -705,7 +705,7 @@
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :stl/article {:slug "w"})
         q          {:resource :stl/article :scope :rf.scope/global :params {:slug "w"}}]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :stl/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :st 1]}])
+                                            :params {:slug "w"} :owner [:app :st 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
                          {:resource/key scoped-key :work/id wid :generation 1
@@ -714,7 +714,7 @@
       (is (false? @(rf/subscribe [:rf.resource/stale? q]))))
     ;; release the owner so invalidation marks the entry stale WITHOUT
     ;; auto-refetching it (a refetch would satisfy + clear the invalidation)
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :st 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :st 1]}])
     (rf/dispatch-sync [:rf.resource/invalidate-tags
                        {:scope :rf.scope/global :tags #{[:article "w"]}}])
     (testing "after exact-tag invalidation of an INACTIVE entry, :stale?
@@ -735,7 +735,7 @@
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :lra/article {:slug "w"})
         completed-at 1781078400456]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :lra/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :lr 1]}])
+                                            :params {:slug "w"} :owner [:app :lr 1]}])
     (let [e (entry scoped-key)]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
                          {:resource/key scoped-key :work/id (:current-work e)
@@ -768,7 +768,7 @@
         completed-at t0]
     ;; --- first ensure + scripted reply: entry loads, fresh until t0+60s ------
     (rf/dispatch-sync [:rf.resource/ensure {:resource :fsd/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :fsd 1]}])
+                                            :params {:slug "w"} :owner [:app :fsd 1]}])
     (let [e (entry scoped-key)]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
                          {:resource/key scoped-key :work/id (:current-work e)
@@ -782,7 +782,7 @@
       ;; host clock is decades past t0+60s. -------------------------------------
       (reset! last-managed-args nil)
       (rf/dispatch-sync [:rf.resource/ensure {:resource :fsd/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :fsd 1]}]
+                                              :params {:slug "w"} :owner [:app :fsd 1]}]
                         ;; scripted causal "now": t0 + 30s — fresh by policy.
                         {:rf.cofx {:rf/time-ms (+ t0 30000)}})
       (testing "a within-window causal :time-ms takes the FRESH-SKIP branch
@@ -800,7 +800,7 @@
       ;; the causal token, not a constant. ------------------------------------
       (reset! last-managed-args nil)
       (rf/dispatch-sync [:rf.resource/ensure {:resource :fsd/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :fsd 1]}]
+                                              :params {:slug "w"} :owner [:app :fsd 1]}]
                         ;; scripted causal "now": t0 + 90s — STALE by policy.
                         {:rf.cofx {:rf/time-ms (+ t0 90000)}})
       (testing "a past-window causal :time-ms takes the REFETCH branch — a new
@@ -815,17 +815,17 @@
 ;; 10. owner release / clear-scope / remove / tag invalidation
 ;; ===========================================================================
 
-(deftest release-owner-drops-the-lease
+(deftest release-owner-drops-the-owner
   (rf/reg-resource :ro/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :ro/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ro/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :ro 1]}])
-    (is (contains? (:active-owners (entry scoped-key)) [:lease :ro 1]))
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :ro 1]}])
+                                            :params {:slug "w"} :owner [:app :ro 1]}])
+    (is (contains? (:active-owners (entry scoped-key)) [:app :ro 1]))
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :ro 1]}])
     (testing "Spec 016 §Active owners — release drops the owner from the
               entry + the owner-index"
-      (is (not (contains? (:active-owners (entry scoped-key)) [:lease :ro 1])))
-      (is (nil? (get-in (runtime-db) (conj (state/owner-index-path) [:lease :ro 1])))))))
+      (is (not (contains? (:active-owners (entry scoped-key)) [:app :ro 1])))
+      (is (nil? (get-in (runtime-db) (conj (state/owner-index-path) [:app :ro 1])))))))
 
 (deftest clear-scope-removes-scoped-entries
   (rf/reg-resource :cs/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
@@ -834,9 +834,9 @@
         ka (state/scoped-resource-key scope-a :cs/article {:slug "w"})
         kb (state/scoped-resource-key scope-b :cs/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cs/article :scope scope-a
-                                            :params {:slug "w"} :owner [:lease :a 1]}])
+                                            :params {:slug "w"} :owner [:app :a 1]}])
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cs/article :scope scope-b
-                                            :params {:slug "w"} :owner [:lease :b 1]}])
+                                            :params {:slug "w"} :owner [:app :b 1]}])
     (is (some? (entry ka)))
     (is (some? (entry kb)))
     (rf/dispatch-sync [:rf.resource/clear-scope {:scope scope-a :cause :logout}])
@@ -869,7 +869,7 @@
   (rf/reg-resource :rm/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :rm/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :rm/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:lease :rm 1]}])
+                                            :params {:slug "w"} :owner [:app :rm 1]}])
     (is (some? (entry scoped-key)))
     (rf/dispatch-sync [:rf.resource/remove {:resource :rm/article :scope :rf.scope/global
                                             :params {:slug "w"}}])
@@ -885,12 +885,12 @@
             are recomputable-from-:entries (never trusted from a snapshot)"
     (let [k1 [:rf.scope/global :r/a {:id 1}]
           k2 [:rf.scope/global :r/b {:id 2}]
-          subtree {:entries {k1 {:tags #{:t1 :shared} :active-owners #{[:lease 1]}}
-                             k2 {:tags #{:t2 :shared} :active-owners #{[:lease 1]}}}}
+          subtree {:entries {k1 {:tags #{:t1 :shared} :active-owners #{[:app 1]}}
+                             k2 {:tags #{:t2 :shared} :active-owners #{[:app 1]}}}}
           rebuilt (state/recompute-indexes subtree)]
       (is (= #{k1 k2} (get-in rebuilt [:tag-index :shared])))
       (is (= #{k1}    (get-in rebuilt [:tag-index :t1])))
-      (is (= #{k1 k2} (get-in rebuilt [:owner-index [:lease 1]]))))))
+      (is (= #{k1 k2} (get-in rebuilt [:owner-index [:app 1]]))))))
 
 ;; ---- rf2-2c2mkh: incremental reindex == full rebuild (the safety net) ------
 ;;
@@ -920,34 +920,34 @@
                     (is (= (:owner-index full) (:owner-index incremental))
                         (str "owner-index drift on touched " (vec touched)))))]
       (testing "create one entry from empty"
-        (check {} {ka {:tags #{:t1 :shared} :active-owners #{[:lease 1]}}} [ka]))
+        (check {} {ka {:tags #{:t1 :shared} :active-owners #{[:app 1]}}} [ka]))
       (testing "tag replacement on a settle (owners unchanged)"
-        (check {ka {:tags #{:t1 :shared} :active-owners #{[:lease 1]}}}
-               {ka {:tags #{:t2 :shared} :active-owners #{[:lease 1]}}}
+        (check {ka {:tags #{:t1 :shared} :active-owners #{[:app 1]}}}
+               {ka {:tags #{:t2 :shared} :active-owners #{[:app 1]}}}
                [ka]))
       (testing "owner attach + release on one key"
-        (check {ka {:tags #{:t1} :active-owners #{[:lease 1]}}}
-               {ka {:tags #{:t1} :active-owners #{[:lease 1] [:route :r 7]}}}
+        (check {ka {:tags #{:t1} :active-owners #{[:app 1]}}}
+               {ka {:tags #{:t1} :active-owners #{[:app 1] [:route :r 7]}}}
                [ka])
-        (check {ka {:tags #{:t1} :active-owners #{[:lease 1] [:route :r 7]}}}
-               {ka {:tags #{:t1} :active-owners #{[:lease 1]}}}
+        (check {ka {:tags #{:t1} :active-owners #{[:app 1] [:route :r 7]}}}
+               {ka {:tags #{:t1} :active-owners #{[:app 1]}}}
                [ka]))
       (testing "removal (entry vanishes) drops its members + empties the bucket"
-        (check {ka {:tags #{:only} :active-owners #{[:lease 9]}}
+        (check {ka {:tags #{:only} :active-owners #{[:app 9]}}
                 kb {:tags #{:shared} :active-owners #{}}}
                {kb {:tags #{:shared} :active-owners #{}}}
                [ka]))
       (testing "multi-key clear-scope (two keys removed at once)"
-        (check {ka {:tags #{:a :shared} :active-owners #{[:lease 1]}}
-                kb {:tags #{:b :shared} :active-owners #{[:lease 1]}}
+        (check {ka {:tags #{:a :shared} :active-owners #{[:app 1]}}
+                kb {:tags #{:b :shared} :active-owners #{[:app 1]}}
                 kc {:tags #{:c} :active-owners #{}}}
                {kc {:tags #{:c} :active-owners #{}}}
                [ka kb]))
       (testing "reindexing an UNCHANGED key in the touched set is a no-op"
-        (check {ka {:tags #{:t1} :active-owners #{[:lease 1]}}
-                kb {:tags #{:t1} :active-owners #{[:lease 1]}}}
-               {ka {:tags #{:t1} :active-owners #{[:lease 1]}}
-                kb {:tags #{:t2} :active-owners #{[:lease 1]}}}
+        (check {ka {:tags #{:t1} :active-owners #{[:app 1]}}
+                kb {:tags #{:t1} :active-owners #{[:app 1]}}}
+               {ka {:tags #{:t1} :active-owners #{[:app 1]}}
+                kb {:tags #{:t2} :active-owners #{[:app 1]}}}
                ;; ka did not change but is in the touched set anyway
                [ka kb])))))
 
@@ -964,7 +964,7 @@
                        (mod x n)))
           key-ids  (mapv #(str "k" %) (range 8))
           tags     [:t0 :t1 :t2 :shared]
-          owners   [[:lease 1] [:lease 2] [:route :r 1] [:route :r 2]]
+          owners   [[:app 1] [:app 2] [:route :r 1] [:route :r 2]]
           rand-set (fn [pool]
                      (set (keep (fn [x] (when (zero? (nextint 2)) x)) pool)))]
       (loop [step 0
@@ -1077,14 +1077,14 @@
         inflight-key (state/scoped-resource-key :rf.scope/global :cr/article {:slug "inflight"})]
     ;; one LOADED entry (with tags + an active owner → indexed)
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cr/article :scope :rf.scope/global
-                                            :params {:slug "loaded"} :owner [:lease :cr 1]}])
+                                            :params {:slug "loaded"} :owner [:app :cr 1]}])
     (let [wid (:current-work (entry loaded-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
                          {:resource/key loaded-key :work/id wid :generation 1
                           :data {:title "L"} :tags #{[:article "loaded"]}}]))
     ;; one IN-FLIGHT entry (still :loading, has :current-work)
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cr/article :scope :rf.scope/global
-                                            :params {:slug "inflight"} :owner [:lease :cr 2]}])
+                                            :params {:slug "inflight"} :owner [:app :cr 2]}])
     (is (= :loaded (:status (entry loaded-key))))
     (is (some? (:current-work (entry inflight-key))) "in-flight entry has live work")
     (is (seq (get-in (runtime-db) (state/tag-index-path))) "tag index populated")
@@ -1169,7 +1169,7 @@
   (testing "rf2-c8lgy3 — a valid explicit frame returns the entry when present"
     (let [k (state/scoped-resource-key :rf.scope/global :rs/article {:slug "w"})]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :rs/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease 1]}])
+                                              :params {:slug "w"} :owner [:app 1]}])
       (let [wid (:current-work (entry k))]
         (rf/dispatch-sync [:rf.resource.internal/succeeded
                            {:resource/key k :work/id wid :generation 1
@@ -1198,9 +1198,9 @@
           k2 (state/scoped-resource-key :rf.scope/global :intro/article {:slug "two"})]
       ;; Install two entries with DISTINCT scoped keys (distinct byte key-ids).
       (rf/dispatch-sync [:rf.resource/ensure {:resource :intro/article :scope :rf.scope/global
-                                              :params {:slug "one"} :owner [:lease :intro 1]}])
+                                              :params {:slug "one"} :owner [:app :intro 1]}])
       (rf/dispatch-sync [:rf.resource/ensure {:resource :intro/article :scope :rf.scope/global
-                                              :params {:slug "two"} :owner [:lease :intro 2]}])
+                                              :params {:slug "two"} :owner [:app :intro 2]}])
       (let [{:keys [resource-ids entries]} (re-frame.resources/resources {:frame :rf/default})]
         (testing "the static registry still lists the registered id"
           (is (contains? (set resource-ids) :intro/article)))
@@ -1395,7 +1395,7 @@
   (testing "rf2-rsmiru — a from-caller sub at a scope with ZERO active owners,
             while a DIFFERENT scope for the same resource IS active, emits the
             dev-only :rf.warning/resource-sub-scope-mismatch warning"
-    ;; scope A is ensured + active (a real route lease); the view mistakenly
+    ;; scope A is ensured + active (a real route owner); the view mistakenly
     ;; subscribes under scope B (no owner ever attached) — the footgun.
     (load-under! {:user "a"} [:route :r 1])
     (let [warns (record-scope-mismatch-warnings!

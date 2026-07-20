@@ -185,14 +185,14 @@
 
 (deftest owner-free-settle-arms-no-poll-timer
   ;; A poll never pins an owner-free entry: if the entry settles with no active
-  ;; owner (the load was caused without a lease, or the owner released before
+  ;; owner (the load was caused without an owner, or the owner released before
   ;; the reply landed), no poll timer arms.
   (rf/reg-resource :pl/of (article-spec {:poll-interval-ms 5000 :gc-after-ms 9000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :pl/of {:slug "w"})]
-    (ensure! :pl/of scope "w" [:lease :x 1])
+    (ensure! :pl/of scope "w" [:app :x 1])
     ;; release the owner BEFORE the reply lands → settles owner-free
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :x 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
     (succeed! k {:title "W"})
     (testing "Spec 016 §Polling — an owner-free settle arms no poll timer (a
               poll never pins an owner-free entry); GC still arms"
@@ -212,9 +212,9 @@
   (rf/reg-resource :fs/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :fs/poll {:slug "w"})]
-    (ensure! :fs/poll scope "w" [:lease :x 1])
+    (ensure! :fs/poll scope "w" [:app :x 1])
     ;; release the owner BEFORE the reply lands → settles owner-free (no poll)
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :x 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
     (succeed! k {:title "W"})
     (is (empty? (:active-owners (entry k))) "entry settled owner-free")
     (is (nil? (get-in (last-schedule-for k) [:timers :poll]))
@@ -228,14 +228,14 @@
       (let [e (entry k)]
         (is (= :loaded (:status e)) "served from cache (no fetch — still :loaded)")
         (is (nil? (:current-work e)) "no in-flight work (fresh-skip, not a load)")
-        (is (= #{[:route :r 2]} (:active-owners e)) "the new owner is leased"))
+        (is (= #{[:route :r 2]} (:active-owners e)) "the new owner is attached"))
       (let [args (last-schedule-for k)]
         (is (some? args) "schedule-timers emitted for the revived entry")
         (is (= 5000 (get-in args [:timers :poll])) "poll re-armed at :poll-interval-ms")))))
 
 (deftest fresh-skip-onto-owned-entry-does-not-re-arm
   ;; Guard against double-arm: a fresh-skip onto an entry that ALREADY has an
-  ;; active owner adds a second lease but its poll is already live, so the
+  ;; active owner adds a second owner but its poll is already live, so the
   ;; fresh-skip re-arms nothing (the success-path settle armed it).
   (rf/reg-resource :fa/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
@@ -245,12 +245,12 @@
     (reset! scheduled-timers [])
     ;; a SECOND owner ensures the SAME fresh entry — fresh-skip, but the entry
     ;; was already owned, so no re-arm fires here.
-    (ensure! :fa/poll scope "w" [:lease :x 1])
+    (ensure! :fa/poll scope "w" [:app :x 1])
     (testing "rf2-k9u4h3 — a fresh-skip onto an already-OWNED entry adds the
-              lease but re-arms NO timer (avoids double-arm; the prior settle
+              owner but re-arms NO timer (avoids double-arm; the prior settle
               already armed the poll)"
-      (is (= #{[:route :r 1] [:lease :x 1]} (:active-owners (entry k)))
-          "both leases attached")
+      (is (= #{[:route :r 1] [:app :x 1]} (:active-owners (entry k)))
+          "both owners attached")
       (is (empty? (filter #(= k (:resource/key %)) @scheduled-timers))
           "no schedule-timers re-armed on a fresh-skip onto an owned entry"))))
 
@@ -304,10 +304,10 @@
   (rf/reg-resource :or/poll (article-spec {:poll-interval-ms 5000 :gc-after-ms 9000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :or/poll {:slug "w"})]
-    (ensure! :or/poll scope "w" [:lease :x 1])
+    (ensure! :or/poll scope "w" [:app :x 1])
     (succeed! k {:title "W"})
     (reset! cancelled-poll [])
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :x 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
     (testing "Spec 016 §Polling — the last owner releasing cancels the entry's
               :poll timer (poll-only; stale/GC stay armed for the now-inactive
               entry's GC)"
@@ -322,9 +322,9 @@
   (rf/reg-resource :os/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :os/poll {:slug "w"})]
-    (ensure! :os/poll scope "w" [:lease :x 1])
+    (ensure! :os/poll scope "w" [:app :x 1])
     (succeed! k {:title "W"})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :x 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
     (reset! scheduled-timers [])
     (poll-fired! k)
     (testing "Spec 016 §Polling — a poll tick on an owner-free entry is a STOP:

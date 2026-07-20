@@ -399,9 +399,9 @@
 ;;    durable write (it mutates the snapshot-captured `:active-owners`), so it
 ;;    MUST move `:revision`. Otherwise a revision-keyed conflict check is BLIND
 ;;    to it and a no-conflict `restore-before` clobbers the CURRENT owner set
-;;    with the snapshot's — RESURRECTING a released owner (a lease no live caller
+;;    with the snapshot's — RESURRECTING a released owner (an owner no live caller
 ;;    holds → the entry never GCs) or DROPPING a mid-flight-attached owner (a
-;;    live lease vanishes → premature GC).
+;;    live owner vanishes → premature GC).
 ;; ===========================================================================
 
 (def ^:private route-owner [:route :r/home :nav1])
@@ -453,16 +453,16 @@
       (is (nil? (:current-work e)) "no in-flight work pins it"))
     (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key article-key}])
     (is (nil? (entry article-key))
-        "GC removed the entry — the lease leak is fixed (was pinned :has-owner forever)")))
+        "GC removed the entry — the owner leak is fixed (was pinned :has-owner forever)")))
 
 (deftest attach-mid-flight-is-not-dropped-by-rollback
   ;; THE MIRROR CASE (rf2-cxwuhl): an owner ATTACHED between the apply and the
   ;; failed reply (via a fresh-skip cache-hit ensure — the entry is fresh after
   ;; the optimistic apply) must survive the rollback. Before the fix the attach
   ;; did not bump `:revision`, so the no-conflict restore dropped the freshly
-  ;; attached lease (its live owner would then see the entry GC out from under
-  ;; it). The bump makes it a conflict → `:invalidate` keeps the CURRENT owner
-  ;; set (both leases) and recovers via the read path.
+  ;; attached owner (the caller holding it would then see the entry GC out from
+  ;; under it). The bump makes it a conflict → `:invalidate` keeps the CURRENT owner
+  ;; set (both owners) and recovers via the read path.
   (stub-lifecycle-fx!)
   (reg-article-resource!)
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"}
@@ -471,18 +471,18 @@
   (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
   ;; MID-FLIGHT: a second component ensures the (now fresh) entry, attaching a
-  ;; NEW lease via the fresh-skip cache-hit path — no work, no reply.
+  ;; NEW owner via the fresh-skip cache-hit path — no work, no reply.
   (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
                                           :params {:slug "w"} :owner [:v :second]}])
   (is (= #{[:v :first] [:v :second]} (:active-owners (entry article-key)))
-      "both leases are live before the reply settles")
+      "both owners are live before the reply settles")
   ;; the reply FAILS → conflict-aware rollback.
   (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500})
-  (testing "the freshly-attached lease is NOT dropped by the rollback"
+  (testing "the freshly-attached owner is NOT dropped by the rollback"
     (let [owners (:active-owners (entry article-key))]
       (is (contains? owners [:v :second])
           "the mid-flight attach survived (was dropped by the blind restore before the fix)")
-      (is (contains? owners [:v :first]) "the original lease is intact too")))
+      (is (contains? owners [:v :first]) "the original owner is intact too")))
   (testing "the owner-index still routes both owners to the entry"
     (is (contains? (get-in (runtime-db) (conj (state/owner-index-path) [:v :second]))
                    (state/key-id article-key)))

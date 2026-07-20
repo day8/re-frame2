@@ -58,7 +58,7 @@
        `:rf.machine.lifecycle/destroyed` on the registrar channel (an
        explicit destroy is not a frame-exit reap — Spec 009 §Two-channel
        teardown), and releases the machine's owned resources (snapshot +
-       handler cleared, the `[:machine id]` resource lease released, and an
+       handler cleared, the `[:machine id]` resource owner released, and an
        armed `:after` timer reaped). The count is asserted EXACT — a
        fixture that passed on zero or two destroyed events would be
        worthless.
@@ -211,7 +211,7 @@
             the registrar channel, and releases the machine's owned resources."
     ;; Stub `:rf.resource/release-owner` (stands in for the resources artefact —
     ;; machines depends only on core, so it dispatches the release by NAME). The
-    ;; recorded owner proves the machine's resource lease is released on destroy.
+    ;; recorded owner proves the machine's resource owner is released on destroy.
     (let [released (atom [])]
       (events/reg-event :rf.resource/release-owner
         (fn [_ [_ {:keys [owner]}]] (swap! released conj owner) {}))
@@ -240,13 +240,13 @@
               "ZERO :rf.machine.lifecycle/destroyed — an explicit destroy is NOT a
                frame-exit reap, so the registrar channel stays silent"))
 
-        ;; --- resource release (snapshot storage, handler, resource lease) ---
+        ;; --- resource release (snapshot storage, handler, resource owner) ---
         (is (nil? (snapshot :ed/session))
             "snapshot cleared — the machine's state storage is released")
         (is (nil? (registrar/lookup :event :ed/session))
             "event handler unregistered — the machine's handler resource is released")
         (is (= [[:machine :ed/session]] @released)
-            "EXACTLY ONE [:machine actor-id] resource lease released on destroy")))))
+            "EXACTLY ONE [:machine actor-id] resource owner released on destroy")))))
 
 (deftest explicit-destroy-releases-owned-after-timer
   (testing "rf2-jqn5im / rf2-kmdi9 — an explicit destroy of a machine holding an

@@ -387,7 +387,7 @@
            phantom conflict that an unconditional bump would manufacture")))
   (testing "conversely a GENUINE mid-flight owner change DOES bump, so it is
             visible to the conflict check (the gate does not suppress real
-            writes — the departed/arrived lease is protected)"
+            writes — the departed/arrived owner is protected)"
     (let [attached (state/attach-owner (state/empty-entry :conduit/article) :owner/a)
           recorded (state/entry-revision attached)
           ;; a real mid-flight change: a NEW owner arrives while the mutation
@@ -397,7 +397,7 @@
           "the genuine new-owner attach bumped past the snapshot")
       (is (true? (state/revision-conflict? changed recorded))
           "so the settle detects the conflict and :invalidates rather than
-           blindly restoring the stale :before (which would DROP the new lease)"))
+           blindly restoring the stale :before (which would DROP the new owner)"))
     (testing "and the RELEASE side is symmetric — a present-owner release bumps
               and is detected"
       (let [with-two (-> (state/empty-entry :conduit/article)

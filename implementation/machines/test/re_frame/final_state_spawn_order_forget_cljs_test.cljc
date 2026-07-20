@@ -48,7 +48,7 @@
 ;; A stub `:rf.resource/release-owner` handler recording every released
 ;; owner — the machine side dispatches this by NAME (machines never
 ;; :requires resources), so a stub stands in for the real resources
-;; artefact. Mirrors `actor_resource_lease_release_cljs_test`.
+;; artefact. Mirrors `actor_resource_owner_release_cljs_test`.
 (def ^:private released (atom []))
 
 (defn- install-release-stub! []
@@ -111,11 +111,11 @@
     (rf/reg-event ::stale-destroy
       (fn [_ [_ id]] {:fx [[:rf.machine/destroy id]]}))
     (let [spawned-id (spawn-child! :fsf2/parent :rf/default)]
-      ;; Finish the child — finalize releases the [:machine spawned-id] lease
+      ;; Finish the child — finalize releases the [:machine spawned-id] owner
       ;; once (via its appended :fx) and emits ONE :rf.machine/destroyed.
       (rf/dispatch-sync [spawned-id [:fin]])
       (is (= [[:machine spawned-id]] @released)
-          "the finish released the actor's [:machine actor-id] lease exactly once")
+          "the finish released the actor's [:machine actor-id] owner exactly once")
       ;; Scope the phantom check to the stale-destroy window only.
       (mtest/reset-captured!)
       (rf/dispatch-sync [::stale-destroy spawned-id])

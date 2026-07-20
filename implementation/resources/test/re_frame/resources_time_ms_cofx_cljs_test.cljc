@@ -133,7 +133,7 @@
     (let [scoped-key   (state/scoped-resource-key :rf.scope/global :tm/article {:slug "w"})
           completed-at 1781078400456]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :tm/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :tm 1]}])
+                                              :params {:slug "w"} :owner [:app :tm 1]}])
       (let [wid (:current-work (entry scoped-key))]
         (rf/dispatch-sync [:rf.resource.internal/succeeded
                            {:resource/key scoped-key :work/id wid :generation 1
@@ -151,7 +151,7 @@
     (let [scoped-key (state/scoped-resource-key :rf.scope/global :tm/started {:slug "w"})
           started-at 1781000000000]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :tm/started :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :tm 2]}]
+                                              :params {:slug "w"} :owner [:app :tm 2]}]
                         {:rf.cofx {:rf/time-ms started-at}})
       (let [wid (:current-work (entry scoped-key))]
         (is (= started-at (:started-at (record wid)))
@@ -169,14 +169,14 @@
           loaded-at      1781000000000
           invalidated-at 1781000099999]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :tm/inv :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :tm 3]}])
+                                              :params {:slug "w"} :owner [:app :tm 3]}])
       (let [wid (:current-work (entry scoped-key))]
         (rf/dispatch-sync [:rf.resource.internal/succeeded
                            {:resource/key scoped-key :work/id wid :generation 1
                             :data {:title "Welcome"}}]
                           {:rf.cofx {:rf/time-ms loaded-at}}))
       ;; release the owner so the entry is left-stale (not refetched) on invalidate
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :tm 3]}])
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :tm 3]}])
       (rf/dispatch-sync [:rf.resource/invalidate-tags
                          {:scope :rf.scope/global :tags #{[:article "w"]}
                           :cause [:test :inv]}]
@@ -196,7 +196,7 @@
     (let [scoped-key   (state/scoped-resource-key :rf.scope/global :fail/article {:slug "w"})
           completed-at 1781111111111]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :fail/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :fail 1]}])
+                                              :params {:slug "w"} :owner [:app :fail 1]}])
       (let [wid (:current-work (entry scoped-key))]
         (rf/dispatch-sync [:rf.resource.internal/failed
                            {:resource/key scoped-key :work/id wid :generation 1
@@ -216,7 +216,7 @@
     (let [scoped-key   (state/scoped-resource-key :rf.scope/global :ab2/article {:slug "w"})
           completed-at 1781222222222]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :ab2/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :ab2 1]}])
+                                              :params {:slug "w"} :owner [:app :ab2 1]}])
       (let [wid (:current-work (entry scoped-key))]
         ;; an :rf.http/aborted failure envelope branches into cancellation
         (rf/dispatch-sync [:rf.resource.internal/failed
@@ -235,7 +235,7 @@
     (let [scoped-key   (state/scoped-resource-key :rf.scope/global :ab3/article {:slug "w"})
           completed-at 1781333333333]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :ab3/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :ab3 1]}])
+                                              :params {:slug "w"} :owner [:app :ab3 1]}])
       (let [wid (:current-work (entry scoped-key))]
         (rf/dispatch-sync [:rf.resource.internal/aborted
                            {:resource/key scoped-key :work/id wid :generation 1}]
@@ -252,7 +252,7 @@
     (let [scoped-key   (state/scoped-resource-key :rf.scope/global :sf/article {:slug "w"})
           completed-at 1781444444444]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :sf/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease :sf 1]}])
+                                              :params {:slug "w"} :owner [:app :sf 1]}])
       (let [wid1 (:current-work (entry scoped-key))]
         ;; supersede with a newer generation (the old work-id is now stale)
         (rf/dispatch-sync [:rf.resource/refetch {:resource :sf/article :scope :rf.scope/global

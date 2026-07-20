@@ -9,7 +9,7 @@
  * fail-closed read, scoped-invalidation isolation, lease-lifecycle
  * non-interference) are pinned by the CLJS unit suites
  * (resources_scope_leak_boundary_cljs_test.cljc +
- * resources_scoped_lease_lifecycle_cljs_test.cljc); this smoke asserts the
+ * resources_scoped_owner_lifecycle_cljs_test.cljc); this smoke asserts the
  * surface itself behaves — mount + switch + assert simultaneous isolation.
  *
  * Run via `npm run test:testbed-tenant-switcher` (the colocated runner

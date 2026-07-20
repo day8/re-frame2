@@ -173,7 +173,7 @@
   (let [k (state/scoped-resource-key :rf.scope/global :rd/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :rd/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:lease :rd 1]}])
+                        :params {:slug "w"} :owner [:app :rd 1]}])
     (testing "Spec 016 §Request decoration — the resource's lowered
               :rf.http/managed request ran through the per-frame :before
               chain; the auth interceptor stamped the Authorization header
@@ -226,7 +226,7 @@
   (rf/reg-resource :na/article (article-spec) article-spec-request)
   (rf/dispatch-sync [:rf.resource/ensure
                      {:resource :na/article :scope :rf.scope/global
-                      :params {:slug "w"} :owner [:lease :na 1]}])
+                      :params {:slug "w"} :owner [:app :na 1]}])
   (testing "Spec 016 §Request decoration — the interceptor reads frame state
             via app-db-value (:frame ctx); with no token it returns ctx
             UNCHANGED (no Authorization header, no ambient-db fallback)"
@@ -247,7 +247,7 @@
   (let [k (state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :sp/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:lease :sp 1]}])
+                        :params {:slug "w"} :owner [:app :sp 1]}])
     (is (= "Token tok" (auth-header)) "gen-1 request decorated")
     (let [gen1-success (:on-success @last-decorated)]
       ;; a forced refetch supersedes gen 1 (gen 2 is now the live work)
@@ -280,7 +280,7 @@
   (rf/reg-resource :bu/article (article-spec) article-spec-request)
   (rf/dispatch-sync [:rf.resource/ensure
                      {:resource :bu/article :scope :rf.scope/global
-                      :params {:slug "w"} :owner [:lease :bu 1]}])
+                      :params {:slug "w"} :owner [:app :bu 1]}])
   (testing "Spec 016 §Request decoration — a base-URL :before rewrites the
             domain url; the FINAL post-:before request is what ships"
     (is (= "https://api.example.com/api/articles/w"
@@ -338,7 +338,7 @@
                    ;; a decorated READ — lower + settle
                    (rf/dispatch-sync [:rf.resource/ensure
                                       {:resource :rl/article :scope :rf.scope/global
-                                       :params {:slug "w"} :owner [:lease :rl 1]}])
+                                       :params {:slug "w"} :owner [:app :rl 1]}])
                    (reply-success! :on-success {:title "Welcome"})
                    ;; a decorated MUTATION — lower + settle
                    (rf/dispatch-sync [:rf.mutation/execute

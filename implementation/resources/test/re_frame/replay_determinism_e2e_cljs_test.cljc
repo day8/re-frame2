@@ -44,7 +44,7 @@
     3. APP-DB mutation — a `:repl/touch` handler folds the token's
        `:time-ms` into a durable app-db field (a second durable write,
        app-db partition).
-    4. OWNER release — `:rf.resource/release-owner` drops the lease so the
+    4. OWNER release — `:rf.resource/release-owner` drops the owner so the
        subsequent invalidation LEAVES the entry stale rather than triggering
        a live refetch. (A refetch is a NEW causal action whose child token is
        freshly stamped — correct EP-0010 behaviour, but it is NOT part of the
@@ -200,16 +200,16 @@
   ;; durable :loaded-at / :stale-at.
   (rf/dispatch-sync [:rf.resource/ensure
                      {:resource :repl/article :scope :rf.scope/global
-                      :params {:slug "w"} :owner [:lease :repl 1]}]
+                      :params {:slug "w"} :owner [:app :repl 1]}]
                     {:frame frame-id :rf.cofx {:rf/time-ms (:ensure-time log)}})
   (reply-success! {:title "Welcome"} (:reply-time log))
   ;; (3) APP-DB mutation folding the touch token time.
   (rf/dispatch-sync [:repl/touch todo-id]
                     {:frame frame-id :rf.cofx {:rf/time-ms (:touch-time log)}})
-  ;; (4) OWNER release — drop the lease so the invalidation below LEAVES the
+  ;; (4) OWNER release — drop the owner so the invalidation below LEAVES the
   ;; entry stale rather than spawning a live (ambient-stamped) refetch. Keeps
   ;; the fixture a pure recorded-log replay.
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :repl 1]}]
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :repl 1]}]
                     {:frame frame-id :rf.cofx {:rf/time-ms (:release-time log)}})
   ;; (5) TAG invalidation — durable :invalidated-at from the invalidation
   ;; token's :time-ms (the freshness-DECISION branch, rf2-95b0lc). Ownerless

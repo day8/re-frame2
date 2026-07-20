@@ -219,13 +219,13 @@
                    article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :tre/pgc {:slug "w"})]
-    (ensure! :tre/pgc scope "w" [:lease :x 1])
+    (ensure! :tre/pgc scope "w" [:app :x 1])
     (succeed! k {:title "W"})
     (poll-fired! k)                 ;; poll tick (background refetch in flight)
     ;; settle the poll refetch so the entry is idle again (owner-free-able)
     (succeed! k {:title "W2"})
     (is (armed? k timers/gc-kind) "GC timer survived the poll tick + resettle")
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :x 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
     (is (empty? (:active-owners (entry k))) "entry owner-free after release")
     (gc-fired! k)                   ;; owner-free + idle → collected
     (testing "rf2-3fc89f.10 — an owner-free + idle GC re-check collects the

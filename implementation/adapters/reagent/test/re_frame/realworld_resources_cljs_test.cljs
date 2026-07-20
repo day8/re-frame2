@@ -21,7 +21,7 @@
         draft and frees a clean / just-saved one;
      5. LOGOUT teardown — `:auth/clear-session` clears the auth slice, drops the
         session-scoped cache via `:rf.resource/clear-scope`, and releases the
-        principal-switch lease (the mandatory release path);
+        principal-switch owner (the mandatory release path);
      6. THE AUTH MACHINE — login drives :idle → :submitting → :authed via managed
         HTTP and stores the session.
 
@@ -287,7 +287,7 @@
 
 (defn- editor-route-owner?
   "True iff `entry` carries an active `[:route :realworld.editor/edit _]` owner —
-   the route-owned lease the editor's article read holds while the edit route is
+   the route-owned owner the editor's article read holds while the edit route is
    live (rf2-y4mgw: the read is a route `:resource`, owned under
    `[:route route-id nav-token]` and released by the runtime on route leave). The
    nav-token is opaque, so match on the route id, not the token."
@@ -468,7 +468,7 @@
       ;; own + load the session feed so the invalidation has a live owner to refetch
       (rf/dispatch-sync [:rf.resource/ensure
                          {:resource :realworld/feed :params {:page nil}
-                          :owner [:lease :test/feed]}]
+                          :owner [:app :test/feed]}]
                         {:frame f})
       (reply-success! @last-managed-args {:articles [{:slug "hello-conduit"}] :articlesCount 1} f)
       (reset! last-managed-args nil)
@@ -549,7 +549,7 @@
             "the saved draft is no longer dirty")))))
 
 ;; ============================================================================
-;; 5. LOGOUT TEARDOWN — clear-scope + lease release
+;; 5. LOGOUT TEARDOWN — clear-scope + owner release
 ;; ============================================================================
 
 (deftest logout-clears-both-principal-scopes-and-leaves-global-tags
@@ -564,19 +564,19 @@
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; alice's SESSION feed
       (rf/dispatch-sync [:rf.resource/ensure
-                         {:resource :realworld/feed :params {:page 1} :owner [:lease :test/feed]}]
+                         {:resource :realworld/feed :params {:page 1} :owner [:app :test/feed]}]
                         {:frame f})
       (reply-success! @last-managed-args {:articles [{:slug "x"}] :articlesCount 1} f)
       ;; alice's VIEWER-scoped article (carries her favorited flag)
       (rf/dispatch-sync [:rf.resource/ensure
                          {:resource :realworld/article :params {:slug "hello-conduit"}
-                          :owner [:lease :test/detail]}]
+                          :owner [:app :test/detail]}]
                         {:frame f})
       (reply-success! @last-managed-args {:article {:slug "hello-conduit" :title "Hi" :favorited true}} f)
       ;; the truly-invariant GLOBAL tags read
       (rf/dispatch-sync [:rf.resource/ensure
                          {:resource :realworld/tags :scope :rf.scope/global :params {}
-                          :owner [:lease :test/tags]}]
+                          :owner [:app :test/tags]}]
                         {:frame f})
       (reply-success! @last-managed-args {:tags ["clojure" "conduit"]} f)
       (let [fk (feed-key "alice" 1)]
@@ -705,7 +705,7 @@
 ;; `:realworld.editor/edit` declares `:realworld/article` as a `:resources` entry,
 ;; so the runtime owns it under `[:route :realworld.editor/edit nav-token]` and
 ;; RELEASES that owner on every route leave. That closes the leak the app-minted
-;; `[:lease :editor/article slug]` had — the old owner was released only on
+;; `[:app :editor/article slug]` had — the old owner was released only on
 ;; edit→new / edit A→B / delete and (in the Reagent tier) the component unmount, so
 ;; ordinary route leave in the native (unmount-free) rendition stranded it. Now
 ;; EVERY exit (edit→new, edit A→B, save, delete, and edit→any-other-route) releases
@@ -731,10 +731,10 @@
       (rf/dispatch-sync [:rf.route/navigate :realworld.editor/edit {:slug "hello-conduit"}] {:frame f})
       (is (some? @last-managed-args) "edit entry lowered the article read")
       (is (editor-route-owner? (entry f (article-key "hello-conduit")))
-          "the article read is pinned by the ROUTE owner, not an app-minted lease")
+          "the article read is pinned by the ROUTE owner, not an app-minted owner")
       (is (not (contains? (:active-owners (entry f (article-key "hello-conduit")))
-                          [:lease :editor/article "hello-conduit"]))
-          "no app-minted [:lease :editor/article slug] owner is created any more")
+                          [:app :editor/article "hello-conduit"]))
+          "no app-minted [:app :editor/article slug] owner is created any more")
       ;; the read settles → the ownerless :reply-to continuation seeds the baseline
       (reply-success! @last-managed-args
                       {:article {:slug "hello-conduit" :title "Hello, Conduit"
@@ -772,7 +772,7 @@
             edit route for an UNRELATED route (home) releases the editor's article
             owner. This is the exact path the native (unmount-free) rendition
             leaked: no :editor/* event fires on an ordinary route leave, and the
-            old app-minted [:lease :editor/article slug] was released only on
+            old app-minted [:app :editor/article slug] was released only on
             new/A→B/delete/unmount — so a plain edit→home stranded it. With the
             read re-homed onto the route `:resources`, route leave IS the release"
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
@@ -968,7 +968,7 @@
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt-a"}] {:frame f})
       (rf/dispatch-sync [:rf.resource/ensure
                          {:resource :realworld/article :params {:slug "leak-test"}
-                          :owner [:lease :test/detail]}]
+                          :owner [:app :test/detail]}]
                         {:frame f})
       (reply-success! @last-managed-args
                       {:article {:slug "leak-test" :title "Leak" :favorited true :favoritesCount 9
@@ -1020,7 +1020,7 @@
       ;; alice's viewer scope, the same key the optimistic patch targets.
       (rf/dispatch-sync [:rf.resource/ensure
                          {:resource :realworld/article
-                          :params {:slug "hello-conduit"} :owner [:lease :test/detail]}]
+                          :params {:slug "hello-conduit"} :owner [:app :test/detail]}]
                         {:frame f})
       (reply-success! @last-managed-args
                       {:article {:slug "hello-conduit" :title "Hello, Conduit"
@@ -1053,7 +1053,7 @@
       ;; entry. No :scope — the spec policy lands it under alice's viewer scope.
       (rf/dispatch-sync [:rf.resource/ensure
                          {:resource :realworld/profile
-                          :params {:username "eve"} :owner [:lease :test/profile]}]
+                          :params {:username "eve"} :owner [:app :test/profile]}]
                         {:frame f})
       (reply-success! @last-managed-args {:profile {:username "eve" :bio "" :image "" :following false}} f)
       (is (false? (-> (entry f (profile-key "eve")) :data :profile :following))
@@ -1088,7 +1088,7 @@
       ;; refetch. No :scope — the spec policy lands it under alice's viewer scope.
       (rf/dispatch-sync [:rf.resource/ensure
                          {:resource :realworld/comments
-                          :params {:slug "hello-conduit"} :owner [:lease :test/comments]}]
+                          :params {:slug "hello-conduit"} :owner [:app :test/comments]}]
                         {:frame f})
       (reply-success! @last-managed-args {:comments [{:id 1 :body "hi" :author {:username "eve"}}]} f)
       (is (= :loaded (:status (entry f (comments-key "hello-conduit")))))
@@ -1155,7 +1155,7 @@
       ;; refetch. No :scope — the spec policy lands it under alice's viewer scope.
       (rf/dispatch-sync [:rf.resource/ensure
                          {:resource :realworld/article
-                          :params {:slug "hello-conduit"} :owner [:lease :test/detail]}]
+                          :params {:slug "hello-conduit"} :owner [:app :test/detail]}]
                         {:frame f})
       (reply-success! @last-managed-args
                       {:article {:slug "hello-conduit" :title "Hello"

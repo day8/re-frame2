@@ -127,7 +127,7 @@
           record     (record-with
                        [(event :rf.resource/cache-hit
                                {:rf.frame/id :test/rt :resource/key scoped-key
-                                :generation 1 :owner [:lease :l 1] :cause :ensure})])
+                                :generation 1 :owner [:app :l 1] :cause :ensure})])
           projected  (epoch/projected-record record)
           tags       (:tags (first (:trace-events projected)))
           [pscope rid pparams] (:resource/key tags)]
@@ -136,7 +136,7 @@
       (is (redacted-component? pparams) "the params are tokenized")
       (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
       (testing "the structural attribution tags ride verbatim"
-        (is (= [:lease :l 1] (:owner tags)))
+        (is (= [:app :l 1] (:owner tags)))
         (is (= :ensure (:cause tags)))
         (is (= 1 (:generation tags))))
       (testing "no raw secret survives anywhere in the projected record"
@@ -329,7 +329,7 @@
                                {:rf.frame/id :test/rt :resource/key scoped-key
                                 :generation 2 :work/id [:rf.work/resource 2]
                                 :page-param cursor-secret :page-index 1
-                                :page-count 1 :owner [:lease :l 1] :cause :load-more})])
+                                :page-count 1 :owner [:app :l 1] :cause :load-more})])
           projected  (epoch/projected-record record)
           tags       (:tags (first (:trace-events projected)))]
       (is (redacted-component? (:page-param tags))
@@ -339,7 +339,7 @@
       (testing "the structural attribution tags ride verbatim"
         (is (= 1 (:page-index tags)))
         (is (= 1 (:page-count tags)))
-        (is (= [:lease :l 1] (:owner tags)))
+        (is (= [:app :l 1] (:owner tags)))
         (is (= :load-more (:cause tags))))
       (testing "no raw cursor secret survives anywhere in the projected record"
         (is (not (re-find #"cursor-rec-topsecret" (pr-str projected))))))))

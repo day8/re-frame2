@@ -486,7 +486,7 @@
 (deftest restore-orphans-ssr-owners-keeps-live-nav-route-owners
   (testing "SSR owners orphan on restore (a settled server render); a route
             owner the restored routing slice names LIVE rides through (along
-            with machine / lease owners) to its own subsystem reconcile"
+            with machine / app owners) to its own subsystem reconcile"
     (let [e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
                       :loaded-at 1 :stale-at 9.0e15
                       :owners #{[:ssr "req-9" "nav-1"]
@@ -541,7 +541,7 @@
 
 (deftest restore-orphans-route-owners-when-no-live-nav-token
   (testing "rf2-64bdnk — restore with no live nav-token orphans ALL route
-            owners across the three absent-token shapes; machine/lease owners
+            owners across the three absent-token shapes; machine/app owners
             survive; the owner-index is recomputed without the orphans"
     (doseq [[label rdb-fn]
             [["absent routing slice"
@@ -557,14 +557,14 @@
                           :owners #{[:ssr "req-9" "nav-1"]
                                     route-owner
                                     [:machine :checkout/flow "inst-1"]
-                                    [:lease :dashboard 7]}})
+                                    [:app :dashboard 7]}})
               out (ssr/reconcile-on-restore (rdb-fn (runtime-db-with {gkey e})) :app/main)
               owners (get-in out [state/resources-key :entries (state/key-id gkey) :active-owners])]
           (is (not (contains? owners route-owner))
               "the route owner is ORPHANED (no live nav-token names it live)")
           (is (not (contains? owners [:ssr "req-9" "nav-1"])) "SSR owner orphaned")
           (is (contains? owners [:machine :checkout/flow "inst-1"]) "machine owner survives")
-          (is (contains? owners [:lease :dashboard 7]) "lease owner survives")
+          (is (contains? owners [:app :dashboard 7]) "app owner survives")
           (is (not (contains? (get-in out [state/resources-key :owner-index]) route-owner))
               "the orphaned route owner is absent from the recomputed owner-index"))))))
 
