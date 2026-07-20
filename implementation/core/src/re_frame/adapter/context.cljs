@@ -264,6 +264,43 @@
 ;; silently routing to a default. (This superseded the retired
 ;; `:rf.warning/plain-fn-under-non-default-frame-once` warning.)
 
+(defn context-value->current-frame
+  "Classify a raw frame-context value `v` into the scope frame keyword, or
+  **nil** when `v` names no frame — the shared sentinel / coercion /
+  corruption rules, applied to a value already OBTAINED from the shared
+  frame-context. Two callers source `v` differently but classify it
+  identically:
+
+    - the public `useContext` RETURN — the renderer-agnostic hook path the
+      compiled-view ViewCell takes (`re-frame.ui.viewcell/use-frame-context!`,
+      rf2-2rzx0); and
+    - a direct `_currentValue` slot read — the substrate-portable reader path
+      ([[function-component-current-frame]] below).
+
+  Both must resolve one way, so the rules live here once rather than drifting
+  between the two sites:
+
+    - the no-provider sentinel resolves to nil ('no scope'), NOT a synthesised
+      `:rf/default` (the EP-0002 carried invariant; the common, benign case —
+      NOT corruption);
+    - a frame keyword (or Reagent's prop-stringified-keyword shape, via
+      `coerce-context-value`) names the enclosing Provider's frame;
+    - anything else (false, a number, an empty string, a JS object) means the
+      React-context boundary was disturbed (rf2-8q66) — a portal rendering
+      outside its Provider, a library mutating the slot, or a Provider authored
+      with a non-keyword value. The runtime emits
+      `:rf.error/frame-context-corrupted` and returns nil (recovery
+      `:no-frame-context`).
+
+  Does NOT observe the dynamic tier (`frame/*current-frame*`) — its callers
+  layer that precedence in front of it."
+  [v]
+  (cond
+    (= v no-provider-sentinel) nil
+    (coerce-context-value v)   (coerce-context-value v)
+    :else                      (do (emit-frame-context-corrupted! v)
+                                   nil)))
+
 (defn function-component-current-frame
   "Resolution chain (READER) for function-component substrates (UIx,
   Helix). Returns the scope frame, or **nil** when no scope is
@@ -278,7 +315,8 @@
        the same shared context, so a read resolves identically beneath
        either. Reads `_currentValue` off the shared context object
        directly (the substrate-portable path; UIx's `use-context` and
-       Helix's `use-context` are both sugar over this read).
+       Helix's `use-context` are both sugar over this read) and classifies
+       it through the shared [[context-value->current-frame]] rules.
 
   Returns nil when neither tier names a frame — a component rendered
   beneath neither frame boundary observes the no-provider sentinel, which
@@ -287,33 +325,13 @@
   `frame/require-current-frame!`; low-level readers / tooling model 'no
   context' with the nil directly.
 
-  Tolerates Reagent's prop-stringified-keyword shape via
-  `coerce-context-value` — relevant when a UIx / Helix subtree is
-  embedded in a tree whose `frame-provider` was authored as a Reagent
-  `[:> ...]` interop call.
-
-  Corrupted-`_currentValue` detection (rf2-8q66): the `createContext`
-  default is now the no-provider sentinel (a keyword), so a function-
-  component read should always observe either a frame keyword, the prop-
-  stringified-keyword shape, or the sentinel. Anything else (false, a
-  number, an empty string, a JS object) means the React-context boundary
-  was disturbed — a portal rendering outside its Provider, a library
-  mutating `_currentValue`, or a Provider authored with a non-keyword
-  value. The runtime emits `:rf.error/frame-context-corrupted` and returns
-  nil (recovery `:no-frame-context`)."
+  NOTE (rf2-2rzx0): the direct `_currentValue` slot read is CLIENT-renderer
+  only — React 19.2's `react-dom/server` populates the secondary slot
+  `_currentValue2`, not `_currentValue`. Callers that CAN observe the
+  renderer-agnostic value (a component reading `useContext` inside render,
+  e.g. the compiled ViewCell) pass that value to
+  [[context-value->current-frame]] directly rather than routing through this
+  slot-reading reader."
   []
   (or frame/*current-frame*
-      (let [v (.-_currentValue ^js frame-context)]
-        (cond
-          ;; No enclosing Provider — the sentinel resolves to nil ('no
-          ;; scope'), NOT a synthesised default. This is the common,
-          ;; benign case; it is NOT corruption.
-          (= v no-provider-sentinel) nil
-          ;; A real frame keyword (or prop-stringified keyword) names the
-          ;; enclosing Provider's frame.
-          (coerce-context-value v)   (coerce-context-value v)
-          ;; Corrupted branch: not a frame keyword, not the sentinel —
-          ;; covers false, numbers, empty strings, and JS objects. Emit
-          ;; the structured error and return nil (no synthesis).
-          :else                      (do (emit-frame-context-corrupted! v)
-                                         nil)))))
+      (context-value->current-frame (.-_currentValue ^js frame-context))))
