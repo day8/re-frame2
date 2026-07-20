@@ -18,6 +18,41 @@ child what phase it is in; the animating is your CSS's job.
       [toast-card {:key (:id t) :toast t}])))
 ```
 
+The stylesheet that pairs with it does the animating — enter on insertion, exit
+off the `:unmounting` phase class:
+
+```css
+/* Enter fires on DOM insertion — immune to effect timing (see below). */
+.toast {
+  animation: toast-in 200ms ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; translate: 0 8px; }
+}
+
+/* Exit rides the phase class; :timeout-ms 300 covers this 250ms transition. */
+.toast.unmounting {
+  opacity: 0;
+  translate: 0 8px;
+  transition: opacity 250ms, translate 250ms;
+}
+
+/* Honour the reader who asked for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .toast.unmounting { animation: none; transition: none; }
+}
+```
+
+Note that enter is an animation on insertion rather than a `.mounting` →
+`.present` class transition, and that is deliberate. The flip to `:present` runs
+in a passive effect, so it *usually* lands after first paint and a class
+transition *usually* fires — but React does not promise passive effects run after
+paint (synchronous flushes, hidden documents), and when the flip lands before the
+browser ever computes the `.mounting` style, the enter transition silently never
+fires. An animation on insertion sidesteps the race entirely; `@starting-style`
+is the modern alternative if you would rather author the enter as a transition.
+
 How it behaves:
 
 - Keyed children pass through `:mounting` → `:present` → `:unmounting`. A removed
@@ -28,8 +63,18 @@ How it behaves:
   transition time.
 - `(ui/presence-phase)` is the single phase read. Outside any presence boundary it
   returns `:present`, so presence-aware children stay reusable anywhere.
-- Removing then re-inserting a key interrupts the exit and re-enters
-  deterministically.
+- The per-child phase Provider wraps each child **element**, which is why the
+  phase-reading child is its own keyed `defview` (`toast-card` above) rather than
+  inline markup. Inline literal markup under the boundary has its props evaluated
+  in the *parent's* render, outside that child's Provider — so it provably cannot
+  read its own `(ui/presence-phase)` and silently sees `:present`. A focusable
+  inline literal is a hard compile error
+  (`:rf.ui.compile/a11y-presence-exit-interactive`), so the exit-window trap
+  cannot hide.
+- Removing then re-inserting a key interrupts the exit and resumes at `:present`
+  — the enter animation does **not** replay (the `:unmounting` entry flips straight
+  back to `:present`). A mid-exit CSS transition simply reverses from wherever it
+  had got to, which is exactly the behaviour you want.
 - The boundary is **DOM-agnostic**: it inserts no wrapper node, stamps no
   attributes, and observes no DOM events. The child owns its own exit styling *and*
   accessibility — stamp `inert` / `aria-hidden` and the exit class when its phase is
@@ -45,6 +90,7 @@ never a wall-clock sleep ([Testing](testing.md#tier-3--mounted-tests-when-the-do
 | If you write | What you see | The fix |
 |---|---|---|
 | `presence` without `:timeout-ms` (or a non-positive one) | Compile error `:rf.ui.compile/bad-presence` | The timeout is mandatory — it is the terminal bound |
+| `:timeout-ms` bound to a var or design token | Compile error `:rf.ui.compile/bad-presence` | The timeout is read from the literal opts map at compile time — inline a positive number, not a var |
 | An unkeyed child under the boundary | Compile error `:rf.ui.compile/presence-unkeyed-child` | Give each child a stable `{:key …}` |
 
 ## When not
