@@ -32,8 +32,10 @@
       → hydration-baseline-post-hydrate-dispatch-mutates-seeded-db
     spec.cjs #8-11 (resp-status/ct/cookies-count/cookie-name)
       → hydration-baseline-rf-response-slice-round-trips-via-payload
-    spec.cjs #12 (:rf.ssr/compatibility-check-skipped trace)
-      → hydration-baseline-emits-compatibility-check-skipped-trace
+    spec.cjs #12 (version check silently matches the SSR pattern-protocol
+                  constant — no :rf.ssr/compatibility-check-skipped, since
+                  the version check reads the constant and never skips)
+      → hydration-baseline-version-matches-ssr-constant-silently
     spec.cjs #13 (no :rf.ssr/hydration-mismatch on baseline)
       → hydration-baseline-no-mismatch-trace-when-server-hash-nil
 

@@ -333,8 +333,13 @@
     ;; check fxs as part of `:fx` so a mismatch surfaces a structured
     ;; trace event without crashing the hydration path. Both fxs gate on
     ;; payload-key presence — the scalar form passed here is the
-    ;; server's value (the "expected"); the fx looks up the client-side
-    ;; "actual" via late-bind.
+    ;; server's value (the "expected"). The two fxs resolve the client-
+    ;; side "actual" DIFFERENTLY: `:rf.ssr/check-version` reads the SSR
+    ;; artefact's compiled-in `payload-policy/pattern-protocol-version`
+    ;; constant (always resolves — the version check never skips), while
+    ;; `:rf.ssr/check-schema-digest` resolves through its optional
+    ;; `:schemas/app-schemas-digest` late-bind hook (absent hook → the
+    ;; comparison is skipped).
     ;;
     ;; SSR hydration metadata is durable,
     ;; serializable framework runtime state (it must survive epoch-restore /
