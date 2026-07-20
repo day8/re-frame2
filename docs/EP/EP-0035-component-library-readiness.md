@@ -219,6 +219,15 @@ strictly additive at proven-controlled sites — no narrower door was ever
 shipped law — and the v1 API freeze is not
 reopened: deltas #4/#5 entered under the freeze's own delta protocol.
 
+> **Erratum (2026-07-20, rf2-3qb5w).** The pre-#6560 text of the clause above
+> read "the migration skill's `swap!` rewrite retargets to `update!`, retiring
+> its MANUAL flag on multi-writer idioms." The MANUAL-flag language described the
+> retired codemod-era plan; the shipped Reagent→`re-frame.ui` migration skill
+> (W1, `skills/reagent-migration` — EP-0030) is an AI skill that reasons through
+> judgment cases with the author and emits no MANUAL flag. The `swap!`→`update!`
+> migration fact is unchanged and preserved above; only the retired flag
+> language is corrected. Meaning frozen, not bytes (EP-0009, rf2-r7ahi).
+
 ## Resolved Decisions
 
 Delegated rulings (2026-07-16):
