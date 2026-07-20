@@ -10,6 +10,19 @@
     - `escape-attr`              — attribute-value escaping (we always
                                     emit double-quoted values, so only
                                     `&` and `\"` matter).
+    - `raw-text-tags` /
+      `escape-raw-text`          — the HTML raw-text elements (`<script>`
+                                    / `<style>`) whose body is emitted
+                                    VERBATIM with only React's context-
+                                    safe closing-sequence rewrite — NO
+                                    entity escaping (the HTML parser never
+                                    decodes character references inside a
+                                    raw-text element). ONE shared
+                                    implementation for the S5 serialiser
+                                    (`re-frame.ssr.ui-tree`) and both
+                                    hiccup emitters (`emit` /
+                                    `streaming`), so every SSR path emits
+                                    byte-identical raw-text.
     - `escape-script-body-string`— escape `<` as `\\u003c` for strings
                                     dropped inside `<script>` bodies. JSON bodies
                                     only — every `<` is in a string.
@@ -45,6 +58,67 @@
   (-> (str s)
       (str/replace "&" "&amp;")
       (str/replace "\"" "&quot;")))
+
+;; ---------------------------------------------------------------------------
+;; Raw-text elements — <script>/<style> content is HTML RAW TEXT (rf2-2dh3b)
+;;
+;; The single shared home for the raw-text emission rule (hoisted from
+;; `re-frame.ssr.ui-tree` per rf2-xbvzh, ruling Option (a)). ALL three SSR
+;; paths — the S5 structural serialiser and both hiccup emitters — call
+;; this ONE implementation, so an ordinary inline `<script>`/`<style>`
+;; with the same author content serialises to byte-identical HTML on every
+;; path. This is the AUTHOR-CONTENT channel; the stricter DATA-payload
+;; helpers (`escape-script-body-string` / `escape-edn-script-body`, below)
+;; are a separate concern and unchanged.
+;; ---------------------------------------------------------------------------
+
+(def raw-text-tags
+  "The HTML RAW-TEXT elements whose text children react-dom/server 19.2 emits
+  WITHOUT entity escaping. React special-cases EXACTLY these two: `:title` and
+  `:textarea` are escapable RCDATA (escaped normally, so NOT here)."
+  #{"script" "style"})
+
+(defn escape-raw-text
+  "Serialise the text content of a raw-text element (`<script>` / `<style>`)
+  the way react-dom/server 19.2 does — the raw-text half of the conversion
+  table's escaping row (Spec 004B §Children, text, and escaping; the blanket
+  `escape-html` row does NOT hold inside raw-text elements).
+
+  The HTML parser does not decode character references inside raw-text
+  elements, so routing script/style text through `escape-html` CORRUPTS it: a
+  valid `a & b < c` becomes the literal DOM text `a &amp; b &lt; c`, and CSS/JS
+  containing `<`/`&` stops meaning what it says. React therefore emits the text
+  VERBATIM and only rewrites an embedded closing-tag sequence to a
+  CONTEXT-SAFE spelling so the raw-text parser cannot terminate the element
+  early (byte-parity with React's `scriptRegex`/`styleRegex` + replacers):
+
+    - `<script>`: `(<|</)script` (case-insensitive) -> the `s`/`S` becomes the
+      JavaScript unicode escape `\\u0073` / `\\u0053`. The JS engine reads it
+      back as `s`/`S`; the HTML parser no longer sees `</script`. The same
+      escape is a valid JSON string escape, so a JSON data island written as
+      ordinary `<script>` string content round-trips through `JSON.parse`.
+    - `<style>`:  `(<|</)style`  -> the `s`/`S` becomes the CSS escape
+      `\\73 ` / `\\53 ` (the trailing space terminates the hex escape). CSS
+      reads it back as `s`/`S`.
+
+  NOT a sanitiser, and NO XSS hole beyond React's own. Raw-text emission is
+  the same trusted content react-dom/server itself emits raw; the closing-
+  sequence rewrite is the same breakout guard React applies — aimed at the
+  DATA (an attacker-supplied `</script>` payload can no longer terminate the
+  element and pivot into HTML parsing). Residual JS/CSS-language-context
+  safety of interpolated data is author-owned, exactly as in React. The
+  DATA-payload channels (JSON-LD head, `__rf_payload`/EDN wire) keep their
+  stricter data-aware escapes (`escape-script-body-string` /
+  `escape-edn-script-body`)."
+  [tag-lc s]
+  (case tag-lc
+    "script" (str/replace s #"(</?)([sS])([cC][rR][iI][pP][tT])"
+                          (fn [[_ prefix s-char suffix]]
+                            (str prefix (if (= s-char "s") "\\u0073" "\\u0053") suffix)))
+    "style"  (str/replace s #"(</?)([sS])([tT][yY][lL][eE])"
+                          (fn [[_ prefix s-char suffix]]
+                            (str prefix (if (= s-char "s") "\\73 " "\\53 ") suffix)))
+    s))
 
 (defn escape-script-body-string
   "Escape a string that will be emitted raw inside a `<script>…</script>`

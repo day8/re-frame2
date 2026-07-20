@@ -72,28 +72,28 @@
 ;; ---- raw-text body tags ---------------------------------------------------
 ;;
 ;; `<script>` and `<style>` are HTML "raw text" elements: their content is
-;; NOT parsed as markup, so the body emitter's `escape-html` (which rewrites
-;; `<`→`&lt;`, `>`→`&gt;`, `&`→`&amp;`, `"`/`'` → entities) does the WRONG
-;; thing — it is XSS-safe but silently CORRUPTS legitimate inline content
-;; (`[:style "a > b {…}"]` → `a &gt; b`, `[:script "if (a<b){…}"]` →
-;; `if (a&lt;b)`, an inline JSON-LD blob → broken JSON).
+;; NOT parsed as markup, so routing it through `escape-html` (which rewrites
+;; `<`→`&lt;`, `>`→`&gt;`, `&`→`&amp;`, `"`/`'` → entities) CORRUPTS it — the
+;; HTML parser never decodes character references inside a raw-text element,
+;; so `[:style "a > b {…}"]` would ship the literal DOM text `a &gt; b` and
+;; `[:script "if (a<b){…}"]` would ship `if (a&lt;b)`.
 ;;
-;; There is no single correct escape for raw author content in the body:
-;;   - JSON-LD wants `<` → `<` (round-trips through `JSON.parse`),
-;;   - raw JS/CSS must NOT be `<`-escaped (JS does not decode `<`
-;;     outside string literals — `if (a < b)` is a syntax error).
-;; So body-position `<script>`/`<style>` with raw STRING content is
-;; unsupported by design: it is fail-loud rather than silently corrupting
-;; the author's content (or, worse, guessing an escape that opens an XSS or
-;; breaks the script). The two structured channels are:
-;;   - JSON-LD / structured `<head>` content → `reg-head` (its emitter
-;;     applies the JSON-LD `<` escape — see `re-frame.ssr.head.emit`),
-;;   - trusted inline JS/CSS → the host shell's trusted `:body-end` /
-;;     `:head-extra` opt (caller-trusted, not author-data).
-;; A `<script>`/`<style>` with NO string children (element-only or empty)
-;; is left alone — it is structurally inert and the guard only fires on a
-;; raw string child.
-(def ^:private raw-text-tags #{"script" "style"})
+;; Per rf2-xbvzh (ruling Option (a)): an ordinary inline `<script>`/`<style>`
+;; with STRING content is AUTHOR CONTENT — trust the programmer. It is
+;; emitted VERBATIM with only React's context-safe closing-sequence rewrite
+;; (`html/escape-raw-text`), the ONE shared implementation this emitter, the
+;; streaming walker, and the S5 serialiser (`re-frame.ssr.ui-tree`) all call,
+;; so the same author content is byte-identical on every SSR path. This is
+;; NOT sanitisation — the rewrite is the same breakout guard React applies,
+;; aimed at attacker-supplied `</script>` DATA that must not terminate the
+;; element early; residual JS/CSS-context safety is author-owned, as in
+;; React. The DATA-payload channels are unchanged and keep their stricter
+;; data-aware escapes: JSON-LD / structured `<head>` content via `reg-head`
+;; (`re-frame.ssr.head.emit`, `<`→`<`) and the trusted host-shell
+;; `:head`/`:body-end` opts. A `<script>`/`<style>` with no string children
+;; (element-only or empty) is structurally inert and emits unchanged; the
+;; raw-text set + escape live in `re-frame.ssr.html-helpers`
+;; (`html/raw-text-tags` / `html/escape-raw-text`).
 
 ;; Tag-name injection gate. Gate the tag
 ;; component itself: HTML5 / SVG / MathML element names require an ASCII
@@ -277,40 +277,6 @@
                (if (contains? m k) m (assoc m k v)))
              attrs
              root-attrs))
-
-(defn reject-raw-text-string-children!
-  "Throw `:rf.error/ssr-raw-text-in-body` when a body-position raw-text
-  element (`<script>` / `<style>`, per `raw-text-tags`) carries a raw
-  STRING child. Per rf2-ee38b.10 — the body emitter cannot apply a single
-  correct escape to raw author content (JSON-LD needs `<`→`\\u003c`; raw
-  JS/CSS must not be `<`-escaped at all), so silently `escape-html`-ing it
-  corrupted legit inline content while masking the lack of a real channel.
-  Fail loud and point the author at the structured surfaces. Element-only
-  / empty `<script>`/`<style>` is left alone (no string child → no throw).
-
-  rf2-hzttr finding 3 — the raw-text classification is CASE-INSENSITIVE:
-  `<SCRIPT>` / `<Style>` (admitted by `validate-tag-name!`) must hit the
-  same guard as their lower-case spellings, or an upper-case tag silently
-  bypasses the body-position script/style protection (XSS-adjacent). The
-  membership test lower-cases the tag; the error message keeps the
-  author's original casing."
-  [tag-name children source-head]
-  (when (and (contains? raw-text-tags (clojure.string/lower-case tag-name))
-             (some string? children))
-    (error/throw-error!
-      :rf.error/ssr-raw-text-in-body
-      'rf.ssr/emit
-      (str "Raw string content under a body-position <"
-           tag-name "> (hiccup head " (pr-str source-head)
-           ") is unsupported — the body emitter has no"
-           " single safe escape for raw script/style"
-           " content. Put JSON-LD / structured head"
-           " content through reg-head, and trusted"
-           " inline JS/CSS through the host shell's"
-           " trusted :body-end / :head-extra opt.")
-      {:recovery :move-content-to-reg-head-or-shell-opts
-       :extra    {:tag    tag-name
-                  :source source-head}})))
 
 (defn reserved-rf-head?
   "True when `head` is a keyword in the framework-reserved `:rf/*` scheme
@@ -628,18 +594,31 @@
                ;; upper/mixed-case names (`[:BR]`, `[:SCRIPT …]`), but
                ;; `void-elements` / `raw-text-tags` are keyed lower-case,
                ;; so a `[:BR]` was emitted as a non-void open+close pair
-               ;; and a `[:SCRIPT "if (a<b)"]` bypassed the raw-text body
-               ;; guard (XSS-adjacent). Normalise for classification while
-               ;; preserving the author's emitted case.
+               ;; and a `[:SCRIPT "a<b"]` would classify wrongly. Normalise
+               ;; for classification while preserving the author's emitted
+               ;; case.
                norm-tag     (clojure.string/lower-case tag-name)
-               void?        (contains? void-elements (keyword norm-tag))]
-           (if void?
-             (str "<" tag-name (attr-string attrs) ">")
-             (do
-               (reject-raw-text-string-children! tag-name children head)
-               (str "<" tag-name (attr-string attrs) ">"
-                    (emit-children children)
-                    "</" tag-name ">"))))
+               void?        (contains? void-elements (keyword norm-tag))
+               raw-text?    (contains? html/raw-text-tags norm-tag)]
+           (cond
+             void?     (str "<" tag-name (attr-string attrs) ">")
+             ;; rf2-xbvzh — an ordinary inline <script>/<style> with STRING
+             ;; content is author content: emit it VERBATIM with only the
+             ;; shared closing-sequence rewrite (`html/escape-raw-text`),
+             ;; byte-identical to the S5 serialiser and the streaming walker.
+             ;; The `every? string?` gate mirrors the compiled path — an
+             ;; all-string body is the real inline-script/style shape; any
+             ;; structural child leaves the existing per-child walk untouched
+             ;; (element children pass through inert; the hiccup emitter gains
+             ;; no compiled child-shape grammar).
+             (and raw-text? (seq children) (every? string? children))
+             (str "<" tag-name (attr-string attrs) ">"
+                  (html/escape-raw-text norm-tag (clojure.string/join children))
+                  "</" tag-name ">")
+             :else
+             (str "<" tag-name (attr-string attrs) ">"
+                  (emit-children children)
+                  "</" tag-name ">")))
 
          ;; Callable component head — a plain fn OR a Var reference
          ;; (`[#'component & args]`). On the JVM a Var is `ifn?` but NOT

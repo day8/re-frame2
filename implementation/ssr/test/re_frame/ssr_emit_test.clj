@@ -34,9 +34,37 @@
             [re-frame.core :as rf]
             [re-frame.ssr.emit :as emit]
             [re-frame.ssr.streaming :as streaming]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.ssr.ui-tree :as ui-tree]))
 
 (use-fixtures :each tf/reset-runtime)
+
+;; ---------------------------------------------------------------------------
+;; rf2-xbvzh — shared raw-text emission across ALL three SSR paths.
+;; ---------------------------------------------------------------------------
+
+(defn- v1
+  "Wrap a structural node as a version-1 tree for `emit-ui-tree`."
+  [node]
+  (assoc node :rf.ui/tree-version 1))
+
+(defn- assert-emitters-agree
+  "The load-bearing cross-emitter proof (rf2-xbvzh ruling Option (a)): for a
+  raw-text `tag` (`:script`/`:style`) carrying a single string `content`, all
+  three SSR paths — the sync hiccup emitter, the streaming shell walker, and
+  the S5 structural serialiser — emit the SAME `expected-inner` body between
+  the tags. `expected-inner` is the raw-text body AFTER the closing-sequence
+  rewrite (verbatim but for that rewrite; NO entity escaping)."
+  [tag content expected-inner]
+  (let [tag-name (name tag)
+        expected (str "<" tag-name ">" expected-inner "</" tag-name ">")]
+    (is (= expected (emit/render-to-string [tag content] {}))
+        (str "sync render-to-string byte-mismatch for <" tag-name ">"))
+    (is (str/includes? (:shell-html (streaming/render-shell [:div [tag content]]))
+                       expected)
+        (str "streaming render-shell byte-mismatch for <" tag-name ">"))
+    (is (= expected (ui-tree/emit-ui-tree (v1 {:tag tag :children [content]})))
+        (str "emit-ui-tree byte-mismatch for <" tag-name ">"))))
 
 ;; ===========================================================================
 ;; G1 — strip-prop XSS rule through `render-to-string` / `emit-element`
@@ -254,30 +282,98 @@
           "the handler body never reaches the shell"))))
 
 ;; ===========================================================================
-;; rf2-ee38b.10 — body-position raw <script>/<style> string content is
-;; fail-loud, not silently HTML-escaped (which corrupted legit inline JS /
-;; CSS / JSON-LD). Element-only / empty raw-text tags are inert.
+;; rf2-xbvzh (supersedes the rf2-ee38b.10 refusal) — ordinary inline
+;; <script>/<style> STRING content is AUTHOR content: emitted VERBATIM with
+;; only React's context-safe closing-sequence rewrite, NO entity escaping and
+;; NO refusal. The refusal (`:rf.error/ssr-raw-text-in-body`) was pushing real
+;; content into the genuinely-unguarded trusted shell opts, which is strictly
+;; LESS safe than a guarded render-tree element. ONE raw-text semantics now
+;; holds across all three SSR paths (sync hiccup, streaming hiccup, S5
+;; serialiser); the DATA-payload channels keep their stricter escapes.
 ;; ===========================================================================
 
-(deftest render-to-string-rejects-raw-string-under-body-script
-  (testing "rf2-ee38b.10 — a `<script>` in the body render-tree with a raw
-            string child throws :rf.error/ssr-raw-text-in-body rather than
-            corrupting the content via escape-html."
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #":rf.error/ssr-raw-text-in-body"
-                          (emit/render-to-string
-                            [:script {:type "application/ld+json"} "{\"a\":\"<b>\"}"] {})))))
+(deftest raw-text-body-content-is-emitted-verbatim-not-escaped
+  (testing "rf2-xbvzh — literal JS/CSS operators and `&` are NOT entity-escaped
+            (escape-html would corrupt them), and all three SSR paths agree."
+    ;; escape-html would have produced `if (a &lt; b)` / `a &gt; .b` — a
+    ;; corrupted script/style body. Raw text emits them literally.
+    (assert-emitters-agree :script "if (a < b) { x() }" "if (a < b) { x() }")
+    (assert-emitters-agree :script "a & b && c" "a & b && c")
+    (assert-emitters-agree :style "a > .b { color: red }" "a > .b { color: red }")
+    (assert-emitters-agree :style "x & y" "x & y")))
 
-(deftest render-to-string-rejects-raw-string-under-body-style
-  (testing "rf2-ee38b.10 — a body `<style>` with raw string content throws
-            rather than mangling `a > b {…}` into `a &gt; b`."
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #":rf.error/ssr-raw-text-in-body"
-                          (emit/render-to-string [:style "a > b { color: red }"] {})))))
+(deftest raw-text-body-closing-sequence-is-rewritten-case-insensitively
+  (testing "rf2-xbvzh — an embedded `(<|</)script`/`style` closing sequence is
+            rewritten to a context-safe spelling so the raw-text parser cannot
+            terminate the element early, matching react-dom/server's
+            scriptRegex/styleRegex byte-for-byte (case-insensitive), and all
+            three SSR paths agree."
+    ;; <script>: s/S -> s / S (a valid JS *and* JSON string escape).
+    (assert-emitters-agree :script "var x = '</script>';"
+                           "var x = '</\\u0073cript>';")
+    (assert-emitters-agree :script "a</ScRiPt>b" "a</\\u0053cRiPt>b")
+    (assert-emitters-agree :script "a<script>b" "a<\\u0073cript>b")
+    ;; <style>: s/S -> \73 / \53  (trailing space terminates the CSS hex escape).
+    (assert-emitters-agree :style "@import '</style>';"
+                           "@import '</\\73 tyle>';")
+    (assert-emitters-agree :style "x</StYlE>y" "x</\\53 tYlE>y")))
+
+(deftest raw-text-classification-is-case-insensitive-on-the-tag
+  (testing "rf2-xbvzh + rf2-hzttr finding 3 — an UPPER/MIXED-case <SCRIPT> /
+            <Style> tag is still classified as raw text (author case preserved
+            in the emitted markup), so its literal `<` is NOT entity-escaped."
+    (doseq [tag [:SCRIPT :Script :sCrIpT]]
+      (is (= (str "<" (name tag) ">if (a < b)</" (name tag) ">")
+             (emit/render-to-string [tag "if (a < b)"] {}))
+          (str tag " body emitted as raw text, not escaped")))
+    (doseq [tag [:STYLE :Style]]
+      (is (= (str "<" (name tag) ">a > .b { }</" (name tag) ">")
+             (emit/render-to-string [tag "a > .b { }"] {}))
+          (str tag " body emitted as raw text, not escaped")))))
+
+(deftest raw-text-json-island-round-trips-through-json-parse
+  (testing "rf2-xbvzh — a JSON data island written as ordinary <script> string
+            content is emitted raw with the closing-sequence rewrite; the
+            embedded `</script>` cannot terminate the element, and because
+            `\\u0073` is ALSO a valid JSON string escape the payload round-trips
+            back through JSON.parse."
+    (let [json "{\"@type\":\"WebSite\",\"u\":\"a</script>b\"}"
+          out  (emit/render-to-string
+                 [:script {:type "application/ld+json"} json] {})]
+      (is (= (str "<script type=\"application/ld+json\">"
+                  "{\"@type\":\"WebSite\",\"u\":\"a</\\u0073cript>b\"}"
+                  "</script>")
+             out)
+          "the embedded </script> is rewritten to </\\u0073cript>, element not terminated")
+      ;; Reversing `s` -> `s` (exactly what a JS engine / JSON.parse does
+      ;; when decoding the escape) restores the author's JSON verbatim — the
+      ;; round-trip the ruling requires.
+      (let [body    (-> out
+                        (str/replace-first "<script type=\"application/ld+json\">" "")
+                        (str/replace-first "</script>" ""))
+            decoded (str/replace body "\\u0073" "s")]
+        (is (= json decoded)
+            "decoding \\u0073 -> s restores the original JSON island (JSON.parse round-trip)")))))
+
+(deftest data-payload-json-ld-channel-uses-stricter-escape-unchanged
+  (testing "rf2-xbvzh — the DATA-payload channel (reg-head JSON-LD) is
+            UNCHANGED: the SAME `</script>` payload keeps the stricter
+            data-aware `\\u003c` escape, DISTINCT from the author-content
+            raw-text closing-sequence rewrite. Removing the body refusal did
+            NOT touch the data-payload escape path."
+    (let [html (rf/head-model->html
+                 {:json-ld [{"@type"    "Article"
+                             "headline" "</script><script>alert(1)</script>"}]})]
+      (is (str/includes? html "\\u003c/script>\\u003cscript>")
+          "JSON-LD data payload still escapes every `<` as the JSON `\\u003c` escape")
+      (is (not (str/includes? html "</\\u0073cript>"))
+          "the data channel does NOT use the author-content raw-text rewrite")
+      (is (not (str/includes? html "</script><script>alert"))
+          "the hostile breakout literal does not survive on the data channel"))))
 
 (deftest render-to-string-allows-empty-or-element-only-raw-text-tags
-  (testing "rf2-ee38b.10 — a raw-text tag with NO string child is inert
-            and emits unchanged; only a raw STRING child trips the guard."
+  (testing "rf2-xbvzh — a raw-text tag with NO string child is inert and emits
+            unchanged; the raw-text emission only applies to string content."
     (is (= "<script></script>"
            (emit/render-to-string [:script] {}))
         "empty <script> is fine")
@@ -288,34 +384,15 @@
            (emit/render-to-string [:script {:src "/main.js"}] {}))
         "an attribute-only <script> (the common external-script shape) is fine")))
 
-(deftest render-shell-rejects-raw-string-under-body-script
-  (testing "rf2-ee38b.10 — the streaming walk's DOM-tag branch mirrors the
-            non-streaming guard."
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #":rf.error/ssr-raw-text-in-body"
-                          (streaming/render-shell
-                            [:div [:style "p { margin: 0 }"]])))))
-
 ;; ===========================================================================
-;; rf2-hzttr finding 3 — raw-text + void classification is CASE-INSENSITIVE.
-;; `validate-tag-name!` admits upper/mixed-case names, but the raw-text +
-;; void element SETS are keyed lower-case. Without normalisation, `[:SCRIPT
-;; "if (a<b)"]` bypassed the body-position raw-text guard (XSS-adjacent) and
-;; `[:BR]` was emitted as a non-void <BR></BR> pair. Same void issue in the
-;; streaming walker.
+;; rf2-hzttr finding 3 — void classification is CASE-INSENSITIVE.
+;; `validate-tag-name!` admits upper/mixed-case names, but the void element
+;; SET is keyed lower-case. Without normalisation, `[:BR]` was emitted as a
+;; non-void <BR></BR> pair. Same void issue in the streaming walker. (The
+;; case-insensitive RAW-TEXT classification is exercised by the rf2-xbvzh
+;; emission tests above — `raw-text-classification-is-case-insensitive-on-the-tag`
+;; and `render-shell-raw-text-is-case-insensitive`.)
 ;; ===========================================================================
-
-(deftest render-to-string-raw-text-guard-is-case-insensitive
-  (testing "rf2-hzttr finding 3 — an UPPER/MIXED-case <SCRIPT>/<Style> body
-            element with a raw string child trips the SAME raw-text guard as
-            its lower-case spelling. The case-sensitive check let `[:SCRIPT
-            \"if (a<b)\"]` slip past the body-position script protection."
-    (doseq [tag [:SCRIPT :Script :sCrIpT :STYLE :Style]]
-      (testing (str tag " body string fails loud")
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf.error/ssr-raw-text-in-body"
-                              (emit/render-to-string [tag "if (a < b) { x() }"] {}))
-            (str tag " with a raw string child must throw, not emit"))))))
 
 (deftest render-to-string-void-classification-is-case-insensitive
   (testing "rf2-hzttr finding 3 — an UPPER/MIXED-case void tag is recognised
@@ -352,14 +429,21 @@
       (is (str/includes? shell-html "<Img src=\"/a.png\">"))
       (is (not (str/includes? shell-html "</Img>"))))))
 
-(deftest render-shell-raw-text-guard-is-case-insensitive
-  (testing "rf2-hzttr finding 3 — the streaming walk's raw-text guard is also
-            case-insensitive (it delegates to the shared
-            `reject-raw-text-string-children!`)."
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #":rf.error/ssr-raw-text-in-body"
-                          (streaming/render-shell
-                            [:div [:STYLE "p { margin: 0 }"]])))))
+(deftest render-shell-raw-text-is-case-insensitive
+  (testing "rf2-xbvzh — the streaming walk classifies raw-text tags
+            case-insensitively too: an UPPER/MIXED-case <STYLE>/<SCRIPT> body
+            is emitted as raw text (author case preserved), NOT entity-escaped
+            and NOT refused."
+    (let [{:keys [shell-html]} (streaming/render-shell
+                                 [:div
+                                  [:STYLE "p > a { margin: 0 }"]
+                                  [:Script "if (a < b) { x() }"]])]
+      (is (str/includes? shell-html "<STYLE>p > a { margin: 0 }</STYLE>")
+          "upper-case <STYLE> body emitted raw in the streaming shell")
+      (is (str/includes? shell-html "<Script>if (a < b) { x() }</Script>")
+          "mixed-case <Script> body emitted raw in the streaming shell")
+      (is (not (str/includes? shell-html "&lt;"))
+          "no entity escaping leaked into a raw-text body"))))
 
 ;; ===========================================================================
 ;; rf2-ee38b.10 — Reagent-native interop head `:>` cannot be statically

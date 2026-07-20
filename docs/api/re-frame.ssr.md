@@ -26,6 +26,7 @@ The `re-frame.core` facade re-exports a curated set of render and head primitive
   ```
 - **Description**: The canonical server-side render. Walks the hiccup tree once and emits a string. Pure and JVM-runnable.
   - It resolves callable-headed views (Var / `(rf/view :id)`), `:tag#id.cls` shorthand, and HTML5 void elements. It escapes text and attribute values.
+  - Ordinary inline `<script>` / `<style>` string content is HTML **raw text**: emitted verbatim with only React's context-safe closing-sequence rewrite (an embedded `</script>` / `</style>` breakout is respelled so the parser cannot terminate the element early), never entity-escaped and never refused. This is byte-identical across `render-to-string`, the streaming shell walk, and `emit-ui-tree`. Structured data belongs on its own channel: JSON-LD / head content via `reg-head` (which applies the stricter `<`→`<` data escape), the hydration payload via the `__rf_payload` wire.
   - `opts` keys (all optional):
     - `:doctype?` — prefixes `<!DOCTYPE html>`.
     - `:emit-hash?` — injects `data-rf-render-hash` on the tree's first DOM-tag element, for client-side mismatch detection.
@@ -33,7 +34,6 @@ The `re-frame.core` facade re-exports a curated set of render and head primitive
   - Raises:
     - `:rf.error/invalid-tag-name` — malformed tag name.
     - `:rf.error/ssr-invalid-attribute-name` — malformed attribute key.
-    - `:rf.error/ssr-raw-text-in-body` — a raw string child of a body-position `<script>` / `<style>`.
     - `:rf.error/ssr-reagent-native-head` — a `:>` interop head.
     - `:rf.error/ssr-suspense-boundary-outside-stream` — a `:rf/suspense-boundary` marker reached this non-streaming emitter.
 - **Example**:
