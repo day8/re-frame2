@@ -602,6 +602,36 @@ integration and the two React-class-only lifecycles (`:component-did-catch`,
 `:get-snapshot-before-update`). For everything else, prefer the re-frame2
 idioms.
 
+### The lifecycle decision table — every Form-3 role to its native target (MIG-17)
+
+reagent-slim keeps Form-3, so on the slim adapter these components run as-is —
+the table above is for teams staying on the class shape. But when a team
+migrates a Reagent Form-3 *off* the class shape to **native re-frame.ui**
+(`ui/defview`), the generic "host work becomes an `effect`" advice does not
+cover every lifecycle role safely: an update hook needs explicit dependency
+semantics, the snapshot protocol is a paired pre-/post-commit dance with no
+passive-effect translation, and an error boundary has its own shipped form.
+This is the MIG-17 decision (skill: `reagent-migration`,
+[`catalog-judgment.md`](../../../skills/reagent-migration/references/catalog-judgment.md)
+§MIG-17). It routes each role, and holds honestly the two that have **no**
+native equivalent and stay on reagent-slim Form-3 — which is exactly why the
+7-key cap keeps their keys.
+
+| Reagent Form-3 lifecycle | Phase & frequency | Native re-frame.ui target (MIG-17) |
+|---|---|---|
+| `:reagent-render` | every render | The `defview` render body — extract it as the view, and the other migration rules apply to that body. |
+| `:component-did-mount` | after the first paint, once | **Deferrable host work** (wire a listener, focus a node, kick off a fetch, attach a self-sizing chart) → `(effect :connect …)`. **Measure or mutate the DOM before paint** (read geometry to place a popover, size a viewport) → `re-frame.ui.react/use-ref` + `use-layout-effect` — the measure-before-paint door; a passive `effect` fires *after* paint and would measure a frame late and flicker. **Domain work** ("mark viewed", "load on mount") → a route or domain **event** through the dataflow — there is deliberately no `:on-mount` primitive. |
+| `:component-did-update` | after every commit but the first, per update | **Re-feed an imperative library on a prop change** → the dependency-keyed `(effect [deps…] …)`, which runs its body after commit whenever a dep changes (compared by `rf=` — keep deps narrow); this is where a library-update recipe lives (finalize the old view, embed the new). If the hook exists **only** to read changed data and re-render, the data is a **subscription** and the view is Form-1 (§6.3) — the lifecycle disappears. |
+| `:get-snapshot-before-update` + `:component-did-update` (paired) | measure the previous DOM pre-commit → restore post-commit | **No native passive-effect or hook equivalent — stays on reagent-slim Form-3.** `use-layout-effect` runs *after* React has mutated the DOM, so it cannot read the pre-mutation geometry; the pre-commit half of the protocol has no native door. This paired protocol (scroll restoration, §5) is exactly why the cap keeps `:get-snapshot-before-update`. |
+| `:component-will-unmount` | just before unmount (dev StrictMode replays connect/disconnect) | **Host teardown** (dispose the chart, remove the exact listener you added) → the `(effect :connect …)` **cleanup** — the effect body's trailing `(fn [] …)`, which must be **idempotent** because it runs at each disconnect, not once. **Domain work** (release a lease, mark a draft abandoned) **re-homes OUT of the view**: the causal *end* events that end the resource's life release it. There is **no dispatch-at-unmount** — a committed dispatcher fails loud from a disconnecting view (the **leaked-listener law**, `:rf.error/dispatch-disconnected`), and an `effect` cleanup is not a place to smuggle it in. |
+| `:component-did-catch` | on a descendant render/lifecycle throw | The shipped **`ui/error-boundary`** `{:fallback :reset-key :on-error}` when its logging/recovery semantics fit: `:fallback` renders with `:error` (the stateful fallback), `:on-error` dispatches a domain event **after** the failing commit, and changing `:reset-key` clears the caught error (retry). Otherwise the view **stays on reagent-slim Form-3** (`:component-did-catch` + a local `r/atom`, §4) or is redesigned. React catches only render/lifecycle throws below the boundary — not event-handler or async errors, which keep their typed paths. |
+
+Every row preserves the phase, frequency, and dependency semantics of the hook
+it replaces. The two "stays on reagent-slim Form-3" rows are the honest holds:
+the snapshot protocol and (when `ui/error-boundary` does not fit) the error
+boundary have no faithful native passive-effect translation, so the class shape
+is the answer, not a lossy rewrite.
+
 ---
 
 ## §7 Cross-references
