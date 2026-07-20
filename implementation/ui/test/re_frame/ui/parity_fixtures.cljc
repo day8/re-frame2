@@ -125,6 +125,17 @@
      (letfn [(lbl [x] (str "#" x))]
        [:span.lf (lbl n)])]))
 
+(defview conditional-root
+  "rf2-hac8p (98.1 slice c): the view's HOST ROOT is a conditional. Each concrete
+  DOM arm is a single compiler-owned element, so BOTH emitters must annotate
+  whichever arm renders IDENTICALLY — the host-root view-evidence annotation
+  (`data-rf2-source-coord` + `data-rf-view`) is inherently cross-emitter, so a
+  one-sided conditional-root descent diverges here (the exact class that reopened
+  the bead). The `branches` view exercises conditionals MID-TREE; this exercises
+  them at the ROOT."
+  [{:keys [big?]}]
+  (if big? [:div.cr-big "big"] [:section.cr-small "small"]))
+
 (defview list-row
   "Row view for keyed list-over-view fixtures."
   [{:keys [item]}]
@@ -526,6 +537,7 @@
    :class-forms     class-forms
    :text-forms      text-forms
    :branches        branches
+   :conditional-root conditional-root
    :lists           lists
    :fragments       fragments
    :booleans        bool-attrs
@@ -565,6 +577,8 @@
    {:id :branches-a-big       :view :branches        :props {:kind :a :n 42}}
    {:id :branches-b-small     :view :branches        :props {:kind :b :n 1}}
    {:id :branches-default     :view :branches        :props {:kind :z :n 11}}
+   {:id :conditional-root-true  :view :conditional-root :props {:big? true}}
+   {:id :conditional-root-false :view :conditional-root :props {:big? false}}
    {:id :lists-full           :view :lists           :props {:items [{:id 1 :label "a" :hot? true :priority :high}
                                                                      {:id 2 :label "b" :hot? false :priority :low}]
                                                              :groups [{:id "g1" :xs [1 2]} {:id "g2" :xs [3]}]
