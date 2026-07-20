@@ -235,6 +235,21 @@
     (react-element? x)    (if-some [k (.-key x)] (conj acc [k x]) acc)
     :else                 acc))
 
+(defn- count-keyless
+  "Count the flattened children whose runtime `.-key` is nil — the elements
+  `collect-elements` DROPS (an unkeyed child cannot be retention-tracked, so it
+  never renders). The analyzer guarantees a `:key` FORM on every presence child,
+  but the form's VALUE can be nil at runtime (`{:key (:id x)}` with a missing
+  `:id`), which compile cannot catch. This parallel dev-only walk lets the render
+  path warn about the otherwise-silent drop; the drop itself stays in
+  `collect-elements`, unconditional in production."
+  [n x]
+  (cond
+    (nil? x)              n
+    (js/Array.isArray x)  (reduce count-keyless n x)
+    (react-element? x)    (if (nil? (.-key x)) (inc n) n)
+    :else                 n))
+
 (defn- warn-duplicate-identities!
   "Dev diagnostic for a key claimed twice at ONE presence boundary. Reuses the
   catalogued `:rf.error/ui-duplicate-key` — same failure, same string-coercion
@@ -253,12 +268,32 @@
             "compare after React's string coercion: 1 collides with \"1\")."))))
   nil)
 
+(defn- warn-keyless-drops!
+  "Dev diagnostic for a presence child whose runtime `:key` evaluated to nil.
+  Mirrors `warn-duplicate-identities!`: advisory dev output stripped in
+  production by `goog.DEBUG`, while the drop itself (in `collect-elements`) is
+  unconditional, so a production build never diverges. No catalogued
+  `:rf.error/*` id — a nil runtime key is not a new failure mode (compile still
+  guarantees the `:key` form), and `:rf.error/ui-duplicate-key` does not honestly
+  fit; this is a plain advisory. One warning per dropped element."
+  [n]
+  (when ^boolean js/goog.DEBUG
+    (dotimes [_ n]
+      (js/console.warn
+       (str "presence: a child under a (ui/presence …) boundary has a nil "
+            "runtime key and was DROPPED — it never renders. Presence tracks "
+            "children BY KEY, so ensure every child's :key expression (e.g. "
+            "(:id x)) is non-nil at render time. Outside a boundary React would "
+            "index-key and warn; under one the child silently vanishes."))))
+  nil)
+
 (defn- incoming-identities
   "The flattened children of this boundary as ordered, ownership-unique
   `[key element]` pairs — the only shape the retention machine may see."
   [incoming]
   (let [[pairs dups] (claim-identities (collect-elements [] incoming))]
     (warn-duplicate-identities! dups)
+    (warn-keyless-drops! (count-keyless 0 incoming))
     pairs))
 
 (defn- render-entries

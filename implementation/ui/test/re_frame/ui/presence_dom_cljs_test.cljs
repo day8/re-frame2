@@ -256,3 +256,46 @@
             (.then (fn [_] (restore) (rf/destroy-frame! f) (done))
                    (fn [e] (restore) (rf/destroy-frame! f)
                      (reject-unexpectedly! done "duplicate presence identities rejected" e))))))))
+
+;; ---------------------------------------------------------------------------
+;; Nil runtime key at a MOUNTED boundary (rf2-vz6a1)
+;;
+;; The analyzer guarantees a :key FORM on every presence child, but the form's
+;; VALUE can be nil at runtime — `toast-list`'s `{:key (:id t)}` with a toast
+;; missing :id. `collect-elements` drops a nil-keyed element (it cannot be
+;; retention-tracked), so the child hard-vanishes with no phase and no DOM. A
+;; goog.DEBUG-only warning names the silent drop; the drop itself is unchanged.
+;; ---------------------------------------------------------------------------
+
+(deftest keyless-child-drops-with-dev-warning
+  (if-not (browser?)
+    (is true "mounted presence needs a DOM host — covered in the browser job")
+    (async done
+      (let [f       (rf/make-frame {:initial-events
+                                    ;; the second toast has NO :id → :key is nil
+                                    ;; at runtime under `toast-list`.
+                                    [[::set-toasts [{:id 1 :msg "kept"}
+                                                    {:msg "dropped"}]]]})
+            warns   (atom [])
+            restore (capture-console-warn! warns)]
+        (-> (uit/with-root [root [ui/frame-provider {:frame f} [toast-list]]]
+              (-> (uit/flush!)
+                  (.then (fn [_]
+                           (restore)
+                           (testing "the nil-keyed child is dropped; the keyed one renders"
+                             (is (= 1 (count (toasts root)))
+                                 "only the keyed child renders")
+                             (is (= "present" (phase-of root "kept")))
+                             (is (nil? (phase-of root "dropped"))
+                                 "the nil-keyed child never rendered — no phase, no DOM"))
+                           (testing "a dev-console warning names the silent drop"
+                             ;; render may run more than once (StrictMode / the
+                             ;; enter flip), so assert the warning FIRED — same
+                             ;; not-exactly-once shape as the duplicate-key test.
+                             (let [drops (filter #(str/includes? % "nil runtime key") @warns)]
+                               (is (seq drops) "the keyless-drop warning fired")
+                               (is (some #(str/includes? % "presence") drops)
+                                   "…naming the presence boundary")))))))
+            (.then (fn [_] (restore) (rf/destroy-frame! f) (done))
+                   (fn [e] (restore) (rf/destroy-frame! f)
+                     (reject-unexpectedly! done "keyless presence child rejected" e))))))))
