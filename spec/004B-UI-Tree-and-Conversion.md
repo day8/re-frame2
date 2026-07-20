@@ -421,7 +421,9 @@ shapes.
     structural tree; applies the serialisation half of the conversion table (final
     names, boolean emission, property-only omission, escaping, void handling); erases
     view boundaries (dev coord annotation policy stays 011-owned); writes trusted-HTML
-    nodes verbatim. `opts` mirrors the existing emitter family (`:doctype?` etc.).
+    nodes verbatim. `opts` carries a single current option, `:doctype?`, which prefixes
+    `<!DOCTYPE html>`; other keys are ignored (the `render-to-string` option set does not
+    transfer to this seam).
   - `(re-frame.ssr/ui-tree-fingerprint tree) → digest` — hashes the canonical-EDN
     serialisation of `N(tree)` (§Normalization); algorithm/encoding owned by 011.
 - **Version incompatibility:** the seam validates `:rf.ui/tree-version` **first,

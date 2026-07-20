@@ -1527,7 +1527,7 @@
   ;; from `render-to-string` only in its input (an ALREADY-RENDERED
   ;; version-1 tree rather than hiccup): it invokes no view and resolves no
   ;; subscription.
-  ["re-frame.ssr" "emit-ui-tree"]                  {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.ssr" "emit-ui-tree"]                  {:tier :advanced :owner "004B" :status "v1"}
   ["re-frame.ssr" "render-tree-hash"]              {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "project-error"]                 {:tier :advanced :owner "011" :status "v1"}
   ;; The cross-host suspense boundary COMPONENT — the streaming AUTHORING
