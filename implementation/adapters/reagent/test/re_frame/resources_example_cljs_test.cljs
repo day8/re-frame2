@@ -1,12 +1,12 @@
 (ns re-frame.resources-example-cljs-test
   "Integration test: drives the resources example (`examples/capabilities/resources/resources/`)
    through the FOUR causal patterns it teaches — route-driven page load,
-   event-driven lease ensure/release, manual refresh as a cause, and a
+   event-driven owner ensure/release, manual refresh as a cause, and a
    machine-owned resource. Closes the false-green gap rf2-3slxrk named:
    `test:examples-compile` catches a missing namespace/init-fn and the generic
    resource artefact tests catch the runtime contract, but neither pinned the
    EXAMPLE-SPECIFIC composition — its route `:resources` metadata + owner
-   lifetimes, its `[:lease …]` ensure/release pair, its manual-refresh `:cause`,
+   lifetimes, its app-event-owner ensure/release pair, its manual-refresh `:cause`,
    and its `[:machine …]`-owned ensure released on actor destroy. Those could
    drift while every gate stayed green.
 
@@ -247,35 +247,35 @@
           "the per-slug detail view-model carries the right article"))))
 
 ;; ============================================================================
-;; 2. EVENT-DRIVEN LEASE — ensure under [:lease …], release on close
+;; 2. EVENT-DRIVEN OWNER — ensure under an app-event owner, release on close
 ;; ============================================================================
 
-(deftest preview-opens-an-app-lease-and-close-releases-it
+(deftest preview-opens-an-app-owner-and-close-releases-it
   (testing "examples/capabilities/resources/resources — :resources.app/preview-opened ensures the
-            detail under an app `[:lease …]` owner (and records the open slug);
-            :resources.app/preview-closed releases the lease so the entry can GC
-            (the mandatory release path for an app-minted lease, Spec 016 §Active
+            detail under an app-event owner (and records the open slug);
+            :resources.app/preview-closed releases the owner so the entry can GC
+            (the mandatory release path for an app-minted owner, Spec 016 §Active
             owners)"
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
-      (let [lease-owner [:lease :resources.app/preview "fresh-skip"]
-            dkey        (detail-key "fresh-skip")]
+      (let [preview-owner [:resources.app/preview-opened "fresh-skip"]
+            dkey          (detail-key "fresh-skip")]
         (rf/dispatch-sync [:resources.app/preview-opened "fresh-skip"] {:frame f})
         ;; the open slug is recorded in app-db for the preview panel to render
         (is (= "fresh-skip"
                (rf/compute-sub [:resources.app/preview-slug] (rf/frame-state-value f)))
             "the open preview slug is in app-db")
         (let [e (get-in (:rf.db/runtime (rf/frame-state-value f)) (state/entry-path dkey))]
-          (is (= :loading (:status e)) "the lease ensured a first load")
-          (is (contains? (:active-owners e) lease-owner)
-              "owned by the app lease [:lease :resources.app/preview slug]"))
-        ;; Close → the lease releases; the slug clears.
+          (is (= :loading (:status e)) "the owner ensured a first load")
+          (is (contains? (:active-owners e) preview-owner)
+              "owned by the app-event owner [:resources.app/preview-opened slug]"))
+        ;; Close → the owner releases; the slug clears.
         (rf/dispatch-sync [:resources.app/preview-closed "fresh-skip"] {:frame f})
         (is (nil? (rf/compute-sub [:resources.app/preview-slug] (rf/frame-state-value f)))
             "closing clears the open slug")
         (let [e (get-in (:rf.db/runtime (rf/frame-state-value f)) (state/entry-path dkey))]
-          (is (not (contains? (:active-owners e) lease-owner))
-              "the lease owner was released — no dangling lease pins the entry"))))))
+          (is (not (contains? (:active-owners e) preview-owner))
+              "the owner was released — no dangling owner pins the entry"))))))
 
 ;; ============================================================================
 ;; 3. MANUAL REFRESH — a `:cause`, never an owner
@@ -340,7 +340,7 @@
 ;; previously ensured under a three-part `[:machine machine-id instance-id]`
 ;; owner while relying on actor-destroy auto-release, which the framework fires
 ;; ONLY for the two-part `[:machine actor-id]` key (Spec 016 §Release authority
-;; is per owner kind, 016:291), so the lease leaked. The generic
+;; is per owner kind, 016:291), so the owner leaked. The generic
 ;; ensure-under-owner + release-on-owner-drop mechanics are also pinned in the
 ;; resources artefact suites (`implementation/resources/test/`); this pins the
 ;; EXAMPLE's specific owner shape + stop-reader cleanup end-to-end against the
@@ -353,7 +353,7 @@
             runtime actor-id owner [:machine :resources.app/reader] — the one
             machine owner the framework auto-releases on destroy (Spec 016:291) —
             and NOT a three-part [:machine machine-id instance-id] key (an
-            app-authoritative lease the framework would NOT auto-release: the
+            app-authoritative owner the framework would NOT auto-release: the
             leak the old example shape caused). stop-reader destroys the actor,
             releasing that owner so the read is not left pinned (rf2-lbtqw4)."
     (let [slug        "resources-101"
