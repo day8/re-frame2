@@ -8,7 +8,7 @@
     :mount           the :fresh->:connected transition (bare marker).
     :story-override  a (re)acquired static Story-override target — ruled identity
                      + version (`:override-id` / `:version`).
-    :subscription    a `:value` port note captured at the cause site — ruled
+    :subscription    a `:subscription` port note captured at the cause site — ruled
                      target / query / frame-id + version :from->:to + :epoch.
     :local-state     the hooks local-state writer bridge (bare marker).
     :hmr             a real registrar-replacement `:hmr` fan-out (bare marker).
@@ -30,7 +30,7 @@
   The DEBUG carry-forward (`:pending-commit-causes`) is captured at the NOTE (the
   cause site) and drained by the next connected commit: on the headless plain-atom
   hosts a value MOVE has no watch (it is caught at commit step 5, never fanned), so
-  the `:value`/`:disposed` port notes are driven through the SAME private
+  the `:subscription`/`:disposed` port notes are driven through the SAME private
   `enrol-dirty!` the watchable-host on-change calls — the honest payload, not a
   simulation. `:hmr` rides the REAL registrar fan-out.
 
@@ -124,7 +124,7 @@
           "no cause pending, connected, retained handles -> the honesty fallback"))))
 
 ;; ===========================================================================
-;; :subscription — a :value port note, captured with its ruled DETAIL + renamed
+;; :subscription — a :subscription port note, captured with its ruled DETAIL
 ;; ===========================================================================
 
 (deftest a-value-movement-recommits-as-subscription-with-ruled-detail
@@ -133,7 +133,7 @@
   (let [cell (reactive/make-cell ::v)]
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
     ;; a value move to node-version 3 on node-key 7, epoch 1
-    (fan-cause! cell :value [:cc/a] {:node-key 7 :node-version 3 :epoch 1})
+    (fan-cause! cell :subscription [:cc/a] {:node-key 7 :node-version 3 :epoch 1})
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
     (is (= [{:cause    :subscription
              :target   7            ;; upstream node identity (:node-key axis)
@@ -143,7 +143,7 @@
              :to       3
              :epoch    1}]
            (causes cell))
-        ":value is renamed to :subscription AND preserves ONLY its ruled fields
+        ":subscription preserves ONLY its ruled fields
          (target/query/frame-id + version from->to + epoch) — no invented framework")))
 
 (deftest a-coalesced-subscription-window-spans-first-from-to-latest-to
@@ -152,8 +152,8 @@
   (let [cell (reactive/make-cell ::v)]
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
     ;; two movements coalesce before the next commit: 2->3 then 4->5
-    (fan-cause! cell :value [:cc/a] {:node-key 7 :node-version 3 :epoch 1})
-    (fan-cause! cell :value [:cc/a] {:node-key 7 :node-version 5 :epoch 2})
+    (fan-cause! cell :subscription [:cc/a] {:node-key 7 :node-version 3 :epoch 1})
+    (fan-cause! cell :subscription [:cc/a] {:node-key 7 :node-version 5 :epoch 2})
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
     (let [sub (cause-of cell :subscription)]
       (is (= 2 (:from sub)) "the EARLIEST :from is kept (the window's first move)")
@@ -218,7 +218,7 @@
   (let [cell (render+commit! (reactive/make-cell ::v) [[[:cc/site 0] [:cc/a]]])]
     ;; a no-op setter stashes nothing (the gate lives in hooks; here we simply do
     ;; not stash) — then an unrelated subscription movement drives the next commit
-    (fan-cause! cell :value [:cc/a])
+    (fan-cause! cell :subscription [:cc/a])
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
     (is (= [:subscription] (cause-kinds cell))
         "an unrelated commit reports its real cause only — no stale :local-state")))
@@ -281,7 +281,7 @@
   (seed! {:a 1})
   (let [cell  (render+commit! (reactive/make-cell ::v) [[[:cc/site 0] [:cc/a]]])
         fired (atom false)]
-    (fan-cause! cell :value [:cc/a])           ;; a :subscription is already pending
+    (fan-cause! cell :subscription [:cc/a])           ;; a :subscription is already pending
     (binding [reactive/*commit-publish-barrier*
               (fn [c]
                 (when (compare-and-set! fired false true)
@@ -300,8 +300,8 @@
   (rf/reg-sub :cc/a (fn [db _] (:a db)))
   (seed! {:a 1})
   (let [cell (reactive/make-cell ::v)]
-    ;; A mount that ALSO carries a movement: mount + a stashed :value.
-    (fan-cause! cell :value [:cc/a])           ;; stash :value onto the fresh cell
+    ;; A mount that ALSO carries a movement: mount + a stashed :subscription.
+    (fan-cause! cell :subscription [:cc/a])           ;; stash :subscription onto the fresh cell
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
     (is (= [:mount :subscription] (cause-kinds cell))
         ":mount precedes :subscription in the canonical roster order")))
