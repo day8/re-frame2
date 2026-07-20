@@ -22,19 +22,21 @@ The stylesheet that pairs with it does the animating — enter on insertion, exi
 off the `:unmounting` phase class:
 
 ```css
-/* Enter fires on DOM insertion — immune to effect timing (see below). */
+/* Enter fires on DOM insertion — immune to effect timing (see below).
+   The exit transition lives on this base rule, not on .unmounting, so an
+   interrupted exit reverses from where it got to rather than snapping. */
 .toast {
   animation: toast-in 200ms ease-out;
+  transition: opacity 250ms, translate 250ms;
 }
 @keyframes toast-in {
   from { opacity: 0; translate: 0 8px; }
 }
 
-/* Exit rides the phase class; :timeout-ms 300 covers this 250ms transition. */
+/* Exit rides the phase class; :timeout-ms 300 covers the 250ms transition above. */
 .toast.unmounting {
   opacity: 0;
   translate: 0 8px;
-  transition: opacity 250ms, translate 250ms;
 }
 
 /* Honour the reader who asked for less motion. */
@@ -67,10 +69,13 @@ How it behaves:
   phase-reading child is its own keyed `defview` (`toast-card` above) rather than
   inline markup. Inline literal markup under the boundary has its props evaluated
   in the *parent's* render, outside that child's Provider — so it provably cannot
-  read its own `(ui/presence-phase)` and silently sees `:present`. A focusable
-  inline literal is a hard compile error
-  (`:rf.ui.compile/a11y-presence-exit-interactive`), so the exit-window trap
-  cannot hide.
+  read its own per-child phase, and instead observes the parent/outer presence
+  context, normally `:present` (a nested boundary can supply something else).
+  Extract it into its own keyed `defview` to give it a phase. A *provably
+  focusable* inline literal emits a suppressible compile warning
+  (`:rf.ui.compile/a11y-presence-exit-interactive`) pointing you at that
+  extraction — but dynamic and spread props are deliberately silent, so treat the
+  warning as a nudge, not a guaranteed catch-all.
 - Removing then re-inserting a key interrupts the exit and resumes at `:present`
   — the enter animation does **not** replay (the `:unmounting` entry flips straight
   back to `:present`). A mid-exit CSS transition simply reverses from wherever it
@@ -80,7 +85,10 @@ How it behaves:
   accessibility — stamp `inert` / `aria-hidden` and the exit class when its phase is
   `:unmounting`, and let its stylesheet honour `prefers-reduced-motion`.
 - On the JVM / SSR there is no lifecycle to retain: the structural render yields
-  `:present`.
+  `:present`. On hydration the client adopts those server-rendered children at
+  `:present` and does **not** replay enter over already-painted markup — whereas an
+  ordinary client-only mount still starts each child at `:mounting` and flips it to
+  `:present`, running the enter animation.
 
 In tests, transitions advance on a fake clock with `ui.test/flush-presence!` —
 never a wall-clock sleep ([Testing](testing.md#tier-3--mounted-tests-when-the-dom-is-the-point)).
