@@ -1,30 +1,38 @@
 (ns re-frame.ui.reactive-commit-causes-cljs-test
-  "rf2-qkq2k (S6 slice b) — the per-commit `:rf.view/causes` vector on the REAL
-  ViewCell commit path (Ruling 2). A connected commit projects the NINE ruled
-  cause kinds from signals that ALREADY exist — never a new capture machine:
+  "rf2-qkq2k (S6 slice b, reworked) — the per-commit `:rf.view/causes` vector on
+  the REAL ViewCell commit path (Ruling 2). A connected commit projects DETAILED
+  cause RECORDS — each `{:cause <kind> …ruled-fields}` — from signals that ALREADY
+  exist, never a new capture machine and never a general evidence framework (only
+  the fields explicitly ruled per cause):
 
-    :mount          the :fresh->:connected transition (pre-commit lifecycle).
-    :hmr-remount    a mount whose view has a non-zero HMR remount generation.
-    :story-override a (re)acquired site whose target is a static Story override.
-    :subscription   a `:value` port note carried forward by the flush (renamed).
-    :local-state    the hooks local-state writer bridge (`note-local-state!`).
-    :hmr            a real registrar-replacement `:hmr` fan-out, flushed forward.
-    :disposed       a `:disposed` port note carried forward by the flush.
+    :mount           the :fresh->:connected transition (bare marker).
+    :story-override  a (re)acquired static Story-override target — ruled identity
+                     + version (`:override-id` / `:version`).
+    :subscription    a `:value` port note captured at the cause site — ruled
+                     target / query / frame-id + version :from->:to + :epoch.
+    :local-state     the hooks local-state writer bridge (bare marker).
+    :hmr             a real registrar-replacement `:hmr` fan-out (bare marker).
+    :disposed        a `:disposed` port note (bare marker).
     :foreign-or-react the honesty fallback — a commit that carries no other cause.
 
-  `:epoch-restore` is the ninth ruled kind but is NOT produced by slice b: its
-  emission (threading the restore-operation token through the port fan-out) is
-  not a clean projection of an existing signal, because the value-movement watch
-  fires from the DEFERRED reactive commit loop, outside the restore's dynamic
-  extent (worker STOP-REPORT). Consumers already tolerate its absence (Xray 021
-  §3.4.1) — the same way they tolerate the deferred five.
+  DEFERRED, never emitted here (each a deferred-with-trigger row in slice d's
+  EP-0033 delta; consumers keep tolerating absence, Xray 021 §3.4.1):
+    - :hmr-remount   honest per-instance attribution needs a teardown->remount
+                     pairing signal (a remounted instance is React-indistinguishable
+                     from a fresh mount at the same view generation using only the
+                     view-global remount counter) — cross-surface + a fiddly closing
+                     rule, so the S3 view-granularity emit (which mislabelled
+                     unrelated later mounts) is deferred rather than shipped
+                     dishonestly (rf2-qkq2k).
+    - :epoch-restore restore provenance is outside `perform-restore!`'s dynamic
+                     extent (Mike ruling option c).
 
-  The DEBUG carry-forward (`:pending-commit-causes`) is the seam the flush and
-  the local-state bridge feed and the next connected commit drains: on the
-  headless plain-atom hosts a value MOVE has no watch (it is caught at commit
-  step 5, never fanned), so the `:value`/`:disposed` port notes are driven
-  through the SAME private `enrol-dirty!` the watchable-host on-change calls —
-  the honest payload, not a simulation. `:hmr` rides the REAL registrar fan-out.
+  The DEBUG carry-forward (`:pending-commit-causes`) is captured at the NOTE (the
+  cause site) and drained by the next connected commit: on the headless plain-atom
+  hosts a value MOVE has no watch (it is caught at commit step 5, never fanned), so
+  the `:value`/`:disposed` port notes are driven through the SAME private
+  `enrol-dirty!` the watchable-host on-change calls — the honest payload, not a
+  simulation. `:hmr` rides the REAL registrar fan-out.
 
   `.cljc` ending `-cljs-test` rides `npm run test:cljs` (node) AND
   `clojure -M:test` (JVM), so the cause vector is graft-checked on both hosts
@@ -47,7 +55,9 @@
 
 (defn- seed! [db] (frame/replace-app-db! fid db))
 
-(defn- causes [cell] (:rf.view/causes (reactive/commit-record cell)))
+(defn- causes      [cell] (:rf.view/causes (reactive/commit-record cell)))
+(defn- cause-kinds [cell] (mapv :cause (causes cell)))
+(defn- cause-of    [cell kind] (some (fn [c] (when (= kind (:cause c)) c)) (causes cell)))
 
 (defn- render+commit!
   "Render (probe) `sites` (`[[sid query] …]`) under the ambient frame, then commit."
@@ -73,12 +83,18 @@
 
 (defn- fan-cause!
   "Fold ONE `cause`-tagged port note (targeting `query`) into `cell`'s pending
-  window exactly as the watchable-host on-change would, then flush it FORWARD."
-  [cell cause query]
-  (enrol-dirty! cell {:cause       cause
-                      :target      {:kind :subscription :frame-id fid :query query}
-                      :frame-epoch 1})
-  (reactive/flush-pending!))
+  window exactly as the watchable-host on-change would — carrying the SAME
+  `:node-key` / `:node-version` / `:frame-epoch` axes the real port payload does
+  (observation.cljc) so the captured cause DETAIL is honest — then flush FORWARD."
+  ([cell cause query] (fan-cause! cell cause query {}))
+  ([cell cause query {:keys [node-key node-version epoch]
+                      :or   {node-key 7 node-version 3 epoch 1}}]
+   (enrol-dirty! cell {:cause        cause
+                       :target       {:kind :subscription :frame-id fid :query query}
+                       :node-key     node-key
+                       :node-version node-version
+                       :frame-epoch  epoch})
+   (reactive/flush-pending!)))
 
 ;; ===========================================================================
 ;; :mount — the first connected commit (:fresh -> :connected)
@@ -89,8 +105,8 @@
   (seed! {:a 1})
   (let [cell (reactive/make-cell ::v)]
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
-    (is (= [:mount] (causes cell))
-        "a first connected commit is caused by :mount, and nothing else")))
+    (is (= [{:cause :mount}] (causes cell))
+        "a first connected commit is caused by :mount (a bare record), nothing else")))
 
 ;; ===========================================================================
 ;; :foreign-or-react — the honesty fallback (a causeless re-commit)
@@ -101,28 +117,51 @@
   (seed! {:a 1})
   (let [cell (reactive/make-cell ::v)]
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
-    (is (= [:mount] (causes cell)))
+    (is (= [:mount] (cause-kinds cell)))
     (testing "a second commit with no movement, stash, or new acquire is honest"
       (render+commit! cell [[[:cc/site 0] [:cc/a]]])
-      (is (= [:foreign-or-react] (causes cell))
+      (is (= [{:cause :foreign-or-react}] (causes cell))
           "no cause pending, connected, retained leases -> the honesty fallback"))))
 
 ;; ===========================================================================
-;; :subscription — a :value port note, carried forward + renamed
+;; :subscription — a :value port note, captured with its ruled DETAIL + renamed
 ;; ===========================================================================
 
-(deftest a-value-movement-recommits-as-subscription
+(deftest a-value-movement-recommits-as-subscription-with-ruled-detail
   (rf/reg-sub :cc/a (fn [db _] (:a db)))
   (seed! {:a 1})
   (let [cell (reactive/make-cell ::v)]
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
-    (fan-cause! cell :value [:cc/a])          ;; the flush stashes :value forward
+    ;; a value move to node-version 3 on node-key 7, epoch 1
+    (fan-cause! cell :value [:cc/a] {:node-key 7 :node-version 3 :epoch 1})
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
-    (is (= [:subscription] (causes cell))
-        ":value is renamed to :subscription at projection (Ruling 2)")))
+    (is (= [{:cause    :subscription
+             :target   7            ;; upstream node identity (:node-key axis)
+             :query    [:cc/a]
+             :frame-id fid
+             :from     2            ;; the version BEFORE the move (to - 1)
+             :to       3
+             :epoch    1}]
+           (causes cell))
+        ":value is renamed to :subscription AND preserves ONLY its ruled fields
+         (target/query/frame-id + version from->to + epoch) — no invented framework")))
+
+(deftest a-coalesced-subscription-window-spans-first-from-to-latest-to
+  (rf/reg-sub :cc/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell (reactive/make-cell ::v)]
+    (render+commit! cell [[[:cc/site 0] [:cc/a]]])
+    ;; two movements coalesce before the next commit: 2->3 then 4->5
+    (fan-cause! cell :value [:cc/a] {:node-key 7 :node-version 3 :epoch 1})
+    (fan-cause! cell :value [:cc/a] {:node-key 7 :node-version 5 :epoch 2})
+    (render+commit! cell [[[:cc/site 0] [:cc/a]]])
+    (let [sub (cause-of cell :subscription)]
+      (is (= 2 (:from sub)) "the EARLIEST :from is kept (the window's first move)")
+      (is (= 5 (:to sub))   "the LATEST :to is kept (the window's last move)")
+      (is (= 2 (:epoch sub)) "the latest movement's epoch"))))
 
 ;; ===========================================================================
-;; :disposed — a :disposed port note, carried forward verbatim
+;; :disposed — a :disposed port note, a bare-marker record
 ;; ===========================================================================
 
 (deftest a-disposal-recommits-as-disposed
@@ -132,29 +171,29 @@
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
     (fan-cause! cell :disposed [:cc/a])
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
-    (is (= [:disposed] (causes cell))
-        ":disposed rides forward unchanged")))
+    (is (= [{:cause :disposed}] (causes cell))
+        ":disposed rides forward as a bare marker (no ruled detail)")))
 
 ;; ===========================================================================
-;; :hmr — a REAL registrar-replacement fan-out, flushed forward
+;; :hmr — a REAL registrar-replacement fan-out, a bare-marker record
 ;; ===========================================================================
 
 (deftest a-real-hmr-reregistration-recommits-as-hmr
   (rf/reg-sub :cc/a (fn [db _] (:a db)))
   (seed! {:a 1})
   (let [cell (render+commit! (reactive/make-cell ::v) [[[:cc/site 0] [:cc/a]]])]
-    (is (= [:mount] (causes cell)))
+    (is (= [:mount] (cause-kinds cell)))
     (rf/reg-sub :cc/a (fn [db _] (:a db)))     ;; real :hmr fan-out to the lease
     (is (reactive/dirty? cell) "the HMR invalidation marked the cell dirty")
     (is (= #{:hmr} (:causes (reactive/pending-evidence cell)))
         "the real :hmr cause is in the pending window")
-    (reactive/flush-pending!)                  ;; carries :hmr forward
+    (reactive/flush-pending!)                  ;; flushes the window
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
-    (is (= [:hmr] (causes cell))
-        "a real registrar-replacement fan-out projects :hmr")))
+    (is (= [{:cause :hmr}] (causes cell))
+        "a real registrar-replacement fan-out projects a bare :hmr record")))
 
 ;; ===========================================================================
-;; :local-state — the hooks local-state writer bridge
+;; :local-state — the hooks local-state writer bridge (bare-marker record)
 ;; ===========================================================================
 
 (deftest a-local-state-write-recommits-as-local-state
@@ -163,15 +202,29 @@
   (let [cell (render+commit! (reactive/make-cell ::v) [[[:cc/site 0] [:cc/a]]])]
     (reactive/note-local-state! cell)          ;; the substrate-owned local writer
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
-    (is (= [:local-state] (causes cell))
+    (is (= [{:cause :local-state}] (causes cell))
         "a host-only local write is the honest cause of its re-render")))
 
 (deftest note-local-state-is-a-no-op-on-a-nil-cell
   (is (nil? (reactive/note-local-state! nil))
       "a (local …) used outside a live capture stashes nothing and never throws"))
 
+(deftest an-unstashed-local-state-does-not-contaminate-a-later-unrelated-commit
+  ;; The commit-attribution property the hooks Object.is gate protects: when the
+  ;; local writer does NOT stash (a React-19.2 Object.is-bailed no-op setter),
+  ;; a later UNRELATED commit must NOT carry :local-state (rf2-qkq2k).
+  (rf/reg-sub :cc/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell (render+commit! (reactive/make-cell ::v) [[[:cc/site 0] [:cc/a]]])]
+    ;; a no-op setter stashes nothing (the gate lives in hooks; here we simply do
+    ;; not stash) — then an unrelated subscription movement drives the next commit
+    (fan-cause! cell :value [:cc/a])
+    (render+commit! cell [[[:cc/site 0] [:cc/a]]])
+    (is (= [:subscription] (cause-kinds cell))
+        "an unrelated commit reports its real cause only — no stale :local-state")))
+
 ;; ===========================================================================
-;; :story-override — a (re)acquired static Story-override target
+;; :story-override — a (re)acquired static Story-override target + ruled detail
 ;; ===========================================================================
 
 (deftest a-moved-story-override-recommits-as-story-override
@@ -182,29 +235,62 @@
       (render+commit! cell [[[:cc/site 0] [:cc/a]]]))
     (is (= #{[:override [:cc/a]]} (reactive/committed-target-keys cell))
         "the site resolved to a static override target")
-    (is (contains? (set (causes cell)) :mount)
+    (is (= :mount (:cause (cause-of cell :mount)))
         "the first override commit is a mount")
-    (testing "moving the override retargets the site -> :story-override, not mount"
+    (testing "moving the override retargets the site -> :story-override with ruled detail"
       (binding [reactive/*sub-overrides* {[:cc/a] 20}]      ;; new value -> retarget
         (render+commit! cell [[[:cc/site 0] [:cc/a]]]))
-      (is (= [:story-override] (causes cell))
-          "a re-acquired override target classifies the commit as :story-override"))))
+      (is (= [{:cause       :story-override
+               :override-id [:cc/a]     ;; the ruled override identity (the query)
+               :version     20}]        ;; the ruled override version (the value)
+             (causes cell))
+          "a re-acquired override target classifies the commit as :story-override
+           and preserves ONLY the ruled identity + version"))))
 
 ;; ===========================================================================
-;; :hmr-remount — a mount whose view has a non-zero HMR remount generation
+;; :hmr-remount — DEFERRED (Fix #2): a mount under a remounted view is NOT
+;; mislabelled; honest per-instance attribution needs pairing infra we defer.
 ;; ===========================================================================
 
-(deftest a-mount-under-a-remounted-view-is-hmr-remount
+(deftest a-mount-under-a-remounted-view-is-not-mislabelled-hmr-remount
   (let [vid ::remount-view]
     (reactive/register-view-descriptor! vid :sig-a {:impl :a})
     (reactive/register-view-descriptor! vid :sig-b {:impl :b})   ;; hook shape change
     (is (= 1 (reactive/view-remount-generation vid))
-        "an incompatible hook edit advanced the remount generation")
+        "an incompatible hook edit advanced the view-global remount generation")
     (let [gen  (reactive/view-generation vid)          ;; the current body revision
           cell (reactive/make-cell vid gen)]           ;; mint at the live revision
       (connect-empty! cell)
-      (is (= [:mount :hmr-remount] (causes cell))
-          "a mount under a remounted view carries BOTH :mount and :hmr-remount"))))
+      (is (= [{:cause :mount}] (causes cell))
+          "a mount under a remounted view is just :mount — :hmr-remount is DEFERRED
+           (view-granularity would mislabel this possibly-fresh instance, rf2-qkq2k)")
+      (is (not (contains? (set (cause-kinds cell)) :hmr-remount))
+          ":hmr-remount is never emitted by slice b"))))
+
+;; ===========================================================================
+;; CAS race (Fix #4): a cause folded during publication is INCLUDED, not erased
+;; ===========================================================================
+
+(deftest a-cause-folded-during-publication-is-not-erased
+  ;; The atomic take/publish (rf2-qkq2k): the `*commit-publish-barrier*` fires
+  ;; ONCE between the pending-causes read and the publish compare-and-set!, folding
+  ;; a fresh :local-state exactly in the take->publish window the old unconditional
+  ;; `dissoc` erased. The CAS then fails, the mint re-reads, and the racing cause is
+  ;; INCLUDED in the published record. Deterministic on both hosts.
+  (rf/reg-sub :cc/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell  (render+commit! (reactive/make-cell ::v) [[[:cc/site 0] [:cc/a]]])
+        fired (atom false)]
+    (fan-cause! cell :value [:cc/a])           ;; a :subscription is already pending
+    (binding [reactive/*commit-publish-barrier*
+              (fn [c]
+                (when (compare-and-set! fired false true)
+                  ;; a concurrent fold lands in the take->publish window
+                  (reactive/note-local-state! c)))]
+      (render+commit! cell [[[:cc/site 0] [:cc/a]]]))
+    (is @fired "the publication barrier fired inside the take->publish window")
+    (is (= #{:subscription :local-state} (set (cause-kinds cell)))
+        "the racing :local-state fold is INCLUDED in the published record, not erased")))
 
 ;; ===========================================================================
 ;; Canonical order — the cause vector is deterministic across hosts/runs
@@ -217,5 +303,5 @@
     ;; A mount that ALSO carries a movement: mount + a stashed :value.
     (fan-cause! cell :value [:cc/a])           ;; stash :value onto the fresh cell
     (render+commit! cell [[[:cc/site 0] [:cc/a]]])
-    (is (= [:mount :subscription] (causes cell))
+    (is (= [:mount :subscription] (cause-kinds cell))
         ":mount precedes :subscription in the canonical roster order")))

@@ -62,17 +62,37 @@
         "committed handler or an (effect …), never in the render body")
    {:extra {:reason :render-phase-local-mutation}}))
 
+(defn- note-committed-local-change!
+  "DEBUG-only :local-state attribution gate (Ruling 2 + rf2-qkq2k fix). Records
+  `:local-state` on `cell` ONLY when the write is an ACTUALLY-COMMITTED value
+  change — `cur` (the LIVE host state React itself compares) differs from `nv` by
+  `Object.is`, React's own bail law. React 19.2 Object.is-BAILS a no-op setter
+  WITHOUT rendering, so noting on invocation left a stale marker that contaminated
+  a LATER unrelated commit; aligning on the same `Object.is` React uses makes the
+  note fire EXACTLY when a re-render (hence a connected commit) will. Runs inside
+  the react-set functional updater (the one place the live `cur` is authoritative,
+  correct even for chained same-turn writes); `note-local-state!` is an idempotent
+  stash that triggers no re-render, so a StrictMode double-invoke is harmless.
+  Returns `nv` (so the updater's value is unchanged)."
+  [cell cur nv]
+  (when-not ^boolean (js/Object.is cur nv)
+    (reactive/note-local-state! cell))
+  nv)
+
 (defn local-state
   "React `useState`-backed `[value set! update!]`. `set!` stores its argument
   exactly (a stored fn is a value, never an updater); `update!` applies
   `(f current & args)` to the LATEST host state so several same-turn writers
   compose (React's functional updater queues them against the live state).
 
-  DEV-only view-evidence bridge (Ruling 2 :local-state): each host-only
-  `set!`/`update!` records `:local-state` as the cause of the re-render it just
-  triggered, so the ViewCell's NEXT connected commit attributes its
-  :rf.view/causes to the local write. The owning cell is captured ONCE at
-  setter-mint time (the first render, which runs inside the ambient
+  DEV-only view-evidence bridge (Ruling 2 :local-state): a host-only
+  `set!`/`update!` records `:local-state` as the cause of the re-render it
+  triggers, so the ViewCell's NEXT connected commit attributes its
+  :rf.view/causes to the local write — but ONLY when the write is an
+  actually-committed value change (`note-committed-local-change!`): React 19.2
+  Object.is-bails a no-op setter without rendering, so noting on every invocation
+  contaminated a later unrelated commit (rf2-qkq2k). The owning cell is captured
+  ONCE at setter-mint time (the first render, which runs inside the ambient
   `with-capture`); React — not the ViewCell scheduler — owns the re-render, so the
   bridge only STASHES the cause (`reactive/note-local-state!`), never marks the
   cell dirty or advances a revision. The whole bridge is `goog.DEBUG`-gated at
@@ -91,16 +111,24 @@
                       (when ^boolean js/goog.DEBUG
                         (when (.-v render-active) (fail-render-phase!)))
                       ;; ALWAYS the functional form: a stored fn is returned
-                      ;; verbatim, never invoked as a React updater.
-                      (react-set (fn [_] v))
-                      (when ^boolean js/goog.DEBUG (reactive/note-local-state! cell))
+                      ;; verbatim, never invoked as a React updater. The DEBUG
+                      ;; :local-state note rides INSIDE the updater so it sees the
+                      ;; live `cur` React compares — fired ONLY on a real change
+                      ;; (rf2-qkq2k); production DCEs to `(fn [_] v)`.
+                      (react-set (fn [cur]
+                                   (if ^boolean js/goog.DEBUG
+                                     (note-committed-local-change! cell cur v)
+                                     v)))
                       nil)
             updater (fn local-update!
                       [f & args]
                       (when ^boolean js/goog.DEBUG
                         (when (.-v render-active) (fail-render-phase!)))
-                      (react-set (fn [cur] (apply f cur args)))
-                      (when ^boolean js/goog.DEBUG (reactive/note-local-state! cell))
+                      (react-set (fn [cur]
+                                   (let [nv (apply f cur args)]
+                                     (if ^boolean js/goog.DEBUG
+                                       (note-committed-local-change! cell cur nv)
+                                       nv))))
                       nil)]
         (set! (.-current ops) #js [setter updater])))
     [value (aget (.-current ops) 0) (aget (.-current ops) 1)]))

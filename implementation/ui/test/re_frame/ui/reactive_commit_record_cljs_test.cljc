@@ -75,13 +75,13 @@
             "no :parent-render-key is invented (deferred — no capture machinery)")
         (is (not (contains? record :frame-id))
             "no singular top-level :frame-id (attribution is per-observation)")))
-    (testing "slice-b adds the per-commit :rf.view/causes vector (Ruling 2)"
+    (testing "slice-b adds the per-commit :rf.view/causes vector of cause records (Ruling 2)"
       (let [record (reactive/commit-record cell)]
         (is (contains? record :rf.view/causes)
             "the causes vector now ships on the record")
         (is (vector? (:rf.view/causes record)) ":rf.view/causes is a vector")
-        (is (= [:mount] (:rf.view/causes record))
-            "a first connected commit is caused by :mount")))))
+        (is (= [{:cause :mount}] (:rf.view/causes record))
+            "a first connected commit is caused by :mount (a bare cause record)")))))
 
 ;; ===========================================================================
 ;; render-key is monotonic, minted fresh PER COMMIT
