@@ -2551,10 +2551,10 @@ Five read-only projections (rf2-vxgfnd.95.8) of the **compiled-view
 tool tier** (`re-frame.ui.tool`, framework rf2-vxgfnd.95.6) — the same
 S3 view evidence Xray and Story read, exposed from a **running**
 re-frame2 app so a pairing agent inspects a compiled view WITHOUT
-reaching a private React / lease / scheduler handle. Each projection is
+reaching a private React / scheduler handle. Each projection is
 **versioned** (stamps `:rf.ui.tool/version`), **deterministic**,
-**serializable**, and egresses only bounded plain data — no `ViewCell`,
-lease, or React object crosses the wire.
+**serializable**, and egresses only bounded plain data — no `ViewCell`
+or React object crosses the wire.
 
 | MCP wire tool             | `re-frame.ui.tool` projection | arg        |
 |---------------------------|-------------------------------|------------|
@@ -2631,15 +2631,15 @@ capability bits, template / hook fingerprints, and per-kind
 
 ```clojure
 ;; read-view-manifest {:view-id ":my.app/counter"}
-{:ok? true :rf.ui.tool/version 1 :view-id :my.app/counter
+{:ok? true :rf.ui.tool/version 2 :view-id :my.app/counter
  :doc "..." :source {...}
  :props [{:key :label :doc "..." :schema :string}]
- :site-counts {:subs 2 :events 1 :leases 0 ...}}
+ :site-counts {:subs 2 :events 1 ...}}
 ```
 
 ### read-view-dependencies
 
-The reactive dependency **sites** (subscriptions + leases) a compiled
+The reactive dependency **sites** (subscriptions) a compiled
 view declares, with literal-vs-`:dynamic` query-shape honesty: a
 fully-literal query is projected verbatim (`:dynamic? false`); a query
 carrying a captured local is `:dynamic? true` (its literal `:query-id`
@@ -2648,10 +2648,9 @@ manifest, so available before mount. Requires `:view-id`.
 
 ```clojure
 ;; read-view-dependencies {:view-id ":my.app/row"}
-{:ok? true :rf.ui.tool/version 1 :view-id :my.app/row
+{:ok? true :rf.ui.tool/version 2 :view-id :my.app/row
  :subscriptions [{:query [:total] :dynamic? false}
-                 {:query-id :item :dynamic? true}]
- :leases []}
+                 {:query-id :item :dynamic? true}]}
 ```
 
 ### read-view-event-sites

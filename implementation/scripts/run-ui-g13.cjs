@@ -48,7 +48,6 @@ const UI_DIR = path.join(IMPL, 'ui');
 const OUT = path.join(IMPL, 'out');
 const DEV = path.join(OUT, 'ui-g13');
 const PROD = path.join(OUT, 'ui-g13-prod');
-const MINT_CONTROL = path.join(OUT, 'ui-g13-mint-control');
 const PROD_MANIFEST = path.join(PROD, 'manifest.edn');
 const REPORT = path.join(OUT, 'ui-g13.json');
 const TIMEOUT = 90000;
@@ -56,7 +55,6 @@ const SENTINELS = [
   'RF2_G13_COUNTER_SENTINEL',
   'RF2_G13_PROFILER_SENTINEL',
   'RF2_G13_DEBUG_EVIDENCE_SENTINEL',
-  'RF2_UI_RESOURCE_LEASE_EVIDENCE_SENTINEL',
   // rf2-vxgfnd.250 — the production-erased port candidate-inspection witness
   // (re-frame.substrate.observation). Present in the dev bundle (its owning
   // branch is reachable under goog.DEBUG=true), DCE'd from the :advanced
@@ -65,22 +63,6 @@ const SENTINELS = [
   'RF2_G13_PORT_CANDIDATE_SENTINEL',
   '__RF2_G13_RESULT_SENTINEL__',
 ];
-const LEASE_FREE_FORBIDDEN = [
-  'rf.resource/ensure',
-  'rf.resource/release-owner',
-  'RF2_UI_RESOURCE_LEASE_EVIDENCE_SENTINEL',
-  'resources/reg-resource',
-];
-const RESOURCE_BOOKKEEPING_FORBIDDEN = [
-  'resource-order',
-  'resource-by-site',
-  'resource-desired',
-  'resource-capture',
-  'resource-reservations',
-  'resource-held-order',
-  'resource-lifecycle',
-];
-const OWNER_MINT_SENTINEL = 'RF2_RESOURCE_LEASE_OWNER_MINT_SENTINEL';
 const OPTIONAL_RESOURCES_SENTINEL = 'rf.resource.internal/page-succeeded';
 
 function fail(message) {
@@ -139,23 +121,14 @@ function assertBundleElision() {
   if (release.status !== 'ok') {
     fail(`advanced companion bundle is ${release.status}, not inspectable`);
   }
-  const mintControl = classifyReleaseBundle(MINT_CONTROL);
-  if (mintControl.status !== 'ok') {
-    fail(`advanced mint control bundle is ${mintControl.status}, not inspectable`);
-  }
   const prodManifest = fs.readFileSync(PROD_MANIFEST, 'utf8');
   assertNoProductionSentinels(release.blob);
-  assertLeaseFreeAdvanced(release.blob, null, mintControl.blob);
+  assertResourcesDependencyBoundary(release.blob);
   assertOptionalResourcesManifest(prodManifest);
   return {
     devSentinelsPresent: SENTINELS,
     advancedSentinelsAbsent: SENTINELS,
-    leaseFreeAdvancedBytes: Buffer.byteLength(release.blob, 'utf8'),
-    ownerMintAdvancedControlBytes: Buffer.byteLength(mintControl.blob, 'utf8'),
-    leaseFreeForbiddenAbsent: LEASE_FREE_FORBIDDEN,
-    resourceBookkeepingAbsent: RESOURCE_BOOKKEEPING_FORBIDDEN,
-    ownerMintAdvancedControlPresent: OWNER_MINT_SENTINEL,
-    ownerMintSentinelAbsent: OWNER_MINT_SENTINEL,
+    advancedBytes: Buffer.byteLength(release.blob, 'utf8'),
     optionalResourcesSentinelAbsent: OPTIONAL_RESOURCES_SENTINEL,
     optionalResourcesManifestAbsent: 're_frame/resources.cljc and re_frame/resources/**',
     uiDependencyBoundary:
@@ -180,54 +153,22 @@ function assertNoProductionSentinels(blob) {
   }
 }
 
-function assertLeaseFreeAdvanced(blob, uiDepsOverride = null, mintControlBlob = null) {
-  const reactiveSource = fs.readFileSync(
-    path.join(IMPL, 'ui', 'src', 're_frame', 'ui', 'reactive.cljc'), 'utf8');
-  const ownerSource = fs.readFileSync(
-    path.join(IMPL, 'core', 'src', 're_frame', 'resource_lease_owner.cljc'), 'utf8');
-  const featuresSource = fs.readFileSync(
-    path.join(IMPL, 'core', 'src', 're_frame', 'features.cljc'), 'utf8');
+// The compiled-view substrate declares NO dependency on the optional Resources
+// artefact (day8/re-frame2-resources): production `re-frame.ui` never pulls its
+// runtime onto the classpath, so its internal sentinel never reaches an advanced
+// UI bundle. (Before the view-lifetime lease removal this rode the "lease-free"
+// companion; the lease was the only UI→Resources bridge, so with it gone the
+// boundary is proved directly, independent of any lease surface.)
+function assertResourcesDependencyBoundary(blob, uiDepsOverride = null) {
   const resourcesSource = fs.readFileSync(
     path.join(IMPL, 'resources', 'src', 're_frame', 'resources.cljc'), 'utf8');
   const uiDeps = uiDepsOverride || fs.readFileSync(
     path.join(IMPL, 'ui', 'deps.edn'), 'utf8');
-  const source = `${reactiveSource}\n${featuresSource}`;
-  for (const token of LEASE_FREE_FORBIDDEN) {
-    if (!source.includes(token)) {
-      fail(`lease-free DCE positive-control source omitted ${token}`);
-    }
-    if (blob.includes(token)) {
-      fail(`lease-free advanced companion retained ${token}`);
-    }
-  }
-  for (const token of RESOURCE_BOOKKEEPING_FORBIDDEN) {
-    if (!reactiveSource.includes(token)) {
-      fail(`resource-bookkeeping positive-control source omitted ${token}`);
-    }
-    if (blob.includes(token)) {
-      fail(`lease-free advanced companion retained resource bookkeeping ${token}`);
-    }
-  }
-  for (const token of [
-    '(ns re-frame.resource-lease-owner',
-    '(defn mint!',
-    OWNER_MINT_SENTINEL,
-  ]) {
-    if (!ownerSource.includes(token)) {
-      fail(`owner-mint positive-control source omitted ${token}`);
-    }
-  }
-  if (!mintControlBlob || !mintControlBlob.includes(OWNER_MINT_SENTINEL)) {
-    fail(`advanced owner-mint control omitted sentinel ${OWNER_MINT_SENTINEL}`);
-  }
-  if (blob.includes(OWNER_MINT_SENTINEL)) {
-    fail(`lease-free advanced companion retained owner mint sentinel ${OWNER_MINT_SENTINEL}`);
-  }
   if (!resourcesSource.includes(OPTIONAL_RESOURCES_SENTINEL)) {
     fail(`optional Resources positive-control source omitted ${OPTIONAL_RESOURCES_SENTINEL}`);
   }
   if (blob.includes(OPTIONAL_RESOURCES_SENTINEL)) {
-    fail(`lease-free advanced companion retained optional Resources sentinel ${OPTIONAL_RESOURCES_SENTINEL}`);
+    fail(`advanced companion retained optional Resources sentinel ${OPTIONAL_RESOURCES_SENTINEL}`);
   }
   // The dependency-boundary proof is about what production `re-frame.ui`
   // pulls onto the classpath — NOT what a `:test` alias adds. The executable
@@ -569,40 +510,22 @@ function assertMutationTeeth(result) {
     return expectMutationFailure(label, () => assertDevResult(changed));
   });
   const release = classifyReleaseBundle(PROD);
-  const mintControl = classifyReleaseBundle(MINT_CONTROL);
   const prodManifest = fs.readFileSync(PROD_MANIFEST, 'utf8');
   red.push(expectMutationFailure('production instrumentation leak', () => {
     assertNoProductionSentinels(`${release.blob}\n${SENTINELS[0]}`);
   }));
-  red.push(expectMutationFailure('lease-free resource reachability leak', () => {
-    assertLeaseFreeAdvanced(`${release.blob}\n${LEASE_FREE_FORBIDDEN[0]}`, null, mintControl.blob);
-  }));
-  red.push(expectMutationFailure('lease-free resource bookkeeping leak', () => {
-    assertLeaseFreeAdvanced(`${release.blob}\n${RESOURCE_BOOKKEEPING_FORBIDDEN[2]}`, null, mintControl.blob);
-  }));
-  red.push(expectMutationFailure('lease-free neutral owner mint reachability', () => {
-    assertLeaseFreeAdvanced(`${release.blob}\n${OWNER_MINT_SENTINEL}`, null, mintControl.blob);
-  }));
-  red.push(expectMutationFailure('owner mint advanced-control non-vacuity', () => {
-    assertLeaseFreeAdvanced(
-      release.blob,
-      null,
-      mintControl.blob.split(OWNER_MINT_SENTINEL).join('owner_control_removed'),
-    );
-  }));
   red.push(expectMutationFailure('optional Resources runtime reachability', () => {
-    assertLeaseFreeAdvanced(`${release.blob}\n${OPTIONAL_RESOURCES_SENTINEL}`, null, mintControl.blob);
+    assertResourcesDependencyBoundary(`${release.blob}\n${OPTIONAL_RESOURCES_SENTINEL}`);
   }));
   const uiDeps = fs.readFileSync(path.join(IMPL, 'ui', 'deps.edn'), 'utf8');
   red.push(expectMutationFailure('optional Resources dependency leak', () => {
     // Plant the forbidden dep INSIDE the production `:deps` map (not a test
     // alias) — the boundary proof is scoped to production deps, so the tooth
     // must inject the leak where the rule actually looks.
-    assertLeaseFreeAdvanced(
+    assertResourcesDependencyBoundary(
       release.blob,
       uiDeps.replace(/(:deps\s*\{)/,
         '$1day8/re-frame2-resources {:local/root "../resources"} '),
-      mintControl.blob,
     );
   }));
   // rf2-han0r TEETH — the positive control must be able to FAIL. Each of these
@@ -617,20 +540,18 @@ function assertMutationTeeth(result) {
     ['core coordinate swapped to a git url', '{:git/url "https://example.invalid/x.git" :git/sha "abc1234"}'],
   ]) {
     red.push(expectMutationFailure(label, () => {
-      assertLeaseFreeAdvanced(
+      assertResourcesDependencyBoundary(
         release.blob,
         uiDeps.replace('day8/re-frame2 {:local/root "../core"}', `day8/re-frame2 ${coordinate}`),
-        mintControl.blob,
       );
     }));
   }
   // The coordinate absent altogether — the shape the presence check DID catch,
   // pinned here so binding the value did not cost the original tooth.
   red.push(expectMutationFailure('core coordinate absent from production :deps', () => {
-    assertLeaseFreeAdvanced(
+    assertResourcesDependencyBoundary(
       release.blob,
       uiDeps.replace('day8/re-frame2 {:local/root "../core"}', ''),
-      mintControl.blob,
     );
   }));
   red.push(expectMutationFailure('optional Resources source-graph leak', () => {
@@ -694,7 +615,7 @@ async function main() {
   let tearingDown = false;
   try {
     shadow('compile', 'ui-g13');
-    shadow('release', 'ui-g13-prod', 'ui-g13-mint-control');
+    shadow('release', 'ui-g13-prod');
     writePage(DEV);
     writePage(PROD);
     const bundles = assertBundleElision();

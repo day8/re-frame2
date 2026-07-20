@@ -13,7 +13,7 @@
   STRUCTURE and the right EVENT INTENT: literal event vectors are retained as
   data, so 'what does this control do' is an equality check (no click
   simulation). The editor's real interactions (the synchronous controlled-input
-  door, the `ui/event` submit, resource-lease ownership, hot reload) ride the
+  door, the `ui/event` submit, hot reload) ride the
   DOM Tier-3 sibling `realworld_resources_s3_ergonomic_proof_dom_cljs_test`
   (named under the `re-frame.*`, not `re-frame.ui.*`, prefix: it drives the
   real stock-Reagent editor dataflow, so it stays out of the focused pure-UI

@@ -1,14 +1,14 @@
 (ns re-frame.ui.viewcell-ambient-frame-binding-dom-cljs-test
   "rf2-4rwtd — a compiled ViewCell binds its React-context frame into
   `re-frame.frame/*current-frame*` while evaluating its body, so ambient
-  `(sub …)` / `(lease …)` resolution hits the precedence-first DYNAMIC tier —
+  `(sub …)` resolution hits the precedence-first DYNAMIC tier —
   correct under ANY adapter reader the `:adapter/current-frame` hook routes to.
 
   ## The defect this hardens
 
   `re-frame.ui.viewcell/use-frame-context!` reads the ViewCell's frame from React
   context (via `function-component-current-frame` → `_currentValue`) and — before
-  the fix — DISCARDED it in the sub/lease wrappers. The compiled body's ambient
+  the fix — DISCARDED it in the sub wrappers. The compiled body's ambient
   `(sub …)` then resolved its frame through `frame/require-current-frame!` →
   `resolve-current-frame` → the INSTALLED adapter's `:adapter/current-frame`
   reader. The ratom-family (Reagent / reagent-slim) readers return nil for a ui

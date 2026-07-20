@@ -43,7 +43,7 @@ pattern-level commitments:
 These are pattern-level commitments across the eight in-scope JS-cross-compile hosts
 (per [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic)).
 The CLJS reference realisation is `re-frame.ui`; its forms (`defview`, `sub`, `frame`,
-`local`, `effect`, `lease`, and the `ui/*` interop surface) are ordinary namespace vars —
+`local`, `effect`, and the `ui/*` interop surface) are ordinary namespace vars —
 `(:require [re-frame.ui :as ui :refer [defview sub]])` — referred bare in examples below
 for readability.
 
@@ -165,7 +165,7 @@ normalize **into the AST**; all analyzers and both emitters see through branches
 
 **Rejected at compile time** (didactic messages naming the escape): dynamic tag heads;
 markup-returning `map`; keywords in child position; raw lazy seqs; unkeyed list items;
-`sub`/`lease` in loops (extract a keyed child view — sites must be finite). A bare
+`sub` in loops (extract a keyed child view — sites must be finite). A bare
 keyword head is a DOM/custom element, never a registry lookup (rf2-n82bbu; enforced at
 compile time).
 
@@ -175,11 +175,11 @@ handler-position expressions, and wrapper expressions hold ordinary Clojure **va
 the compiler never interprets an expression's *value* as markup — opacity is with
 respect to DOM/template interpretation, so a seq-producing call like `(map f xs)` in a
 prop value or a `for` collection is just a value. The expression's lexical **syntax**,
-however, is analyzed for finite reactive ownership: every `(sub …)` / `(lease …)` is a
+however, is analyzed for finite reactive ownership: every `(sub …)` is a
 compile-indexed lexical site, the manifest declares a view's sites, and optimized
 production elides the ViewCell for a genuinely sub-free view — so the analysis must be
 able to *see* every reactive call. An unaudited macro breaks that soundness: it can
-inject, duplicate, or defer a `ui/sub` / `ui/lease` with **no reactive token in the
+inject, duplicate, or defer a `ui/sub` with **no reactive token in the
 authored invocation** — the manifest would falsely declare a sub-free view, production
 would elide its ViewCell, and the hidden read would go stale or escape ownership. The
 expression grammar is therefore **closed**:
@@ -196,7 +196,7 @@ expression grammar is therefore **closed**:
   binders: `or`, `and`, `when`, `when-not`, `cond`, `->`, `->>`, `some->`, `some->>`,
   `cond->`, `cond->>`. Their spelling is preserved while their arguments are
   recursively analyzed — a `(sub …)` nested under `(or … "")` still lowers to its
-  indexed site. A **bare** `sub`/`lease` **reference** below one is rejected: a
+  indexed site. A **bare** `sub` **reference** below one is rejected: a
   threading step such as `(-> query sub)` would become an unindexed reactive call only
   after expansion, so the explicit `(sub query)` call is required.
 - **Ordinary function calls and evaluated-only host special forms.** Any function call
@@ -377,7 +377,7 @@ built on it is not v1).
 | `[:event … :rf.ui/value]` | DOM → after commit | per-site stable | committed slots + frame | **yes** | intent (the 90%) |
 | `(ui/event [e] … [:vector …])` | DOM/foreign → after commit (the synchronous door at a proven controlled-input site) | per-site stable | committed slots + the live event | no | event mechanics, form/file payloads, filtering (`nil` ⇒ no dispatch) |
 | `(ui/handler [x] …)` | foreign → after commit | per-site stable | committed slots | no | imperative work, stable-identity change-callbacks |
-| `(ui/render-fn [x] …)` | foreign → **during its render** | none promised | current render | no | item-key/comparator/render props; pure — no dispatch/sub/lease/hooks |
+| `(ui/render-fn [x] …)` | foreign → **during its render** | none promised | current render | no | item-key/comparator/render props; pure — no dispatch/sub/hooks |
 | bare `#(…)` in a **known native event property** (`:on-*` on DOM/custom elements) | DOM → after commit | per-site stable | its closure (committed render's values) | no | shorthand for `ui/handler` — legal because invoker + phase are known. **Only there**: not refs, not arbitrary fn-valued props |
 | bare fn at a **foreign-component** boundary | unknown | unknown | unknown | no | **compile error** — choose `ui/event`/`ui/handler`/`ui/render-fn`/`ui/raw-fn` |
 | `(ui/raw-fn f)` | foreign, identity-as-protocol | passed through | its closure | no | APIs that treat callback identity as data; also the callback-ref form |
@@ -480,8 +480,8 @@ carries (per [002 §`capture-frame`](002-Frames.md#capture-frame--the-keystone-a
 scope has unwound. It is the whole-bundle sibling of the one-verb `(dispatch-fn)`
 (§Effects and leases), and — like `sub` — a compile-indexed render-time site that this
 Spec's call-site surface owns; the ops themselves are core's ([002](002-Frames.md) /
-[006](006-ReactiveSubstrate.md)). Tiered **advanced** alongside its HOLD siblings
-(`lease`, `dispatch-fn`): the rare-imperative-need affordance, not a day-one porch form —
+[006](006-ReactiveSubstrate.md)). Tiered **advanced** alongside its HOLD sibling
+`dispatch-fn`: the rare-imperative-need affordance, not a day-one porch form —
 most views need only `sub` and bare event vectors.
 
 - **Zero-arity, finite, render-time.** `(frame)` takes no arguments — it binds to the
@@ -590,7 +590,6 @@ semantics.
 ```clojure
 (effect [node series] (draw! node series) #(destroy!))  ; rf= value deps; cleanup fn
 (effect :connect (subscribe-external!))                 ; runs at each connect; cleanup at disconnect
-(lease  {:resource :article/by-slug :params {:slug slug}})
 ```
 
 - `(effect [deps…] body)` is a passive host effect; deps compare by `rf=` (documented
@@ -607,17 +606,14 @@ semantics.
   [Pattern-AsyncEffect](Pattern-AsyncEffect.md) — unchanged dataflow doctrine.
 - `(ui/dispatch-fn)` is the stable committed-frame dispatcher for imperative callbacks;
   it fails loudly in every non-connected state (`:rf.error/dispatch-disconnected`).
-- `(lease descriptor)` **declares** resource liveness; it is recorded at render and
-  reconciled by one aggregated passive effect after commit (ensure/release-owner per
-  [016](016-Resources.md)). Reads stay passive (`(sub [:rf/resource …])`); `lease` in
-  loops is rejected; routes/events/machines remain the preferred causal owners (I-11).
+- Reads stay passive (`(sub [:rf/resource …])`); routes/events/machines remain the
+  preferred causal owners of resource liveness (I-11).
 
 ## Loading state is explicit
 
 Loading state is data in `app-db` (canonically
 [Pattern-RemoteData](Pattern-RemoteData.md)'s `:status`); views read it and branch.
-`sub` never fetches; `lease` declares liveness and acts only after connected commit;
-routes, events, and machines are the preferred causal owners of fetching. **Suspense as
+`sub` never fetches; routes, events, and machines are the preferred causal owners of fetching. **Suspense as
 loading state is a non-goal** — it hides loading in the substrate where tools cannot see
 it, SSR cannot replay it, and machines cannot govern it. Hiding a loading flag in
 `local` is the forbidden-tier violation above.
@@ -889,7 +885,7 @@ library view's own render scope and only when the slot renders. The slot's outpu
 child-like memo cost; keys and occurrence identity are the enclosing keyed list's,
 so keyed reorder under slots preserves identity).
 
-**A slot body is pure render phase.** `sub` / `lease` / `frame` reads, dispatch
+**A slot body is pure render phase.** `sub` / `frame` reads, dispatch
 (committed `:on-*` handlers), hooks, and refs inside a slot body are didactic
 compile errors (`:rf.ui.compile/impure-slot-body`) — the body executes deferred,
 inside a *different* view (the seam), so a reactive read there would be
@@ -937,7 +933,7 @@ keys `:key` `:ref` `:value` `:checked`, joined by the component's owned `:on-*`
 handler keys, may not appear in `caller`. A LITERAL offender is the compile error
 `:rf.ui.compile/spread-safe-owned-key`; a RUNTIME offender throws
 `:rf.error/ui-tree-malformed` (the guard is not `goog.DEBUG`-gated — it survives an
-advanced build exactly like the compiled lease-descriptor grammar guard). Every
+advanced build). Every
 other key passes: allowed `:on-*` values classify through the handler decision
 table (vector → dispatch, bare fn per the bare-fn law), and `aria-*`/`data-*`/
 `title`/`:class`/`:style` convert per the [004B](004B-UI-Tree-and-Conversion.md)
@@ -977,7 +973,7 @@ stable identity is the compiler's job, not the author's), `use-reducer` /
 Suspense is not an authoring surface — `lazy` (below) states the one contained exception.
 
 **Grammar and recognition.** The wrappers are ordinary namespace vars, but the compiler
-treats their call sites exactly as it treats `sub` / `lease` / `frame` sites: recognised
+treats their call sites exactly as it treats `sub` / `frame` sites: recognised
 by resolved head symbol against a closed FQN set inside the S1 expression walk, indexed
 into the manifest, and position-checked at compile time — the analyzer's existing
 finite-site machinery. Six of the seven (`use-ref`, `use-effect`, `use-layout-effect`,
@@ -1012,7 +1008,7 @@ form, or a loop. `sub`'s conditional reads are licensed because `sub` is not a h
 hooks do not get that licence, because React's hook order must be static. Rejection
 reuses the analyzer's finite-site path — the same closed-FQN recognition and the
 `in a loop / deferred callback / raw-fn or ref body / root expression` rejection that
-governs `sub` / `lease` / `frame` today — extended at S3 with conditional-position and
+governs `sub` / `frame` today — extended at S3 with conditional-position and
 inside-fn detection on the same env walk, with didactic messages ("hoist to the top of
 the view body"; "extract a keyed child view"). These are compile-time diagnostic ids that
 join the S1e compile-error roster (`:rf.ui.compile/*`); like the analyzer's other
@@ -1045,7 +1041,7 @@ asymmetry: dev's fixed hook skeleton makes adding your first `sub` a same-signat
 but hook counts must be static and the wrappers' count is unbounded, so **adding your
 first `use-ref` is a remount edit** — dev and prod alike. Every wrapper site (all seven)
 is recorded in the compiler manifest with kind, source coordinates, and template path —
-like `effect` / `lease` sites — consumed by Xray/Story before mount.
+like `effect` sites — consumed by Xray/Story before mount.
 
 **Host behaviour — JVM structural render, SSR, `render-static`.** One JVM emitter, one
 contract; these rows extend the JVM structural subset in its own idiom:
@@ -1176,7 +1172,7 @@ explicitly rather than fabricating them (`tools/xray/spec/021` §3.4.1).
 - **Compiler manifest — what *can* happen.** Per view, dev: source coords, prop slots +
   schema, template fingerprint, hook signature, capability bits, and every site (subs
   with query shapes; events with event shapes + `:serializable?`/`:dynamic` flags;
-  leases; effects; presence sites; trusted-markup `ui/html` sites) with source +
+  effects; presence sites; trusted-markup `ui/html` sites) with source +
   template path. No runtime values;
   useful before mount — consumed by Xray, Story, editors, and agents.
 - **Committed instance record — what *did* happen.** Published only at connected commit;
@@ -1384,7 +1380,7 @@ a conflict is resolved in that order and is a defect in this table.
 | §The portability law and the template AST | **S1** | shared analyzer → one AST and one emitter per host build; normalized structural equivalence (parity corpus v0); serialisation boundary; closed node set; AST-shape gate |
 | §`ui/defview` — grammar, props ABI, options map, registration, `rf=` comparator | **S1** | declaration arities + diagnostics; props ABI encoding + `:key` reservation; registrar `:view` entries; the ruled `rf=` comparator emitted and asserted against prop-driven re-render (subscription/local interplay asserts S2/S3; stable-shell identity is S2 HMR work) |
 | §Template grammar — forms, control forms, rejection roster | **S1** | table forms lower; compile-error roster with didactic messages |
-| §Template grammar — expression positions (the closed macro grammar) | **S2** | audited transparent set lowers with sites indexed below it; unaudited core/user macros rejected with the didactic escape (real-host-analyzer macro authority); bare `sub`/`lease` reference below a transparent macro rejected; binding-pattern/`:or` fences — the rf2-vxgfnd.100 hidden-sub/helper/binder-macro fixtures |
+| §Template grammar — expression positions (the closed macro grammar) | **S2** | audited transparent set lowers with sites indexed below it; unaudited core/user macros rejected with the didactic escape (real-host-analyzer macro authority); bare `sub` reference below a transparent macro rejected; binding-pattern/`:or` fences — the rf2-vxgfnd.100 hidden-sub/helper/binder-macro fixtures |
 | §Template grammar — prop conversion (the rule table; `ui/spread`) | **S1** | conversion-table fixtures consumed by both emitters (owning table: [004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md)); `spread` dynamic-map cases |
 | §Template grammar — custom elements (`ui/custom-element`, RULED grammar) | **S4** | property-vs-attribute classification; SSR attributes-only; W14 fixtures |
 | §Handlers — event vectors as structural data (manifest flags; JVM-tree `:events`) | **S1** | vectors/options-maps retained as data in tree + manifest; placeholder keywords retained as keywords |
@@ -1394,8 +1390,7 @@ a conflict is resolved in that order and is a defect in this table.
 | §Process substrate — `ui/adapter` | **S2** | exact closed adapter map; canonical `:rf.adapter/ui` discriminator; copied-kind routing; dispose/re-init; watch re-arm; real provider/render/flush/dispose browser proof |
 | §Local state + the placement rule | **S3** | `local` semantics; narrow-law fixtures (same-view handler read conforming; forbidden-tier diagnostics) |
 | §Effects and `ui/dispatch-fn` | **S3** | `rf=` deps + cleanup + StrictMode replay; `:connect` semantics; loud non-connected failure |
-| §Leases (view-side surface) | **S2** → confirms **S3** | the Resources ownership family (S2 — the `resource-lease-reconcile` fixtures): closed descriptor validation at finite compiler-owned lexical sites; render/abandonment owns nothing; one independent framework-minted owner per lexical site — an `rf=`-equal same-site descriptor retains its exact owner, movement retargets to a fresh owner; complete desired-set prevalidation before any mint or dispatch; every ensure queued before any release in deterministic per-frame order, drained as ordinary per-frame FIFO resource events — **no** global/cross-handler/cross-frame rollback of already-dispatched ensures is promised (transactional multi-acquire rollback is compiled `sub` **observation** acquisition's law — [006 §Transactional multi-acquire](006-ReactiveSubstrate.md#transactional-multi-acquire--staging-and-rollback) — not public `lease`); disconnect / teardown / frame- and root-destroy / Activity / StrictMode / HMR retention and release. View-level resource-lease confirmation fixture (S3) |
-| §Loading state is explicit | **S2** | `sub` never fetches; `lease` acts only after connected commit |
+| §Loading state is explicit | **S2** | `sub` never fetches |
 | §Presence | **S4** | enter/exit retention; `flush-presence!` fake-clock fixtures; JVM `:present` |
 | §Interop — `ui/raw` | **S1** → completes **S4** | compile form + opaque marker in the tree (S1); foreign-boundary corpus (S4) |
 | §Interop — `ui/html` | **S1** | dual-emitter agreement; the single escaping bypass; manifest site recording |

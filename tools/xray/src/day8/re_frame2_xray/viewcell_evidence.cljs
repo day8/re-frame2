@@ -72,7 +72,7 @@
   but it no longer reads the raw `re-frame.ui.tool.evidence/projection`
   interim shape. It reads the DEV-ONLY VERSIONED PUBLIC tier
   `re-frame.ui.tool` (rf2-vxgfnd.95.6) — the frozen read-only projections
-  a debugging consumer reads WITHOUT touching private React state, leases,
+  a debugging consumer reads WITHOUT touching private React state
   or the scheduler:
 
     - `explain-render`   → the cumulative render CAUSES per live incarnation,
@@ -83,7 +83,7 @@
                            and EXPLICIT `:loss` accounting.
     - `view-manifest` / `view-dependencies` / `view-event-sites` → the STATIC
                            registrar-manifest projections (`view-sites`) — a
-                           view's declared source, dependency sites (sub/lease,
+                           view's declared source, dependency sites (sub,
                            literal vs `:dynamic`), and event-handler sites
                            (`:literal` / `:normalized` / `:dynamic`), available
                            before mount.
@@ -418,9 +418,9 @@
      :source         {:file :line :column}?      ; the [code] chip source
      :display-name   str?
      :capabilities   #{…}                         ; :raw/:html/:foreign/…
-     :site-counts    {:subs n :events n :leases n …}
+     :site-counts    {:subs n :events n …}
      :template-fingerprint tf?
-     :dependencies   {:subscriptions [{…}] :leases [{…}]}  ; literal vs :dynamic
+     :dependencies   {:subscriptions [{…}]}  ; literal vs :dynamic
      :event-sites    [{:prop :site-kind :classification :serializable?
                        :handler …}]                ; :literal/:normalized/:dynamic
      :diagnostics    [{:sid :id :tag :suppressed? :reason?}]}  ; compile-tier a11y
@@ -445,8 +445,7 @@
                         :capabilities         (:capabilities m)
                         :site-counts          (:site-counts m)
                         :template-fingerprint (:template-fingerprint m)
-                        :dependencies         {:subscriptions (:subscriptions deps [])
-                                               :leases        (:leases deps [])}
+                        :dependencies         {:subscriptions (:subscriptions deps [])}
                         :event-sites          (:handlers events [])
                         ;; The compile-tier a11y findings (S4-C). Static
                         ;; evidence like everything else on this row: the

@@ -57,7 +57,6 @@
    :capabilities #{:cell}
    :sites
    {:subs   [{:sid "s-a" :query [:demo/total] :path [] :expr-path [0]}]
-    :leases []
     :events [{:sid "e-a" :site-index 0 :view-id :story.demo/widget
               :source-coord {:file "demo.cljc" :line 11} :path [:button 0]
               :prop :on-click :handler '[:demo/inc]

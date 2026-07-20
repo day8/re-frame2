@@ -157,7 +157,7 @@
 ;; classified (S3 verb, S3 view, or here) before the surface can silently drift.
 (def non-s3-facade-publics
   '#{adapter defview custom-element mount create-root render! hydrate-root
-     unmount! frame-root frame-provider sub lease frame raw html raw-fn spread
+     unmount! frame-root frame-provider sub frame raw html raw-fn spread
      ;; S4 presence (rf2-uckeg): the enter/exit retention template form + its
      ;; single phase read — not part of the S3 surface
      presence presence-phase

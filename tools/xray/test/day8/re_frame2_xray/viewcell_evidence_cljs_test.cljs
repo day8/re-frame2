@@ -258,7 +258,6 @@
       :props-schema nil
       :sites {:subs   [{:sid 1 :query [:cart/total] :path []}
                        {:sid 2 :query '[:cart/item qty] :path []}]
-              :leases []
               :events [{:sid 3 :prop :on-click :classification :vector
                         :serializable? true :handler [:cart/add 3] :path []}
                        {:sid 4 :prop :on-blur :classification :dynamic

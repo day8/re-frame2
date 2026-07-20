@@ -269,7 +269,7 @@
   every NEW public var must be classified (S3 verb/view, S4 delta, the S5 delta,
   or here)."
   '#{adapter defview mount create-root render! hydrate-root unmount!
-     frame-root frame-provider sub lease frame spread})
+     frame-root frame-provider sub frame spread})
 
 (def s5-facade-delta
   "The S5 facade delta — the ONE new re-frame.ui public S5 adds (rf2-oo5lb):

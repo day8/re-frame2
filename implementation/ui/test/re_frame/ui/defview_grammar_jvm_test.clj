@@ -5,13 +5,13 @@
   these pins hold for the CLJS expansion path too."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            ;; `sub`/`lease`/`frame` are referred so a BARE spelling resolves to
+            ;; `sub`/`frame` are referred so a BARE spelling resolves to
             ;; the public reactive authoring var through REAL CLJ macroexpansion.
             ;; The rf2-vxgfnd.268 ordered-scope proofs need the bare `sub` the
             ;; dzyqis flat scope over-accepted; the rf2-vxgfnd.274 self-precedence
-            ;; proofs need all three bare spellings so a recursive `defview`
+            ;; proofs need the bare spellings so a recursive `defview`
             ;; named for a verb reproduces the reserved-before-self escape.
-            [re-frame.ui :as ui :refer [defview sub lease frame]]
+            [re-frame.ui :as ui :refer [defview sub frame]]
             [re-frame.ui.compiler :as compiler]
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.emit-cljs :as emit-cljs]
@@ -128,16 +128,13 @@
   ;; rf2-vxgfnd.266 — the pure-analyzer fixtures inject resolution; this pins the
   ;; same reservation through ACTUAL CLJ var resolution during defview
   ;; macroexpansion (the macro JVM expands for the CLJS path too). A Hiccup head
-  ;; resolving to a public reactive authoring var (sub/lease/frame) must be
+  ;; resolving to a public reactive authoring var (sub/frame) must be
   ;; reserved BEFORE env/classify-head can classify it as a plain :foreign
   ;; component with an empty reactive manifest, letting the public authoring var
   ;; survive to runtime unindexed.
   (is (= :rf.ui.compile/unsupported-form
          (expand-error '(re-frame.ui/defview v [] [:div [re-frame.ui/sub {}]])))
       "a fully-qualified sub head is reserved through real resolution")
-  (is (= :rf.ui.compile/unsupported-form
-         (expand-error '(re-frame.ui/defview v [] [:div [re-frame.ui/lease {}]])))
-      "a fully-qualified lease head is reserved")
   (is (= :rf.ui.compile/unsupported-form
          (expand-error '(re-frame.ui/defview v [] [:div [re-frame.ui/frame]])))
       "a fully-qualified frame head is reserved")
@@ -166,8 +163,6 @@
     (testing "a recursive defview named for each reactive verb expands cleanly"
       (is (nil? (expand-error '(re-frame.ui/defview sub [] [sub {}])))
           "a view named sub recurses on a bare [sub …] self head")
-      (is (nil? (expand-error '(re-frame.ui/defview lease [] [lease {}])))
-          "a view named lease recurses on a bare [lease …] self head")
       (is (nil? (expand-error '(re-frame.ui/defview frame [] [frame {}])))
           "a view named frame recurses on a bare [frame …] self head"))
     (testing "a local binding of the self spelling still outranks self (tier 1)"
@@ -370,7 +365,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest export-surface-is-exactly-the-blessed-set
-  (is (= '#{defview custom-element sub lease raw html raw-fn spread
+  (is (= '#{defview custom-element sub raw html raw-fn spread
             ;; S1c (rf2-vxgfnd.3) — root identity + the mount surface
             mount create-root render! hydrate-root unmount! frame-root
             ;; S2c (rf2-vxgfnd.9) — the SCOPE-only frame-provider form

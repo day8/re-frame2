@@ -1265,7 +1265,7 @@
 ;; evidence a pairing agent reads from a running app. Each ships one
 ;; exists?-guarded self-describing form; the framework projection stamps
 ;; :rf.ui.tool/version and egresses only bounded serializable data (no ViewCell /
-;; lease / React handle). Absence is honest: :view-tier-unavailable (the optional
+;; React handle). Absence is honest: :view-tier-unavailable (the optional
 ;; day8/re-frame2-ui substrate is not loaded), :view-not-available (no such
 ;; compiled view), :view-tier-inactive (production build nil-gates the tier).
 ;; These project a view's MANIFEST + render EVIDENCE, not app-db values — like
@@ -1290,10 +1290,10 @@
                      "truth for a view's args — replaces a parallel args-description system), declared render-slot "
                      "+ interop sites, capability bits, template/hook fingerprints, and per-kind site counts. "
                      "READ-ONLY and VERSIONED (:rf.ui.tool/version) — read the version and reconcile if it differs "
-                     "from what you expect. Egresses only bounded serializable data (no ViewCell / lease / React "
+                     "from what you expect. Egresses only bounded serializable data (no ViewCell / React "
                      "handle). "
                      "Examples: "
-                     "1. {:view-id \":my.app/counter\"} -> {:ok? true :rf.ui.tool/version 1 :view-id "
+                     "1. {:view-id \":my.app/counter\"} -> {:ok? true :rf.ui.tool/version 2 :view-id "
                      ":my.app/counter :doc \"...\" :source {...} :props [{:key :label :doc \"...\" :schema :string}] "
                      ":site-counts {:subs 2 :events 1 ...}}. "
                      "2. No such compiled view: {:view-id \":nope\"} -> {:ok? false :reason :view-not-available}. "
@@ -1307,15 +1307,15 @@
 
 (def read-view-dependencies
   {:name "read-view-dependencies"
-   :description (str "The reactive dependency SITES a compiled re-frame.ui view declares — its subscription and "
-                     "lease sites — with query-shape HONESTY (rf2-vxgfnd.95.8). Reads "
+   :description (str "The reactive dependency SITES a compiled re-frame.ui view declares — its subscription "
+                     "sites — with query-shape HONESTY (rf2-vxgfnd.95.8). Reads "
                      "re-frame.ui.tool/view-dependencies: a fully-literal query is projected verbatim "
                      "(:dynamic? false); a query carrying a captured local is :dynamic? true (its literal :query-id "
                      "is still shown, the runtime argument is NOT fabricated). Read from the manifest, so available "
                      "BEFORE mount. READ-ONLY, versioned. "
                      "Examples: "
-                     "1. {:view-id \":my.app/row\"} -> {:ok? true :rf.ui.tool/version 1 :view-id :my.app/row "
-                     ":subscriptions [{:query [:total] :dynamic? false} {:query-id :item :dynamic? true}] :leases []}. "
+                     "1. {:view-id \":my.app/row\"} -> {:ok? true :rf.ui.tool/version 2 :view-id :my.app/row "
+                     ":subscriptions [{:query [:total] :dynamic? false} {:query-id :item :dynamic? true}]}. "
                      "2. No such view: {:view-id \":nope\"} -> {:ok? false :reason :view-not-available}. "
                      "3. Tier not loaded: {:view-id \":x\"} -> {:ok? false :reason :view-tier-unavailable}.")
    :typicalTokens 300

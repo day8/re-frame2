@@ -145,7 +145,6 @@
   ;; --- Reagent adapter (day8/re-frame2-reagent) — probe fully-rowed ---
   {:namespace "re-frame.adapter.reagent" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.adapter.reagent" :var "with-resource-lease" :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   ;; --- UIx adapter (day8/re-frame2-uix) — probe fully-rowed ---
   {:namespace "re-frame.adapter.uix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
@@ -154,7 +153,6 @@
   ;; capture-frame ops map for the ambient provider frame. UIx/Helix only
   ;; (Reagent's spelling of the same hold primitive is reg-view injection).
   {:namespace "re-frame.adapter.uix" :var "use-frame"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.adapter.uix" :var "use-resource-lease"  :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "use-current-frame"   :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "frame-provider"      :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "frame-root"          :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
@@ -167,7 +165,6 @@
   ;; rf2-y6dz8t — same shared `use-frame` hook as the UIx adapter (one core
   ;; impl, re-exported; capture-frame in hook position).
   {:namespace "re-frame.adapter.helix" :var "use-frame"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.adapter.helix" :var "use-resource-lease"  :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.helix" :var "use-current-frame"   :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.helix" :var "frame-provider"      :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.helix" :var "frame-root"          :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
@@ -313,8 +310,8 @@
   ;;     `(frame)` in a defview body returns the frame-locked
   ;;     `{:frame :dispatch :dispatch-sync :subscribe}` bundle (the standard
   ;;     capture-frame bundle, bound to the committed frame; 12 §2 blessed
-  ;;     table / guide 05). Tiered :advanced alongside its HOLD siblings
-  ;;     (lease / dispatch-fn) — the rare-imperative-need affordance, not the
+  ;;     table / guide 05). Tiered :advanced alongside its HOLD sibling
+  ;;     `dispatch-fn` — the rare-imperative-need affordance, not the
   ;;     day-one porch. Its normative contract is Spec 004 §The committed-frame
   ;;     ops bundle — `frame` (placement, ambient resolution + provider retarget,
   ;;     exact-incarnation stable identity, destroyed/replaced fencing, JVM
@@ -336,7 +333,6 @@
   {:namespace "re-frame.ui" :var "defview"        :kind :macro :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "custom-element" :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "sub"            :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? true}
-  {:namespace "re-frame.ui" :var "lease"          :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "raw"            :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "raw-fn"         :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "html"           :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}

@@ -44,7 +44,7 @@
             [re-frame.schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
-            [re-frame.ui :refer [defview lease sub]]
+            [re-frame.ui :refer [defview sub]]
             [re-frame.ui.test :as uit]))
 
 (def chapter-files
@@ -146,10 +146,10 @@
 
 ;; ---- the two views the chapter shows, verbatim in shape --------------------
 
-;; §2 — the resource tile: declares liveness with `lease`, reads status with a
-;; passive `[:rf/resource …]` sub, and branches on the real status set.
+;; §2 — the resource tile: reads status with a passive `[:rf/resource …]` sub,
+;; and branches on the real status set. A causal owner (route/machine/event)
+;; drives the resource's liveness; the view is a passive reader.
 (defview latency-tile []
-  (lease {:resource :metrics/latency-feed})
   (let [{:keys [status data]} (sub [:rf/resource {:resource :metrics/latency-feed}])]
     (case status
       (:idle :loading) [:div.tile.skeleton "…"]
@@ -199,10 +199,10 @@
   (reg-latency-feed!)
   (rf/with-new-frame
     [frame (rf/make-frame {})]
-    ;; the cause the view's `lease` would drive at runtime
+    ;; a causal owner (route/machine/event) drives the ensure at runtime
     (uit/dispatch! frame [:rf.resource/ensure
                           {:resource :metrics/latency-feed
-                           :owner    [:lease :metrics 1]}])
+                           :owner    [:metrics-route 1]}])
     (testing "the resource lowered its :request into :rf.http/managed verbatim,
               with runtime-owned reply addressing"
       (let [req @managed-args]
@@ -233,7 +233,7 @@
     [frame (rf/make-frame {})]
     (uit/dispatch! frame [:rf.resource/ensure
                           {:resource :metrics/latency-feed
-                           :owner    [:lease :metrics 1]}])
+                           :owner    [:metrics-route 1]}])
     (testing "failure — replay the {:status :error :error …} envelope; the tile
               branches to its error state and offers a real retry intent"
       (uit/dispatch! frame (conj (:on-failure @managed-args)
@@ -317,10 +317,9 @@
           "the exact request the executable gate lowers verbatim")
       (is (has? ":decode") "the Spec 014 decode key rides through")
       (is (has? ":json") "the decode value"))
-    (testing "§2 view — lease liveness + passive [:rf/resource …] read"
-      (is (has? "(lease {:resource :metrics/latency-feed})"))
+    (testing "§2 view — passive [:rf/resource …] read"
       (is (has? "(sub [:rf/resource {:resource :metrics/latency-feed}])")))
-    (testing "the ensure cause the lease drives under the hood"
+    (testing "the ensure cause a causal owner drives under the hood"
       (is (has? "[:rf.resource/ensure")))
     (testing "retry intent — the control carries a real refetch event as data"
       (is (has? "[:rf.resource/refetch {:resource :metrics/latency-feed}]")))

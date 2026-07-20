@@ -15,7 +15,7 @@
 
   THE CORRECTION. Deterministic compiler-ordered capture is the contract, so the
   contract is ENFORCED rather than engineered around: the capture records the
-  thread that opened it, and `sub-read` / `lease-site` throw a typed
+  thread that opened it, and `sub-read` throws a typed
   `:rf.error/ui-tree-malformed` from any other thread — BEFORE probing and
   BEFORE mutating the capture, so a rejected fork commits no partial ownership.
 
@@ -139,26 +139,6 @@
         (finally (.shutdownNow pool)))
       (is (= :rf.error/ui-tree-malformed (:rf.error/id @seen)))
       (is (= 're-frame.ui.reactive/sub-read (:where @seen))))))
-
-(deftest forked-lease-site-is-refused-before-minting-ownership
-  (reg-site-subs!)
-  (let [fid  :cap/lease-frame
-        _    (live-frame/make-frame {:id fid})
-        cell (reactive/make-cell ::lease-fork)
-        seen (atom nil)]
-    (rf/with-frame fid
-      (reactive/with-capture
-        cell
-        (fn []
-          (reset! seen (ex-data-of
-                        #(deref (future (reactive/lease-site
-                                         ::forked-lease
-                                         {:resource :feed/items})))))
-          nil)))
-    (is (= :rf.error/ui-tree-malformed (:rf.error/id @seen)))
-    (is (= 're-frame.ui.reactive/lease-site (:where @seen))
-        "the lease arm is guarded too — a forked lease must mint no desired
-         ownership and pin no incarnation")))
 
 ;; ---------------------------------------------------------------------------
 ;; The capture the guard protects: no PARTIAL ownership is committed by a

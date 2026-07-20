@@ -432,8 +432,7 @@
                 :capabilities #{:html}
                 :site-counts {:subs 2 :events 2}
                 :dependencies {:subscriptions [{:sid 1 :dynamic? false :query [:cart/total]}
-                                               {:sid 2 :dynamic? true}]
-                               :leases []}
+                                               {:sid 2 :dynamic? true}]}
                 :event-sites [{:prop :on-click :site-kind :literal
                                :serializable? true :handler [:cart/add 3]}
                               {:prop :on-blur :site-kind :dynamic
@@ -460,7 +459,7 @@
       {:sites [{:view-id :cart/Row
                 :source {:file "src/cart.cljs" :line 12 :column 3}
                 :site-counts {:subs 0 :events 1}
-                :dependencies {:subscriptions [] :leases []}
+                :dependencies {:subscriptions []}
                 :event-sites []
                 :diagnostics
                 [{:sid "sid1-aa" :id :rf.ui.compile/a11y-click-non-interactive
@@ -488,7 +487,7 @@
     (seed-evidence!
       {:sites [{:view-id :cart/Row
                 :site-counts {:subs 0 :events 0}
-                :dependencies {:subscriptions [] :leases []}
+                :dependencies {:subscriptions []}
                 :event-sites [] :diagnostics []}]})
     (let [tree (view/reactive-panel)]
       (is (nil? (th/find-by-testid
