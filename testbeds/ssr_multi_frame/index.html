@@ -16,8 +16,9 @@
   <div class="rf2-testbed-shell">
   <!--
     The pre-rendered HTML is a placeholder (`not-hydrated`); the
-    interesting assertion is the per-frame `:rf/hydration` metadata
-    after hydrate completes. Each frame receives its own
+    interesting assertion is the per-frame runtime-db hydration
+    metadata (`[:rf.runtime/ssr :hydration]`) after hydrate completes.
+    Each frame receives its own
     `:rf/hydrate` dispatch with a distinct payload slice; the post-
     hydrate summary block proves the three frames hold independent
     metadata (distinct `:server-hash` values) and the three counter

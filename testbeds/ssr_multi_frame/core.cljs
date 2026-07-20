@@ -23,9 +23,10 @@
   subtrees render the three panels. Each subtree reads ONLY its own
   frame's app-db — `:counter/a`'s `:n` sub fires against `:counter/a`'s
   app-db, never `:counter/b`'s. A `data-testid='hydration-summary'`
-  element renders the three frames' post-hydrate `:rf/hydration`
-  metadata to prove each frame's hydrate-event fired against its own
-  app-db (no cross-frame bleed).
+  element renders the three frames' post-hydrate hydration metadata —
+  read from each frame's runtime-db at `[:rf.runtime/ssr :hydration]` —
+  to prove each frame's hydrate-event fired against its own frame-state
+  (no cross-frame bleed).
 
   What a Playwright consumer observes:
 
@@ -33,12 +34,16 @@
       frame id. Cross-frame state is independent (Inc-A only bumps
       `:counter/a`; A's panel reads 11, B's panel still reads 99).
     - The hydration-summary block confirms three independent
-      `:rf/hydration {:server-hash ...}` records — one per frame —
-      proving the round-trip is per-frame.
+      runtime-db `[:rf.runtime/ssr :hydration] {:server-hash ...}`
+      records — one per frame — proving the round-trip is per-frame.
 
   This is NOT a tutorial — bodies are stark."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
+            ;; SSR hydration metadata is durable runtime-db state, so the
+            ;; per-frame :hydration readout is a runtime-db sub
+            ;; (reg-runtime-sub lives on the re-frame.subs surface).
+            [re-frame.subs :as subs]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.ssr :as ssr]
@@ -75,7 +80,13 @@
 
 (rf/reg-sub :n          (fn [db _] (:n db)))
 (rf/reg-sub :entries    (fn [db _] (:entries db)))
-(rf/reg-sub :hydration  (fn [db _] (:rf/hydration db)))
+;; The SSR hydration metadata is durable runtime-db state — the `:rf/hydrate`
+;; handler stashes it at [:rf.runtime/ssr :hydration] in each frame's
+;; runtime-db partition (NOT app-db). So :hydration is a runtime-db sub; the
+;; frame-explicit `{:frame f}` reads in `hydration-summary` resolve it against
+;; each named frame's runtime-db.
+(subs/reg-runtime-sub :hydration
+  (fn [rt _] (get-in rt [:rf.runtime/ssr :hydration])))
 
 ;; ----------------------------------------------------------------------------
 ;; Views
@@ -124,8 +135,9 @@
         [:li (pr-str e)])]]))
 
 (reg-view hydration-summary []
-  ;; Cross-frame readout — proves each frame's :rf/hydration metadata
-  ;; was written independently. Reactive `subscribe` with the frame-explicit
+  ;; Cross-frame readout — proves each frame's runtime-db hydration
+  ;; metadata ([:rf.runtime/ssr :hydration]) was written independently.
+  ;; Reactive `subscribe` with the frame-explicit
   ;; opts form (`[query-v {:frame f}]`) so each reaction resolves against the
   ;; named frame's app-db (this view renders OUTSIDE any `frame-provider`),
   ;; and the summary re-renders when a frame's hydration metadata changes.
@@ -184,6 +196,14 @@
   (rf/make-frame {:id frame-a :initial-events [[::counter-init]]})
   (rf/make-frame {:id frame-b :initial-events [[::counter-init]]})
   (rf/make-frame {:id frame-log :initial-events [[::log-init]]})
+  ;; EP-0002 (rf2-9o48ih): `root` is a `reg-view`, so its wrapper resolves
+  ;; a frame at render time for its injected bindings — it must render under
+  ;; a provider. Use a neutral SHELL frame (`:rf/default`) as the page-root
+  ;; scope; the three per-frame providers nested inside `root` override it
+  ;; for their subtrees, and `hydration-summary`'s frame-explicit
+  ;; `{:frame f}` reads target the three app frames directly, so the shell
+  ;; carries no app state of its own.
+  (rf/make-frame {:id :rf/default})
 
   (let [payload (read-server-payload)
         ;; payload shape:
@@ -198,4 +218,4 @@
       ;; spec/002 §Routing the dispatch envelope).
       (doseq [[fid slice] per-frame]
         (rf/dispatch-sync [:rf/hydrate slice] {:frame fid})))
-    (rdc/render react-root [root])))
+    (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]])))

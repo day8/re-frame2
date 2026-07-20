@@ -22,9 +22,11 @@
     - The pre-rendered counter / title / response panel are visible from
       the first byte (before main.js loads).
     - After main.js boots, `:rf/hydrate` replaces app-db with the
-      payload's `:rf/app-db` slice. The hydrate metadata lands at
-      [:rf/hydration] in app-db and a `data-testid='hydrated'` element
-      switches from `not-hydrated` to `hydrated`.
+      payload's `:rf/app-db` slice. The hydrate metadata lands in
+      runtime-db at [:rf.runtime/ssr :hydration] (durable framework
+      runtime state per Conventions §Reserved runtime-db keys) and a
+      `data-testid='hydrated'` element switches from `not-hydrated` to
+      `hydrated`.
     - `:rf.ssr/check-version` (always) and `:rf.ssr/check-schema-digest`
       (when the payload carries a digest) fxs run. `check-version`
       resolves its client-side actual from the SSR artefact's compiled-in
@@ -46,6 +48,10 @@
   dispatch, and post-render `verify-hydration!`."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
+            ;; SSR hydration metadata is durable runtime-db state, so the
+            ;; :hydrated? discriminator is a runtime-db sub (reg-runtime-sub
+            ;; lives on the re-frame.subs surface).
+            [re-frame.subs :as subs]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.ssr :as ssr]
@@ -110,7 +116,12 @@
 (rf/reg-sub :count       (fn [db _] (or (:count db) 0)))
 (rf/reg-sub :title       (fn [db _] (or (:title db) "untitled")))
 (rf/reg-sub :server-resp (fn [db _] (:server-response db)))
-(rf/reg-sub :hydrated?   (fn [db _] (boolean (:rf/hydration db))))
+;; The SSR hydration metadata is durable runtime-db state — the `:rf/hydrate`
+;; handler stashes it at [:rf.runtime/ssr :hydration] in the runtime-db
+;; partition (NOT app-db). So :hydrated? is a runtime-db sub reading the
+;; canonical source.
+(subs/reg-runtime-sub :hydrated?
+  (fn [rt _] (boolean (get-in rt [:rf.runtime/ssr :hydration]))))
 
 ;; ----------------------------------------------------------------------------
 ;; Views
@@ -205,8 +216,9 @@
       (if payload
         ;; HOT PATH — :rf/hydrate is auto-registered by re-frame.ssr;
         ;; replaces app-db with the payload's :rf/app-db, stashes
-        ;; metadata at [:rf/hydration], dispatches the two compatibility-
-        ;; check fxs (which the trace listener mirrors).
+        ;; metadata in runtime-db at [:rf.runtime/ssr :hydration],
+        ;; dispatches the two compatibility-check fxs (which the trace
+        ;; listener mirrors).
         (rf/dispatch-sync [:rf/hydrate payload])
         ;; Degraded path: no payload baked. Don't crash — render against
         ;; the empty app-db. This is the "client-only first load" shape.
@@ -214,8 +226,9 @@
     (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]])
 
     ;; HOT PATH — verify-hydration! reads the server-hash stashed at
-    ;; [:rf/hydration :server-hash], computes the client-render hash,
-    ;; and emits :rf.ssr/hydration-mismatch on disagreement.
+    ;; [:rf.runtime/ssr :hydration :server-hash] in runtime-db, computes
+    ;; the client-render hash, and emits :rf.ssr/hydration-mismatch on
+    ;; disagreement.
     ;; Resolve the view under the current (default) frame so the
     ;; subs evaluate against the post-hydrate app-db.
     (when payload

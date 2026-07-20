@@ -16,7 +16,7 @@ and dispatches `[:rf/hydrate slice]` against each frame.
 | `panel-A`, `panel-B`, `panel-log` | Per-frame panel containers. |
 | `n-A`, `n-B` | The seeded `:n` from each counter frame's payload slice (`10`, `99`). |
 | `entries-count` | The `:log` frame's payload-seeded entry count (`2`). |
-| `hyd-A`, `hyd-B`, `hyd-log` | `true` once each frame's `:rf/hydration` metadata lands. |
+| `hyd-A`, `hyd-B`, `hyd-log` | `true` once each frame's `[:rf.runtime/ssr :hydration]` metadata lands in its runtime-db (read via a `reg-runtime-sub`). |
 | `hash-A`, `hash-B`, `hash-log` | The payload-supplied `:rf/render-hash` per frame (`aaaa1111`, `bbbb2222`, `cccc3333`). |
 | `summary-{a,b,log}-hash` | Cross-frame readout via `rf/subscribe-once frame-id`. |
 | `summary-all-distinct` | `true` iff the three per-frame `:server-hash` values are pairwise distinct — proves no cross-frame bleed. |
@@ -43,16 +43,31 @@ and dispatches `[:rf/hydrate slice]` against each frame.
 
 ## Running
 
+This surface is a dev / Xray observation target — it is **not** staged
+by any smoke gate (the adapter-smoke orchestrator serves only the three
+adapter smokes under `implementation/adapters/<name>/testbed/`). Build
+and view it by hand.
+
 From `implementation/`:
 
 ```bash
-shadow-cljs watch testbeds/ssr-multi-frame
-# Or via the orchestrator:
-npm run test:adapter-smokes
+npm run dev -- :testbeds/ssr-multi-frame
+# …or a one-shot compile:
+npx shadow-cljs compile :testbeds/ssr-multi-frame
 ```
 
-Build id `testbeds/ssr-multi-frame`; served at
-`/testbed-ssr-multi-frame/`.
+Shadow-cljs build id is `:testbeds/ssr-multi-frame`; `main.js` lands in
+`implementation/out/examples/testbed-ssr-multi-frame/`. To view the
+three per-frame panels in a browser, stage this testbed's `index.html`
+next to that `main.js` and serve the directory:
+
+```bash
+cp testbeds/ssr_multi_frame/index.html out/examples/testbed-ssr-multi-frame/
+npx http-server out/examples/testbed-ssr-multi-frame -p 8080
+# open http://127.0.0.1:8080/ — the summary block shows three distinct
+# per-frame server-hashes (all-distinct=true), each read from its own
+# frame's runtime-db.
+```
 
 ## Cross-references
 
