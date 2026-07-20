@@ -217,7 +217,7 @@
   (let [{:keys [route-id params query fragment]} current-route]
     (when (and route-id (keyword? route-id) (registrar/lookup :route route-id))
       (try
-        (registry/route-url route-id (or params {}) (or query {}) fragment)
+        (registry/route-url {:to route-id :params (or params {}) :query (or query {}) :fragment fragment})
         (catch #?(:clj Throwable :cljs :default) _ nil)))))
 
 ;; ---------------------------------------------------------------------------
@@ -226,17 +226,17 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- event-opts
-  "Extract the trailing opts map from a nav event vector — the slot the
+  "Extract the opts-carrier map from a nav event vector — the slot the
   resume-chain carries `:rf.route/enter-attempts` in. `:rf.route/navigate`
-  keeps opts in the 4th slot (`[_ target params opts]`); the URL-driven
-  events + `:rf.route/url-requested` keep it in the 2nd (`[_ url-or-request
-  opts?]` — for `:rf.route/url-requested` the request map itself IS the opts
-  carrier). Returns a map (possibly empty)."
+  and `:rf.route/url-requested` carry it in the 2nd slot: the REQUEST MAP
+  itself is the opts carrier (`[_ request]`). The URL-driven events keep it
+  in the 2nd trailing slot (`[_ url opts?]`). Returns a map (possibly
+  empty)."
   [event-vec]
   (let [event-id (first event-vec)]
     (case event-id
-      :rf.route/navigate          (or (nth event-vec 3 nil) {})
-      :rf.route/url-requested           (let [a (second event-vec)] (if (map? a) a {}))
+      (:rf.route/navigate
+       :rf.route/url-requested)     (let [a (second event-vec)] (if (map? a) a {}))
       (:rf.route/transitioned
        :rf.route/handle-url-change) (or (nth event-vec 2 nil) {})
       {})))
@@ -460,8 +460,8 @@
         [:rf.route/url-requested (add-opts request)])
 
       :rf.route/navigate
-      (let [[_ target params opts] event-vec]
-        [:rf.route/navigate target params (add-opts opts)])
+      (let [request (if (map? (second event-vec)) (second event-vec) {})]
+        [:rf.route/navigate (add-opts request)])
 
       :rf.route/transitioned
       (let [[_ url opts] event-vec]

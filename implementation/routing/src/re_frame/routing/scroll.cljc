@@ -196,10 +196,10 @@
   [route-slice]
   (when-let [id (:route-id route-slice)]
     (try
-      (registry/route-url id
-                          (or (:params route-slice) {})
-                          (or (:query route-slice) {})
-                          (:fragment route-slice))
+      (registry/route-url {:to       id
+                           :params   (or (:params route-slice) {})
+                           :query    (or (:query route-slice) {})
+                           :fragment (:fragment route-slice)})
       (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defn capture-scroll-fx-entry

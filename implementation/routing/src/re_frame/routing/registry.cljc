@@ -1505,13 +1505,20 @@
 
 (defn route-url
   "Per Spec 012 §Bidirectional URL ↔ params. Build a URL string from a
-  route-id + path-params (+ optional query-params + optional fragment).
-  Canonical inverse of `match-url` over values accepted by the route schema.
+  single ADDRESS map `{:to <route-id> :params <path-params> :query
+  <query-params> :fragment <fragment>}` — `:to` names the route (requests
+  spell the route id `:to`; facts spell it `:route-id`). Canonical inverse
+  of `match-url` over values accepted by the route schema. Strictly
+  address-only: `:url`, `:query-merge`, policy keys (`:replace?` / `:scroll`
+  / `:bypass-guards?`), and any unknown key are rejected LOUD
+  (`:rf.error/route-url-validation`, `:reason :bad-address-keys`) rather than
+  silently ignored. There is no in-place form (a pure helper cannot read the
+  current route); callers project their request/target into the address map.
 
   Optional groups ({...}?) are emitted only when ALL their inner params
-  are supplied in path-params; otherwise the group is silently elided.
+  are supplied in `:params`; otherwise the group is silently elided.
 
-  4-arity: when `fragment` is non-nil and non-empty, appends `#fragment`
+  When `:fragment` is non-nil and non-empty, appends `#fragment`
   to the URL (per Spec 012 §Fragments §Programmatic navigation with
   fragments). nil or empty-string fragments are not appended.
 
@@ -1546,9 +1553,21 @@
   (precomputed at registration time by `parse-pattern`), so the inner
   loop uses the compiled group lookup rather than re-walking the pattern
   source."
-  ([route-id path-params] (route-url route-id path-params {} nil))
-  ([route-id path-params query-params] (route-url route-id path-params query-params nil))
-  ([route-id path-params query-params fragment]
+  ([{route-id :to path-params :params query-params :query fragment :fragment :as address}]
+   ;; Strictly ADDRESS-ONLY (Spec 012 route-url): reject `:url`,
+   ;; `:query-merge`, policy keys, and any unknown key LOUD rather than
+   ;; silently ignoring them. The navigate handler select-keys'es its request
+   ;; and link-model projects its target map, so the framework callers never
+   ;; trip this; a direct misuse of the public `route-url` fails fast.
+   (when-let [bad (seq (remove #{:to :params :query :fragment} (keys address)))]
+     (throw (route-error
+              :rf.error/route-url-validation
+              'rf.routing/route-url
+              (str "route-url is address-only: it accepts only :to :params :query "
+                   ":fragment. Rejected key(s) " (pr-str (vec (sort bad)))
+                   " (:url / :query-merge / policy keys / unknown keys are not "
+                   "accepted by route-url).")
+              {:route-id route-id :keys (vec (sort bad)) :reason :bad-address-keys})))
    (let [query-params (or query-params {})
          ;; Elide nil-valued query keys before schema validation, and reuse
          ;; that same map for emission. Per

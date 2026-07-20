@@ -36,7 +36,7 @@
   strategies — the path-form href is the server shell, and the hydrated
   CLJS render fn re-encodes on the client)."
   [{:keys [to params query fragment] :as props} encode]
-  (let [path-url (registry/route-url to (or params {}) (or query {}) fragment)]
+  (let [path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})]
     [path-url (-> props
                   (dissoc :to :params :query :fragment :on-click)
                   (assoc :href (encode path-url)))]))
@@ -255,7 +255,7 @@
   no address bar); on hydration the CLJS render re-encodes through the frame
   strategy. Per Spec 012 §Linking from views and the rf2-5yovjt ruling."
   [{:keys [to params query fragment] :as target} render-frame]
-  (let [path-url (registry/route-url to (or params {}) (or query {}) fragment)
+  (let [path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
         encode   #?(:cljs (:encode (strategy/url-strategy-for-frame-id render-frame))
                     :clj  identity)]
     {:href    (encode path-url)
