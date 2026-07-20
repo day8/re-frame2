@@ -228,7 +228,7 @@
                                                :reason :activity-hidden
                                                :proof :reconnect}]
                                   :dropped 0 :exact? true}
-                      :causes #{:value} :render-count 4 :batches 2
+                      :causes #{:subscription} :render-count 4 :batches 2
                       :first-epoch 10 :latest-epoch 14
                       :observations {:targets [[:sub :rf/app [:a]]]
                                      :identity-exact? false}

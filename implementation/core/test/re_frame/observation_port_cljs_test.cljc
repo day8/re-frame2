@@ -497,7 +497,7 @@
 ;; the two cannot drift. A watchable host whose derived value recomputes NaN→NaN
 ;; fires its `add-watch` UNCONDITIONALLY (clojure/cljs atoms notify on every
 ;; reset!, value-blind), but NaN=NaN under the movement law: there is no value
-;; movement, so the port must emit NO `:cause :value` notification. Raw `not=`
+;; movement, so the port must emit NO `:cause :subscription` notification. Raw `not=`
 ;; treated NaN≠NaN and spuriously fanned out — a value-movement notification
 ;; without value movement, dirtying a downstream ViewCell while the node version
 ;; (governed by the same `node-value=`) stayed put.
@@ -567,7 +567,7 @@
                 "value delivery performed ZERO additional observable reads")
             (is (= 1 (count @notes))
                 "the public handle callback received exactly one movement")
-            (is (= :value (:cause (first @notes))))
+            (is (= :subscription (:cause (first @notes))))
             (is (= target (:target (first @notes)))))
           (finally
             (obs/release! handle)))))))
@@ -585,7 +585,7 @@
       ;; watch DOES fire with prev=NaN, nu=NaN, exercising the fan-out gate.
       (reset! host ##NaN)
       (is (empty? @notes)
-          "no :cause :value notification for a NaN→NaN no-movement recompute
+          "no :cause :subscription notification for a NaN→NaN no-movement recompute
            (raw not= would spuriously fan out — NaN≠NaN natively)")
       (is (= base-v (:version (:last @state)))
           "the node version did not advance — NaN=NaN under the movement law"))
@@ -593,9 +593,9 @@
       (let [n-before (count @notes)]
         (reset! host 5)
         (is (= 1 (- (count @notes) n-before))
-            "exactly one :cause :value notification for real movement")
+            "exactly one :cause :subscription notification for real movement")
         (let [note (last @notes)]
-          (is (= :value (:cause note)))
+          (is (= :subscription (:cause note)))
           (is (= target (:target note)))
           (is (= (inc base-v) (:node-version note))
               "the notification carries the once-advanced node version")

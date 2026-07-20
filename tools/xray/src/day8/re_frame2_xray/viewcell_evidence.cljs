@@ -353,7 +353,7 @@
      :latest-epoch   eN       ; most recent movement
      :count          n        ; total invalidation/render occurrences
      :batches        b        ; flushed batches that delivered evidence
-     :causes         #{…}     ; union cause set (:value/:hmr/:disposed)
+     :causes         #{…}     ; union cause set (:subscription/:hmr/:disposed)
      :targets        [tk …]   ; bounded shown sample of moving targets
      :targets-exact? bool     ; observation-identity fidelity (false ⇒ opaque)
      :dropped-count  d        ; distinct omitted targets (honest loss)

@@ -5,7 +5,7 @@
 
   The plain-atom port suites (`re-frame.observation-port-cljs-test`) are
   IDeref-only: their derived sub values are NOT `IWatchable`, so the per-handle
-  `add-watch` the port installs never fires and the entire `{:cause :value}`
+  `add-watch` the port installs never fires and the entire `{:cause :subscription}`
   fan-out — the delivered-value node-record advance, the handle `:last` update,
   and that path's dev reentrancy guard — runs in no test there (the untested
   half of `acquire!`). This file grafts the SAME port onto the stock Reagent
@@ -29,7 +29,7 @@
   The push path: a `dispatch-sync` MOVES the sub's value; `reagent.ratom/flush!`
   re-runs the driver (and through it the node), and — the value changed — the
   node notifies the port watch, which advances the node record with the
-  DELIVERED value (no recompute, I-5) and fans `{:cause :value …}` to the
+  DELIVERED value (no recompute, I-5) and fans `{:cause :subscription …}` to the
   handle's own `on-change`.
 
   CLJS-only (Reagent is CLJS); ns ends in `-cljs-test` so the consolidated
@@ -41,7 +41,7 @@
   clojure/cljs `=` (and Reagent's `=`-gated reaction-notify) treat `NaN ≠ NaN`,
   so a NaN→NaN recompute genuinely FIRES the host watch — yet the movement law
   (`node-value=` / `eq/rf=`, NaN self-equal on both hosts) is NO movement, so
-  the port must fan NO `:cause :value` note, advance NO node version, dirty NO
+  the port must fan NO `:cause :subscription` note, advance NO node version, dirty NO
   ViewCell, and drive NO render. A naive raw `not=` at the make-watch-handler
   seam would spuriously fan a phantom movement against a stable node. These
   proofs (a) stand an INDEPENDENT sentinel watch to show the host callback
@@ -136,12 +136,12 @@
   cell)
 
 ;; ===========================================================================
-;; the value-movement watch channel — {:cause :value} end-to-end
+;; the value-movement watch channel — {:cause :subscription} end-to-end
 ;; ===========================================================================
 
 (deftest watchable-host-value-movement-fires-cause-value-end-to-end
   (testing "on a WATCHABLE (Reagent) host, a sub value MOVEMENT fires the
-            port's per-handle watch → {:cause :value} with an ADVANCED
+            port's per-handle watch → {:cause :subscription} with an ADVANCED
             node-version and the handle :last updated to the DELIVERED value —
             the make-watch-handler channel the plain-atom suites cannot reach"
     (register!)
@@ -169,11 +169,11 @@
             ;; --- MOVE the value; flush the reaction queue (the push) ---
             (rf/dispatch-sync [:obs/set-n 2])
             (ratom/flush!)
-            (testing "the value-movement watch fired the {:cause :value} channel"
+            (testing "the value-movement watch fired the {:cause :subscription} channel"
               (is (pos? (count @notes))
                   "the port's per-handle watch fired on the value movement")
-              (is (every? #(= :value (:cause %)) @notes)
-                  "every fan-out on this path carries {:cause :value}")
+              (is (every? #(= :subscription (:cause %)) @notes)
+                  "every fan-out on this path carries {:cause :subscription}")
               (let [ev (peek @notes)]
                 (is (= target (:target ev)) "the payload carries the handle target")
                 (is (= node0 (:node-key ev)) "same node — a MOVEMENT, not a rebuild")
@@ -191,7 +191,7 @@
 
 (deftest watchable-host-idempotent-move-does-not-fan-cause-value
   (testing "a commit that leaves the sub value UNMOVED does not fire the
-            {:cause :value} channel — the reaction's `=` notify gate (and the
+            {:cause :subscription} channel — the reaction's `=` notify gate (and the
             node-record's rf= version hold) mean an equal re-commit is silent"
     (register!)
     (rf/dispatch-sync [:obs/set-n 7])
@@ -208,7 +208,7 @@
             (rf/dispatch-sync [:obs/set-n 7])
             (ratom/flush!)
             (is (empty? @notes)
-                "an unmoved value fans nothing on the :value channel")
+                "an unmoved value fans nothing on the :subscription channel")
             (is (= v0 (:version (handle-last handle)))
                 "the node-version did not advance for an equal re-commit"))
           (finally
@@ -221,7 +221,7 @@
 
 (deftest watchable-host-value-fan-out-holds-the-reentrancy-guard
   (testing "an on-change that mutates graph ownership (release!) from INSIDE
-            the {:cause :value} fan-out trips the dev reentrancy guard —
+            the {:cause :subscription} fan-out trips the dev reentrancy guard —
             :rf.error/reentrant-graph-op — the make-watch-handler-path leg of
             the guard the plain-atom suites cannot reach"
     (register!)
@@ -260,7 +260,7 @@
 (deftest watchable-host-nan-to-nan-fires-watch-but-fans-no-value-movement
   (testing "on a WATCHABLE (Reagent) host, a NaN→NaN recompute FIRES the
             underlying host watch (an independent sentinel proves the callback
-            ran) yet the port's node-value= gate emits NO {:cause :value} note
+            ran) yet the port's node-value= gate emits NO {:cause :subscription} note
             and advances NO node version — the make-watch-handler NaN-suppression
             proven through PUBLIC acquire!. A raw not= at the seam (NaN≠NaN
             natively) would spuriously fan a phantom value movement."
@@ -291,15 +291,15 @@
                   "the underlying Reagent host watch FIRED for NaN→NaN — the
                    port's make-watch-handler callback genuinely ran (non-vacuous)")
               (is (empty? @notes)
-                  "NaN→NaN emitted NO {:cause :value} note — node-value= suppressed
+                  "NaN→NaN emitted NO {:cause :subscription} note — node-value= suppressed
                    the fan-out (raw not= would fan a phantom movement)")
               (is (= v0 (:version (handle-last handle)))
                   "the node version did NOT advance — NaN=NaN under the movement law"))
             (testing "positive control — a REAL move fans exactly once + advances"
               (rf/dispatch-sync [:obs/set-n 5])
               (ratom/flush!)
-              (is (= 1 (count @notes)) "exactly one {:cause :value} for a real move")
-              (is (= :value (:cause (first @notes))))
+              (is (= 1 (count @notes)) "exactly one {:cause :subscription} for a real move")
+              (is (= :subscription (:cause (first @notes))))
               ;; EXACT `inc`, not merely `> v0`: `advance-node-record!` advances
               ;; the node version by exactly `(inc (:version rec))` per real
               ;; movement (observation.cljc), and between `v0` and this single

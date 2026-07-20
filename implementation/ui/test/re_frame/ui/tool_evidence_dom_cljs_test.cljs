@@ -136,7 +136,7 @@
 
 (def ^:private cycle-evidence
   {:first-epoch 1 :latest-epoch 1 :count 1
-   :causes #{:value} :targets [] :dropped #{} :dropped-exact? true})
+   :causes #{:subscription} :targets [] :dropped #{} :dropped-exact? true})
 
 (defn- publish-cycle-refs!
   "Publish direct + nested query→ViewCell cycles, assert the public projection
@@ -221,8 +221,8 @@
                              "…the with-root-minted client root")
                          (is (pos? (:count evidence)))
                          (is (= 1 (:batches evidence)) "one coalesced flush")
-                         (is (contains? (:causes evidence) :value)
-                             "the port's real :value cause")
+                         (is (contains? (:causes evidence) :subscription)
+                             "the port's real :subscription cause")
                          (is (some #(= [::value] (nth % 2)) (:targets evidence))
                              "the moving sub is a shown target")
                          (is (some? (:latest-epoch evidence))

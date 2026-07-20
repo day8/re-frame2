@@ -372,7 +372,7 @@
                :lifecycle {:intervals [{:state :disconnected
                                         :reason :activity-hidden :proof :reconnect}]
                            :dropped 0 :exact? true}
-               :causes #{:value} :count 4 :batches 2
+               :causes #{:subscription} :count 4 :batches 2
                :first-epoch 10 :latest-epoch 14
                :targets [[:sub :rf/app [:a]]] :targets-exact? false
                :dropped-count 70 :dropped-exact? false}]})

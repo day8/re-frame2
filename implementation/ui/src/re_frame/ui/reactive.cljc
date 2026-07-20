@@ -1370,7 +1370,7 @@
     {:first-epoch    e0    ; the FIRST movement's frame-epoch (the anchor)
      :latest-epoch   eN    ; the most-recent movement's frame-epoch
      :count          n     ; total invalidation OCCURRENCES folded this window
-     :causes         #{…}  ; the SET of causes seen (:value/:hmr/:disposed — ≤3)
+     :causes         #{…}  ; the SET of causes seen (:subscription/:hmr/:disposed — ≤3)
      :targets        [tk…] ; distinct moving targets SHOWN, capped at `target-cap`
      :dropped        #{tk} ; distinct moving targets OMITTED past the shown cap —
                            ;   a BOUNDED SET; its COUNT is the honest fan-out loss
@@ -1433,7 +1433,7 @@
 ;; ONLY the explicitly-ruled fields are preserved per cause (Ruling 2); this is
 ;; NOT a general evidence framework:
 ;;   - :subscription  target / query / frame-id + version :from->:to + :epoch,
-;;                    read straight off the `:value` port-note axes (:target,
+;;                    read straight off the `:subscription` port-note axes (:target,
 ;;                    :node-key, :node-version, :frame-epoch). `:from` is the
 ;;                    version before the movement (the port advances it by one per
 ;;                    move); a coalesced window keeps the EARLIEST :from and the
@@ -1446,21 +1446,21 @@
 
 (defn- commit-cause-fact
   "Project ONE port-note `payload` to its S6 commit-cause `[kind detail]` pair, or
-  nil when the note carries no commit cause. The `:value` port cause is renamed to
-  `:subscription` HERE (the record is slice b's new surface); the still-`:value`
-  port keyword and the Xray cumulative window keep their vocabulary until slice
-  d's coordinated schema bump. DEBUG-only — reached only from the DEBUG arm of
-  `enrol-dirty-window!`."
+  nil when the note carries no commit cause. The port cause keyword is
+  `:subscription` — unified port-wide (rf2-ao46i, RULING 2): the observation port,
+  this per-commit record surface, and the Xray cumulative window all speak the one
+  `:subscription` vocabulary, so no rename happens at this boundary. DEBUG-only —
+  reached only from the DEBUG arm of `enrol-dirty-window!`."
   [{:keys [cause target node-key node-version frame-epoch]}]
   (case cause
-    :value    [:subscription {:target   node-key
-                              :query    (:query target)
-                              :frame-id (:frame-id target)
-                              :from     (some-> node-version dec)
-                              :to       node-version
-                              :epoch    frame-epoch}]
-    :hmr      [:hmr {}]
-    :disposed [:disposed {}]
+    :subscription [:subscription {:target   node-key
+                                  :query    (:query target)
+                                  :frame-id (:frame-id target)
+                                  :from     (some-> node-version dec)
+                                  :to       node-version
+                                  :epoch    frame-epoch}]
+    :hmr          [:hmr {}]
+    :disposed     [:disposed {}]
     nil))
 
 (defn- merge-commit-cause
