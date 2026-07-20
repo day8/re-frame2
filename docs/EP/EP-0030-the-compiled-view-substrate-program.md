@@ -138,7 +138,7 @@ any production code.
 5. **S5 — SSR roots + hydration:** root manifests, idempotent frame payloads,
    failure isolation, `render-static`.
 6. **S6 — production specialization + repo adoption:** capability-specialized
-   output, absence/equivalence/budget gates, migrator,
+   output, absence/equivalence/budget gates, the migration skill,
    examples/docs/skills/template/CI rewrite; RealWorld-resources + Story + Xray
    green is the proof.
 7. **S7 — alpha + Helix-removal wave:** every gate green, demand-bar prune,
@@ -147,9 +147,10 @@ any production code.
    reagent-slim live on as first-class adapters; `re-frame.ui` remains a new
    experimental substrate, not their replacement.
 
-S1–S4 are complete and declared conforming (the S3 and S4 conformance profiles
-live under `spec/conformance/`); S5 is the live stage. For a stage in flight the
-program's tracker is the state, not this page. Trigger-gated spikes (`ui/tpl`,
+S1–S4 are complete and declared conforming, and S5's surfaces are shipped and
+proven (the S3, S4, and S5 conformance profiles live under `spec/conformance/`;
+the S5 profile's formal conforming declaration is pending); S6 is the live
+stage. For a stage in flight the program's tracker is the state, not this page. Trigger-gated spikes (`ui/tpl`,
 registered `ui/view`, `ui/portal`, `defview-alias`, reset-key `local`) sit
 outside stage scope until their named triggers fire; EP-0035 records the
 rulings. The re-com native port is a separate directed program — deliberately
@@ -164,20 +165,24 @@ freeze", with the §2b authoritative surface matrix (name → stage / owner / pr
 fixture / spec home). This EP references those tables rather than duplicating
 them; **anything not in the table is not part of `re-frame.ui`'s public
 surface** (the demand bar disciplines the new substrate's own API — it says
-nothing about the retained adapters). The table is blessed as the v1 API freeze
-(2026-07-12), with a delta protocol: findings that touch the table return as
-row-level deltas for re-ruling; the freeze itself is not reopened. Five deltas
+nothing about the retained adapters). The table is blessed as the v1 API
+freeze, with a delta protocol: findings that touch the table return as
+row-level deltas for re-ruling; the freeze itself is not reopened. Six deltas
 are ruled under it: **#1** `ui/custom-element`, **#2** `ui/->react` (the outward
 migration bridge; lands S6), **#3** `ui/spread` (the single dynamic-map
-conversion path), **#4** `ui/slot` plus the internal `render-fn` widening, and
-**#5** `ui/spread-safe` (the literal safe-policy sibling of `ui/spread`). Guide
+conversion path), **#4** `ui/slot` plus the internal `render-fn` widening,
+**#5** `ui/spread-safe` (the literal safe-policy sibling of `ui/spread`), and
+**#6** `render-static` as a macro (the call-site literal-root-form guarantee
+shared by every root entry point requires one). Guide
 examples authored by this project never count as independent demand for
 platform-scale features — the rule that keeps resumability research-tier.
 
 ### Adoption workstreams
 
 The library alone is not the program. Fifteen workstreams decompose everything
-beyond it: the migrator tool (W1), migration + authoring skills (W2/W6), the
+beyond it: the Reagent→`re-frame.ui` migration skill (W1 — an AI skill,
+`skills/reagent-migration`, not a codemod tool), its sibling migration +
+authoring skills (W2/W6), the
 docs/guide rewrite (W3), examples gaining `re-frame.ui` variants while
 `substrates/` is **retained** minus its Helix arm (W4), the hot-zone spec-tree
 waves (W5), tool evidence consumption into Xray/Story/Pair (W7a, S3 — debugging
@@ -187,7 +192,7 @@ its Helix variant (W8), the CI rewrite ending at **four** named causal suites
 (W9), SSR hosts (W10), one-time benchmarks against the existing adapters before
 Helix removal (W11), repo meta-docs (W12), the Helix-removal wave (W13), the
 conformance corpus (W14), and program management (W15). None are optional;
-`ui.test`, the migrator, and the skills are critical path.
+`ui.test` and the skills are critical path.
 
 Because the retained adapters keep their example coverage, their suites, and
 their boot choices, none of these workstreams deletes a surface that belongs to
@@ -205,7 +210,9 @@ The external story is a **two-step migration**. Step 1 moves a v1 Reagent/re-com
 app's *dataflow* to re-frame2 with views unchanged on the coexisting Reagent
 adapter — gaining Xray, epochs, Story, schemas, and machines immediately. Step 2
 optionally migrates views to `ui` per subtree, on the app's schedule, with the
-migrator (~80–90% mechanical). re-com widgets are the last movers; their
+migration skill — its rule table carries the mechanical rewrites and flags the
+judgment-tier call sites for review rather than guessing. re-com widgets are
+the last movers; their
 `ui`-native answer is a directed program of its own, with substrate readiness
 delivered at S3 per EP-0035.
 
@@ -219,7 +226,7 @@ retained under the tree's `reviews/` directory as durable evidence. The tree
 itself is removed at S7, once every cited contract has its spec home and no live
 brief dangles. Until then: `drafts/*` survive until their owning stage consumes
 them (spec merges under the atomic-landing rule, or the W1/W3/W7a/W9/W11
-workstreams for the tool/docs/CI-facing drafts); `guide/` moves to `docs/guide`
+workstreams for the skill/docs/CI-facing drafts); `guide/` moves to `docs/guide`
 at S6 (W3); `skill/` moves to `skills/` at S6 (W6); `spikes/` and `reviews/`
 remain historical evidence referenced from this EP family.
 
@@ -294,8 +301,8 @@ baseline is a recorded comparison, not a standing gate.
 - **API freeze (2026-07-12).** The `re-frame.ui` public-surface table
   (`spec/API.md` §"re-frame.ui — blessed public-surface freeze") is blessed
   as-is as the v1 API freeze, governed by the row-level delta protocol; deltas
-  #1–#5 (`custom-element`, `->react`, `spread`, `slot` + internal `render-fn`,
-  `spread-safe`) are ruled and recorded in the table.
+  #1–#6 (`custom-element`, `->react`, `spread`, `slot` + internal `render-fn`,
+  `spread-safe`, `render-static` fn→macro) are ruled and recorded in the table.
 - **Conditional S3 advance (2026-07-15).** S3 started in parallel with the
   bounded S2 correction tail, overriding the program's original entry
   condition; S2's truth conditions stood unchanged, and S3 was not permitted to
@@ -331,6 +338,26 @@ baseline is a recorded comparison, not a standing gate.
   `day8/re-frame2*` coordinate resolves remotely yet). Whether the menu ever
   narrows later is expressly reserved as a future product decision on its own
   evidence.
+- **W4 examples roster — curated five (2026-07-19, delegated).** The examples
+  gaining `re-frame.ui` variants at S6 are `realworld_resources` (the full-app
+  stage kill-gate) plus the trailing `realworld_http`, `login`, `todomvc`, and
+  the routing capability example; no other example gains a `ui` variant at S6.
+  Thereafter the standing demand rule applies: a further variant lands only for
+  a named consumer (a guide page teaching that surface on `ui`, a
+  migration-skill rule needing its worked proof, or an operator-reproduced bug
+  needing the fixture) — repo-authored examples never count as independent
+  demand. The retained adapters' example coverage is untouched. Recorded in the
+  S6 epic's notes (`rf2-vxgfnd.98`).
+- **W7b architecture of record (2026-07-19, delegated).** The tools' own UIs
+  migrate as `ui`-compiled subtrees exported through `ui/->react` and mounted
+  under the installed adapter's host-owned roots — no guest-root machinery;
+  W7b sequences behind `->react` landing (S6). Recorded on `rf2-4rwtd` and in
+  the S6 epic ruling.
+- **Migration ships as an AI skill (2026-07-20).** W1 is the
+  Reagent→`re-frame.ui` migration skill (`skills/reagent-migration`), not a
+  codemod tool; the skill's rule table and fixture corpus carry the mechanical
+  tier and flag the judgment tiers for review. W2 lands as a sibling skill of
+  the existing v1 migration skill rather than an extension of it.
 
 ## Open Issues
 
