@@ -32,13 +32,14 @@
 (defn- browser? [] (exists? js/document))
 
 (defn- strip-view-evidence
-  "Drop the DEV host-root view-evidence annotation the compiler stamps on a
-  view's compiler-owned root element in dev builds (rf2-hac8p). These pins assert
-  the frame-provider's transparent scoping / rendered template shape, not the
-  annotation — whose own coverage is the emit-annotation tests, the parity
-  corpus, and test:elision."
+  "Drop the DEV host-root view-evidence annotations from committed markup: the
+  compiler's static `data-rf2-source-coord` / `data-rf-view` (rf2-hac8p) and the
+  substrate's commit-time `data-rf-render-key` (rf2-ny34u). These pins assert the
+  frame-provider's transparent scoping / rendered template shape, not the
+  annotations — whose own coverage is the emit-annotation tests, the parity
+  corpus, the render-key DOM-stamp tests, and test:elision."
   [html]
-  (str/replace html #"\s+data-rf(?:2-source-coord|-view)=\"[^\"]*\"" ""))
+  (str/replace html #"\s+data-rf(?:2-source-coord|-view|-render-key)=\"[^\"]*\"" ""))
 
 ;; ---------------------------------------------------------------------------
 ;; The canonical React act() helper (rf2-vxgfnd.89 template; rf2-powx4d sweep)
