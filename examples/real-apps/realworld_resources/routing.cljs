@@ -135,13 +135,25 @@
    :can-leave [:editor/can-leave?]} "/editor")
 
 (rf/reg-route :realworld.editor/edit
-  {:doc       "Edit an existing article (requires auth). `:on-match` seeds the
-               editor from the article read under a releaseable lease — the editor
-               page's load reaction copies the settled data into the draft and
-               baseline. `:can-leave` blocks a dirty navigate-away."
+  {:doc       "Edit an existing article (requires auth). The article read is a
+               declarative route `:resource`, exactly like every other page here:
+               the runtime owns it under `[:route :realworld.editor/edit nav-token]`
+               on entry and RELEASES that owner on every route leave — so leaving
+               the editor for ANY route (home, a profile, settings, the saved
+               article, or a new draft) drops the read with no view teardown and no
+               hand-rolled lease. `:on-match [[:editor/load-article]]` resets the
+               editor slice and asks to be told when that same read settles (an
+               OWNERLESS `:reply-to [:editor/article-loaded]` ensure that joins the
+               route's load) so it can seed the draft + baseline; it mints no owner
+               of its own. It is NON-blocking: the form renders immediately and
+               fills in when the read lands. `:can-leave` blocks a dirty
+               navigate-away."
    :params    [:map [:slug :string]]
    :tags      #{:requires-auth}
    :on-match  [[:editor/load-article]]
+   :resources [{:resource  :realworld/article
+                :params    (fn [route] {:slug (get-in route [:params :slug])})
+                :blocking? false}]
    :can-leave [:editor/can-leave?]} "/editor/:slug")
 
 (rf/reg-route :realworld.article/show

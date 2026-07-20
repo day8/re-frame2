@@ -53,7 +53,6 @@
             ;; `:rf.fx/reg-flow` effect has something to resolve against; without
             ;; it, the effect raises.
             [re-frame.flows]
-            [reagent.core :as r]
             [realworld-resources.http :as rh]
             [realworld-shared.schema :as schema])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -229,59 +228,44 @@
 
 (rf/reg-event :editor/initialise
   {:doc "Create-mode entry (`:realworld.editor/new` `:on-match`). Resets the editor
-         slice to a blank draft and clears any leftover save instance. Because
-         edit and create share the one `editor-page` component (core.cljs), an
-         edit -> new navigation never unmounts it, so this also releases the
-         outgoing edit lease (mirroring the slug-change branch of
-         `:editor/load-article`) so its `:realworld/article` cache entry can go
-         inactive and GC. The `:editor/can-submit?` flow is registered ONCE at
-         boot by `:editor/register-flow`, not per entry."}
+         slice to a blank draft and clears any leftover save instance. Reaching
+         `/editor` from an edit route is a real navigation, so the runtime has
+         already released the outgoing edit article owner — the ROUTE owns the
+         edit read (`:realworld.editor/edit` `:resources`, routing.cljs) and drops
+         it on leave — leaving this event only the slice reset. The
+         `:editor/can-submit?` flow is registered ONCE at boot by
+         `:editor/register-flow`, not per entry."}
   (fn [{:keys [db]} _]
-    (let [prev-slug (get-in db [:editor :slug])]
-      {:db (assoc db :editor (editor-slice))
-       :fx (cond-> [[:dispatch [:rf.mutation/clear {:instance save-instance}]]]
-             ;; edit -> new re-uses the same `editor-page` component, so no
-             ;; unmount fires to release the edit lease — and blanking the slice
-             ;; to a nil slug here would strand it. Release the outgoing slug's
-             ;; lease before the slice is cleared, or its `:realworld/article`
-             ;; cache entry stays pinned active for the rest of the session
-             ;; (N edits -> N leaked entries).
-             prev-slug
-             (conj [:dispatch [:editor/release-article prev-slug]]))})))
+    {:db (assoc db :editor (editor-slice))
+     :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]]}))
 
 (rf/reg-event :editor/load-article
-  {:doc "Edit-mode entry (`:realworld.editor/edit` `:on-match`). Seeds the draft
-         from the existing article via a one-shot resource ensure under a
-         releaseable lease, and asks to be told when that read settles with the
-         ensure's call-site `:reply-to [:editor/article-loaded]` — no off-render
-         reaction. Clears any leftover save instance, and (on a same-component
-         `/editor/A` -> `/editor/B` re-match) releases the outgoing slug's lease
-         before taking the new one. The `:editor/can-submit?` flow is registered
-         ONCE at boot by `:editor/register-flow`, not per entry. The seeded
-         baseline is what gives the dirty-check something to compare against."}
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [slug      (get-in rt [:rf.runtime/routing :current :params :slug])
-          prev-slug (get-in db [:editor :slug])]
+  {:doc "Edit-mode entry (`:realworld.editor/edit` `:on-match`). Resets the editor
+         slice to a blank draft under the incoming slug, then asks to be told when
+         the article read the ROUTE owns settles, so it can seed the draft +
+         baseline. The route declares `:realworld/article` as a `:resources` entry
+         (routing.cljs), owning it under `[:route :realworld.editor/edit nav-token]`
+         and releasing it on every leave; this event fires an OWNERLESS
+         `:reply-to [:editor/article-loaded]` ensure that JOINS that same read — a
+         cache-hit fires the continuation immediately, an in-flight fetch fires it
+         on settle — purely to seed. It mints NO lease of its own (nothing here to
+         release), and a `/editor/A` -> `/editor/B` re-match is a fresh navigation,
+         so the runtime releases the A owner and ensures B on its own — this event
+         only re-seeds. The `:editor/can-submit?` flow is registered ONCE at boot
+         by `:editor/register-flow`, not per entry. The seeded baseline is what
+         gives the dirty-check something to compare against."}
+  (fn [{rt :rf.db/runtime :keys [db]} _]
+    (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
       {:db (assoc db :editor (editor-slice slug blank-draft))
-       :fx (cond-> [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
-                    ;; Ensure the article read so the editor can seed its
-                    ;; baseline. A fresh entry is a cache-hit (the `:reply-to`
-                    ;; continuation fires immediately); otherwise it fetches and
-                    ;; the continuation fires on settle. The lease is released on
-                    ;; leave by `:editor/release-article`.
-                    [:dispatch [:rf.resource/ensure
-                                {:resource :realworld/article
-                                 :params   {:slug slug}
-                                 :owner    [:lease :editor/article slug]
-                                 :cause    [:route-entry :realworld.editor/edit]
-                                 :reply-to [:editor/article-loaded]}]]]
-             ;; `/editor/A` -> `/editor/B` re-matches the SAME route under a new
-             ;; slug, so this component never unmounts — release the OUTGOING
-             ;; slug's lease here. The event is the natural home for the
-             ;; slug-change release (navigation is causal); the component's
-             ;; unmount handles leaving the editor entirely.
-             (and prev-slug (not= prev-slug slug))
-             (conj [:dispatch [:editor/release-article prev-slug]]))})))
+       :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
+            ;; Join the route-owned read to seed the baseline — no owner, so this
+            ;; ensure adds no lease and there is nothing to release. The route's
+            ;; own `:resources` ownership handles the read's whole lifecycle.
+            [:dispatch [:rf.resource/ensure
+                        {:resource :realworld/article
+                         :params   {:slug slug}
+                         :cause    [:route-entry :realworld.editor/edit]
+                         :reply-to [:editor/article-loaded]}]]]})))
 
 (rf/reg-event :editor/article-loaded
   {:doc "The article-read completion continuation (the ensure's `:reply-to`
@@ -299,18 +283,12 @@
       (when-let [article (:article value)]
         {:db (assoc db :editor (editor-slice (:slug article) (draft-from-article article)))}))))
 
-(rf/reg-event :editor/release-article
-  {:doc "Release an edit-mode article lease. Called with an explicit slug (the
-         slug-change release from `:editor/load-article`) or with none (the
-         component's unmount release), in which case it releases the lease for the
-         editor slice's current slug. Dropping the editor's owner lets the article
-         read go inactive and eventually GC — an app-minted lease, like any
-         event-created owner, MUST have a matching release."}
-  (fn [{:keys [db]} [_ slug]]
-    (when-let [slug (or slug (get-in db [:editor :slug]))]
-      {:fx [[:dispatch [:rf.resource/release-owner
-                        {:owner [:lease :editor/article slug]
-                         :cause [:route-leave :realworld.editor/edit]}]]]})))
+;; There is deliberately NO `:editor/release-article` event. The article read is
+;; owned by the ROUTE (`:realworld.editor/edit` `:resources`, routing.cljs), so
+;; the runtime releases `[:route :realworld.editor/edit nav-token]` on every route
+;; leave — there is no app-minted lease for an event to release. This is MIG-17's
+;; re-homing doctrine at its cleanest: the causal owner is the route, and route
+;; leave is the causal end event.
 
 (rf/reg-event :editor/edit-field
   {:schema [:cat [:= :editor/edit-field] :keyword :string]}
@@ -371,9 +349,12 @@
          re-seed the editor from the saved article so the draft reads as clean —
          that way the `:can-leave` guard won't block — clear the instance, and
          navigate to the article detail. On a successful DELETE (no `:article` in
-         the reply value), clear the slice and instance and head home. On `:error`
-         there's nothing to do here; the form already shows it off the instance
-         state."}
+         the reply value), clear the slice and instance and head home. Both
+         continuations NAVIGATE away from the edit route, so the runtime releases
+         the route-owned article read on the way out — neither branch releases a
+         lease by hand (there is none; the route owns the read, routing.cljs). On
+         `:error` there's nothing to do here; the form already shows it off the
+         instance state."}
   (fn [{:keys [db]} [_ {:keys [status value]}]]
     (cond
       (not= :ok status) {}
@@ -385,19 +366,13 @@
               [:dispatch [:rf.route/navigate :realworld.article/show {:slug (:slug article)}]]]})
 
       :else
-      (let [prev-slug (get-in db [:editor :slug])]
-        {:db (assoc db :editor (editor-slice))
-         :fx (cond-> [[:dispatch [:rf.mutation/clear {:instance save-instance}]]]
-               ;; Release the deleted article's lease BEFORE the slice is cleared
-               ;; out from under it. The navigate-home below unmounts the editor,
-               ;; whose `:editor/release-article` (no slug) reads the editor
-               ;; slice's slug — but that's now nil, so it would release nothing
-               ;; and leak the lease (and the delete's `[:article slug]`
-               ;; invalidation could even refetch the just-deleted slug while the
-               ;; orphaned lease keeps it active). Releasing the captured
-               ;; outgoing slug here closes that gap.
-               prev-slug (conj [:dispatch [:editor/release-article prev-slug]])
-               true      (conj [:dispatch [:rf.route/navigate :realworld/home]]))}))))
+      {:db (assoc db :editor (editor-slice))
+       :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
+            ;; Navigating home leaves the edit route, so the runtime releases the
+            ;; route-owned `:realworld/article` read; the delete's `[:article slug]`
+            ;; invalidation then reaches an unowned entry that GC reclaims — no
+            ;; orphaned owner, no refetch of the just-deleted slug.
+            [:dispatch [:rf.route/navigate :realworld/home]]]})))
 
 (rf/reg-event :editor/delete
   {:doc "Delete the article (edit mode only). Fires the delete mutation under the
@@ -449,19 +424,26 @@
   (fn [dirty? _] (not dirty?)))
 
 ;; ============================================================================
-;; VIEW  (pure Form-1 render + a Form-3 wrapper holding the editor reactions)
+;; VIEW  (a pure Form-1 render — no lifecycle, because the view owns no lease)
 ;; ============================================================================
 ;;
 ;; Same shape as settings.cljs. The render is a pure registered `reg-view` that
-;; never dispatches; the one off-render reaction it needs (seed-on-load in edit
-;; mode) lives in a Form-3 wrapper's lifecycle hooks. The frame is captured at
-;; render via `rf/capture-frame`, so the reaction's out-of-render dispatch still
-;; carries the right frame.
+;; never dispatches out of band. It needs NO Form-3 lifecycle wrapper: the two
+;; off-render concerns a lifecycle hook would have carried are both re-homed to
+;; the dataflow — the seed-on-load is the route's `:on-match` `:reply-to`
+;; continuation (`:editor/article-loaded`), and the article read's teardown is the
+;; ROUTE's (`:realworld.editor/edit` `:resources`, routing.cljs), released by the
+;; runtime on every route leave. So the view holds no lease and no reaction; it is
+;; a pure function of subs. This is exactly what the native `ui_editor.cljc`
+;; rendition compiles to, and the shape MIG-17 re-homes a Form-3 editor into.
 
-(reg-view ^{:doc "The pure article-editor form — a function of subs, and it never
-                   dispatches. The save/delete continuations live elsewhere, in
-                   the `editor-page` Form-3 wrapper."}
-          editor-form-view []
+(reg-view ^{:doc "The article-editor page — a pure function of subs that never
+                   dispatches out of band. It owns no article lease: the read is a
+                   route `:resource` (routing.cljs), released on every route leave,
+                   and the seed-on-load is the route's `:on-match` `:reply-to`
+                   [:editor/article-loaded] continuation. The save/delete
+                   continuations live in the `:editor/*` events."}
+          editor-page []
   (let [draft       @(subscribe [:editor/draft])
         slug        @(subscribe [:editor/slug])
         can-submit? @(subscribe [:editor/can-submit?])
@@ -519,29 +501,3 @@
              {:type "button" :data-testid "editor-delete" :disabled busy?
               :on-click #(dispatch [:editor/delete])}
              "Delete Article"])]]]]]]))
-
-(defn editor-page
-  "The article-editor page. The render is the pure `editor-form-view`, and the
-   ONE lifecycle concern left is releasing the article read's lease when the
-   editor leaves the screen. There is no off-render reaction: the seed-on-load is
-   the `:realworld/article` ensure's `:reply-to [:editor/article-loaded]`
-   continuation (a declarative causal event, and the read-side counterpart of a
-   mutation's reply continuation), and the same-component
-   `/editor/A` -> `/editor/B` slug-change lease release rides
-   `:editor/load-article` (navigation is causal). So the only thing that
-   genuinely needs a component hook is leaving the editor entirely — the unmount.
-
-   `rf/capture-frame` is captured here during render, under the frame-provider,
-   so the unmount dispatch carries the right frame; `:editor/release-article`
-   with no slug releases whatever lease the editor slice still names."
-  []
-  (let [{:keys [dispatch]} (rf/capture-frame)]
-    (r/create-class
-     {:display-name "realworld-resources.article-editor/editor-page"
-      :component-will-unmount
-      (fn [_this]
-        ;; Release whatever article lease this editor still holds on the way out
-        ;; (the slug is read from the editor slice by the release event).
-        (dispatch [:editor/release-article]))
-      :reagent-render
-      (fn [] [editor-form-view])})))
