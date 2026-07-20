@@ -102,9 +102,12 @@
     (let [html (ui/render-static [static-card {:title "x"}])]
       (doseq [marker ["data-rf-root" "data-rf-manifest" "__rf_payload"
                       "data-rf-render-hash" "rf.root/schema-version" "rf.ssr"
-                      ;; compiled views carry no dev source-coord annotation on
-                      ;; the JVM (register-view! does not wrap), so the static
-                      ;; markup is free of every rf annotation too
+                      ;; The compiler emits the DEV host-root view-evidence
+                      ;; annotation into the structural tree (rf2-hac8p, gated on
+                      ;; interop/debug-enabled?), but render-static is the pure,
+                      ;; non-hydrating static path — `emit-static-html` strips it
+                      ;; before serialisation, so the static markup is free of
+                      ;; every rf annotation too
                       "data-rf2-source-coord" "data-rf-view"]]
         (is (not (str/includes? html marker))
             (str "render-static output must not carry the hydration/adoption "
@@ -161,11 +164,15 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest render-static-composes-emit-ui-tree
-  (testing "render-static's HTML equals emit-ui-tree over the same versioned tree
-            (it reuses the ssr static-emit path, builds no new renderer)"
-    (is (= (ssr/emit-ui-tree
-            (ui-tree/render-root-tree
-             (fn [] (static-card {:title "Hello"}))))
+  (testing "render-static's HTML equals emit-ui-tree over the same versioned tree,
+            minus the DEV host-root annotation render-static strips as the pure
+            non-hydrating static path (it reuses the ssr static-emit path via
+            emit-static-html, builds no new renderer — rf2-hac8p)"
+    (is (= (str/replace
+            (ssr/emit-ui-tree
+             (ui-tree/render-root-tree
+              (fn [] (static-card {:title "Hello"}))))
+            #"\s+data-rf(?:2-source-coord|-view)=\"[^\"]*\"" "")
            (ui/render-static [static-card {:title "Hello"}])))))
 
 ;; ===========================================================================
