@@ -216,9 +216,8 @@
          (expand-error '(re-frame.ui/defview v {:props [:map [:key :string]]}
                           [] [:div])))
       "…including via the :props schema")
-  (is (= :rf.ui.compile/ref-prop-declared-s1
-         (expand-error '(re-frame.ui/defview v [{r :ref}] [:div])))
-      ":ref forwarding declaration lands S3")
+  (is (nil? (expand-error '(re-frame.ui/defview v [{r :ref}] [:div {:ref r}])))
+      "a declared :ref is an ordinary forwardable slot (React 19 ref-as-prop)")
   (is (= :rf.ui.compile/bad-defview-args
          (expand-error '(re-frame.ui/defview v [{:strs [a]}] [:div a])))
       ":strs/:syms are outside the props ABI — slots are keywords")
@@ -256,13 +255,14 @@
         "the :acct/keys spelling compiles")
     (is (nil? (expand-error '(re-frame.ui/defview v [{k :acct/key r :acct/ref}] [:div "x"])))
         "the explicit qualified-lookup spelling compiles"))
-  (testing "genuinely BARE :key / :ref group symbols stay rejected before collapse"
+  (testing "a genuinely BARE :key group symbol stays rejected; :ref is forwardable"
     (is (= :rf.ui.compile/key-prop-declared
            (expand-error '(re-frame.ui/defview v [{:keys [key]}] [:div "x"])))
         "a bare `:keys [key]` still feeds the reserved React key slot")
-    (is (= :rf.ui.compile/ref-prop-declared-s1
-           (expand-error '(re-frame.ui/defview v [{:keys [ref]}] [:div "x"])))
-        "a bare `:keys [ref]` is still the S3 forwarding spelling — rejected at S1")))
+    (is (nil? (expand-error '(re-frame.ui/defview v [{:keys [ref]}] [:div {:ref ref}])))
+        "a bare `:keys [ref]` declares the forwardable ref slot (React 19 ref-as-prop)")
+    (is (= [:ref] (:slots (header/parse-header '[{:keys [ref]}])))
+        "the declared :ref is a real comparator/manifest slot read from props.ref")))
 
 (deftest q3-slot-encoding-table
   ;; the encode function E — the props-ABI freeze's normative core

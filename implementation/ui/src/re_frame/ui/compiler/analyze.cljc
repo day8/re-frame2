@@ -1594,8 +1594,14 @@
                     "render fragment; a ref is a commit-phase host hook, which a "
                     "slot body may not own. Mount a defview that owns the ref")
                {:form form}))
+  ;; :element and :view share the ref contract: object refs preferred, a
+  ;; callback ref MUST be explicit `(ui/raw-fn f)` (React invokes it during
+  ;; commit before the owning view's layout publication, so no committed-slot
+  ;; promise), a bare fn is rejected. An internal view accepts a forwarded ref
+  ;; only by declaring `:ref` in its header; React 19 passes `:ref` as an
+  ;; ordinary prop, so the call site just carries it into the props object.
   (case context
-    :element
+    (:element :view)
     (cond
       (fn-form? form)
       (env/fail! e :rf.ui.compile/bare-fn-ref
@@ -1606,13 +1612,7 @@
       (raw-fn-form? e form)
       {:form (walk-expr e [:ref :raw-fn] (second form)) :raw-fn? true}
       :else
-      {:form (walk-expr e [:ref :element] form) :raw-fn? false})
-    :view
-    (env/fail! e :rf.ui.compile/ref-on-view-s1
-               (str ":ref at an internal-view call site — internal views "
-                    "forward :ref only by declaring it, and declared ref "
-                    "forwarding lands S3. (Conservative S1 pin.)")
-               {:form form})
+      {:form (walk-expr e [:ref context] form) :raw-fn? false})
     :foreign
     {:form (walk-expr e [:ref :foreign] form) :raw-fn? false}))
 

@@ -22,7 +22,8 @@
     call sites are compile errors).
   - `:key` cannot be a declared prop (it feeds React's key slot);
     `:children` in the header declares child acceptance (Q4); `:ref`
-    declaration is the S3 forwarding spelling and is rejected at S1.
+    is an ordinary declarable slot — a view forwards a ref only by
+    declaring it (React 19 ref-as-prop).
   - `:strs`/`:syms` are outside the props ABI (slots are keywords)."
   (:require [re-frame.ui.compiler.binding-plan :as bp]
             [re-frame.ui.compiler.env :as env]))
@@ -38,21 +39,19 @@
   (if-let [ns* (namespace k)] (str ns* "/" (name k)) (name k)))
 
 (defn- reserved-slot-check!
-  "A view prop keyword may not be a reserved React slot. `:key` feeds React's
-  key slot; `:ref` forwarding is the S3 spelling. Both are rejected wherever the
-  author names them — a `:keys [key]` group symbol or an explicit `{p :key}`
-  value alike — judged on what was WRITTEN, so the canonical collapse can never
-  hide a reserved declaration."
+  "A view prop keyword may not be the reserved React `:key` slot (it feeds
+  React's key slot). It is rejected wherever the author names it — a
+  `:keys [key]` group symbol or an explicit `{p :key}` value alike — judged on
+  what was WRITTEN, so the canonical collapse can never hide a reserved
+  declaration. `:ref` is NOT rejected here: React 19 passes it as an ordinary
+  prop, so a view forwards a ref by declaring `:ref` like any other slot (a
+  ref's commit-phase contract lives at the `:ref` call site, not the header)."
   [k]
   (when (= k :key)
     (fail :rf.ui.compile/key-prop-declared
           (str ":key cannot be a view prop — it is reserved (it feeds React's "
                "key slot). Callers pass :key at the call site; it never "
                "arrives in props — remove the :key binding")
-          {:key k}))
-  (when (= k :ref)
-    (fail :rf.ui.compile/ref-prop-declared-s1
-          ":ref forwarding is declared per view and lands S3 — remove the :ref binding (conservative S1 pin)"
           {:key k}))
   k)
 
@@ -61,7 +60,7 @@
   plan collapses it: `:or` must be a map; `:strs`/`:syms` are outside the props
   ABI; a group needs a vector of symbols; a non-group keyword key is
   unsupported; an explicit entry's lookup value must be a prop keyword; and no
-  produced slot may be a reserved `:key`/`:ref`. Collapse must never SUPPRESS a
+  produced slot may be the reserved `:key`. Collapse must never SUPPRESS a
   diagnostic, so these run on the raw entries, not the de-collided units."
   [b or-map]
   (when-not (map? or-map)
@@ -87,9 +86,9 @@
            ;; Derive each group key with the CANONICAL transform the binding plan
            ;; uses (`bp/key-group-directive-fn`), so `{:keys [acct/key]}` derives
            ;; the qualified `:acct/key` — NOT a bare `:key` from `(keyword (name
-           ;; s))` — while a genuinely bare `:keys [key]`/`:keys [ref]` still
-           ;; derives the reserved `:key`/`:ref` and fails. One namespace rule for
-           ;; the diagnostic and the plan, so equivalent host spellings agree.
+           ;; s))` — while a genuinely bare `:keys [key]` still derives the
+           ;; reserved `:key` and fails. One namespace rule for the diagnostic
+           ;; and the plan, so equivalent host spellings agree.
            (let [group-key (bp/key-group-directive-fn k)]
              (doseq [s v]
                (reserved-slot-check! (group-key s)))))

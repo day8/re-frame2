@@ -549,9 +549,13 @@
                         :else       `(cljs.core/array ~@chs))
         entries  (get-in node [:props :entries])
         ref-a    (get-in node [:props :ref])
+        ;; A forwarded ref rides the props object as `ref` (React 19
+        ;; ref-as-prop): a foreign component receives it, and an internal view
+        ;; receives it iff it declares `:ref` in its header. Object refs pass
+        ;; through verbatim; a `(ui/raw-fn f)` callback ref carries its fn.
         props-form (ordered-literal-object
                     (concat (map #(component-prop-pair % st) entries)
-                            (when (and ref-a (= :foreign (:op node)))
+                            (when ref-a
                               [["ref" (:form ref-a)]])
                             (when (some? children-form)
                               [["children" children-form]])))

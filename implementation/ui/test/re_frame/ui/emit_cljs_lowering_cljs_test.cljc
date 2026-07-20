@@ -198,6 +198,29 @@
         "custom-element event tails are verbatim")
     (is (not (str/includes? (pr-str custom-event) "\"myevent\"")))))
 
+(deftest declared-ref-forwards-onto-the-internal-view-props-object
+  ;; rf2-u53yy.3: React 19 ref-as-prop — passing :ref to an internal-view call
+  ;; carries it on the props object under the `ref` key; the callee accepts it by
+  ;; declaring :ref in its header. Object refs pass through verbatim (no
+  ;; element-only object-ref guard at the seam — the view forwards like a foreign
+  ;; component); a (ui/raw-fn f) callback ref forwards its fn.
+  (let [form       (emitted '[child-view {:label label :ref my-ref}])
+        call       (first (jsx-calls form))
+        props-form (nth call 4)]
+    (is (some #{"ref"} (forms-of props-form))
+        "the forwarded ref rides the props object under the `ref` key")
+    (is (some #{'my-ref} (forms-of props-form))
+        "the authored object ref is carried into the view's props")
+    (is (= 're-frame.ui.runtime/jsx-runtime (nth call 2))
+        "the forwarded-ref view still lowers through the ordinary jsx runtime")
+    (is (not-any? #{'re-frame.ui.runtime/assert-object-ref!} (forms-of props-form))
+        "the object ref forwards verbatim at the view seam, as at a foreign one"))
+  (testing "a (ui/raw-fn f) callback ref forwards its fn to the internal view"
+    (let [props-form (nth (first (jsx-calls (emitted '[child-view {:ref (raw-fn cb)}]))) 4)]
+      (is (some #{"ref"} (forms-of props-form)))
+      (is (some #{'cb} (forms-of props-form))
+          "the explicit callback-ref fn is forwarded verbatim"))))
+
 (deftest keyed-passive-ownership-carries-the-once-bound-row-key
   (let [key-expr '(:id row)
         form (emitted

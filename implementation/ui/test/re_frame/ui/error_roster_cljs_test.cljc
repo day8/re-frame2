@@ -83,7 +83,6 @@
     :rf.ui.compile/rejected-prop-spelling
     :rf.ui.compile/bare-fn-prop
     :rf.ui.compile/bare-fn-ref
-    :rf.ui.compile/ref-on-view-s1
     :rf.ui.compile/dynamic-props-map
     :rf.ui.compile/bad-spread
     ;; literal safe-spread policy (S3, rf2-isdqjv)
@@ -118,7 +117,6 @@
     :rf.ui.compile/bad-defview-args
     :rf.ui.compile/positional-args
     :rf.ui.compile/key-prop-declared
-    :rf.ui.compile/ref-prop-declared-s1
     :rf.ui.compile/unknown-option
     :rf.ui.compile/bad-view-id
     :rf.ui.compile/bad-custom-element
@@ -460,7 +458,6 @@
    [:rf.ui.compile/bare-fn-prop '[:div {:data-cb (fn [x] x)} "x"] ["ui/raw-fn"]]
    [:rf.ui.compile/bare-fn-prop '[ForeignComp {:on-select (fn [x] x)}] ["ui/raw-fn"]]
    [:rf.ui.compile/bare-fn-ref '[:div {:ref (fn [el] el)} "x"] ["(ui/raw-fn f)"]]
-   [:rf.ui.compile/ref-on-view-s1 '[child-view {:ref r}] ["S3"]]
    [:rf.ui.compile/bad-spread '[:div (spread)] ["(ui/spread base"]]
    [:rf.ui.compile/bad-spread '(spread base) ["props position"]]
    ;; literal safe-spread policy (S3, rf2-isdqjv): malformed form + owned-key deny
@@ -644,7 +641,6 @@
   "[id argv [escape-naming fragments]] — defview header rejections."
   [[:rf.ui.compile/positional-args '[a b] ["one props map"]]
    [:rf.ui.compile/key-prop-declared '[{k :key}] ["call site"]]
-   [:rf.ui.compile/ref-prop-declared-s1 '[{r :ref}] ["S3"]]
    [:rf.ui.compile/bad-defview-args '[{:strs [a]}] [":keys"]]
    [:rf.ui.compile/bad-defview-args '["nope"] ["map-destructuring"]]
    [:rf.ui.compile/bad-defview-args '[{:keys [a] :or [a 1]}] [":or needs a map"]]
