@@ -12,12 +12,12 @@
     - `view-event-sites` — literal (`:vector`) vs normalized (`:options`) vs
       opaque `:dynamic` handler honesty; a raw callback is `:opaque`, never
       claimed inspectable;
-    - `view-dependencies` — literal-vs-`:dynamic` sub/lease query-shape honesty;
+    - `view-dependencies` — literal-vs-`:dynamic` sub query-shape honesty;
     - `mounted-views` — committed CONNECTED-INSTANCE records: occurrence identity
       distinguishes two instances of one view; connection state; the honest
       hide-vs-unmount lifecycle labels (INFERENCE, never fabricated runtime truth);
     - `explain-render` — the render causes + explicit loss accounting;
-    - SERIALIZABLE, not handles — no ViewCell / lease / React object egresses.
+    - SERIALIZABLE, not handles — no ViewCell / React object egresses.
 
   `.cljc` ending `-cljs-test` rides `npm run test:cljs` / `test:ui` (node) AND
   `clojure -M:test` (JVM), so the projections are graft-checked on both hosts."
@@ -73,8 +73,6 @@
    :sites
    {:subs   [{:sid "sid1-a" :query [:demo/total] :path [] :expr-path [0]}
              {:sid "sid1-b" :query '[:demo/item id] :path [1] :expr-path [1]}]
-    :leases [{:sid "sid1-c" :descriptor [:demo/res 7] :path [] :expr-path [0]}
-             {:sid "sid1-d" :descriptor '[:demo/res n] :path [1] :expr-path [1]}]
     :events [{:sid "sid1-e" :site-index 0 :view-id :demo/widget
               :source-coord {:file "demo.cljc" :line 11} :path [:button 0]
               :prop :on-click :handler '[:demo/inc n]
@@ -175,7 +173,7 @@
               {:sid "sid1-t" :kind :effect :order 1}]
              (:interop-sites vm))
           "the frozen re-frame.ui.react interop sites are surfaced")
-      (is (= {:subs 2 :events 5 :leases 2 :effects 0 :dispatch-fns 0 :frame-ops 0
+      (is (= {:subs 2 :events 5 :effects 0 :dispatch-fns 0 :frame-ops 0
               :render-slots 1 :interop 2 :locals 1 :htmls 0 :diagnostics 2}
              (:site-counts vm))))
 
@@ -260,14 +258,7 @@
       (let [s (by-sid "sid1-b")]
         (is (true? (:dynamic? s)))
         (is (= :demo/item (:query-id s)) "the literal query-id is honest")
-        (is (not (contains? s :query)) "the dynamic runtime argument is NOT fabricated")))
-
-    (testing "leases split literal vs dynamic the same way"
-      (let [by-sid (into {} (map (juxt :sid identity)) (:leases res))]
-        (is (= [:demo/res 7] (:descriptor (by-sid "sid1-c"))))
-        (is (false? (:dynamic? (by-sid "sid1-c"))))
-        (is (true? (:dynamic? (by-sid "sid1-d"))))
-        (is (not (contains? (by-sid "sid1-d") :descriptor)))))))
+        (is (not (contains? s :query)) "the dynamic runtime argument is NOT fabricated")))))
 
 (deftest view-dependencies-tolerates-a-missing-view
   (is (nil? (tool/view-dependencies :nope/absent))))

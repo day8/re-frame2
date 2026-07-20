@@ -31,8 +31,8 @@
  *   `reagent2.core.js`, ...) that does NOT begin with `re_frame.adapter.*`, so
  *   a prefix-only check let it through. Listing the wrapper roots — INCLUDING
  *   `reagent2` — closes that false-green. Note: the adapter-NEUTRAL core
- *   namespaces `re_frame.adapter.context`, `re_frame.adapter.resource_lease`,
- *   and `re_frame.adapter.sub_override_context` are the shared substrate spine
+ *   namespaces `re_frame.adapter.context` and
+ *   `re_frame.adapter.sub_override_context` are the shared substrate spine
  *   and are legitimately present — only the four VIEW-STACK adapter roots are
  *   forbidden.
  *

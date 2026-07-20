@@ -1,6 +1,6 @@
 (ns re-frame.ui.frame-ops-provider-retarget-dom-cljs-test
-  "rf2-vxgfnd.228 — a FRAME-ONLY compiled view (a `(frame)` site, NO `sub`, NO
-  lease) must be a real React frame-context CONSUMER, so an ancestor
+  "rf2-vxgfnd.228 — a FRAME-ONLY compiled view (a `(frame)` site, NO `sub`)
+  must be a real React frame-context CONSUMER, so an ancestor
   `frame-provider` RETARGET (A→B) re-renders it even when its own props stay
   `rf=`-equal.
 
@@ -14,11 +14,10 @@
   DEV build (this `-dom-cljs-test`): the frame-only view runs through
   `viewcell/render-dev`, whose stable hook superset now consumes the frame
   context. The PROD wrapper-selection twin — where the emitter routes a
-  frame-only view to `render-frame` and every sub/lease view to a wrapper that
+  frame-only view to `render-frame` and every sub view to a wrapper that
   consumes the frame context unconditionally (rf2-vxgfnd.253), while a genuinely
   inert view falls back to the direct React.memo path — is
-  `frame-ops-provider-retarget-elision-prod-test` (sub wrappers) and
-  `ambient-lease-provider-retarget-elision-prod-test` (lease wrappers).
+  `frame-ops-provider-retarget-elision-prod-test` (sub wrappers).
 
   Browser-only bodies — `-dom-cljs-test$` opts this file into `:browser-test`;
   under `:node-test` the DOM body gates on `(browser?)` and exits early."
@@ -48,7 +47,7 @@
 (defn- capture! [b] (swap! captured conj b) nil)
 
 (defview retarget-child
-  "Frame-only: a (frame) site, NO sub, NO lease. Renders the resolved ambient
+  "Frame-only: a (frame) site, NO sub. Renders the resolved ambient
   frame id so a retarget is observable in the DOM and the capture log."
   []
   (let [{:keys [frame] :as bundle} (ui/frame)

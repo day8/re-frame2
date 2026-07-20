@@ -16,15 +16,12 @@
     (case sym
       map         {:fqn 'clojure.core/map :meta {}}
       sub         {:fqn 're-frame.ui/sub :meta {}}
-      lease       {:fqn 're-frame.ui/lease :meta {}}
       frame       {:fqn 're-frame.ui/frame :meta {}}
       ;; aliased + fully-qualified spellings resolve to the same vars
       ;; (rf2-vxgfnd.266 head reservation must key on the fqn, not the spelling)
       ui/sub            {:fqn 're-frame.ui/sub :meta {}}
-      ui/lease          {:fqn 're-frame.ui/lease :meta {}}
       ui/frame          {:fqn 're-frame.ui/frame :meta {}}
       re-frame.ui/sub   {:fqn 're-frame.ui/sub :meta {}}
-      re-frame.ui/lease {:fqn 're-frame.ui/lease :meta {}}
       re-frame.ui/frame {:fqn 're-frame.ui/frame :meta {}}
       raw         {:fqn 're-frame.ui/raw :meta {}}
       html        {:fqn 're-frame.ui/html :meta {}}
@@ -62,7 +59,7 @@
 
 (defn mk-self-env
   "Like `mk-env` but the view being compiled (`:self`) is `self-sym`. The
-  injected resolver ALSO resolves sub/lease/frame to their public reactive
+  injected resolver ALSO resolves sub/frame to their public reactive
   authoring vars, so this env is the rf2-vxgfnd.274 crux: a head equal to
   `self-sym` must classify as a self-recursive internal view BEFORE the
   reactive-authoring reservation can reject it."
@@ -195,7 +192,7 @@
       "var copies do not carry view-ness (def does not copy var meta) — foreign"))
 
 (deftest reactive-verb-head-reservation-is-narrow
-  ;; rf2-vxgfnd.266 — reserving sub/lease/frame heads BEFORE generic component
+  ;; rf2-vxgfnd.266 — reserving sub/frame heads BEFORE generic component
   ;; classification must not disturb genuine foreign components or ordinary view
   ;; heads: only a head resolving to one of the three public reactive authoring
   ;; vars is reserved. A DIRECT (sub …)/(frame) CALL in child position is still
@@ -223,7 +220,7 @@
   ;; (Q5 rule 1) — so classification here is resolution-free. Reverting the
   ;; precedence to reserved-before-self throws :rf.ui.compile/unsupported-form
   ;; on every accept row below, so this deftest is the mutation fixture.
-  (doseq [verb '[sub lease frame]]
+  (doseq [verb '[sub frame]]
     (let [e   (mk-self-env verb)
           ast (ana/analyze e [verb {}])]
       (is (= :view (:op ast))
@@ -382,7 +379,7 @@
 (deftest deferred-callback-bodies-accept-opaque-host-macros
   ;; A deferred callback (ui/event / bare fn) is opaque host code: interop and
   ;; binder macros (.. , if-let, …) that a RENDER body rejects pass through here
-  ;; verbatim, because sub/lease/frame — the only things lexical analysis
+  ;; verbatim, because sub/frame — the only things lexical analysis
   ;; protects — are already illegal in deferred scope. The canonical ui/event
   ;; payload `(.. e -target -value)` therefore compiles.
   (testing "a ui/event body keeps its interop macro verbatim"
@@ -581,7 +578,7 @@
 
 (deftest legitimate-value-flow-still-compiles
   ;; rf2-vxgfnd.252 — the escape guard rejects ONLY bare reactive authoring
-  ;; vars (sub/lease/frame). Ordinary NON-reactive value flow through a computed
+  ;; vars (sub/frame). Ordinary NON-reactive value flow through a computed
   ;; callee, a let alias, or an argument stays legal and mints no reactive site,
   ;; and a DIRECT reactive call passed as a value still lowers to one site.
   (testing "a non-reactive computed callee is ordinary value flow (no site)"
@@ -603,7 +600,7 @@
   ;; rf2-dzyqis — reject-reactive-binding! now also rejects a BARE reactive
   ;; authoring var used as a destructuring :or default, but the reject is
   ;; binding-position-AWARE: a local the pattern itself BINDS (a lexical shadow
-  ;; named sub/lease/frame) is not the reactive var, so it still compiles and
+  ;; named sub/frame) is not the reactive var, so it still compiles and
   ;; mints no reactive site.
   (testing "a local named sub bound by the pattern is an ordinary shadow (no site)"
     (let [{:keys [sites]} (ana-full '[:div {:title (let [{:keys [sub]} m] (str sub))}])]

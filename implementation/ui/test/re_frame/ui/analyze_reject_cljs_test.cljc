@@ -69,8 +69,6 @@
       "later coll expressions evaluate per row")
   (is (= :rf.ui.compile/sub-in-loop
          (reject-id '(for [x xs :let [v (sub [:q x])]] [:li {:key x} v]))))
-  (is (= :rf.ui.compile/lease-in-loop
-         (reject-id '(for [x xs] [:li {:key x} (str (lease {:resource x}))]))))
   (is (= :rf.ui.compile/sub-in-loop
          (reject-id '[:button {:on-click [::open (sub [:q])]} "x"])))
   (is (= :rf.ui.compile/sub-in-loop
@@ -83,8 +81,6 @@
          (reject-id '[:div {:title (mapv (fn [x] (sub [:q x])) xs)}])))
   (is (= :rf.ui.compile/sub-in-loop
          (reject-id '[:div {:title (loop [x 0] (sub [:q x]))}])))
-  (is (= :rf.ui.compile/lease-in-loop
-         (reject-id '[:button {:on-click (fn [_] (lease {:resource :x}))} "x"])))
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (if-let [x maybe] (sub [:q x]) nil)}]))
       "opaque binder macros fail loudly instead of receiving an unsound rewrite")
@@ -114,14 +110,10 @@
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (sub)}])))
   (is (= :rf.ui.compile/unsupported-form
-         (reject-id '[:div {:title (sub [:a] [:b])}])))
-  (is (= :rf.ui.compile/unsupported-form
-         (reject-id '[:div {:title (lease)}])))
-  (is (= :rf.ui.compile/unsupported-form
-         (reject-id '[:div {:title (lease {:a 1} {:b 2})}]))))
+         (reject-id '[:div {:title (sub [:a] [:b])}]))))
 
 (deftest computed-callee-value-escape
-  ;; rf2-vxgfnd.252 — a reactive authoring var (sub/lease/frame) is sound ONLY
+  ;; rf2-vxgfnd.252 — a reactive authoring var (sub/frame) is sound ONLY
   ;; as a compiler-owned DIRECT CALL HEAD, which the rewriter lowers to an
   ;; indexed runtime site. A BARE reactive var that instead flows as a VALUE —
   ;; into a computed callee, a let alias, an argument, or a collection — leaves
@@ -142,9 +134,6 @@
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (str sub)}]))
       "a bare sub passed as an argument is value flow, not a render site")
-  (is (= :rf.ui.compile/unsupported-form
-         (reject-id '[:div {:title ((if p lease inc) {:resource :r})}]))
-      "bare lease escapes into a computed callee identically")
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (let [g frame] (g))}]))
       "bare frame escapes through a let alias identically")
@@ -173,7 +162,7 @@
 
 (deftest or-default-value-escape
   ;; rf2-dzyqis — the sibling gap PR #5874 (.252) left open. reject-reactive-
-  ;; binding! catches an executable (sub …)/(lease …)/(frame) embedded in a
+  ;; binding! catches an executable (sub …)/(frame) embedded in a
   ;; binding pattern, but a BARE reactive authoring var used as a destructuring
   ;; :or DEFAULT is a value, not a call. Binding patterns never pass through
   ;; expression rewriting, so that bare var flows as a VALUE into the host's
@@ -186,9 +175,6 @@
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (let [{:keys [x] :or {x sub}} m] x)}]))
       "bare sub as an :or default — the rf2-dzyqis counterexample")
-  (is (= :rf.ui.compile/unsupported-form
-         (reject-id '[:div {:title (let [{:keys [x] :or {x lease}} m] x)}]))
-      "bare lease as an :or default escapes identically")
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (let [{:keys [x] :or {x frame}} m] x)}]))
       "bare frame as an :or default escapes identically")
@@ -213,7 +199,7 @@
   ;; destructuring binds SEQUENTIALLY, so a bare reactive var in a default is
   ;; shadowed ONLY by a same-pattern local bound EARLIER in evaluation order.
   ;; The dzyqis guard put every symbol the pattern binds into one flat scope
-  ;; BEFORE scanning, so a LATER-bound local named sub/lease/frame (and a SELF
+  ;; BEFORE scanning, so a LATER-bound local named sub/frame (and a SELF
   ;; default) falsely shadowed the escape and the pre-fix head compiled these
   ;; with an EMPTY manifest, leaving the public authoring var to survive to
   ;; runtime unindexed. Each row below reads the outer public var; reverting the
@@ -225,9 +211,6 @@
            (reject-id '[:div {:title (let [{:keys [f sub] :or {f sub}} m] f)}]))
         "bare sub default shadowed only by a LATER binding escapes")
     (is (= :rf.ui.compile/unsupported-form
-           (reject-id '[:div {:title (let [{:keys [f lease] :or {f lease}} m] f)}]))
-        "bare lease escapes identically under a later shadow")
-    (is (= :rf.ui.compile/unsupported-form
            (reject-id '[:div {:title (let [{:keys [f frame] :or {f frame}} m] f)}]))
         "bare frame escapes identically under a later shadow"))
   (testing "a SELF default is not its own shadow (over-accept)"
@@ -236,9 +219,6 @@
     (is (= :rf.ui.compile/unsupported-form
            (reject-id '[:div {:title (let [{:keys [sub] :or {sub sub}} m] sub)}]))
         "a self-referential sub default is the outer var, not the local")
-    (is (= :rf.ui.compile/unsupported-form
-           (reject-id '[:div {:title (let [{:keys [lease] :or {lease lease}} m] lease)}]))
-        "a self-referential lease default escapes identically")
     (is (= :rf.ui.compile/unsupported-form
            (reject-id '[:div {:title (let [{:keys [frame] :or {frame frame}} m] frame)}]))
         "a self-referential frame default escapes identically"))
@@ -274,11 +254,7 @@
     (is (= :rf.ui.compile/unsupported-form
            (reject-id '[:div {:title (let [{:keys [sub a b c d e f g h target]
                                             :or {target sub}} m] target)}]))
-        "a 10-entry hash-regime default the host expands before its shadow escapes")
-    (is (= :rf.ui.compile/unsupported-form
-           (reject-id '[:div {:title (let [{:keys [lease a b c d e f g h target]
-                                            :or {target lease}} m] target)}]))
-        "lease escapes identically in the hash regime"))
+        "a 10-entry hash-regime default the host expands before its shadow escapes"))
   (testing "mixed :keys/:strs/:syms follow SOURCE group order, not a fixed rank"
     ;; Host group order = the order the group directives appear in the pattern.
     ;; With `:strs`/`:keys`/`:syms` written in that order the host binds
@@ -322,11 +298,11 @@
         "a nested destructuring explicit local")))
 
 (deftest reactive-verb-head-reserved-before-foreign-classification
-  ;; rf2-vxgfnd.266 — the next escape in the .252/dzyqis family. sub/lease/frame
+  ;; rf2-vxgfnd.266 — the next escape in the .252/dzyqis family. sub/frame
   ;; are reactive authoring verbs, sound ONLY as their compiler-owned DIRECT
   ;; forms. A distinct analyzer route reaches a Hiccup component HEAD directly:
   ;; env/classify-head resolves any non-:rf.ui/view var to a plain :foreign
-  ;; React component, so [sub {…}]/[lease {…}]/[frame] would compile as a foreign
+  ;; React component, so [sub {…}]/[frame] would compile as a foreign
   ;; component with an EMPTY reactive manifest — the public authoring var
   ;; survives to runtime unindexed, bypassing reactive-site indexing entirely.
   ;; The verbs are RESERVED before generic classification. Removing the
@@ -334,8 +310,6 @@
   ;; deftest is the mutation fixture too.
   (is (= :rf.ui.compile/unsupported-form (reject-id '[sub {}]))
       "bare sub in component-head position — the rf2-vxgfnd.266 counterexample")
-  (is (= :rf.ui.compile/unsupported-form (reject-id '[lease {}]))
-      "bare lease in component-head position escapes identically")
   (is (= :rf.ui.compile/unsupported-form (reject-id '[frame]))
       "bare frame in component-head position (no props) escapes identically")
   (is (= :rf.ui.compile/unsupported-form (reject-id '[sub {} [:p "child"]]))
@@ -343,8 +317,6 @@
   ;; qualified + aliased spellings resolve to the exact vars — reserved too
   (is (= :rf.ui.compile/unsupported-form (reject-id '[ui/sub {}]))
       "an aliased spelling resolving to re-frame.ui/sub is reserved")
-  (is (= :rf.ui.compile/unsupported-form (reject-id '[re-frame.ui/lease {}]))
-      "a fully-qualified spelling resolving to re-frame.ui/lease is reserved")
   (is (= :rf.ui.compile/unsupported-form (reject-id '[re-frame.ui/frame]))
       "a fully-qualified frame head is reserved")
   ;; a lexical shadow is NOT the reactive var: it falls through to the ordinary

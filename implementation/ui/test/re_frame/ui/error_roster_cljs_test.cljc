@@ -51,7 +51,6 @@
     :rf.ui.compile/nested-for-body
     :rf.ui.compile/bad-for
     :rf.ui.compile/sub-in-loop
-    :rf.ui.compile/lease-in-loop
     :rf.ui.compile/frame-in-loop
     ;; host hooks (S3, rf2-vxgfnd.95.2) — local / effect placement + effect grammar
     :rf.ui.compile/hook-misplaced
@@ -240,7 +239,6 @@
     {:fqn (symbol "clojure.core" (name sym)) :meta {}}
     (case sym
       sub         {:fqn 're-frame.ui/sub :meta {}}
-      lease       {:fqn 're-frame.ui/lease :meta {}}
       frame       {:fqn 're-frame.ui/frame :meta {}}
       local       {:fqn 're-frame.ui/local :meta {}}
       effect      {:fqn 're-frame.ui/effect :meta {}}
@@ -324,7 +322,6 @@
    [:rf.ui.compile/bad-for '(for [x xs :unknown y] [:li {:key x} x]) [":let / :when / :while"]]
    [:rf.ui.compile/bad-for '(for [] [:li {:key 1} "x"]) ["seq-exprs"]]
    [:rf.ui.compile/sub-in-loop '(for [x xs] [:li {:key x} (sub [:q x])]) ["keyed child view"]]
-   [:rf.ui.compile/lease-in-loop '(for [x xs] [:li {:key x} (str (lease {:r x}))]) ["keyed child view"]]
    [:rf.ui.compile/frame-in-loop
     '(for [x xs] [:li {:key x} (:frame (frame))])
     ["Hoist the read into the view body"]]
@@ -349,9 +346,8 @@
    ;; rf2-vxgfnd.266 — a reactive authoring verb in Hiccup component-head
    ;; position (distinct throw site: the reserved-head guard, ahead of
    ;; env/classify-head's :foreign classification). Recovery is kind-correct:
-   ;; (sub query), the leading (lease descriptor) — never (lease query) — and (frame).
+   ;; (sub query) and (frame).
    [:rf.ui.compile/unsupported-form '[sub {}] ["component-head" "(sub query)"]]
-   [:rf.ui.compile/unsupported-form '[lease {}] ["component-head" "(lease descriptor)"]]
    [:rf.ui.compile/unsupported-form '[frame] ["component-head" "(frame)"]]
    ;; handlers
    [:rf.ui.compile/loop-capturing-handler
@@ -431,8 +427,6 @@
     '[:div {:title (render-fn [] [:p "x"])}] ["ui/slot"]]
    [:rf.ui.compile/impure-slot-body
     '(slot (render-fn [a] [:div (sub [:q])])) ["PURE render" "MOUNTS a defview"]]
-   [:rf.ui.compile/impure-slot-body
-    '(slot (render-fn [a] [:div (str (lease {:r a}))])) ["PURE render"]]
    [:rf.ui.compile/impure-slot-body
     '(slot (render-fn [a] [:div (:frame (frame))])) ["PURE render"]]
    [:rf.ui.compile/impure-slot-body

@@ -38,7 +38,6 @@
             resolve* (fn [sym]
                        (case sym
                          sub   {:fqn 're-frame.ui/sub :meta {}}
-                         lease {:fqn 're-frame.ui/lease :meta {}}
                          (env/resolve-sym base sym)))
             e (env/make-env {:host :cljs :cljs-env cljs-e
                              :ns-sym 'cljs.user
@@ -90,7 +89,7 @@
                '[:div {:title (when (sub [:q]) "ready")}]
                '[:div {:title (cond (sub [:q]) "ready" :else "waiting")}]
                '[:div {:title (-> (sub [:q]) ordinary-call)}]]]
-        (let [e*  (assoc e :sites (atom {:events [] :subs [] :leases [] :htmls []}))
+        (let [e*  (assoc e :sites (atom {:events [] :subs [] :htmls []}))
               ast (analyze/analyze e* form)]
           (is (= 1 (count (:subs @(:sites e*)))) (pr-str form))
           (is (re-find #"re-frame.ui.reactive/sub-read" (pr-str ast))
@@ -98,7 +97,7 @@
 
 (deftest real-cljs-destructuring-scope-follows-host-evaluation-order
   ;; rf2-vxgfnd.268 — the ordered-scope correction under REAL CLJS analyzer
-  ;; resolution (bare sub/lease resolve to the reactive vars; core macro
+  ;; resolution (bare sub resolves to the reactive var; core macro
   ;; authority is genuine, not an injected :macro flag). Destructuring binds
   ;; SEQUENTIALLY, so a bare reactive var in a default is shadowed ONLY by a
   ;; same-pattern local bound EARLIER. Reverting the ordered scope re-accepts
@@ -108,9 +107,7 @@
     (fn [_ e]
       (testing "a self / later-bound shadow does not cover an earlier default"
         (doseq [argv ['[{:keys [sub] :or {sub sub}}]
-                      '[{:keys [f sub] :or {f sub}}]
-                      '[{:keys [lease] :or {lease lease}}]
-                      '[{:keys [f lease] :or {f lease}}]]]
+                      '[{:keys [f sub] :or {f sub}}]]]
           (is (= :rf.ui.compile/unsupported-form
                  (compile-error-id #(analyze/reject-reactive-binding! e argv)))
               (pr-str argv))))
@@ -130,13 +127,13 @@
 ;; spellings only. Neither exercised production `cljs.analyzer.api/resolve` with
 ;; REFERRED / ALIASED spellings, nor the separate CLJS root-entry compiler. This
 ;; harness stands up a REAL CLJS analyzer namespace state where cljs.user refers
-;; re-frame.ui/{sub,lease,frame} (and aliases the ns `ui`), so every spelling
+;; re-frame.ui/{sub,frame} (and aliases the ns `ui`), so every spelling
 ;; resolves through the production resolver — NOT an injected stub — and drives
 ;; both the defview route (analyze) and the root-entry route (root/analyze-root).
 
 (defn- with-referred-cljs-env
   "Populate a real CLJS compiler state where cljs.user REFERS re-frame.ui/sub,
-  lease, frame (+ frame-root/frame-provider) and aliases the ns as `ui`, then
+  frame (+ frame-root/frame-provider) and aliases the ns as `ui`, then
   call `(f aenv)` with a live analyzer env over that ns. Resolution runs through
   production `cljs.analyzer.api/resolve` — there is no injected `:resolver`."
   [f]
@@ -144,14 +141,13 @@
     (swap! cljs-env/*compiler* update :cljs.analyzer/namespaces merge
            {'re-frame.ui  {:name 're-frame.ui
                            :defs {'sub            {:name 're-frame.ui/sub}
-                                  'lease          {:name 're-frame.ui/lease}
                                   'frame          {:name 're-frame.ui/frame}
                                   'frame-root     {:name 're-frame.ui/frame-root}
                                   'frame-provider {:name 're-frame.ui/frame-provider}}}
             'cljs.user    {:name 'cljs.user
                            ;; `(:require [re-frame.ui :as ui :refer [...]])`
                            :requires {'ui 're-frame.ui 're-frame.ui 're-frame.ui}
-                           :uses     {'sub 're-frame.ui 'lease 're-frame.ui
+                           :uses     {'sub 're-frame.ui
                                       'frame 're-frame.ui 'frame-root 're-frame.ui
                                       'frame-provider 're-frame.ui}
                            :defs {}}})
@@ -178,8 +174,6 @@
         (doseq [[sym fqn] '{sub               re-frame.ui/sub
                             ui/sub            re-frame.ui/sub
                             re-frame.ui/sub   re-frame.ui/sub
-                            lease             re-frame.ui/lease
-                            ui/lease          re-frame.ui/lease
                             frame             re-frame.ui/frame
                             re-frame.ui/frame re-frame.ui/frame}]
           (is (= fqn (:fqn (env/resolve-sym base sym))) (str sym)))
@@ -195,15 +189,15 @@
   (with-referred-cljs-env
     (fn [aenv]
       (testing "a referred self head classifies as an internal view"
-        (doseq [verb '[sub lease frame]]
+        (doseq [verb '[sub frame]]
           (let [e   (referred-env aenv verb)
                 ast (analyze/analyze e [verb {}])]
             (is (= :view (:op ast)) (str verb))
             (is (= (keyword "cljs.user" (name verb)) (:view-id ast)) (str verb)))))
       (testing "aliased / fully-qualified / referred verbs in an unrelated view stay reserved"
         (let [e (referred-env aenv nil)]
-          (doseq [form '[[ui/sub {}] [re-frame.ui/lease {}] [frame]
-                         [ui/frame {}] [re-frame.ui/sub {}] [lease {}]]]
+          (doseq [form '[[ui/sub {}] [frame]
+                         [ui/frame {}] [re-frame.ui/sub {}]]]
             (is (= :rf.ui.compile/unsupported-form
                    (compile-error-id #(analyze/analyze e form)))
                 (pr-str form)))))
@@ -227,7 +221,7 @@
   ;; self-precedence tier never applies here — only the reservation does.)
   (with-referred-cljs-env
     (fn [aenv]
-      (doseq [form '[[sub {}] [ui/lease {}] [re-frame.ui/frame] [frame]]]
+      (doseq [form '[[sub {}] [re-frame.ui/frame] [frame]]]
         (is (= :rf.ui.compile/unsupported-form
                (compile-error-id #(root/analyze-root (referred-env aenv nil) 'ui/mount form)))
             (pr-str form)))
@@ -264,7 +258,6 @@
      :docstring nil
      :header (header/parse-header [])
      :slots []
-     :lease-declarations []
      :ast ast
      :manifest {:view-id (keyword "cljs.user" (name verb)) :sites {} :children? false}
      :closed-keys nil
@@ -314,7 +307,7 @@
   ;; forward declaration, failing every row below.
   (with-referred-cljs-env
     (fn [aenv]
-      (doseq [verb '[sub lease frame]]
+      (doseq [verb '[sub frame]]
         (let [self-fqn  (symbol "cljs.user" (name verb))
               args      (self-emit-args aenv verb)
               cljs-form (emit-cljs/emit-defview args)
@@ -354,7 +347,7 @@
   ;; regression is legible, not silent.
   (with-referred-cljs-env
     (fn [aenv]
-      (doseq [verb '[sub lease frame]]
+      (doseq [verb '[sub frame]]
         (is (= (str "re_frame.ui." (name verb)) (emit-var-js aenv verb))
             (str "a bare " verb " head resolves through the refer to the authoring Var"))
         (is (= (str "cljs.user." (name verb))
@@ -408,7 +401,7 @@
   ;; (leaving the def/declare to resolve through the refer) fails every row.
   (with-referred-cljs-env
     (fn [aenv]
-      (doseq [verb '[sub lease frame]]
+      (doseq [verb '[sub frame]]
         (let [self-fqn      (symbol "cljs.user" (name verb))
               authoring-fqn (symbol "re-frame.ui" (name verb))
               args          (self-emit-args aenv verb)
@@ -440,7 +433,7 @@
             ast  (analyze/analyze e [:div "x"])
             args {:vname 'panel :self-fqn 'cljs.user/panel :view-id :cljs.user/panel
                   :display-name "cljs.user/panel" :docstring nil
-                  :header (header/parse-header []) :slots [] :lease-declarations []
+                  :header (header/parse-header []) :slots []
                   :ast ast
                   :manifest {:view-id :cljs.user/panel :sites {} :children? false}
                   :closed-keys nil :children? false}

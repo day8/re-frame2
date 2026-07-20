@@ -1790,7 +1790,7 @@
     :fixture/args  {:view-id ":my.app/counter"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"        true]
-     ["re-frame.ui.tool/view-manifest"  {:ok? true :rf.ui.tool/version 1
+     ["re-frame.ui.tool/view-manifest"  {:ok? true :rf.ui.tool/version 2
                                          :view-id :my.app/counter :doc "A counter."
                                          :props [] :site-counts {:subs 1 :events 1}}]
      [:default                          nil]]
@@ -1798,7 +1798,7 @@
     ["re-frame.ui.tool/view-manifest" "cljs.core/exists?"]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :view-id :my.app/counter :rf.ui.tool/version 1}
+     :edn-submap {:ok? true :view-id :my.app/counter :rf.ui.tool/version 2}
      :edn-contains-keys #{:site-counts}}}
 
    {:fixture/id    :read-view-manifest/missing-view-id
@@ -1812,22 +1812,21 @@
      :reason :missing-view-id}}
 
    {:fixture/id    :read-view-dependencies/happy
-    :fixture/doc   "read-view-dependencies forwards the sub/lease site projection (literal-vs-:dynamic honesty)."
+    :fixture/doc   "read-view-dependencies forwards the sub site projection (literal-vs-:dynamic honesty)."
     :fixture/tool  "read-view-dependencies"
     :fixture/args  {:view-id ":my.app/row"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"           true]
-     ["re-frame.ui.tool/view-dependencies" {:ok? true :rf.ui.tool/version 1
+     ["re-frame.ui.tool/view-dependencies" {:ok? true :rf.ui.tool/version 2
                                             :view-id :my.app/row
-                                            :subscriptions [{:query [:total] :dynamic? false}]
-                                            :leases []}]
+                                            :subscriptions [{:query [:total] :dynamic? false}]}]
      [:default                             nil]]
     :fixture/eval-form-must-contain
     ["re-frame.ui.tool/view-dependencies"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :view-id :my.app/row}
-     :edn-contains-keys #{:subscriptions :leases}}}
+     :edn-contains-keys #{:subscriptions}}}
 
    {:fixture/id    :read-view-dependencies/tier-unavailable-iserror
     :fixture/doc   "when re-frame.ui.tool is not loaded (a plain-Reagent app), the guarded form resolves to {:ok? false :reason :view-tier-unavailable} — surfaced as an isError envelope (absent evidence tolerated explicitly)."

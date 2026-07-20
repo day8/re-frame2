@@ -34,11 +34,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core                  :as rf]
-            [re-frame.features              :as features]
             [re-frame.frame                 :as frame]
-            [re-frame.registrar             :as registrar]
-            [re-frame.resource-lease-owner  :as lease-owner]
-            [re-frame.router                :as router]
             [re-frame.substrate.observation :as obs]
             [re-frame.substrate.plain-atom  :as plain-atom]
             [re-frame.test-support          :as test-support]
@@ -197,9 +193,8 @@
 ;; consults — the registered HMR slot revision. The suite below completes the
 ;; obligation: the cell-LOCAL generation arm (a direct/headless cell), an
 ;; instrumented reverse-order/exactly-once staged rollback, a non-empty
-;; to-release drop preserved byte-for-byte, a re-registration landing INSIDE
-;; the acquire/cache-construction window, and the resource-capture publication
-;; path (`commit-resources!`) fenced without mutating desired/reserved/held.
+;; to-release drop preserved byte-for-byte, and a re-registration landing INSIDE
+;; the acquire/cache-construction window.
 ;; ===========================================================================
 
 ;; ---------------------------------------------------------------------------
@@ -358,70 +353,6 @@
         (is (= :fresh (reactive/lifecycle cell)) "a fenced candidate never connects")
         (is (empty? (reactive/committed-sites cell)) "no dependency set published")
         (is (nil? (entry [:r/a])) "the staged lease was released — zero-owner node")))))
-
-;; ---------------------------------------------------------------------------
-;; The resource-capture publication path (`commit-resources!`) is fenced too,
-;; without mutating the accepted desired/reserved/held state
-;; ---------------------------------------------------------------------------
-;; `accept-resource-capture` (the publish step's accept-fn) sets
-;; `:resource-desired` + `:resource-capture`. It runs ONLY on the non-fence
-;; branch, so a fenced `commit-resources!` must leave the previously accepted
-;; plan, its reservations, and its held owners exactly as they were.
-
-(defn- register-resource! [rid]
-  (registrar/register! :resource rid {:rf/resource {}}))
-
-(defn- resource-capture-of [cell sites]
-  (reactive/enable-resource-lifecycle! cell)
-  (rf/with-frame fid
-    (reactive/with-capture
-     cell
-     (fn []
-       (doseq [[sid descriptor] sites]
-         (reactive/lease-site sid descriptor))
-       :element))))
-
-(defn- dispatch-standin
-  "Redefine router/dispatch! without breaking CLJS single-arity invoke."
-  [f]
-  (fn capture
-    ([event]      (capture event nil))
-    ([event opts] (f event opts))))
-
-(deftest commit-resources-fence-rejection-preserves-desired-reserved-held
-  (register-resource! ::feed)
-  (let [vid   ::resource-view
-        cell  (reactive/make-cell vid 0)
-        calls (atom [])
-        mints (atom 0)]
-    (with-redefs [features/require-feature! (constantly true)
-                  router/dispatch!          (dispatch-standin (fn [e o] (swap! calls conj [e o])))
-                  lease-owner/mint!         (fn [] [:owner (swap! mints inc)])]
-      ;; capture-1 connects, then reconcile mints/holds its owner
-      (let [[_ cap1] (resource-capture-of cell [[::s1 {:resource ::feed}]])]
-        (reactive/commit-resources! cell cap1)
-        (reactive/reconcile-resource-leases! cell cap1)
-        (is (= :connected (reactive/lifecycle cell)))
-        (let [res0  (reactive/resource-reservations cell)
-              held0 (reactive/resource-held cell)
-              ev0   (reactive/resource-lease-evidence cell)]
-          (is (= 1 (count res0)) "capture-1 reserved exactly one owner")
-          (is (= 1 (count held0)) "capture-1 holds exactly one owner")
-          (is (= 1 (count ev0)) "one accepted desired-plan evidence row")
-          ;; register the slot so the FINAL fence has a registered authority
-          (reactive/register-view-generation! vid hs0)
-          ;; a DIFFERENT-site resource render, fenced by a mid-commit
-          ;; re-registration — accept-resource-capture must NOT run
-          (let [[_ cap2] (resource-capture-of cell [[::s2 {:resource ::feed}]])
-                result   (binding [reactive/*commit-barrier*
-                                   (reregister-barrier vid :post-acquire hs0)]
-                           (reactive/commit-resources! cell cap2))]
-            (is (= :stale result) "the stale-body resource capture is fenced")
-            (is (= :connected (reactive/lifecycle cell)) "the connected cell is not torn down")
-            (is (= res0 (reactive/resource-reservations cell)) "reservations preserved")
-            (is (= held0 (reactive/resource-held cell)) "held owners preserved")
-            (is (= ev0 (reactive/resource-lease-evidence cell))
-                "the accepted desired plan is unchanged — capture-2 never overwrote it")))))))
 
 ;; ===========================================================================
 ;; rf2-77pb08 — SETTLE the final body-authority validation WITH publication
