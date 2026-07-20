@@ -767,13 +767,24 @@ Note the schema is **closed** — unlike most spec-internal shapes which are ope
 Universal trace event shape, including error events.
 
 ```clojure
-;; The closed recovery vocabulary — the framework's built-in, non-app-steerable
-;; recovery dispositions (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
-;; Defined ONCE here and referenced by both `TraceEvent` and its `:rf/error-event`
-;; refinement below, so the two envelope shapes cannot drift out of agreement
-;; (single-source, not a schema framework).
-(def Recovery
-  [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced :warned-and-continued :logged-and-skipped :ignored])
+;; The recovery vocabulary — the disposition each error/warning category records
+;; under `:recovery` (what the runtime did about the failure).
+;; OPEN: framework-owned and additive per [Spec-ulation](Principles.md#spec-ulation) —
+;; the framework and its feature artefacts add new values additively (mirroring the open
+;; `:op-type` vocabulary below). "Open" means framework/feature-artefact additive, NOT an
+;; app-steering extension point: apps do not mint their own dispositions, and there is no
+;; app-steering recovery policy — recovery is a typed, framework-owned default per category.
+;; The canonical well-known dispositions are `:no-recovery`, `:replaced-with-default`,
+;; `:retried`, `:skipped`, `:warned-and-replaced`, `:warned-and-continued`,
+;; `:logged-and-skipped`, `:ignored` — documentation of the common values, NOT a membership
+;; constraint; each category's authoritative recovery value is documented inline in its
+;; catalogue row (per [009 §Recovery contract](009-Instrumentation.md#recovery-contract),
+;; whose list is likewise "illustrative, not exhaustive", and the
+;; [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
+;; Defined ONCE here (as plain `:keyword`) and referenced by both `TraceEvent` and its
+;; `:rf/error-event` refinement below, so the two envelope shapes cannot drift out of
+;; agreement (single-source, not a schema framework).
+(def Recovery :keyword)
 
 (def TraceEvent
   [:map
@@ -880,7 +891,7 @@ The `:op-type` discriminates severity: `:error` halts or recovers a specific ope
 
 **`:tags :category` is present iff `:op-type` is `:error`.** `re-frame.trace/build-event` merges `{:category <operation>}` into `:tags` on the `:error` branch only; a `:warning` envelope gets no such key, and its category rides the top-level `:operation`. The optionality above is that discrimination expressed in one Malli slot rather than a two-arm `:multi` — `:operation` is required on every envelope and always carries the category, so `[:tags :category]` is a convenience duplicate on the error branch, never the discriminator. Consumers that branch on category MUST read `:operation`; reading `[:tags :category]` silently misses every warning. The same asymmetry governs the per-category `:tags` schemas below: a schema for an `:error`-envelope category declares `:category`, one for a `:warning` / `:info` / run-body envelope does not. Per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
 
-`:recovery` is likewise never a `:tags` key on either branch — `build-event` strips it from the supplied tags map and hoists it to the envelope top level (typed by the shared `Recovery` vocabulary above), so no per-category `:tags` schema declares it. The thrown-error shape is the one place `:recovery` IS a peer data key: `re-frame.error/thrown-ex-info` writes it directly into `ex-data` alongside `:rf.error/id` / `:where` / `:reason` (per [009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract)) — that is ex-data, not a trace envelope's `:tags`.
+`:recovery` is likewise never a `:tags` key on either branch — `build-event` strips it from the supplied tags map and hoists it to the envelope top level (typed by the shared open `Recovery` vocabulary above), so no per-category `:tags` schema declares it. The thrown-error shape is the one place `:recovery` IS a peer data key: `re-frame.error/thrown-ex-info` writes it directly into `ex-data` alongside `:rf.error/id` / `:where` / `:reason` (per [009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract)) — that is ex-data, not a trace envelope's `:tags`.
 
 The optional `:rf.trace/trigger-handler` slot (top-level, NOT under `:tags`) names the handler whose execution produced the error and carries its registration-site source-coord. Inherited from the universal `TraceEvent` shape — the slot rides on every trace event emitted while a handler is in scope, not just errors (success-path traces like `:rf.fx/handled` and `:rf.machine/transition` carry it too). Present when a handler is in scope at emit time (event handler running, sub recomputing, fx handler dispatching, cofx injecting, view rendering); absent when no handler is in scope (e.g. outermost-dispatch `:rf.error/no-such-handler`, depth-exceeded drain rollback). Source-coord values come from the registrar slot stamped by the kind-specific `reg-*` macro at registration time; programmatic registration paths (the underlying registration fns called without the macro wrapping) carry no coord, in which case the slot is omitted rather than populated with placeholder data. Tools render click-to-jump-to-handler links by reading `[:rf.trace/trigger-handler :source-coord]`. The slot is **not separately elided** — when a trace event is emitted at all, the slot rides along on it when bound — but it rides only on **dev** trace events: the whole trace surface is gated by `re-frame.interop/debug-enabled?`, so default production builds (`:advanced` + `goog.DEBUG=false`) get neither this slot nor the surrounding trace event (per [009 §`:rf.trace/trigger-handler`](009-Instrumentation.md#rftracetrigger-handler--naming-the-in-scope-handler)). Production-surviving source coordinates for error observability come from a **separate** always-on channel — the always-on error-coord registry / error-emit record (per [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)) — not from a retained `:rf.trace/trigger-handler` slot.
 
