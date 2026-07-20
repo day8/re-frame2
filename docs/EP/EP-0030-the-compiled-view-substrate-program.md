@@ -218,9 +218,9 @@ delivered at S3 per EP-0035.
 
 ### The design-record retirement
 
-The synthesis dossier this EP family distills is retired in two steps, and the
-first is done: its index is a tombstone pointer map, the blessed API tables
-graduated to their durable home (`spec/API.md` §`re-frame.ui`, carrying the
+The synthesis dossier this EP family distills is retired in two steps. The
+first is in force: its index is a tombstone pointer map, the blessed API tables
+live in their durable home (`spec/API.md` §`re-frame.ui`, carrying the
 delta protocol with them), and the binding per-finding review dispositions are
 retained under the tree's `reviews/` directory as durable evidence. The tree
 itself is removed at S7, once every cited contract has its spec home and no live
