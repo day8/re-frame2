@@ -179,7 +179,7 @@
     :resources/dedupe
     :resources/stale-suppression
     :resources/scope-fail-closed
-    :resources/lease-gc
+    :resources/owner-gc
     :resources/keep-previous})
 
 (def claimed-spec-versions
