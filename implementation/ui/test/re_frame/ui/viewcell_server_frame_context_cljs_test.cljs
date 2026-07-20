@@ -36,14 +36,19 @@
   `:node-test` gate, never the browser build."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
+            ["react" :as react]
             ["react-dom/server" :as rds]
+            [re-frame.adapter.context :as adapter-context]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.test-support :as test-support]
             [re-frame.ui :as ui :refer [defview frame-provider sub]]
-            [re-frame.ui.frames]     ;; loads re-frame.ui.substrate — routes the
-                                     ;; :adapter/current-frame React-context reader
-            [re-frame.ui.runtime :as rt]))
+            [re-frame.ui.frames :as frames]  ;; loads re-frame.ui.substrate — routes
+                                             ;; the :adapter/current-frame reader; the
+                                             ;; alias exposes frame-ops for the direct
+                                             ;; production-wrapper regressions below
+            [re-frame.ui.runtime :as rt]
+            [re-frame.ui.viewcell :as viewcell]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter       ui/adapter
@@ -120,3 +125,118 @@
                        (catch :default e (:rf.error/id (ex-data e))))))]
       (is (= :rf.error/no-frame-context err)
           "no scope above the ViewCell → fail loud, never a default frame"))))
+
+;; ===========================================================================
+;; rf2-wobnf — the two PRODUCTION wrappers that carried the SAME frame but did
+;; not BIND it around their body.
+;;
+;; PR #6550 (rf2-2rzx0) corrected the SHARED hook `use-frame-context!` to return
+;; the renderer-agnostic `useContext` value, and every SUB wrapper binds that
+;; value into `frame/*current-frame*` around the body (`with-current-frame`). But
+;; two production wrappers did NOT: `render-frame` invoked its thunk with the
+;; return DISCARDED, and `render-events` retained the frame only as the event
+;; destination and invoked the body thunk unbound. So a `(frame)` site inside
+;; either body re-entered the private-slot reader
+;; (`function-component-current-frame` → `_currentValue`), which React 19.2's
+;; `react-dom/server` leaves empty (it populates `_currentValue2`) — a
+;; provider-scoped frame-only / event+`(frame)` view still raised
+;; `:rf.error/no-frame-context` on the server.
+;;
+;; DEBUG `defview` coverage MASKS this: DEBUG routes every view through
+;; `render-dev`, whose stable superset already binds the frame. So these
+;; regressions call the PRODUCTION wrappers DIRECTLY — a function component whose
+;; render body is the wrapper — under a real `provider-element` and the REAL
+;; `react-dom/server` renderer. RED before rf2-wobnf, GREEN after.
+;; ===========================================================================
+
+;; Frame-only: a `(frame)` read, no sub, no event → the `render-frame` wrapper.
+;; The body renders the resolved frame id so a lost frame is observable as an
+;; absence in the markup (and a raised error on the pre-fix server path).
+(defn- frame-only-wrapper-fc [_props]
+  (viewcell/render-frame
+   :test/frame-only
+   (fn [] (react/createElement "output" #js {:data-role "fo"}
+                               (str (:frame (frames/frame-ops)))))))
+
+;; Event+`(frame)`: the `render-events` wrapper (its selected shape for a view
+;; carrying event sites plus `(frame)`), with a `(frame)` read in the body.
+(defn- event-and-frame-wrapper-fc [_props]
+  (viewcell/render-events
+   :test/event-and-frame
+   (fn [] (react/createElement "output" #js {:data-role "ef"}
+                               (str (:frame (frames/frame-ops)))))))
+
+(defn- render-under-provider
+  "Server-render `element` beneath a live frame-context Provider carrying
+  `frame-kw`, capturing either the html or the raised typed error id."
+  [frame-kw element]
+  (silence-console-error
+   (fn []
+     (try {:html (rds/renderToStaticMarkup
+                  (adapter-context/provider-element frame-kw element))}
+          (catch :default e
+            {:error (or (:rf.error/id (ex-data e)) (ex-message e))})))))
+
+(deftest server-rendered-render-frame-wrapper-binds-provider-frame
+  ;; RED-BEFORE (rf2-wobnf): `render-frame` discarded the `use-frame-context!`
+  ;; return and invoked the thunk unbound, so the body's `(frame)` read hit the
+  ;; server-empty `_currentValue` slot and threw `:rf.error/no-frame-context`.
+  ;; GREEN-AFTER: the wrapper binds the useContext frame around the body via
+  ;; `with-current-frame`, so `(frame)` resolves `:app/a` and the markup shows it.
+  (reg!)
+  (frames/reset-frame-ops-cache!)
+  (rf/make-frame {:id :app/a})
+  (frame/replace-app-db! :app/a {:n 42})
+  (let [result (render-under-provider
+                :app/a (react/createElement frame-only-wrapper-fc (js-obj)))]
+    (is (nil? (:error result))
+        (str "render-frame must bind the useContext frame so its body's (frame) "
+             "resolves under react-dom/server — pre-fix it threw "
+             (pr-str (:error result)) " (rf2-wobnf)"))
+    (is (str/includes? (str (:html result)) ":app/a")
+        "the frame-only production wrapper resolved its provider frame :app/a")))
+
+(deftest server-rendered-render-events-wrapper-binds-provider-frame
+  ;; RED-BEFORE (rf2-wobnf): `render-events` kept the frame only as the event
+  ;; destination and invoked the body thunk unbound, so a combined event+`(frame)`
+  ;; view's `(frame)` read took the same broken server path. GREEN-AFTER: the
+  ;; body thunk is wrapped in `with-current-frame` (still the same frame threaded
+  ;; into event capture), so `(frame)` resolves `:app/a` on the server too.
+  (reg!)
+  (frames/reset-frame-ops-cache!)
+  (rf/make-frame {:id :app/a})
+  (frame/replace-app-db! :app/a {:n 42})
+  (let [result (render-under-provider
+                :app/a (react/createElement event-and-frame-wrapper-fc (js-obj)))]
+    (is (nil? (:error result))
+        (str "render-events must bind the useContext frame around its body so a "
+             "combined event+(frame) view resolves under react-dom/server — "
+             "pre-fix it threw " (pr-str (:error result)) " (rf2-wobnf)"))
+    (is (str/includes? (str (:html result)) ":app/a")
+        "the event+(frame) production wrapper resolved its provider frame :app/a")))
+
+(deftest server-rendered-production-wrappers-without-provider-fail-loud
+  ;; VACUITY GUARD: with NO Provider above them, BOTH production wrappers resolve
+  ;; the no-provider sentinel to nil (EP-0002: no `:rf/default` floor) and their
+  ;; body's `(frame)` read fails loud with `:rf.error/no-frame-context`. Stable
+  ;; before AND after the fix, so the green results above are attributable ONLY
+  ;; to the provider frame flowing through `useContext`, never to a synthesised
+  ;; default the binding might have introduced.
+  (reg!)
+  (frames/reset-frame-ops-cache!)
+  (rf/make-frame {:id :app/a})
+  (frame/replace-app-db! :app/a {:n 42})
+  (letfn [(err [element]
+            (silence-console-error
+             (fn []
+               (try (rds/renderToStaticMarkup element)
+                    nil
+                    (catch :default e (:rf.error/id (ex-data e)))))))]
+    (testing "render-frame with no provider fails loud"
+      (is (= :rf.error/no-frame-context
+             (err (react/createElement frame-only-wrapper-fc (js-obj))))
+          "no scope above render-frame → fail loud, never a default frame"))
+    (testing "render-events with no provider fails loud"
+      (is (= :rf.error/no-frame-context
+             (err (react/createElement event-and-frame-wrapper-fc (js-obj))))
+          "no scope above render-events → fail loud, never a default frame"))))

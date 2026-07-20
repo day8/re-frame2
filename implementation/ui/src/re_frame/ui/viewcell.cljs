@@ -262,11 +262,21 @@
 (defn render-events
   "Production wrapper for an event-bearing view with no reactive sites.  It is
   a real frame-context consumer so provider retargets produce a fresh candidate
-  whose locked destination is published at commit."
+  whose locked destination is published at commit.
+
+  The `useContext` frame flows two ways from the single leading hook: it is the
+  committed event destination threaded into `events/with-capture`, AND it is
+  BOUND into `re-frame.frame/*current-frame*` around the synchronous body
+  (`with-current-frame`) so a `(frame)` site the body also carries — the
+  event+`(frame)` view this wrapper is selected for — resolves the provider
+  through the dynamic tier, not the `_currentValue` slot `react-dom/server`
+  leaves empty (rf2-wobnf). The bound thunk is what `with-capture` evaluates, so
+  event capture still sees the same frame it always did."
   [view-id thunk]
   (let [frame-id                (use-frame-context!)
         owner                   (use-event-owner view-id)
-        [element event-capture] (events/with-capture owner frame-id thunk)]
+        [element event-capture] (events/with-capture owner frame-id
+                                                      (with-current-frame frame-id thunk))]
     (use-event-commit-and-lifecycle! owner event-capture)
     element))
 
@@ -288,10 +298,19 @@
   "Production wrapper for a FRAME-ONLY view: a `(frame)` site but no sub sites
   (rf2-vxgfnd.228). It observes no reactive source, so it needs no ViewCell —
   only frame-context CONSUMPTION so a provider retarget re-renders it.
-  Structurally zero `useSyncExternalStore` / passive hooks; one `useContext`."
+  Structurally zero `useSyncExternalStore` / passive hooks; one `useContext`.
+
+  The `useContext` frame is BOUND into `re-frame.frame/*current-frame*` around
+  the synchronous body (`with-current-frame`) — like every sub wrapper — so the
+  body's `(frame)` site resolves the closest live provider through the dynamic
+  tier rather than the private `_currentValue` slot, which `react-dom/server`
+  leaves empty under React 19.2 (it populates `_currentValue2`). Without the
+  binding a server-rendered frame-only view raised `:rf.error/no-frame-context`
+  even under a live `frame-provider` (rf2-wobnf, extending the rf2-2rzx0 hook
+  fix into this wrapper)."
   [_view-id thunk]
-  (use-frame-context!)
-  (thunk))
+  (let [frame-id (use-frame-context!)]
+    ((with-current-frame frame-id thunk))))
 
 (defn render-subs
   "Production wrapper for a view with sub sites.
