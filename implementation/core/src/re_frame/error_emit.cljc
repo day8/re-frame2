@@ -3,11 +3,15 @@
   production §Error-emit listener.
 
   Survives `:advanced` + `goog.DEBUG=false`. Carries ONE fan-out path —
-  the corpus-wide listener registry. Fired from every production-reachable
-  runtime `:rf.error/*` site (handler / interceptor / cofx exceptions,
-  flow exceptions, reserved-fx typed throws, reactive + compute-sub
-  exceptions, frame-destroyed dispatch / subscribe, no-such-handler,
-  no-such-sub):
+  the corpus-wide listener registry. Fired from every runtime `:rf.error/*`
+  site PROMOTED onto this always-on axis (the promotion criterion, Spec 009
+  §Observability channels) — NOT every production-reachable category: one
+  whose sole surfacing is a caller-observed pure `throw-error!` stays
+  diagnostic and fans no record here (the caller observes the throw at its
+  own call site). The promoted set covers handler / interceptor / cofx
+  exceptions, flow exceptions, reserved-fx typed throws, reactive +
+  compute-sub exceptions, frame-destroyed dispatch / subscribe,
+  no-such-handler, no-such-sub:
 
     Corpus-wide listener registry (surface #4) — every fn registered
     through [[register-error-listener!]] receives a tight error-record:
@@ -321,7 +325,7 @@
   (handler-exception, the sub-* categories where the sub-id rides
   `:event-id`).
 
-  Called from every `:rf.error/*` emission site — directly from
+  Called from every PROMOTED `:rf.error/*` emission site — directly from
   `router.cljc` (handler-exception, flow-eval, frame-destroyed) and via
   the `:error-emit/dispatch-on-error` late-bind hook from `fx.cljc`,
   `subs/memo.cljc`, `subs.cljc`, and `router/diagnostics.cljc` (those

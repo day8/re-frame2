@@ -4,7 +4,7 @@ Ship a re-frame2 app as an optimised production build and the compiler **[elides
 
 But it leaves a gap. An [event handler](../glossary.md#event-handler) can still throw at 3am, and when it does you want that failure to land in your monitor with real context attached — not a bare stack trace stripped of *what the app was doing*.
 
-re-frame2 closes the gap with an **always-on error substrate**: a small slice of runtime that survives elision *on purpose*. On every production-reachable failure it fans one structured **[error record](../glossary.md#error-record)** out to every error [listener](../glossary.md#listener) you've registered. Each record carries three things worth having at 3am:
+re-frame2 closes the gap with an **always-on error substrate**: a small slice of runtime that survives elision *on purpose*. For every failure the substrate covers, it fans one structured **[error record](../glossary.md#error-record)** out to every error [listener](../glossary.md#listener) you've registered. Each record carries three things worth having at 3am:
 
 - **the [event](../glossary.md#event) that was in flight** — the data vector describing what the user asked for;
 - **the [frame](../glossary.md#frame) it ran in** — the isolated app instance, with its own [app-db](../glossary.md#app-db); and
@@ -18,7 +18,7 @@ This guide builds a production bridge to Sentry, one step at a time: register th
 
 ## 1. Register a listener
 
-Here is the smallest possible bridge. It catches every production failure and ships the throwable to Sentry:
+Here is the smallest possible bridge. It catches the failures the substrate reports and ships the throwable to Sentry:
 
 ```clojure
 (ns app.monitoring
@@ -32,7 +32,7 @@ Here is the smallest possible bridge. It catches every production failure and sh
       (Sentry/captureException (:exception record)))))
 ```
 
-One verb, `register-listener!`. Its leading `:errors` keyword names the **stream** you're listening to — think of a stream as a named channel the runtime broadcasts on, and `:errors` is the one carrying production failures. The second argument, `::sentry-bridge`, is an id *you* choose, so you can replace or remove this listener later. That's the whole surface for now: every production-reachable failure runs your `fn` once with a structured `record`, and you forward its `:exception` to Sentry.
+One verb, `register-listener!`. Its leading `:errors` keyword names the **stream** you're listening to — think of a stream as a named channel the runtime broadcasts on, and `:errors` is the one carrying production failures. The second argument, `::sentry-bridge`, is an id *you* choose, so you can replace or remove this listener later. That's the whole surface for now: every failure the substrate reports runs your `fn` once with a structured `record`, and you forward its `:exception` to Sentry.
 
 That's a working bridge — but it's naive in three ways we'll fix in turn: it fires in dev too, it assumes every record carries an `:exception` (some don't), and it ships nothing useful about *what* the app was doing. The rest of this page is those three fixes.
 

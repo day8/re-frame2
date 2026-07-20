@@ -202,7 +202,7 @@ raw values; the axis is subject to the same egress redaction posture as all
 off-box surfaces.
 
 **Category kind follows the channel.** The always-on axis is contractually
-`:rf.error/*`-only (Ownership: "one tight record per production-reachable
+`:rf.error/*`-only (Ownership: "one tight record per promoted
 `:rf.error/*`"; Spec 009 §What is available in production builds). This EP does
 not widen that substrate to warnings. A failure fact that meets the criterion
 but is surfaced only as a `:rf.warning/*` diagnostic is therefore **on the wrong
