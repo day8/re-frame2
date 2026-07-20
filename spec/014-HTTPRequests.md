@@ -449,17 +449,23 @@ See [Pattern-Boot §Worked example — auth-machine and the retry-ownership boun
 
 **Only the final exhausted-retries failure dispatches `:on-failure`.** Intermediate attempts that match `:retry :on` do NOT dispatch the failure handler — the user sees the success reply if any attempt succeeds, and exactly one failure reply (with `:max-attempts` reached) if every attempt fails.
 
-For debugging visibility, **each intermediate attempt emits a `:rf.http/retry-attempt` trace event** with the attempt number, the failure category, and the planned backoff delay before the next attempt:
+For debugging visibility the runtime emits a `:rf.http/retry-attempt` trace event on **each intermediate attempt** that schedules another try — carrying the attempt number, the failure category, the planned backoff delay (`:next-backoff-ms` non-nil), and `:recovery :retried` — plus a retained **terminal-exhaustion marker** once the last attempt is spent, carrying `:next-backoff-ms nil` and `:recovery :no-recovery` (it schedules nothing, so it does not claim a retry). The two arms are discriminated by `:next-backoff-ms`:
 
 ```clojure
 {:operation :rf.http/retry-attempt
  :op-type   :info
+ :recovery  <:retried|:no-recovery>  ;; :retried on an intermediate attempt that
+                                     ;; schedules another try; :no-recovery on the
+                                     ;; terminal-exhaustion marker (nothing further
+                                     ;; is scheduled). Hoisted to the top level, not
+                                     ;; under :tags (see Spec 009 §Re-frame2 additions).
  :tags      {:request-id   <id-or-nil>
              :url          <url>
              :attempt      <n>           ;; 1-based; the failing attempt
              :max-attempts <max>
              :failure      {:kind <:rf.http/*> ...kind-tags...}
-             :next-backoff-ms <ms>}}     ;; nil on final exhaustion
+             :next-backoff-ms <ms-or-nil>}} ;; non-nil on an intermediate attempt;
+                                            ;; nil on the terminal-exhaustion marker
 ```
 
 Pair tools and 10x panels surface the per-attempt trace; user code only sees the final outcome through `:on-failure` (or the unified `:reply-to` target).
