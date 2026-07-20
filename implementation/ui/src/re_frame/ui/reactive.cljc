@@ -582,7 +582,12 @@
   ;;                             ;   pending window (see `fold-evidence`); nil
   ;;                             ;   in production (elided) + between flushes
   ;;    :listeners {k -> fn}     ; useSyncExternalStore subscribers
-  ;;    :intervals [interval]}   ; lifecycle facts (dev/tool; 03 §4)
+  ;;    :intervals [interval]     ; lifecycle facts (dev/tool; 03 §4)
+  ;;    :commit-record {…}|nil}  ; DEBUG-only S6 committed-instance record from
+  ;;                             ;   the most-recent CONNECTED commit (Ruling 1;
+  ;;                             ;   integer render-key + per-observation
+  ;;                             ;   observations). ABSENT in production (elided)
+  ;;                             ;   and nil before the first connect
   )
 
 (defn cell?
@@ -3784,6 +3789,92 @@
                 :published
                 (recur)))))))))
 
+;; ---------------------------------------------------------------------------
+;; S6 committed-instance record (Ruling 1; EP-0033 §Two evidence layers,
+;; spec/004 §View identity) — the per-commit view-evidence record minted on the
+;; connected-commit path.
+;;
+;; DEBUG-ONLY. The whole view-evidence plane is production-erased (G-7/G-11);
+;; every mint below sits behind `interop/debug-enabled?` at the call site (in
+;; `commit*`), so Closure DCEs it and the render-key source is never allocated
+;; nor advanced in an :advanced production build — the same gate the invalidation
+;; evidence plane and the HMR provisional field already ride.
+;;
+;; OPTION 1A (honest capture). The record carries exactly what the substrate owns
+;; at commit, and NOT what it cannot honestly source:
+;;   - :render-key is a MODULE-GLOBAL monotonic integer minted fresh at EACH
+;;     connected commit (so re-renders increment it) — a total order over
+;;     committed renders the sub→view recompute edge (`:rf.sub/reader-render-key`)
+;;     and a React Performance-Tracks timeline correlate against.
+;;   - frame attribution is PER-OBSERVATION, never a single fabricated fact: a
+;;     ViewCell observes a SET of frames (an override-only cell observes none),
+;;     so each observation carries its own target's :frame-id and the record
+;;     claims NO singular top-level :frame-id.
+;;   - :parent-render-key is DEFERRED — no S6 surface consumes view parentage, so
+;;     NO parent-capture machinery exists here.
+;;   - :rf.view/causes (the per-commit cause vector) rides a LATER slice; this
+;;     record carries no causes slot yet.
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private render-key-counter
+  ;; The module-global monotonic :render-key source (DEBUG-only; nil in
+  ;; production, where no committed-instance record is ever minted). `defonce` is
+  ;; module-lived and deliberately survives `reset-scheduler!` — render-keys are a
+  ;; strictly-increasing total order over EVERY committed render for the module's
+  ;; lifetime, so consumers compare them (a later commit's key is greater), never
+  ;; read absolute values.
+  (when interop/debug-enabled? (atom 0)))
+
+(defn- next-render-key!
+  "Mint the next monotonic render-key. Called ONLY under `interop/debug-enabled?`
+  at the connected-commit site, so production never reaches it and the counter
+  stays nil + unallocated there."
+  []
+  (swap! render-key-counter inc))
+
+(defn- project-observations
+  "Project this render's captured sites into the per-commit :observations vector,
+  in compiler render order. PURE PROJECTION of data the capture already holds —
+  the resolved site target plus its ownership-free probe evidence — so it makes
+  no port call, reads no lease, and performs no NEW capture (Ruling 1: the frame
+  is 'already captured per-site').
+
+  Each observation carries its TARGET'S :frame-id — the amended per-observation
+  frame attribution (nil for a Story override, which resolves against no frame).
+  :target-id / :version are the node identity + version THIS render observed
+  (nil when probed cold, or for a static override); :owned? is true for an owned
+  subscription node lease and false for a static Story-override lease."
+  [new-order new-by]
+  (mapv (fn [sid]
+          (let [{:keys [target evidence query]} (get new-by sid)
+                kind (:kind target)]
+            {:kind      kind
+             :frame-id  (:frame-id target)
+             :query     query
+             :target-id (:node-key evidence)
+             :version   (:node-version evidence)
+             :owned?    (= :subscription kind)}))
+        new-order))
+
+(defn- mint-commit-record!
+  "DEBUG-only: mint a fresh monotonic :render-key and publish the S6
+  committed-instance record onto `cell` for THIS connected commit (Ruling 1).
+  Reads the cell's just-published state, so :view-id / :generation / :root-id
+  reflect the commit that connected. `:root-id` is the owning root incarnation —
+  the opaque per-mount token the tool projection resolves to the authored root-id
+  name (nil under no root, e.g. Tier-1/JVM). Returns the record."
+  [^ViewCell cell cap new-order new-by]
+  (let [st     (state cell)
+        st0    @st
+        record {:render-key   (next-render-key!)
+                :view-id      (:view-id st0)
+                :generation   (:generation cap)
+                :root-id      (:root st0)
+                :connection   :connected
+                :observations (project-observations new-order new-by)}]
+    (swap! st assoc :commit-record record)
+    record))
+
 (defn- commit*
   "Run the 8-step layout commit for `cell` against the exact immutable
   `capture` returned beside the committed host element by `with-capture`.
@@ -4042,14 +4133,24 @@
                               (frame/frame-incarnation-closing? fid token))
                             incarnations))
                 (teardown! cell)
-                ;; step 8 — moved evidence corrects before paint. The staged catch
-                ;; always advances synchronously; a RETAINED catch advances only when
-                ;; no live watch already caught the move — a pending (`dirty?`) cell is
-                ;; a watchable host whose scheduled flush already corrects before paint,
-                ;; so advancing here too would add a redundant render (rf2-vxgfnd.39).
-                (when (or staged-moved?
-                          (and retained-moved? (not (dirty? cell))))
-                  (advance-revision! cell)))
+                (do
+                  ;; S6 committed-instance record (Ruling 1; EP-0033 §Two evidence
+                  ;; layers). Only a CONNECTED commit reaches here — a stale,
+                  ;; superseded, torn-down or never-committed (speculative) render
+                  ;; publishes nothing, so no instance is fabricated (I-1/I-2). Mint
+                  ;; a fresh monotonic :render-key + the per-commit record.
+                  ;; DEBUG-ONLY: the whole plane is production-erased (G-7/G-11), so
+                  ;; this DCEs under goog.DEBUG=false and no render-key advances.
+                  (when interop/debug-enabled?
+                    (mint-commit-record! cell cap new-order new-by))
+                  ;; step 8 — moved evidence corrects before paint. The staged catch
+                  ;; always advances synchronously; a RETAINED catch advances only when
+                  ;; no live watch already caught the move — a pending (`dirty?`) cell is
+                  ;; a watchable host whose scheduled flush already corrects before paint,
+                  ;; so advancing here too would add a redundant render (rf2-vxgfnd.39).
+                  (when (or staged-moved?
+                            (and retained-moved? (not (dirty? cell))))
+                    (advance-revision! cell))))
               cell)))))))))
 
 (defn commit!
@@ -4115,6 +4216,24 @@
   "The cell's current revision integer (tool/test read)."
   [^ViewCell cell]
   (:revision @(state cell)))
+
+(defn commit-record
+  "The cell's most-recent CONNECTED-commit S6 committed-instance record, or nil
+  when the cell has never connected — and always nil in a production build, where
+  the view-evidence plane is elided. The per-commit record (Ruling 1; EP-0033
+  §Two evidence layers): integer :render-key, :view-id, :generation, :root-id,
+  :connection, and a per-observation :observations vector. There is deliberately
+  NO singular :frame-id (frame attribution is per-observation), NO
+  :parent-render-key (deferred), and no causes slot yet (a later slice).
+  Tool/test read."
+  [^ViewCell cell]
+  (:commit-record @(state cell)))
+
+(defn render-key
+  "The integer :render-key of the cell's most-recent connected commit, or nil.
+  Module-global monotonic and fresh per connected commit (tool/test read)."
+  [^ViewCell cell]
+  (:render-key (commit-record cell)))
 
 (defn cell-view-id
   "The view id `cell` was minted for (tool/test read) — the stable authoring
