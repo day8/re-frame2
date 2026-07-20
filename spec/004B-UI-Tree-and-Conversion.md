@@ -434,26 +434,36 @@ shapes.
   rows-land-with-stages rule): `:rf.error/ui-tree-malformed` **already has its catalogue
   row** (landed with S1 — the shared tree-consumer id, which also carries the
   semantic-`N` root-version-gate arm); `:rf.error/ssr-ui-tree-version-unsupported` is the
-  SSR-seam sibling whose row **lands with the S5 serialiser** that raises it — not yet
-  catalogued, by design.
+  SSR-seam sibling, and its dedicated
+  [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) row
+  **landed with the S5 serialiser** that raises it (rf2-3omxp). The two ids partition one
+  seam's failures by class — version-skew vs. structure — and it is the machine
+  discriminator `:rf.error/id`, not ex-data sniffing, that separates them (both carry the
+  same `{:got … :supported #{1}}` shape at the version gate).
 - The compiled root render pipeline (011's per-root flow) is: JVM emitter → tree →
   `emit-ui-tree`; the response accumulator, error projection, and payload machinery are
   unchanged `re-frame2-ssr` surfaces.
 
-### Stage — spec ahead of code
+### Stage — the emit seam ships; the fingerprint leads code
 
-Both halves belong to S5 (`rf2-vxgfnd.97`): the spelling in this section, and the
-serialiser in the SSR artefact that must meet it. Where the repo already names
-`emit-ui-tree` — `re-frame.ui.compiler.root`'s compile-error message, the guide's
-pipeline sentence — it is pointing at *this contract*, under the same
-rows-land-with-stages rule that leaves the version gate's catalogue row uncatalogued
-above. Spec leads code here, so a reader who greps the name and finds no function has
-found the design working rather than a gap.
+This section's two functions land at different points of S5 (`rf2-vxgfnd.97`). The
+**emit seam has shipped**: `re-frame.ssr/emit-ui-tree` is the JVM's tree→HTML path
+(rf2-3omxp), and its version gate raises the now-catalogued
+`:rf.error/ssr-ui-tree-version-unsupported`. Where the repo names `emit-ui-tree` —
+`re-frame.ui.compiler.root`'s compile-error message, the guide's pipeline sentence — it
+points at *this contract*, and a reader who greps the name now finds the function that
+meets it.
 
-Until that stage the JVM has no tree→HTML path at all.
+The **fingerprint half still leads code**: `re-frame.ssr/ui-tree-fingerprint` has no
+function yet, and the hash algorithm and digest encoding it will apply are Spec 011's
+(§Normalization, and [011 §Root Manifest v1](011-SSR.md#root-manifest-v1)). Spec leads
+code here, so a reader who greps *that* name and finds no function has found the design
+working rather than a gap.
+
+Before the emit seam shipped the JVM had no tree→HTML path at all. The pre-existing
 [011 §The render-tree → HTML emitter](011-SSR.md#the-render-tree--html-emitter-cljs-reference)
 serves the Reagent/hiccup tier and does not transfer — for the reason below, which is
-also why there was never a shim between them available to write.
+also why there was never a shim between the two tree shapes available to write.
 
 ### What the seam consumes
 
