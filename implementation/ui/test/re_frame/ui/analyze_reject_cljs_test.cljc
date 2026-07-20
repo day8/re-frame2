@@ -81,9 +81,13 @@
          (reject-id '[:div {:title (mapv (fn [x] (sub [:q x])) xs)}])))
   (is (= :rf.ui.compile/sub-in-loop
          (reject-id '[:div {:title (loop [x 0] (sub [:q x]))}])))
+  ;; rf2-u53yy.4 admits if-let / when-let / if-some / when-some — the family
+  ;; DESUGARS into the analyzer's own let + if, so a (sub …) in the init lowers
+  ;; (see if-let-binder-family-is-admitted). The admission is BOUNDED: an
+  ;; out-of-family macro still fails loudly — the closed grammar did not open.
   (is (= :rf.ui.compile/unsupported-form
-         (reject-id '[:div {:title (if-let [x maybe] (sub [:q x]) nil)}]))
-      "opaque binder macros fail loudly instead of receiving an unsound rewrite")
+         (reject-id '[:div {:title (.. x -y -z)}]))
+      "an out-of-family macro (.. / doto / case in expression position) still fails loudly — the if-let admission did not relax the closed grammar")
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (-> [:q] sub)}]))
       "a macro cannot turn a bare resolved sub reference into an unindexed call")

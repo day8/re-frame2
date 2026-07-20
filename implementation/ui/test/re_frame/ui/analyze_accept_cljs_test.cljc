@@ -378,10 +378,11 @@
 
 (deftest deferred-callback-bodies-accept-opaque-host-macros
   ;; A deferred callback (ui/event / bare fn) is opaque host code: interop and
-  ;; binder macros (.. , if-let, …) that a RENDER body rejects pass through here
-  ;; verbatim, because sub/frame — the only things lexical analysis
+  ;; other non-admitted macros (.. , doto, …) that a RENDER body rejects pass
+  ;; through here verbatim, because sub/frame — the only things lexical analysis
   ;; protects — are already illegal in deferred scope. The canonical ui/event
-  ;; payload `(.. e -target -value)` therefore compiles.
+  ;; payload `(.. e -target -value)` therefore compiles. (The admitted if-let
+  ;; family is analyzed, not passed through — see the admitted-family deftest.)
   (testing "a ui/event body keeps its interop macro verbatim"
     (let [el (ana* '[:input {:on-input
                              (event [e] (conj on-value (.. e -target -value)))}])
@@ -395,6 +396,59 @@
   (testing "a render-body opaque macro is still rejected (the deferred/render split)"
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
                  (ana* '[:div {:title (.. x -y -z)}])))))
+
+(deftest if-let-binder-family-is-admitted
+  ;; rf2-u53yy.4 — if-let / when-let / if-some / when-some are admitted
+  ;; conditional binders in BOTH grammar tiers. Each desugars into the
+  ;; analyzer's OWN let + if/when: the binding init owns a finite reactive site,
+  ;; the pattern binds into the then/body branch only, and the some?-variants
+  ;; test the raw init value with some? (never destructure-then-test). The closed
+  ;; grammar is unchanged — out-of-family macros still reject (see the reject
+  ;; table); this admits exactly the four named forms and nothing more.
+  (testing "template position desugars through the analyzer's own let, init is a finite site"
+    (doseq [form '[(if-let    [u (sub [:user])] [:p "hi"] [:p "bye"])
+                   (if-some   [u (sub [:user])] [:p "hi"] [:p "bye"])
+                   (when-let  [u (sub [:user])] [:p "hi"])
+                   (when-some [u (sub [:user])] [:p "hi"])
+                   (if-let    [u (sub [:user])] [:p "hi"])]] ; no else -> nothing
+      (let [{:keys [ast sites]} (ana-full form)]
+        (is (= :let (:op ast)) (str "desugars through the analyzer's let: " form))
+        (is (= :if (get-in ast [:body :op])) (str "the branch is a conditional: " form))
+        (is (= 1 (count (:subs sites)))
+            (str "the binding init is a single finite reactive site: " form)))))
+  (testing "some?-variants test the raw init with some?; truthy-variants test it bare"
+    (is (= 'some? (first (get-in (:ast (ana-full '(if-some [u v] [:p "a"] [:p "b"])))
+                                 [:body :test])))
+        "if-some tests (some? temp)")
+    (is (= 'some? (first (get-in (:ast (ana-full '(when-some [u v] [:p "a"])))
+                                 [:body :test])))
+        "when-some tests (some? temp)")
+    (is (symbol? (get-in (:ast (ana-full '(if-let [u v] [:p "a"] [:p "b"])))
+                         [:body :test]))
+        "if-let tests the bare temp")
+    (is (= :nothing (get-in (:ast (ana-full '(when-let [u v] [:p "a"])))
+                            [:body :else :op]))
+        "a when-* form renders nothing on the falsy branch (no else)"))
+  (testing "expression position (a prop value) lowers the init's reactive site"
+    (doseq [form '[[:div {:title (if-let    [x (sub [:q])] x "none")}]
+                   [:div {:title (if-some   [x (sub [:q])] x "none")}]
+                   [:div {:title (when-let  [x (sub [:q])] x)}]
+                   [:div {:title (when-some [x (sub [:q])] x)}]]]
+      (let [{:keys [ast sites]} (ana-full form)]
+        (is (= 1 (count (:subs sites))) (str "prop-value init lowers one site: " form))
+        (is (re-find #"re-frame.ui.reactive/sub-read" (pr-str ast))
+            (str "the lowered runtime site is present: " form)))))
+  (testing "the binding pattern is still host-consumed — a reactive escape rejects"
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+                 (ana* '(if-let [{:keys [x] :or {x (sub [:q])}} m] [:p x] [:p "no"])))
+        "a (sub …) manufactured in an :or default cannot own a lexical site")
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+                 (ana* '[:div {:title (when-let [{:keys [x] :or {x (sub [:q])}} m] x)}]))
+        "the pattern escape rejects in expression position too"))
+  (testing "a malformed binding vector fails loudly (bad-let)"
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+                 (ana* '(if-let [a b c] [:p "x"] [:p "y"])))
+        "the binding is a single [pattern init] pair")))
 
 (deftest event-sites-index-into-the-manifest
   (let [{:keys [sites]} (ana-full '[:div
@@ -871,6 +925,8 @@
      [:<> [:i "f1"] [:i "f2"]]]
     (let [x 1] (case x 1 [:p "one"] [:p "other"]))
     (letfn [(f [n] n)] [:p (f 1)])
+    (if-let [u (sub [:user])] [:p "hi"] [:p "bye"])
+    [:div {:title (when-some [x (sub [:q])] x)}]
     [:div (spread b o)]
     [:input.form-control (spread-safe {:value v :on-change [:set :rf.ui/value]} attr)]
     (raw el)

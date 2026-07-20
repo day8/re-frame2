@@ -150,8 +150,12 @@ be host-native and need not themselves be serialisable.**
 ## Template grammar
 
 Reagent-familiar hiccup with the ambiguities removed. Control forms — `let` / `letfn` /
-`if` / `if-not` / `when` / `when-not` / `cond` / `case` / statically-pure `do` / `for` —
-normalize **into the AST**; all analyzers and both emitters see through branches.
+`if` / `if-not` / `when` / `when-not` / `if-let` / `when-let` / `if-some` / `when-some` /
+`cond` / `case` / statically-pure `do` / `for` — normalize **into the AST**; all
+analyzers and both emitters see through branches. The four conditional binders desugar
+into the analyzer's own `let` + `if`/`when` over a reserved temp (mirroring
+`clojure.core`'s expansions), so they inherit the same scope threading, destructuring,
+and reactive-escape rejection as a hand-written `let` + `if`.
 
 | Form | Meaning |
 |---|---|
@@ -186,7 +190,12 @@ expression grammar is therefore **closed**:
 
 - **Binder-aware structural forms**, handled with position-aware traversal:
   `quote` (never traversed — quoted data is not executable), `fn`/`fn*`, `let`/`let*`,
-  `loop`/`loop*`, `letfn`/`letfn*`, `try`. Binding patterns and destructuring `:or`
+  `loop`/`loop*`, `letfn`/`letfn*`, `try`, and the conditional binders `if-let` /
+  `when-let` / `if-some` / `when-some`. The four conditional binders desugar into the
+  analyzer's own `let` + `if`/`when` over a reserved temp: the binding init is an
+  ordinary evaluated expression that may own a finite reactive site, the pattern binds
+  into the then/body branch only, and the `some?`-variants test the raw init value
+  (never destructure-then-test). Binding patterns and destructuring `:or`
   defaults may contain neither reactive calls nor unaudited macros — those positions
   are consumed by the host compiler, not expression rewriting, so they cannot own a
   lexical render site (hoist the read into the view body and bind its value). This is
@@ -215,20 +224,26 @@ expression grammar is therefore **closed**:
   didactically: *macro X is outside the compiler's audited expression set and could
   inject, duplicate, or defer a reactive call after lexical site analysis; rewrite it
   with ordinary functions/control forms, or hoist the computation around the view
-  template.* This covers core macros outside the set (`if-let`, `when-let`, `case`,
-  `doto`, `for` in expression position, …) and every user/library macro — macro
+  template.* This covers core macros outside the set (`case` in expression position,
+  `condp`, `doto`, `for` in expression position, …) and every user/library macro — macro
   authority is the host analyzer's own flag, not a name heuristic. Recovery paths, in
   preference order: use a supported core form; move the pure computation into an
   ordinary function and call it; pass reactive values into the helper (read `sub` in
   the view body, hand the value down); or make the reactive boundary a `defview` of
   its own.
 
+`case` in expression position, `condp`, `doto`, and the other conveniences are
+**deferred**, not refused — the trigger is *demonstrated demand at a real call site*.
+Admitting one is a bounded grammar-set growth by the same rule below; do not implement
+one before its trigger fires.
+
 There is deliberately **no** generic double macroexpansion, no macro interpreter, no
 runtime dynamic reactive site, no ViewCell overhead for sub-free views, and no
-compatibility fallback. The set grows only by ruling, and any future addition requires
+compatibility fallback. The set grows only by ruling, and any addition requires
 lexical-scope plus hidden-reactive-injection counterfixtures (the rf2-vxgfnd.100
 hidden-sub / helper / binder-macro proofs in
-`re-frame.ui.compiler-macro-resolution-jvm-test` are the template).
+`re-frame.ui.compiler-macro-resolution-jvm-test` are the template — the admitted
+`if-let` family adds its own binder-lowering + out-of-family + pattern-escape rows).
 
 **DOM prop spelling is pinned:** hyphenated lowercase words mirroring React's camelCase
 — `:on-click`, `:on-key-down`, `:on-input` (never `:on-keydown`). Handler-map options:

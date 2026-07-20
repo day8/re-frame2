@@ -63,15 +63,26 @@
 (deftest real-cljs-binder-macros-fail-while-transparent-expressions-lower
   (with-real-cljs-env
     (fn [_ e]
+      ;; A USER binder macro that expands to the SAME let + if is still opaque —
+      ;; only the four core forms if-let/when-let/if-some/when-some are admitted
+      ;; (rf2-u53yy.4), by exact name, never by "looks like a binder". A bare
+      ;; threading step below `->` also stays rejected.
       (doseq [form
-              ['[:div {:title (if-let [x maybe] (sub [:q x]) nil)}]
-               '[:div {:title
+              ['[:div {:title
                        (re-frame.ui.compiler-macro-resolution-jvm-test/user-binder
                         [x maybe] (sub [:q x]) nil)}]
                '[:div {:title (-> [:q] sub)}]]]
         (is (= :rf.ui.compile/unsupported-form
                (compile-error-id #(analyze/analyze e form)))
             (pr-str form)))
+      ;; The admitted core if-let desugars into the analyzer's own let + if, so
+      ;; the (sub …) in a branch lowers to its indexed manifest site.
+      (let [e*  (assoc e :sites (atom {:events [] :subs [] :htmls []}))
+            ast (analyze/analyze e* '[:div {:title (if-let [x maybe] (sub [:q x]) nil)}])]
+        (is (= 1 (count (:subs @(:sites e*))))
+            "the admitted if-let lowers the branch (sub …) to one manifest site")
+        (is (re-find #"re-frame.ui.reactive/sub-read" (pr-str ast))
+            "the lowered runtime site is present in the desugared let + if"))
       (is (= :rf.ui.compile/unsupported-form
              (compile-error-id
               #(analyze/analyze

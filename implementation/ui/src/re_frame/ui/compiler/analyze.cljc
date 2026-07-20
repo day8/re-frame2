@@ -117,7 +117,63 @@
           keys vals seq re-seq]))
 
 (def ^:private control-heads
-  #{'if 'if-not 'when 'when-not 'cond 'case 'let 'letfn 'do 'for})
+  #{'if 'if-not 'when 'when-not 'cond 'case 'let 'letfn 'do 'for
+    'if-let 'when-let 'if-some 'when-some})
+
+(def ^:private if-let-family
+  "The admitted conditional-binder family (rf2-u53yy.4): if-let / when-let /
+  if-some / when-some. `:some?` selects the some?-based test over truthiness;
+  `:else?` selects the two-arm if-let/if-some shape over the single-body
+  when-let/when-some shape. The set is CLOSED — case in expression position,
+  condp, doto and the rest stay outside the grammar (Spec 004 §Expression
+  positions); additions are S1e roster changes."
+  {'if-let    {:some? false :else? true}
+   'if-some   {:some? true  :else? true}
+   'when-let  {:some? false :else? false}
+   'when-some {:some? true  :else? false}})
+
+(defn- binder-temp
+  "A deterministic, reserved temp symbol for the if-let-family desugar. Stable
+  per lexical `anchor` (so template identity is stable across compiles) and
+  never a user local (the reserved `rf-ui-` prefix). The temp holds the raw
+  init value so the truthiness / some? test examines it BEFORE the pattern
+  destructures — the exact hygiene clojure.core's own if-let uses (a
+  destructuring pattern must never be tested for truthiness)."
+  [anchor]
+  (symbol (str "rf-ui-binder-" (fingerprint/digest "bnd1-" anchor))))
+
+(defn- desugar-if-let
+  "Desugar one if-let/when-let/if-some/when-some form into the analyzer's own
+  let + if/when over a reserved temp — mirroring clojure.core's expansions. The
+  init is an ordinary evaluated expression (it may own a finite reactive site);
+  the pattern binds into the then/body branch ONLY; the else branch never sees
+  it. Both grammar tiers then reuse their EXISTING let/if machinery on the
+  result, so the family inherits the SAME scope threading, destructuring, and
+  reactive-escape rejection as a hand-written let + if — no runtime interpreter,
+  no dynamic site, no open macro system. Fails with the shared bad-let/bad-if
+  ids on a malformed binding vector or branch arity."
+  [e head temp form]
+  (let [{:keys [some? else?]} (get if-let-family head)
+        [_ bindings & body] form]
+    (when-not (and (vector? bindings) (= 2 (count bindings)))
+      (env/fail! e :rf.ui.compile/bad-let
+                 (str head " needs a single binding pair: (" head
+                      " [pattern init] " (if else? "then else?" "body …") ")")
+                 {:form form}))
+    (let [[pattern init] bindings
+          test  (if some? (list 'some? temp) temp)
+          inner (fn [& tail] (apply list 'let [pattern temp] tail))]
+      (if else?
+        (do
+          (when-not (<= 1 (count body) 2)
+            (env/fail! e :rf.ui.compile/bad-if
+                       (str head " takes a then and an optional else after the "
+                            "binding: (" head " [pattern init] then else?)")
+                       {:form form}))
+          (list 'let [temp init]
+                (list 'if test (inner (first body)) (second body))))
+        (list 'let [temp init]
+              (list 'when test (apply inner body)))))))
 
 (defn- fn-form? [f]
   (and (seq? f) (contains? #{'fn 'fn* 'clojure.core/fn 'cljs.core/fn} (first f))))
@@ -1017,6 +1073,18 @@
                    (= 'letfn* head) (rw-letfn* f locals p)
                    (= 'try head) (rw-try f locals p)
 
+                   ;; if-let / when-let / if-some / when-some (rf2-u53yy.4):
+                   ;; admitted conditional binders. Desugar into the analyzer's
+                   ;; own let + if/when — the position-aware binder machinery it
+                   ;; already controls — so the init lowers a reactive site, the
+                   ;; pattern's reactive-escape is rejected, and the deferred /
+                   ;; loop position law all fall out of the existing rw-let / if
+                   ;; recursion. A local shadow of the spelling falls through to
+                   ;; an ordinary call (tier 1's control-heads guard, mirrored).
+                   (and (contains? if-let-family head)
+                        (not (contains? locals head)))
+                   (rw (desugar-if-let e head (binder-temp p) f) locals p)
+
                    (and (macro-info e* head locals)
                         (contains? transparent-macro-fqns
                                    (:fqn (macro-info e* head locals))))
@@ -1037,8 +1105,10 @@
                    ;; hosts no render-time reactive site — sub/lease/frame are
                    ;; already illegal here (rejected above) — so there is nothing
                    ;; for lexical site analysis to protect. Opaque host macros
-                   ;; (`..`, `doto`, `case`, `if-let`, …) are ordinary callback
-                   ;; code: pass the form through verbatim. A reactive call
+                   ;; (`..`, `doto`, `case` in expression position, …) are
+                   ;; ordinary callback code: pass the form through verbatim
+                   ;; (the admitted if-let family is handled above, never here).
+                   ;; A reactive call
                    ;; smuggled inside one stays illegal in deferred scope and fails
                    ;; loud at its resolution-only var when the callback runs.
                    (and (macro-info e* head locals)
@@ -3098,7 +3168,15 @@
         do       (if (:hooks-region? e)
                    (analyze-hooks-body e "do" (vec (rest form)) form)
                    (analyze e (single-body! e "do" (vec (rest form)) form)))
-        for      (analyze-for e form))
+        for      (analyze-for e form)
+        ;; if-let / when-let / if-some / when-some (rf2-u53yy.4): admitted
+        ;; conditional binders. Desugar into the analyzer's own let + if/when and
+        ;; re-analyze — the branch is a conditional (its then/else leave the
+        ;; hooks region, exactly like if/when), the init lowers a finite reactive
+        ;; site, and the pattern's reactive-escape is rejected, all through the
+        ;; existing template machinery.
+        (if-let when-let if-some when-some)
+        (analyze e (desugar-if-let e head (binder-temp (:path e)) form)))
       (cond
         (raw-form? e form)
         (let [[_ x & extra] form]
