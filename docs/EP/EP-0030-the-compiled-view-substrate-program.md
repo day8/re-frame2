@@ -244,11 +244,15 @@ grammar; explicit escapes), and HMR identity drift (release/remount on ambiguity
 
 ### Guide impact
 
-The program adds `re-frame.ui` coverage across the `docs/core` view surface (W3)
-— views, frames, the introduction counter, forms — keeps the substrate-choice
-teaching (presenting `re-frame.ui` as a new experimental option alongside the
-retained Reagent/UIx/reagent-slim boot choices), and rebuilds the playground.
-Sibling EPs name per-domain impacts.
+The program's `re-frame.ui` teaching shipped as the **additive
+`docs/core/re-frame.ui` guide** (W3; rf2-b1wv9/#6544) — a dedicated subtree
+covering the mental model, building a view, state, events/handlers,
+reactivity/ownership, presence, SSR, testing, and interop — rather than a
+wholesale rewrite of the existing `docs/core` view chapters, which keep working
+and keep the substrate-choice teaching (presenting `re-frame.ui` as a new
+experimental option alongside the retained Reagent/UIx/reagent-slim boot
+choices). Later guide growth — and any playground work — is demand-driven, not a
+program-scale promise. Sibling EPs name per-domain impacts.
 
 ## Rationale
 
@@ -372,6 +376,29 @@ baseline is a recorded comparison, not a standing gate.
   one shallow props-conversion rule (children + ref preserved). W7b's dependency
   on `->react` landing (2026-07-19 above) is now satisfied. The `spec/API.md`
   blessed-freeze row and the api-manifest flip planned→live with this ruling.
+- **ADDENDUM — W1/W2/W3 adoption clauses trued to current truth (2026-07-20,
+  rf2-3qb5w).** The pre-#6560 EP text carried the retired codemod-era adoption
+  plan; #6560 corrected it in place. Per the EP-0009 convention (freeze meaning,
+  not bytes — rf2-r7ahi) the replaced clauses are preserved here beside their
+  current disposition. **Prior text:** §Adoption workstreams named "its sibling
+  migration + authoring skills (W2/W6), the docs/guide rewrite (W3)"; §Migration
+  posture said the migration skill's "rule table carries the mechanical rewrites
+  and flags the judgment-tier call sites for review rather than guessing"; §The
+  design-record retirement said "`guide/` moves to `docs/guide` at S6 (W3)"; and
+  the 2026-07-20 "Migration ships as an AI skill" ruling said "the skill's rule
+  table and fixture corpus carry the mechanical tier and flag the judgment tiers
+  for review. W2 lands as a sibling skill of the existing v1 migration skill
+  rather than an extension of it." **Current disposition (W numbers preserved,
+  no renumber):** W2 is **absorbed into W1** — the Reagent→`re-frame.ui`
+  migration ships as the single sibling AI skill `skills/reagent-migration`
+  (rf2-3bjvs, #6543); the former W2 second skill (closed rf2-nwgzha) is
+  superseded, not redispatched. W3's **wholesale docs rewrite and
+  `guide/`→`docs/guide` move are superseded** by the additive
+  `docs/core/re-frame.ui` guide already shipped (rf2-b1wv9, #6544); there is no
+  `docs/guide` destination and later guide growth is demand-driven (closed
+  rf2-3339ri records the plan as overtaken, not relocated). The W1 skill
+  **applies the M-tier mechanical rewrites and reasons through the D-tier
+  judgment cases with the author — it emits no review flags.**
 
 ## Open Issues
 
