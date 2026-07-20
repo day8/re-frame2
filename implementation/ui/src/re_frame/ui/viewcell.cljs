@@ -54,6 +54,7 @@
   before paint without any flush call."
   (:require ["react" :as react]
             [re-frame.adapter.context :as adapter-context]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.ui.events :as events]
             [re-frame.ui.reactive :as reactive]
@@ -205,15 +206,42 @@
   lease owners stay locked to the OLD frame (Spec 004-Views §context-change
   repaint; the same discipline `re-frame.adapter.use-frame/use-frame` uses).
 
-  The read VALUE is discarded — resolution runs through the carried-invariant
-  chain in `frame-ops`; the SUBSCRIPTION is the entire point. Called as a
-  compile-time-selected LEADING hook, so it is stable in hook order for every
-  render of a given compiled view's component (never conditional at runtime)."
+  The read VALUE is RETAINED (rf2-4rwtd): event wrappers thread it into
+  `events/with-capture` as the committed destination, and every sub/lease wrapper
+  binds it into `re-frame.frame/*current-frame*` around the compiled body
+  (`with-current-frame`) so ambient `(sub …)` / `(lease …)` resolution hits the
+  precedence-first dynamic tier. The `useContext` call above owns the repaint
+  SUBSCRIPTION either way. Called as a compile-time-selected LEADING hook, so it
+  is stable in hook order for every render of a given compiled view's component
+  (never conditional at runtime)."
   []
   (react/useContext adapter-context/frame-context)
   ;; Preserve the full carried-invariant precedence (dynamic binding before
   ;; React context) while the useContext call above owns repaint subscription.
   (adapter-context/function-component-current-frame))
+
+(defn- with-current-frame
+  "Wrap compiled body `thunk` so `re-frame.frame/*current-frame*` is bound to
+  `frame-id` (the ViewCell's React-context frame, read by `use-frame-context!`)
+  for the DURATION of the body evaluation (rf2-4rwtd).
+
+  Ambient `(sub …)` / `(lease …)` sites in the body resolve their frame through
+  `frame/require-current-frame!` → `resolve-current-frame` → the installed
+  adapter's `:adapter/current-frame` reader. EVERY such reader consults the
+  dynamic tier FIRST (`(or frame/*current-frame* …)` — the function-component,
+  Reagent class-component, and plain-atom readers alike), so establishing this
+  binding makes ambient resolution correct REGARDLESS of which adapter's reader
+  the hook routes to. Without it a compiled view's sub/lease reads raise
+  `:rf.error/no-frame-context` under a ratom-family (Reagent / reagent-slim)
+  host, whose reader returns nil for a ui function component's `(.-context cmp)`
+  / provider ratom (a sub-read-only asymmetry — ui's own event / `(frame)`
+  paths resolve via the direct context reader and are immune).
+
+  Scoped to the SYNCHRONOUS body eval only: a compiled view's children are
+  ELEMENTS React renders LATER, outside this dynamic extent, each re-establishing
+  its OWN frame — so no ambient frame leaks across React's lazy child rendering."
+  [frame-id thunk]
+  (fn [] (binding [frame/*current-frame* frame-id] (thunk))))
 
 ;; ---------------------------------------------------------------------------
 ;; Committed event sites (S3a)
@@ -269,7 +297,8 @@
         owner                  (use-event-owner view-id)
         [element capture event-capture]
         (capture-reactive-and-events
-         owner frame-id #(capture-with-overrides cell overrides thunk))]
+         owner frame-id
+         #(capture-with-overrides cell overrides (with-current-frame frame-id thunk)))]
     (use-commit-and-lifecycle! cell root-incarnation capture)
     (use-event-commit-and-lifecycle! owner event-capture)
     element))
@@ -280,7 +309,8 @@
         [cell root-incarnation] (use-cell view-id)
         owner                  (use-event-owner view-id)
         [element capture event-capture]
-        (capture-reactive-and-events owner frame-id #(capture-plain cell thunk))]
+        (capture-reactive-and-events
+         owner frame-id #(capture-plain cell (with-current-frame frame-id thunk)))]
     (use-resource-commit-and-lifecycle! cell root-incarnation capture)
     (use-event-commit-and-lifecycle! owner event-capture)
     (use-resource-reconcile! cell capture)
@@ -294,7 +324,8 @@
         owner                  (use-event-owner view-id)
         [element capture event-capture]
         (capture-reactive-and-events
-         owner frame-id #(capture-with-overrides cell overrides thunk))]
+         owner frame-id
+         #(capture-with-overrides cell overrides (with-current-frame frame-id thunk)))]
     (use-resource-commit-and-lifecycle! cell root-incarnation capture)
     (use-event-commit-and-lifecycle! owner event-capture)
     (use-resource-reconcile! cell capture)
@@ -321,10 +352,11 @@
   ambient-frame reader). Any `(frame)` site the body also carries rides the same
   single subscription — there is no separate `-frame` wrapper."
   [view-id thunk]
-  (use-frame-context!)
-  (let [[cell root-incarnation] (use-cell view-id)
+  (let [frame-id               (use-frame-context!)
+        [cell root-incarnation] (use-cell view-id)
         overrides              (use-sub-revision! cell)
-        [element capture]      (capture-with-overrides cell overrides thunk)]
+        [element capture]      (capture-with-overrides
+                                cell overrides (with-current-frame frame-id thunk))]
     (use-commit-and-lifecycle! cell root-incarnation capture)
     element))
 
@@ -338,9 +370,9 @@
   owner (rf2-vxgfnd.253). Structurally contains zero `useSyncExternalStore`
   calls."
   [view-id thunk]
-  (use-frame-context!)
-  (let [[cell root-incarnation] (use-cell view-id)
-        [element capture]      (capture-plain cell thunk)]
+  (let [frame-id               (use-frame-context!)
+        [cell root-incarnation] (use-cell view-id)
+        [element capture]      (capture-plain cell (with-current-frame frame-id thunk))]
     (use-resource-commit-and-lifecycle! cell root-incarnation capture)
     (use-resource-reconcile! cell capture)
     element))
@@ -351,10 +383,11 @@
   targets and its lease owners resolve against the ambient frame — a provider
   retarget must re-render it (rf2-vxgfnd.253)."
   [view-id thunk]
-  (use-frame-context!)
-  (let [[cell root-incarnation] (use-cell view-id)
+  (let [frame-id               (use-frame-context!)
+        [cell root-incarnation] (use-cell view-id)
         overrides              (use-sub-revision! cell)
-        [element capture]      (capture-with-overrides cell overrides thunk)]
+        [element capture]      (capture-with-overrides
+                                cell overrides (with-current-frame frame-id thunk))]
     (use-resource-commit-and-lifecycle! cell root-incarnation capture)
     (use-resource-reconcile! cell capture)
     element))
@@ -372,7 +405,8 @@
         owner                  (use-event-owner view-id)
         [element capture event-capture]
         (capture-reactive-and-events
-         owner frame-id #(capture-with-overrides cell overrides thunk))]
+         owner frame-id
+         #(capture-with-overrides cell overrides (with-current-frame frame-id thunk)))]
     (use-resource-commit-and-lifecycle! cell root-incarnation capture)
     (use-event-commit-and-lifecycle! owner event-capture)
     (use-resource-reconcile! cell capture)
