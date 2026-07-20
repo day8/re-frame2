@@ -42,3 +42,9 @@ spec/api-manifest-metadata.edn text eol=lf
 # checkout never CRLF-rewrites the committed file and trips a spurious drift.
 tools/story-mcp/tool-descriptors.edn text eol=lf
 tools/re-frame2-pair-mcp/tool-descriptors.edn text eol=lf
+
+# The generated re-frame.ui AI context sheet (rf2-u53yy.8). Its compile-rejection
+# roster is generated from the compiler's didactic messages; CI drift-checks the
+# committed file on Linux. Pin LF — same rationale as the api-manifest above — so
+# a Windows checkout never CRLF-rewrites it and trips a spurious drift.
+skills/re-frame2-ui-context/SKILL.md text eol=lf

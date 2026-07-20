@@ -16,6 +16,14 @@ catalogue — for the exact shape of every function the
 and the [Install re-frame.ui and configure Shadow](../how-to/install-re-frame-ui.md)
 recipe is the one-time setup.
 
+Pairing with an AI agent to write views? The
+[re-frame.ui context sheet](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-ui-context)
+is a compact, machine-first reference — the valid `defview` forms, the
+state/subscription/event/effect decision table, the foreign-boundary rules, and
+the full compile-rejection roster with each error's fix. Its roster is generated
+from the compiler's own didactic messages, so it never drifts from what the
+compiler actually enforces.
+
 !!! warning "re-frame.ui is experimental"
 
     It is pre-alpha, delivered in staged slices, and some surfaces are still
