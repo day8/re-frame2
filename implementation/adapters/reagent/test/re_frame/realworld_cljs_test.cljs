@@ -839,7 +839,7 @@
 (defn- routing-tests []
   (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
-    (rf/dispatch-sync [:rf.route/navigate :realworld.article/show {:slug "hello"}] {:frame f})
+    (rf/dispatch-sync [:rf.route/navigate {:to :realworld.article/show :params {:slug "hello"}}] {:frame f})
     (is (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
     (is (= "hello" (:slug (rf/compute-sub [:rf.route/params] (rf/frame-state-value f)))))
 
@@ -877,25 +877,25 @@
     ;; Unauthenticated: navigating to a :requires-auth route
     ;; (:realworld.user/settings) is refused by :can-enter → :rf.route/entry-blocked
     ;; redirects to :realworld.auth/login.
-    (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
+    (rf/dispatch-sync [:rf.route/navigate {:to :realworld.user/settings}] {:frame f})
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "unauthenticated nav to a :requires-auth route redirects to login")
 
     ;; A non-guarded route is unaffected.
-    (rf/dispatch-sync [:rf.route/navigate :realworld/home {}] {:frame f})
+    (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home}] {:frame f})
     (is (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "unguarded route navigates normally with the gate active")
 
     ;; Bounce-back stash: the entry-blocked redirect records the original target
     ;; at [:auth :return-to].
-    (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
+    (rf/dispatch-sync [:rf.route/navigate {:to :realworld.user/settings}] {:frame f})
     (is (= {:id :realworld.user/settings :params {}}
            (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
         "the redirect stashes the original target for post-login bounce-back")
 
     ;; Authenticated: the same guarded nav now proceeds (:can-enter passes).
     (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
-    (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
+    (rf/dispatch-sync [:rf.route/navigate {:to :realworld.user/settings}] {:frame f})
     (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "authenticated nav to a :requires-auth route proceeds")
 
@@ -1084,7 +1084,7 @@
     (is (= 2 (:page (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))
 
     ;; --- :profile/show-page stays on the same tab + username, swaps only ?page= ---
-    (rf/dispatch-sync [:rf.route/navigate :realworld.profile/show {:username "eve"}] {:frame f})
+    (rf/dispatch-sync [:rf.route/navigate {:to :realworld.profile/show :params {:username "eve"}}] {:frame f})
     (rf/dispatch-sync [:profile/show-page 2] {:frame f})
     (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "profile page-nav stays on the same (authored) tab")
@@ -1093,7 +1093,7 @@
     (is (= 2 (:page (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))
 
     ;; The favorites tab pages independently, still on its own route.
-    (rf/dispatch-sync [:rf.route/navigate :realworld.profile/favorites {:username "eve"}] {:frame f})
+    (rf/dispatch-sync [:rf.route/navigate {:to :realworld.profile/favorites :params {:username "eve"}}] {:frame f})
     (rf/dispatch-sync [:profile/show-page 3] {:frame f})
     (is (= :realworld.profile/favorites (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "the favorites tab stays on the favorites route when paging")

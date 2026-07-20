@@ -52,16 +52,16 @@
  :fixture/dispatches
  [;; Step 1: full commit. :on-match fires once (load-count → 1); nav-1 allocated;
   ;; :rf.nav/push-url pushes /docs/routing#a.
-  [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}]
+  [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}]
 
   ;; Step 2: same route-id/params/query, DIFFERENT fragment → fragment-only.
   ;; :on-match does NOT re-fire (load-count stays 1); nav-token stays nav-1;
   ;; :rf.route/fragment-changed fires; :rf.nav/push-url pushes /docs/routing#b.
-  [:rf.route/navigate :route/docs {:page "routing"} {:fragment "b"}]
+  [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b"}]
 
   ;; Step 3: fragment-only with {:replace? true} → :rf.nav/replace-url (NOT push).
   ;; Still no re-fire, still nav-1; pushes /docs/routing#c via replaceState.
-  [:rf.route/navigate :route/docs {:page "routing"} {:fragment "c" :replace? true}]]
+  [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "c" :replace? true}]]
 
  :fixture/expect
  {;; TEETH: the loader ran exactly once — the two fragment-only navs did NOT

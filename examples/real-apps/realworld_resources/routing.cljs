@@ -276,7 +276,7 @@
                                  (assoc-in (get-in ctx [:coeffects :db])
                                            [:auth :return-to] {:id id :params params}))
                        (assoc-in [:effects :fx]
-                                 [[:dispatch [:rf.route/navigate :realworld.auth/login]]]))
+                                 [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]))
                    ctx))
                ctx))})
 

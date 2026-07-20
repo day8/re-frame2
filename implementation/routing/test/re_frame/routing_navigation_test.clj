@@ -28,7 +28,7 @@
       (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "intro"}}])
       (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
         (is (= :route/article (:route-id slice))
             "the :rf/route slice carries the navigation target")
@@ -67,7 +67,7 @@
 
       ;; 2. Navigate programmatically to :route/cart with NO query — the
       ;;    target's :query-retain must merge :theme + :locale through.
-      (rf/dispatch-sync [:rf.route/navigate :route/cart])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
       (let [last-url (last @pushed)]
         (is (re-find #"theme=dark" last-url)
             ":query-retain preserves :theme through programmatic nav")
@@ -76,7 +76,7 @@
 
       ;; 3. Caller-supplied query values WIN over retained values.
       (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/navigate :route/cart {} {:query {:theme "light"}}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/cart :query {:theme "light"}}])
       (let [last-url (last @pushed)]
         (is (re-find #"theme=light" last-url)
             "caller-supplied :theme overrides retained value")
@@ -94,7 +94,7 @@
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/transitioned "/search?theme=dark"])
-      (rf/dispatch-sync [:rf.route/navigate :route/cart])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
       (is (= "/cart" (last @pushed))
           ":query-retain undeclared → no carry-through, URL stays bare"))))
 
@@ -120,7 +120,7 @@
                     "/search")
       ;; Programmatic nav with an explicit nil :sort — route-url elides it from
       ;; the URL, so the slice must NOT carry {:sort nil}.
-      (rf/dispatch-sync [:rf.route/navigate :route/search {} {:query {:sort nil}}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query {:sort nil}}])
       (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/routing :current])]
         (is (= {} (:query slice))
@@ -153,10 +153,7 @@
       (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/navigate
-                         :route/docs
-                         {:page "routing"}
-                         {:fragment "scroll-restoration"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "scroll-restoration"}])
       (is (= ["/docs/routing#scroll-restoration"] @pushed)
           ":rf.nav/push-url received the URL WITH the appended #fragment"))))
 
@@ -168,8 +165,7 @@
       (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/navigate
-                         {:url "/docs/routing#scroll-restoration"}])
+      (rf/dispatch-sync [:rf.route/navigate {:url "/docs/routing#scroll-restoration"}])
       (is (= ["/docs/routing#scroll-restoration"] @pushed)
           "fragment in the URL-string target round-trips through the push"))))
 
@@ -233,7 +229,7 @@
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       ;; Land on home so the not-found commit displaces a known slice.
-      (rf/dispatch-sync [:rf.route/navigate :route/home])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
       (reset! pushed [])
       (rf/register-listener! :trace ::nav-nf-warn (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
@@ -362,10 +358,7 @@
                (fn [_ _] nil))
     (let [traces (atom [])]
       (rf/register-listener! :trace ::nav-token (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate
-                         :route/docs
-                         {:page "routing"}
-                         {:fragment "scroll-restoration"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "scroll-restoration"}])
       (rf/unregister-listener! :trace ::nav-token)
       (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
         (is (= "scroll-restoration" (:fragment slice))
@@ -384,7 +377,7 @@
     (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/navigate :route/home])
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
     (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
       (is (nil? (:fragment slice))
           ":fragment is nil when no opt supplied")
@@ -713,7 +706,7 @@
       (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
-      (rf/dispatch-sync [:rf.route/navigate :route/dashboard])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/dashboard}])
 
       (is (= [[:a :loading] [:b :loading]] @observed)
           "both :on-match events fired in declaration order; both observed :loading")
@@ -902,11 +895,11 @@
       (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] (swap! pushed inc)))
-      (rf/dispatch-sync [:rf.route/navigate :route/cart])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
       (is (= 1 @on-match-calls) ":on-match fired once on the first navigate")
       (is (= "nav-1" (:nav-token (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))))
       ;; Duplicate navigate to the same target — rule-3 no-op.
-      (rf/dispatch-sync [:rf.route/navigate :route/cart])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
       (is (= 1 @on-match-calls)
           "rule 3: :on-match did NOT re-fire on duplicate navigate")
       (is (= "nav-1" (:nav-token (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
@@ -940,13 +933,13 @@
                    (fn [_ url] (swap! pushed conj url)))
         ;; Land somewhere valid first so we can prove the slice is left
         ;; untouched by the rejected navigation.
-        (rf/dispatch-sync [:rf.route/navigate :route/article {:id "aardvark"}])
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "aardvark"}}])
         (reset! pushed [])
         (let [before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])
               traces (atom [])]
           (rf/register-listener! :trace ::reject (fn [ev] (swap! traces conj ev)))
           ;; Caller bug: :id "zoo" violates the :params schema.
-          (rf/dispatch-sync [:rf.route/navigate :route/article {:id "zoo"}])
+          (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "zoo"}}])
           (rf/unregister-listener! :trace ::reject)
           (let [after (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
             (is (= before after)
@@ -1108,7 +1101,7 @@
 
         ;; Now reach the SAME URL programmatically with {:fragment ""}.
         (reset! pushed [])
-        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "guide"} {:fragment ""}])
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "guide"} :fragment ""}])
         (let [slice-frag (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :fragment])]
           (is (= ["/docs/guide"] @pushed)
@@ -1118,53 +1111,24 @@
 
       (testing "a non-empty programmatic fragment still works (regression guard)"
         (reset! pushed [])
-        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "api"} {:fragment "section"}])
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "api"} :fragment "section"}])
         (is (= ["/docs/api#section"] @pushed) "non-empty fragment appends #section")
         (is (= "section" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :fragment]))
             "the slice carries the non-empty fragment")))))
 
-;; ---- rf2-1os1c: :rf.route/navigate params/opts positional swap ------------
+;; ---- The flat request-map grammar (rf2-vwwvp) -----------------------------
 ;;
-;; Spec 012 §Navigation is an event: the two trailing maps (params 2nd,
-;; opts 3rd) are positionally ambiguous. The disambiguating guard
-;; (rf2-1os1c) rejects an opts-only key (:replace? / :scroll / :fragment /
-;; :bypass-guards?) sitting in the PARAMS slot when it is not a
-;; declared path-param of the target route, and emits
-;; :rf.error/navigate-arity-misuse.
+;; Spec 012 §Navigation is an event: `:rf.route/navigate` carries ONE flat
+;; request map — no positional arity, no reserved-target form. Address keys
+;; (:to / :url / :params / :query / :fragment), policy keys (:replace? /
+;; :scroll / :bypass-guards?), and the in-place edit key :query-merge. The
+;; always-on structural gate is exercised in the dedicated gate suite below;
+;; here we pin that the address forms navigate cleanly.
 
-(deftest navigate-rejects-opts-shaped-map-in-params-slot
-  (testing "rf2-1os1c: [:rf.route/navigate :route/x {:replace? true}]
-            (opts in the params slot) is rejected — slice unchanged, no
-            push, :rf.error/navigate-arity-misuse emitted"
-    (rf/reg-route :route/cart {} "/cart")
-    (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      (let [before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])
-            traces (atom [])]
-        (rf/register-listener! :trace ::arity (fn [ev] (swap! traces conj ev)))
-        ;; The classic swap: {:replace? true} meant for the opts (3rd)
-        ;; slot, supplied in the params (2nd) slot.
-        (rf/dispatch-sync [:rf.route/navigate :route/cart {:replace? true}])
-        (rf/unregister-listener! :trace ::arity)
-        (is (= before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
-            "the misuse is rejected — the :rf/route slice is UNCHANGED")
-        (is (empty? @pushed)
-            "no URL is pushed for a rejected arity-misuse navigation")
-        (let [err (first (filter #(= :rf.error/navigate-arity-misuse (:operation %))
-                                 @traces))]
-          (is (some? err)
-              ":rf.error/navigate-arity-misuse emitted")
-          (is (= :event (-> err :tags :where))
-              "error tags :where :event (event-boundary path)")
-          (is (= [:replace?] (-> err :tags :keys))
-              ":keys names the misplaced opts key"))))))
-
-(deftest navigate-accepts-the-documented-arities
-  (testing "rf2-1os1c: the three documented arities all navigate cleanly
-            — [target], [target params], [target params opts]"
+(deftest navigate-accepts-the-request-map-forms
+  (testing "rf2-vwwvp: the request-map forms all navigate cleanly —
+            {:to}, {:to :params}, {:to :params :replace?}"
     (rf/reg-route :route/home    {} "/")
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (let [pushed   (atom [])
@@ -1176,18 +1140,18 @@
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! replaced conj url)))
       ;; [target] — no path-params, no opts.
-      (rf/dispatch-sync [:rf.route/navigate :route/home])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
       (is (= :route/home (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                             [:rf.runtime/routing :current])))
           "[target] arity navigates")
       ;; [target params] — params 2nd, opts absent.
-      (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "intro"}}])
       (is (= {:id "intro"} (:params (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                             [:rf.runtime/routing :current])))
           "[target params] arity navigates with path-params")
       ;; [target params opts] — opts in the THIRD slot (:replace? true →
       ;; :rf.nav/replace-url, proving the 3rd-slot opts are honoured).
-      (rf/dispatch-sync [:rf.route/navigate :route/article {:id "two"} {:replace? true}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "two"} :replace? true}])
       (is (= "/articles/two" (last @replaced))
           "[target params opts] arity navigates; :replace? opt honoured in the 3rd slot")
       (is (= {:id "two"} (:params (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -1203,7 +1167,7 @@
       (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/navigate :route/anchor {:fragment "intro"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/anchor :params {:fragment "intro"}}])
       (is (= :route/anchor (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                               [:rf.runtime/routing :current])))
           "a declared :fragment path-param navigates normally (no false reject)")
@@ -1239,7 +1203,7 @@
     ;; First nav (no prior route): only nav-token-allocated + activated fire.
     (let [traces (atom [])]
       (rf/register-listener! :trace ::dbmj6x-nav1 (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate :route/from] {:frame :route/owner})
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/from}] {:frame :route/owner})
       (rf/unregister-listener! :trace ::dbmj6x-nav1)
       (is (some (fn [ev]
                   (and (= :rf.route.nav-token/allocated (:operation ev))
@@ -1256,7 +1220,7 @@
     ;; Cross-route nav: deactivated + activated both carry the frame.
     (let [traces (atom [])]
       (rf/register-listener! :trace ::dbmj6x-nav2 (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate :route/to] {:frame :route/owner})
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/to}] {:frame :route/owner})
       (rf/unregister-listener! :trace ::dbmj6x-nav2)
       (is (some (fn [ev]
                   (and (= :rf.route/deactivated (:operation ev))
@@ -1342,10 +1306,10 @@
                (fn [_ _] nil))
     ;; Seed a prior route in the tool frame so a cross-route nav would emit
     ;; deactivated + activated (both must be suppressed).
-    (rf/dispatch-sync [:rf.route/navigate :route/from] {:frame :rf/tool})
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/from}] {:frame :rf/tool})
     (let [tool-traces (atom [])]
       (rf/register-listener! :trace ::dbmj6x-tool (fn [ev] (swap! tool-traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate :route/to] {:frame :rf/tool})
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/to}] {:frame :rf/tool})
       (rf/unregister-listener! :trace ::dbmj6x-tool)
       (is (empty? (filter #(#{:rf.route.nav-token/allocated
                               :rf.route/activated
@@ -1355,10 +1319,10 @@
           "no lifecycle / nav-token trace leaks from a :rf.trace/frame-no-emit?
            frame (pre-fix the unframed emits leaked past the gate)"))
     ;; Control: the identical events DO fire from an ordinary emitting frame.
-    (rf/dispatch-sync [:rf.route/navigate :route/from] {:frame :rf/default})
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/from}] {:frame :rf/default})
     (let [app-traces (atom [])]
       (rf/register-listener! :trace ::dbmj6x-app (fn [ev] (swap! app-traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate :route/to] {:frame :rf/default})
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/to}] {:frame :rf/default})
       (rf/unregister-listener! :trace ::dbmj6x-app)
       (is (some #(= :rf.route.nav-token/allocated (:operation %)) @app-traces)
           "control: :rf.route.nav-token/allocated DOES fire from an emitting frame")
@@ -1367,18 +1331,18 @@
       (is (some #(= :rf.route/deactivated (:operation %)) @app-traces)
           "control: :rf.route/deactivated DOES fire from an emitting frame"))))
 
-;; ---- rf2-ue2d4t — Spec 012 §:rf.route/self + §The :query-merge opt --------
+;; ---- rf2-vwwvp — Spec 012 §In-place navigation + §The :query-merge key -----
 
 (defn- nav-slice
   "The current route slice for the default frame."
   []
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
 
-(deftest routing-self-target-stays-on-current-route
-  (testing ":rf.route/self resolves to the CURRENT route's id + path-params"
-    ;; Per Spec 012 §:rf.route/self — navigate-in-place. A self-nav holds the
-    ;; route (path) fixed and changes only the query; the 2nd params slot is
-    ;; ignored.
+(deftest routing-in-place-target-stays-on-current-route
+  (testing "an in-place request patches the CURRENT route's query, holding id + path-params"
+    ;; Per Spec 012 §In-place navigation. An in-place request (no :to / :url)
+    ;; holds the route (path) fixed and changes only the query; a wholesale
+    ;; :query replaces the current query.
     (rf/reg-route :route/article
                   {:params [:map [:id :string]]
                    :query  [:map [:tab {:optional true} :string]]}
@@ -1391,13 +1355,13 @@
       (rf/dispatch-sync [:rf.route/transitioned "/articles/intro?tab=notes"])
       (is (= :route/article (:route-id (nav-slice))))
       (is (= {:id "intro"} (:params (nav-slice))))
-      ;; Self-nav changing only the query; params slot is {}.
+      ;; In-place nav changing only the query.
       (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query {:tab "history"}}])
+      (rf/dispatch-sync [:rf.route/navigate {:query {:tab "history"}}])
       (is (= :route/article (:route-id (nav-slice)))
-          ":rf.route/self keeps the current route-id")
+          "in-place keeps the current route-id")
       (is (= {:id "intro"} (:params (nav-slice)))
-          ":rf.route/self keeps the current path-params (path held fixed)")
+          "in-place keeps the current path-params (path held fixed)")
       (is (= {:tab "history"} (:query (nav-slice)))
           "the query changed to the supplied :query")
       (is (= ["/articles/intro?tab=history"] @pushed)
@@ -1419,7 +1383,7 @@
       (is (= {:q "clojure" :page 1 :sort "recent"} (:query (nav-slice))))
       ;; Merge :page 2 — q + sort ride along.
       (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query-merge {:page 2}}])
+      (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 2}}])
       (is (= {:q "clojure" :page 2 :sort "recent"} (:query (nav-slice)))
           ":query-merge changes :page, keeps :q + :sort from the current query")
       (let [url (last @pushed)]
@@ -1443,7 +1407,7 @@
       (rf/dispatch-sync [:rf.route/transitioned "/search?q=clojure&sort=recent"])
       (reset! pushed [])
       ;; Remove :sort via a nil value.
-      (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query-merge {:sort nil}}])
+      (rf/dispatch-sync [:rf.route/navigate {:query-merge {:sort nil}}])
       (is (= {:q "clojure"} (:query (nav-slice)))
           ":sort is removed from the slice (no {:sort nil} residue)")
       (is (not (contains? (:query (nav-slice)) :sort))
@@ -1466,7 +1430,7 @@
       (rf/dispatch-sync [:rf.route/transitioned "/search?page=1"])
       (reset! pushed [])
       ;; page 0 is falsy-but-legitimate; flag "" is an explicit empty value.
-      (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query-merge {:page 0 :flag ""}}])
+      (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 0 :flag ""}}])
       (is (= 0 (:page (:query (nav-slice))))
           "page=0 (falsy) survives the merge")
       (is (= "" (:flag (:query (nav-slice))))
@@ -1485,56 +1449,69 @@
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/transitioned "/search?page=5"])
       (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query-merge {:page 6}}])
+      (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 6}}])
       (is (= 6 (:page (:query (nav-slice))))
           "the :query-merge delta wins over the current :page=5"))))
 
-(deftest routing-query-merge-works-with-route-id-target
-  (testing ":query-merge is target-agnostic — folds current query into another route"
-    ;; Per Spec 012 §The :query-merge opt: :query-merge works with any target.
-    ;; Navigating to a DIFFERENT route folds the current query into that
-    ;; route's outgoing query (subject to the target's :query schema).
+(deftest routing-query-merge-with-destination-rejects
+  (testing ":query-merge requires an in-place request — a destination target is rejected"
+    ;; Per Spec 012 §Validity rules rule 4: :query-merge requires an IN-PLACE
+    ;; request (no :to / :url). Cross-route query carry is DELETED — carrying
+    ;; state into another route's query is that route's :query-retain policy,
+    ;; not the caller's imperative :query-merge. A :query-merge beside :to is a
+    ;; structural error: the gate rejects it with :rf.error/navigate-bad-request
+    ;; (:reason :query-merge-in-place-only), slice unchanged, no push.
     (rf/reg-route :route/a
                   {:query [:map [:theme {:optional true} :string]]} "/a")
     (rf/reg-route :route/b
                   {:query [:map [:theme {:optional true} :string]
                                 [:page {:optional true} :int]]} "/b")
-    (let [pushed (atom [])]
+    (let [pushed (atom [])
+          errors (atom [])]
       (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/transitioned "/a?theme=dark"])
       (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/navigate :route/b {} {:query-merge {:page 3}}])
-      (is (= :route/b (:route-id (nav-slice))) "navigated to the other route")
-      (is (= {:theme "dark" :page 3} (:query (nav-slice)))
-          "current query (:theme) folded in, plus the :page delta"))))
+      (rf/register-listener! :trace ::qm-reject
+                             (fn [ev] (when (= :error (:op-type ev))
+                                        (swap! errors conj ev))))
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/b :query-merge {:page 3}}])
+      (rf/unregister-listener! :trace ::qm-reject)
+      (is (= :route/a (:route-id (nav-slice))) "the destination nav is rejected; slice unchanged")
+      (is (empty? @pushed) "no URL is pushed")
+      (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
+        (is (some? err) ":rf.error/navigate-bad-request emitted")
+        (is (= :query-merge-in-place-only (-> err :tags :reason))
+            ":reason names the query-merge-on-destination violation")))))
 
-(deftest routing-self-before-first-nav-rejects
-  (testing ":rf.route/self before any navigation fails closed (no current route)"
-    ;; Per Spec 012 §:rf.route/self: before the first navigation there is no
-    ;; current route; route-id resolves to nil and the navigation is rejected
-    ;; (slice unchanged, no push), the same fail-closed reject as any
-    ;; unresolvable target.
+(deftest routing-in-place-before-first-nav-rejects
+  (testing "an in-place request before any navigation fails closed (no current route)"
+    ;; Per Spec 012 §Validity rules rule 6: an in-place request dispatched
+    ;; before any current route exists rejects loud — there is nothing to
+    ;; patch. The structural gate emits :rf.error/navigate-bad-request
+    ;; (:reason :no-current-route), slice unchanged, no push.
     (let [pushed  (atom [])
           errors  (atom [])]
       (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      (rf/register-listener! :trace ::self-reject
+      (rf/register-listener! :trace ::inplace-reject
                              (fn [ev] (when (= :error (:op-type ev))
                                         (swap! errors conj ev))))
-      (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query-merge {:page 1}}])
-      (rf/unregister-listener! :trace ::self-reject)
+      (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 1}}])
+      (rf/unregister-listener! :trace ::inplace-reject)
       (is (empty? @pushed)
-          "no URL is pushed for a self-nav with no current route")
+          "no URL is pushed for an in-place nav with no current route")
       (is (nil? (:route-id (nav-slice)))
           "the route slice stays empty (unchanged)")
-      (is (some #(= :rf.error/schema-validation-failure (:operation %)) @errors)
-          "a rejection error is emitted (route-url could not resolve nil route-id)"))))
+      (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
+        (is (some? err) ":rf.error/navigate-bad-request emitted")
+        (is (= :no-current-route (-> err :tags :reason))
+            ":reason names the no-current-route violation")))))
 
-(deftest routing-self-query-merge-no-op-when-unchanged
-  (testing "self + :query-merge to the SAME query is a rule-3 no-op"
+(deftest routing-in-place-query-merge-no-op-when-unchanged
+  (testing "in-place :query-merge to the SAME query is a rule-3 no-op"
     ;; Per Spec 012 §Per-route data loading rule 3: a navigation whose
     ;; resolved id/params/query/fragment match the current slice exactly is a
     ;; no-op — no fresh nav-token, no push. Eliding nil-valued merge keys from
@@ -1549,7 +1526,7 @@
       (let [token-before (:nav-token (nav-slice))]
         (reset! pushed [])
         ;; Merge :page 2 while already on page 2 → no-op.
-        (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query-merge {:page 2}}])
+        (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 2}}])
         (is (empty? @pushed)
             "a self-nav to the identical query pushes no URL (rule-3 no-op)")
         (is (= token-before (:nav-token (nav-slice)))
@@ -1599,7 +1576,7 @@
       (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
       (let [fxs (reg-nav-fxs-capturing!)]
         ;; Full nav → loader fires once, nav-1, pushes /docs/routing#a.
-        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}])
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
         (is (= 1 @on-match-calls) ":on-match fired once on the full nav")
         (let [slice-before (nav-slice)]
           (is (= "nav-1"  (:nav-token slice-before)) "first nav allocated nav-1")
@@ -1609,7 +1586,7 @@
           (let [traces (atom [])]
             (rf/register-listener! :trace ::k4exp1-frag (fn [ev] (swap! traces conj ev)))
             ;; Fragment-only nav: same route/params/query, #a → #b.
-            (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "b"}])
+            (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b"}])
             (rf/unregister-listener! :trace ::k4exp1-frag)
 
             (let [slice-after (nav-slice)]
@@ -1649,9 +1626,9 @@
             write commits before the ordered history/scroll effects)"
     (rf/reg-route :route/docs {} "/docs/:page")
     (let [fxs (reg-nav-fxs-capturing!)]
-      (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
       (reset! (:order fxs) [])
-      (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "b"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b"}])
       (let [ids (mapv first @(:order fxs))]
         (is (= [:rf.nav/capture-scroll :rf.nav/push-url :rf.nav/scroll] ids)
             "ordered: capture the leaving scroll, push the new URL, then scroll")
@@ -1671,10 +1648,9 @@
       (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
       (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
       (let [fxs (reg-nav-fxs-capturing!)]
-        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}])
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
         (reset! (:push fxs) [])
-        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"}
-                           {:fragment "b" :replace? true}])
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b" :replace? true}])
         (is (= "b"    (:fragment (nav-slice))) "fragment updated to #b")
         (is (= "nav-1" (:nav-token (nav-slice))) "no new nav-token")
         (is (= 1 @on-match-calls) ":on-match did NOT re-fire")
@@ -1688,11 +1664,10 @@
             :rf.nav/scroll effect but still updates :fragment and pushes the URL"
     (rf/reg-route :route/docs {} "/docs/:page")
     (let [fxs (reg-nav-fxs-capturing!)]
-      (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
       (reset! (:scroll fxs) [])
       (reset! (:push fxs) [])
-      (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"}
-                         {:fragment "b" :scroll false}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b" :scroll false}])
       (is (= "b" (:fragment (nav-slice))) ":fragment still updates with :scroll false")
       (is (= ["/docs/routing#b"] @(:push fxs)) "the URL is still pushed")
       (is (empty? @(:scroll fxs))
@@ -1706,10 +1681,10 @@
       (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
       (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
       (let [fxs (reg-nav-fxs-capturing!)]
-        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}])
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
         (reset! (:push fxs) [])
         ;; No :fragment opt → normalises to nil; #a → nil differs → fragment-only.
-        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"}])
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"}}])
         (is (nil? (:fragment (nav-slice))) "fragment cleared to nil")
         (is (= "nav-1" (:nav-token (nav-slice))) "clearing a fragment is fragment-only — no new token")
         (is (= 1 @on-match-calls) "clearing a fragment does NOT re-fire :on-match")
@@ -1722,15 +1697,14 @@
             fragment-changed, no token change (identical wins over fragment-only)"
     (rf/reg-route :route/docs {} "/docs/:page")
     (let [fxs (reg-nav-fxs-capturing!)]
-      (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
       (let [token-before (:nav-token (nav-slice))
             traces       (atom [])]
         (reset! (:push fxs) [])
         (reset! (:replace fxs) [])
         (rf/register-listener! :trace ::k4exp1-identical (fn [ev] (swap! traces conj ev)))
         ;; Same route/params/query AND same fragment #a, with :replace? true.
-        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"}
-                           {:fragment "a" :replace? true}])
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a" :replace? true}])
         (rf/unregister-listener! :trace ::k4exp1-identical)
         (is (= token-before (:nav-token (nav-slice))) "identical target: token unchanged")
         (is (empty? @(:push fxs))    "identical target: no push")
@@ -1755,12 +1729,12 @@
                          (fn [ctx] (swap! plan-calls conj ctx) {}))
       (try
         ;; Full nav → the route-entry plan runs once.
-        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}])
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
         (is (= 1 (count @plan-calls))
             "the route-entry resource plan ran once on the full nav")
         (let [token-after-full (:nav-token (nav-slice))]
           ;; Fragment-only nav → the plan is NOT invoked again; owner token stays.
-          (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "b"}])
+          (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b"}])
           (is (= 1 (count @plan-calls))
               "the fragment-only nav did NOT re-run the route-entry plan — no
                ensure/release/re-plan")
@@ -1884,3 +1858,88 @@
       (is (empty? @(:scroll fxs))
           ":scroll false suppressed the :rf.nav/scroll effect on the URL-driven
            fragment-only door"))))
+
+;; ============================================================================
+;; rf2-vwwvp — the always-on structural gate (Spec 012 §Validity rules)
+;; ============================================================================
+;;
+;; The gate rejects a malformed request map BEFORE any guard runs, emitting
+;; :rf.error/navigate-bad-request (:where :event) with a :reason discriminator
+;; and :keys. The slice is unchanged, no URL is pushed. red->green per rule.
+
+(defn- gate-reject
+  "Dispatch `request` as `[:rf.route/navigate request]` from a signed-in slice
+  on `:route/gate-a` and return the first :rf.error/navigate-bad-request trace
+  (or nil). Records whether any URL was pushed under `pushed`."
+  [request pushed]
+  (let [errors (atom [])]
+    (rf/register-listener! :trace ::gate
+                           (fn [ev] (when (= :error (:op-type ev))
+                                      (swap! errors conj ev))))
+    (rf/dispatch-sync [:rf.route/navigate request])
+    (rf/unregister-listener! :trace ::gate)
+    (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))))
+
+(deftest navigate-structural-gate-rejects-malformed-requests
+  (rf/reg-route :route/gate-a {:query [:map [:q {:optional true} :string]]} "/gate-a")
+  (rf/reg-route :route/gate-b {} "/gate-b")
+  (let [pushed (atom [])
+        slice  (fn [] (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                              [:rf.runtime/routing :current]))]
+    (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+               (fn [_ url] (swap! pushed conj url)))
+    ;; Establish a current route so in-place requests have something to patch.
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/gate-a}])
+    (reset! pushed [])
+
+    (testing "empty map rejects (:no-destination-or-change)"
+      (let [err (gate-reject {} pushed)]
+        (is (= :no-destination-or-change (-> err :tags :reason)))
+        (is (= :event (-> err :tags :where)))
+        (is (empty? @pushed))))
+
+    (testing "pure-policy map rejects (:no-destination-or-change)"
+      (is (= :no-destination-or-change (-> (gate-reject {:replace? true} pushed) :tags :reason)))
+      (is (empty? @pushed)))
+
+    (testing ":to + :url are mutually exclusive"
+      (is (= :to-url-exclusive (-> (gate-reject {:to :route/gate-b :url "/gate-b"} pushed) :tags :reason))))
+
+    (testing ":url excludes :params / :query / :query-merge"
+      (is (= :url-excludes-address (-> (gate-reject {:url "/gate-b" :query {:q "x"}} pushed) :tags :reason))))
+
+    (testing ":query + :query-merge are mutually exclusive"
+      (is (= :query-exclusive (-> (gate-reject {:query {:q "x"} :query-merge {:q "y"}} pushed) :tags :reason))))
+
+    (testing ":query-merge on a destination request rejects"
+      (is (= :query-merge-in-place-only
+             (-> (gate-reject {:to :route/gate-b :query-merge {:q "x"}} pushed) :tags :reason))))
+
+    (testing "unknown keys reject (namespaced INCLUDED)"
+      (is (= :unknown-keys (-> (gate-reject {:to :route/gate-b :bogus 1} pushed) :tags :reason)))
+      (let [err (gate-reject {:to :route/gate-b :my-app/replace? true} pushed)]
+        (is (= :unknown-keys (-> err :tags :reason)))
+        (is (= [:my-app/replace?] (-> err :tags :keys))
+            "a namespaced unknown key fails as loudly as a bare typo")))
+
+    (is (= :route/gate-a (:route-id (slice)))
+        "every rejected request left the slice on the original route (unchanged)")
+    (is (empty? @pushed)
+        "no rejected request pushed a URL")))
+
+(deftest navigate-internal-enter-attempts-rider-is-stripped-before-gate
+  (testing "the runtime resume rider :rf.route/enter-attempts is stripped before
+            the gate (it is not an unknown key)"
+    (rf/reg-route :route/rider {} "/rider")
+    (let [errors (atom [])]
+      (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+      (rf/register-listener! :trace ::rider
+                             (fn [ev] (when (= :error (:op-type ev))
+                                        (swap! errors conj ev))))
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/rider :rf.route/enter-attempts 2}])
+      (rf/unregister-listener! :trace ::rider)
+      (is (= :route/rider (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                                             [:rf.runtime/routing :current])))
+          "the request navigates cleanly despite carrying the internal rider")
+      (is (empty? (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))
+          "no navigate-bad-request — the rider is stripped, not treated as unknown"))))

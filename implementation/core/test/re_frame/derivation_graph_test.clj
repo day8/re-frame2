@@ -378,7 +378,7 @@
   (testing "the live graph carries the materialized route slice node"
     (rf/reg-route :route/article {} "/articles/:slug")
     ;; Drive a navigation so the route slice is materialized in runtime-db.
-    (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}])
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}])
     (let [g     (graph/live-derivation-graph :rf/default all-contributors)
           slice (get (:nodes g) :rf/route)]
       (is (some? slice) "the live route slice node is present, keyed by :rf/route")

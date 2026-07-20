@@ -355,7 +355,7 @@
       {:db (auth/store-session-db db user)
        :fx [[:dispatch [:settings/form
                         [:submit-succeeded {:user (dissoc user :token)}]]]
-            [:dispatch [:rf.route/navigate :realworld.profile/show {:username (:username user)}]]]})))
+            [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]]})))
 
 (rf/reg-event :settings/submit-error
   {:doc "Server said no. Folds a readable error message into the machine's

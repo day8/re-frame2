@@ -328,7 +328,7 @@
     ;; non-owner duplicate is suppressed.
     (register-routes!)
     (rf/make-frame {:id :zz/duplicate-owner :url-bound? true})
-    (rf/dispatch-sync [:rf.route/navigate :hist/cart]
+    (rf/dispatch-sync [:rf.route/navigate {:to :hist/cart}]
                       {:frame :zz/duplicate-owner})
     (is (= ["/"] (:entries @*history-state*))
         "duplicate URL-bound frame did not push to browser history")
@@ -346,14 +346,14 @@
     (rf/make-frame {:id :aaa-early :url-bound? true})   ;; sorts before :rf/default
     ;; The earlier-sorting duplicate navigates — under the bug it owned the URL
     ;; and would push. It must NOT touch browser history now.
-    (rf/dispatch-sync [:rf.route/navigate :hist/cart] {:frame :aaa-early})
+    (rf/dispatch-sync [:rf.route/navigate {:to :hist/cart}] {:frame :aaa-early})
     (is (= ["/"] (:entries @*history-state*))
         "the earlier-sorting duplicate did NOT steal the URL / push to history")
     (is (= :hist/cart
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :aaa-early)) [:rf.runtime/routing :current])))
         "the duplicate still updates its OWN route slice (binding reported, not rejected)")
     ;; The incumbent :rf/default still drives the browser URL.
-    (rf/dispatch-sync [:rf.route/navigate :hist/checkout] {:frame :rf/default})
+    (rf/dispatch-sync [:rf.route/navigate {:to :hist/checkout}] {:frame :rf/default})
     (is (= ["/" "/checkout"] (:entries @*history-state*))
         "the incumbent :rf/default still owns + pushes the URL")
     (is (= :hist/checkout
@@ -472,8 +472,8 @@
     (let [default-route-before (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))]
 
       ;; Forward nav on the owner frame pushes the URL (owner gates push).
-      (rf/dispatch-sync [:rf.route/navigate :hist/cart]     {:frame :sd/owner})
-      (rf/dispatch-sync [:rf.route/navigate :hist/checkout] {:frame :sd/owner})
+      (rf/dispatch-sync [:rf.route/navigate {:to :hist/cart}]     {:frame :sd/owner})
+      (rf/dispatch-sync [:rf.route/navigate {:to :hist/checkout}] {:frame :sd/owner})
       (is (= ["/" "/cart" "/checkout"] (:entries @*history-state*))
           "owner-frame forward nav pushed both URLs onto the history stack")
       (is (= :hist/checkout (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :sd/owner)) [:rf.runtime/routing :current])))
@@ -630,8 +630,8 @@
 
     ;; B owns the URL now: forward nav pushes, Back drives B's slice through the
     ;; rebound listener.
-    (rf/dispatch-sync [:rf.route/navigate :hist/cart]     {:frame :owner/b})
-    (rf/dispatch-sync [:rf.route/navigate :hist/checkout] {:frame :owner/b})
+    (rf/dispatch-sync [:rf.route/navigate {:to :hist/cart}]     {:frame :owner/b})
+    (rf/dispatch-sync [:rf.route/navigate {:to :hist/checkout}] {:frame :owner/b})
     (is (= ["/" "/cart" "/checkout"] (:entries @*history-state*))
         "B, the new owner, drives outbound pushState")
     (.back (.-history js/globalThis.window))
@@ -798,7 +798,7 @@
             "still exactly one popstate listener — no orphaning, no stacking")
         ;; And it still drives A: forward-nav then Back through the surviving
         ;; listener updates A's slice.
-        (rf/dispatch-sync [:rf.route/navigate :hist/cart] {:frame :owner/a})
+        (rf/dispatch-sync [:rf.route/navigate {:to :hist/cart}] {:frame :owner/a})
         (.back (.-history js/globalThis.window))
         (.dispatchEvent js/globalThis.window #js {:type "popstate"})
         (is (= :hist/home
@@ -939,7 +939,7 @@
       (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
           "exactly one popstate listener — no orphaning, no stacking")
       ;; And it still drives A.
-      (rf/dispatch-sync [:rf.route/navigate :hist/cart] {:frame :owner/a})
+      (rf/dispatch-sync [:rf.route/navigate {:to :hist/cart}] {:frame :owner/a})
       (.back (.-history js/globalThis.window))
       (.dispatchEvent js/globalThis.window #js {:type "popstate"})
       (is (= :hist/home
@@ -1422,7 +1422,7 @@
             pushes a fragment-less URL on CLJS"
     (register-routes!)
     (rf/reg-route :hist/docs {} "/docs/:page")
-    (rf/dispatch-sync [:rf.route/navigate :hist/docs {:page "guide"} {:fragment ""}])
+    (rf/dispatch-sync [:rf.route/navigate {:to :hist/docs :params {:page "guide"} :fragment ""}])
     (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                       [:rf.runtime/routing :current :fragment]))
         "empty-string fragment normalized to nil in the slice")
@@ -1444,7 +1444,7 @@
     (let [pre-index (:index @*history-state*)]
 
       ;; Programmatic navigation with :replace? true → :rf.nav/replace-url.
-      (rf/dispatch-sync [:rf.route/navigate :hist/checkout nil {:replace? true}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :hist/checkout :replace? true}])
 
       (is (= ["/" "/checkout"] (:entries @*history-state*))
           "replaceState rewrote the top entry from /cart to /checkout")
@@ -1576,7 +1576,7 @@
                   ;; shared try/catch. `is` with no thrown exception is the
                   ;; assertion; a leaked throw would fail the deftest.
                   (rf/dispatch-sync
-                    [:rf.route/navigate :hist/checkout nil {:replace? true}])
+                    [:rf.route/navigate {:to :hist/checkout :replace? true}])
                   (is true
                       ":rf.route/navigate dispatch returned without an escaping exception")))))]
       (is (= 1 (count failures))
@@ -1653,7 +1653,7 @@
       (rf/make-frame {:id :rf/default :url-bound? true})
 
       ;; --- Full nav: loader fires once, pushes /docs/guide#a. ---
-      (rf/dispatch-sync [:rf.route/navigate :hist/docs {:page "guide"} {:fragment "a"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :hist/docs :params {:page "guide"} :fragment "a"}])
       (is (= "/docs/guide#a" (current-url *history-state*))
           "full nav pushed /docs/guide#a onto the history stack")
       (is (= 1 @loads) ":on-match fired once on the full nav")
@@ -1662,7 +1662,7 @@
         (is (some? token) "the full nav allocated a nav-token")
 
         ;; --- Fragment-only PUSH: #a → #b adds a new entry, no re-fire, same token. ---
-        (rf/dispatch-sync [:rf.route/navigate :hist/docs {:page "guide"} {:fragment "b"}])
+        (rf/dispatch-sync [:rf.route/navigate {:to :hist/docs :params {:page "guide"} :fragment "b"}])
         (is (= (conj entries-after-full "/docs/guide#b") (:entries @*history-state*))
             "fragment-only push added a NEW history entry for #b")
         (is (= 1 @loads) "fragment-only push did NOT re-fire :on-match")
@@ -1672,8 +1672,7 @@
 
         ;; --- Fragment-only REPLACE: #b → #c mutates the ACTIVE entry in place. ---
         (let [entry-count-before (count (:entries @*history-state*))]
-          (rf/dispatch-sync [:rf.route/navigate :hist/docs {:page "guide"}
-                             {:fragment "c" :replace? true}])
+          (rf/dispatch-sync [:rf.route/navigate {:to :hist/docs :params {:page "guide"} :fragment "c" :replace? true}])
           (is (= "/docs/guide#c" (current-url *history-state*))
               "{:replace? true} moved the active entry to #c")
           (is (= entry-count-before (count (:entries @*history-state*)))
@@ -1682,7 +1681,7 @@
           (is (= token (:nav-token (k4exp1-slice))) "replace did NOT allocate a new token"))
 
         ;; --- Clear the fragment: pushes the fragment-less URL, still no re-fire. ---
-        (rf/dispatch-sync [:rf.route/navigate :hist/docs {:page "guide"}])
+        (rf/dispatch-sync [:rf.route/navigate {:to :hist/docs :params {:page "guide"}}])
         (is (= "/docs/guide" (current-url *history-state*))
             "clearing the fragment pushed the fragment-less URL")
         (is (nil? (:fragment (k4exp1-slice))) "the slice fragment cleared to nil")

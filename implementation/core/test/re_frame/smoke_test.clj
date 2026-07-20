@@ -494,13 +494,13 @@
   (testing "route-url percent-encodes named params; match-url decodes them"
     (rf/reg-route :user/show {} "/users/:id")
     (is (= "/users/hello%20world"
-           (routing/route-url :user/show {:id "hello world"})))
+           (routing/route-url {:to :user/show :params {:id "hello world"}})))
     (let [m (routing/match-url "/users/hello%20world")]
       (is (= "hello world" (:id (:params m))))))
   (testing "splat value preserves '/' between segments but encodes within"
     (rf/reg-route :files/get {} "/files/*rest")
     (is (= "/files/a/b%20c/d"
-           (routing/route-url :files/get {:rest "a/b c/d"})))
+           (routing/route-url {:to :files/get :params {:rest "a/b c/d"}})))
     (let [m (routing/match-url "/files/a/b%20c/d")]
       (is (= "a/b c/d" (:rest (:params m))))))
   (testing "query keys and values are encoded / decoded. rf2-5ifai:
@@ -508,7 +508,7 @@
             stays a string."
     (rf/reg-route :search {} "/search")
     (is (= "/search?q=hello%20world"
-           (routing/route-url :search {} {:q "hello world"})))
+           (routing/route-url {:to :search :params {} :query {:q "hello world"}})))
     (let [m (routing/match-url "/search?q=hello%20world")]
       (is (= "hello world" (get-in m [:query "q"]))))))
 
@@ -518,7 +518,7 @@
     (let [m (routing/match-url "/users/42")]
       (is (= :user/show (:route-id m)))
       (is (= "42" (:id (:params m)))))
-    (is (= "/users/42" (routing/route-url :user/show {:id 42})))))
+    (is (= "/users/42" (routing/route-url {:to :user/show :params {:id 42}})))))
 
 ;; ---- SSR emitter ----------------------------------------------------------
 

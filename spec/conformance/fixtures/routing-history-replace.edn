@@ -48,7 +48,7 @@
  :fixture/dispatches
  ;; [:rf.route/navigate target params opts] — params nil for the article
  ;; passes an explicit `{:id "intro"}` slot below; opts carries :replace?.
- [[:rf.route/navigate :route/article {:id "intro"} {:replace? true}]]
+ [[:rf.route/navigate {:to :route/article :params {:id "intro"} :replace? true}]]
 
  :fixture/expect
  {:final-runtime-db {:rf.runtime/routing {:current {:route-id     :route/article

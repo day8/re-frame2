@@ -216,7 +216,7 @@
     ;; navigating (the live route slice view reads runtime-db, ungated).
     (rf/with-frame :app/main
       (rf/reg-route :route/article {} "/articles/:slug"))
-    (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}]
                       {:frame :app/main})
     (rf/dispatch-sync [:rf.xray/set-derivation-graph-mode :live] {:frame :rf/xray})
     (rf/dispatch-sync [:rf.xray/set-target-frame :app/main] {:frame :rf/xray})

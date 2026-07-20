@@ -140,7 +140,7 @@
                     [b  s2] (gen-token s1)
                     [q  s3] (gen-query s2)
                     params {:a a :b b}
-                    url    (routing/route-url :route/item params q)
+                    url    (routing/route-url {:to :route/item :params params :query q})
                     m      (routing/match-url url)]
                 (cond
                   ;; (1) the built URL must be matchable
@@ -193,10 +193,8 @@
                         ;; build the query string in caller-insertion order
                         ;; and in REVERSED order; route-url must emit BOTH as
                         ;; the byte-identical canonical-order URL.
-                        url-fwd  (routing/route-url :route/list {}
-                                   (into {} (map (fn [k] [k (get q k)]) ks)))
-                        url-rev  (routing/route-url :route/list {}
-                                   (into {} (map (fn [k] [k (get q k)]) (reverse ks))))
+                        url-fwd  (routing/route-url {:to :route/list :params {} :query (into {} (map (fn [k] [k (get q k)]) ks))})
+                        url-rev  (routing/route-url {:to :route/list :params {} :query (into {} (map (fn [k] [k (get q k)]) (reverse ks)))})
                         m-fwd    (routing/match-url url-fwd)
                         m-rev    (routing/match-url url-rev)
                         expected (canonical-key-order ks)]

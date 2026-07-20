@@ -61,16 +61,16 @@
 (def following-feed-token "following")
 
 (rf/reg-event :home/show-global-feed
-  (fn [_ _] {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {}}]]]}))
+  (fn [_ _] {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home :query {}}]]]}))
 
 (rf/reg-event :home/show-your-feed
-  (fn [_ _] {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {:feed following-feed-token}}]]]}))
+  (fn [_ _] {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home :query {:feed following-feed-token}}]]]}))
 
 (rf/reg-event :home/apply-tag
-  (fn [_ [_ tag]] {:fx [[:dispatch [:rf.route/navigate :realworld/home-tag {:tag tag}]]]}))
+  (fn [_ [_ tag]] {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home-tag :params {:tag tag}}]]]}))
 
 (rf/reg-event :home/clear-tag
-  (fn [_ _] {:fx [[:dispatch [:rf.route/navigate :realworld/home]]]}))
+  (fn [_ _] {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home}]]]}))
 
 ;; Paging keeps the active feed and tag (read off the live route) and swaps only
 ;; `?page=`, so page N and N+1 share a filter but live under distinct cache keys.
@@ -84,11 +84,11 @@
           feed    (get-in current [:query :feed])]
       (if tag
         (let [query (cond-> {} (> page 1) (assoc :page page))]
-          {:fx [[:dispatch [:rf.route/navigate :realworld/home-tag {:tag tag} {:query query}]]]})
+          {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home-tag :params {:tag tag} :query query}]]]})
         (let [query (cond-> {}
                       feed       (assoc :feed feed)
                       (> page 1) (assoc :page page))]
-          {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query query}]]]})))))
+          {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home :query query}]]]})))))
 
 (rf/reg-sub :home/selected-tag :<- [:rf.route/params] (fn [p _] (:tag p)))
 (rf/reg-sub :home/your-feed?   :<- [:rf.route/query]  (fn [q _] (= following-feed-token (:feed q))))
@@ -116,12 +116,12 @@
                          :params   {:slug slug :username username}
                          :instance [:favorite slug]
                          :cause    [:click :ui/favorite slug]}]]]}
-      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]})))
+      {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]})))
 
 (rf/reg-event :ui/follow
   (fn [{:keys [db]} [_ username following?]]
     (if (nil? (get-in db [:auth :user]))
-      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+      {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
       {:fx [[:dispatch [:rf.mutation/execute
                         {:mutation (if following? :realworld/unfollow :realworld/follow)
                          :params   {:username username}
@@ -151,7 +151,7 @@
          the continuation waits for the accepted reply instead. Auth-gated."}
   (fn [{:keys [db]} [_ slug username following?]]
     (if (nil? (get-in db [:auth :user]))
-      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+      {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
       {:fx [[:dispatch [:rf.mutation/execute
                         {:mutation (if following? :realworld/unfollow :realworld/follow)
                          :params   {:username username}
@@ -191,7 +191,7 @@
          [:ui/article-deleted]` continuation that navigates home on success."}
   (fn [{:keys [db]} [_ slug]]
     (if (nil? (get-in db [:auth :user]))
-      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+      {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
       {:fx [[:dispatch [:rf.mutation/execute
                         {:mutation :realworld/delete-article
                          :params   {:slug slug}
@@ -208,7 +208,7 @@
   (fn [_ [_ {:keys [status instance]}]]
     (if (= :ok status)
       {:fx [[:dispatch [:rf.mutation/clear {:instance instance}]]
-            [:dispatch [:rf.route/navigate :realworld/home]]]}
+            [:dispatch [:rf.route/navigate {:to :realworld/home}]]]}
       {})))
 
 ;; ============================================================================
@@ -602,7 +602,7 @@
     (let [{:keys [current]} (get rt :rf.runtime/routing)
           {:keys [route-id params]} current
           query (cond-> {} (> page 1) (assoc :page page))]
-      {:fx [[:dispatch [:rf.route/navigate route-id params {:query query}]]]})))
+      {:fx [[:dispatch [:rf.route/navigate {:to route-id :params params :query query}]]]})))
 
 (reg-view profile-page []
   (let [username       (:username @(subscribe [:rf.route/params]))

@@ -6,9 +6,9 @@
   §Cross-cutting guards) across ALL FOUR navigation entry doors — route-id
   `:rf.route/navigate`, the raw-URL `{:url ...}` navigate escape hatch, a
   `route-link` click (`:rf.route/url-requested`), and a URL-bar / popstate /
-  deep-link (`:rf.route/handle-url-change`) — AND all THREE navigate target
-  forms: a route-id, the `{:url ...}` escape hatch, and the reserved
-  `:rf.route/self`.
+  deep-link (`:rf.route/handle-url-change`) — AND all THREE navigate request
+  forms: a route-id destination (`:to`), the `{:url ...}` escape hatch, and an
+  in-place request (no `:to` / `:url`, patching the current route's query).
 
   The guard body below is the SINGLE executable seam the suite drives — it is
   registered as `:app/auth-guard` and the test runs THAT interceptor (its
@@ -22,22 +22,20 @@
   missed, and the protected route was entered — a fail-OPEN hole on the raw-URL
   escape hatch.
 
-  rf2-yp3ip — the same branch treated EVERY non-map target as a registered
-  route id, so the reserved `:rf.route/self` target (stay on the current route,
-  change only the query) resolved to the literal keyword `:rf.route/self`. That
-  keyword is not a registered route, so `handler-meta` found no `:requires-auth`
-  tag and the guard stood aside — a fail-OPEN hole exactly where it is most
-  dangerous: a session that expires WHILE the user sits on a `:requires-auth`
-  route can self-navigate (a query change, a tab switch, `?page=2`) straight
-  past the guard. The fix mirrors the runtime (navigate.cljc:262): resolve
-  `:rf.route/self` from the CURRENT route slice
+  rf2-yp3ip / rf2-vwwvp — an IN-PLACE request (no `:to` / `:url`, patching the
+  current route's query — a tab switch, `?page=2`) must resolve against the
+  CURRENT route slice, not a target the request names. A guard that fails to do
+  so stands aside exactly where it is most dangerous: a session that expires
+  WHILE the user sits on a `:requires-auth` route can navigate in place (a query
+  change, a tab switch) straight past the guard. The fix mirrors the runtime:
+  resolve an in-place request from the CURRENT route slice
   (`[:rf.runtime/routing :current]`, carried in the `:rf.db/runtime` coeffect)
-  before reading the tags, so the guard sees the protected destination and fails
+  before reading the tags, so the guard sees the protected route and fails
   CLOSED.
 
   This suite is the failing-before / passing-after guard for BOTH holes:
-  reverting the `:rf.route/navigate` branch to `{:id a :params (or b {})}` flips
-  the raw-URL rows AND the `:rf.route/self` rows from gated to open."
+  reverting the `:rf.route/navigate` branch to trust the request's named target
+  flips the raw-URL rows AND the in-place rows from gated to open."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
@@ -52,21 +50,20 @@
 ;; `:app/auth-guard` below and driven directly (its `:before`) AND end-to-end
 ;; through the frame. `nav-target` normalises ANY navigation event to
 ;; {:id <route-id> :params <map>} (or nil); `current` is the current route
-;; slice, so the reserved `:rf.route/self` target resolves against it exactly
+;; slice, so an in-place request resolves against it exactly
 ;; as the runtime does.
 ;; ---------------------------------------------------------------------------
 
-(defn- nav-target [[ev-id a b] current]
+(defn- nav-target [[ev-id a _b] current]
   (case ev-id
     :rf.route/navigate
-    (cond
-      (= :rf.route/self a)                                ;; reserved "stay here" target
-      {:id (:route-id current) :params (or (:params current) {})}
-      (map? a)                                            ;; {:url ...} escape-hatch target
-      (when-let [{:keys [route-id params]} (routing/match-url (:url a))]
-        {:id route-id :params (or params {})})
-      :else                                               ;; route-id target
-      {:id a :params (or b {})})
+    (let [{:keys [to url params]} a]                       ;; a is the flat request map
+      (cond
+        to  {:id to :params (or params {})}               ;; route-id destination
+        url (when-let [{:keys [route-id params]} (routing/match-url url)]  ;; {:url ...} escape hatch
+              {:id route-id :params (or params {})})
+        :else                                             ;; in-place — stays on the current route
+        {:id (:route-id current) :params (or (:params current) {})}))
 
     :rf.route/url-requested
     (let [{:keys [to params url]} a]
@@ -83,7 +80,7 @@
 
 (defn- auth-guard-before
   "The canonical guard `:before`. Reads the current route slice from the
-  `:rf.db/runtime` coeffect so `:rf.route/self` resolves to the route the user
+  `:rf.db/runtime` coeffect so an in-place request resolves to the route the user
   is already on. Signed-out navigation toward a `:requires-auth` route is
   skipped (so the protected route never commits and its `:on-match` loaders
   never fire) and redirected to login."
@@ -97,7 +94,7 @@
         (-> ctx
             (assoc :rf/skip-handler? true)                ;; protected route never commits
             (assoc-in [:effects :fx]
-                      [[:dispatch [:rf.route/navigate :app/login]]]))
+                      [[:dispatch [:rf.route/navigate {:to :app/login}]]]))
         ctx))
     ctx))                                                 ;; not a navigation ⇒ pass through
 
@@ -126,12 +123,12 @@
 (defn- skipped? [ctx] (true? (:rf/skip-handler? (auth-guard-before ctx))))
 (defn- redirect [ctx] (get-in (auth-guard-before ctx) [:effects :fx]))
 
-(def ^:private login-redirect [[:dispatch [:rf.route/navigate :app/login]]])
+(def ^:private login-redirect [[:dispatch [:rf.route/navigate {:to :app/login}]]])
 
 (defn- real-slice-on
   "Run a real (guard-free) navigation and return the resulting runtime-db route
   slice — the exact shape the runtime hands the guard as `:rf.db/runtime`. Used
-  to feed `:rf.route/self` rows a slice the RUNTIME produced, not a hand-rolled
+  to feed the in-place rows a slice the RUNTIME produced, not a hand-rolled
   one, so the pin proves the guard resolves self the same way the runtime does."
   [event]
   (rf/dispatch-sync event)
@@ -145,15 +142,15 @@
 
 (deftest auth-guard-matrix-fails-closed-across-all-doors
   (register!)
-  (let [settings-slice (real-slice-on [:rf.route/navigate :app/settings])
-        home-slice     (real-slice-on [:rf.route/navigate :app/home])]
+  (let [settings-slice (real-slice-on [:rf.route/navigate {:to :app/settings}])
+        home-slice     (real-slice-on [:rf.route/navigate {:to :app/home}])]
 
     (testing "route-id :rf.route/navigate"
-      (is (skipped? (ctx-for [:rf.route/navigate :app/settings]))
+      (is (skipped? (ctx-for [:rf.route/navigate {:to :app/settings}]))
           "route-id navigate to a :requires-auth route is skipped")
-      (is (= login-redirect (redirect (ctx-for [:rf.route/navigate :app/settings])))
+      (is (= login-redirect (redirect (ctx-for [:rf.route/navigate {:to :app/settings}])))
           "and redirected to login")
-      (let [ctx (ctx-for [:rf.route/navigate :app/home])]
+      (let [ctx (ctx-for [:rf.route/navigate {:to :app/home}])]
         (is (= ctx (auth-guard-before ctx))
             "public route-id navigate passes through untouched (normal delivery)")))
 
@@ -166,21 +163,21 @@
         (is (= ctx (auth-guard-before ctx))
             "a {:url ...} navigate to a public route is delivered normally")))
 
-    (testing "reserved :rf.route/self :rf.route/navigate — the rf2-yp3ip fix"
-      (is (skipped? (ctx-for [:rf.route/navigate :rf.route/self {} {:query-merge {:tab "x"}}]
+    (testing "in-place :rf.route/navigate (no :to / :url) — the rf2-yp3ip fix"
+      (is (skipped? (ctx-for [:rf.route/navigate {:query-merge {:tab "x"}}]
                              settings-slice))
           "FAILING-BEFORE: a signed-out self-nav from a protected route MUST be
-           gated — the old branch read handler-meta on the bare :rf.route/self
+           gated — the old branch read handler-meta on the request's named target
            keyword, saw no tags, and opened")
       (is (= login-redirect
-             (redirect (ctx-for [:rf.route/navigate :rf.route/self {} {:query-merge {:tab "x"}}]
+             (redirect (ctx-for [:rf.route/navigate {:query-merge {:tab "x"}}]
                                 settings-slice)))
           "and redirected to login")
-      (let [ctx (ctx-for [:rf.route/navigate :rf.route/self {} {:query-merge {:page 2}}]
+      (let [ctx (ctx-for [:rf.route/navigate {:query-merge {:page 2}}]
                          home-slice)]
         (is (= ctx (auth-guard-before ctx))
             "a self-nav from a PUBLIC route is delivered normally"))
-      (is (let [ctx (ctx-for [:rf.route/navigate :rf.route/self {} {:query-merge {:tab "x"}}]
+      (is (let [ctx (ctx-for [:rf.route/navigate {:query-merge {:tab "x"}}]
                              settings-slice {:id 1})]
             (= ctx (auth-guard-before ctx)))
           "a self-nav from a protected route while SIGNED IN is delivered normally"))
@@ -227,14 +224,14 @@
 
     ;; Signed in, land on the protected route (guard lets us through).
     (rf/dispatch-sync [:test/sign-in])
-    (rf/dispatch-sync [:rf.route/navigate :app/settings])
+    (rf/dispatch-sync [:rf.route/navigate {:to :app/settings}])
     (is (= :app/settings (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :route-id]))
         "signed in, the guard admits the protected route")
 
     ;; Session expires; a self-nav (query change) must NOT commit.
     (rf/dispatch-sync [:test/sign-out])
-    (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query-merge {:tab "secret"}}])
+    (rf/dispatch-sync [:rf.route/navigate {:query-merge {:tab "secret"}}])
     (let [cur (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                       [:rf.runtime/routing :current])]
       (is (not= "secret" (get-in cur [:query :tab]))
@@ -258,26 +255,20 @@
         "match-url hands the recipe the same route-id the runtime used")))
 
 (deftest runtime-resolves-self-to-the-current-protected-route
-  (testing "the shipped :rf.route/navigate resolves :rf.route/self against the
-            CURRENT route slice (navigate.cljc:262) — WHY the guard must read the
-            current slice the same way, or it fails open on the escape hatch"
+  (testing "the shipped :rf.route/navigate resolves an IN-PLACE request against
+            the CURRENT route slice — WHY the guard must read the current slice
+            the same way, or it fails open on a query-only change"
     (register!)
-    ;; :rf.route/self is NOT a registered route: the bare keyword carries no tags,
-    ;; which is exactly the fail-open the old {:id :rf.route/self} guard hit.
-    (is (nil? (rf/handler-meta :route :rf.route/self))
-        "the bare :rf.route/self keyword resolves to no route metadata")
-    (is (empty? (:tags (rf/handler-meta :route :rf.route/self)))
-        "so the old {:id :rf.route/self} normalisation carried no :requires-auth")
     ;; The runtime holds the route-id fixed at the current (protected) route and
     ;; applies only the query change — the operation the guard must recognise.
-    (rf/dispatch-sync [:rf.route/navigate :app/settings])
-    (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query-merge {:tab "x"}}])
+    (rf/dispatch-sync [:rf.route/navigate {:to :app/settings}])
+    (rf/dispatch-sync [:rf.route/navigate {:query-merge {:tab "x"}}])
     (let [cur (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                       [:rf.runtime/routing :current])]
       (is (= :app/settings (:route-id cur))
-          "self-nav holds the route-id fixed at the protected route")
+          "in-place nav holds the route-id fixed at the protected route")
       (is (= "x" (get-in cur [:query :tab]))
           "and applies only the query change")
       (is (contains? (:tags (rf/handler-meta :route (:route-id cur))) :requires-auth)
-          "resolving :rf.route/self to the current route-id surfaces the
+          "resolving the in-place request to the current route-id surfaces the
            :requires-auth tag the guard reads to fail closed"))))

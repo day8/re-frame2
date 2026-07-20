@@ -279,7 +279,7 @@
     (let [m (routing/match-url "/users/42")]
       (is (= :user/show (:route-id m)))
       (is (= "42"       (:id (:params m)))))
-    (is (= "/users/42" (routing/route-url :user/show {:id 42})))))
+    (is (= "/users/42" (routing/route-url {:to :user/show :params {:id 42}})))))
 
 ;; ---- machines (pure machine-transition) -----------------------------------
 

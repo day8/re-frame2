@@ -118,7 +118,7 @@
     (register-routes!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
     (let [before (count (:entries @*history-state*))]
-      (rf/dispatch-sync [:rf.route/navigate :s/completed {} {:replace? true}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :s/completed :replace? true}])
       (is (= before (count (:entries @*history-state*)))
           "replace did not add a history entry")
       (is (= "#/completed" (current-url *history-state*))
@@ -338,7 +338,7 @@
         "the pushed address-bar URL is not double-hashed (#/demos#/active)")
     ;; (c) :rf.nav/replace-url — overwrites in place with the same shape.
     (let [before (count (:entries @*history-state*))]
-      (rf/dispatch-sync [:rf.route/navigate :s/completed {} {:replace? true}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :s/completed :replace? true}])
       (is (= before (count (:entries @*history-state*)))
           "replace did not add a history entry")
       (is (= "/demos#/completed" (current-url *history-state*))
@@ -368,7 +368,7 @@
     (is (= :s/active (route-slice-id :rf/default))
         "the route slice tracks the path-form route")
     (let [before (count (:entries @*history-state*))]
-      (rf/dispatch-sync [:rf.route/navigate :s/completed {} {:replace? true}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :s/completed :replace? true}])
       (is (= before (count (:entries @*history-state*)))
           "replace did not add a history entry")
       (is (= "/demos/completed" (current-url *history-state*))

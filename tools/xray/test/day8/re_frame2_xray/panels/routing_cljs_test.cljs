@@ -316,7 +316,7 @@
       (let [nav-event (nav-allocated :route/confirm)
             buffer [{:id 99 :op-type :rf.event :operation :rf.event/dispatched
                      :tags {:rf.trace/dispatch-id 99
-                            :rf.event/v [:rf.route/navigate :route/confirm]}}
+                            :rf.event/v [:rf.route/navigate {:to :route/confirm}]}}
                     (assoc nav-event :tags
                            (assoc (:tags nav-event) :rf.trace/dispatch-id 99))]]
         (rf/dispatch-sync [:rf.xray/sync-trace-buffer buffer]
@@ -360,7 +360,7 @@
       (let [nav-event (nav-allocated :route/confirm)
             buffer [{:id 99 :op-type :rf.event :operation :rf.event/dispatched
                      :tags {:rf.trace/dispatch-id 99
-                            :rf.event/v [:rf.route/navigate :route/confirm]}}
+                            :rf.event/v [:rf.route/navigate {:to :route/confirm}]}}
                     (assoc nav-event :tags
                            (assoc (:tags nav-event) :rf.trace/dispatch-id 99))
                     (assoc (deactivated :route/cart) :tags

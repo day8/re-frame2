@@ -190,11 +190,10 @@
     (reg-jvm-fx! :rf.nav/scroll   scroll/scroll-fx-meta   (fn [_ _] nil))
     (reg-jvm-fx! :rf.nav/push-url nav-fx/push-url-meta     (fn [_ _] nil))
     ;; Land on a route WITH params so the next nav's :from carries :params.
-    (rf/dispatch-sync [:rf.route/navigate :route/article {:id "secret-doc-id"}])
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "secret-doc-id"}}])
     (let [args (handled-trace-for
                  :rf.nav/scroll
-                 [:rf.route/navigate :route/article {:id "another-secret"}
-                  {:fragment "tok-in-fragment"}])]
+                 [:rf.route/navigate {:to :route/article :params {:id "another-secret"} :fragment "tok-in-fragment"}])]
       (is (some? args) "a :rf.nav/scroll :rf.fx/handled trace was emitted")
       ;; The descriptor :id keyword survives (names the shape, no secret).
       (is (= :route/article (get-in args [:to :id]))
@@ -219,8 +218,7 @@
       (reg-jvm-fx! :rf.nav/scroll   scroll/scroll-fx-meta
                    (fn [_ args] (reset! seen args)))
       (reg-jvm-fx! :rf.nav/push-url nav-fx/push-url-meta (fn [_ _] nil))
-      (rf/dispatch-sync [:rf.route/navigate :route/article {:id "doc-42"}
-                         {:fragment "section-3"}])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "doc-42"} :fragment "section-3"}])
       (is (= {:id "doc-42"} (get-in @seen [:to :params]))
           "the handler receives the RAW :to :params (not redacted)")
       (is (= "section-3" (:fragment @seen))

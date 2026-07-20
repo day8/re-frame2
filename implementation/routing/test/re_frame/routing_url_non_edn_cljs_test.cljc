@@ -52,7 +52,7 @@
   "Call `route-url` and return the thrown ExceptionInfo (or nil)."
   [route-id path-params query-params]
   (try
-    (routing/route-url route-id path-params query-params)
+    (routing/route-url {:to route-id :params path-params :query query-params})
     nil
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e)))
 
@@ -114,17 +114,17 @@
             booleans, portable integers, and UUIDs remain admitted so the
             happy path is unaffected"
     (rf/reg-route :route/scalar {} "/s/:v")
-    (is (= "/s/hello" (routing/route-url :route/scalar {:v "hello"})))
-    (is (= "/s/false" (routing/route-url :route/scalar {:v false}))
+    (is (= "/s/hello" (routing/route-url {:to :route/scalar :params {:v "hello"}})))
+    (is (= "/s/false" (routing/route-url {:to :route/scalar :params {:v false}}))
         "a present-but-falsy boolean round-trips (existing contract)")
-    (is (= "/s/0"     (routing/route-url :route/scalar {:v 0}))
+    (is (= "/s/0"     (routing/route-url {:to :route/scalar :params {:v 0}}))
         "a present-but-falsy integer round-trips (existing contract)")
-    (is (= "/s/x?n=1" (routing/route-url :route/scalar {:v "x"} {:n 1}))
+    (is (= "/s/x?n=1" (routing/route-url {:to :route/scalar :params {:v "x"} :query {:n 1}}))
         "a portable-integer query value is admitted")
     (let [uuid #?(:clj  (java.util.UUID/fromString "550e8400-e29b-41d4-a716-446655440000")
                   :cljs (uuid "550e8400-e29b-41d4-a716-446655440000"))]
       (is (= "/s/550e8400-e29b-41d4-a716-446655440000"
-             (routing/route-url :route/scalar {:v uuid}))
+             (routing/route-url {:to :route/scalar :params {:v uuid}}))
           "a UUID host-stringifies to its canonical, host-stable, round-trippable form"))))
 
 (deftest route-url-host-value-throws-before-url-built
@@ -154,7 +154,7 @@
   (testing "a single namespaced declared query key round-trips through the
             route-url/match-url prism with its namespace intact"
     (rf/reg-route :route/np {:query [:map [:user/id :string]]} "/np")
-    (let [url (routing/route-url :route/np {} {:user/id "u-7"})]
+    (let [url (routing/route-url {:to :route/np :params {} :query {:user/id "u-7"}})]
       ;; the namespace survives into the URL token (percent-encoded `/`).
       (is (= "/np?user%2Fid=u-7" url)
           "the namespace is emitted in the reversible URL token, not dropped")
@@ -169,7 +169,7 @@
             keys and both round-trip — the prior (name k) collapsed both to a
             single `id=` pair, losing data and emitting a duplicate key"
     (rf/reg-route :route/two {:query [:map [:user/id :string] [:account/id :string]]} "/two")
-    (let [url (routing/route-url :route/two {} {:user/id "u" :account/id "a"})]
+    (let [url (routing/route-url {:to :route/two :params {} :query {:user/id "u" :account/id "a"}})]
       ;; both namespaced keys are present and DISTINCT in the emitted URL —
       ;; no `id=` collapse, no duplicate bare key.
       (is (clojure.string/includes? url "user%2Fid=u"))
@@ -179,9 +179,7 @@
             "both namespaced keys round-trip to their EXACT declared keywords"))
       ;; the round-trip is byte-stable (the EP-0012 prism inverse over the
       ;; canonical emitted URL).
-      (is (= url (routing/route-url (:route-id (routing/match-url url))
-                                    (:params (routing/match-url url))
-                                    (:query (routing/match-url url))))
+      (is (= url (routing/route-url {:to (:route-id (routing/match-url url)) :params (:params (routing/match-url url)) :query (:query (routing/match-url url))}))
           "route-url ∘ match-url ∘ route-url is the identity on the canonical URL"))))
 
 (deftest route-url-namespaced-query-defaults-and-retain-round-trip
@@ -210,7 +208,7 @@
 (defn- thrown-route-url-frag
   [route-id path-params query-params fragment]
   (try
-    (routing/route-url route-id path-params query-params fragment)
+    (routing/route-url {:to route-id :params path-params :query query-params :fragment fragment})
     nil
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e)))
 
@@ -243,15 +241,15 @@
             / empty-string fragments remain elided (existing contract)"
     (rf/reg-route :route/fr {} "/fr")
     ;; nil + empty-string elide (no #)
-    (is (= "/fr" (routing/route-url :route/fr {} {} nil)))
-    (is (= "/fr" (routing/route-url :route/fr {} {} "")))
+    (is (= "/fr" (routing/route-url {:to :route/fr :params {} :query {} :fragment nil})))
+    (is (= "/fr" (routing/route-url {:to :route/fr :params {} :query {} :fragment ""})))
     ;; a plain string fragment emits + round-trips
-    (let [url (routing/route-url :route/fr {} {} "top")]
+    (let [url (routing/route-url {:to :route/fr :params {} :query {} :fragment "top"})]
       (is (= "/fr#top" url))
       (is (= "top" (:fragment (routing/match-url url)))))
     ;; a fragment with spaces / % round-trips byte-exact (the rf2-ede1h.1
     ;; percent-encode/decode symmetry, unchanged by the new guard)
-    (let [url (routing/route-url :route/fr {} {} "50% done")]
+    (let [url (routing/route-url {:to :route/fr :params {} :query {} :fragment "50% done"})]
       (is (= "50% done" (:fragment (routing/match-url url)))
           "a %-significant string fragment round-trips through encode/decode"))))
 
@@ -286,7 +284,7 @@
       (is (not (:validation-failed? m)) "the coerced UUID passes :uuid validation")
       ;; SAME re-emitted canonical URL on both hosts — lowercase, not input case.
       (is (= "/articles/550e8400-e29b-41d4-a716-446655440000"
-             (routing/route-url :route/art {:id (get-in m [:params :id])}))
+             (routing/route-url {:to :route/art :params {:id (get-in m [:params :id])}}))
           "route-url re-emits the lowercase canonical URL on both hosts"))))
 
 (deftest uuid-path-non-uuid-capture-preserves-original-case-both-hosts

@@ -133,7 +133,7 @@
           ;; >1-server-frame shape the removed fallback could not handle.
           ;; Caller bug routed to frame-a only: `:id "zoo"` fails the
           ;; route's `:params` predicate → reject → schema-validation-failure.
-          (rf/dispatch-sync [:rf.route/navigate :route/article {:id "zoo"}]
+          (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "zoo"}}]
                             {:frame fa})
 
           (is (= 400 (:status (ssr/get-response fa)))
@@ -163,7 +163,7 @@
         (register-routes-and-fx!)
         (let [fa (make-server-frame frame-a)
               fb (make-server-frame frame-b)]
-          (rf/dispatch-sync [:rf.route/navigate :route/article {:id "zoo"}]
+          (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "zoo"}}]
                             {:frame fb})
           (is (= 400 (:status (ssr/get-response fb)))
               "frame-b (the emitting frame) gets the projected 400")
@@ -193,7 +193,7 @@
         (register-routes-and-fx!)
         (let [fa (make-server-frame frame-a)]
           (rf/register-listener! :trace ::cap (fn [ev] (swap! traces conj ev)))
-          (rf/dispatch-sync [:rf.route/navigate :route/article {:id "zoo"}]
+          (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "zoo"}}]
                             {:frame fa})
           (rf/unregister-listener! :trace ::cap)
           (let [err (first (filter #(= :rf.error/schema-validation-failure

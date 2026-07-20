@@ -100,7 +100,7 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on home; no navigation is pending.
-    (rf/dispatch-sync [:rf.route/navigate :route/home])
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
     (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
         "no pending navigation to begin with")
     (let [before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
@@ -254,7 +254,7 @@
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
       (rf/dispatch-sync [:editor/dirty true])
-      (rf/dispatch-sync [:rf.route/navigate :route/cart])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
       (let [db (:rf.db/runtime (rf/frame-state-value :rf/default))]
         (is (some? (get-in db [:rf.runtime/routing :pending-navigation]))
             "programmatic navigation sets pending-navigation when blocked")

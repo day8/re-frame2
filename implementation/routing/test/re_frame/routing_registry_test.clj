@@ -29,7 +29,7 @@
     (rf/reg-route :route/article {} "/articles/:id")
     ;; No :id supplied — must throw the structured error.
     (let [ex (try
-               (routing/route-url :route/article {})
+               (routing/route-url {:to :route/article :params {}})
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "route-url with absent required param raises")
@@ -46,7 +46,7 @@
   (testing "supplying nil for the param has the same shape as omitting it"
     (rf/reg-route :route/article2 {} "/articles/:id")
     (let [ex (try
-               (routing/route-url :route/article2 {:id nil})
+               (routing/route-url {:to :route/article2 :params {:id nil}})
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
@@ -57,13 +57,13 @@
   (testing "providing the param works — sanity check the happy path"
     (rf/reg-route :route/article3 {} "/articles/:id")
     (is (= "/articles/intro"
-           (routing/route-url :route/article3 {:id "intro"}))
+           (routing/route-url {:to :route/article3 :params {:id "intro"}}))
         "supplying the required param renders the URL"))
 
   (testing "splat params raise the same structured error when absent"
     (rf/reg-route :route/files {} "/files/*path")
     (let [ex (try
-               (routing/route-url :route/files {})
+               (routing/route-url {:to :route/files :params {}})
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "absent splat raises")
@@ -88,26 +88,26 @@
             present-but-falsy (non-empty) is NOT the same as absent"
     (rf/reg-route :route/page {} "/page/:flag")
     (is (= "/page/false"
-           (routing/route-url :route/page {:flag false}))
+           (routing/route-url {:to :route/page :params {:flag false}}))
         "false renders as the literal segment \"false\"")
     (is (= "/page/0"
-           (routing/route-url :route/page {:flag 0}))
+           (routing/route-url {:to :route/page :params {:flag 0}}))
         "0 renders as the literal segment \"0\""))
 
   (testing "false and 0 path params round-trip through match-url"
     (rf/reg-route :route/page2 {} "/page/:flag")
     (is (= {:flag "false"}
-           (:params (routing/match-url (routing/route-url :route/page2 {:flag false}))))
+           (:params (routing/match-url (routing/route-url {:to :route/page2 :params {:flag false}}))))
         "false → \"/page/false\" → {:flag \"false\"}")
     (is (= {:flag "0"}
-           (:params (routing/match-url (routing/route-url :route/page2 {:flag 0}))))
+           (:params (routing/match-url (routing/route-url {:to :route/page2 :params {:flag 0}}))))
         "0 → \"/page/0\" → {:flag \"0\"}"))
 
   (testing "rf2-ede1h.2: an empty-string required path param is REJECTED on
             emission — a zero-length segment cannot round-trip"
     (rf/reg-route :route/slug {} "/articles/:slug")
     (let [ex (try
-               (routing/route-url :route/slug {:slug ""})
+               (routing/route-url {:to :route/slug :params {:slug ""}})
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
@@ -122,7 +122,7 @@
   (testing "route-url against an unregistered route id raises
             :rf.error/no-such-route"
     (let [ex (try
-               (routing/route-url :route/no-such-route {})
+               (routing/route-url {:to :route/no-such-route :params {}})
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
@@ -152,7 +152,7 @@
   so each adversarial value reads as one assertion."
   [route-id path-params query-params]
   (try
-    (routing/route-url route-id path-params query-params)
+    (routing/route-url {:to route-id :params path-params :query query-params})
     nil
     (catch clojure.lang.ExceptionInfo e e)))
 
@@ -226,19 +226,19 @@
             booleans, portable integers, UUIDs — so the happy path is
             unaffected (the guard is a host-value gate, not a string-only gate)"
     (rf/reg-route :route/scalar {} "/s/:v")
-    (is (= "/s/hello"  (routing/route-url :route/scalar {:v "hello"})))
-    (is (= "/s/%3Akw"  (routing/route-url :route/scalar {:v :kw}))
+    (is (= "/s/hello"  (routing/route-url {:to :route/scalar :params {:v "hello"}})))
+    (is (= "/s/%3Akw"  (routing/route-url {:to :route/scalar :params {:v :kw}}))
         "a keyword is admitted and host-stably stringifies (the leading `:`
          percent-encodes to %3A — admitted, not rejected)")
-    (is (= "/s/false"  (routing/route-url :route/scalar {:v false}))
+    (is (= "/s/false"  (routing/route-url {:to :route/scalar :params {:v false}}))
         "a present-but-falsy boolean round-trips (existing contract)")
-    (is (= "/s/0"      (routing/route-url :route/scalar {:v 0}))
+    (is (= "/s/0"      (routing/route-url {:to :route/scalar :params {:v 0}}))
         "a present-but-falsy integer round-trips (existing contract)")
     (let [uuid (java.util.UUID/fromString "550e8400-e29b-41d4-a716-446655440000")]
       (is (= "/s/550e8400-e29b-41d4-a716-446655440000"
-             (routing/route-url :route/scalar {:v uuid}))
+             (routing/route-url {:to :route/scalar :params {:v uuid}}))
           "a UUID host-stringifies to its canonical, host-stable, round-trippable form"))
-    (is (= "/s/a?x=1" (routing/route-url :route/scalar {:v "a"} {:x 1}))
+    (is (= "/s/a?x=1" (routing/route-url {:to :route/scalar :params {:v "a"} :query {:x 1}}))
         "a portable-integer QUERY value is admitted")))
 
 (deftest route-url-host-value-throws-before-url-built-rf2-94o54l
@@ -392,7 +392,7 @@
     (rf/reg-route :route/articles {} "/articles/:slug")
     ;; A slug with characters that get percent-encoded.
     (let [slug   "hello world"
-          built  (routing/route-url :route/articles {:slug slug})
+          built  (routing/route-url {:to :route/articles :params {:slug slug}})
           parsed (routing/match-url built)]
       (is (some? built)
           "route-url built a URL for the encoded slug")
@@ -557,31 +557,31 @@
   (testing "the 4-arity form appends `#fragment` when non-nil and non-empty"
     (rf/reg-route :route/docs {} "/docs/:page")
     (is (= "/docs/routing#scroll-restoration"
-           (routing/route-url :route/docs {:page "routing"} {} "scroll-restoration"))
+           (routing/route-url {:to :route/docs :params {:page "routing"} :query {} :fragment "scroll-restoration"}))
         "fragment is appended after the path")
     (is (= "/docs/routing?lang=en#scroll-restoration"
-           (routing/route-url :route/docs {:page "routing"} {:lang "en"} "scroll-restoration"))
+           (routing/route-url {:to :route/docs :params {:page "routing"} :query {:lang "en"} :fragment "scroll-restoration"}))
         "fragment is appended after the query string"))
 
   (testing "nil and empty-string fragments are not appended"
     (rf/reg-route :route/docs2 {} "/docs/:page")
     (is (= "/docs/routing"
-           (routing/route-url :route/docs2 {:page "routing"} {} nil))
+           (routing/route-url {:to :route/docs2 :params {:page "routing"} :query {} :fragment nil}))
         "nil fragment → no `#` suffix")
     (is (= "/docs/routing"
-           (routing/route-url :route/docs2 {:page "routing"} {} ""))
+           (routing/route-url {:to :route/docs2 :params {:page "routing"} :query {} :fragment ""}))
         "empty-string fragment → no `#` suffix"))
 
   (testing "the 3-arity form delegates to the 4-arity with fragment nil"
     (rf/reg-route :route/docs3 {} "/docs/:page")
     (is (= "/docs/routing"
-           (routing/route-url :route/docs3 {:page "routing"} {}))
+           (routing/route-url {:to :route/docs3 :params {:page "routing"} :query {}}))
         "3-arity produces the same URL as 4-arity with nil fragment"))
 
   (testing "the 2-arity form delegates the same way"
     (rf/reg-route :route/docs4 {} "/docs/:page")
     (is (= "/docs/routing"
-           (routing/route-url :route/docs4 {:page "routing"}))
+           (routing/route-url {:to :route/docs4 :params {:page "routing"}}))
         "2-arity → no query, no fragment")))
 
 ;; ---- route-url query-string emission -------------------------------------
@@ -605,37 +605,37 @@
     ;; both spellings of {:a … :b …} build the same URL — canonical order,
     ;; not insertion order.
     (is (= "/list?a=1&b=2"
-           (routing/route-url :route/list {} (array-map :a "1" :b "2")))
+           (routing/route-url {:to :route/list :params {} :query (array-map :a "1" :b "2")}))
         "two query pairs join with `&` in canonical key order")
     (is (= "/list?a=1&b=2"
-           (routing/route-url :route/list {} (array-map :b "2" :a "1")))
+           (routing/route-url {:to :route/list :params {} :query (array-map :b "2" :a "1")}))
         "the SAME URL regardless of caller insertion order (a before b)")
     (is (= "/list?x=1&y=2&z=3"
-           (routing/route-url :route/list {} (array-map :x "1" :y "2" :z "3")))
+           (routing/route-url {:to :route/list :params {} :query (array-map :x "1" :y "2" :z "3")}))
         "three query pairs join with `&` in canonical key order")
     (is (= "/list?x=1&y=2&z=3"
-           (routing/route-url :route/list {} (array-map :z "3" :x "1" :y "2")))
+           (routing/route-url {:to :route/list :params {} :query (array-map :z "3" :x "1" :y "2")}))
         "three pairs: canonical order is construction-order independent")
-    (is (= (routing/route-url :route/list {} (array-map :z "3" :y "2" :x "1"))
-           (routing/route-url :route/list {} (array-map :x "1" :y "2" :z "3")))
+    (is (= (routing/route-url {:to :route/list :params {} :query (array-map :z "3" :y "2" :x "1")})
+           (routing/route-url {:to :route/list :params {} :query (array-map :x "1" :y "2" :z "3")}))
         "any two permutations of one query map build the byte-identical URL"))
 
   (testing "query VALUES are percent-encoded (encodeURIComponent semantics)"
     (rf/reg-route :route/search {} "/search")
     (is (= "/search?q=x%20y"
-           (routing/route-url :route/search {} {:q "x y"}))
+           (routing/route-url {:to :route/search :params {} :query {:q "x y"}}))
         "a space in a query value encodes to %20 (not '+')")
     (is (= "/search?a=1&b=x%20y"
-           (routing/route-url :route/search {} (array-map :a "1" :b "x y")))
+           (routing/route-url {:to :route/search :params {} :query (array-map :a "1" :b "x y")}))
         "multi-pair ordering AND value %-encoding together")
     (is (= "/search?filter=a%26b%3Dc"
-           (routing/route-url :route/search {} {:filter "a&b=c"}))
+           (routing/route-url {:to :route/search :params {} :query {:filter "a&b=c"}}))
         "`&` and `=` in a value are encoded so they cannot inject extra pairs"))
 
   (testing "query KEYS are percent-encoded too"
     (rf/reg-route :route/k {} "/k")
     (is (= "/k?a%20b=v"
-           (routing/route-url :route/k {} {(keyword "a b") "v"}))
+           (routing/route-url {:to :route/k :params {} :query {(keyword "a b") "v"}}))
         "a space in a query key encodes to %20")))
 
 (deftest route-url-drops-nil-query-values-keeps-falsy
@@ -644,19 +644,19 @@
             values (false / 0 / \"\") round-trip"
     (rf/reg-route :route/list {} "/list")
     (is (= "/list"
-           (routing/route-url :route/list {} {:page nil}))
+           (routing/route-url {:to :route/list :params {} :query {:page nil}}))
         "a sole nil-valued query key is dropped → no query string at all")
     (is (= "/list?a=1"
-           (routing/route-url :route/list {} (array-map :a "1" :b nil)))
+           (routing/route-url {:to :route/list :params {} :query (array-map :a "1" :b nil)}))
         "nil-valued keys are dropped; the rest of the query survives")
     (is (= "/list?flag=false"
-           (routing/route-url :route/list {} {:flag false}))
+           (routing/route-url {:to :route/list :params {} :query {:flag false}}))
         "present-but-falsy `false` is a legitimate value and round-trips")
     (is (= "/list?n=0"
-           (routing/route-url :route/list {} {:n 0}))
+           (routing/route-url {:to :route/list :params {} :query {:n 0}}))
         "`0` round-trips (falsy, not absent)")
     (is (= "/list?s="
-           (routing/route-url :route/list {} {:s ""}))
+           (routing/route-url {:to :route/list :params {} :query {:s ""}}))
         "empty-string is a present value → `?s=` (distinct from nil/absent)")))
 
 (deftest match-url-route-url-round-trip-with-fragment
@@ -667,10 +667,7 @@
     (rf/reg-route :route/docs {} "/docs/:page")
     (let [original "/docs/routing?lang=en#scroll-restoration"
           parsed   (routing/match-url original)
-          rebuilt  (routing/route-url (:route-id parsed)
-                                      (:params parsed)
-                                      (:query parsed)
-                                      (:fragment parsed))]
+          rebuilt  (routing/route-url {:to (:route-id parsed) :params (:params parsed) :query (:query parsed) :fragment (:fragment parsed)})]
       (is (= :route/docs (:route-id parsed)))
       (is (= {:page "routing"} (:params parsed)))
       (is (= {"lang" "en"}     (:query parsed)))
@@ -692,7 +689,7 @@
   (testing "a fragment with a literal `%` is percent-encoded on emission
             and round-trips through match-url (rf2-ede1h.1)"
     (rf/reg-route :route/docs {} "/docs/:page")
-    (let [built (routing/route-url :route/docs {:page "routing"} {} "50% done")]
+    (let [built (routing/route-url {:to :route/docs :params {:page "routing"} :query {} :fragment "50% done"})]
       (is (not (clojure.string/includes? built "% "))
           "the bare `% ` is not emitted raw — it was percent-encoded")
       (is (= "/docs/routing#50%25%20done" built)
@@ -706,7 +703,7 @@
   (testing "a fragment with reserved characters (`/`, `:`) round-trips"
     (rf/reg-route :route/docs2 {} "/docs/:page")
     (let [frag   "section/sub:1"
-          built  (routing/route-url :route/docs2 {:page "x"} {} frag)
+          built  (routing/route-url {:to :route/docs2 :params {:page "x"} :query {} :fragment frag})
           parsed (routing/match-url built)]
       (is (some? parsed) "the encoded fragment matches")
       (is (= frag (:fragment parsed))
@@ -715,7 +712,7 @@
   (testing "a plain fragment is unchanged (no over-encoding of safe chars)"
     (rf/reg-route :route/docs3 {} "/docs/:page")
     (is (= "/docs/x#scroll-restoration"
-           (routing/route-url :route/docs3 {:page "x"} {} "scroll-restoration"))
+           (routing/route-url {:to :route/docs3 :params {:page "x"} :query {} :fragment "scroll-restoration"}))
         "safe characters (letters, digits, `-`) are not percent-encoded")))
 
 ;; ---- route-url ignores path-params not named by the pattern --------------
@@ -730,13 +727,13 @@
   (testing "path-params keys not named by the route pattern are ignored"
     (rf/reg-route :route/article {} "/articles/:id")
     (is (= "/articles/intro"
-           (routing/route-url :route/article {:id "intro" :stray "ignored" :extra 99}))
+           (routing/route-url {:to :route/article :params {:id "intro" :stray "ignored" :extra 99}}))
         "only the pattern's :id segment is emitted; :stray / :extra are dropped"))
 
   (testing "a route with no path params ignores any supplied path-params"
     (rf/reg-route :route/home {} "/")
     (is (= "/"
-           (routing/route-url :route/home {:anything "here"}))
+           (routing/route-url {:to :route/home :params {:anything "here"}}))
         "a param-less pattern emits its literal path regardless of supplied params")))
 
 (deftest match-url-flags-validation-failure
@@ -767,7 +764,7 @@
       (try
         (rf/reg-route :route/article
                       {:params (fn [{:keys [id]}] (clojure.string/starts-with? (or id "") "a"))} "/articles/:id")
-        (let [ex (try (routing/route-url :route/article {:id "zoo"})
+        (let [ex (try (routing/route-url {:to :route/article :params {:id "zoo"}})
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex)
@@ -787,7 +784,7 @@
                 "ex-data carries the explainer payload under :error")))
         ;; Conformant path-params round-trip happily.
         (is (= "/articles/aardvark"
-               (routing/route-url :route/article {:id "aardvark"}))
+               (routing/route-url {:to :route/article :params {:id "aardvark"}}))
             "conformant params still produce a URL")
         (finally (restore))))))
 
@@ -799,7 +796,7 @@
         (rf/reg-route :route/search
                       {:query (fn [m] (and (string? (:q m))
                                            (pos? (count (:q m)))))} "/search")
-        (let [ex (try (routing/route-url :route/search {} {:q ""})
+        (let [ex (try (routing/route-url {:to :route/search :params {} :query {:q ""}})
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex)
@@ -808,7 +805,7 @@
           (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
           (is (re-find #"\[:rf\.error/route-url-validation\]" (ex-message ex)))
           (is (= :query (:slot (ex-data ex)))))
-        (let [ex (try (routing/route-url :route/search {} {})
+        (let [ex (try (routing/route-url {:to :route/search :params {} :query {}})
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex)
@@ -833,15 +830,15 @@
                                           (string? (:sort m))))} "/search")
         ;; (1) route-url: nil omits the key, no throw, returns /search.
         (is (= "/search"
-               (routing/route-url :route/search {} {:sort nil}))
+               (routing/route-url {:to :route/search :params {} :query {:sort nil}}))
             "route-url with {:sort nil} elides the key BEFORE validation → /search")
         ;; A valid string still emits the pair.
         (is (= "/search?sort=name"
-               (routing/route-url :route/search {} {:sort "name"}))
+               (routing/route-url {:to :route/search :params {} :query {:sort "name"}}))
             "a present, valid :sort string still round-trips into the query")
         ;; (2) A non-nil INVALID value STILL fails validation (the fix
         ;; narrows only nil; it does not weaken the schema gate).
-        (let [ex (try (routing/route-url :route/search {} {:sort 123})
+        (let [ex (try (routing/route-url {:to :route/search :params {} :query {:sort 123}})
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex)
@@ -869,13 +866,13 @@
           ;; Programmatic navigate with a nil optional query value: the
           ;; navigate handler resolves the target URL via route-url, which
           ;; must elide :sort and emit /search (no validation throw).
-          (rf/dispatch-sync [:rf.route/navigate :route/search {} {:query {:sort nil}}])
+          (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query {:sort nil}}])
           (is (= "/search" @pushed)
               "programmatic navigate with {:sort nil} pushes /search (no throw)"))
         ;; SSR route-link emission (server render path) drives the same
         ;; route-url; the link href must be /search, not a thrown error.
         (is (= "/search"
-               (routing/route-url :route/search {} {:sort nil}))
+               (routing/route-url {:to :route/search :params {} :query {:sort nil}}))
             "SSR route-link href derives from route-url → /search for {:sort nil}")
         (finally (restore))))))
 
@@ -976,7 +973,7 @@
   (testing "trailing slashes in registered patterns are canonicalized away"
     (rf/reg-route :route/cart {} "/cart/")
     (is (= "/cart" (:path (rf/handler-meta :route :route/cart))))
-    (is (= "/cart" (routing/route-url :route/cart {})))))
+    (is (= "/cart" (routing/route-url {:to :route/cart :params {}})))))
 
 ;; ---- T1: :rf.warning/route-shadowed-by-equal-score warning ---------------
 ;; rf2-6gzobp — the warning fires iff the rules-1-5 structural rank ties
@@ -1294,14 +1291,14 @@
                   {:params [:map [:id :int]]
                    :query  [:map [:sort [:enum :asc :desc]] [:q :string]]}
                   "/prism/:id")
-    (let [url (routing/route-url :route/prism {:id 42} {:sort :desc :q "milk"})
+    (let [url (routing/route-url {:to :route/prism :params {:id 42} :query {:sort :desc :q "milk"}})
           m   (routing/match-url url)]
       (is (= 42 (get-in m [:params :id])) ":int path param round-trips (no float)")
       (is (= :desc (get-in m [:query :sort])) "enum keyword round-trips")
       (is (= "milk" (get-in m [:query :q])) ":string query round-trips")
       ;; route-url ∘ match-url ∘ route-url is the identity on the canonical URL —
       ;; the EP-0012 prism law, now that no un-round-trippable float can enter.
-      (is (= url (routing/route-url (:route-id m) (:params m) (:query m)))
+      (is (= url (routing/route-url {:to (:route-id m) :params (:params m) :query (:query m)}))
           "the prism round-trips byte-stably with only CEDN-admitted types"))))
 
 ;; ---- rf2-dcmkke: keyword-enum route params round-trip through the prism ----
@@ -1321,7 +1318,7 @@
             `:asc` → %3Aasc) and round-trips back to the canonical keyword"
     (rf/reg-route :route/sorted
                   {:query [:map [:sort [:enum :asc :desc]]]} "/items")
-    (let [u (routing/route-url :route/sorted {} {:sort :asc})]
+    (let [u (routing/route-url {:to :route/sorted :params {} :query {:sort :asc}})]
       (is (= "/items?sort=asc" u)
           "the enum keyword `:asc` emits the declared token `asc`, NOT %3Aasc")
       (let [m (routing/match-url u)]
@@ -1333,7 +1330,7 @@
   (testing "the other enum choice round-trips too"
     (rf/reg-route :route/sorted2
                   {:query [:map [:sort [:enum :asc :desc]]]} "/items")
-    (let [u (routing/route-url :route/sorted2 {} {:sort :desc})]
+    (let [u (routing/route-url {:to :route/sorted2 :params {} :query {:sort :desc}})]
       (is (= "/items?sort=desc" u))
       (is (= :desc (get-in (routing/match-url u) [:query :sort]))))))
 
@@ -1341,7 +1338,7 @@
   (testing "a keyword-enum PATH param emits its token name and round-trips"
     (rf/reg-route :route/sort-path
                   {:params [:map [:dir [:enum :asc :desc]]]} "/items/:dir")
-    (let [u (routing/route-url :route/sort-path {:dir :desc})]
+    (let [u (routing/route-url {:to :route/sort-path :params {:dir :desc}})]
       (is (= "/items/desc" u)
           "the path enum keyword `:desc` emits `desc`, NOT %3Adesc")
       (let [m (routing/match-url u)]
@@ -1362,7 +1359,7 @@
     (let [retained (get-in (routing/match-url "/list?sort=asc") [:query :sort])]
       (is (= :asc retained)
           "the retained value is the coerced KEYWORD, not a string")
-      (let [u (routing/route-url :route/list {} {:sort retained})]
+      (let [u (routing/route-url {:to :route/list :params {} :query {:sort retained}})]
         (is (= "/list?sort=asc" u)
             "the retained keyword re-emits as its token name (round-trips)")
         (is (= :asc (get-in (routing/match-url u) [:query :sort])))))))
@@ -1372,7 +1369,7 @@
             route-url still fails validation (the schema bites before emit)"
     (rf/reg-route :route/sorted3
                   {:query [:map [:sort [:enum :asc :desc]]]} "/items")
-    (let [ex (try (routing/route-url :route/sorted3 {} {:sort :sideways})
+    (let [ex (try (routing/route-url {:to :route/sorted3 :params {} :query {:sort :sideways}})
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
@@ -1610,10 +1607,10 @@
     (rf/reg-route :route/articles
                   {} "/articles{/:id}?")
     (is (= "/articles"
-           (routing/route-url :route/articles {}))
+           (routing/route-url {:to :route/articles :params {}}))
         "absent :id → optional group elides; bare /articles emits")
     (is (= "/articles/intro"
-           (routing/route-url :route/articles {:id "intro"}))
+           (routing/route-url {:to :route/articles :params {:id "intro"}}))
         "present :id → optional group emits including the leading /"))
 
   (testing "deeper optional-group elision: an inner param's absence
@@ -1621,13 +1618,13 @@
     (rf/reg-route :route/articles2
                   {} "/articles{/:id/:slug}?")
     (is (= "/articles"
-           (routing/route-url :route/articles2 {}))
+           (routing/route-url {:to :route/articles2 :params {}}))
         "both absent → group elides")
     (is (= "/articles"
-           (routing/route-url :route/articles2 {:id "intro"}))
+           (routing/route-url {:to :route/articles2 :params {:id "intro"}}))
         "ONE inner param absent → group still elides (every? requires all)")
     (is (= "/articles/intro/welcome"
-           (routing/route-url :route/articles2 {:id "intro" :slug "welcome"}))
+           (routing/route-url {:to :route/articles2 :params {:id "intro" :slug "welcome"}}))
         "all inner params present → group emits")))
 
 ;; ---- rf2-8xvyo: empty-string path param inside an OPTIONAL GROUP is
@@ -1652,14 +1649,14 @@
     (rf/reg-route :route/og-articles {} "/articles{/:id}?")
     ;; Sanity: absent elides, present-non-empty emits, as before.
     (is (= "/articles"
-           (routing/route-url :route/og-articles {}))
+           (routing/route-url {:to :route/og-articles :params {}}))
         "absent :id → group elides; bare /articles")
     (is (= "/articles/intro"
-           (routing/route-url :route/og-articles {:id "intro"}))
+           (routing/route-url {:to :route/og-articles :params {:id "intro"}}))
         "present non-empty :id → group emits")
     ;; The bug: `(some? "")` enters the group, then emits `/articles/`.
     (let [ex (try
-               (routing/route-url :route/og-articles {:id ""})
+               (routing/route-url {:to :route/og-articles :params {:id ""}})
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
@@ -1675,14 +1672,14 @@
     (rf/reg-route :route/og-slug {} "/articles/:id{/:slug}?")
     ;; The required :id still round-trips; absent :slug elides.
     (is (= "/articles/5"
-           (routing/route-url :route/og-slug {:id "5"}))
+           (routing/route-url {:to :route/og-slug :params {:id "5"}}))
         "required :id present, optional :slug absent → group elides")
     (is (= "/articles/5/welcome"
-           (routing/route-url :route/og-slug {:id "5" :slug "welcome"}))
+           (routing/route-url {:to :route/og-slug :params {:id "5" :slug "welcome"}}))
         "both present → group emits")
     ;; Empty optional-group :slug rejected (would emit "/articles/5/").
     (let [ex (try
-               (routing/route-url :route/og-slug {:id "5" :slug ""})
+               (routing/route-url {:to :route/og-slug :params {:id "5" :slug ""}})
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
@@ -1695,16 +1692,16 @@
             only the empty string is rejected (non-empty falsy is legitimate)"
     (rf/reg-route :route/og-flag {} "/items{/:flag}?")
     (is (= "/items/false"
-           (routing/route-url :route/og-flag {:flag false}))
+           (routing/route-url {:to :route/og-flag :params {:flag false}}))
         "false → non-empty segment \"false\"")
     (is (= "/items/0"
-           (routing/route-url :route/og-flag {:flag 0}))
+           (routing/route-url {:to :route/og-flag :params {:flag 0}}))
         "0 → non-empty segment \"0\"")
     (is (= {:flag "false"}
-           (:params (routing/match-url (routing/route-url :route/og-flag {:flag false}))))
+           (:params (routing/match-url (routing/route-url {:to :route/og-flag :params {:flag false}}))))
         "false round-trips through match-url")
     (is (= {:flag "0"}
-           (:params (routing/match-url (routing/route-url :route/og-flag {:flag 0}))))
+           (:params (routing/match-url (routing/route-url {:to :route/og-flag :params {:flag 0}}))))
         "0 round-trips through match-url")))
 
 ;; ---- optional-group elision: the canonical slash-INSIDE spelling ---------
@@ -1728,15 +1725,15 @@
             single separator when absent — never `//`"
     (rf/reg-route :route/inline-about {} "{/:base}?/about")
     (is (= "/about"
-           (routing/route-url :route/inline-about {}))
+           (routing/route-url {:to :route/inline-about :params {}}))
         "absent :base → single leading separator, NOT the protocol-relative `//about`")
     (is (= "/docs/about"
-           (routing/route-url :route/inline-about {:base "docs"}))
+           (routing/route-url {:to :route/inline-about :params {:base "docs"}}))
         "present :base → /docs/about")
-    (is (not (clojure.string/includes? (subs (routing/route-url :route/inline-about {}) 1) "//"))
+    (is (not (clojure.string/includes? (subs (routing/route-url {:to :route/inline-about :params {}}) 1) "//"))
         "no protocol-relative double slash anywhere in the absent emission")
     ;; Round-trip: emitted absent URL re-parses to the same route, no params.
-    (let [m (routing/match-url (routing/route-url :route/inline-about {}))]
+    (let [m (routing/match-url (routing/route-url {:to :route/inline-about :params {}}))]
       (is (= :route/inline-about (:route-id m))
           "absent emission round-trips through match-url to the same route")
       (is (= {} (:params m))
@@ -1746,30 +1743,30 @@
             does not orphan a separator on either side"
     (rf/reg-route :route/docs-about {} "/docs{/:section}?/about")
     (is (= "/docs/about"
-           (routing/route-url :route/docs-about {}))
+           (routing/route-url {:to :route/docs-about :params {}}))
         "absent :section → /docs/about, NOT /docs//about")
     (is (= "/docs/api/about"
-           (routing/route-url :route/docs-about {:section "api"}))
+           (routing/route-url {:to :route/docs-about :params {:section "api"}}))
         "present :section → /docs/api/about"))
 
   (testing "rf2-5u1r6a: a TRAILING optional group (/articles{/:id}?)
             does not leave a dangling slash"
     (rf/reg-route :route/articles-id {} "/articles{/:id}?")
     (is (= "/articles"
-           (routing/route-url :route/articles-id {}))
+           (routing/route-url {:to :route/articles-id :params {}}))
         "absent :id → /articles, NOT the dangling /articles/")
     (is (= "/articles/5"
-           (routing/route-url :route/articles-id {:id "5"}))
+           (routing/route-url {:to :route/articles-id :params {:id "5"}}))
         "present :id → /articles/5"))
 
   (testing "rf2-5u1r6a: a ROOT-only optional group ({/:base}?) resolves to `/`
             when absent — never the empty string"
     (rf/reg-route :route/root-base {} "{/:base}?")
     (is (= "/"
-           (routing/route-url :route/root-base {}))
+           (routing/route-url {:to :route/root-base :params {}}))
         "absent :base → root `/`, never the empty string")
     (is (= "/x"
-           (routing/route-url :route/root-base {:base "x"}))
+           (routing/route-url {:to :route/root-base :params {:base "x"}}))
         "present :base → /x"))
 
   (testing "rf2-5u1r6a: the slash-OUTSIDE spelling (/{:base}?/about) is now
@@ -1780,14 +1777,14 @@
         "the slash-outside inline form throws :rf.error/invalid-route-pattern")
 
     (rf/reg-route :route/owning {} "/articles{/:id}?")
-    (is (= "/articles" (routing/route-url :route/owning {})))
-    (is (= "/articles/5" (routing/route-url :route/owning {:id "5"}))))
+    (is (= "/articles" (routing/route-url {:to :route/owning :params {}})))
+    (is (= "/articles/5" (routing/route-url {:to :route/owning :params {:id "5"}}))))
 
   (testing "rf2-8zvajk: a splat value carrying embedded `//` is PRESERVED —
             the fix collapses elision separators, NOT every `//` globally"
     (rf/reg-route :route/files {} "/files/*rest")
     (is (= "/files/a//b"
-           (routing/route-url :route/files {:rest "a//b"}))
+           (routing/route-url {:to :route/files :params {:rest "a//b"}}))
         "an embedded double slash inside a splat value survives untouched")))
 
 ;; ---- T4b: match-url optional-group param is ABSENT, not nil-valued ------
@@ -1861,7 +1858,7 @@
           "splat captures a single segment too"))
 
     (testing "splat round-trips through route-url"
-      (let [built (routing/route-url :route/files {:rest "a/b/c"})]
+      (let [built (routing/route-url {:to :route/files :params {:rest "a/b/c"}})]
         (is (= "/files/a/b/c" built)
             "route-url emits the splat segments preserving '/'")))))
 
@@ -1878,18 +1875,18 @@
   (testing "a splat segment needing encoding is encoded; literal '/' is preserved"
     (rf/reg-route :route/files {} "/files/*rest")
     (is (= "/files/a/b%20c"
-           (routing/route-url :route/files {:rest "a/b c"}))
+           (routing/route-url {:to :route/files :params {:rest "a/b c"}}))
         "the space inside a segment encodes to %20; the segment '/' stays literal")
     (is (= "/files/a%20b/c%20d"
-           (routing/route-url :route/files {:rest "a b/c d"}))
+           (routing/route-url {:to :route/files :params {:rest "a b/c d"}}))
         "every segment is encoded individually; both '/' separators stay literal")
     (is (= "/files/x%26y/z"
-           (routing/route-url :route/files {:rest "x&y/z"}))
+           (routing/route-url {:to :route/files :params {:rest "x&y/z"}}))
         "an `&` inside a segment is encoded so it cannot leak into a query"))
 
   (testing "splat encode round-trips back through match-url (decode is the inverse)"
     (rf/reg-route :route/files2 {} "/files/*rest")
-    (let [built (routing/route-url :route/files2 {:rest "a/b c"})]
+    (let [built (routing/route-url {:to :route/files2 :params {:rest "a/b c"}})]
       (is (= "/files/a/b%20c" built))
       (is (= "a/b c" (get-in (routing/match-url built) [:params :rest]))
           "match-url decodes each segment back, recovering the original splat value"))))
@@ -1942,7 +1939,7 @@
       (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
             m        (routing/match-url (str "/articles/" uuid-str))]
         (is (= (str "/articles/" uuid-str)
-               (routing/route-url :route/article (:params m)))
+               (routing/route-url {:to :route/article :params (:params m)}))
             "URL → coerced params → URL is byte-identical")))))
 
 ;; ============================================================================
@@ -1972,7 +1969,7 @@
       (is (false? (:validation-failed? m))
           "the coerced UUID conforms to [:id :uuid] — validation passes")
       (is (= "/articles/550e8400-e29b-41d4-a716-446655440000"
-             (routing/route-url :route/article {:id (get-in m [:params :id])}))
+             (routing/route-url {:to :route/article :params {:id (get-in m [:params :id])}}))
           "route-url re-emits the lowercase canonical URL (matches CLJS)"))))
 
 ;; ============================================================================
@@ -2328,7 +2325,7 @@
   (testing "the confirmed corruption: supplying ONLY the later param throws
             :rf.error/route-url-validation instead of silently emitting a URL
             that match-url reads into the earlier group's slot"
-    (let [ex (try (registry/route-url :route/docs {:page "5"})
+    (let [ex (try (registry/route-url {:to :route/docs :params {:page "5"}})
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "route-url {:page \"5\"} throws")
@@ -2338,7 +2335,7 @@
   (testing "the PRISM LAW holds for every prefix-respecting combination:
             match-url(route-url(x)) recovers x"
     (doseq [params [{} {:section "a"} {:section "a" :page "b"}]]
-      (let [url (registry/route-url :route/docs params)
+      (let [url (registry/route-url {:to :route/docs :params params})
             round (:params (routing/match-url url))]
         (is (= params round)
             (str "round-trip for " (pr-str params) " via " (pr-str url)

@@ -292,7 +292,7 @@
    :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (if (nil? (get-in db [:auth :user]))
-      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+      {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
       (let [username (username-from-db rt)]
         {:db (assoc-in db [:profile :data :following] true)
          :fx [[:rf.http/managed
@@ -312,7 +312,7 @@
    :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (if (nil? (get-in db [:auth :user]))
-      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+      {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
       (let [username (username-from-db rt)]
         {:db (assoc-in db [:profile :data :following] false)
          :fx [[:rf.http/managed
@@ -429,7 +429,7 @@
          is the input; the data follows."}
   (fn [{rt :rf.db/runtime} [_ page]]
     (let [{:keys [route-id params]} (get-in rt [:rf.runtime/routing :current])]
-      {:fx [[:dispatch [:rf.route/navigate route-id params {:query {:page page}}]]]})))
+      {:fx [[:dispatch [:rf.route/navigate {:to route-id :params params :query {:page page}}]]]})))
 
 ;; ============================================================================
 ;; VIEWS

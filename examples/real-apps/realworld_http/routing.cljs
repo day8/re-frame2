@@ -170,7 +170,7 @@
   (fn [{:keys [db]} [_ {:keys [rejecting-route requested-url]}]]
     (let [params (:params (routing/match-url requested-url))]
       {:db (assoc-in db [:auth :return-to] {:id rejecting-route :params (or params {})})
-       :fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]})))
+       :fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]})))
 
 ;; ============================================================================
 ;; ROUTER WIRING

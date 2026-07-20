@@ -280,7 +280,7 @@
   (with-trace-recorder! [traces]
     ;; :doc must be rejected by the integer schema.
     (navigate/navigate-handler {:db {} :rf.frame/id :rf/default}
-                               [:rf.route/navigate :sec/route {:doc sentinel}])
+                               [:rf.route/navigate {:to :sec/route :params {:doc sentinel}}])
     (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                    @traces))))
 
@@ -337,7 +337,7 @@
             navigate :error slot would ship it"
     (rf/reg-route :sec/raw-route {:params sensitive-params-schema} "/doc/:doc")
     (let [ex (try
-               (registry/route-url :sec/raw-route {:doc sentinel})
+               (registry/route-url {:to :sec/raw-route :params {:doc sentinel}})
                nil
                (catch #?(:clj Throwable :cljs :default) e e))]
       (is (some? ex) "route-url threw on the non-conforming sensitive param")

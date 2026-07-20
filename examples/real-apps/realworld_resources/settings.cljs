@@ -148,7 +148,7 @@
         ;; classification.
         {:db (auth/store-session-db db user)
          :fx [[:dispatch [:rf.mutation/clear {:instance settings-instance}]]
-              [:dispatch [:rf.route/navigate :realworld.profile/show {:username (:username user)}]]]})
+              [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]]})
       {})))
 
 (rf/reg-sub :settings/draft (fn [db _] (get-in db [:settings-form :draft])))

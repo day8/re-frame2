@@ -44,7 +44,7 @@
     (rf/reg-route :route/sorted
                   {:query [:map [:sort [:enum :asc :desc]]]} "/items")
     (doseq [kw [:asc :desc]]
-      (let [u (routing/route-url :route/sorted {} {:sort kw})
+      (let [u (routing/route-url {:to :route/sorted :params {} :query {:sort kw}})
             m (routing/match-url u)]
         (is (= (str "/items?sort=" (name kw)) u)
             (str "enum keyword " kw " emits its token name (not %3A…)"))
@@ -58,7 +58,7 @@
             on BOTH hosts"
     (rf/reg-route :route/sort-path
                   {:params [:map [:dir [:enum :asc :desc]]]} "/items/:dir")
-    (let [u (routing/route-url :route/sort-path {:dir :desc})
+    (let [u (routing/route-url {:to :route/sort-path :params {:dir :desc}})
           m (routing/match-url u)]
       (is (= "/items/desc" u)
           "path enum keyword :desc emits `desc`, not %3Adesc")
@@ -77,7 +77,7 @@
     (let [retained (get-in (routing/match-url "/list?sort=asc") [:query :sort])]
       (is (= :asc retained)
           "the retained value is the coerced KEYWORD, not a string")
-      (let [u (routing/route-url :route/list {} {:sort retained})]
+      (let [u (routing/route-url {:to :route/list :params {} :query {:sort retained}})]
         (is (= "/list?sort=asc" u)
             "the retained keyword re-emits as its token name")
         (is (= :asc (get-in (routing/match-url u) [:query :sort])))))))
@@ -87,7 +87,7 @@
             route-url fails validation on BOTH hosts (the schema bites)"
     (rf/reg-route :route/sorted2
                   {:query [:map [:sort [:enum :asc :desc]]]} "/items")
-    (let [ex (try (routing/route-url :route/sorted2 {} {:sort :sideways})
+    (let [ex (try (routing/route-url {:to :route/sorted2 :params {} :query {:sort :sideways}})
                   nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e))]
       (is (some? ex)

@@ -170,7 +170,7 @@
   ;; PAGE reply handler (entry-replace-page append), NOT the scalar succeeded-
   ;; handler — and the route transition must complete when page 0 lands.
   (register-blocking-infinite-route!)
-  (rf/dispatch-sync [:rf.route/navigate :route/feed {:slug "intro"}])
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/feed :params {:slug "intro"}}])
   (let [nav-token (:nav-token (slice))
         k         (feed-key "intro")]
     (testing "the route holds :loading while page 0 of the infinite feed is in flight"
@@ -213,7 +213,7 @@
   ;; Spec 016 reserves :error for first-load (page 0) and :page-error for
   ;; load-more (page N>0) ONLY — page 0 is a first load, never a load-more.
   (register-blocking-infinite-route!)
-  (rf/dispatch-sync [:rf.route/navigate :route/feed {:slug "intro"}])
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/feed :params {:slug "intro"}}])
   (let [nav-token (:nav-token (slice))
         k         (feed-key "intro")
         failure   {:kind :rf.http/server :status 503 :message "upstream down"}]
@@ -260,7 +260,7 @@
                  :resources [{:resource  :article/by-slug
                               :params    (fn [route] {:slug (get-in route [:params :slug])})
                               :blocking? true}]} "/articles/:slug")
-  (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})
         e          (entry scoped-key)]
     (is (not (state/infinite-entry? e)) "the contrast resource is SCALAR, not infinite")
@@ -286,7 +286,7 @@
   ;; NOT error the route (the route already drained on the page-0 success) and
   ;; must NOT lose the feed.
   (register-blocking-infinite-route!)
-  (rf/dispatch-sync [:rf.route/navigate :route/feed {:slug "intro"}])
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/feed :params {:slug "intro"}}])
   (let [nav-token (:nav-token (slice))
         k         (feed-key "intro")
         failure   {:kind :rf.http/server :status 503 :message "load-more down"}]

@@ -326,7 +326,7 @@
    :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db]} _]
     (if (nil? (get-in db [:auth :user]))
-      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+      {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
       (let [author    (get-in db [:article :data :author])
             username  (:username author)
             following? (:following author)]
@@ -368,7 +368,7 @@
 
 (rf/reg-event :article/delete-success
   (fn [_ _]
-    {:fx [[:dispatch [:rf.route/navigate :realworld/home]]]}))
+    {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home}]]]}))
 
 (rf/reg-event :article/delete-failed
   (fn [{:keys [db]} [_ {:keys [error]}]]
