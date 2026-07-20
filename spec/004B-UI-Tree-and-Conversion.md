@@ -416,16 +416,25 @@ shapes.
 - **Owner:** the `day8/re-frame2-ssr` artifact, `re-frame.ssr` namespace — the existing
   SSR artefact consumes the JVM emitter; there is no second server product. See
   [011 §Resolved decisions](011-SSR.md#resolved-decisions) and the API artefact table.
-- **Signature (recommended names; final naming rides the diff-time facade rule):**
-  - `(re-frame.ssr/emit-ui-tree tree opts) → HTML string` — consumes a version-1
-    structural tree; applies the serialisation half of the conversion table (final
-    names, boolean emission, property-only omission, escaping, void handling); erases
-    view boundaries (dev coord annotation policy stays 011-owned); writes trusted-HTML
-    nodes verbatim. `opts` carries a single current option, `:doctype?`, which prefixes
-    `<!DOCTYPE html>`; other keys are ignored (the `render-to-string` option set does not
-    transfer to this seam).
-  - `(re-frame.ssr/ui-tree-fingerprint tree) → digest` — hashes the canonical-EDN
-    serialisation of `N(tree)` (§Normalization); algorithm/encoding owned by 011.
+- **Signature — the shipped seam.** `(re-frame.ssr/emit-ui-tree tree opts) → HTML
+  string` — consumes a version-1 structural tree; applies the serialisation half of the
+  conversion table (final names, boolean emission, property-only omission, escaping, void
+  handling); erases view boundaries (dev coord annotation policy stays 011-owned); writes
+  trusted-HTML nodes verbatim. `opts` carries a single current option, `:doctype?`, which
+  prefixes `<!DOCTYPE html>`; other keys are ignored (the `render-to-string` option set
+  does not transfer to this seam). This is the **shipped, final contract** (final naming
+  rides the diff-time facade rule); a reader who greps the name finds the function that
+  meets it.
+- **Deferred candidate — not an owed function.** `(re-frame.ssr/ui-tree-fingerprint tree)
+  → digest` would hash the canonical-EDN serialisation of `N(tree)` (§Normalization),
+  algorithm/encoding owned by 011. It is a **non-binding candidate**, not a second S5
+  obligation: no such function exists and none is owed. It revives only if Spec 011
+  deliberately restores the structural render-hash / manifest `render-fingerprint` channel
+  — which [011 §Hydration-mismatch detection](011-SSR.md#hydration-mismatch-detection)
+  designed the compiled and native tiers *without*, recording its revival as "a
+  deliberately-deferred future leaf, not a defect" — **and** a named concrete consumer
+  needs it. The algorithm prose below (§Markup and fingerprint) is design-of-record for if
+  that happens.
 - **Version incompatibility:** the seam validates `:rf.ui/tree-version` **first,
   before any emission**. A missing field, a non-integer, or an unsupported version
   throws `:rf.error/ssr-ui-tree-version-unsupported` with ex-data
@@ -446,21 +455,28 @@ shapes.
   `emit-ui-tree`; the response accumulator, error projection, and payload machinery are
   unchanged `re-frame2-ssr` surfaces.
 
-### Stage — the emit seam ships; the fingerprint leads code
+### Stage — the emit seam is shipped; the fingerprint is a deferred candidate
 
-This section's two functions land at different points of S5 (`rf2-vxgfnd.97`). The
+This section's two functions sit at very different points of S5 (`rf2-vxgfnd.97`). The
 **emit seam has shipped**: `re-frame.ssr/emit-ui-tree` is the JVM's tree→HTML path
 (rf2-3omxp), and its version gate raises the now-catalogued
 `:rf.error/ssr-ui-tree-version-unsupported`. Where the repo names `emit-ui-tree` —
 `re-frame.ui.compiler.root`'s compile-error message, the guide's pipeline sentence — it
 points at *this contract*, and a reader who greps the name now finds the function that
-meets it.
+meets it. That contract is final.
 
-The **fingerprint half still leads code**: `re-frame.ssr/ui-tree-fingerprint` has no
-function yet, and the hash algorithm and digest encoding it will apply are Spec 011's
-(§Normalization, and [011 §Root Manifest v1](011-SSR.md#root-manifest-v1)). Spec leads
-code here, so a reader who greps *that* name and finds no function has found the design
-working rather than a gap.
+The **fingerprint half is a deferred, non-binding candidate — not an owed function**.
+`re-frame.ssr/ui-tree-fingerprint` has no function, and none is owed at S5. Spec 011 owns
+whether the structural render-hash / manifest `render-fingerprint` channel ever revives,
+and it revives only when 011 deliberately restores that channel **and** a named concrete
+consumer needs it. Today the channel is deliberately absent: [011 §Hydration-mismatch
+detection](011-SSR.md#hydration-mismatch-detection) states the compiled and native tiers
+"deliberately carry no such hash" (a compiled root has no hashable client render-tree),
+and records that reviving it is "a deliberately-deferred future leaf, not a defect." The
+hash algorithm and digest encoding this candidate would apply, if it revives, are Spec
+011's (§Normalization, and [011 §Root Manifest v1](011-SSR.md#root-manifest-v1)) — kept
+below as design-of-record. A reader who greps *that* name and finds no function has found
+a deferred candidate, not a gap or an outstanding obligation.
 
 Before the emit seam shipped the JVM had no tree→HTML path at all. The pre-existing
 [011 §The render-tree → HTML emitter](011-SSR.md#the-render-tree--html-emitter-cljs-reference)
@@ -536,11 +552,14 @@ the code half from re-implementing them:
 
 ### Markup and fingerprint read one tree by two rules
 
-`emit-ui-tree` and `ui-tree-fingerprint` are handed the **same tree value**, and they
-disagree about it on purpose. Markup is the conversion table applied to the tree as
-built; the fingerprint is the canonical-EDN serialisation of `N(tree)` (§Normalization),
-which has already spliced view boundaries and fragments, dropped `:events` and `:key`s,
-and coalesced text.
+This subsection is **design-of-record for the deferred fingerprint candidate** (see the
+Stage note above), not a description of a shipped second function: it records how a
+revived `ui-tree-fingerprint` would read the tree, so the design survives intact if Spec
+011 ever restores the channel. So framed: `emit-ui-tree` and a revived `ui-tree-fingerprint`
+would be handed the **same tree value**, and they disagree about it on purpose. Markup is
+the conversion table applied to the tree as built; the fingerprint is the canonical-EDN
+serialisation of `N(tree)` (§Normalization), which has already spliced view boundaries and
+fragments, dropped `:events` and `:key`s, and coalesced text.
 
 The consequence is worth stating outright: **a difference normalization erases does not
 move the fingerprint, even where it moves the bytes.** Two renders differing only in a
