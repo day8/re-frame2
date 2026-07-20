@@ -62,7 +62,7 @@ instance records (`:occurrence` ordinal + `:view-id` + `:root-id` +
 loss accounting; and a bounded render-cause **set** — `#{:value :hmr
 :disposed}`. Host-state writers (`local`) are proven through G-15's writer
 composition and render count, not a `:local-state` cause row — that render
-cause is specified for S6 (`rf2-vxgfnd.98.1`), not shipped at S3.
+cause is specified for S6, not shipped at S3.
 
 **Specified below but not yet shipped:** the integer `:render-key` /
 `:parent-render-key` / `:generation` record fields and the keyword `:frame-id`; the
@@ -74,8 +74,8 @@ roots; and the Spec 009 evidence-schema rows.
 
 Consumers tolerate the absences explicitly rather than fabricating them
 (`tools/xray/spec/021` §3.4.1: the S3 producer emits no epoch-restore evidence
-op, and Xray does not invent one). The unshipped delta is staged to **S6** and
-owned by `rf2-vxgfnd.98.1` (rf2-ed1py ruling, 2026-07-19); the Spec 004 ledger
+op, and Xray does not invent one). The unshipped delta is staged to **S6** with
+a named owner (see Open Issues); the Spec 004 ledger
 row names its budget/absence gates for S6. The schema below is the ruled design
 intent.
 

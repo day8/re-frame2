@@ -209,7 +209,7 @@ table governs.
 | **G-12** dependency isolation | no Reagent/UIx/Helix/slim at Maven/npm; no JVM renderer reachable from browser entries |
 | **G-13** push falsification | C affected cells fixed while mounted V varies (100→500), plus a multi-write/single-drain arm: exactly C enroll/advances, C body renders, one commit batch per drain; failure **reopens the design**, never forks it |
 | **G-14** compile budget | `defview` expansion p95; watch-loop rebuild delta on the dashboard fixture; guide-fixtures CI cost bounded |
-| **G-15** atomic-local writer matrix | N same-turn host writers through `update!` all land (key+pointer, timer+listener, observer+handler arms); fn-value `set!` stores exactly; mixed `update!`+dispatch; StrictMode replay; JVM typed failure; writer composition + render count (not a `:local-state` cause row — that cause is specified for S6, `rf2-vxgfnd.98.1`); HMR ride |
+| **G-15** atomic-local writer matrix | N same-turn host writers through `update!` all land (key+pointer, timer+listener, observer+handler arms); fn-value `set!` stores exactly; mixed `update!`+dispatch; StrictMode replay; JVM typed failure; writer composition + render count (not a `:local-state` cause row — that cause is specified for S6); HMR ride |
 | **G-16** render-slot parity | slotted output normalized-structurally equivalent across both emitters; keyed reorder under slots; purity diagnostics fire inside slot bodies; manifest slot sites present |
 | **G-17** safe-spread ownership | the policy form rejects owned keys (`:key` `:ref` `:value` `:checked` owned `:on-*`) in dev **and** advanced builds; `aria-*`/`data-*` pass; the policy form retains the sync door where general `spread` forfeits it |
 | **G-18** library façade isolation | an advanced build importing one view from a multi-view library namespace retains no unused sibling views (fixture-first; see §1) |
@@ -252,8 +252,7 @@ is pending); the stages ahead follow
 - **The S2 family G-3/G-4/G-5/G-6/G-13**, landed with the S2 slice over the
   real sub-cache.
 - **G-8**, including its widened event-prefix arm (`npm run test:ui-g8`, in
-  real Chromium **and** WebKit — superseding the input-synchrony spike's
-  jsdom-only evidence).
+  real Chromium **and** WebKit).
 - **G-11** (`npm run test:browser-prod-elision`, plus the absence scan G-1
   carries).
 - **G-15**, the atomic-local writer matrix (`npm run test:browser`).
@@ -264,12 +263,12 @@ is pending); the stages ahead follow
   a new library view either arms the gate or fails it.
 - **G-16**, render-slot parity, certified with the S3 slice: cross-emitter
   structural parity, keyed reorder under slots, and purity diagnostics inside
-  slot bodies all run, and the **manifest slot-site arm now ships** — the
+  slot bodies all run, including the **manifest slot-site arm** — the
   analyzer indexes each slot site into the compiler manifest and the public
   `:render-slots` projection reports it, both pinned by focused acceptance.
 - **G-7 Layer 1**, the generated-structural-output equivalence arm
   (`npm run test:browser-prod-elision`, the advanced parity-corpus prod-elision
-  proof). The production-absence arm is green, and the corpus now renders
+  proof). The production-absence arm is green, and the corpus renders
   through the **advanced** CLJS emitter and compares — in the same
   normalized-semantic space the dev-lane parity corpus uses — against the JVM
   emitter's compile-time truth. Paired with the dev-lane corpus

@@ -51,7 +51,7 @@ the observation port (EP-0032); evidence, manifests, and instrumentation
 (EP-0033); the component-library readiness deltas' own design records (EP-0035 —
 summarized here only where they amend this surface); SSR/roots/hydration
 mechanics beyond the authoring seam (Specs 004C/011); or Reagent migration
-mechanics (the S6/S7 migration wave — the migrator, whose rules stay in
+mechanics (the S6/S7 migration wave — the migration skill, whose rules stay in
 their committed homes; no `spec/004A` appendix lands).
 
 ### 1. `defview` — the one component form
@@ -115,8 +115,8 @@ retained as data in the manifest and JVM tree.
 (imperative, stable identity), `ui/render-fn` (render phase, pure — and also the
 value an internal `ui/slot` accepts), the **narrow bare-fn law (R-4)** — bare
 `#(…)` legal only in known native event properties (invoker and phase known),
-the language permissive rather than flipped (the proposed day-one strict lint was
-withdrawn pre-alpha — style, not safety; rf2-b6pua ruling, 2026-07-19) — a compile
+the language permissive rather than flipped, with deliberately no strict lint
+(style, not safety — see Resolved Decisions) — a compile
 error at foreign-component boundaries,
 and `ui/raw-fn` for identity-as-protocol APIs and callback refs. Dynamic handler
 expressions classify at runtime by type; placeholders are recognized in literal
@@ -180,7 +180,7 @@ dispatch `(conj prefix payload…)`.
 | `ui/client-only` | mandatory capability-free fallback; one root phase-flip | shipped (S3); the phase flip completes S5 |
 | `ui/error-boundary` | the explicit error component — catches render/lifecycle throws; `:on-error` dispatches after the failing commit; `:reset-key` clears | shipped (S3) |
 | `ui/->react` | the outward migration bridge (export a view as a React component) | v1; lands S6 (delta #2) |
-| `ui/element` / `ui/view` / `ui/portal` / `re-frame.ui.data` | wave-2, demand-gated — no v1 existence. General `ui/element` is rejected outright; `ui/view` stays gated on an open-set-identity trigger; `ui/portal` is superseded-in-part by the inline + top-layer overlay plan (EP-0035 records the rulings) | — |
+| `ui/element` / `ui/view` / `ui/portal` / `re-frame.ui.data` | wave-2, demand-gated — no v1 existence. General `ui/element` is rejected outright; `ui/view` stays gated on an open-set-identity trigger; `ui/portal` is covered in part by the inline + top-layer overlay plan (EP-0035 records the rulings) | — |
 
 The foreign-React hook tier (`re-frame.ui.react`, seven wrappers) belongs to
 this surface; its contract detail is Spec 004 §The React interop tier.
@@ -239,8 +239,8 @@ live on as first-class shipping surfaces under Spec 004's [TRANSITION] markers;
 the Reagent-tier forms are retained (not deleted), their live contract staying
 in its committed homes; no `spec/004A` appendix lands. Only Helix is removed, at the S7
 removal wave. Migration rides `ui/->react` per-subtree co-mounting (S6;
-mechanics land with the S6 migration wave — the migrator, whose rules stay in
-their committed homes; no `spec/004A` appendix lands).
+mechanics land with the S6 migration wave — the migration skill, whose rules
+stay in their committed homes; no `spec/004A` appendix lands).
 
 ## Resolved Decisions
 

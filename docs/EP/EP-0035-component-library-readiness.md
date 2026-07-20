@@ -73,8 +73,8 @@ several same-turn host writers (key + pointer, timer + listener, observer +
 handler) compose instead of last-write-wins. Both are legal in committed
 handlers and effect callbacks; render-phase use remains the existing dev
 error; `update!`'s writer composition is proven by G-15's writer composition
-and render count — not a `:local-state` cause row, which is specified for S6
-(`rf2-vxgfnd.98.1`); it rides the HMR hook signature, and raises the same typed
+and render count — not a `:local-state` cause row, which is specified for S6;
+it rides the HMR hook signature, and raises the same typed
 `:rf.error/jvm-host-op` on the JVM.
 Out: reset-key / derived local (a trigger-gated spike) and fn-overloaded
 setters.
@@ -93,7 +93,7 @@ existing diagnostic. The competing compiled event-template projection is
 inadequacy evidence.
 
 **P0-3 · Internal compiled render slots.** `ui/render-fn` is valid for
-**internal** library seams (previously foreign-boundary only), invoked
+**internal** library seams (not only foreign boundaries), invoked
 exclusively through the compiler-owned form **`ui/slot`**. `ui/slot` accepts
 only `ui/render-fn` values or `nil`; the callback body is lexically visible at
 the consumer call site and therefore **compiled** (both emitters, closed
@@ -149,7 +149,7 @@ absence is proven under G-7/G-11.
 | Gate | Asserts |
 |---|---|
 | G-8 (widened) | the real-browser Chromium/WebKit matrix (IME composition, caret-on-restore, event ordering, pre-paint) gains a **reusable event-prefix component arm** — a library-shaped control receiving its event vector via props through the `ui/event` door; toy literals alone do not close G-8 |
-| G-15 atomic-local writer matrix | N same-turn host writers through `update!` all land (key+pointer, timer+listener, observer+handler arms); fn-value `set!` stores exactly; mixed `update!`+dispatch; StrictMode replay; JVM typed failure; writer composition + render count (not a `:local-state` cause row — that cause is specified for S6, `rf2-vxgfnd.98.1`); HMR ride |
+| G-15 atomic-local writer matrix | N same-turn host writers through `update!` all land (key+pointer, timer+listener, observer+handler arms); fn-value `set!` stores exactly; mixed `update!`+dispatch; StrictMode replay; JVM typed failure; writer composition + render count (not a `:local-state` cause row — that cause is specified for S6); HMR ride |
 | G-16 render-slot parity | client/JVM slotted output normalized-structurally equivalent; keyed reorder under slots; purity diagnostics fire inside slot bodies; manifest slot sites present |
 | G-17 safe-spread ownership | owned-key rejection in dev **and** advanced builds; `aria-*`/`data-*` pass; policy form retains the sync door while general spread forfeits it |
 | G-18 library façade isolation | an advanced build importing **one** view retains no unused sibling views — fixture-first: a packaging change is justified only if this fails structurally |
@@ -210,10 +210,10 @@ a permissive alternative, and those refusals are half an EP's value.
 ## Backwards Compatibility
 
 Pre-alpha; no shims. `local`'s two-tuple destructuring sites migrate to the
-three-tuple (the migrator's `swap!` rewrite retargets to `update!`, retiring
-its MANUAL flag on multi-writer idioms). The sync-door widening is strictly
-additive at proven-controlled sites — the earlier literal-only door was an
-implementation waypoint, never shipped law — and the v1 API freeze is not
+three-tuple (the migration skill's `swap!` rewrite retargets to `update!`,
+retiring its MANUAL flag on multi-writer idioms). The sync-door widening is
+strictly additive at proven-controlled sites — no narrower door was ever
+shipped law — and the v1 API freeze is not
 reopened: deltas #4/#5 entered under the freeze's own delta protocol.
 
 ## Resolved Decisions

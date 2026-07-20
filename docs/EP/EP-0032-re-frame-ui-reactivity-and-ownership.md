@@ -16,8 +16,8 @@ React, *render* may run, restart, or be abandoned, so rendering only **resolves
 and probes** (ownership-free); *commit* alone **owns**, through a six-operation
 observation port over a strict target/evidence/lease split. Notification is
 **push** — constant-work source-side marking, with each dirty cell flushed once
-per render batch at the host checkpoint — committed after the pull alternative
-was falsified by benchmark (4.0×–6.5× worse, the gap growing with scale). Frames
+per render batch at the host checkpoint; the pull alternative stands falsified
+by benchmark (4.0×–6.5× worse, the gap growing with scale). Frames
 are created at **host preflight**, never from render; hot reload is a designed
 contract (stable shells, hook-signature hash, a two-point commit fence) rather
 than a hope.
@@ -293,9 +293,7 @@ error by the ABI guard.
 
 ## Open Issues
 
-None. No open implementation gaps are tracked on this EP's surface; the
-implementation-errata ledger it carried while the correction tail closed is
-fully struck.
+None. No open implementation gaps are tracked on this EP's surface.
 
 ## References
 
