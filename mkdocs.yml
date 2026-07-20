@@ -193,6 +193,11 @@ nav:
       - "Report errors in production": core/how-to/report-errors-in-production.md
       - "Configure dev and prod": core/how-to/configure-dev-and-prod.md
       - "Use UIx, Helix, or slim": core/how-to/use-uix-helix-or-slim.md
+    - "re-frame.ui (experimental)":
+      - core/re-frame.ui/index.md
+      - "Mental model": core/re-frame.ui/mental-model.md
+      - "Build a view": core/re-frame.ui/build-a-view.md
+      - "Reactivity and ownership": core/re-frame.ui/reactivity-and-ownership.md
     - "Testing":
       - core/testing/index.md
       - "Event handlers": core/testing/event-handlers.md

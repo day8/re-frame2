@@ -426,4 +426,7 @@ that survives any async hop. [Frames](frames.md) is that pattern's home.
     Handlers, subs, and app-db never name a rendering library. The adapter
     (`(rf/init! reagent-adapter/adapter)`) is the seam where hiccup becomes pixels.
     Port substrates and only `init!` plus view notation change —
-    [Use UIx, Helix, or reagent-slim](how-to/use-uix-helix-or-slim.md).
+    [Use UIx, Helix, or reagent-slim](how-to/use-uix-helix-or-slim.md). A more
+    radical, still-experimental option is [re-frame.ui](re-frame.ui/index.md), a
+    first-party *compiled* view substrate where views are macro-compiled rather
+    than interpreted at runtime.
