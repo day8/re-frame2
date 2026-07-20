@@ -1,0 +1,67 @@
+{
+  "skill_name": "reagent-migration",
+  "schema_version": "1",
+  "convention": "anthropics/skills/skill-creator evals.json — two kinds. `kind:\"trigger\"` fixtures carry `should_trigger` for description-optimisation (train/held-out trigger accuracy). `kind:\"behavioural\"` fixtures carry a `tier` (M/D/R) and `expectations[]` asserting the skill applies / reasons / declines correctly on a salvaged Reagent→re-frame.ui fixture input.",
+  "notes": "Positives target Reagent-view→re-frame.ui prompts on an already-re-frame2 app (compiled views, reg-view→defview, deref-drop, adopt the experimental substrate). Negatives target the DIFFERENT v1→v2 events/subs/db migration (re-frame-migration), authoring on re-frame2 (re-frame2), greenfield (re-frame2-setup), live runtime (re-frame2-pair), and the first-class 'stay on Reagent' non-goal. Behavioural inputs are drawn from the shelved W1 migrator's golden fixtures; the M/D/R trio is the tier-coverage floor the bead requires.",
+  "evals": [
+    {"id": 1,  "kind": "trigger", "name": "explicit-views-to-ui",   "should_trigger": true,  "prompt": "Migrate my Reagent views to re-frame.ui — I'm already on re-frame2 and want to try the compiled views."},
+    {"id": 2,  "kind": "trigger", "name": "reg-view-to-defview",    "should_trigger": true,  "prompt": "Convert my reg-view components to defview compiled views."},
+    {"id": 3,  "kind": "trigger", "name": "deref-drop",             "should_trigger": true,  "prompt": "How do I move my views off @(subscribe ...) hiccup onto the re-frame.ui sub grammar?"},
+    {"id": 4,  "kind": "trigger", "name": "adopt-compiled-substrate","should_trigger": true, "prompt": "We want to trial the experimental compiled-view substrate for a couple of view namespaces. How do we migrate them?"},
+    {"id": 5,  "kind": "trigger", "name": "reagent-surface-in-view","should_trigger": true,  "prompt": "My views use r/with-let and r/atom and adapt-react-class. What do those become under re-frame.ui?"},
+    {"id": 6,  "kind": "trigger", "name": "dangerouslysetinnerhtml","should_trigger": true,  "prompt": "How does :dangerouslySetInnerHTML translate when I compile this view with re-frame.ui?"},
+    {"id": 7,  "kind": "trigger", "name": "neg-v1-to-v2",           "should_trigger": false, "prompt": "Migrate my re-frame v1 app to re-frame2.", "rationale": "The v1→v2 events/subs/db migration is the re-frame-migration skill; this skill is the optional SECOND step (views→re-frame.ui) done afterwards."},
+    {"id": 8,  "kind": "trigger", "name": "neg-author-v2",          "should_trigger": false, "prompt": "Write a re-frame2 reg-event that posts a login form to /api/login.", "rationale": "Authoring on re-frame2 is the re-frame2 skill."},
+    {"id": 9,  "kind": "trigger", "name": "neg-greenfield",         "should_trigger": false, "prompt": "Start a new re-frame2 project from scratch.", "rationale": "Greenfield bootstrap is re-frame2-setup."},
+    {"id": 10, "kind": "trigger", "name": "neg-live-pair",          "should_trigger": false, "prompt": "Inspect app-db right now on my running shadow-cljs build.", "rationale": "Live-runtime is re-frame2-pair."},
+    {"id": 11, "kind": "trigger", "name": "neg-stay-on-reagent",    "should_trigger": false, "prompt": "Should I move my views off Reagent? They work fine.", "rationale": "Staying on Reagent views is a first-class supported choice; this is a question to answer (no, you don't have to), not a migration to run."},
+    {"id": 12, "kind": "trigger", "name": "neg-vocab-migrate-db",   "should_trigger": false, "prompt": "Migrate my Postgres database from 12 to 14.", "rationale": "Vocabulary hit ('migrate') on an unrelated surface."},
+
+    {"id": 13, "kind": "behavioural", "tier": "M", "name": "m-transform-defview-sub-lift",
+     "prompt": "Convert this to re-frame.ui:\n(defn price [amt cur] [:button {:on-click #(dispatch [:buy amt])} @(subscribe [:total])])\n(defn app [] [:div [price 1 2]])",
+     "expectations": [
+       "Rewrites the header to (ui/defview price [{:keys [amt cur]}] ...) — positional params become a destructured prop map (MIG-01).",
+       "Rewrites the call site atomically to [price {:amt 1 :cur 2}] in the same change (MIG-01).",
+       "Drops the deref: @(subscribe [:total]) becomes (sub [:total]) (MIG-02).",
+       "Lifts the handler: {:on-click #(dispatch [:buy amt])} becomes {:on-click [:buy amt]} (MIG-04).",
+       "Adds the require [re-frame.ui :as ui :refer [defview sub]] (MIG-24) and cites the MIG ids for each change.",
+       "Does NOT treat the event vector [:buy amt] or the query vector [:total] as hiccup to respell/spread."
+     ]},
+
+    {"id": 14, "kind": "behavioural", "tier": "D", "name": "d-decide-form2-local-state",
+     "prompt": "Migrate this Reagent view to re-frame.ui:\n(defn dropdown [] (r/with-let [open? (r/atom false)] [:div {:on-click #(reset! open? true)} (when @open? [:ul])]))",
+     "expectations": [
+       "Recognises Form-2 / with-let view-local state (MIG-16) and does NOT silently rewrite the view.",
+       "Reasons about the decision — is this PRODUCT state (→ app-db: an event + a sub, a dataflow change to name for the author) or EPHEMERAL UI state (→ the host-local `local`)?",
+       "If ephemeral, maps to `local`'s three-tuple: @open? → value, (reset! open? v) → (set! v), (swap! open? f) → (update! f) — and explicitly avoids (set! (f open?)) as last-write-wins.",
+       "Holds the WHOLE view until the decision is made (cardinal rule 2), rather than converting some sites and leaving others.",
+       "Does not reach into the dataflow layer itself; it names the reg-event/reg-sub for the author when app-db is the answer."
+     ]},
+
+    {"id": 15, "kind": "behavioural", "tier": "R", "name": "r-decline-ssr-capability-gap",
+     "prompt": "Migrate this to re-frame.ui:\n(ns app.render (:require [reagent.dom.server :as s]))\n(defn render-page [] (s/render-to-string [app]))",
+     "expectations": [
+       "Declines to migrate the view — keeps it on Reagent (MIG-23).",
+       "Names the reason honestly: the re-frame.ui SSR / emit path is staged (S5) and has not shipped yet.",
+       "Does NOT emit a placeholder or a made-up form for the unshipped stage.",
+       "Frames staying on Reagent as a fully-supported configuration, not a failure — 'keep this on Reagent, or wait for the SSR stage'.",
+       "Points the author at the frozen re-frame.ssr compat path in the interim."
+     ]},
+
+    {"id": 16, "kind": "behavioural", "tier": "R", "name": "r-decline-reagent-introspection",
+     "prompt": "Convert this view to re-frame.ui:\n(defn thing [] [:div (str (r/current-component))])",
+     "expectations": [
+       "Declines — Reagent component-introspection / scheduler calls have no compiled equivalent (MIG-35).",
+       "Warns that r/current-component still COMPILES after conversion and fails/returns nil at runtime, so the build gate will not catch it.",
+       "Keeps the view on Reagent, or restructures away from the introspection (props/children the view already receives; effect for next-tick/after-render)."
+     ]},
+
+    {"id": 17, "kind": "behavioural", "tier": "M", "name": "m-negative-bare-symbol-not-spread",
+     "prompt": "Migrate to re-frame.ui:\n(defn item [t] [:li t])\n(defn lst [ts] [:ul (for [t ts] ^{:key t} [item t])])",
+     "expectations": [
+       "Converts item and lst to ui/defview and moves ^{:key t} to a :key prop (MIG-07): [item {:key t :t t}].",
+       "Does NOT treat the bare symbol child in [:li t] as a props map — `t` is content, never (ui/spread t) (the bare-symbol trap).",
+       "Leaves the plain hiccup structure otherwise unchanged (MIG-14)."
+     ]}
+  ]
+}
