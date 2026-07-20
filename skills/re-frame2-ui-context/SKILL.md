@@ -277,9 +277,11 @@ not edit it by hand.
   - (ui/html string) takes exactly one argument
   - (ui/html x) requires a string
 - **`:rf.ui.compile/bad-if`**
+  - takes a then and an optional else after the binding: ( [pattern init] then else?)
   - if takes test then else?
   - if-not takes test then else?
 - **`:rf.ui.compile/bad-let`**
+  - needs a single binding pair: ( [pattern init] then else? / body …)
   - letfn* needs a vector of an even number of flat name/initializer bindings [name init …]
   - letfn* binding names must be simple (unqualified) symbols
   - each letfn* initializer must be a fn/fn* form with a [argv] body or ([argv] body …) arity lists
