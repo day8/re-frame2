@@ -120,9 +120,9 @@ An unmount cleanup fires while the view is disconnecting, so a `(ui/dispatch-fn)
 
 **So re-home the resource lifecycle out of the view.** The canonical `re-frame.ui` editor reference states it in its docstring:
 
-> *"The Reagent page released on `:component-will-unmount`; native re-frame.ui has no dispatch-at-unmount (a committed dispatcher rejects firing from a disconnected view — the leaked-listener law) … So the native view owns no lease — there is nothing at the view tier to leak — and the resource lifecycle stays where the … suite already proves it."*
+> *"The article read is a DATAFLOW concern that the ROUTE owns … `:realworld.editor/edit` declares `:realworld/article` as a `:resources` entry (routing.cljs), so the runtime marks it active under the route owner `[:route :realworld.editor/edit nav-token]` on entry and RELEASES that owner on every route leave … So the native view owns no lease — there is nothing at the view tier to leak — and the resource lifecycle lives in the route's `:resources`, released on every exit."*
 
-The pattern, abstractly: the resource was minted by a *causal event* (a route match, a "start editing" event), and it is released by the *causal events that end its life* (navigating away, deleting, finishing) — **not** by the view's teardown. The migrated view becomes a **pure render** of subs; it owns no lease, so there is nothing at the view tier to leak.
+The pattern, abstractly: the resource was minted by a *causal event* (a route match, a "start editing" event), and it is released by an owner that covers **every** exit path — **not** by the view's teardown. That completeness is the discipline: a D-tier view stays held until each old teardown responsibility has a **proven** new owner; naming a plausible end event is not completion — enumerate every exit and prove each one releases. The RealWorld editor is the corrected reference (`examples/real-apps/realworld_resources/{routing,article_editor,ui_editor}.cljc`): ordinary *route leave* (edit→home, edit A→B, save) fires no `:editor/*` event, so an enumeration that stopped at delete/finish would leak. Ownership re-homes to the **route** — the article read is a `:resources` entry the runtime releases on every route leave, one framework lifecycle covering every exit. The migrated view becomes a **pure render** of subs; it owns no lease, so there is nothing at the view tier to leak.
 
 ```clojure
 ;; before — a Form-3 view owns the lease and releases it at unmount
@@ -133,14 +133,16 @@ The pattern, abstractly: the resource was minted by a *causal event* (a route ma
       :reagent-render         (fn [] [editor-form])})))
 
 ;; after — the view owns no lease; it is a pure defview.
-;; The lease RE-HOMES to the dataflow: the route / "start" event MINTS it
-;;   (e.g. [:lease :resource id]); the causal events that end the resource's
-;;   life RELEASE it. Name those events for the author (cardinal rule 5) — the
-;;   skill does not write them, it scopes them.
+;; The lease RE-HOMES to the dataflow: a route / "start" event MINTS it (e.g. a
+;;   route `:resources` entry, or [:lease :resource id]); an owner that covers
+;;   EVERY exit RELEASES it — for a route-scoped read that owner is the route's
+;;   `:resources` (released on every route leave), not a hand-picked set of end
+;;   events. Name/scope that owner for the author (cardinal rule 5) — the skill
+;;   does not write it, it scopes it.
 (ui/defview editor [] [editor-form])
 ```
 
-**When the resource lifetime genuinely follows this view site's presence**, the compiled owner is a *view-declared* lease — a leading `(ui/lease {:resource :ns/thing …})` declaration the framework acquires on connect and **releases at teardown for you (no dispatch)**. That lease is valid **even when its activation is conditional or its params are dynamic** — the descriptor may evaluate to `nil` (not held) or to a `{:resource … :params …}` map at render time, and the framework owns ensure/retarget/release across those changes. What a view lease does **not** fit is an **app-minted** owner — one an event, route, or machine created: keep causal ownership in the dataflow and release via the causal *end* events, exactly as the reference did. Choosing a view lease over causal ownership is an **ownership-model decision** to make with the author, not a mechanical migration — and routes/events/machines remain the preferred causal owners (Spec 004, I-11). Either way, **the view never dispatches at unmount.**
+**When the resource lifetime genuinely follows this view site's presence**, the compiled owner is a *view-declared* lease — a leading `(ui/lease {:resource :ns/thing …})` declaration the framework acquires on connect and **releases at teardown for you (no dispatch)**. That lease is valid **even when its activation is conditional or its params are dynamic** — the descriptor may evaluate to `nil` (not held) or to a `{:resource … :params …}` map at render time, and the framework owns ensure/retarget/release across those changes. What a view lease does **not** fit is an **app-minted** owner — one an event, route, or machine created: keep causal ownership in the dataflow and release via the causal owner's *end* (for the route reference, the `:resources` release on every route leave). Choosing a view lease over causal ownership is an **ownership-model decision** to make with the author, not a mechanical migration — and routes/events/machines remain the preferred causal owners (Spec 004, I-11). Either way, **the view never dispatches at unmount.**
 
 ## MIG-18 — non-conforming `:on-*` handlers
 
