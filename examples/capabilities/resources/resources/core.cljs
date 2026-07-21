@@ -211,14 +211,29 @@
 (rf/reg-event :resources.app/preview-opened
   {:doc "Open a lightweight article preview from the list — ensure the
          detail under a releaseable owner, and record the open slug in
-         app-db so the view can render the preview panel."}
+         app-db so the view can render the preview panel. Opening a
+         preview while a *different* one is already open REPLACES it: the
+         prior slug's owner is released first, so the old entry can GC
+         rather than pin forever. The single Close control only ever
+         reaches the current slug, so a replaced owner would otherwise be
+         unreachable and leak. Reopening the SAME slug re-ensures its owner
+         without churn (a fresh-skip inside the stale window)."}
   (fn [{:keys [db]} [_ slug]]
-    {:db (assoc db :resources.app/preview-slug slug)
-     :fx [[:dispatch [:rf.resource/ensure
-                      {:resource :article/by-slug
-                       :params   {:slug slug}
-                       :owner    [:resources.app/preview-opened slug]
-                       :cause    [:event :resources.app/preview-opened]}]]]}))
+    (let [prev   (:resources.app/preview-slug db)
+          ensure [:dispatch [:rf.resource/ensure
+                             {:resource :article/by-slug
+                              :params   {:slug slug}
+                              :owner    [:resources.app/preview-opened slug]
+                              :cause    [:event :resources.app/preview-opened]}]]]
+      {:db (assoc db :resources.app/preview-slug slug)
+       ;; Replacing a *different* preview: release the prior slug's owner
+       ;; first so its entry can GC. (Reopening the same slug skips the
+       ;; release — re-ensuring the owner it already holds, no churn.)
+       :fx (if (and prev (not= prev slug))
+             [[:dispatch [:rf.resource/release-owner
+                          {:owner [:resources.app/preview-opened prev]}]]
+              ensure]
+             [ensure])})))
 
 (rf/reg-event :resources.app/preview-closed
   {:doc "Close the preview — release the owner so the entry can GC, and
