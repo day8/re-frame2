@@ -470,6 +470,15 @@
         bind     (:binding-form header)
         var-meta (cond-> {:rf.ui/view true
                           :rf.ui/view-id view-id
+                          ;; Kept byte-identical to the CLJS emitter's view
+                          ;; descriptor (rf2-u53yy.1 S2). On the JVM host the
+                          ;; whole-build view registry still rides the per-source
+                          ;; slice (there is no Shadow disk cache to survive), so
+                          ;; this metadata is not the harvest carrier here; it is
+                          ;; carried for parity so `(meta #'view)` reads the same
+                          ;; descriptor on both hosts.
+                          :rf.ui/view-digest [(:template-fingerprint manifest)
+                                              (:hook-signature manifest)]
                           :rf.ui/children? children?}
                    docstring   (assoc :doc docstring)
                    closed-keys (assoc :rf.ui/closed-prop-keys (vec closed-keys)))]

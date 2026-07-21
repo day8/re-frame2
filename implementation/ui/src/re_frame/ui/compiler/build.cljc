@@ -766,6 +766,97 @@
     build-state))
 
 ;; ---------------------------------------------------------------------------
+;; View descriptor carrier (rf2-u53yy.1 S2)
+;;
+;; On the Shadow build path the whole-build `views` / `view-declarations`
+;; registries are NOT populated by the `defview` macro's per-source slice
+;; contribution — a warm cache-hit source never re-runs that macro. Instead each
+;; compiled view stamps its descriptor onto the generated def's analyzer metadata
+;; (`emit_cljs` var-meta: `:rf.ui/view-id` + `:rf.ui/view-digest`). Shadow persists
+;; a compiled namespace's analyzer data to its disk cache and RESTORES it under
+;; `[:compiler-env :cljs.analyzer/namespaces <ns>]` on a cache HIT (the S0 proof,
+;; rf2-u53yy.1.1: exact-EDN round-trip across shadow 3.4.0/3.4.10/3.4.11). At
+;; compile-finish the hook folds the descriptor of EVERY authoritative member —
+;; cached and compiled alike — into the two registries, so a warm source's views
+;; are restored from the cache-durable analyzer map, not re-stamped by a macro.
+;; This is the same decoupling S1 gave elements, at compile-finish (where views
+;; resolve) rather than compile-prepare (elements are the ordering exception).
+;; ---------------------------------------------------------------------------
+
+(defn- analyzer-view-defs
+  "PURE: `[view-id declaration digest]` triples for the compiled views a
+  namespace's restored/fresh analyzer `:defs` carries. A def is a view iff its
+  metadata carries BOTH `:rf.ui/view-id` and `:rf.ui/view-digest` — a bare
+  `(declare ^:rf.ui/view …)` forward declaration carries neither, and the
+  `$render`/`$host_render` helpers carry no view metadata at all. `declaration`
+  is the ruled `[ns var]` pair; `digest` is the `[template-fingerprint
+  hook-signature]` vector the emitter stamped (the same value the macro slice
+  path contributes off the Shadow path)."
+  [ns-sym ns-analyzer-map]
+  (keep (fn [[var-sym def-map]]
+          (let [m (:meta def-map)
+                view-id (:rf.ui/view-id m)
+                digest (:rf.ui/view-digest m)]
+            (when (and view-id digest)
+              [view-id [ns-sym var-sym] digest])))
+        (:defs ns-analyzer-map)))
+
+(defn harvest-view-registries
+  "PURE: fold the analyzer-map view descriptors of every authoritative `members`
+  namespace in `build-state` into per-source registry rows
+  `{source {::views {view-id digest} ::view-declarations {view-id declaration}}}`.
+  Reads `[:compiler-env :cljs.analyzer/namespaces <ns>]` — Shadow's
+  disk-cache-durable carrier (rf2-u53yy.1 S2), present identically for a cache-hit
+  member and a freshly compiled one. The cross-source view-id uniqueness law runs
+  HERE (a compile-finish error is still a build-time error): two DISTINCT
+  declarations claiming one view-id THROW rather than letting merge order pick a
+  winner. The same declaration cannot appear twice — one def, one `:defs` entry —
+  so an `rf=`-style duplicate cannot arise. Members are folded in sorted order so
+  the reported collision evidence is identical under every graph permutation."
+  [build-state members]
+  (let [nss (get-in build-state [:compiler-env :cljs.analyzer/namespaces])
+        seeded (mapcat (fn [ns-sym]
+                         (analyzer-view-defs ns-sym (get nss ns-sym)))
+                       (sort-by str members))
+        conflict (reduce
+                  (fn [owners [view-id declaration _digest]]
+                    (let [prior (get owners view-id)]
+                      (if (and prior (not= prior declaration))
+                        (reduced
+                         {::conflict
+                          {:view-id view-id
+                           :declarations (vec (sort-by str [prior declaration]))}})
+                        (assoc owners view-id declaration))))
+                  {}
+                  seeded)]
+    (when-let [c (::conflict conflict)]
+      (throw
+       (ex-info
+        (str "re-frame.ui found two distinct defview declarations claiming view "
+             "id " (:view-id c) " while harvesting the build's compiled views; "
+             "refusing to publish a merge-order winner. Give each view a distinct "
+             "qualified keyword (re-expanding the exact same var remains the HMR "
+             "replacement path)")
+        {::error ::view-id-conflict
+         :view-id (:view-id c)
+         :declarations (:declarations c)
+         :recovery :reconcile-defview-declarations})))
+    (reduce (fn [regs [view-id declaration digest]]
+              (let [source (first declaration)]
+                (-> regs
+                    (assoc-in [source views view-id] digest)
+                    (assoc-in [source view-declarations view-id] declaration))))
+            {}
+            seeded)))
+
+(defn- merge-registries
+  "PURE: deep-merge two `{source {reg-id {k v}}}` registry maps; the RIGHT map's
+  rows win per `(source, reg-id, k)`. Used to overlay the analyzer-map-harvested
+  view rows onto the slice-derived rows of the other registries."
+  [a b]
+  (merge-with (fn [ra rb] (merge-with merge ra rb)) a b))
+
+;; ---------------------------------------------------------------------------
 ;; Pass boundaries
 ;; ---------------------------------------------------------------------------
 
@@ -904,8 +995,20 @@
     ;; conflict law was enforced there. Carry that finalized manifest onto the
     ;; snapshot beside `:registries`.
     (let [after (-> scratch commit-slice (keep-members (set members)))
+          ;; Views ride the disk-cache-durable analyzer-map carrier on the Shadow
+          ;; path (rf2-u53yy.1 S2). The defview macro contributes NO view row to
+          ;; the slice under a Shadow build pass, so harvest every authoritative
+          ;; member's compiled view descriptors from the analyzer map and overlay
+          ;; them onto the slice-derived rows of the other registries. A cache-hit
+          ;; member contributes its RESTORED descriptor identically to a freshly
+          ;; compiled one, so a warm source's views survive without the macro
+          ;; re-running. (Off the Shadow path — plain-JVM/REPL/tests staging views
+          ;; directly through the slice — the analyzer map is empty and the slice
+          ;; rows carry through unchanged.)
+          view-registries (harvest-view-registries build-state members)
           snapshot {:build-id build-id
-                    :registries (:committed after)
+                    :registries (merge-registries (:committed after)
+                                                  view-registries)
                     :elements (:element-manifest scratch {})
                     :version (inc (long (or (:version accepted) 0)))}]
       {:snapshot snapshot})))
