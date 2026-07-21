@@ -152,12 +152,30 @@
 ;; stays host-agnostic (it also runs headless on the JVM plain-atom host, which
 ;; has no DOM node); the DOM-specific stamp lives at this React commit site.
 ;;
+;; OWNED + TRUTHFUL (rf2-vxgfnd.98.1.3, mirroring the compiler's rf2-x1nbv
+;; authored-wins collision law). The imperative stamp has an explicit ownership
+;; boundary so the DOM evidence never lies and dev never overwrites what
+;; production preserves:
+;;   - A programmer-authored `data-rf-render-key` on the host root WINS: the
+;;     framework detects the attribute already present on a node it does not own
+;;     and leaves it untouched (trust the programmer). Only an UNCLAIMED root is
+;;     stamped, and once claimed the framework re-stamps ONLY its own node on each
+;;     connected commit — the truthful per-commit key.
+;;   - The framework tracks the single node it currently owns a stamp on
+;;     (`owned-ref`). When the host callback DETACHES or ownership moves — the
+;;     no-ref → authored-ref transition on a REUSED host node, where the callback
+;;     detaches while React keeps the DOM node — it removes ONLY its own stamp, so
+;;     a now-opted-out node carries no stale render-key. An authored value was
+;;     never owned, so it is never in `owned-ref` and never removed; the authored
+;;     callback / object ref is preserved (we clone in a ref only onto a root the
+;;     author did not `:ref`, and we only ever touch the attribute, never the ref).
+;;
 ;; DEBUG-ONLY, production-erased (I-12, exactly like the static annotation):
 ;; every hook and branch below sits behind `^boolean js/goog.DEBUG`, so Closure
 ;; constant-folds the gate to false and DCEs the whole thing — the host-node ref,
-;; the `data-rf-render-key` literal, and the `setAttribute` — under :advanced +
-;; goog.DEBUG=false. A production ViewCell keeps exactly its two layout effects
-;; and stamps nothing.
+;; the owned-node ref, the `data-rf-render-key` literal, the `setAttribute`, and
+;; the ownership `removeAttribute` — under :advanced + goog.DEBUG=false. A
+;; production ViewCell keeps exactly its two layout effects and stamps nothing.
 ;; ---------------------------------------------------------------------------
 
 (defn- stampable-host-root?
@@ -167,7 +185,15 @@
   annotation lands on. A view / foreign-component / fragment root has no DOM node
   to stamp, and a host root the author already `:ref`s is left untouched rather
   than clobbering the user's ref — such a view forgoes the DOM-attribute
-  convenience (its render-key is still readable via `reactive/render-key`)."
+  convenience (its render-key is still readable via `reactive/render-key`).
+
+  This gates only whether the framework attaches its host-node callback (does a
+  stampable node exist, and would a ref collide?). The SECOND collision — an
+  author who wrote their own `data-rf-render-key` — is enforced at stamp time
+  against the committed node's actual attribute (`use-commit-and-lifecycle!`),
+  because an authored value can arrive via a spread and is only truthful on the
+  final committed node, exactly as the compiler's rf2-x1nbv law reads the FINAL
+  props object."
   [element]
   (and (react/isValidElement element)
        (string? (.-type element))
@@ -176,18 +202,35 @@
 (defn- use-commit-and-lifecycle!
   "Publish an observation-only capture, own React visibility lifecycle, and — in
   DEV only — stamp the per-commit render-key onto the committed host-root DOM
-  node. Returns the element to render: in DEV a clone of `element` carrying a
-  stable host-node ref when the root is a stampable host element; unchanged in
-  production (the whole DEV arm DCEs)."
+  node as an OWNED, TRUTHFUL attribute (rf2-vxgfnd.98.1.3). Returns the element to
+  render: in DEV a clone of `element` carrying a stable host-node ref when the
+  root is a stampable host element; unchanged in production (the whole DEV arm
+  DCEs)."
   [cell root-incarnation capture element]
   ;; DEV: capture the committed host-root DOM node so the reconcile effect can
-  ;; stamp render-key onto it. Both hooks are goog.DEBUG-gated, so production
-  ;; carries neither — its ViewCell keeps exactly the two layout effects below.
-  (let [host-ref (when ^boolean js/goog.DEBUG (react/useRef nil))
-        host-cb  (when ^boolean js/goog.DEBUG
-                   (react/useCallback
-                     (fn capture-host-node [node] (set! (.-current host-ref) node))
-                     #js []))]
+  ;; stamp render-key onto it (`host-ref`), and track the ONE node the framework
+  ;; currently OWNS a stamp on (`owned-ref`) so it can (a) distinguish its own
+  ;; stamp from a programmer-authored `data-rf-render-key` — authored wins — and
+  ;; (b) remove ONLY its own stamp when the callback detaches or ownership moves.
+  ;; All three hooks are goog.DEBUG-gated, so production carries none of them —
+  ;; its ViewCell keeps exactly the two layout effects below.
+  (let [host-ref  (when ^boolean js/goog.DEBUG (react/useRef nil))
+        owned-ref (when ^boolean js/goog.DEBUG (react/useRef nil))
+        host-cb   (when ^boolean js/goog.DEBUG
+                    (react/useCallback
+                      (fn capture-host-node [node]
+                        ;; Detach (node=nil) or move to a different node: if the
+                        ;; framework owns a stamp on the node it is LEAVING, erase
+                        ;; ONLY that owned stamp so a now-opted-out node (e.g. a
+                        ;; reused host root that just gained an authored :ref)
+                        ;; carries no stale render-key. An authored value was never
+                        ;; owned, so it is never in `owned-ref` and never removed.
+                        (let [owned (.-current owned-ref)]
+                          (when (and (some? owned) (not (identical? owned node)))
+                            (.removeAttribute owned "data-rf-render-key")
+                            (set! (.-current owned-ref) nil)))
+                        (set! (.-current host-ref) node))
+                      #js []))]
     ;; Reconcile after every committed render. There is deliberately no cleanup:
     ;; retained observation owners live on the cell, not on a render.
     (react/useLayoutEffect
@@ -202,7 +245,20 @@
           (let [node (some-> host-ref .-current)
                 rk   (reactive/render-key cell)]
             (when (and node (some? rk))
-              (.setAttribute node "data-rf-render-key" (str rk)))))
+              (cond
+                ;; The framework already OWNS this node's stamp → update it to the
+                ;; render that just committed (truthful per connected commit).
+                (identical? node (.-current owned-ref))
+                (.setAttribute node "data-rf-render-key" (str rk))
+                ;; A `data-rf-render-key` the framework does NOT own is
+                ;; programmer-authored — trust the programmer, opt out untouched
+                ;; (the rf2-x1nbv authored-wins law, read on the final node).
+                (.hasAttribute node "data-rf-render-key")
+                nil
+                ;; An unclaimed host root → the framework CLAIMS + owns the stamp.
+                :else
+                (do (.setAttribute node "data-rf-render-key" (str rk))
+                    (set! (.-current owned-ref) node))))))
         js/undefined))
     ;; Connect via commit above; cleanup releases ownership on both unmount and
     ;; Activity hide. Root enrolment deliberately survives hide so root teardown

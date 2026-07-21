@@ -39,6 +39,24 @@
   [{:keys [label]}]
   [:div {:data-role "stamped"} (str label ":" (ui/sub [:rk/n]))])
 
+(defview authored-render-key-view
+  "A sub-bearing view whose compiler-owned host root carries a PROGRAMMER-AUTHORED
+  `data-rf-render-key`. Trust the programmer (rf2-vxgfnd.98.1.3 / the rf2-x1nbv
+  authored-wins law): the framework's owned stamp must never clobber it, and must
+  never re-stamp it on later commits."
+  [{:keys [label]}]
+  [:div {:data-role "authored" :data-rf-render-key "author-owned"}
+   (str label ":" (ui/sub [:rk/n]))])
+
+(defview transitioning-root-view
+  "A sub-bearing view whose compiler-owned host root gains an authored `:ref`
+  across a re-render (nil ref → object ref, the preferred authored form). React
+  reuses the same DOM node; the framework, on losing host ownership to the
+  authored ref, must remove ITS OWN stale stamp and leave the ref intact
+  (rf2-vxgfnd.98.1.3)."
+  [{:keys [node-ref]}]
+  [:div {:data-role "transition" :ref node-ref} (str (ui/sub [:rk/n]))])
+
 (defn- stamped-node [container]
   (.querySelector container "[data-role='stamped']"))
 
@@ -90,6 +108,82 @@
                    node reports the render that produced it")
               (testing "the rendered text still reflects the live subscription"
                 (is (= "b:1" (.-textContent (stamped-node container)))))))
+          (finally
+            (ReactDOM/flushSync #(ui/unmount! root))
+            (.remove container)))))))
+
+(deftest programmer-authored-data-rf-render-key-survives-development-commits
+  ;; OWNED + TRUTHFUL (rf2-vxgfnd.98.1.3). Before the ownership fix the reconcile
+  ;; effect unconditionally `setAttribute`d the render-key, clobbering an authored
+  ;; value; now an authored `data-rf-render-key` the framework does not own wins.
+  (if-not (browser?)
+    (is true ":node — the browser gate owns the real committed-DOM proof")
+    (do
+      (rf/reg-sub :rk/n (fn [db _] (:n db)))
+      (rf/make-frame {:id frame-id :doc "authored render-key survives"})
+      (frame/replace-app-db! frame-id {:n 1})
+      (let [container (js/document.createElement "div")
+            root      (ui/create-root container {:root-id :render-key-stamp/authored-root})]
+        (.appendChild js/document.body container)
+        (try
+          (ReactDOM/flushSync
+           #(ui/render! root [ui/frame-provider {:frame frame-id}
+                              [authored-render-key-view {:label "a"}]]))
+          (let [node (.querySelector container "[data-role='authored']")]
+            (is (some? node) "the authored host root committed")
+            (is (= "author-owned" (.getAttribute node "data-rf-render-key"))
+                "RED→GREEN: the authored value survives the first connected commit
+                 (the framework opts out rather than clobbering it)")
+            ;; A fresh connected commit must STILL leave the authored value alone —
+            ;; the framework never claimed it, so it never re-stamps it.
+            (ReactDOM/flushSync
+             #(ui/render! root [ui/frame-provider {:frame frame-id}
+                                [authored-render-key-view {:label "b"}]]))
+            (is (= "author-owned" (.getAttribute node "data-rf-render-key"))
+                "the authored value survives subsequent commits — never re-stamped")
+            (is (= "b:1" (.-textContent node))
+                "the view still rendered its live subscription value"))
+          (finally
+            (ReactDOM/flushSync #(ui/unmount! root))
+            (.remove container)))))))
+
+(deftest no-ref-to-authored-ref-transition-removes-the-framework-stamp
+  ;; The truthfulness half (rf2-vxgfnd.98.1.3): when a stamped host root gains an
+  ;; authored :ref while React REUSES the DOM node, the framework's host callback
+  ;; detaches. Before the fix it detached without removing its stamp, leaving a
+  ;; stale render-key on a now-opted-out node; now it removes ONLY its own stamp.
+  (if-not (browser?)
+    (is true ":node — the browser gate owns the real committed-DOM proof")
+    (do
+      (rf/reg-sub :rk/n (fn [db _] (:n db)))
+      (rf/make-frame {:id frame-id :doc "render-key ownership cleanup"})
+      (frame/replace-app-db! frame-id {:n 1})
+      (let [container (js/document.createElement "div")
+            root      (ui/create-root container {:root-id :render-key-stamp/transition-root})
+            obj-ref   #js {:current nil}]
+        (.appendChild js/document.body container)
+        (try
+          ;; --- render 1: un-reffed root → the framework claims + stamps -------
+          (ReactDOM/flushSync
+           #(ui/render! root [ui/frame-provider {:frame frame-id}
+                              [transitioning-root-view {:node-ref nil}]]))
+          (let [node (.querySelector container "[data-role='transition']")]
+            (is (some? node) "the un-reffed host root committed")
+            (is (some? (.getAttribute node "data-rf-render-key"))
+                "the framework stamped its owned key on the un-reffed root")
+            ;; --- render 2: gain an authored object :ref → node reused, stamp
+            ;; removed (React swaps host-cb → obj-ref on the same DOM node) -------
+            (ReactDOM/flushSync
+             #(ui/render! root [ui/frame-provider {:frame frame-id}
+                                [transitioning-root-view {:node-ref obj-ref}]]))
+            (is (identical? node (.querySelector container "[data-role='transition']"))
+                "React reused the same DOM node across the ref transition")
+            (is (nil? (.getAttribute node "data-rf-render-key"))
+                "RED→GREEN: the framework removed its OWN stale stamp when
+                 ownership moved to the authored ref")
+            (is (identical? node (.-current obj-ref))
+                "the authored object ref received the reused node — ref
+                 semantics preserved, only the framework attribute was touched"))
           (finally
             (ReactDOM/flushSync #(ui/unmount! root))
             (.remove container)))))))
