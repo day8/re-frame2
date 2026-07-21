@@ -1,0 +1,16 @@
+;; S0 carrier-proof probe — STANDALONE, PLAIN project (rf2-u53yy.1.1).
+;;
+;; This directory is deliberately NOT on the main implementation/ source-paths, so
+;; the main build never indexes it. It is driven only by its own run.cjs.
+;;
+;; It carries NEITHER :cache-blockers NOR the re-frame.ui build hook: cache
+;; eligibility is decided by Shadow's is-cache-blocked? (shadow/build/compiler.clj
+;; :918-927), so a plain project is required for the disk-cache HIT to be genuine.
+;; Adding either would defeat the whole proof.
+{:source-paths ["src"]
+ :builds
+ {:probe
+  {:target      :node-script
+   :main        probe.consumer/main
+   :output-to   "out/probe.js"
+   :build-hooks [(probe.build-hook/hook)]}}}
