@@ -140,39 +140,58 @@
   (let [c (body-fn)] (if (fn? c) c js/undefined)))
 
 (defn- deps-token
-  "Render-time pure token for an authored deps vector held in the useRef cell
-  `ref`. Returns one internal token whose identity changes iff the authored deps
-  stop being PER-SLOT `rf=` (`eq/deps-rf=?`) against the previous render's deps —
-  a distinct-but-`rf=`-equal deps value keeps the SAME token, so React's own
-  cleanup→setup does not fire. Deriving the token during render is a pure
-  function of (prev, deps): equal deps yield the same token, so a StrictMode
-  double-render (or any re-render with `rf=`-equal deps) is idempotent. Because
-  the comparison is kernel-internal (a held previous-deps slot, not React's
-  native deps array) the authored deps arity may vary between renders behind a
-  fixed one-element React deps array.
+  "WIP/concurrency-safe identity token for an authored deps vector, held in
+  ordinary React hook STATE (`useState`) — never a mutable `useRef` cell written
+  during render. Returns a token (a monotone counter) whose value changes iff the
+  authored deps stop being PER-SLOT `rf=` (`eq/deps-rf=?`) against the last
+  COMMITTED deps — a distinct-but-`rf=`-equal deps value keeps the SAME token, so
+  React's own cleanup→setup does not fire. Because the comparison is
+  kernel-internal (a held previous-deps slot, not React's native deps array) the
+  authored deps arity may vary between renders behind a fixed one-element React
+  deps array.
+
+  Why hook state, not a render-time ref (rf2-u53yy.6 obl-2): React shares ONE
+  mutable ref object across a fiber's current AND work-in-progress renders, but
+  DOUBLE-BUFFERS hook state per WIP fiber. A ref-held token is poisoned by a
+  concurrent render that is later ABANDONED — committed A holds token 0; a
+  suspended transition render B writes deps-B/token-1 into the shared ref; B is
+  abandoned; then an unchanged A re-renders, reads B's leftover deps, and
+  spuriously mints a new token → React cleanup/setups an effect whose COMMITTED
+  deps never changed. Holding (deps, token) in `useState` isolates B's write to
+  B's WIP fiber, discarded on abandon; the committed fiber keeps its own deps +
+  token, so the unchanged-A re-render skips the effect.
+
+  On an `rf=` dep change the token is advanced via a set-state-DURING-render (the
+  React-supported \"adjust state while rendering\" pattern: React re-renders with
+  the new state before committing, so the effect registers the advanced token).
+  The set NEVER fires on `rf=`-equal deps, so a StrictMode double-render — or any
+  re-render with `rf=`-equal deps — is idempotent; the token is a plain number,
+  Object.is-stable by value, so React's native deps array carries it faithfully.
 
   This is re-frame.ui's ONE effect-dependency equality doctrine — the same `rf=`
   the memo/prop comparator and the native `effect` tier use, walked PER SLOT so a
   stable `##NaN` slot (which whole-vector `rf=` would falsely report changed) or
   a rebuilt-but-equal CLJS collection slot does not re-run the effect. Shared
   verbatim by the react-interop wrappers, never a second per-tier regime."
-  [^js ref deps]
-  (let [prev ^js (.-current ref)]
-    (if (and (some? prev) (eq/deps-rf=? (.-deps prev) deps))
-      (.-token prev)
-      (let [t #js {}]
-        (set! (.-current ref) #js {:deps deps :token t})
+  [deps]
+  (let [pair      (react/useState (fn init-deps-state [] #js {:deps deps :token 0}))
+        state     (aget pair 0)
+        set-state (aget pair 1)]
+    (if ^boolean (eq/deps-rf=? (.-deps ^js state) deps)
+      (.-token ^js state)
+      (let [t (inc (.-token ^js state))]
+        (set-state #js {:deps deps :token t})
         t))))
 
 (defn effect-value
   "Passive host effect with `rf=` VALUE deps. A stable per-effect token changes
   identity only when the deps stop being `rf=`, so React's own `useEffect`
   drives cleanup-then-setup on dep change, on disconnect/unmount, and under
-  StrictMode replay — no hand-rolled scheduling."
+  StrictMode replay — no hand-rolled scheduling. The token is WIP/concurrency-safe
+  (held in React hook state, not a shared render-time ref — see `deps-token`)."
   [body-fn deps]
-  (let [ref (react/useRef nil)]
-    (react/useEffect #(run-effect body-fn) #js [(deps-token ref deps)])
-    js/undefined))
+  (react/useEffect #(run-effect body-fn) #js [(deps-token deps)])
+  js/undefined)
 
 (defn effect-connect
   "Passive host effect that runs at each CONNECT with cleanup at each disconnect
@@ -207,32 +226,31 @@
 
 (defn use-effect
   "react/use-effect lowering target — `useEffect` (passive, after paint). Both
-  arities allocate the same fixed hook shape (a held deps cell + the effect), so
-  editing deps presence is a same-signature edit. No-deps ⇒ a fresh token every
-  render (runs after every commit); deps ⇒ `rf=` VALUE deps via the shared
-  `deps-token` — a distinct-but-`rf=`-equal CLJS deps value does NOT rerun (the
-  one equality doctrine shared with `effect` and memo, never a second per-tier
-  regime)."
+  arities allocate the same fixed hook shape (a held deps-state cell + the
+  effect), so editing deps presence is a same-signature edit. No-deps ⇒ a fresh
+  token every render (runs after every commit); deps ⇒ `rf=` VALUE deps via the
+  shared WIP-safe `deps-token` — a distinct-but-`rf=`-equal CLJS deps value does
+  NOT rerun (the one equality doctrine shared with `effect` and memo, never a
+  second per-tier regime)."
   ([setup]
-   (let [_ref (react/useRef nil)]
-     (react/useEffect #(run-effect setup) #js [#js {}]))
+   (react/useState nil) ;; shape-match the deps arity's `deps-token` hook state
+   (react/useEffect #(run-effect setup) #js [#js {}])
    js/undefined)
   ([setup deps]
-   (let [ref (react/useRef nil)]
-     (react/useEffect #(run-effect setup) #js [(deps-token ref deps)]))
+   (react/useEffect #(run-effect setup) #js [(deps-token deps)])
    js/undefined))
 
 (defn use-layout-effect
   "react/use-layout-effect lowering target — `useLayoutEffect` (after DOM
   mutation, before paint): the measure-before-paint door. Same fixed hook shape
-  and `rf=` value-deps contract as `use-effect`."
+  and `rf=` value-deps contract as `use-effect` (the deps token is WIP-safe —
+  held in React hook state, not a shared render-time ref — see `deps-token`)."
   ([setup]
-   (let [_ref (react/useRef nil)]
-     (react/useLayoutEffect #(run-effect setup) #js [#js {}]))
+   (react/useState nil) ;; shape-match the deps arity's `deps-token` hook state
+   (react/useLayoutEffect #(run-effect setup) #js [#js {}])
    js/undefined)
   ([setup deps]
-   (let [ref (react/useRef nil)]
-     (react/useLayoutEffect #(run-effect setup) #js [(deps-token ref deps)]))
+   (react/useLayoutEffect #(run-effect setup) #js [(deps-token deps)])
    js/undefined))
 
 (defn use-effect-event

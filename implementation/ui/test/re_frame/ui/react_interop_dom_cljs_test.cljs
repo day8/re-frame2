@@ -7,7 +7,9 @@
     - use-effect: passive, `rf=` VALUE deps (a distinct-but-value-equal CLJS
       deps value is NOT a change — rf2-u53yy.6 converged the interop tier onto
       `rf=`, superseding the .95.12 Object.is split), cleanup on dep change +
-      unmount;
+      unmount; the deps token is WIP/concurrency-safe — an ABANDONED suspended
+      transition render at a new dep does not poison the committed dep's token
+      (rf2-u53yy.6 obl-2);
     - use-layout-effect: the readiness C-6 measure-before-paint NATIVE consumer
       (measure in the layout effect, pure geometry, apply, clean up exactly);
       StrictMode replay is idempotent-safe; unmount (reconnect) runs cleanup;
@@ -176,6 +178,115 @@
             (.then (fn []
                      (rf/destroy-frame! f) (done))
                    (fn [e] (rf/destroy-frame! f) (is false (str e)) (done))))))))
+
+;; The WIP/concurrency-safe deps token (rf2-u53yy.6 obl-2). A ref-held deps token
+;; is SHARED across a fiber's current and work-in-progress renders, so a suspended
+;; transition render (an ABANDONED WIP at a NEW dep) poisons the ref; when the
+;; unchanged COMMITTED fiber later re-renders, it reads the abandoned deps and
+;; spuriously re-runs the effect. Holding the (deps, token) in React hook STATE
+;; (double-buffered per WIP fiber) isolates the abandoned write — the committed
+;; fiber keeps its own token, so an unchanged committed dep does NOT re-run. This
+;; is a REAL concurrent-render case: it needs a startTransition + Suspense on a
+;; real React root, which is why it lives in the browser gate.
+
+;; A foreign child that SUSPENDS while `dep` is the transition target (1) until
+;; the test resolves it — the thrown thenable drives the transition WIP to
+;; abandon while the committed dep-0 tree stays mounted.
+(defonce ^:private txn-suspender (atom nil))
+(defn- arm-suspender! []
+  (let [box (volatile! nil)
+        p   (js/Promise. (fn [res _] (vreset! box res)))]
+    (reset! txn-suspender {:promise p :resolve @box :resolved? false})))
+(defn- resolve-suspender! []
+  (when-let [s @txn-suspender]
+    (swap! txn-suspender assoc :resolved? true)
+    ((:resolve s))))
+
+(defn- txn-suspender-el [^js props]
+  (let [dep (.-dep props)
+        s   @txn-suspender]
+    (if (and (= dep 1) s (not (:resolved? s)))
+      (throw (:promise s))
+      (React/createElement "span" #js {:data-role "sus"} "ready"))))
+
+;; The effect-bearing view — dep is its ONLY effect dependency; `other` is an
+;; unrelated urgent-update prop. Rendered FIRST under the Suspense boundary so its
+;; deps token is derived before the sibling suspender throws.
+(defview txn-effect-view [{:keys [dep other]}]
+  (let [_ (react/use-effect
+           (fn []
+             (swap! log conj [:trun dep])
+             (fn [] (swap! log conj [:tcleanup dep])))
+           [dep])]
+    [:div
+     [:span {:data-role "td"} (str dep)]
+     [:span {:data-role "to"} (str other)]]))
+
+;; Foreign controller: dep + other are REACT state, so the transition priority is
+;; React's own (not the frame notification path). Setters are stashed for the test.
+(defonce ^:private txn-controls (atom nil))
+(defn- txn-controller [^js _props]
+  (let [ds        (React/useState 0)
+        os        (React/useState 0)
+        dep       (aget ds 0)
+        set-dep   (aget ds 1)
+        other     (aget os 0)
+        set-other (aget os 1)]
+    (reset! txn-controls #js [set-dep set-other])
+    (React/createElement
+     (.-Suspense React)
+     #js {:fallback (React/createElement "span" #js {:data-role "fb"} "loading")}
+     (React/createElement txn-effect-view #js {:dep dep :other other})
+     (React/createElement txn-suspender-el #js {:dep dep}))))
+
+(defview txn-abandon-host []
+  (ui/raw (React/createElement txn-controller #js {})))
+
+(defn- only-truns [] (filterv #(= (first %) :trun) @log))
+
+(deftest use-effect-abandoned-transition-does-not-rerun-committed-dep
+  (if-not (browser?)
+    (is true ":node — browser gate runs the abandoned-transition WIP-safe token")
+    (async done
+      (reset-log!)
+      (reset! txn-controls nil)
+      (arm-suspender!)
+      (-> (uit/with-root [root [txn-abandon-host]]
+            (-> (host-turn!)
+                (.then (fn []
+                         ;; committed A: dep=0 ran the effect exactly once.
+                         (is (= [[:trun 0]] (only-truns)) "effect ran once at mount (committed dep 0)")
+                         ;; start a transition to dep=1 whose WIP SUSPENDS (abandoned).
+                         (uit/flush! #(React/startTransition
+                                       (fn [] ((aget @txn-controls 0) 1))))))
+                (.then host-turn!)
+                (.then (fn []
+                         ;; the transition is pending: the committed (dep-0) tree stays
+                         ;; mounted (a transition never shows the fallback).
+                         (is (some? (.querySelector root "[data-role='td']"))
+                             "committed dep-0 tree stays mounted (no fallback) while the transition suspends")
+                         (is (= "0" (.-textContent (.querySelector root "[data-role='td']")))
+                             "committed dep is still 0")
+                         ;; urgent update: re-renders the COMMITTED fiber (dep=0), which
+                         ;; reads the deps-token cell the abandoned WIP touched.
+                         (uit/flush! #((aget @txn-controls 1) 9))))
+                (.then host-turn!)
+                (.then (fn []
+                         (is (= "9" (.-textContent (.querySelector root "[data-role='to']")))
+                             "the urgent (other) update committed")
+                         (is (= "0" (.-textContent (.querySelector root "[data-role='td']")))
+                             "the committed dep is still 0")
+                         ;; THE REGRESSION: the abandoned dep-1 WIP must NOT poison the
+                         ;; committed dep-0 token — no spurious cleanup/re-run.
+                         (is (= [[:trun 0]] (only-truns))
+                             "an unchanged committed dep did NOT re-run the effect (WIP-safe token)")
+                         (is (not-any? #(= % [:tcleanup 0]) @log)
+                             "no spurious cleanup of the still-committed dep-0 effect")
+                         ;; settle the suspended transition so teardown is clean.
+                         (resolve-suspender!)
+                         (uit/flush!)))
+                (.then host-turn!)))
+          (.then (fn [] (done)) (fn [e] (is false (str e)) (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; use-layout-effect — the readiness C-6 measure-before-paint NATIVE consumer
