@@ -93,7 +93,7 @@
       (register!)
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [ci-host]]]
-              (let [el (.querySelector rootsel-controlled-input)]
+              (let [el (.querySelector root sel-controlled-input)]
                 (is (some? el)
                     "controlled-input renders a node carrying its own sentinel")
                 (is (= "INPUT" (.-tagName el)) "and it is the <input> it declares")
@@ -129,9 +129,9 @@
       (reset! selected ::unset)
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [sc-host]]]
-              (let [host  (.querySelector rootsel-selection-controller)
-                    count-el (.querySelector root(str sel-selection-controller " [data-role='count']"))
-                    btn   (.querySelector root(str sel-selection-controller " button"))]
+              (let [host  (.querySelector root sel-selection-controller)
+                    count-el (.querySelector root (str sel-selection-controller " [data-role='count']"))
+                    btn   (.querySelector root (str sel-selection-controller " button"))]
                 (is (some? host)
                     "selection-controller renders a node carrying its own sentinel")
                 (is (= "0" (.-textContent count-el))
@@ -164,7 +164,7 @@
       (register!)
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [lc-host {:rows rows}]]]
-              (let [ul    (.querySelector rootsel-list-cell)
+              (let [ul    (.querySelector root sel-list-cell)
                     items (when ul (.querySelectorAll ul "li"))
                     cells (when ul (.querySelectorAll ul "[data-role='cell']"))]
                 (is (some? ul) "list-cell renders a node carrying its own sentinel")
@@ -202,7 +202,7 @@
       (register!)
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [sfc-host]]]
-              (let [el (.querySelector rootsel-safe-form-control)]
+              (let [el (.querySelector root sel-safe-form-control)]
                 (is (some? el)
                     "safe-form-control renders a node still carrying its OWNED sentinel — the colliding caller :data-pp lost")
                 (is (= "INPUT" (.-tagName el)) "and it is the <input> it declares")
@@ -235,7 +235,7 @@
       (register!)
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [sd-host]]]
-              (let [el (.querySelector rootsel-schema-described)]
+              (let [el (.querySelector root sel-schema-described)]
                 (is (some? el)
                     "schema-described renders a node carrying its own sentinel")
                 (is (= "LABEL" (.-tagName el)) "and it is the <label> it declares")
@@ -259,7 +259,7 @@
       (register!)
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [ip-host]]]
-              (let [el (.querySelector rootsel-inline-popover)]
+              (let [el (.querySelector root sel-inline-popover)]
                 ;; `with-root` awaits the initial COMMIT, so reaching this point
                 ;; means the view's `ui/effect :connect` ran without throwing.
                 ;; The library's connect body is `(fn [] nil)` by design — a

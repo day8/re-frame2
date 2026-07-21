@@ -374,11 +374,10 @@ Every `:rf.ui.compile/*` diagnostic the compiler's front-door analyzers raise, e
   - element head ‹head› is in the framework-reserved :rf/* namespace, which is framework-owned (Conventions §Reserved namespaces) — it cannot be an author element. No :rf/* head has a client meaning (:rf/suspense-boundary is a streaming-SSR marker, server-only). Check the spelling, or use an unreserved keyword if you meant a custom element.
   - element head ‹head› must be an unqualified keyword — tag keywords carry no namespace (write :‹s›)
   - element head ‹head› needs a tag name before sugar (e.g. :div.card, :div#main)
-- **`:rf.ui.compile/bad-test-render-form`**
-  - ui.test/render: ‹vsym› is a LOCAL binding — render needs the compile-resolved defview var/symbol (or a literal root form). Hiccup is compiled, not interpreted; a runtime-chosen view cannot be a template
-  - ui.test/render: ‹vsym› resolves but is not a defview / does not resolve — render accepts exactly two forms: a defview var/symbol, or a literal root form vector
-  - ui.test/render accepts exactly two forms — a defview var/symbol, or a LITERAL root form vector (hiccup is compiled, not interpreted; a runtime-assembled value cannot be a template); got ‹root-or-view›
-- **`:rf.ui.compile/bad-test-root`** — ui.test/render: a root form mounts exactly ONE view — root identity is the mounted view's id; this form has ‹views›. Wrap the markup in a defview (bare elements / fragments / foreign heads have no view identity) / Keep one mounted view (a fragment of two views has no single identity)
+- **`:rf.ui.compile/bad-test-render-form`** — ui.test/render takes a LITERAL view form vector (hiccup is compiled, not interpreted; a runtime-assembled value cannot be a template); got ‹root-form›
+- **`:rf.ui.compile/bad-test-root`**
+  - ui.test/render: a plan-bearing root form (a top-region frame-root) is not a render form — render owns no frame lifecycle. Establish the frame with rf/with-new-frame (eval-bind-run-destroy) and render the plan-free view, or mount the root under ui.test/with-root where runtime root preflight is the test subject
+  - ui.test/render: a root form mounts exactly ONE view — root identity is the mounted view's id; this form has ‹views›. Wrap the markup in a defview (bare elements / fragments / foreign heads have no view identity) / Keep one mounted view (a fragment of two views has no single identity)
 - **`:rf.ui.compile/bad-ui-callback`** — (‹verb› ‹bindings› …) at prop ‹k› on view / foreign-component ‹head-info› — ‹verb› binds exactly the invoker's event argument and returns an event vector (or nil to dispatch nothing) / binds the invoker's arguments (a fixed-arity vector, no &) and does imperative work
 - **`:rf.ui.compile/bad-ui-event`** — (ui/event [e] body…) at ‹k› binds exactly the native event and returns an event vector (or nil to dispatch nothing); got ‹bindings›. For imperative work with no dispatch, S3 adds ui/handler
 - **`:rf.ui.compile/bad-ui-handler`** — (ui/handler [x] body…) at ‹k› binds exactly the invoker's argument (the native event at a DOM site) and does imperative work; got ‹bindings›. To DISPATCH a vector, use ui/event

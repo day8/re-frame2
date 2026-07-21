@@ -182,8 +182,8 @@
           (let [run
                 (uit/with-root
                   [root [ui/frame-provider {:frame f} [keyed-passive-list]]]
-                  (let [row-a (.querySelector root"[data-passive-role='row-a']")
-                        row-b (.querySelector root"[data-passive-role='row-b']")
+                  (let [row-a (.querySelector root "[data-passive-role='row-a']")
+                        row-b (.querySelector root "[data-passive-role='row-b']")
                         adds-a (count (records-for @records :add "row-a"))
                         adds-b (count (records-for @records :add "row-b"))]
                     (testing "each keyed occurrence owns a live native listener"
@@ -200,8 +200,8 @@
                            (uit/flush! #(rf/dispatch-sync [::set-rows rows-b-a] {:frame f}))))
                         (.then
                          (fn []
-                           (let [after-a (.querySelector root"[data-passive-role='row-a']")
-                                 after-b (.querySelector root"[data-passive-role='row-b']")]
+                           (let [after-a (.querySelector root "[data-passive-role='row-a']")
+                                 after-b (.querySelector root "[data-passive-role='row-b']")]
                              (is (identical? row-a after-a)
                                  "keyed reorder preserves row A's node")
                              (is (identical? row-b after-b)
@@ -225,7 +225,7 @@
                            (uit/flush! #(rf/dispatch-sync [::set-rows [(second rows-a-b)]] {:frame f}))))
                         (.then
                          (fn []
-                           (let [survivor (.querySelector root"[data-passive-role='row-b']")]
+                           (let [survivor (.querySelector root "[data-passive-role='row-b']")]
                              (is (zero? (active-listener-count @records "row-a"))
                                  "removing row A detaches only row A")
                              (is (= 1 (active-listener-count @records "row-b"))
@@ -262,7 +262,7 @@
                 (uit/with-root
                   [root [ui/frame-provider {:frame f}
                          [custom-passive-event-probe]]]
-                  (let [node (.querySelector root"rf-passive-probe")]
+                  (let [node (.querySelector root "rf-passive-probe")]
                     (is (some? node)
                         "the proof dispatches on an actual custom-element node")
                     (if node
@@ -316,10 +316,10 @@
                          [strict-selected-passive-panel
                           {:authored-ref authored-ref
                            :object-ref object-ref}]]]
-                  (let [outer    (.querySelector root"[data-passive-role='outer']")
-                        passive  (.querySelector root"[data-passive-role='passive']")
-                        once     (.querySelector root"[data-passive-role='once']")
-                        synthetic (.querySelector root"[data-role='synthetic']")]
+                  (let [outer    (.querySelector root "[data-passive-role='outer']")
+                        passive  (.querySelector root "[data-passive-role='passive']")
+                        once     (.querySelector root "[data-passive-role='once']")
+                        synthetic (.querySelector root "[data-role='synthetic']")]
                     (testing "the live listener set is singular and faithfully optioned"
                       (is (= 1 (active-listener-count @records "outer")))
                       (is (= 1 (active-listener-count @records "passive")))
@@ -470,7 +470,7 @@
                 (uit/with-root
                   [root [ui/frame-provider {:frame f}
                          [passive-hmr-host {:shell shell}]]]
-                  (let [button (.querySelector root"[data-passive-role='hmr-passive']")
+                  (let [button (.querySelector root "[data-passive-role='hmr-passive']")
                         adds   (count (records-for @records :add "hmr-passive"))
                         removes (count (records-for @records :remove "hmr-passive"))]
                     (click! button)

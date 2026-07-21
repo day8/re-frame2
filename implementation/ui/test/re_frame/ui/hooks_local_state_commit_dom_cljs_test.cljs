@@ -83,11 +83,11 @@
                     (.then
                      (fn []
                        (is (= [:mount] (causes-of)) "the first connected commit is :mount")
-                       (uit/flush! #(do (click! (.querySelector root"[data-role='real']"))
+                       (uit/flush! #(do (click! (.querySelector root "[data-role='real']"))
                                         (host-turn!)))))
                     (.then
                      (fn []
-                       (is (= "1" (.-textContent (.querySelector root"[data-role='n']")))
+                       (is (= "1" (.-textContent (.querySelector root "[data-role='n']")))
                            "the real local change committed to the DOM")
                        (is (= [:local-state] (causes-of))
                            "a committed host-only write is attributed exactly :local-state")))))
@@ -113,18 +113,18 @@
                     (.then
                      (fn []
                        ;; 0 -> 1 -> 0 in ONE turn: React bails, commits nothing.
-                       (uit/flush! #(do (click! (.querySelector root"[data-role='netzero']"))
+                       (uit/flush! #(do (click! (.querySelector root "[data-role='netzero']"))
                                         (host-turn!)))))
                     (.then
                      (fn []
-                       (is (= "0" (.-textContent (.querySelector root"[data-role='n']")))
+                       (is (= "0" (.-textContent (.querySelector root "[data-role='n']")))
                            "the net-zero batch committed nothing (DOM value unchanged)")
                        ;; drive an UNRELATED subscription movement -> the next commit
                        (uit/flush! #(rf/dispatch-sync [::set-a 2] {:frame f}))))
                     (.then (fn [] (host-turn!)))
                     (.then
                      (fn []
-                       (is (= "2" (.-textContent (.querySelector root"[data-role='a']")))
+                       (is (= "2" (.-textContent (.querySelector root "[data-role='a']")))
                            "the subscription actually moved (an unrelated commit ran)")
                        (is (= [:subscription] (causes-of))
                            "the bailed net-zero batch left NO stale :local-state marker")))))

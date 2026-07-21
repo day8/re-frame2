@@ -164,7 +164,7 @@
                    (is (> @equality-computes initial-computes)))
                  (testing "rf=-equal output advances no mounted render surface"
                    (is (= "1" (.-textContent
-                                (.querySelector root"[data-role='equal-value']"))))
+                                (.querySelector root "[data-role='equal-value']"))))
                    (is (= initial-version (:version (obs/read handle))))
                    (is (= initial-revision (reactive/revision cell)))
                    (is (= {:bodies 0 :root-commits 0} @evidence))
@@ -178,7 +178,7 @@
                      (fn []
                        (testing "a value-changing control moves once"
                          (is (= "2" (.-textContent
-                                      (.querySelector root"[data-role='equal-value']"))))
+                                      (.querySelector root "[data-role='equal-value']"))))
                          (is (= (inc equal-version)
                                 (:version (obs/read handle))))
                          (is (= (inc initial-revision)
@@ -232,7 +232,7 @@
       (is (= 1 (obs/active-owner-count hidden-rx))
           "the parent Activity controller has its own real owner")
       (is (= "7" (.-textContent
-                   (.querySelector root"[data-role='retained-leaf']"))))
+                   (.querySelector root "[data-role='retained-leaf']"))))
       (-> (uit/flush! #(rf/dispatch-sync [::hide-activity] {:frame f}))
           (.then
            (fn []
@@ -265,7 +265,7 @@
                  (is (= 1 (obs/active-owner-count revealed-rx)))
                  (is (= 1 (obs/active-owner-count hidden-rx)))
                  (is (= "7" (.-textContent
-                              (.querySelector root"[data-role='retained-leaf']"))))
+                              (.querySelector root "[data-role='retained-leaf']"))))
                  (is (contains? (reactive/committed-target-keys
                                  (cell-for hidden-key))
                                 hidden-key))))
@@ -363,13 +363,13 @@
                                   [mounted-override-tree]]]
               (testing "nearest provider wins and nested scope restores in LIFO order"
                 (is (= "outer" (.-textContent
-                                  (.querySelector root"[data-role='outer-before']"))))
+                                  (.querySelector root "[data-role='outer-before']"))))
                 (is (= "inner" (.-textContent
-                                  (.querySelector root"[data-role='inner']"))))
+                                  (.querySelector root "[data-role='inner']"))))
                 (is (= "outer" (.-textContent
-                                  (.querySelector root"[data-role='outer-after']"))))
+                                  (.querySelector root "[data-role='outer-after']"))))
                 (is (= "ordinary" (.-textContent
-                                     (.querySelector root"[data-role='ordinary']")))))
+                                     (.querySelector root "[data-role='ordinary']")))))
               (let [override-cells
                     (filter #(contains? (reactive/committed-target-keys %)
                                         override-k)
