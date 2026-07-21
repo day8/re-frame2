@@ -350,6 +350,35 @@
                            (contains? request :fragment) (:fragment request)
                            destination?                  matched-fragment
                            :else                         (:fragment current)))
+              ;; rf2-0zsvw: an explicit `:fragment` on an UNMATCHED raw-URL
+              ;; navigate overrides (or, when nil/empty, clears) the fragment
+              ;; embedded in the raw URL. The raw `unmatched-url` is otherwise
+              ;; pushed VERBATIM, so the address bar kept `#old` while the slice
+              ;; carried `#new` -- address bar, slice, and guard/pending target
+              ;; disagreed. Rebuild ONE effective requested URL (the raw
+              ;; path/query with its `#fragment` replaced by the resolved
+              ;; `fragment`, percent-encoded exactly as `route-url` emits) and
+              ;; thread it through the not-found `:params`, the guards, the
+              ;; history push, and the fallback telemetry. Absent an explicit
+              ;; `:fragment` the raw URL rides verbatim -- existing not-found
+              ;; behaviour (embedded fragment kept) is unchanged.
+              override-unmatched-fragment? (boolean (and unmatched-url
+                                                          (contains? request :fragment)))
+              unmatched-url (if override-unmatched-fragment?
+                              (let [hash-idx (.indexOf #?(:clj  ^String unmatched-url
+                                                          :cljs ^string unmatched-url)
+                                                       "#")
+                                    base     (if (neg? hash-idx)
+                                               unmatched-url
+                                               (subs unmatched-url 0 hash-idx))]
+                                (if (some? fragment)
+                                  (str base "#" (url/url-encode fragment))
+                                  base))
+                              unmatched-url)
+              requested-url (if override-unmatched-fragment? unmatched-url requested-url)
+              path-params   (if override-unmatched-fragment?
+                              (assoc path-params :url unmatched-url)
+                              path-params)
               route-meta (registrar/lookup :route route-id)
               ;; `:query-retain` on the resolved route carries retain keys from
               ;; the current query into a FRESH DESTINATION address (rf2-u8t3s);
