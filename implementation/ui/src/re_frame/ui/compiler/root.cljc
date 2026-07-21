@@ -440,27 +440,43 @@
   through the canonical builder, with the both-derived didactic fix per the
   contract. Same-namespace re-registration REPLACES (watch-mode re-expansion
   tolerance — a moved / renamed / deleted site never conflicts with its own
-  ghost). The check-then-write is ONE atomic transition, so parallel
-  compilation cannot miss a duplicate or drop a concurrent write."
+  ghost).
+
+  On a real Shadow build PASS (rf2-u53yy.1 S4) the whole-build roots registry is
+  harvested at compile-finish from the disk-cache-durable SYNTHETIC per-namespace
+  analyzer-map descriptor — root sites are CALL SITES with no def to carry
+  var-meta (unlike views, S2), so this macro stamps the site there via
+  `build/stamp-root-plan-site!` and does NOT contribute a per-source slice row (a
+  warm cache-hit source never re-runs it). The cross-namespace duplicate-root-id
+  law then runs at compile-finish over the carrier
+  (`build/harvest-root-plan-registries`, a compile-finish error is still a
+  build-time error). Off that path (plain-JVM / SSR, REPL — no compile-finish
+  analyzer harvest) the per-source slice contribution + this expansion-time
+  cross-namespace check apply; the check-then-write is ONE atomic transition, so
+  parallel compilation cannot miss a duplicate or drop a concurrent write."
   [where root-id provenance ns-sym coords]
-  (when-let [{:keys [conflict]}
-             (build/contribute-checked!
-              build/roots ns-sym root-id (assoc coords :provenance provenance)
-              ;; any OTHER namespace's row for this root-id is the conflict
-              (fn [existing] existing))]
-    (error/throw-error!
-     :rf.error/duplicate-root-id where
-     (str "two root sites in one build resolve to root-id "
-          (pr-str root-id) " — " (site-str conflict) " and "
-          (site-str coords) ". Root-ids are page-unique identity; "
-          (if (= :derived (:provenance conflict) provenance)
-            (str "both ids derived from the same view — add "
-                 ":disambiguator or author :root-id")
-            "author distinct :root-id values"))
-     {:recovery :make-root-ids-unique
-      :extra {:root-id    root-id
-              :provenance [(:provenance conflict) provenance]
-              :sites      [(dissoc conflict :provenance) coords]}}))
+  (if (build/shadow-build-pass?)
+    (build/stamp-root-plan-site!
+     ns-sym :roots
+     {:root-id root-id :row (assoc coords :provenance provenance)})
+    (when-let [{:keys [conflict]}
+               (build/contribute-checked!
+                build/roots ns-sym root-id (assoc coords :provenance provenance)
+                ;; any OTHER namespace's row for this root-id is the conflict
+                (fn [existing] existing))]
+      (error/throw-error!
+       :rf.error/duplicate-root-id where
+       (str "two root sites in one build resolve to root-id "
+            (pr-str root-id) " — " (site-str conflict) " and "
+            (site-str coords) ". Root-ids are page-unique identity; "
+            (if (= :derived (:provenance conflict) provenance)
+              (str "both ids derived from the same view — add "
+                   ":disambiguator or author :root-id")
+              "author distinct :root-id values"))
+       {:recovery :make-root-ids-unique
+        :extra {:root-id    root-id
+                :provenance [(:provenance conflict) provenance]
+                :sites      [(dissoc conflict :provenance) coords]}})))
   nil)
 
 (defn register-plan-site!
@@ -468,29 +484,42 @@
   namespace `ns-sym`. A plan for the same frame-id with a DIFFERING config
   fingerprint from a different namespace is the build-tier
   `:rf.error/frame-payload-conflict` (same-namespace re-registration replaces
-  — watch tolerance; matching fingerprints are the ratified idempotent
-  no-op). The check-then-write is ONE atomic transition."
+  — watch tolerance; matching fingerprints are the ratified idempotent no-op).
+
+  On a real Shadow build PASS (rf2-u53yy.1 S4) the plan site is stamped onto the
+  SYNTHETIC per-namespace analyzer-map descriptor
+  (`build/stamp-root-plan-site!`) rather than the per-source slice, and the
+  cross-namespace frame-payload-conflict law runs at compile-finish over the
+  carrier — the same decoupling S4 gives roots. Off that path (plain-JVM / SSR,
+  REPL) the per-source slice contribution + this expansion-time check apply; the
+  check-then-write is ONE atomic transition."
   [where {:keys [frame-id config-fingerprint]} ns-sym coords]
-  (when-let [{:keys [conflict]}
-             (build/contribute-checked!
-              build/plans ns-sym frame-id
-              {:config-fingerprint config-fingerprint
-               :file (:file coords) :line (:line coords)}
-              (fn [existing]
-                (when (and existing
-                           (not= (:config-fingerprint existing) config-fingerprint))
-                  existing)))]
-    (error/throw-error!
-     :rf.error/frame-payload-conflict where
-     (str "two root sites in one build carry static frame plans for "
-          "frame " (pr-str frame-id) " with DIFFERING config "
-          "fingerprints — " (site-str conflict) " and " (site-str coords)
-          ". One frame, one plan: keep the frame's config in ONE "
-          "boot/root site, or align the configs")
-     {:recovery :align-frame-plan-config
-      :extra {:frame-id     frame-id
-              :fingerprints [(:config-fingerprint conflict) config-fingerprint]
-              :sites        [(dissoc conflict :config-fingerprint) coords]}}))
+  (if (build/shadow-build-pass?)
+    (build/stamp-root-plan-site!
+     ns-sym :plans
+     {:frame-id frame-id
+      :row {:config-fingerprint config-fingerprint
+            :file (:file coords) :line (:line coords)}})
+    (when-let [{:keys [conflict]}
+               (build/contribute-checked!
+                build/plans ns-sym frame-id
+                {:config-fingerprint config-fingerprint
+                 :file (:file coords) :line (:line coords)}
+                (fn [existing]
+                  (when (and existing
+                             (not= (:config-fingerprint existing) config-fingerprint))
+                    existing)))]
+      (error/throw-error!
+       :rf.error/frame-payload-conflict where
+       (str "two root sites in one build carry static frame plans for "
+            "frame " (pr-str frame-id) " with DIFFERING config "
+            "fingerprints — " (site-str conflict) " and " (site-str coords)
+            ". One frame, one plan: keep the frame's config in ONE "
+            "boot/root site, or align the configs")
+       {:recovery :align-frame-plan-config
+        :extra {:frame-id     frame-id
+                :fingerprints [(:config-fingerprint conflict) config-fingerprint]
+                :sites        [(dissoc conflict :config-fingerprint) coords]}})))
   nil)
 
 ;; ---------------------------------------------------------------------------

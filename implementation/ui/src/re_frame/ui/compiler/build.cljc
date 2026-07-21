@@ -869,6 +869,132 @@
   (merge-with (fn [ra rb] (merge-with merge ra rb)) a b))
 
 ;; ---------------------------------------------------------------------------
+;; Root/plan descriptor carrier (rf2-u53yy.1 S4)
+;;
+;; Roots and plans are CALL SITES (`ui/mount` / `ui/create-root` / `ui/render!` /
+;; `ui/hydrate-root`), not defs, so unlike views (S2) they carry NO generated def
+;; whose analyzer var-meta could hold their descriptor. On the Shadow build path
+;; each site is instead stamped onto a SYNTHETIC per-namespace descriptor in the
+;; analyzer namespace map (variant B, S0 proof rf2-u53yy.1.1): a single ns-level
+;; key `[::namespaces <ns> :rf.ui/root-plan-descriptor]` accumulating this
+;; namespace's `{:roots [..] :plans [..]}` sites. Shadow persists the whole ns
+;; analyzer entry to its disk cache and RESTORES it under
+;; `[:compiler-env :cljs.analyzer/namespaces <ns>]` on a cache HIT, so the build
+;; hook harvests the roots/plans registries from it at compile-finish — present
+;; identically for a cached member and a freshly compiled one — instead of from a
+;; macro-expansion side effect a warm cache-hit source never re-runs. Eviction is
+;; automatic and identical to S2's def-meta carrier: Shadow's watch reset dissocs
+;; the WHOLE `[::namespaces <ns>]` entry for a modified source before it recompiles
+;; (`remove-output-by-id`, default `:watch-namespace-reset`), so a removed site
+;; simply vanishes from the re-analyzed carrier. This is the same decoupling S1
+;; gave elements and S2 gave views — the direction S6 needs to drop the blocker.
+;; ---------------------------------------------------------------------------
+
+(def ^{:private true
+       :doc "The SYNTHETIC per-namespace Layer-1 carrier key in the analyzer
+  namespace map (rf2-u53yy.1 S4). Namespaced + analyzer-only: it is compile-time
+  build state, never emitted into any bundle."}
+  root-plan-descriptor-key
+  :rf.ui/root-plan-descriptor)
+
+(defn stamp-root-plan-site!
+  "Accumulate one Layer-1 `site` under `sub-key` (`:roots` | `:plans`) in the live
+  analyzer map's SYNTHETIC per-namespace descriptor for `ns-sym` — the S4
+  variant-B carrier. Called at macro expansion on a real Shadow build pass
+  (`register-root-site!` / `register-plan-site!` gate on `shadow-build-pass?`) in
+  place of the per-source slice contribution: the whole-build roots/plans
+  registries are then harvested from this carrier at compile-finish, present
+  identically for a cache-hit member and a freshly compiled one. A `:roots` site is
+  `{:root-id .. :row {:file .. :line .. :provenance ..}}`; a `:plans` site is
+  `{:frame-id .. :row {:config-fingerprint .. :file .. :line ..}}` (the same row
+  shape the slice path contributes off the Shadow path). A direct `swap!` on the
+  per-thread compiler env (parallel builds each own theirs); a no-op when no
+  compiler env is bound (never reached — the caller gates on a live Shadow pass)."
+  [ns-sym sub-key site]
+  #?(:clj (when-let [a (compiler-env-atom)]
+            (swap! a update-in
+                   [:cljs.analyzer/namespaces ns-sym root-plan-descriptor-key sub-key]
+                   (fnil conj []) site))
+     :cljs nil)
+  nil)
+
+(defn- site-coords
+  "PURE: the `{:file :line}` locator of a stamped Layer-1 row, for conflict
+  evidence."
+  [row]
+  (select-keys row [:file :line]))
+
+(defn harvest-root-plan-registries
+  "PURE: fold the SYNTHETIC analyzer-map root/plan descriptors of every
+  authoritative `members` namespace in `build-state` into per-source registry rows
+  `{source {::roots {root-id row} ::plans {frame-id row}}}`. Reads
+  `[:compiler-env :cljs.analyzer/namespaces <ns> :rf.ui/root-plan-descriptor]` —
+  Shadow's disk-cache-durable variant-B carrier (rf2-u53yy.1 S4), present
+  identically for a cache-hit member and a freshly compiled one. Same-namespace
+  re-declaration replaces (a source's own later site wins — watch/HMR tolerance);
+  the cross-NAMESPACE Layer-1 laws run HERE (a compile-finish error is still a
+  build-time error): two namespaces resolving one root-id THROW
+  `::duplicate-root-id`; two namespaces carrying DIFFERING config fingerprints for
+  one frame-id THROW `::frame-payload-conflict` (matching fingerprints are the
+  ratified idempotent no-op). Members are folded in sorted order so the reported
+  evidence is stable under every graph permutation. Empty (no root/plan sites in
+  the build) yields `{}`, so the finish overlay is a no-op for a mount-free build."
+  [build-state members]
+  (let [nss (get-in build-state [:compiler-env :cljs.analyzer/namespaces])]
+    (loop [srcs        (sort-by str members)
+           regs        {}
+           root-owners {}                ; root-id -> {:source ns :row row}
+           plan-owners {}]               ; frame-id -> {:source ns :row row}
+      (if-let [ns-sym (first srcs)]
+        (let [d         (get (get nss ns-sym) root-plan-descriptor-key)
+              ;; per-source fold: a namespace's own later site replaces its earlier
+              ;; one for the same key (same-ns re-declaration tolerance).
+              src-roots (reduce (fn [m {:keys [root-id row]}] (assoc m root-id row))
+                                {} (:roots d))
+              src-plans (reduce (fn [m {:keys [frame-id row]}] (assoc m frame-id row))
+                                {} (:plans d))]
+          (doseq [[root-id row] src-roots]
+            (when-let [{owner-row :row} (get root-owners root-id)]
+              (throw
+               (ex-info
+                (str "re-frame.ui found two root sites in one build resolving to "
+                     "root-id " root-id " while harvesting the build's compiled "
+                     "roots; refusing to publish a merge-order winner. Root-ids are "
+                     "page-unique identity — author distinct :root-id values")
+                {::error ::duplicate-root-id
+                 :root-id root-id
+                 :provenance [(:provenance owner-row) (:provenance row)]
+                 :sites (vec (sort-by str [(site-coords owner-row) (site-coords row)]))
+                 :recovery :make-root-ids-unique}))))
+          (doseq [[frame-id row] src-plans]
+            (when-let [{owner-row :row} (get plan-owners frame-id)]
+              (when (not= (:config-fingerprint owner-row) (:config-fingerprint row))
+                (throw
+                 (ex-info
+                  (str "re-frame.ui found two root sites in one build carrying "
+                       "static frame plans for frame " frame-id " with DIFFERING "
+                       "config fingerprints while harvesting the build; refusing to "
+                       "publish a merge-order winner. One frame, one plan — align "
+                       "the configs, or drop the duplicate frame-root")
+                  {::error ::frame-payload-conflict
+                   :frame-id frame-id
+                   :fingerprints [(:config-fingerprint owner-row)
+                                  (:config-fingerprint row)]
+                   :sites (vec (sort-by str [(site-coords owner-row) (site-coords row)]))
+                   :recovery :align-frame-plan-config})))))
+          (recur (rest srcs)
+                 (cond-> regs
+                   (seq src-roots) (assoc-in [ns-sym roots] src-roots)
+                   (seq src-plans) (assoc-in [ns-sym plans] src-plans))
+                 (into root-owners
+                       (map (fn [[rid row]] [rid {:source ns-sym :row row}]))
+                       src-roots)
+                 (into plan-owners
+                       (map (fn [[fid row]] [fid {:source ns-sym :row row}]))
+                       src-plans)))
+        regs))))
+
+;; ---------------------------------------------------------------------------
 ;; Pass boundaries
 ;; ---------------------------------------------------------------------------
 
@@ -1018,9 +1144,20 @@
           ;; directly through the slice — the analyzer map is empty and the slice
           ;; rows carry through unchanged.)
           view-registries (harvest-view-registries build-state members)
+          ;; Roots + plans ride the disk-cache-durable SYNTHETIC per-namespace
+          ;; analyzer-map descriptor on the Shadow path (rf2-u53yy.1 S4). Their
+          ;; register-*-site! macros contribute NO slice row under a Shadow build
+          ;; pass, so harvest every authoritative member's root/plan sites from the
+          ;; carrier and overlay them onto the slice-derived rows of the other
+          ;; registries — a cache-hit member contributes its RESTORED sites
+          ;; identically to a freshly compiled one. The cross-namespace Layer-1 laws
+          ;; run inside the harvest. (Off the Shadow path the analyzer carrier is
+          ;; empty and the slice rows carry through unchanged.)
+          root-plan-registries (harvest-root-plan-registries build-state members)
           snapshot {:build-id build-id
-                    :registries (merge-registries (:committed after)
-                                                  view-registries)
+                    :registries (-> (:committed after)
+                                    (merge-registries view-registries)
+                                    (merge-registries root-plan-registries))
                     :elements (:element-manifest scratch {})
                     :version (inc (long (or (:version accepted) 0)))}]
       {:snapshot snapshot})))
