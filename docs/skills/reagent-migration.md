@@ -38,7 +38,7 @@ Do **not** use it for:
 
 ## How the migration runs (incremental)
 
-The skill migrates a **closed subtree** at a time, leaf → root (a converted `ui/defview` can only be consumed by other converted views until the outward bridge ships). For each candidate view it **gates the whole view first**: a **capability gap** (or a genuine reject) holds the *entire* view on Reagent, and a **judgment call** is decided with the author, then the whole view converts or the whole view stays — never a half-migrated body. It applies the M-tier rewrites to the clean views, cleans up the requires last, then **runs the compile + test gates itself** and hands the programmer the **render** check before moving to the next subtree. "Compiles" is not the done-bar — a converted view must still be rendered and eyeballed.
+The skill migrates a **closed subtree** at a time, leaf → root — the preferred low-wrapper default now the outward `ui/->react` bridge has shipped (a converted `ui/defview` can also be consumed by an unconverted Reagent parent through that bridge, so leaf → root is a default, not a hard rule). For each candidate view it **gates the whole view first**: a **capability gap** (or a genuine reject) holds the *entire* view on Reagent, and a **judgment call** is decided with the author, then the whole view converts or the whole view stays — never a half-migrated body. It applies the M-tier rewrites to the clean views, cleans up the requires last, then **runs the compile + test gates itself** and hands the programmer the **render** check before moving to the next subtree. "Compiles" is not the done-bar — a converted view must still be rendered and eyeballed.
 
 ## Where the skill lives
 

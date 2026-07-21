@@ -87,7 +87,7 @@ The rule catalog is split three ways by **what you do with the rule**, not by co
 
 Full loop in [`references/procedure.md`](references/procedure.md). The shape:
 
-1. **Scope a closed subtree.** Pick a namespace or a leaf-to-root view subtree that does not call *into* views staying on Reagent (a converted `defview` can't be referenced from an unconverted Reagent body until the outward bridge ships — R-tier).
+1. **Scope a closed subtree.** Pick a namespace or a leaf-to-root view subtree that does not call *into* views staying on Reagent. Leaf-to-root is the preferred low-wrapper default, not a hard rule — the outward `ui/->react` bridge has shipped, so an unconverted Reagent parent *can* render an exported converted child through it (MIG-22); scoping a closed subtree just avoids that boundary wrapper.
 2. **Assess the view first (rule 2).** Scan each candidate view for D/R hits. An **R** hit (a reject or an unshipped-capability construct) → hold the whole view on Reagent. A **D** hit → *decide it with the author*, then convert the whole view or hold the whole view — don't reflexively leave it behind, and don't half-migrate it (the non-gating D rules, MIG-27/28, convert with their noted check).
 3. **Apply the M-tier rewrites** to the clean views, atomically per view (a header change and all its call sites in one edit).
 4. **Fix the ns requires last** (MIG-24): add `[re-frame.ui :as ui :refer [defview sub]]`; drop `reagent.*` requires only when nothing in the namespace still needs them.
