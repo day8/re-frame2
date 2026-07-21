@@ -27,7 +27,6 @@
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.build-hook :as build-hook]
             [re-frame.ui.compiler.harvest :as harvest]
-            [re-frame.ui.shadow-compile-model :as shadow]
             [re-frame.ui.tree :as tree]))
 
 (use-fixtures :each
@@ -79,7 +78,7 @@
 
 (defn- run-pass
   "One faithful build pass: prepare (hook), compile every SCHEDULED source (fresh
-  output + compile witness + real macroexpansion), finish (hook). Returns the
+  output + real macroexpansion), finish (hook). Returns the
   accepted snapshot, the scheduled set, and the consumer view's freshly baked
   `:rf.ui/property-props`."
   [{:keys [build-id props accepted output]}]
@@ -90,8 +89,6 @@
                            (assoc-in s [:output n]
                                      {:resource-id n :js "compiled" :cached false}))
                          prepared sched)
-        _        (doseq [n sched]
-                   (shadow/compile-ns! (assoc with-out :shadow.build/stage :compile-finish) n))
         compiled (reduce (fn [s n] (eval-source! s n (get-in srcs [n :source])))
                          with-out sched)
         finished (build-hook/hook (assoc compiled :shadow.build/stage :compile-finish))]

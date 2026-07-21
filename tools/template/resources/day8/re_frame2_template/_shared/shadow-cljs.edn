@@ -14,18 +14,13 @@
 
  :dev-http {8280 "resources/public"}
 
- ;; re-frame.ui compiles your views (reg-view / defui / defnc) and publishes a
- ;; whole-build digest its runtime asserts was finalized. Both settings are
- ;; load-bearing and NON-NEGOTIABLE for correctness — without them a browser
- ;; build boots into
- ;; "re-frame.ui build digest was not finalized ...":
- ;;   - :build-hooks runs the compiler hook that finalizes the digest on every
- ;;     build.
- ;;   - :cache-blockers keeps re-frame.ui's macro-driven registrations a pure
- ;;     function of the current build inputs (a cache-loaded ns never re-runs
- ;;     its registrations, leaving the registries incomplete on a warm-cache
- ;;     start).
- :cache-blockers #{re-frame.ui}
+ ;; re-frame.ui compiles your views (reg-view / defui / defnc). The build hook
+ ;; harvests its whole-build registries (view digests, root/plan indexes, Root
+ ;; Descriptors, custom-element declarations) from cache-durable per-namespace
+ ;; analyzer data at build time. This ONE setting is load-bearing — without it
+ ;; the app throws on namespace load. Because the registries no longer depend on
+ ;; macro-expansion side effects, a warm daemon start REUSES Shadow's disk cache
+ ;; (no cache blocker needed).
  :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
 
  :builds

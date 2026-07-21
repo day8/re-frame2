@@ -1,5 +1,5 @@
-;; Real Shadow 3.4.10 fixture for the warm-watch/file-edit harvest-topology proof
-;; (rf2-tm1xi, Arm 2 of rf2-4vm19).
+;; Real Shadow fixture for the warm-watch/file-edit harvest-topology proof
+;; (rf2-tm1xi, Arm 2 of rf2-4vm19; warm disk-cache reuse arm, rf2-u53yy.1 S6).
 ;;
 ;; A genuine UI client dev build whose INHERITED re-frame.ui compile hook
 ;; (configured in :build-defaults, so Shadow deep-merges it FIRST) establishes the
@@ -22,7 +22,6 @@
                 "../../../.."
                 "alt_src"]
  :cache-root "../../../../../../target/ui-warm-watch/shadow-cache"
- :cache-blockers #{re-frame.ui}
  :js-options {:js-package-dirs ["../../../../../../node_modules"]}
  ;; The production compile hook is inherited here EXACTLY as real consumer builds
  ;; inherit it — from :build-defaults — so Shadow deep-merges it ahead of this

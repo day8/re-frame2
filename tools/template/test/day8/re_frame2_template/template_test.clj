@@ -113,19 +113,20 @@
           (is (some #{'day8.re-frame2-xray.preload}
                     (get-in app [:devtools :preloads]))
               "shadow-cljs :app :devtools/preloads wires Xray")
-          ;; re-frame.ui build-hook + cache-blockers — REQUIRED for any
-          ;; browser build to boot. re-frame.ui compiles the views and its
-          ;; runtime asserts the whole-build digest was finalized; without
-          ;; the hook the :app bundle throws "re-frame.ui build digest was
-          ;; not finalized ..." at load, and without the cache-blocker a
-          ;; warm-cache start leaves the macro-driven registries incomplete
-          ;; (rf2-w1k3i).
-          (is (contains? (set (:cache-blockers scs)) 're-frame.ui)
-              "shadow-cljs.edn blocks re-frame.ui from the compile cache")
+          ;; re-frame.ui build-hook — the ONE re-frame.ui build setting,
+          ;; REQUIRED for any browser build to boot. re-frame.ui compiles the
+          ;; views and the hook harvests its whole-build registries from
+          ;; cache-durable analyzer data; without the hook the :app bundle
+          ;; throws on namespace load. The old top-level :cache-blockers tax was
+          ;; removed at the S6 cut-over (rf2-u53yy.1): the registries no longer
+          ;; depend on macro-expansion side effects, so a warm daemon reuses the
+          ;; disk cache and no cache blocker is needed.
+          (is (not (contains? (set (keys scs)) :cache-blockers))
+              "shadow-cljs.edn no longer carries the removed :cache-blockers tax")
           (is (some #{'(re-frame.ui.compiler.build-hook/hook)}
                     (get-in scs [:build-defaults :build-hooks]))
               "shadow-cljs.edn wires the re-frame.ui compiler build-hook into
-               every build (else a browser build boots into the digest error)"))
+               every build (else a browser build throws on namespace load)"))
 
         ;; -- Xray coord in deps.edn --
         (let [deps (read-edn (io/file root "deps.edn"))]

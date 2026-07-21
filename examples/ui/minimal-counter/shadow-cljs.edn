@@ -12,21 +12,17 @@
  :dev-http {8280 "resources/public"}
 
  ;; ---------------------------------------------------------------------
- ;; The two load-bearing re-frame.ui settings (spec/004C-Roots-and-Mount.md
- ;; §2.1.1, Shadow 3.4.10). Set them ONCE here, not once per build.
+ ;; The one load-bearing re-frame.ui setting (spec/004C-Roots-and-Mount.md
+ ;; §2.1.1). Set it ONCE here, not once per build.
  ;;
- ;; :cache-blockers  — re-frame.ui's registries are built by macro
- ;;                    expansion, so a warm disk cache that skips
- ;;                    re-expansion yields incomplete registries. Blocking
- ;;                    the cache keeps them a pure function of current
- ;;                    build inputs.
- ;; :build-defaults  — the build hook supplies the accepted-build
- ;;                    transaction that reconstructs the registries.
- ;;
- ;; Together they make every macro-contributed member present after a warm
- ;; daemon start. Drop either and the dev build's identity is false.
+ ;; :build-defaults  — the build hook harvests re-frame.ui's whole-build
+ ;;                    registries (view digests, root/plan indexes, Root
+ ;;                    Descriptors, custom-element declarations) from
+ ;;                    cache-durable per-namespace analyzer data at build
+ ;;                    time. Because the registries no longer depend on
+ ;;                    macro-expansion side effects, a warm daemon start
+ ;;                    REUSES Shadow's disk cache — no cache blocker needed.
  ;; ---------------------------------------------------------------------
- :cache-blockers #{re-frame.ui}
  :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
 
  :builds

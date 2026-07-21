@@ -398,28 +398,20 @@
                 ;; sanitization contract.
                 [io.github.nextjournal/markdown "0.7.225"]]
 
- ;; rf2-df9873 — the re-frame.ui compiler registries (view digests, the
+ ;; rf2-u53yy.1 — the re-frame.ui compiler registries (view digests, the
  ;; Layer-1 root/plan indexes, the Root Descriptor index, the compile-time
- ;; custom-element declarations) are populated as a SIDE EFFECT of expanding
- ;; the re-frame.ui macros (defview / mount / custom-element / …). shadow's
- ;; resource cache skips macroexpansion for a cached namespace, so on a
- ;; warm-cache daemon start those registries would be INCOMPLETE — a
- ;; namespace loaded from cache never re-runs its registrations. Blocking the
- ;; cache for every namespace that uses re-frame.ui's macros forces
- ;; re-macroexpansion on each compile, keeping the registries a pure function
- ;; of the current build inputs. NON-NEGOTIABLE for correctness under any
- ;; build-lifecycle option (the registries are otherwise incomplete on every
- ;; warm-cache start). Cost: defview/mount-consuming namespaces recompile on
- ;; daemon start; warm-watch incrementals are unaffected. (Follow-up: move the
- ;; contributions into cacheable analyzer data to recover caching.)
- ;; Both settings are load-bearing and apply once to every configured build.
- ;; Shadow reads :cache-blockers from the top-level config (and unions it into
- ;; each build's build-options); the blocker prevents stale disk-cache reload
- ;; after the hook invalidates retained UI-consumer output on a version-zero
- ;; daemon pass. The hook seeds scratch from the incoming accepted functional
- ;; build-state and carries the finalized candidate in the returned state. A
- ;; later Shadow failure discards the returned candidate.
- :cache-blockers #{re-frame.ui}
+ ;; custom-element declarations) are HARVESTED at build time from cache-durable
+ ;; carriers, not from macro-expansion side effects. Each compiled view/mount
+ ;; stamps its descriptor into per-namespace analyzer data that Shadow persists
+ ;; to its disk cache and restores on a cache HIT (rf2-u53yy.1.1, S0); custom
+ ;; elements are read syntactically from source. At :compile-finish the build
+ ;; hook aggregates every authoritative member's descriptor — present identically
+ ;; for a cached member and a freshly compiled one — so a warm-cache daemon start
+ ;; REUSES the disk cache instead of re-expanding the UI-consuming namespace set.
+ ;; That is why the old :cache-blockers #{re-frame.ui} tax is GONE (S6 cut-over):
+ ;; only ONE setting remains, the build hook itself. The hook seeds scratch from
+ ;; the incoming accepted functional build-state and carries the finalized
+ ;; candidate in the returned state; a later Shadow failure discards it.
  :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
 
  ;; Top-level dev-http servers (rf2-aqcix). shadow-cljs's `:dev-http`
@@ -1598,9 +1590,9 @@
   ;; auth machine / flows, shared by require), every VIEW re-authored with
   ;; `ui/defview` and mounted on a re-frame.ui root via `ui/mount` +
   ;; `ui/frame-root` (`realworld-resources.ui-core/run`, not the Reagent
-  ;; `.core/run`). The `re-frame.ui` cache-blockers + build-hook are inherited
-  ;; from the top-level `:cache-blockers` / `:build-defaults` (do not duplicate
-  ;; them per build). `realworld-resources.*` resolve via `../examples/real-apps`
+  ;; `.core/run`). The `re-frame.ui` build-hook is inherited from the top-level
+  ;; `:build-defaults` (do not duplicate it per build).
+  ;; `realworld-resources.*` resolve via `../examples/real-apps`
   ;; (already on :source-paths above), so no per-build deps.
   :examples/realworld-resources-ui
   {:target     :browser
