@@ -108,6 +108,18 @@ a ViewCell that was not actually sub-free. The set grows only by ruling.
 > "demonstrated demand at a real call site" trigger. The set still grows only by
 > ruling, each addition carrying its lexical-scope + hidden-reactive-injection
 > counterfixtures. Normative home: [spec/004-Views.md §Template grammar](../../spec/004-Views.md).
+>
+> **Erratum — 2026-07-21 (rf2-u53yy.4 chronological audit repair).** Two internal
+> corrections to the addendum above; the admitted set and every invariant are
+> unchanged. (1) The desugar target is the analyzer's own `let` + **`if`** — never a
+> generated `when`: the single-body when-* shape lowers to `(if test body nil)` (the
+> special form `if` cannot be captured by a user local named `when`), and the
+> `some?`-variants' nil test is a **host-qualified core nil check written with a plain
+> core function** (un-shadowable, and — unlike the `cljs.core` `some?`/`nil?` macros —
+> accepted by the expression grammar on re-analysis). (2) Admission is
+> **resolver-confirmed**, not raw-spelling: a `:refer`d look-alike user macro named
+> `if-let` resolves to its own var and is rejected as an unaudited macro, and a
+> qualified `clojure.core/if-let` is admitted.
 
 DOM prop spelling is pinned (`:on-click`, never `:on-keydown`); prop conversion
 is compile-time, contextual, and total — one rule table (004B) serves static
