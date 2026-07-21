@@ -208,6 +208,55 @@ Then open the served page in a browser. **No backend ships.** The demo entry (`c
 
 To run against a real backend instead: point `realworld-resources.http/api-base` at the official hosted Conduit API (<https://api.realworld.show/api>) or a local reference backend on `http://localhost:3000/api`, and remove the demo-stub `:fx-overrides` line in `core.cljs`. The frame-wide `:realworld/bearer-auth` interceptor then attaches the JWT to every authenticated call.
 
+## The re-frame.ui variant (same app, compiled views)
+
+Everything above describes the stock-**Reagent** build. The same app also ships a
+twin built entirely on the **re-frame.ui** compiled-view substrate — every view
+authored with `ui/defview` and mounted on a re-frame.ui root via `ui/mount` +
+`ui/frame-root`, instead of `reg-view` + `reagent.dom`. The two are the *same
+application*: they share the identical, substrate-free dataflow — every
+`reg-event` / `reg-sub` / `reg-resource` / `reg-mutation` / `reg-route` /
+`reg-machine` / `reg-flow` in `resources.cljs`, `mutations.cljs`, `routing.cljs`,
+`scope.cljs`, `schema.cljs`, `http.cljs`, and the dataflow that lives beside the
+Reagent views in `views.cljs` / `auth.cljs` / `settings.cljs` /
+`article_editor.cljs`. Only the view tier differs. The ui arm is **purely
+additive** — the Reagent arm is retained untouched (adapter disposition
+2026-07-17: re-frame.ui is experimental, offered *alongside* the supported
+adapters, never a replacement).
+
+| | Reagent arm | re-frame.ui arm |
+|---|---|---|
+| entry / build | `realworld-resources.core/run` · `:examples/realworld-resources` | `realworld-resources.ui-core/run` · `:examples/realworld-resources-ui` |
+| view files | `core.cljs`, `views.cljs`, the views in `auth`/`settings`/`article_editor` | `ui_core.cljs`, `ui_views.cljs`, `ui_auth.cljs`, `ui_settings.cljs`, `ui_editor.cljc` |
+| view form | `reg-view` (Reagent) | `ui/defview` (compiled) |
+| mount | `reagent.dom.client/render` + `rf/frame-root` | `ui/mount` + `ui/frame-root` |
+
+Build it under shadow-cljs id `examples/realworld-resources-ui` from
+`implementation/`:
+
+```bash
+shadow-cljs watch examples/realworld-resources-ui
+```
+
+A few compiled-view idioms the ui arm demonstrates, worth reading for how a real
+CRUD app expresses itself on the substrate:
+
+- **Reads are `sub`, writes are event vectors.** Views read passively with
+  `(sub [:rf.resource/* …])` / `(sub [:rf/mutation …])`; buttons and forms carry
+  a literal `[:event …]` vector, a `{:event … :prevent-default true}` options map
+  where the browser must not navigate, or a `ui/event` when the live native value
+  is needed. Controlled inputs ride the `:rf.ui/value` placeholder; the
+  classified password fields, whose keystrokes carry a map payload, use a
+  synchronous `ui/event` (a placeholder never splices into a map).
+- **Dynamic lists render a keyed child view in `for` child position** — a row
+  whose handler needs a per-row value (a page number, a tag) takes it as a
+  **prop**, because a handler may not capture a `for` binding.
+- **The markdown article body crosses via `ui/raw`.** `md/render` emits sanitized
+  hiccup DATA, and the substrate deliberately will not interpret runtime hiccup as
+  a template — so the one genuinely runtime-shaped subtree is converted to a React
+  element (`hiccup->element`, text preserved as React children — no
+  `dangerouslySetInnerHTML`) and embedded through the sanctioned `ui/raw` door.
+
 ## RealWorld contract conformance
 
 This example follows the official RealWorld "Conduit" contract: its route shapes, the `localStorage["jwtToken"]` session key, the form `name` attributes, the selectors, and the favorite/follow toggle conventions. It reads the contract the same way the `realworld_http/` sibling does. One caveat: the contract assumes **one app per origin**, but the repo's dev orchestrator serves both this app and the sibling from a single origin, so the two share — and clobber — each other's `jwtToken` there. Serve the app standalone (one app per origin) and the problem goes away.

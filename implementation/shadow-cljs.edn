@@ -1586,6 +1586,23 @@
    :asset-path "."
    :modules    {:main {:init-fn realworld-resources.core/run}}}
 
+  ;; RealWorld (Conduit) on resources + mutations, authored ENTIRELY on the
+  ;; re-frame.ui COMPILED-VIEW substrate (rf2-nn5s8, S7-entry proof P-1). The
+  ;; ui arm ADDED ALONGSIDE `:examples/realworld-resources` (Reagent) — same
+  ;; substrate-free dataflow (events / subs / resources / mutations / routing /
+  ;; auth machine / flows, shared by require), every VIEW re-authored with
+  ;; `ui/defview` and mounted on a re-frame.ui root via `ui/mount` +
+  ;; `ui/frame-root` (`realworld-resources.ui-core/run`, not the Reagent
+  ;; `.core/run`). The `re-frame.ui` cache-blockers + build-hook are inherited
+  ;; from the top-level `:cache-blockers` / `:build-defaults` (do not duplicate
+  ;; them per build). `realworld-resources.*` resolve via `../examples/real-apps`
+  ;; (already on :source-paths above), so no per-build deps.
+  :examples/realworld-resources-ui
+  {:target     :browser
+   :output-dir "out/examples/realworld-resources-ui"
+   :asset-path "."
+   :modules    {:main {:init-fn realworld-resources.ui-core/run}}}
+
   ;; Pattern-Boot example (rf2-dsm2). Demonstrates the canonical
   ;; re-frame2 application-boot shape: a single :app/boot state
   ;; machine owns the initialisation graph (config → parallel
