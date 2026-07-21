@@ -211,6 +211,31 @@
     (is (= {:version 9999 :supported? false} (viewcell-evidence/version-status))
         "…and the version-status read reports the mismatch honestly")))
 
+(deftest a-producer-bump-alone-does-not-widen-consumer-support
+  ;; rf2-vxgfnd.98.1.1 — the version boundary must be REAL, not nominal. Xray
+  ;; pins the evidence-schema version IT understands to a consumer-owned literal,
+  ;; so a producer that bumps its OWN `re-frame.ui.tool/schema-version` (and thus
+  ;; stamps envelopes with the new version) does NOT become auto-'supported': the
+  ;; bump is a DETECTABLE mismatch until Xray is taught the shape. RED before the
+  ;; fix, where `supported-version?` compared the envelope to the producer's own
+  ;; `tool/schema-version` — moving BOTH here in lockstep, so the incompatible
+  ;; shape was accepted as exact and `rows` mis-parsed it.
+  (is (some? (viewcell-evidence/acquire!)) "Xray owns the span")
+  (let [producer-ahead (inc tool/schema-version)] ; a version the consumer pin is not
+    (with-redefs [tool/schema-version producer-ahead
+                  tool/explain-render
+                  (fn ([] (tool/explain-render nil))
+                    ([_view-id]
+                     {:rf.ui.tool/version producer-ahead
+                      :view-id nil
+                      :occurrences [{:occurrence 1 :view-id ::v :connection :connected
+                                     :render-count 3 :batches 1}]}))]
+      (is (= [] (viewcell-evidence/rows))
+          "a producer-ahead version the consumer was not taught degrades to empty")
+      (is (= {:version producer-ahead :supported? false}
+             (viewcell-evidence/version-status))
+          "…and version-status reports the mismatch against the CONSUMER pin, not the producer var"))))
+
 (deftest disconnected-truncated-and-inexact-project-without-fabrication
   ;; Occurrence identity, the LIVE connection state, the honest hide-vs-unmount
   ;; lifecycle log, the two DISTINCT loss axes (observation-identity fidelity

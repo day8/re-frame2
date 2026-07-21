@@ -36,15 +36,25 @@
   absence is surfaced HONESTLY as `:reason :view-tier-unavailable` — the S3
   'tolerate absent evidence explicitly' discipline, not a fabricated emptiness.
 
-  ## Absent / older evidence (S3 tolerance)
+  ## Absent / older evidence + version gate (S3 tolerance)
 
-  The eval form resolves to one of:
+  The eval form resolves to a `{:ok? …}` envelope, which the shared
+  `versioned-envelope-result` `on-value` GATES against `consumed-schema-version`
+  — the evidence-schema version THIS Pair build understands — before it reaches
+  the wire:
 
     - `{:ok? true …projection…}`      — the projection, `:rf.ui.tool/version`
-                                        stamped, forwarded verbatim (the agent
-                                        reads the version and reconciles if it
-                                        differs from what it expects — the tier's
-                                        versioned-degrade contract);
+                                        MATCHING `consumed-schema-version`,
+                                        forwarded verbatim;
+    - `{:ok? false :reason :view-tier-version-mismatch :expected N :actual M}` —
+                                        the projection stamped a version this
+                                        build was NOT written against. Pair
+                                        connects to an arbitrary running app, so
+                                        the producer's stamp cannot define
+                                        support: an unrecognized version is a
+                                        typed mismatch, never forwarded as
+                                        success (the version boundary the tier
+                                        promises, made real on the consumer side);
     - `{:ok? false :reason :view-tier-unavailable}`  — `re-frame.ui.tool` is not
                                         loaded (optional substrate absent);
     - `{:ok? false :reason :view-not-available :view-id …}` — no compiled view
@@ -53,9 +63,11 @@
                                         nil-gates the whole tier;
     - `{:ok? false :reason :view-tier-error :message …}` — the projection threw.
 
-  Every `:ok? false` rides `isError:true` via `probe/map-envelope-result`
-  (spec/003 §'Every :ok? false response is isError: true'), so a degraded read is
-  never cached and never masquerades as a successful empty answer.
+  Every `:ok? false` rides `isError:true` via `versioned-envelope-result` (which
+  wraps `probe/map-envelope-result`; spec/003 §'Every :ok? false response is
+  isError: true'), so a degraded read — an unavailable tier, an absent view, OR a
+  version mismatch — is never cached and never masquerades as a successful
+  answer.
 
   ## Hot swap — the existing nREPL HMR path
 
@@ -90,6 +102,45 @@
        "lives in day8/re-frame2-ui (the optional compiled-view substrate). It "
        "is present whenever Xray is active, or when the app itself loads it. "
        "Load re-frame.ui.tool into the running build and retry."))
+
+(def consumed-schema-version
+  "The `re-frame.ui.tool` evidence-schema version THIS Pair build was written to
+  forward — a CONSUMER-OWNED literal. Pair connects to an ARBITRARY running app
+  that may ship an older or newer tier, so it CANNOT trust the producer's own
+  `:rf.ui.tool/version` stamp to define support: a projection stamped a version
+  this build does not understand is reported as a typed `:ok? false` mismatch,
+  never forwarded as a successful read of a shape it cannot parse. Currently 3,
+  matching `re-frame.ui.tool/schema-version` 3; bump ONLY when Pair is taught the
+  new shape."
+  3)
+
+(defn versioned-envelope-result
+  "The `on-value` projection for the five view-tool reads: `probe/map-envelope-
+  result` PLUS a consumer-owned version GATE. A `:ok? true` projection stamped a
+  `:rf.ui.tool/version` this build was not written against is converted to a
+  typed `{:ok? false :reason :view-tier-version-mismatch}` (isError) rather than
+  forwarded as success — Pair may reach an arbitrarily old/new app, so the
+  producer's stamp does not define support. Every other value (a `:ok? false`
+  absence/error envelope, a genuinely-empty `:ok? true` version-matched read, or
+  a blank/non-map result) defers UNCHANGED to `map-envelope-result`, so the
+  isError contract and honest-emptiness handling are unchanged."
+  [v]
+  (if (and (map? v)
+           (true? (:ok? v))
+           (not= consumed-schema-version (:rf.ui.tool/version v)))
+    (wire/err-text {:ok?      false
+                    :reason   :view-tier-version-mismatch
+                    :expected consumed-schema-version
+                    :actual   (:rf.ui.tool/version v)
+                    :hint     (str "the running app's re-frame.ui.tool tier stamped "
+                                   "evidence-schema version "
+                                   (pr-str (:rf.ui.tool/version v))
+                                   " but this pair build understands version "
+                                   consumed-schema-version
+                                   " — the projection shape may have evolved "
+                                   "incompatibly. Align the app's day8/re-frame2-ui "
+                                   "with this tool build (or update the tool).")})
+    (probe/map-envelope-result v)))
 
 (defn projection-form
   "Build the `cljs.core/exists?`-guarded, self-describing eval form for a
@@ -153,7 +204,7 @@
       (let [build-id (wire/arg-build conn raw-args)
             form     (projection-form proj-fn [(pr-str v)] :view-not-available v)]
         (probe/eval-after-runtime!
-          conn build-id form fail-reason probe/map-envelope-result)))))
+          conn build-id form fail-reason versioned-envelope-result)))))
 
 (defn read-view-manifest-tool
   "MCP `read-view-manifest` — the versioned public projection of a compiled
@@ -192,7 +243,7 @@
   (let [build-id (wire/arg-build conn raw-args)
         form     (projection-form "mounted-views" [] :view-tier-inactive nil)]
     (probe/eval-after-runtime!
-      conn build-id form :read-mounted-views-failed probe/map-envelope-result)))
+      conn build-id form :read-mounted-views-failed versioned-envelope-result)))
 
 (defn explain-render-tool
   "MCP `explain-render` — why did a compiled view's live incarnations render? The
@@ -208,4 +259,4 @@
                                   (when (some? view-id) [(pr-str view-id)])
                                   :view-tier-inactive nil)]
     (probe/eval-after-runtime!
-      conn build-id form :explain-render-failed probe/map-envelope-result)))
+      conn build-id form :explain-render-failed versioned-envelope-result)))
