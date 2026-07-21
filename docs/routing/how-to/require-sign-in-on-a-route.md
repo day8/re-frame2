@@ -47,11 +47,22 @@ Guard `:rf.route/navigate` alone and the third row defeats you: a logged-out rea
 ```clojure
 (:require [re-frame.routing :as rf.routing])   ;; match-url lives here, not on rf/
 
+(defn- matched-id
+  "match-url → {:id <route-id> :params <map>}, or nil for a non-match OR a
+   schema-invalid match (:validation-failed? true) — which the runtime routes
+   to not-found, so the guard must not tag-check a route it will never land on."
+  [url]
+  (when-let [{:keys [route-id params validation-failed?]} (rf.routing/match-url url)]
+    (when-not validation-failed?
+      {:id route-id :params (or params {})})))
+
 (defn- nav-target
-  "Normalise any navigation event to {:id <route-id> :params <map>}, or nil.
-  `current` is the current route slice ([:rf.runtime/routing :current]) — an
-  in-place navigate request (no :to / :url) means the route you are already on,
-  so pass it in and the guard resolves it exactly as the runtime does."
+  "Normalise any navigation event to {:id <route-id> :params <map>}, or nil —
+  for a non-navigation event, a non-match, or a malformed request the runtime's
+  own structural gate will reject (:rf.error/navigate-bad-request). `current` is
+  the current route slice ([:rf.runtime/routing :current]) — an in-place
+  navigate request (no :to / :url) means the route you are already on, so pass
+  it in and the guard resolves it exactly as the runtime does."
   [[ev-id a] current]
   (case ev-id
     :rf.route/navigate
@@ -59,28 +70,33 @@ Guard `:rf.route/navigate` alone and the third row defeats you: a logged-out rea
       (cond
         to  {:id to :params (or params {})}              ;; route-id destination
 
-        url (when-let [{:keys [route-id params]} (rf.routing/match-url url)]
-              {:id route-id :params (or params {})})     ;; {:url ...} escape hatch
+        url (matched-id url)                             ;; {:url ...} escape hatch
 
-        :else                                            ;; in-place: stay on the current route
-        {:id (:route-id current) :params (or (:params current) {})}))
+        ;; in-place: no :to/:url/:params, at least one query/fragment edit —
+        ;; stay on the current route (its id is what the tag check needs).
+        (and (nil? params)
+             (or (contains? a :query) (contains? a :query-merge) (contains? a :fragment)))
+        {:id (:route-id current) :params (or (:params current) {})}
+
+        :else nil))                                      ;; malformed → router rejects
 
     :rf.route/url-requested
-    (let [{:keys [to params url]} a]
+    (let [{:keys [to params]} a]
       (cond
         to  {:id to :params (or params {})}
-        url (when-let [{:keys [route-id params]} (rf.routing/match-url url)]
-              {:id route-id :params (or params {})})))
+        (:url a) (matched-id (:url a))))
 
-    :rf.route/handle-url-change
-    (when-let [{:keys [route-id params]} (rf.routing/match-url a)]
-      {:id route-id :params (or params {})})
+    :rf.route/handle-url-change (matched-id a)
 
     nil))
 ```
 
-`match-url` is pure: URL string → match map, or `nil` when nothing resolves (garbage
-URLs short-circuit the guard rather than crash it). Note the `:rf.route/navigate` branch
+`match-url` is pure: URL string → match map, or `nil` when nothing resolves. `matched-id`
+wraps it in the two rejections a guard needs: a URL that matches nothing (`nil`) **and** a
+URL that matches but fails the route's `:params`/`:query` schema (`:validation-failed? true`)
+are *both* non-matches — the runtime routes a validation-failed URL to not-found, so the guard
+must not tag-check a route it will never land on. Either way the guard short-circuits rather
+than crash. Note the `:rf.route/navigate` branch
 also leans on it: navigate accepts a `{:url "/settings"}` **escape-hatch target** (deep
 links, server-side redirects, any URL the app didn't build itself), and a raw URL is not a
 route id — so the guard resolves it through `match-url` exactly as the runtime does before
@@ -97,6 +113,14 @@ id to check, waves it through. Resolving the in-place request against the curren
 `(:route-id current)` — makes the guard see `:app/settings`'s `:requires-auth` tag and fail
 **closed**, bouncing the expired session to login. That's why the interceptor reads the
 current slice out of the `:rf.db/runtime` coeffect and threads it into `nav-target`.
+
+One more distinction the normaliser must draw: a request that is *neither* a destination
+(`:to` / `:url`) *nor* a valid in-place edit (a `:query` / `:query-merge` / `:fragment`
+change) — say a bare `{:params …}` or a stray key — resolves to `nil`, not to the current
+route. Such a request is malformed, and the runtime's own always-on structural gate rejects it
+with `:rf.error/navigate-bad-request` before any navigation happens; the guard stands aside and
+lets it, rather than reclassifying a request that will never navigate as a valid guarded
+destination.
 
 ## 3. Redirect with skip-and-dispatch
 
