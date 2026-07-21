@@ -961,24 +961,21 @@ An external classification emits `:rf.route/external-url-requested` (carrying `:
 ```clojure
 (rf/reg-view ^{:rf/id :route/link} route-link
   [{:keys [to params query fragment on-click] :as props} & children]
-  (let [base-url (rf.routing/route-url {:to to :params (or params {}) :query (or query {})})
-        url      (if (and fragment (not= "" fragment))
-                   (str base-url "#" fragment)
-                   base-url)
-        attrs    (-> props
-                     (dissoc :to :params :query :fragment :on-click)
-                     (assoc :href url
-                            :on-click
-                            (fn [e]
-                              (when on-click (on-click e))
-                              (when (and (not (.-defaultPrevented e))
-                                         (plain-left-click? e))   ;; no modifier keys; primary button
-                                (.preventDefault e)
-                                (dispatch [:rf.route/url-requested
-                                           (cond-> {:url url :to to}
-                                             (seq params) (assoc :params params)
-                                             (seq query)  (assoc :query query)
-                                             fragment     (assoc :fragment fragment))])))))]
+  (let [url   (rf.routing/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
+        attrs (-> props
+                  (dissoc :to :params :query :fragment :on-click)
+                  (assoc :href url
+                         :on-click
+                         (fn [e]
+                           (when on-click (on-click e))
+                           (when (and (not (.-defaultPrevented e))
+                                      (plain-left-click? e))   ;; no modifier keys; primary button
+                             (.preventDefault e)
+                             (dispatch [:rf.route/url-requested
+                                        (cond-> {:url url :to to}
+                                          (seq params) (assoc :params params)
+                                          (seq query)  (assoc :query query)
+                                          fragment     (assoc :fragment fragment))])))))]
     (into [:a attrs] children)))
 ```
 
@@ -988,7 +985,7 @@ The view exposes three behavioural seams: passthrough attributes (`:class`, `:ti
 
 ## Scroll restoration
 
-Browser-default behaviour on `popstate` restores scroll position. For SPA-controlled scroll (e.g., scroll to top on forward navigation, restore on back), declare a `:scroll` strategy on the route or pass `:scroll` in the `:rf.route/navigate` opts.
+Browser-default behaviour on `popstate` restores scroll position. For SPA-controlled scroll (e.g., scroll to top on forward navigation, restore on back), declare a `:scroll` strategy on the route or pass `:scroll` in the `:rf.route/navigate` request map.
 
 The `:scroll` value is one of:
 
@@ -1002,7 +999,7 @@ The `:scroll` value is one of:
 The vocabulary is **closed** to those three keywords. Any other value — including a map — is rejected: the `:rf.nav/scroll` args schema (`:rf.fx.nav/scroll-args`) enumerates exactly `:top`, `:restore`, `:preserve`, so an unsupported strategy fails at the `:fx-args` boundary and the effect is skipped ([010 §Validation order step 5](010-Schemas.md#validation-order-on-event-processing)); and the registered fx handler — the always-on leg, since the schemas artefact is optional — emits `:rf.error/unsupported-scroll-strategy` rather than doing nothing. That handler leg fans through the two-channel error seam (`re-frame.error-emit/emit-error-both!`), so the rejection is genuinely unconditional: it survives `:advanced` + `goog.DEBUG=false` on a host that never loaded the schemas artefact, where the dev trace is elided. See [§Custom scroll strategies](#custom-scroll-strategies) and [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
 
 Resolution order at navigation time:
-1. `:scroll` key in `:rf.route/navigate`'s `opts` map (per-call override). Wins.
+1. `:scroll` key in `:rf.route/navigate`'s request map (per-call override). Wins.
 2. `:scroll` key on the route's metadata.
 3. Implicit default: `:top` for forward navigation, `:restore` for popstate-driven navigation.
 
