@@ -1003,11 +1003,13 @@
   `ScheduledExecutorService` + `ScheduledFuture.cancel`), so the backoff
   scheduling and its cancellation are uniform across hosts.
 
-  rf2-fyt5i — `failure` is the just-failed attempt's classified failure
-  map, threaded through solely so the timer callback can emit the honest
-  intermediate `:rf.http/retry-attempt` `:recovery :retried` trace at the
-  cancellation-safe point (the instant attempt N+1 is actually permitted
-  to start), never before."
+  rf2-fyt5i / rf2-6nczv9 — `failure` is the just-failed attempt's
+  classified failure map, threaded through (in the `:rf.http/retry-handoff`
+  payload) solely so the honest intermediate `:rf.http/retry-attempt`
+  `:recovery :retried` trace can be emitted at the cancellation-safe point —
+  which is now INSIDE `run-attempt!`, after the successor attempt is
+  registered and re-confirmed not-aborted (the instant attempt N+1 is
+  actually permitted to start), never before."
   [ctx delay-ms prev-handle failure]
   ;; rf2-6nczv9 — test-only interleaving seam: an abort injected HERE resolves
   ;; the prior live-fetch handle (still registered — the backoff has not yet
@@ -1138,36 +1140,39 @@
         timer      (interop/set-timeout!
                      (fn []
                        (when (compare-and-set! fired? false true)
-                         (registry/clear-in-flight! request-id handle)
-                         ;; rf2-6nczv9 — never re-issue a fresh attempt for a
-                         ;; request the caller already cancelled. If the shared
-                         ;; `:aborted?` cell was flipped during the backoff
-                         ;; window, the terminal aborted reply already went out;
-                         ;; issuing attempt N+1 would re-send a cancelled
-                         ;; (possibly non-idempotent) request (Spec 014
-                         ;; §486-492). This is load-bearing for the interleaving
-                         ;; where the prior handle's abort-fn EXECUTES after the
-                         ;; post-arm re-check ran — the re-check missed the flip
-                         ;; but the fresh attempt is still suppressed here.
-                         (when-not (some? @aborted?)
-                           ;; rf2-fyt5i — HONEST timing for the intermediate
-                           ;; `:recovery :retried` disposition: emit it ONLY
-                           ;; here, the cancellation-safe point. The timer won
-                           ;; its `fired?` transition, the shared abort cell is
-                           ;; still clear, and attempt N+1 is about to start —
-                           ;; so `:retried` truthfully reports a retry the
-                           ;; runtime is actually running. An abort that landed
-                           ;; anywhere earlier (the `:maybe-retry/before-
-                           ;; schedule` window or during the backoff) flips
-                           ;; `@aborted?`, so this arm never runs and no phantom
-                           ;; `:retried` row is emitted for a retry that never
-                           ;; happened. `:next-backoff-ms` carries the backoff
-                           ;; `delay-ms` that governed this now-starting attempt.
-                           (when interop/debug-enabled?
-                             (emit-retry-attempt! ctx failure delay-ms :retried))
-                           (run-attempt! (-> ctx
-                                             (dissoc :handle)
-                                             (update :attempt inc))))))
+                         ;; rf2-6nczv9 — CONTINUOUS HANDOFF into attempt N+1.
+                         ;; Winning `fired?` owns the transition out of the
+                         ;; backoff, but the successor is NOT yet registered. Do
+                         ;; NOT clear this backoff handle here, and do NOT emit
+                         ;; `:retried` / issue the attempt here: that early
+                         ;; clear + one-shot abort-sample + late fresh-cell
+                         ;; registration WAS the timer-fire→attempt-N+1 gap — an
+                         ;; abort landing between the sample and the successor's
+                         ;; registration resolved NO handle and the retry fired
+                         ;; anyway, re-sending a cancelled request. Instead hand
+                         ;; the predecessor backoff handle AND the SHARED
+                         ;; cancellation cells to `run-attempt!`, which registers
+                         ;; the successor FIRST, drops this predecessor only
+                         ;; after (identity-conditional), and re-checks the
+                         ;; shared abort cell at the cancellation-safe point —
+                         ;; mirroring the live-fetch→backoff handoff. The honest
+                         ;; `:retried` trace and the fresh attempt both fire
+                         ;; inside `run-attempt!`, only once the successor
+                         ;; re-confirms the request was not aborted; so a request
+                         ;; cancelled at the handoff is never re-issued and emits
+                         ;; no phantom `:retried` (Spec 014 §486-492).
+                         (interleave! :retry/before-attempt ctx)
+                         (run-attempt!
+                           (-> ctx
+                               (dissoc :handle)
+                               (update :attempt inc)
+                               (assoc :rf.http/retry-handoff
+                                      {:prev-handle handle
+                                       :finalised?  finalised?
+                                       :aborted?    aborted?
+                                       :failure     failure
+                                       :delay-ms    delay-ms
+                                       :emit-ctx    ctx})))))
                      delay-ms)]
     (reset! timer-cell timer)
     (cond
@@ -1526,7 +1531,18 @@
   `maybe-retry!` → final-failure path (a `:rf.http/transport` reply to
   `:on-failure`) rather than escaping as `:rf.error/fx-handler-exception`."
   [ctx]
-  (let [{:keys [request timeout-ms request-id actor-id abort-signal]} ctx
+  (let [;; rf2-6nczv9 — retry handoff, present ONLY on the timer-fire→attempt
+        ;; N+1 path (nil on the first attempt). It carries the predecessor
+        ;; backoff handle (for the continuous-registration clear performed AFTER
+        ;; this successor registers), the SHARED `:finalised?` / `:aborted?`
+        ;; cancellation cells to REUSE (so the request's once-only reply guard
+        ;; and abort-precedence state thread UNBROKEN across the handoff — a
+        ;; cancelled request cannot slip through a fresh-cell seam), and the
+        ;; honest-`:retried` trace payload (emitted below at the
+        ;; cancellation-safe point, never before).
+        handoff  (:rf.http/retry-handoff ctx)
+        ctx      (dissoc ctx :rf.http/retry-handoff)
+        {:keys [request timeout-ms request-id actor-id abort-signal]} ctx
         method   (or (:method request) :get)
         url      (encoding/merge-params (:url request) (:params request))
         ;; rf2-065xo — body realization + encoding are DEFERRED past handle
@@ -1576,7 +1592,12 @@
         ;; abort reply itself. JVM additionally cancels the underlying
         ;; CompletableFuture so the work actually stops (not just the
         ;; reply path).
-        finalised? (atom false)
+        ;; rf2-6nczv9 — on the retry handoff REUSE the shared once-only reply
+        ;; guard so the predecessor (backoff) handle and this successor act as
+        ;; ONE reply-guarded unit: an abort that resolved the predecessor and
+        ;; delivered the terminal reply has already won this cell, so no second
+        ;; reply and no re-issue can follow. Fresh atom on the first attempt.
+        finalised? (or (:finalised? handoff) (atom false))
         ;; The abort closure flips this precedence cell
         ;; BEFORE racing the once-only `:finalised?` CAS, so even if a
         ;; synchronously-completing decode wins the CAS, the finalise-*
@@ -1586,7 +1607,11 @@
         ;; canonical reply shape (and the `:actor-id` slot, when
         ;; actor-destroy was the source) is reconstructable inside
         ;; finalise-failure! without re-deriving from `failure`.
-        aborted?   (atom nil)
+        ;; rf2-6nczv9 — on the retry handoff REUSE the shared abort-precedence
+        ;; cell so an abort landing anywhere in the timer-fire→attempt-N+1
+        ;; window is consulted END-TO-END at the post-registration re-check
+        ;; below (never a stale sample against a disconnected fresh cell).
+        aborted?   (or (:aborted? handoff) (atom nil))
         ;; On the JVM the abort closure must `.cancel cf true`
         ;; on the underlying CompletableFuture, but cf only exists AFTER
         ;; this binding (built inside the try-body below). Forward via a
@@ -1721,6 +1746,17 @@
         ;; happens synchronously here, before any fetch is issued, so the
         ;; cell is always populated by the time any abort can fire.
         _        (reset! handle-holder handle)
+        ;; rf2-6nczv9 — CONTINUOUS REGISTRATION on the retry handoff: the
+        ;; successor live-fetch handle now owns the request-id slot
+        ;; (`record-in-flight!` overwrote it above), so the request is never
+        ;; absent from the registry across the timer-fire→attempt-N+1 handoff.
+        ;; Drop the predecessor backoff handle only NOW — after the successor is
+        ;; registered. The 2-arg clear is identity-conditional (rf2-ous9e5): the
+        ;; request-id slot holds the successor, so it no-ops there and only
+        ;; removes the predecessor from the actor index (no stale accumulation
+        ;; across retries, rf2-wvkn). No-op on the first attempt (no handoff).
+        _        (when-let [prev (:prev-handle handoff)]
+                   (registry/clear-in-flight! request-id prev))
         ;; rf2-3fc89f.9 — bind the external `:abort-signal` to THIS live-fetch
         ;; handle's canonical abort-fn (`:reason :user`), detaching the prior
         ;; phase's listener (ownership transfer). An ALREADY-aborted signal
@@ -1736,6 +1772,35 @@
                    external-abort
                    (fn [] ((:abort-fn handle) :user)))])
         ctx'     (assoc ctx-no-handle :handle handle)]
+    ;; rf2-6nczv9 — CANCELLATION-SAFE RE-CHECK at the timer-fire→attempt-N+1
+    ;; handoff. If an abort flipped the SHARED cell during the handoff, a
+    ;; request the caller cancelled MUST NOT issue a fresh attempt (Spec 014
+    ;; §486-492). Drop the successor handle we just registered (idempotent if an
+    ;; abort-fn already cleared it), and — iff no terminal reply has gone out —
+    ;; deliver the single canonical `:rf.http/aborted` reply here through the
+    ;; SHARED once-only guard. That "no reply yet" case is the load-bearing one:
+    ;; an abort resolving the PREDECESSOR backoff handle LOSES the timer's
+    ;; already-won `fired?` CAS and so its abort-fn dispatched nothing — the
+    ;; reply is ours to deliver. Winning the guard here ALSO makes the
+    ;; `when-not @finalised?` below short-circuit, so no fresh attempt issues.
+    ;; (On the first attempt / steady-state retry the cell is nil and this is a
+    ;; single volatile read.)
+    (when (some? @aborted?)
+      (registry/clear-in-flight! request-id handle)
+      (when (compare-and-set! finalised? false true)
+        (dispatch-aborted! ctx-no-handle (:reason @aborted?))))
+    ;; rf2-6nczv9 / rf2-fyt5i — HONEST `:retried` (retry handoff only): the
+    ;; successor is registered and the shared abort cell is still clear, so
+    ;; attempt N+1 is genuinely about to issue. Emitting here — never at the
+    ;; earlier decision point in `maybe-retry!` — means an in-window
+    ;; cancellation emits NO phantom `:retried` for a retry that never happened
+    ;; (Spec 009 recovery law). `:emit-ctx` is the just-failed attempt's ctx so
+    ;; the trace's `:attempt` / `:next-backoff-ms` are unchanged from fyt5i.
+    (when (and (some? handoff)
+               (not (some? @aborted?))
+               (not @finalised?)
+               interop/debug-enabled?)
+      (emit-retry-attempt! (:emit-ctx handoff) (:failure handoff) (:delay-ms handoff) :retried))
     ;; rf2-3fc89f.9 — short-circuit when an already-aborted external signal
     ;; won the CAS synchronously during the bind above: the request is already
     ;; terminal (reply dispatched, registry cleared, listener detached), so
