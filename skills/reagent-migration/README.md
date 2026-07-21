@@ -20,7 +20,7 @@ This skill is **not on anyone's critical path**, and the README says so before a
 - **The transformation catalog**, organised by what you do with each rule (`MIG-NN` ids matching the framework's own rule table):
   - **M-tier ("do this")** — unambiguous mechanical rewrites with a before→after each: `reg-view`→`defview`, deref-drop, dispatch-lifting, prop respelling, key-meta→prop, plain hiccup, mount, ns requires, `dangerouslySetInnerHTML`→`ui/html`, and more.
   - **D-tier ("how to DECIDE")** — the judgment cases where the skill earns its keep: Form-2/`with-let` local state (app-db vs `local`), Form-3 lifecycle (effect vs domain event), derived state (`track`/`cursor`/`reaction`), the ratom-as-store restructure, computed DOM props + the bare-symbol trap, third-party Reagent wrappers.
-  - **R-tier ("don't migrate — stay on Reagent, or wait")** — the honesty backbone: genuine rejects (Reagent introspection/scheduler, dynamic tag heads, effectful subs) and the experimental capability gaps that remain unshipped (the explicit-frame `sub` frame-pin).
+  - **R-tier ("don't migrate — stay on Reagent, or wait")** — the honesty backbone: genuine rejects (Reagent introspection/scheduler, dynamic tag heads) and the experimental capability gaps that remain unshipped (the explicit-frame `sub` frame-pin). (An effectful sub body is a *dataflow-side* heads-up — make the sub pure — not itself a view hold.)
 - **An incremental procedure** — migrate a closed subtree at a time, leaf → root; verify it compiles, renders, and passes tests; iterate. Never big-bang.
 - **The gotchas** — the bare-symbol trap (`[:li item]` is content, not a spread), whole-view coherence, keyed-child extraction, dynamic tag heads, and the staged-gap trap.
 

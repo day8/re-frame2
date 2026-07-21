@@ -19,7 +19,7 @@ Related: **data vectors are not hiccup.** `[:buy 1]` inside `{:on-click …}` is
 
 The single most important discipline (cardinal rule 2). A view where the compiler rewrites the `sub` deref but leaves an ungateable handler, or converts the header but not a gated body form, **does not compile and does not run**. The re-frame.ui grammar is all-or-nothing per view: a converted `defview` has no ambient `subscribe`/`dispatch`, so a stray un-lifted `@(subscribe …)` inside an interaction-time closure is a compile error or a `:rf.error/no-frame-context` at runtime.
 
-So: gate the whole view first. Any D/R hit → the **entire** view stays on Reagent. Coverage is not the goal; a coherent, working set of converted views is.
+So: gate the whole view first, then route by tier — not a blanket hold. An **R** hit (a genuine reject, or an unshipped capability gap) holds the **entire** view on Reagent. A **D** hit is *decided by its row* with the author — then the **whole** view converts or the **whole** view holds (a couple of D rows are non-gating, MIG-27/28: read the row). Never half-migrate a view. Coverage is not the goal; a coherent, working set of converted views is.
 
 ## Keyed-child extraction (loops)
 

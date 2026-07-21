@@ -41,11 +41,12 @@
     {"id": 15, "kind": "behavioural", "tier": "D", "name": "d-route-ssr-static-vs-hydrate",
      "prompt": "Migrate this to re-frame.ui:\n(ns app.render (:require [reagent.dom.server :as s]))\n(defn render-page [] (s/render-to-string [app]))",
      "expectations": [
-       "Treats MIG-23 as a shipped SSR transform, NOT a decline — ui/render-static and ui/hydrate-root have shipped.",
-       "Routes by intent: a static-page (non-hydrating) render maps to (ui/render-static [app-root]) — the compiled counterpart of React's renderToStaticMarkup.",
-       "Names the SSR-then-hydrate path as the alternative and asks which the app wants: re-frame.ssr/hydrate! (state only, no :render-tree-fn) then ui/hydrate-root (Spec 011).",
+       "Treats the STATIC-page arm of MIG-23 as shipped end-to-end — (ui/render-static [app-root]), the compiled counterpart of React's renderToStaticMarkup — NOT a decline.",
+       "Routes by intent: a static-page (non-hydrating) render maps to (ui/render-static [app-root]).",
+       "For SSR-then-hydrate, names the CLIENT adoption half as shipped (re-frame.ssr/hydrate! state-only, no :render-tree-fn, then ui/hydrate-root, Spec 011) but flags that the SERVER page-assembly / Root-Manifest half is NOT a supported public path yet — re-frame.ssr/emit-ui-tree emits one root's markup only.",
+       "Holds an SSR-THEN-HYDRATE migration on Reagent's render-to-string until that server half ships; the static-page arm is unaffected.",
        "Keeps the caveat: views using refs/effects need ui/client-only (or restructure) for the pure server phase.",
-       "Does NOT hold the view as an unshipped capability gap."
+       "Does NOT claim the whole SSR story is shipped, or that no SSR pieces remain."
      ]},
 
     {"id": 16, "kind": "behavioural", "tier": "R", "name": "r-decline-reagent-introspection",
@@ -88,8 +89,9 @@
      "expectations": [
        "Recognises MIG-17 Form-3 and that :component-did-mount here does MEASURE-then-mutate BEFORE paint (reads geometry to place the popover), so a passive effect would measure a frame late and flicker.",
        "Does NOT route this to (effect :connect …); routes it to ui/ref + re-frame.ui.react/use-layout-effect (the measure-before-paint door), preserving the pre-paint semantics component-did-mount gave.",
-       "Uses the React interop shape for the layout-effect hook — (react/use-layout-effect (fn [] … cleanup-or-nil) deps) with a setup fn returning a cleanup fn or nil — NOT ui/effect's body-return shape, and reads the node via (.-current (ui/ref)).",
-       "Keeps ordinary listeners / focus / deferrable host work on the passive effect — the split is only for the narrow pre-paint case, not a wholesale hooks migration.",
+       "Emits BOTH the ref and the layout-effect as outer-let BINDINGS — e.g. (let [el (ui/ref) _ (react/use-layout-effect setup [anchor])] template) — NOT as a second statement in the let body: a host-hook call left in the body makes a two-form body and FAILS compilation with :rf.ui.compile/multi-form-body at [:body]; the single template is the only form the body may hold.",
+       "Uses the React interop shape for the layout-effect hook — a setup fn returning a cleanup fn or nil, (react/use-layout-effect (fn [] … cleanup-or-nil) deps) — NOT ui/effect's body-return shape, and reads the node via (.-current el) on the (ui/ref) binding.",
+       "Keeps ordinary listeners and deferrable host work on the passive effect; focus / chart setup is classified by required timing (the layout-effect door only when the initial DOM/visual state must exist before paint) — the split is not a wholesale hooks migration.",
        "Holds/decides the WHOLE view (cardinal rule 2) rather than half-migrating it."
      ]},
 
