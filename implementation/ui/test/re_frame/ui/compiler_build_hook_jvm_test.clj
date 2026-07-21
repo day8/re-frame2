@@ -9,8 +9,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.build-hook :as build-hook]
-            [re-frame.ui.compiler.root :as root]
-            [re-frame.ui.shadow-compile-model :as shadow]))
+            [re-frame.ui.compiler.root :as root]))
 
 (use-fixtures :each
   (fn [f] (build/reset-build!) (try (f) (finally (build/reset-build!)))))
@@ -80,11 +79,10 @@
   ([state member-nss] (finish state member-nss (set member-nss)))
   ([state member-nss recompiled-nss]
    ;; Model Shadow's real compile phase: every source Shadow (re)compiled this
-   ;; pass gets a FRESH output map (marker-absent, `:cached false`) AND has its
-   ;; forms analyzed — the causal event re-frame.ui's per-pass compile witness
-   ;; records (rf2-suz5b; never a `(> compiled-at compile-start)` set). Warm
-   ;; cache-hit members keep the marker-stamped output prepare left them. This is
-   ;; what a real build hands `:compile-finish`.
+   ;; pass gets a FRESH output map. Warm cache-hit members keep the output prepare
+   ;; left them. Eviction of a recompiled source's dropped declaration is driven
+   ;; by the PREPARE-time pre-touch (Shadow's compile schedule) plus the
+   ;; compile-finish analyzer-map harvest — no finish-time recompile inference.
    (let [recompiled-nss (set recompiled-nss)
          with-outputs (reduce (fn [s n]
                                 (assoc-in s [:output n]
@@ -92,8 +90,6 @@
                                            :cached false}))
                               state recompiled-nss)
          finishing (at-stage with-outputs :compile-finish member-nss)]
-     (doseq [n recompiled-nss]
-       (shadow/compile-ns! finishing (get-in finishing [:sources n :ns])))
      (build-hook/hook finishing))))
 
 (defn- pass

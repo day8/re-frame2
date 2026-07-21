@@ -46,27 +46,26 @@ The template also ships a second `:test {:target :node-test ...}` build under `:
 
 The build id (`:app` above) is the name for `shadow-cljs watch <build-id>`; `:app` is convention.
 
-## If you add `re-frame.ui`: two required top-level settings
+## If you add `re-frame.ui`: one required top-level setting
 
-`day8/re-frame2-ui` — the compiled-view substrate — is **not** in the day-one set, and the build above is complete without it. It is, however, the one artefact whose arrival is more than a coordinate: adding it to `deps.edn` obliges you to add two settings to `shadow-cljs.edn` in the same change.
+`day8/re-frame2-ui` — the compiled-view substrate — is **not** in the day-one set, and the build above is complete without it. It is, however, the one artefact whose arrival is more than a coordinate: adding it to `deps.edn` obliges you to add one setting to `shadow-cljs.edn` in the same change.
 
 <!-- rf2:shadow-ui-contract -->
 
 ```clojure
-{:cache-blockers #{re-frame.ui}
- :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}}
+{:build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}}
 ```
 
-Both go at the **top level**, beside `:dev-http` — not inside a build. `:build-defaults` applies the hook to every configured build, and shadow-cljs unions the top-level `:cache-blockers` into each build's options, so one declaration covers the whole project.
+It goes at the **top level**, beside `:dev-http` — not inside a build. `:build-defaults` applies the hook to every configured build, so one declaration covers the whole project.
 
-Two ways to get this wrong:
+Two things to know:
 
-- **Only add them once `day8/re-frame2-ui` is actually on the classpath.** The hook form names a namespace that ships inside that artefact, so configuring it without the dependency fails the build on an unresolvable `re-frame.ui.compiler.build-hook`. These are not settings to add speculatively to a project that has no compiled views.
-- **Add both, not one.** They cover different halves of the same problem, and neither substitutes for the other.
+- **Only add it once `day8/re-frame2-ui` is actually on the classpath.** The hook form names a namespace that ships inside that artefact, so configuring it without the dependency fails the build on an unresolvable `re-frame.ui.compiler.build-hook`. This is not a setting to add speculatively to a project that has no compiled views.
+- **No cache blocker any more.** Earlier versions also required `:cache-blockers #{re-frame.ui}`; that install tax was removed (rf2-u53yy.1) because the build hook now harvests re-frame.ui's registries from cache-durable analyzer data, so a warm daemon reuses Shadow's disk cache. If you are updating an older project, delete the `:cache-blockers` line.
 
-Nothing here degrades quietly: with one setting missing the build refuses at compile-prepare, and with the hook missing the app throws on namespace load rather than running on an identity it cannot prove.
+With the hook missing the app throws on namespace load rather than running with no registries to resolve its compiled views against.
 
-**Why each setting is load-bearing, the diagnostics each failure produces, the supported shadow-cljs version, and a warm-start smoke check are published as a shipped contract** in [Install re-frame.ui and configure Shadow](../../../docs/core/how-to/install-re-frame-ui.md). That page is the source of truth. The block above is the same contract, held against it by a drift gate rather than retyped, so read the page for the reasoning instead of expecting it restated here.
+**Why the hook is load-bearing, the supported shadow-cljs version range, and a warm-start smoke check are published as a shipped contract** in [Install re-frame.ui and configure Shadow](../../../docs/core/how-to/install-re-frame-ui.md). That page is the source of truth. The block above is the same contract, held against it by a drift gate rather than retyped, so read the page for the reasoning instead of expecting it restated here.
 
 ## The `index.html` that loads the bundle
 
