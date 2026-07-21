@@ -7,7 +7,6 @@
   optimize/check/flush/watch failure."
   (:require [cljs.env :as cljs-env]
             [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.ui.compiler :as compiler]
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.build-hook :as build-hook]
             [re-frame.ui.compiler.root :as root]
@@ -77,14 +76,6 @@
    #(build/contribute! build/descriptors source root-id
                        {:rf.root/schema-version 1 :label label})))
 
-(defn- declare-explicit-view [state source vname view-id template]
-  (in-compiler
-   state
-   #(binding [*ns* (create-ns source)]
-      (compiler/defview*
-       (with-meta (list 'defview vname {:id view-id} [] template) {:line 1})
-       {} vname (list {:id view-id} [] template)))))
-
 (defn- finish
   ([state member-nss] (finish state member-nss (set member-nss)))
   ([state member-nss recompiled-nss]
@@ -117,6 +108,34 @@
 
 (defn- views [state]
   (build/accepted-aggregate build/views state))
+
+;; --- rf2-u53yy.1 S2: views ride the analyzer-map descriptor carrier ---------
+;;
+;; On a real Shadow build PASS the `defview` macro contributes NO view row to the
+;; per-source slice (compiler.cljc gates it on `build/shadow-build-pass?`): a
+;; compiled view's descriptor rides its generated def's analyzer metadata, which
+;; Shadow persists to its disk cache and RESTORES under
+;; [:compiler-env :cljs.analyzer/namespaces <ns> :defs <var> :meta] on a warm hit
+;; (the S0 proof, rf2-u53yy.1.1). `seed-analyzer-view` stamps that carrier exactly
+;; where the analyzer stores it, so the build hook harvests the views registry
+;; from it at compile-finish — for a cache-hit member the macro never re-runs.
+
+(defn- seed-analyzer-view
+  "Stamp a compiled view's descriptor onto `state`'s analyzer map the way Shadow's
+  analyzer stores a `defview`'s generated def metadata (and restores it from the
+  disk cache on a warm hit). `var` is the def name; the ruled declaration is
+  `[source var]`; `digest` is the `[template-fingerprint hook-signature]` vector
+  the emitter stamps."
+  [state source var view-id digest]
+  (assoc-in state
+            [:compiler-env :cljs.analyzer/namespaces source :defs var :meta]
+            {:rf.ui/view true :rf.ui/view-id view-id :rf.ui/view-digest digest}))
+
+(defn- forget-analyzer-ns
+  "Model Shadow re-analyzing `source` from scratch on a recompile: its analyzer
+  `:defs` are rebuilt, so a view removed from the source vanishes from the carrier."
+  [state source]
+  (update-in state [:compiler-env :cljs.analyzer/namespaces] dissoc source))
 
 (deftest hook-declares-only-the-two-compiler-stages
   (is (= #{:compile-prepare :compile-finish}
@@ -219,30 +238,89 @@
     (is (= {:app.b/view ["tf1-b" "hs1-b"]}
            (views without-a)))))
 
-(deftest live-id-collision-fails-but-nonmember-transfer-converges
-  (let [seed (graph-state :app :compile-prepare '#{app.old})
-        old (-> seed
+(deftest view-descriptor-survives-a-cache-hit-via-the-analyzer-map-carrier
+  ;; The S2 analog of the S0 carrier proof (rf2-u53yy.1.1), for REAL view
+  ;; descriptors: a warm cache-hit source's macro never re-runs, yet its view
+  ;; survives because Shadow RESTORED the descriptor onto the analyzer map and the
+  ;; hook harvests the views registry from there — not from a macro side effect.
+  (let [seed (graph-state :app :compile-prepare '#{app.a app.b})
+        ;; COLD: both compiled; each stamps its view descriptor onto its def meta.
+        ;; Nothing is contributed to the slice (the macro is gated on the Shadow
+        ;; path), so a harvested row here proves the analyzer-map carrier is the
+        ;; sole source of the views registry.
+        cold (-> (prepare seed '#{app.a app.b})
+                 (seed-analyzer-view 'app.a 'view :app.a/view ["tf-a" "hs-a"])
+                 (seed-analyzer-view 'app.b 'view :app.b/view ["tf-b" "hs-b"])
+                 (finish '#{app.a app.b}))]
+    (is (= {:app.a/view ["tf-a" "hs-a"] :app.b/view ["tf-b" "hs-b"]} (views cold))
+        "cold: both views are harvested from the analyzer-map carrier")
+    ;; WARM: only app.b recompiles. app.a is a cache HIT — its macro does NOT run
+    ;; (no seed this pass), but Shadow RESTORED its analyzer descriptor, which the
+    ;; threaded build-state carries unchanged. app.a's view must survive from the
+    ;; carrier alone; app.b re-stamps a fresh digest.
+    (let [warm (-> (prepare cold '#{app.a app.b} '#{app.b})
+                   (seed-analyzer-view 'app.b 'view :app.b/view ["tf-b2" "hs-b"])
+                   (finish '#{app.a app.b} '#{app.b}))]
+      (is (= {:app.a/view ["tf-a" "hs-a"]
+              :app.b/view ["tf-b2" "hs-b"]}
+             (views warm))
+          (str "warm: the cache-hit source's view is RESTORED from the analyzer "
+               "map without the macro re-running")))))
+
+(deftest a-removed-view-is-evicted-from-the-analyzer-map-carrier
+  (let [seed (graph-state :app :compile-prepare '#{app.a app.b})
+        both (-> (prepare seed '#{app.a app.b})
+                 (seed-analyzer-view 'app.a 'view :app.a/view ["tf-a" "hs-a"])
+                 (seed-analyzer-view 'app.b 'view :app.b/view ["tf-b" "hs-b"])
+                 (finish '#{app.a app.b}))
+        ;; app.a is recompiled with its defview removed: Shadow re-analyzes it
+        ;; fresh, so its analyzer :defs no longer carry the descriptor. app.b is
+        ;; an untouched cache hit whose descriptor is restored.
+        removed (-> (prepare both '#{app.a app.b} '#{app.a})
+                    (forget-analyzer-ns 'app.a)
+                    (finish '#{app.a app.b} '#{app.a}))]
+    (is (= #{:app.a/view :app.b/view} (set (keys (views both)))))
+    (is (= {:app.b/view ["tf-b" "hs-b"]} (views removed))
+        "a view removed from its recompiled source is evicted from the carrier")))
+
+(deftest cross-source-view-id-collision-fails-at-compile-finish
+  ;; Two DISTINCT defview declarations claiming one view-id fail when the hook
+  ;; harvests the carrier at compile-finish — the cross-source uniqueness law moved
+  ;; there from macro expansion (rf2-u53yy.1 S2); a compile-finish error is still a
+  ;; build-time error.
+  (let [seed (graph-state :app :compile-prepare '#{app.old app.new})
+        collision (-> (prepare seed '#{app.old app.new})
+                      (seed-analyzer-view 'app.old 'card :shared/card ["tf-old" "hs"])
+                      (seed-analyzer-view 'app.new 'card :shared/card ["tf-new" "hs"]))
+        ex (try (finish collision '#{app.old app.new})
+                nil
+                (catch clojure.lang.ExceptionInfo e e))]
+    (is (some? ex) "distinct declarations sharing a view-id must fail the build")
+    (is (= :re-frame.ui.compiler.build/view-id-conflict
+           (:re-frame.ui.compiler.build/error (ex-data ex))))
+    (is (= :shared/card (:view-id (ex-data ex))))
+    (is (= [['app.new 'card] ['app.old 'card]]
+           (:declarations (ex-data ex)))
+        "the collision evidence anchors both declarations, sorted deterministically")))
+
+(deftest a-view-id-transfers-cleanly-to-a-new-owner
+  ;; app.old owned :shared/card; it is deleted and app.new takes the id over. With
+  ;; app.old absent from :build-sources the carrier fold sees only app.new's
+  ;; descriptor, so no collision fires and the new owner publishes its own view
+  ;; identity.
+  (let [old (-> (graph-state :app :compile-prepare '#{app.old})
                 (prepare '#{app.old})
-                (declare-explicit-view 'app.old 'card :shared/card [:div "old"])
+                (seed-analyzer-view 'app.old 'card :shared/card ["tf-old" "hs"])
                 (finish '#{app.old}))
-        ;; app.old is a live cache hit; app.new alone is scheduled and cannot
-        ;; steal its accepted id.
-        collision-state (prepare old '#{app.old app.new} '#{app.new})
-        ex (try
-             (declare-explicit-view collision-state 'app.new 'card
-                                    :shared/card [:div "new"])
-             nil
-             (catch clojure.lang.ExceptionInfo e e))]
-    (is (= :rf.ui.compile/bad-view-id
-           (:rf.ui.compile/error (ex-data ex))))
-    (let [moved (-> old
-                    (prepare '#{app.new})
-                    (declare-explicit-view 'app.new 'card
-                                           :shared/card [:div "new"])
-                    (finish '#{app.new}))]
-      (is (= #{:shared/card} (set (keys (views moved)))))
-      (is (not= (get (views old) :shared/card)
-                (get (views moved) :shared/card))))))
+        moved (-> (graph-state :app :compile-prepare '#{app.new})
+                  (prepare '#{app.new})
+                  (seed-analyzer-view 'app.new 'card :shared/card ["tf-new" "hs"])
+                  (finish '#{app.new}))]
+    (is (= #{:shared/card} (set (keys (views old)))))
+    (is (= #{:shared/card} (set (keys (views moved)))))
+    (is (not= (get (views old) :shared/card)
+              (get (views moved) :shared/card))
+        "the new owner publishes its own view identity")))
 
 (deftest independent-build-states-never-cross-contribute
   (let [a (pass (graph-state :a :compile-prepare '#{app.view})

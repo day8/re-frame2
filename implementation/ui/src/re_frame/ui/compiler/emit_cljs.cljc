@@ -983,6 +983,20 @@
                       has-frame-ops? 're-frame.ui.viewcell/render-frame)
         var-meta   (cond-> {:rf.ui/view true
                             :rf.ui/view-id view-id
+                            ;; rf2-u53yy.1 S2: the whole-build view descriptor
+                            ;; rides the def's analyzer metadata. Shadow persists
+                            ;; a compiled namespace's analyzer data to its disk
+                            ;; cache and restores it under
+                            ;; [:compiler-env :cljs.analyzer/namespaces <ns>] on a
+                            ;; cache HIT (S0 proof, rf2-u53yy.1.1), so the build
+                            ;; hook harvests the views registry at compile-finish
+                            ;; from this metadata — present for cached AND compiled
+                            ;; members alike — instead of from a macro-expansion
+                            ;; side effect that a warm cache-hit source never
+                            ;; re-runs. `[template-fingerprint hook-signature]` is
+                            ;; the same digest the macro contributed to the slice.
+                            :rf.ui/view-digest [(:template-fingerprint manifest)
+                                                (:hook-signature manifest)]
                             :rf.ui/children? children?}
                      docstring   (assoc :doc docstring)
                      closed-keys (assoc :rf.ui/closed-prop-keys (vec closed-keys)))]

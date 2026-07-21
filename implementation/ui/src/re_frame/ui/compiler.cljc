@@ -363,20 +363,31 @@
                  :manifest manifest
                  :closed-keys closed-keys
                  :children? children?}]
-    (when-let [{:keys [conflict]}
-               (build/contribute-view-checked!
-                ns-sym [ns-sym vname] view-id [tf hs])]
-      (fail :rf.ui.compile/bad-view-id
-            (str "defview " vname ": view id " (pr-str view-id)
-                 " is already owned by a different defview declaration. "
-                 "Explicit :id overrides must be unique across declarations; "
-                 "give this view a distinct qualified keyword (re-expanding "
-                 "the exact same var remains the HMR replacement path)")
-            {:view vname
-             :id view-id
-             :namespace ns-sym
-             :declaration [ns-sym vname]
-             :existing-declaration conflict}))
+    ;; On a real Shadow build PASS the whole-build views registry is harvested at
+    ;; compile-finish from the disk-cache-durable analyzer-map view descriptors
+    ;; (rf2-u53yy.1 S2) — the same direction S1 took elements — so this macro does
+    ;; NOT contribute a view row to the per-source slice (a warm cache-hit source
+    ;; never re-runs it), and the cross-source view-id uniqueness law runs at
+    ;; compile-finish over the analyzer map (`build/harvest-view-registries`, a
+    ;; compile-finish error is still a build-time error). Off that path (plain-JVM
+    ;; / SSR, REPL — there is no compile-finish analyzer harvest) the macro's own
+    ;; contribution populates the per-source slice and reports a collision here at
+    ;; expansion with the declaration's source coordinates.
+    (when-not (build/shadow-build-pass?)
+      (when-let [{:keys [conflict]}
+                 (build/contribute-view-checked!
+                  ns-sym [ns-sym vname] view-id [tf hs])]
+        (fail :rf.ui.compile/bad-view-id
+              (str "defview " vname ": view id " (pr-str view-id)
+                   " is already owned by a different defview declaration. "
+                   "Explicit :id overrides must be unique across declarations; "
+                   "give this view a distinct qualified keyword (re-expanding "
+                   "the exact same var remains the HMR replacement path)")
+              {:view vname
+               :id view-id
+               :namespace ns-sym
+               :declaration [ns-sym vname]
+               :existing-declaration conflict})))
     ;; Per-view static-render facts for the render-static transitive proof
     ;; (Spec 004C §3 / EP-0034 §2). Keyed per declaring ns like every other
     ;; registry row, so a recompiled / removed source replaces / evicts its
