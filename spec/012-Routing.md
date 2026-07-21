@@ -1156,7 +1156,7 @@ The route slice (`[:rf.runtime/routing :current]`) carries `:fragment` (string o
  ...}
 ```
 
-Read it via the `:rf.route/fragment` sub. Fragment is **populated by `match-url` from the URL**, written to the slice by the URL-change handlers (`:rf.route/transitioned` / `:rf.route/handle-url-change`), and emitted by `route-url` when the 4-arity form is used (or when `:rf.route/navigate` is called with a `:fragment` opt or target-map key).
+Read it via the `:rf.route/fragment` sub. Fragment is **populated by `match-url` from the URL**, written to the slice by the URL-change handlers (`:rf.route/transitioned` / `:rf.route/handle-url-change`), and emitted by `route-url` when its address map carries a non-nil `:fragment` — as it does when `:rf.route/navigate`'s flat request map carries an explicit `:fragment` (which overrides any fragment embedded in a `:url`, and `nil` clears it).
 
 ### Fragment-only changes do NOT re-fire `:on-match`
 
@@ -1197,17 +1197,17 @@ The three enum strategies are the whole vocabulary, and their fragment-handling 
 
 ### Programmatic navigation with fragments
 
-`:rf.route/navigate` accepts a `:fragment` key in `opts` or in the target map:
+`:rf.route/navigate`'s flat request map carries the fragment two ways — an explicit `:fragment` key, or a fragment embedded in a `:url`:
 
 ```clojure
-;; opts form
+;; explicit :fragment key (route-id or in-place request)
 [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "scroll-restoration"}]
 
-;; target-map form (URL escape hatch)
+;; embedded in a :url (URL-string escape hatch)
 [:rf.route/navigate {:url "/docs/routing#scroll-restoration"}]
 ```
 
-Either form ends up in the `:rf/route` slice's `:fragment`.
+Either way the fragment ends up in the `:rf/route` slice's `:fragment`. When BOTH are present — an explicit `:fragment` beside a `:url` — the explicit key wins (it overrides the embedded fragment; `:fragment nil` clears it), for a matched OR an unmatched raw URL, so the address bar, the slice, and the guard/pending target always agree.
 
 **Fragment-only programmatic navs take the short-circuit too.** A `:rf.route/navigate` whose resolved target differs from the current slice **only** in its fragment is a fragment-only change and honours [§Fragment-only changes do NOT re-fire `:on-match`](#fragment-only-changes-do-not-re-fire-on-match) in full: `:fragment` updates, one `:rf.route/fragment-changed` fires, and the `:nav-token` / `:on-match` / route-`:resources` are left untouched — identical to the same anchor jump arriving via a `route-link` click or Back/Forward. This is the regularity contract: the same logical operation cannot behave differently just because it entered through the programmatic door. (Before this was wired, a programmatic fragment nav took the full commit path — re-firing every loader and bumping the token, stale-suppressing in-flight work for the route you were already on.)
 

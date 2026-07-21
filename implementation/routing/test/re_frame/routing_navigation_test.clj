@@ -1943,3 +1943,63 @@
           "the request navigates cleanly despite carrying the internal rider")
       (is (empty? (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))
           "no navigate-bad-request — the rider is stripped, not treated as unknown"))))
+
+;; ============================================================================
+;; rf2-0zsvw — explicit :fragment override on an UNMATCHED raw-URL navigate
+;; ============================================================================
+;;
+;; PR #6581 promised that `:url` + `:fragment` is legal and the explicit
+;; request fragment overrides the fragment embedded in the raw URL. That held
+;; when the URL matched a route (route-url rebuilds the address), but the
+;; UNMATCHED shortcut pushed the raw url verbatim — the address bar kept `#old`
+;; while the slice carried `#new`, and the guard/pending target disagreed. The
+;; effective requested URL now carries the explicit fragment (an explicit nil
+;; clears it), and one URL feeds the slice, the push, and the not-found :params.
+
+(deftest navigate-unmatched-url-honours-explicit-fragment-override
+  (testing "an unmatched {:url raw :fragment value} navigate rebuilds ONE
+            effective URL — raw path/query with the explicit fragment — and
+            feeds it to the not-found :params, the slice, and the push"
+    (rf/reg-route :route/home {} "/")
+    (rf/reg-route :rf.route/not-found {} "/404")
+    (let [pushed (atom [])]
+      (fx/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      ;; ---- override: explicit :fragment replaces the embedded one ----
+      (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path#old" :fragment "new"}])
+      (let [slice (nav-slice)]
+        (is (= :rf.route/not-found (:route-id slice))
+            "unmatched URL-string target → :rf.route/not-found slice")
+        (is (= "new" (:fragment slice))
+            "slice :fragment is the EXPLICIT override, not the embedded #old")
+        (is (= {:url "/no/such/path#new"} (:params slice))
+            "not-found :params carries the effective URL (embedded #old replaced)"))
+      (is (= ["/no/such/path#new"] @pushed)
+          "the PUSHED url carries the explicit fragment (pre-fix: /no/such/path#old)")
+
+      ;; ---- clear: explicit nil fragment drops the embedded fragment ----
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path#old" :fragment nil}])
+      (let [slice (nav-slice)]
+        (is (nil? (:fragment slice))
+            "an explicit nil fragment clears the embedded #old in the slice")
+        (is (= {:url "/no/such/path"} (:params slice))
+            "not-found :params carries the fragment-cleared effective URL"))
+      (is (= ["/no/such/path"] @pushed)
+          "the PUSHED url has NO fragment when the explicit fragment is nil"))))
+
+(deftest navigate-unmatched-url-without-explicit-fragment-keeps-embedded
+  (testing "an unmatched {:url raw} navigate with NO explicit :fragment pushes
+            the raw url verbatim (existing not-found behaviour is unchanged)"
+    (rf/reg-route :route/home {} "/")
+    (rf/reg-route :rf.route/not-found {} "/404")
+    (let [pushed (atom [])]
+      (fx/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path#keep"}])
+      (is (= ["/no/such/path#keep"] @pushed)
+          "no explicit :fragment → the raw url (with its embedded fragment) rides verbatim")
+      (is (= {:url "/no/such/path#keep"} (:params (nav-slice)))
+          "not-found :params carries the raw url verbatim"))))
