@@ -10,6 +10,10 @@ We'll take it one step at a time: the single line that picks a substrate, then a
 
     Events, subscriptions, effects, and app-db never learn which React wrapper renders them. The boot call ([`init!`](../glossary.md#init)) names the substrate. Only the view bodies speak its notation. That's the whole story; the rest of this page is detail.
 
+!!! warning "Helix is scheduled for removal at S7"
+
+    Of the four substrates covered here, Helix is the odd one out: it is a transition adapter, scheduled for removal in the S7 Helix-removal wave. Stock Reagent, reagent-slim, and UIx live on as first-class, actively-supported adapters, so for new work reach for one of those three — pick Helix only if you're already committed to it. (The first-party [`re-frame.ui`](../re-frame.ui/index.md) compiled substrate is a separate, experimental option offered alongside them.)
+
 ??? info "Coming from Redux?"
 
     The [adapter](../glossary.md#adapter) plays react-redux's role — `frame-provider` is `<Provider>`, `use-subscribe` is `useSelector` — with two differences. The binding is a value you pass explicitly at boot rather than a package you import, and exactly one is ever installed per runtime. No hidden default, no autowiring.
