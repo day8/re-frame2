@@ -362,16 +362,25 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
 - **No root, no manifest, no preflight**: the exported subtree renders inside the root
   the foreign parent owns; frame creation stays with the host app's boot/event code — an
   exported view scopes and resolves frames, it never creates them.
-- **Frame**: resolved by the ordinary ambient chain (a `frame-provider`/`frame-root`
-  above it in the tree), or from a supplied **`frame` prop** (a frame-id keyword or live
-  frame value) which scopes the subtree without owning it. With neither, a frame-scoped
-  read fails loud with `:rf.error/no-frame-context` — never a silent default.
+- **Frame**: the reserved **`frame` prop** is resolved by **own-property presence**, not
+  truthiness. **Omitted** (no own `frame` key) is the sole ambient-resolution case — the
+  exported view resolves its frame by the ordinary ambient chain (a `frame-provider` /
+  `frame-root` above it), or fails loud with `:rf.error/no-frame-context`. An **own** `frame`
+  prop (a frame-id keyword or live frame value) scopes the subtree without owning it, and is
+  **always validated** against the one frame-target grammar — including an explicit
+  `frame={null}` / `frame={undefined}`, which fails loud rather than silently adopting the
+  ambient frame. Every typed failure **names `re-frame.ui/->react`** (not `frame-provider`),
+  so the error lands at the bridge the caller used.
 - **Props — one shallow rule**: each prop maps to the view's prop-ABI slot by exact name
   (write the slot names directly); `children` and `ref` pass through preserved; only the
   reserved `frame` prop is consumed by the bridge. No camelisation, no deep conversion.
 - **JVM**: a call is a host-op error (`:rf.error/jvm-host-op`) — a React component export
   has no meaning in a structural render. SSR through the bridge is unsupported in v1.
-- **Errors**: a non-view argument (a keyword, `nil`, …) → `:rf.error/ui-tree-malformed`.
+- **Errors**: a non-view argument (a keyword, `nil`, …) → `:rf.error/ui-tree-malformed`. An
+  own `frame` prop that is empty (`null` / `undefined`) → `:rf.error/no-frame-context`;
+  malformed (not a frame-id keyword / live frame value) → `:rf.error/bad-frame-provider-arg`;
+  a keyword / frame value naming no live frame → `:rf.error/frame-provider-frame-absent`.
+  All attribute to `re-frame.ui/->react`.
 
 ### `presence`
 

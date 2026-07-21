@@ -1461,6 +1461,42 @@
             (require-scope-frame! target 're-frame.ui/frame-provider)
             (array-seq children-arr))))
 
+#?(:cljs
+   (defn ->react-scope-element
+     "The scope half of `ui/->react` for a SUPPLIED (own-property) `frame` prop
+     (rf2-01rwd): validate the runtime `target` and scope the live frame's id to
+     `children-arr` through the shared React frame context. Same one
+     frame-target grammar (`frame/require-frame-provider-target!`) and shared
+     provider (`adapter-context/provider-element`) as `provider-scope-element`,
+     but SELF-ATTRIBUTED to `re-frame.ui/->react` — the outward bridge validates
+     the prop it reserves and NAMES ITSELF in every typed failure, rather than
+     delegating an error that blames `frame-provider` at exactly the migration
+     seam `ui/->react` exists to simplify.
+
+     `->react-component` calls this ONLY when the props object OWNS the `frame`
+     key, so an explicit `frame={null}` / `frame={undefined}` arrives here as a
+     nil `target` and fails loud with `:rf.error/no-frame-context` (the empty
+     frame-target category) — never a silent fall-through to the ambient chain.
+     A malformed target is `:rf.error/bad-frame-provider-arg`; a keyword / live
+     frame value naming no live frame is `:rf.error/frame-provider-frame-absent`
+     with bridge-relevant recovery; a valid target scopes without owning it.
+     SCOPE-only: creates / refreshes / destroys nothing (the rf2-nyea0r split)."
+     [target children-arr]
+     (let [id (frame/require-frame-provider-target! target 're-frame.ui/->react)]
+       (when (nil? (frame/frame id))
+         (error/throw-error!
+          :rf.error/frame-provider-frame-absent 're-frame.ui/->react
+          (str "(ui/->react view) received a `frame` prop naming " (pr-str id)
+               ", but no live frame is registered under it (never created, or "
+               "already destroyed). The outward bridge SCOPES an already-live "
+               "frame and creates nothing — create it first with rf/make-frame in "
+               "the host app's boot/event infrastructure, or render the exported "
+               "component under an ambient frame-provider / frame-root that scopes "
+               "a live frame, then export the view")
+          {:recovery :ensure-or-create-the-frame
+           :extra {:frame id}}))
+       (apply adapter-context/provider-element id (array-seq children-arr)))))
+
 (defn jvm-provider-scope
   "The emitted JVM half of `[frame-provider {:frame f} …]`: validate the
   target and BIND the dynamic-tier ambient frame around the subtree's

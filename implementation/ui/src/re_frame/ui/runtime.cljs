@@ -18,9 +18,9 @@
             [re-frame.ui.eq :as eq]
             [re-frame.ui.events :as events]
             ;; The outward bridge `->react-component` scopes a supplied frame
-            ;; through `frames/provider-scope-element`. `frames` is already a
-            ;; transitive dep (runtime -> events -> frames) and never requires
-            ;; runtime, so the direct require is acyclic (rf2-u53yy.2).
+            ;; through `frames/->react-scope-element` (rf2-01rwd). `frames` is
+            ;; already a transitive dep (runtime -> events -> frames) and never
+            ;; requires runtime, so the direct require is acyclic (rf2-u53yy.2).
             [re-frame.ui.frames :as frames]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.rules :as rules]
@@ -856,12 +856,18 @@
 ;;     creates them (`frame-root` cannot appear in a `defview` body anyway);
 ;;   - SCOPES a supplied frame without owning it: the ONE reserved prop `frame`
 ;;     (a frame-id keyword or a live frame value) wraps the view in the shared
-;;     React frame-context Provider through `frames/provider-scope-element`
-;;     (SCOPE-only — the rf2-nyea0r split: providers scope, roots ensure). With
-;;     no `frame` prop the exported view resolves its frame by the ordinary
-;;     ambient chain (a foreign `frame-provider`/`frame-root` above it, sharing
-;;     the same context object), or fails loud with `:rf.error/no-frame-context`
-;;     — never a silent default;
+;;     React frame-context Provider through `frames/->react-scope-element`
+;;     (SCOPE-only — the rf2-nyea0r split: providers scope, roots ensure). The
+;;     prop is resolved by OWN-PROPERTY PRESENCE, not truthiness (rf2-01rwd):
+;;     an OMITTED `frame` is the SOLE ambient-resolution case — the exported view
+;;     resolves its frame by the ordinary ambient chain (a foreign
+;;     `frame-provider`/`frame-root` above it, sharing the same context object),
+;;     or fails loud with `:rf.error/no-frame-context`. An OWN `frame` prop is
+;;     ALWAYS validated against the one frame-target grammar — INCLUDING an
+;;     explicit `frame={null}`/`frame={undefined}`, which fails loud rather than
+;;     silently adopting the ambient frame — and every typed failure (empty,
+;;     malformed, absent/dead) NAMES `re-frame.ui/->react`, not `frame-provider`,
+;;     so the error lands at the bridge the caller actually used;
 ;;   - THE ONE shallow props-conversion rule: the foreign JS props object is
 ;;     handed to the view by a single shallow copy, dropping ONLY the reserved
 ;;     `frame` key. Every remaining own-enumerable key is a view prop-ABI slot,
@@ -877,6 +883,17 @@
   ;; exported wrapper. A WeakMap keyed by the view identity, so an unreferenced
   ;; view never pins its wrapper and `defonce` survives ns reload.
   (js/WeakMap.))
+
+(defn- own-prop?
+  "True when the foreign JS `obj` OWNS `k` as an own property — via
+  `Object.prototype.hasOwnProperty.call` so a null-proto object or a prop
+  literally named \"hasOwnProperty\" cannot break the check (the reagent-slim
+  `strict-obj-has-key` idiom, rf2-tsuk6). Unlike a truthiness test it
+  DISTINGUISHES an absent `k` from an explicitly-supplied `k={null}` /
+  `k={undefined}` — the exactness the reserved `frame` prop turns on
+  (rf2-01rwd)."
+  [obj k]
+  (.call (.. js/Object -prototype -hasOwnProperty) obj k))
 
 (defn- exported-view-props
   "THE shallow props-conversion rule: a single shallow copy of the foreign JS
@@ -907,12 +924,19 @@
   (or (.get exported-component-cache view)
       (let [exported
             (fn rf-ui->react [props]
-              (let [frame-target (unchecked-get props "frame")
-                    element      (jsx2 view (exported-view-props props))]
-                (if (some? frame-target)
-                  ;; SCOPE the supplied frame — creates/refreshes/destroys
-                  ;; nothing; a target naming no live frame fails loud.
-                  (frames/provider-scope-element frame-target #js [element])
+              (let [element (jsx2 view (exported-view-props props))]
+                (if (own-prop? props "frame")
+                  ;; OWN `frame` prop: validate EVERY value — including an
+                  ;; explicit `frame={null}`/`frame={undefined}` — and SCOPE,
+                  ;; attributing any typed failure to `re-frame.ui/->react`
+                  ;; (rf2-01rwd). An owned-but-invalid target NEVER silently
+                  ;; falls through to the ambient chain. SCOPE-only:
+                  ;; creates/refreshes/destroys nothing.
+                  (frames/->react-scope-element (unchecked-get props "frame")
+                                                #js [element])
+                  ;; OMITTED `frame` prop — the SOLE ambient-resolution case: the
+                  ;; exported view resolves its frame by the ordinary ambient
+                  ;; chain, or fails loud with `:rf.error/no-frame-context`.
                   element)))]
         (when ^boolean js/goog.DEBUG
           (set! (.-displayName exported)
