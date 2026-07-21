@@ -21,7 +21,7 @@
  ;;                    the cache keeps them a pure function of current
  ;;                    build inputs.
  ;; :build-defaults  — the build hook supplies the accepted-build
- ;;                    transaction and publishes the whole-build digest.
+ ;;                    transaction that reconstructs the registries.
  ;;
  ;; Together they make every macro-contributed member present after a warm
  ;; daemon start. Drop either and the dev build's identity is false.
