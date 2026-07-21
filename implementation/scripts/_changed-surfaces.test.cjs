@@ -202,6 +202,33 @@ test('Conformance fixture change runs cljs (CLJS corpus runner is in node-test) 
   assert.equal(result.cljs_node_test, 'true');
 });
 
+// rf2-vxgfnd.97.3 — the S3/S4/S5 view-conformance PROFILE docs are bound row by
+// row by the executable drift guards (s{3,4,5}_conformance_profile_jvm_test.clj,
+// run by the jvm-ui job, which gates on implementation_jvm). A profile-DOC-only
+// edit previously matched no classifier case — every output false — so the guard
+// the profile claims to be held by did NOT run and a row could be deleted,
+// hollowed, or swapped with the drift guard skipped. Each profile doc must fire
+// implementation_jvm so jvm-ui re-runs its guard.
+test('S5 view-conformance profile-doc edit runs jvm-ui (implementation_jvm true) (rf2-vxgfnd.97.3)', () => {
+  const result = classify('spec/conformance/S5-view-conformance-profile.md');
+  assert.equal(result.implementation_jvm, 'true');
+});
+
+test('S4 view-conformance profile-doc edit runs jvm-ui (implementation_jvm true) (rf2-vxgfnd.97.3)', () => {
+  const result = classify('spec/conformance/S4-view-conformance-profile.md');
+  assert.equal(result.implementation_jvm, 'true');
+});
+
+test('S3 view-conformance profile-doc edit runs jvm-ui (implementation_jvm true) (rf2-vxgfnd.97.3)', () => {
+  const result = classify('spec/conformance/S3-view-conformance-profile.md');
+  assert.equal(result.implementation_jvm, 'true');
+});
+
+test('a NON-profile spec .md does NOT fire implementation_jvm — no over-broadening (rf2-vxgfnd.97.3)', () => {
+  const result = classify('spec/006-ReactiveSubstrate.md');
+  assert.equal(result.implementation_jvm, 'false');
+});
+
 test('shadow-cljs.edn change runs cljs (it defines the node-test build) (rf2-f79t8)', () => {
   const result = classify('implementation/shadow-cljs.edn');
   assert.equal(result.cljs_node_test, 'true');

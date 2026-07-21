@@ -29,9 +29,9 @@ only the S5 **delta**:
 - the root-scoped **`client-only` phase flip**.
 
 S5 adds **one** new public name to the `re-frame.ui` facade — `render-static` —
-and it is the one blessed S5 surface that has **not yet shipped**; §3 rows it as
-the outstanding obligation, and §6 declines to declare the stage conforming
-while it is absent. The mount-surface verbs `hydrate-root` / `create-root` /
+**shipped as a macro** (ruled `fn`→macro 2026-07-20); §1 rows it as the sixth
+frozen surface, §3 gives its positive treatment, and §6 declares the stage
+conforming. The mount-surface verbs `hydrate-root` / `create-root` /
 `render!` / `mount` / `unmount!` and the `client-only` macro were **exported
 earlier** for symbol resolution; the stage completes their server/hydration
 *behaviour* over an already-blessed surface.
@@ -53,12 +53,12 @@ between rows is red.
 
 ## 1. Frozen S5 surface
 
-Five closed rows: the **Root Manifest** and its **discovery**, hydration
-**adoption**, **failed-root isolation**, the **emit-ui-tree** serialiser, and the
-**phase flip**. Each names the small exact contract fragments its row must carry
-and the suite that proves its real runtime behaviour. `render-static` is the
-sixth blessed S5 surface and is **not** rowed here — it has not shipped, and §3
-rows it as the outstanding obligation instead.
+Six closed rows: the **Root Manifest** and its **discovery**, hydration
+**adoption**, **failed-root isolation**, the **emit-ui-tree** serialiser, the
+**phase flip**, and **`render-static`** (S5's new macro). Each names the small
+exact contract fragments its row must carry and the suite that proves its real
+runtime behaviour. `render-static` shipped as a macro (its runtime repairs
+landed in #6557/#6624) and §3 gives its positive treatment.
 
 | Surface | Kind | Contract | Loud failure | Proven by |
 |---|---|---|---|---|
@@ -68,6 +68,7 @@ rows it as the outstanding obligation instead.
 | `failed-root isolation` | per-root fault boundary | **one root's whole boot is the isolation unit**: a root that throws while booting is contained, and its **siblings still hydrate** (they hold the server slice) **and stay interactive** (a dispatch reaches them); a failed sibling neither delays nor blocks a good root — there is **no page-wide barrier** | the failing root takes its own client-fresh / fail path; siblings are unaffected | JVM/node `re-frame.ssr.failed-root-isolation-cljs-test`; browser `re-frame.ssr.failed-root-isolation-dom-cljs-test` |
 | `re-frame.ssr/emit-ui-tree` | pure tree → HTML serialiser | folds an **already-rendered** version-1 structural tree (the value `re-frame.ui.tree/render` / `ui.test/render` produced) to an HTML string; **it calls nothing** — no view, no sub, no frame — and is deterministic to the byte; it emits **one root's markup only** and neither reads nor writes manifests, payloads, or the response; the root `:rf.ui/tree-version` is validated **first, before any emission** | a missing / non-integer / unsupported version is `:rf.error/ssr-ui-tree-version-unsupported` (`{:got .. :supported #{1}}`); a malformed node **past** the gate is the shared `:rf.error/ui-tree-malformed` | JVM/node `re-frame.ssr.emit-ui-tree-cljs-test` |
 | `client-only phase flip` | root-scoped one-shot phase write | a hydrating root **boots in `:server` phase** (renders `ui/client-only` **fallbacks**), and after the adoption mismatch check a **single root-scoped write** moves it to `:client` phase, swapping **every** `client-only` site to its client subtree in **one update**; per-site flip state is **non-conforming**; a **failed root never flips**, and **multi-root** roots flip **independently** (no page-wide barrier); the mismatch check runs over the `:server`-phase tree and the flip **MUST NOT** run before it | a phase that booted `:client` would fire `onRecoverableError` during adoption — the falsifier the proof drives | browser `re-frame.ssr.phase-flip-hydration-dom-cljs-test` |
+| `render-static` | macro (JVM static-root emitter) | `(ui/render-static root-form)` proves a root is static and emits pure `:server`-phase **inert HTML** with **no manifest**, no payload, and **no phase flip** (its `client-only` sites render the fallback and stop there); it enforces the **literal root form** at the call site — a runtime-assembled vector is rejected exactly as at `mount` / `render!` / `hydrate-root` — and permits **no silent capability elision**: a server-reachable committed handler, an authored `:ref`, or an interactive dependency is **loud**, never dropped to inert markup; it reaches `emit-ui-tree` by **late resolution**, so `re-frame.ui` never statically requires `re-frame2-ssr`, and it participates in root identity (§7) and registers its root-site | a runtime-assembled root is `:rf.ui.compile/runtime-root-form`; a server-reachable runtime capability is `:rf.ui.compile/static-root-requires-runtime`; an unprovable dependency is `:rf.ui.compile/static-root-unproven-dependency`; an absent SSR artefact is `:rf.error/ssr-artefact-missing` | JVM `re-frame.ssr.render-static-jvm-test` |
 
 The mount-surface verbs S5 completes — `ui/hydrate-root`, `ui/create-root`,
 `ui/render!`, `ui/mount`, `ui/unmount!` — keep their S1 signatures unchanged and
@@ -101,7 +102,7 @@ sibling roots proceed independently.
 (the S4 profile's §4 space, unchanged) — byte-identical HTML is not the
 contract. The root-hydration half of W14 is the residual named gate rowed in §5.
 
-## 3. `render-static` — the outstanding blessed S5 surface (NOT yet conforming)
+## 3. `render-static` — the static-root surface (shipped: S5's new macro)
 
 `render-static` is a **blessed v1 public name** of `re-frame.ui`
 ([API.md §2](../API.md), row `render-static`; stage **S5** in the §2b matrix) —
@@ -111,33 +112,34 @@ and **no phase flip**, so its `client-only` sites render the fallback and stop
 there ([004C §3](../004C-Roots-and-Mount.md#3-the-mount-grammar-and-the-host-signature-set),
 [011 §Phase flip](../011-SSR.md#phase-flip)).
 
-**It has not shipped.** As of this gate there is **no implementation or emit site
-for `render-static` anywhere under `implementation/`** — only docstring and
-comment mentions (e.g. `implementation/ui/src/re_frame/ui/runtime.cljs`,
-`implementation/ui/src/re_frame/ui/compiler/root.cljc`). This is exactly the
-**names-without-implementations** failure mode the S5 epic's own audit caught, and
-this profile does **not** row it among the frozen §1 surfaces or claim any proof
-for it — fabricating a passing fixture over an absent surface would be a false
-green.
+**It shipped as a macro.** `render-static` was ruled a **macro** (`fn`→macro,
+2026-07-20) — not a fn — because it must enforce the **literal root form at the
+call site**: the same compile error that rejects a runtime-assembled vector at
+`mount` / `render!` / `hydrate-root` rejects it here, which a fn cannot do, and
+the other root entry points are macros. Its runtime behaviour landed with the
+gate (#6511) and its correctness repairs in #6557/#6624, and it is rowed in §1
+as the sixth frozen surface bound to `re-frame.ssr.render-static-jvm-test`.
 
-**The merge precondition is fail-closed.** Every S5 public name the `spec/API.md`
-`re-frame.ui` blessed-surface freeze claims must have a real implementation site
-with a green named proof. The drift guard enforces this by resolving each blessed
-S5 facade name; `render-static` does **not** resolve, so the guard is **red by
-design** and the gate **cannot pass** while the name is a phantom. The red clears
-the moment `render-static` ships — not before.
+**It permits no silent capability elision.** A pure `:server` static render cannot
+honour a live-runtime capability, so a **server-reachable** committed handler, an
+authored `:ref`, or an interactive dependency is caught **loud** at expansion
+(`:rf.ui.compile/static-root-requires-runtime` / `-unproven-dependency`), never
+dropped to inert HTML — the guarantee the render-static repairs hardened. A capability-free `client-only` island renders only its fallback and is
+legal. `render-static` reaches `emit-ui-tree` by **late resolution**
+([004B §The SSR consumption boundary](../004B-UI-Tree-and-Conversion.md)), so
+`re-frame.ui` never statically requires `re-frame2-ssr`; an absent SSR artefact is
+the typed `:rf.error/ssr-artefact-missing`, not a raw class-load failure.
 
-**Two decisions gate that landing, and neither is this gate's to make.** (1) A
-**kind-label delta** for Mike under the API-freeze protocol: the blessed table
-labels `render-static` a **`fn`**, but [004C §3](../004C-Roots-and-Mount.md#3-the-mount-grammar-and-the-host-signature-set)
-requires the **literal root form at the call site** (the same compile error
-rejects runtime-assembled vectors at `mount` / `render!` / `hydrate-root` /
-`render-static` alike), which a fn cannot enforce — the other root entry points
-are macros. (2) Landing `render-static` adds a facade public, which the S3/S4
-facade **exact-set** guards will red until it is classified — and the S4 guard's
-partition (`non-s3 == s4-delta ∪ s1/s2-carryover`) has **no S5 bucket** yet, so
-teaching it about the S5 stage is a prerequisite this gate deliberately does not
-reach into (§0's *does not restate* rule forbids editing the S3/S4 guards here).
+**The merge precondition is fail-closed, and now met.** Every S5 public name the
+`spec/API.md` `re-frame.ui` blessed-surface freeze claims must have a real
+implementation site with a green named proof. The drift guard enforces this by
+resolving each blessed S5 facade name; `render-static` **resolves** as a macro
+var and its named proof is green, so the precondition is satisfied. The check
+stays as the **fail-closed tooth**: any future blessed S5 name that lacks an
+implementation site reds the gate — the **names-without-implementations** failure
+mode the S5 epic's own audit caught. The facade classification for the new public
+is owned by the S3/S4 facade exact-set guards (§0's *does not restate* rule keeps
+this profile from editing them).
 
 ## 4. Non-surfaces (the S5 wall)
 
@@ -154,6 +156,12 @@ API redesign or a named boundary, never a substrate exception:
 - **no per-site phase state** — the phase is one root-scoped value written once;
   a per-site flip is non-conforming even though it would appear to satisfy the
   authoring promise;
+- **no compiled-ui hydration verification without both hashes** — `verify-hydration!`
+  intentionally does **not** fire for a compiled-ui root absent **both** the
+  plan-fingerprint and content-digest hashes: there is no live wrong-hash case to
+  surface, and forcing an `onRecoverableError` there was rejected as gold-plating
+  a non-firing path. This intentional non-firing is **S5-conforming**, not a gap
+  (`rf2-6z1i2`, ruled ACCEPT-CURRENT / no-fix 2026-07-21);
 - **no second server product** — `re-frame.ssr` consumes the one JVM emitter;
   `emit-ui-tree` invokes no view and resolves no subscription (a second render
   against a moved frame would be unsound), and it owns no manifest, payload, or
@@ -176,7 +184,9 @@ gate** the stage plan carried and grows one existing arm:
 | **G-7** | dev↔prod structural equivalence grows the **root-hydration half of W14** (the `:server`-phase adoption tree), bounded to S5 shapes; the mounted flip/adoption behaviour rides the focused browser suites above, not a new G-arm |
 
 Everything else S5 froze is proven by the named suites in §1, not by a gate arm.
-`render-static` (§3) carries **no** gate arm — it is unimplemented.
+`render-static` (§1, §3) carries **no** new G-arm either — it is proven by its
+named JVM suite `re-frame.ssr.render-static-jvm-test`, riding the existing
+required `jvm-ui` job.
 
 ## 6. Conformance grading
 
@@ -185,17 +195,19 @@ superset with its optional-key contract and exact round-trip (§1); positional
 manifest discovery and manifest-authored identity (§1); idempotent adoption with
 `:rf.ssr/hydration-mismatch` on divergence (§1); per-root failed-root isolation
 with interactive siblings (§1); the pure `emit-ui-tree` serialiser with its
-version gate (§1); and the root-scoped one-update phase flip after the mismatch
-check (§1). It must also be **S4-conforming** — §0 inherits S1–S4 by reference,
-and a host that fails the S4 profile fails this one. The gate arms in §5 and the
-suites named throughout are the executable acceptance; `scripts/test-fast-pr.sh`
-plus the S5 CI matrix run them.
+version gate (§1); the root-scoped one-update phase flip after the mismatch
+check (§1); and the `render-static` static-root macro with its no-silent-elision
+guarantee and late-resolved emit seam (§1, §3). It must also be
+**S4-conforming** — §0 inherits S1–S4 by reference, and a host that fails the S4
+profile fails this one. The gate arms in §5 and the suites named throughout are
+the executable acceptance; `scripts/test-fast-pr.sh` plus the S5 CI matrix run
+them.
 
-**S5 IS NOT YET DECLARED CONFORMING.** The five shipped surfaces of §1 are green,
-but the blessed `render-static` surface (§3) has **no implementation site**, so
-the fail-closed merge precondition is unmet and the drift guard is
-**red by design**. The stage becomes conforming — and this gate's merge becomes
-the ruled S6 entry token (`rf2-vxgfnd.98`) — only once `render-static` ships with its named
-proof green, which awaits the kind-label ruling and the S3/S4 facade-guard
-prerequisite recorded in §3. Until then, this profile declares conformance for
-the shipped SSR-root surface **only**, and explicitly **not** for `render-static`.
+**S5 IS DECLARED CONFORMING.** All six shipped surfaces of §1 are green,
+including the blessed `render-static` macro (§3): it resolves as a `re-frame.ui`
+var and its named proof `re-frame.ssr.render-static-jvm-test` passes, so the
+fail-closed merge precondition is **met** and the drift guard is green. This
+gate's merge is therefore the ruled S6 entry token (`rf2-vxgfnd.98`) — the double
+epic close of S5 (`rf2-vxgfnd.97`) and S6 (`rf2-vxgfnd.98`). The one intentional
+non-firing (compiled-ui hydration verification without both hashes, §4) is
+by-design and S5-conforming, not a gap (`rf2-6z1i2`, ruled ACCEPT-CURRENT).

@@ -622,6 +622,21 @@ else
         implementation_jvm=true
         cljs_node_test=true
         ;;
+      spec/conformance/S3-view-conformance-profile.md|spec/conformance/S4-view-conformance-profile.md|spec/conformance/S5-view-conformance-profile.md)
+        # rf2-vxgfnd.97.3 — the S3/S4/S5 view-conformance PROFILE docs are the
+        # human catalogues bound ROW BY ROW by the executable drift guards
+        # (implementation/ui/test/re_frame/ui/s{3,4,5}_conformance_profile_jvm_test.clj),
+        # which run inside the jvm-ui job. Those guards gate on
+        # implementation_jvm, but a profile-DOC-only edit previously matched no
+        # case here — every output false — so the guard the profile CLAIMS to be
+        # held by did not run: a PR could delete a row, hollow one out, swap a
+        # proof home between rows, or flip the conformance declaration with the
+        # drift guard silently SKIPPED. Fire implementation_jvm so the jvm-ui job
+        # re-runs the S3-S5 profile guards on any profile-doc-only edit. No new
+        # dedicated job — the guards ride the existing jvm-ui, exactly as the S3
+        # gate (#6182) and S4 gate (#6320) established (they added none either).
+        implementation_jvm=true
+        ;;
       spec/conformance/fixtures/*)
         # rf2-qmiiz — Fixtures under spec/conformance/fixtures/*.edn
         # are consumed by:

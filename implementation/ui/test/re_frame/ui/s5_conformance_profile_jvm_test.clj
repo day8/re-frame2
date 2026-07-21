@@ -6,7 +6,7 @@
   This is the single authoritative, EXACT catalogue of the FROZEN S5 surface —
   the compiled-view substrate's server-rendered-roots stage. S5 completes the
   server/hydration BEHAVIOUR over an already-blessed mount surface and adds one
-  new facade name (`render-static`). It fixes FIVE shipped rows:
+  new facade name (`render-static`). It fixes SIX shipped rows:
 
     1. the ROOT MANIFEST v1 (the additive per-root wire — a strict superset of
        the Root Descriptor) and its POSITIONAL discovery;
@@ -18,15 +18,22 @@
     4. `re-frame.ssr/emit-ui-tree` — the pure tree -> HTML serialiser (validates
        `:rf.ui/tree-version` FIRST; calls no view);
     5. the root-scoped `ui/client-only` PHASE FLIP (boot `:server`, one
-       root-scoped write to `:client`, one update; failed roots never flip).
+       root-scoped write to `:client`, one update; failed roots never flip);
+    6. `render-static` — S5's new blessed name, shipped as a MACRO (ruled
+       fn->macro 2026-07-20): the pure `:server` static-root render that emits
+       inert HTML with no manifest/payload/flip, enforces the literal root form,
+       elides no capability silently, and reaches `emit-ui-tree` by late
+       resolution.
 
-  Plus one OUTSTANDING blessed name (§3): `render-static` is a blessed v1/S5
-  public of `re-frame.ui` with NO implementation site anywhere under
-  implementation/ — the names-without-implementations failure mode the S5
-  audit caught. The MERGE PRECONDITION is fail-closed: every blessed S5 facade
-  name must RESOLVE. `render-static` does not, so
-  `merge-precondition-blessed-s5-facade-names-resolve` is RED BY DESIGN and the
-  gate cannot pass while the name is a phantom. The red clears when it ships.
+  The MERGE PRECONDITION is fail-closed: every blessed S5 facade name must have
+  a real implementation site (this guard enforces the resolution half — each
+  must RESOLVE as a var). `render-static` — the one name new at S5 — shipped in
+  #6511 (macro) with its runtime repairs in #6557/#6624 and its named proof
+  `re-frame.ssr.render-static-jvm-test` green, so
+  `merge-precondition-blessed-s5-facade-names-resolve` now passes and the gate's
+  merge is the ruled S6 entry token (rf2-vxgfnd.98). The check stays as the
+  fail-closed tooth: any FUTURE blessed S5 name that lacks an implementation site
+  reds it — the names-without-implementations failure mode the S5 audit caught.
 
   Runtime behaviour itself is proven by the named proof homes (JVM / node /
   browser suites under implementation/ssr/test), not re-asserted here. What this
@@ -55,13 +62,13 @@
             [re-frame.ui.s4-conformance-profile-jvm-test :as s4]))
 
 ;; ---------------------------------------------------------------------------
-;; (1) The frozen S5 SURFACE — the five shipped rows. Each entry names the
+;; (1) The frozen S5 SURFACE — the six shipped rows. Each entry names the
 ;; profile row's FIRST CELL (`:token`; rows are keyed on it), the section it
 ;; lives in, the small EXACT contract fragments its human row must carry (enough
 ;; that swapping two rows' contracts, or hollowing one out, is red; not so many
 ;; that ordinary rewording is), the loud-failure ids the row must name, and the
-;; REAL proof-home test namespaces (under implementation/ssr/test) that prove the
-;; row's runtime behaviour. This map is the source of truth §1 restates.
+;; REAL proof-home test namespaces (under implementation/{ssr,ui}/test) that
+;; prove the row's runtime behaviour. This map is the source of truth §1 restates.
 ;; ---------------------------------------------------------------------------
 
 (def frozen-s5-surface
@@ -116,7 +123,20 @@
                     "single root-scoped write"
                     "non-conforming"
                     "failed root never flips"
-                    "onRecoverableError"]}})
+                    "onRecoverableError"]}
+
+   :render-static
+   {:token         "`render-static`"
+    :errors        [:rf.ui.compile/runtime-root-form
+                    :rf.ui.compile/static-root-requires-runtime
+                    :rf.ui.compile/static-root-unproven-dependency
+                    :rf.error/ssr-artefact-missing]
+    :proofs        ["re-frame.ssr.render-static-jvm-test"]
+    :row-fragments ["no manifest"
+                    "no phase flip"
+                    "literal root form"
+                    "no silent capability elision"
+                    "late resolution"]}})
 
 ;; ---------------------------------------------------------------------------
 ;; (2) The BLESSED S5 facade names — the merge-precondition roster. S5 adds one
@@ -124,8 +144,9 @@
 ;; that every S5 public name the spec/API.md blessed-surface freeze claims must
 ;; have a real implementation site. This guard enforces the RESOLUTION half:
 ;; each must resolve as a var. `render-static` is blessed (API.md §2 row +
-;; §2b Stage=S5) but UNIMPLEMENTED, so the check below is RED BY DESIGN until it
-;; ships — the gate cannot pass on a phantom surface.
+;; §2b Stage=S5) and SHIPPED as a macro (#6511; runtime repairs #6557/#6624), so
+;; the check below now passes. It stays as the fail-closed tooth: any future
+;; blessed S5 name that lacks an implementation site reds it.
 ;; ---------------------------------------------------------------------------
 
 (def blessed-s5-facade-names
@@ -249,56 +270,62 @@
 ;; ===========================================================================
 
 (deftest merge-precondition-blessed-s5-facade-names-resolve
-  (testing "every blessed S5 public name resolves to a real re-frame.ui var — a claimed-but-absent name is RED BY DESIGN (the S5 audit's names-without-implementations failure mode)"
+  (testing "every blessed S5 public name resolves to a real re-frame.ui var — a claimed-but-absent name reds this fail-closed tooth (the S5 audit's names-without-implementations failure mode)"
     (doseq [sym blessed-s5-facade-names]
       (is (some? (ns-resolve 're-frame.ui sym))
           (str "MERGE PRECONDITION (fail-closed, rf2-vxgfnd.97.3): blessed S5 "
                "public name re-frame.ui/" sym " has NO implementation site — the "
                "gate MUST NOT go green / merge (its merge is the S6 entry token, "
                "rf2-vxgfnd.98) until " sym " ships with its named proof green. "
-               "This red is BY DESIGN, not a broken build: it is the gate "
-               "catching the names-without-implementations failure mode the S5 "
-               "epic's own audit caught. See §3 of "
+               "This is the gate catching the names-without-implementations "
+               "failure mode the S5 epic's own audit caught. render-static "
+               "shipped as a macro (#6511; runtime repairs #6557/#6624), so this "
+               "check now passes; it stays as the tooth for any future blessed S5 "
+               "name. See §3 of "
                "spec/conformance/S5-view-conformance-profile.md.")))))
 
 ;; ===========================================================================
-;; §3 render-static honesty + §6 grading — the profile must NOT over-claim while
-;; render-static is a phantom. These bind the honest treatment so a future edit
-;; cannot silently flip the profile to "conforming" over an absent surface.
+;; §3 render-static (shipped) + §6 grading — render-static has shipped as a
+;; macro with its named proof green, so the profile now rows it and declares the
+;; stage conforming. These bind the POSITIVE treatment so a regression that
+;; silently re-hollows the profile back to the false "not shipped" state is red.
 ;; ===========================================================================
 
-(deftest profile-rows-render-static-as-outstanding-not-conforming
-  (testing "§3 rows render-static as blessed-but-unimplemented — NOT among the §1 frozen rows"
-    ;; render-static must NOT appear as a §1 conforming table row (that would be
-    ;; the false-green — a conforming claim over an absent surface).
-    (is (nil? (table-row-for (doc-lines) "`render-static`"))
-        "render-static must not be a §1 conforming table row while it is unimplemented")
+(deftest profile-rows-render-static-as-shipped-and-conforming
+  (testing "§1 rows render-static as a shipped macro; §3 treats it positively — the false 'not shipped' state is gone"
+    ;; render-static IS a §1 conforming table row now (it shipped as a macro).
+    (is (some? (table-row-for (doc-lines) "`render-static`"))
+        "render-static must be a §1 conforming table row now that it has shipped")
     (let [section (section-between (doc-text) "## 3." "## 4.")]
       (is (some? section) "the profile must have a §3 render-static section and a §4 header")
       (when section
         (doseq [claim ["render-static"
-                       "has not shipped"
-                       "no implementation"
-                       "names-without-implementations"
-                       "fail-closed"
-                       "kind-label delta"
-                       "`fn`"]]
+                       "macro"
+                       "re-frame.ssr.render-static-jvm-test"
+                       "literal root form"
+                       "no silent capability elision"
+                       "late resolution"
+                       "fail-closed"]]
           (is (str/includes? section claim)
-              (str "§3 must state: " claim)))))))
+              (str "§3 must state: " claim)))
+        ;; the stale FALSE transition phrase must be gone — a regression to it is red.
+        ;; ("names-without-implementations" legitimately appears in the positive
+        ;; treatment as the general failure mode the fail-closed tooth guards, so it
+        ;; is NOT a false-state sentinel; "has not shipped" is the reliable one.)
+        (is (not (str/includes? section "has not shipped"))
+            "§3 must NOT carry the stale false phrase 'has not shipped' (render-static shipped)")))))
 
-(deftest profile-declines-conformance-while-render-static-absent
-  (testing "§6 does NOT declare S5 conforming while render-static is a phantom"
+(deftest profile-declares-s5-conforming
+  (testing "§6 declares S5 conforming now that render-static has shipped with its named proof green"
     (let [text (doc-text)
           tail (subs text (str/index-of text "## 6."))]
-      (is (str/includes? tail "S5 IS NOT YET DECLARED CONFORMING")
-          "§6 must state S5 IS NOT YET DECLARED CONFORMING")
-      (is (str/includes? tail "red by design")
-          "§6 must state the drift guard is red by design")
+      (is (str/includes? tail "S5 IS DECLARED CONFORMING")
+          "§6 must declare S5 IS DECLARED CONFORMING now that render-static has shipped")
       (is (str/includes? tail "rf2-vxgfnd.98")
           "§6 must name the ruled S6 entry token")
-      ;; the affirmative false claim must be absent everywhere
-      (is (not (str/includes? text "S5 IS DECLARED CONFORMING"))
-          "the profile must not falsely declare S5 conforming while render-static is absent"))))
+      ;; the stale 'not yet' declaration must be gone everywhere — a regression is red
+      (is (not (str/includes? text "S5 IS NOT YET DECLARED CONFORMING"))
+          "the profile must not carry the stale 'S5 IS NOT YET DECLARED CONFORMING' after render-static shipped"))))
 
 ;; ===========================================================================
 ;; The non-surface wall (§4) and the S5 gate roster (§5).
@@ -315,7 +342,11 @@
                        "no per-site phase state"
                        "no second server product"
                        "no `ui → ssr` static require"
-                       "no RSC and no streaming sugar"]]
+                       "no RSC and no streaming sugar"
+                       ;; rf2-6z1i2 (ruled ACCEPT-CURRENT, no-fix, 2026-07-21):
+                       ;; the intentional non-firing is a by-design wall bullet,
+                       ;; not a gap — bound here so it cannot be silently dropped.
+                       "no compiled-ui hydration verification without both hashes"]]
           (is (str/includes? section claim)
               (str "the §4 wall must enumerate: " claim)))))))
 
