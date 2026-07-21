@@ -59,16 +59,21 @@
    :return-to is the breadcrumb: the post-login bounce-back target the routing
    `:rf.route/entry-blocked` handler drops here (routing.cljs) when the
    `:can-enter` auth gate turns a logged-out user away from a `:requires-auth`
-   route. `:auth/post-login-redirect` reads and clears it (auth.cljs). It only
-   exists for the brief window between that redirect and the next successful
-   login."
+   route. It's the FULL resolved address — `{:to :params :query :fragment}`, a
+   valid `:rf.route/navigate` request in its own right — so the bounce-back
+   returns to the exact URL (path, params, query, and #fragment), not just the
+   bare route. `:auth/post-login-redirect` reads and clears it (auth.cljs). It
+   only exists for the brief window between that redirect and the next
+   successful login."
   [:map
    [:user      [:maybe ws/SessionUser]]
    [:token     [:maybe :string]]
    [:return-to {:optional true}
     [:map
-     [:id     :keyword]
-     [:params [:maybe :map]]]]])
+     [:to       :keyword]
+     [:params   :map]
+     [:query    :map]
+     [:fragment [:maybe :string]]]]])
 
 ;; Machine snapshots aren't app-db — they live in the runtime-db partition at
 ;; [:rf.runtime/machines :snapshots <id>]. And `reg-app-schema` only polices

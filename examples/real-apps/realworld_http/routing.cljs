@@ -156,20 +156,31 @@
 ;; `:can-enter` rejects, the runtime writes `:rf/pending-navigation` (with the
 ;; target the user aimed at) and dispatches `:rf.route/entry-blocked`. This
 ;; handler turns that into a login redirect and stashes the target for the
-;; post-login bounce-back. The auth machine's `:store-session` action
-;; (auth.cljs) reads `[:auth :return-to]` on a successful login and navigates
+;; post-login bounce-back. `:auth/post-login-redirect` (auth.cljs) reads and
+;; clears `[:auth :return-to]` on a successful interactive login and navigates
 ;; there. Both the rejection and the eventual resume therefore remain ordinary,
 ;; traceable routing events.
 ;;
 ;; The pending-nav slot carries `:rejecting-route` (the target route-id) and
-;; `:requested-url`; we resolve the params off the URL so a deep-link like
-;; `/editor/my-slug` bounces back to the right article after login.
+;; `:requested-url` — the FULL URL the user aimed at, which the runtime built
+;; through `route-url` (path + query + #fragment). We resolve the whole address
+;; off it, not just the params, so the stash is the EXACT place they were
+;; headed: a deep-link like `/editor/my-slug?draft=1#preview` bounces back with
+;; its query and fragment intact, not stranded on a bare `/editor/my-slug`. The
+;; stash is itself a valid `:rf.route/navigate` request; the bounce-back
+;; (auth.cljs) returns there with `:replace? true` so `/login` never lands on
+;; the back stack.
 (rf/reg-event :rf.route/entry-blocked
   {:doc "Steer a logged-out visitor who tried to enter a :requires-auth route to
-         login, remembering where they were headed for the bounce-back."}
+         login, remembering the FULL address they were headed for (path,
+         params, query, and #fragment) so the post-login bounce-back returns to
+         the exact URL."}
   (fn [{:keys [db]} [_ {:keys [rejecting-route requested-url]}]]
-    (let [params (:params (routing/match-url requested-url))]
-      {:db (assoc-in db [:auth :return-to] {:id rejecting-route :params (or params {})})
+    (let [{:keys [params query fragment]} (routing/match-url requested-url)]
+      {:db (assoc-in db [:auth :return-to] {:to       rejecting-route
+                                            :params   (or params {})
+                                            :query    (or query {})
+                                            :fragment fragment})
        :fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]})))
 
 ;; ============================================================================

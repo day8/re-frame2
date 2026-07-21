@@ -173,8 +173,13 @@
   (fn [{:keys [db]} _]
     (let [return-to (get-in db [:auth :return-to])]
       {:db (update db :auth dissoc :return-to)
+       ;; The stash IS the resolved address (path + params + query + #fragment)
+       ;; — a valid :rf.route/navigate request in its own right — so return
+       ;; there wholesale. A partial {:to :params} would drop the query string
+       ;; and #fragment and land the user somewhere subtly wrong. :replace? true
+       ;; keeps /login off the back stack.
        :fx [[:dispatch (if return-to
-                         [:rf.route/navigate {:to (:id return-to) :params (:params return-to)}]
+                         [:rf.route/navigate (assoc return-to :replace? true)]
                          [:rf.route/navigate {:to :realworld/home}])]]})))
 
 ;; ============================================================================
