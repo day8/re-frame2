@@ -44,7 +44,7 @@
    {:adapter ui/adapter :ambient-frame nil :async? true}))
 
 (defn- accent-el [root]
-  (.querySelector (.-container root) "ce-accent"))
+  (.querySelector root "ce-accent"))
 
 (deftest declared-property-applies-as-a-js-property-on-the-client
   (if-not (browser?)

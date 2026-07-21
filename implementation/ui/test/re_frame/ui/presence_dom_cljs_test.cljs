@@ -98,7 +98,7 @@
       [toast-card {:key (:id t) :msg (:msg t)}])))
 
 (defn- toasts [root]
-  (vec (.querySelectorAll (.-container root) "[data-testid='toast']")))
+  (vec (.querySelectorAll root "[data-testid='toast']")))
 
 (defn- phase-of [root msg]
   (some #(when (= msg (.getAttribute % "data-msg"))

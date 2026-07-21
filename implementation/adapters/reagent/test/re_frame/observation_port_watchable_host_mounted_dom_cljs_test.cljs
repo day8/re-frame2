@@ -154,7 +154,7 @@
     [:output {:data-nan-site "mounted"} (str v)]))
 
 (defn- mounted-text [root]
-  (some-> (.querySelector root"[data-nan-site]") .-textContent))
+  (some-> (.querySelector root "[data-nan-site]") .-textContent))
 
 ;; ONE movement at the mount. `dispatch-sync` moves app-db inside React `act`;
 ;; `ratom/flush!` then drains Reagent's queue so the WATCHED sub Reaction

@@ -124,11 +124,11 @@
       (register!)
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [keyed-consumer]]]
-              (let [ul     (.querySelector root".kslot")
-                    row-a0 (.querySelector root".krow[data-key='1']")
-                    row-b0 (.querySelector root".krow[data-key='2']")
-                    cell-a0 (.querySelector root".krow[data-key='1'] .kcell")
-                    cell-b0 (.querySelector root".krow[data-key='2'] .kcell")]
+              (let [ul     (.querySelector root ".kslot")
+                    row-a0 (.querySelector root ".krow[data-key='1']")
+                    row-b0 (.querySelector root ".krow[data-key='2']")
+                    cell-a0 (.querySelector root ".krow[data-key='1'] .kcell")
+                    cell-b0 (.querySelector root ".krow[data-key='2'] .kcell")]
                 ;; sanity — initial order A,B; each row's slot body shows its own datum
                 (is (some? row-a0) "row A mounted through the slot seam")
                 (is (some? row-b0) "row B mounted through the slot seam")
@@ -139,11 +139,11 @@
                 (-> (uit/flush! #(do (frame-dispatch! ::k [:reorder/reverse]) (host-turn!)))
                     (.then
                      (fn []
-                       (let [ul1     (.querySelector root".kslot")
-                             row-a1  (.querySelector root".krow[data-key='1']")
-                             row-b1  (.querySelector root".krow[data-key='2']")
-                             cell-a1 (.querySelector root".krow[data-key='1'] .kcell")
-                             cell-b1 (.querySelector root".krow[data-key='2'] .kcell")]
+                       (let [ul1     (.querySelector root ".kslot")
+                             row-a1  (.querySelector root ".krow[data-key='1']")
+                             row-b1  (.querySelector root ".krow[data-key='2']")
+                             cell-a1 (.querySelector root ".krow[data-key='1'] .kcell")
+                             cell-b1 (.querySelector root ".krow[data-key='2'] .kcell")]
                          ;; the ORDER flipped to B,A
                          (is (= "2" (first-key ul1 "data-key")) "after reorder: B is first")
                          (is (= "1" (last-key ul1 "data-key"))  "after reorder: A is last")
@@ -182,13 +182,13 @@
       (register!)
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [index-consumer]]]
-              (let [ul      (.querySelector root".islot")
+              (let [ul      (.querySelector root ".islot")
                     pos0-0  (.-firstElementChild ul)]
                 (is (= "Alpha" (.-textContent pos0-0)) "position 0 initially shows A's datum")
                 (-> (uit/flush! #(do (frame-dispatch! ::i [:reorder/reverse]) (host-turn!)))
                     (.then
                      (fn []
-                       (let [ul1    (.querySelector root".islot")
+                       (let [ul1    (.querySelector root ".islot")
                              pos0-1 (.-firstElementChild ul1)]
                          ;; SAME position-0 node object (React kept key 0) ...
                          (is (identical? pos0-0 pos0-1)

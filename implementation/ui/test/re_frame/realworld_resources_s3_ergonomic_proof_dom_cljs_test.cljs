@@ -114,8 +114,8 @@
     (let [f (editor-frame)]
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [editor/editor-page]]]
-              (let [title (.querySelector root"[data-testid='editor-title']")
-                    body  (.querySelector root"[data-testid='editor-body']")]
+              (let [title (.querySelector root "[data-testid='editor-title']")
+                    body  (.querySelector root "[data-testid='editor-body']")]
                 (testing "a keystroke writes app-db INSIDE the DOM event (caret-safe)"
                   (input! title "My New Article")
                   (is (= "My New Article" (:title (draft ::editor)))
@@ -139,9 +139,9 @@
     (let [f (editor-frame)]
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [editor/editor-page]]]
-              (let [form (.querySelector root"[data-testid='editor-form']")]
+              (let [form (.querySelector root "[data-testid='editor-form']")]
                 (testing "a blank draft shows no field errors before submit"
-                  (is (nil? (.querySelector root".error-messages"))))
+                  (is (nil? (.querySelector root ".error-messages"))))
                 (-> (uit/flush! #(do (submit! form) (host-turn!)))
                     (.then
                      (fn []
@@ -150,7 +150,7 @@
                              "the ui/event submit dispatched [:editor/submit]")
                          (is (seq (get-in (app-db ::editor) [:editor :errors]))
                              "validation populated the per-field error map")
-                         (is (some? (.querySelector root".error-messages"))
+                         (is (some? (.querySelector root ".error-messages"))
                              "the field errors now render")))))))
             (.then (fn [] (rf/destroy-frame! f) (done))
                    (fn [e] (rf/destroy-frame! f)
@@ -168,19 +168,19 @@
               (-> (host-turn!)
                   (.then
                    (fn []
-                     (let [submit (.querySelector root"[data-testid='editor-submit']")]
+                     (let [submit (.querySelector root "[data-testid='editor-submit']")]
                        (testing "a blank (invalid + clean) draft disables the submit button"
                          (is (true? (.-disabled submit))))
                        ;; fill the three required fields → valid AND dirty
                        (uit/flush!
-                        #(do (input! (.querySelector root"[data-testid='editor-title']") "T")
-                             (input! (.querySelector root"[data-testid='editor-description']") "D")
-                             (input! (.querySelector root"[data-testid='editor-body']") "B")
+                        #(do (input! (.querySelector root "[data-testid='editor-title']") "T")
+                             (input! (.querySelector root "[data-testid='editor-description']") "D")
+                             (input! (.querySelector root "[data-testid='editor-body']") "B")
                              (host-turn!))))))
                   (.then (fn [] (host-turn!)))
                   (.then
                    (fn []
-                     (let [submit (.querySelector root"[data-testid='editor-submit']")]
+                     (let [submit (.querySelector root "[data-testid='editor-submit']")]
                        (testing "the materialised flow output enables the button once valid+dirty"
                          (is (true? (get-in (app-db ::editor) [:editor :can-submit?]))
                              "the :editor/can-submit? flow materialised true")
@@ -197,7 +197,7 @@
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [editor/editor-page]]]
               (-> (uit/flush!
-                   #(do (input! (.querySelector root"[data-testid='editor-title']") "Draft in progress")
+                   #(do (input! (.querySelector root "[data-testid='editor-title']") "Draft in progress")
                         (host-turn!)))
                   (.then
                    (fn []
@@ -211,7 +211,7 @@
                      (is (= "Draft in progress" (:title (draft ::editor)))
                          "the edited draft survives the re-render")
                      (is (= "Draft in progress"
-                            (.-value (.querySelector root"[data-testid='editor-title']")))
+                            (.-value (.querySelector root "[data-testid='editor-title']")))
                          "the controlled field still reflects app-db after re-render")))))
             (.then
              (fn []
@@ -236,20 +236,20 @@
     (let [f (rf/make-frame {:id ::counter :initial-events [[:ui-counter/init]]})]
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [counter/counter]]]
-              (let [value (.querySelector root"[data-testid='counter-value']")]
+              (let [value (.querySelector root "[data-testid='counter-value']")]
                 (is (= "Count: 0" (.-textContent value)))
-                (-> (uit/flush! #(do (click! (.querySelector root"[data-testid='counter-step']"))
+                (-> (uit/flush! #(do (click! (.querySelector root "[data-testid='counter-step']"))
                                      (host-turn!)))
                     (.then
                      (fn []
                        (is (= "Count: 5" (.-textContent value)) "+5 event vector fired")
-                       (uit/flush! #(do (click! (.querySelector root"[data-testid='counter-dec']"))
+                       (uit/flush! #(do (click! (.querySelector root "[data-testid='counter-dec']"))
                                         (host-turn!)))))
                     (.then
                      (fn []
                        (is (= "Count: 4" (.-textContent value)) "- event vector fired")
                        ;; the controlled number field writes through :rf.ui/value
-                       (input! (.querySelector root"[data-testid='counter-input']") "42")
+                       (input! (.querySelector root "[data-testid='counter-input']") "42")
                        (is (= 42 (:ui-counter/count (app-db ::counter)))
                            "the controlled input drains synchronously"))))))
             (.then (fn [] (rf/destroy-frame! f) (done))
@@ -269,21 +269,21 @@
       (let [f (rf/make-frame {:id ::dash :initial-events [[:ui-dash/init]]})]
         (async done
           (-> (uit/with-root [root [ui/frame-provider {:frame f} [dashboard/dashboard]]]
-                (let [users-val (.querySelector root"[data-testid='metric-users-value']")]
+                (let [users-val (.querySelector root "[data-testid='metric-users-value']")]
                   (is (= "1280" (.-textContent users-val)))
-                  (-> (uit/flush! #(do (click! (.querySelector root"[data-testid='metric-users-bump']"))
+                  (-> (uit/flush! #(do (click! (.querySelector root "[data-testid='metric-users-bump']"))
                                        (host-turn!)))
                       (.then
                        (fn []
                          (is (= "1281" (.-textContent users-val)) "the +1 event vector bumped the metric")
                          ;; the controlled filter narrows the keyed list
-                         (uit/flush! #(do (input! (.querySelector root"[data-testid='dashboard-filter']") "rev")
+                         (uit/flush! #(do (input! (.querySelector root "[data-testid='dashboard-filter']") "rev")
                                           (host-turn!)))))
                       (.then
                        (fn []
-                         (is (nil? (.querySelector root"[data-testid='metric-users']"))
+                         (is (nil? (.querySelector root "[data-testid='metric-users']"))
                              "a non-matching metric drops out of the keyed list")
-                         (is (some? (.querySelector root"[data-testid='metric-revenue']"))
+                         (is (some? (.querySelector root "[data-testid='metric-revenue']"))
                              "the matching metric stays")
                          ;; Escape (a window keydown) clears the filter via the
                          ;; effect+dispatch-fn listener → the full list returns.
@@ -294,16 +294,16 @@
                                (host-turn!)))))
                       (.then
                        (fn []
-                         (is (some? (.querySelector root"[data-testid='metric-users']"))
+                         (is (some? (.querySelector root "[data-testid='metric-users']"))
                              "Escape cleared the filter (effect+dispatch-fn listener) — all metrics return")
                          ;; the view-only compact toggle is `local` (re-renders this view only)
-                         (is (some? (.querySelector root"[data-testid='metric-revenue-bump']"))
+                         (is (some? (.querySelector root "[data-testid='metric-revenue-bump']"))
                              "controls visible before the compact toggle")
-                         (uit/flush! #(do (click! (.querySelector root"[data-testid='dashboard-compact']"))
+                         (uit/flush! #(do (click! (.querySelector root "[data-testid='dashboard-compact']"))
                                           (host-turn!)))))
                       (.then
                        (fn []
-                         (is (nil? (.querySelector root"[data-testid='metric-revenue-bump']"))
+                         (is (nil? (.querySelector root "[data-testid='metric-revenue-bump']"))
                              "the local compact toggle hid the card controls"))))))
               (.then (fn [] (rf/destroy-frame! f) (done))
                      (fn [e] (rf/destroy-frame! f)

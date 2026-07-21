@@ -93,8 +93,8 @@
       (register!)
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [event-filter]]]
-              (let [maybe (.querySelector root"[data-role='maybe']")
-                    never (.querySelector root"[data-role='never']")]
+              (let [maybe (.querySelector root "[data-role='maybe']")
+                    never (.querySelector root "[data-role='never']")]
                 (-> (uit/flush! #(do (click! never) (host-turn!)))
                     (.then (fn []
                              (is (nil? (:log (app-db ::ev)))
@@ -137,8 +137,8 @@
       (reset! foreign-cbs [])
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [handler-host]]]
-              (let [bump (.querySelector root"[data-role='bump']")
-                    fbtn (.querySelector root"[data-role='foreign-btn']")]
+              (let [bump (.querySelector root "[data-role='bump']")
+                    fbtn (.querySelector root "[data-role='foreign-btn']")]
                 (-> (uit/flush! #(do (click! fbtn) (host-turn!)))
                     (.then (fn []
                              (is (= ["PAYLOAD" 0] @handler-seen)
@@ -147,7 +147,7 @@
                              (uit/flush! #(do (click! bump) (host-turn!)))))
                     (.then (fn [] (uit/flush! #(do (frame-dispatch! ::hd [:eb/recover 1]) (host-turn!)))))
                     (.then (fn []
-                             (let [fbtn2 (.querySelector root"[data-role='foreign-btn']")]
+                             (let [fbtn2 (.querySelector root "[data-role='foreign-btn']")]
                                (uit/flush! #(do (click! fbtn2) (host-turn!))))))
                     (.then (fn []
                              (is (= ["PAYLOAD" 1] @handler-seen)
@@ -175,7 +175,7 @@
       (reset! ref-node nil)
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [ref-host]]]
-              (let [el (.querySelector root"[data-role='reffed']")]
+              (let [el (.querySelector root "[data-role='reffed']")]
                 (is (some? @ref-node) "the explicit callback ref fired at commit")
                 (is (identical? el @ref-node)
                     "it received the live DOM node (no committed-slot promise, layout-time)")))
@@ -208,26 +208,26 @@
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [eb-host]]]
               (do
-                (is (some? (.querySelector root"[data-role='child']"))
+                (is (some? (.querySelector root "[data-role='child']"))
                     "the guarded child renders normally")
                 (-> (uit/flush! #(do (frame-dispatch! ::eb [:rf/set-db {:explode? true :reset-key 0}])
                                      (host-turn!)))
                     (.then (fn []
-                             (is (some? (.querySelector root"[data-role='fallback']"))
+                             (is (some? (.querySelector root "[data-role='fallback']"))
                                  "a render-phase throw is caught — the fallback renders")
-                             (is (nil? (.querySelector root"[data-role='child']"))
+                             (is (nil? (.querySelector root "[data-role='child']"))
                                  "the throwing child is gone")
                              (is (= "caught:render-boom"
-                                    (.-textContent (.querySelector root"[data-role='fallback']")))
+                                    (.-textContent (.querySelector root "[data-role='fallback']")))
                                  "the fallback renders with the caught :error")
                              (is (= "render-boom" (:caught (app-db ::eb)))
                                  ":on-error dispatched AFTER commit, with the error appended")
                              ;; recover: reset-key change + explode? false clears the error
                              (uit/flush! #(do (frame-dispatch! ::eb [:eb/recover 1]) (host-turn!)))))
                     (.then (fn []
-                             (is (some? (.querySelector root"[data-role='child']"))
+                             (is (some? (.querySelector root "[data-role='child']"))
                                  "a changed :reset-key clears the caught error — the child retries")
-                             (is (nil? (.querySelector root"[data-role='fallback']"))
+                             (is (nil? (.querySelector root "[data-role='fallback']"))
                                  "the fallback is gone after recovery"))))))
             (.then (fn [] (rf/destroy-frame! f) (done))
                    (fn [e] (rf/destroy-frame! f) (is false (str "error-boundary: " e)) (done))))))))
@@ -252,7 +252,7 @@
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [eb-effect-host]]]
               (-> (host-turn!)
                   (.then (fn []
-                           (is (some? (.querySelector root"[data-role='fallback']"))
+                           (is (some? (.querySelector root "[data-role='fallback']"))
                                "an effect-phase (lifecycle) throw is also caught by the boundary")))))
             (.then (fn [] (rf/destroy-frame! f) (done))
                    (fn [e] (rf/destroy-frame! f) (is false (str "eb effect: " e)) (done))))))))
@@ -275,11 +275,11 @@
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [client-only-host]]]
               (do
-                (is (some? (.querySelector root"[data-role='client-live']"))
+                (is (some? (.querySelector root "[data-role='client-live']"))
                     "the browser ACTIVATES the client subtree")
                 (is (= "LIVE-INTERACTIVE"
-                       (.-textContent (.querySelector root"[data-role='client-live']"))))
-                (is (nil? (.querySelector root"[data-role='fallback-skeleton']"))
+                       (.-textContent (.querySelector root "[data-role='client-live']"))))
+                (is (nil? (.querySelector root "[data-role='fallback-skeleton']"))
                     "the JVM/SSR fallback does not render on the client (S3 activation)")))
             (.then (fn [] (rf/destroy-frame! f) (done))
                    (fn [e] (rf/destroy-frame! f) (is false (str "client-only: " e)) (done))))))))

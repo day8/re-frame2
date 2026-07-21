@@ -131,7 +131,7 @@
 
 (defn- rendered-values
   [root n]
-  (.-textContent (.querySelector root(str "[data-g3-sites='" n "']"))))
+  (.-textContent (.querySelector root (str "[data-g3-sites='" n "']"))))
 
 (defn- cache-entry
   [frame-id query]

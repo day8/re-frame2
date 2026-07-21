@@ -60,7 +60,7 @@
   (test-support/make-reset-runtime-fixture
    {:adapter ui/adapter :ambient-frame nil :async? true}))
 
-(defn- q [root sel] (.querySelector (.-container root) sel))
+(defn- q [root sel] (.querySelector root sel))
 
 (defn- assert-raw-boundary [root]
   (let [host (q root ".host")

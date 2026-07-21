@@ -184,11 +184,11 @@
                     :control control}]]]
            (testing "the closest provider wins and restores in LIFO order"
              (is (= "17" (.-textContent
-                              (.querySelector root"[data-role='outer-before']"))))
+                              (.querySelector root "[data-role='outer-before']"))))
              (is (= "inner" (.-textContent
-                              (.querySelector root"[data-role='target']"))))
+                              (.querySelector root "[data-role='target']"))))
              (is (= "17" (.-textContent
-                              (.querySelector root"[data-role='outer-after']")))))
+                              (.querySelector root "[data-role='outer-after']")))))
            (let [cell       (cell-with-committed-value initial-value)
                  [sid site] (only-site cell)
                  handle      (:handle site)]
@@ -222,7 +222,7 @@
                          "rf=-equal values retain the prior exact object")
                      (is (= revision (reactive/revision current-cell)))
                      (is (= "inner" (.-textContent
-                                     (.querySelector root"[data-role='target']")))))
+                                     (.querySelector root "[data-role='target']")))))
                    (uit/flush!
                     #(@control {[::image-value] js/NaN})))))
               (.then
@@ -236,7 +236,7 @@
                      (is (not (identical? handle nan-handle)))
                      (assert-static-handle! nan-handle js/NaN)
                      (is (= "NaN" (.-textContent
-                                    (.querySelector root"[data-role='target']")))))
+                                    (.querySelector root "[data-role='target']")))))
                    (swap! seen assoc :handle nan-handle
                                      :target nan-target
                                      :revision (reactive/revision cell))
@@ -256,7 +256,7 @@
                      (is (js/Object.is js/NaN (:value site)))
                      (is (= revision (reactive/revision cell)))
                      (is (= "NaN" (.-textContent
-                                    (.querySelector root"[data-role='target']")))))
+                                    (.querySelector root "[data-role='target']")))))
                    (uit/flush!
                     #(@control {[::image-value] changed-value})))))
               (.then
@@ -269,7 +269,7 @@
                      (is (not (identical? handle new-handle)))
                      (assert-static-handle! new-handle changed-value)
                      (is (= "changed" (.-textContent
-                                       (.querySelector root"[data-role='target']")))))
+                                       (.querySelector root "[data-role='target']")))))
                    (swap! seen assoc :handle new-handle)
                    (uit/flush! #(@control {})))))
               (.then
@@ -288,7 +288,7 @@
                      (is (= ordinary-v1 (:value site)))
                      (is (= "ordinary-image-v1"
                             (.-textContent
-                             (.querySelector root"[data-role='target']")))))
+                             (.querySelector root "[data-role='target']")))))
                    (swap! seen assoc :node-handle node-handle
                                      :node-reaction reaction)
                    (uit/flush!
@@ -383,7 +383,7 @@
                          "invalid override remains a HIT, not an ordinary miss")
                      (assert-static-handle! nil-handle nil)
                      (is (= "nil" (.-textContent
-                                   (.querySelector root"[data-role='target']"))))
+                                   (.querySelector root "[data-role='target']"))))
                      (is (= remount
                             (reactive/view-remount-generation ::story-value))))
                    (testing "the rejection is attributed to the target image schema"
@@ -410,7 +410,7 @@
                      (is (not (identical? handle valid-handle)))
                      (assert-static-handle! valid-handle 7)
                      (is (= "7" (.-textContent
-                                 (.querySelector root"[data-role='target']"))))
+                                 (.querySelector root "[data-role='target']"))))
                      (is (empty? @(:sub-cache (frame/frame frame-id)))))
                    (swap! seen assoc :handle valid-handle
                                      :revision (reactive/revision cell))
@@ -427,7 +427,7 @@
                      (is (= revision (reactive/revision cell)))
                      (is (zero? (reactive/pending-cell-count)))
                      (is (= "7" (.-textContent
-                                 (.querySelector root"[data-role='target']")))))))))))
+                                 (.querySelector root "[data-role='target']")))))))))))
          (.then
           (fn []
             (let [{:keys [cell]} @seen]
