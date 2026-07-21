@@ -95,9 +95,19 @@
   "Pure data → data: map a `[:tests :runs]` status keyword to the
   styles map key that renders its dot colour. The render-only mapping
   lives next to the canonical statuses so both surfaces (sidebar dot,
-  chrome widget) can JVM-test the projection without booting Reagent."
+  chrome widget) can JVM-test the projection without booting Reagent.
+
+  Covers the run-outcome statuses a testable variant's dot can carry
+  (`theme.status` vocab). `:error` shares `:fail`'s danger tint — both
+  demand attention and resolve to the same `:danger` colour. Any status
+  without a bespoke dot style (`:cannot-run`/`:blocked`/`:dirty`/
+  `:redacted` — chip-axis values that don't normally reach the dot)
+  returns `nil`; the `status-dot` call site falls back to the neutral
+  `:pending` ring for those rather than dereferencing `nil` as a fn
+  (which crashed the whole sidebar render on any `:error`-status run)."
   {:pass    :dot-pass
    :fail    :dot-fail
+   :error   :dot-fail
    :running :dot-running
    :pending :dot-pending})
 
@@ -109,6 +119,7 @@
   (case status
     :pass    "tests passing"
     :fail    "tests failing"
+    :error   "tests errored"
     :running "tests running"
     :pending "tests not yet run"
     "tests not yet run"))
@@ -272,7 +283,7 @@
   [status]
   (let [k     (status->dot-style-key status)
         label (dot-aria-label status)]
-    [:span {:style       (merge (:dot styles) (k styles))
+    [:span {:style       (merge (:dot styles) (get styles k (:dot-pending styles)))
             :data-test   "story-sidebar-dot"
             :data-status (name (or status :pending))
             :role        "img"
