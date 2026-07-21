@@ -3,9 +3,8 @@
 
   core's `frame/destroy-frame!` fires the named cleanup hook
   `:ui/on-frame-destroyed!` (registered in `re-frame.ui.frames`), which sweeps
-  every currently-connected ViewCell whose retained subscription targets OR
-  resource-incarnation records name the destroyed frame (resource ownership is
-  not read observation) to `:dead` (03 §4 dead-cell lifecycle): handles detached,
+  every currently-connected ViewCell whose retained subscription targets name
+  the destroyed frame to `:dead` (03 §4 dead-cell lifecycle): handles detached,
   pending notification dropped, the retained interval proven an unmount
   (`:unmounted {:proof :host-teardown}`).
 

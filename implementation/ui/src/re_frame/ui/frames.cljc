@@ -1535,11 +1535,10 @@
 ;; per optional artefact that owns frame-scoped teardown. The compiled-view
 ;; substrate answers it through `reactive/teardown-frame!`, which sweeps a
 ;; bounded victim set to `:dead`: every currently-connected ViewCell whose
-;; retained subscription targets OR resource-incarnation records name the
-;; destroyed frame (resource ownership is not read observation), PLUS every
+;; retained subscription targets name the destroyed frame, PLUS every
 ;; still-disconnected but React-retained
 ;; root-owned ViewCell whose last published site values (retained subscription
-;; targets / resource reservations) name it. The disconnected arm is the
+;; targets) name it. The disconnected arm is the
 ;; non-obvious half and the reason the hook can never be connected-only — an
 ;; Activity-hidden cell holds no live observers yet must not survive its frame
 ;; to throw on reveal. The union is deduplicated and incarnation-scoped (a
