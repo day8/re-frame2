@@ -239,8 +239,13 @@ below carries the exact id + fix:
   compiler wrote; there is no hiccup interpreter in the production bundle, so
   unprovable forms are compile errors (never a runtime fallback).
 - **JVM parity + headless tests.** A compiled view renders to a structural tree
-  on the JVM; test it without a browser via `re-frame.ui.test`
-  (`render`/`find`/`text`/`attrs`/`flush!`). Host-only ops (`ui/raw`, `local`
+  on the JVM; test it without a browser via `re-frame.ui.test` — **six names
+  across two hosts**. JVM structural host: `render` (ONE grammar — the literal
+  view form, props carried in it; ONE option `:sub-overrides`) plus the `attrs`
+  / `text` read projections, traversed with ordinary `(tree-seq map? :children
+  tree)` and driven by `rf/dispatch-sync` under `rf/with-new-frame`. CLJS
+  mounted host: `with-root` + `flush!` + `flush-presence!`, querying the
+  container with native `.querySelector`. Host-only ops (`ui/raw`, `local`
   `set!`/`update!`, `dispatch-fn` invocation) raise `:rf.error/jvm-host-op` on
   the JVM.
 - **DCE / elision.** The closed AST is what lets advanced builds elide the
