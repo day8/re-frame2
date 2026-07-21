@@ -57,7 +57,7 @@ Nothing more. The outer is pure render; it never touches the DOM; it never holds
 
 The inner view is **not** a Form-1. It is whatever the active adapter exposes as its Form-3 equivalent — a Reagent `create-class` for Reagent / Reagent-slim, a `use-effect` body for UIx / Helix. The inner owns three lifecycle phases:
 
-1. **Mount** — after first commit, the DOM mount point exists. Read it via a ref, hand it to the library's constructor, stash the resulting instance handle in a per-mount closure cell (a plain `atom` for Reagent; a `use-ref` for hooks-based adapters). Apply the initial props.
+1. **Mount** — after first commit, the DOM mount point exists. Read it via a ref, hand it to the library's constructor, stash the resulting instance handle in a per-mount closure cell (a plain `atom` for Reagent; a `ui/ref` for hooks-based adapters). Apply the initial props.
 2. **Update** — when props change, the library's instance is **already mounted**; it is not torn down and re-created. Push the new props into the instance via whatever imperative API the library exposes (`.setData`, `.setView`, `.setOptions`, `.update`, `.panTo`, …).
 3. **Unmount** — release the instance handle. Call the library's dispose / destroy API if it has one; remove any listeners the library was unable to clean up itself; null out the closure cells so the GC can reclaim them.
 

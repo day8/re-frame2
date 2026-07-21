@@ -383,9 +383,10 @@
             ;; S3 literal safe-spread policy — attr passthrough that cannot
             ;; clobber owned props or forfeit the sync door (rf2-isdqjv)
             spread-safe
-            ;; S3 host hooks — view-local ephemera, host effects, and the
-            ;; stable committed-frame dispatcher (rf2-vxgfnd.95.2)
-            local effect dispatch-fn
+            ;; S3 host hooks — view-local ephemera, the DOM-node ref, host
+            ;; effects, and the stable committed-frame dispatcher (rf2-vxgfnd.95.2;
+            ;; ref promoted from the re-frame.ui.react ref hook, rf2-u53yy.9)
+            local ref effect dispatch-fn
             ;; S3 explicit callback boundaries, error recovery, client-only
             ;; (rf2-vxgfnd.95.3): the imperative committed callback + the two
             ;; interop recovery/boundary forms

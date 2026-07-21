@@ -2,9 +2,13 @@
 
 `re-frame.ui.react` is the **frozen React-interop tier** of the compiled-view
 substrate (Maven coordinate `day8/re-frame2-ui`) — a deliberately tiny, closed set of
-seven wrappers for views that must participate in a *foreign* React world: an exported
+six wrappers for views that must participate in a *foreign* React world: an exported
 `defview` living inside a legacy parent, or a foreign widget embedded inside a `defview`
-whose API demands refs, contexts, ids, or code-splitting.
+whose API demands contexts, ids, effects, or code-splitting.
+
+The everyday DOM-node ref is **not** here — it is the substrate-native
+[`re-frame.ui/ref`](re-frame.ui.md#ref) (promoted out of this tier, rf2-u53yy.9; its
+lowering target stays the `re-frame.ui.hooks/use-ref` runtime fn).
 
 It is **not** a second state or reactivity model. `use-state` is `local`;
 `use-memo`/`use-callback` are the compiler's job (per-site identity is owned for you);
@@ -17,7 +21,8 @@ Spec 004 §The React interop tier.
           [re-frame.ui.react :as react])
 ```
 
-**The position law.** The six host hooks (`use-ref` … `use-id`) are recognised and
+**The position law.** The five host hooks (`use-effect` … `use-id`) — and the substrate
+[`ui/ref`](re-frame.ui.md#ref) — are recognised and
 lowered by the compiler exactly like `sub`/`local`/`effect`, and are legal **only where
 they evaluate unconditionally, exactly once per render** — the straight-line top of a
 view body (an outer `let` binding), never inside a branch, a loop, or a callback.
@@ -26,13 +31,6 @@ or reordering any wrapper changes the view's hook signature (a clean remount); e
 deps vector or an effect body preserves state.
 
 ## Host hooks
-
-### `use-ref`
-
-`(react/use-ref)` / `(react/use-ref initial)` → the host ref object (`useRef`).
-Read/write via `(.-current ref)`; assignment **never re-renders** — its reason to exist
-beside `local` — and it is the preferred object ref for `:ref` positions. No deps. On a
-JVM structural render it is an inert ref (`current` nil, stays nil).
 
 ### `use-effect`
 
@@ -96,6 +94,6 @@ declared fallback (else nothing) and never invokes the thunk.
 ## See also
 
 - [Measure before paint](../core/how-to/measure-before-paint.md) — the sanctioned
-  `use-ref` + `use-layout-effect` recipe for component-library geometry.
+  `ui/ref` + `use-layout-effect` recipe for component-library geometry.
 - [`re-frame.ui`](re-frame.ui.md) — the compiled-view surface these wrappers live inside.
 - Spec 004 §The React interop tier — the full normative contract.

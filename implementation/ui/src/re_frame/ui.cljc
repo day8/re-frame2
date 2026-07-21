@@ -57,7 +57,7 @@
   structural tree + the DOM conversion table
   (jvm-tree-and-conversion-contract.md)."
   #?(:cljs (:require-macros [re-frame.ui]))
-  (:refer-clojure :exclude [spread dispatch-fn])
+  (:refer-clojure :exclude [spread dispatch-fn ref])
   (:require [re-frame.error :as error]
             [re-frame.ui.hooks]
             [re-frame.ui.presence-runtime :as presence-rt]
@@ -403,6 +403,46 @@
         "defview form bound in a top-region let, not a callable helper. Author "
         "it as (let [[value set! update!] (local init)] …) in the view body")
    nil))
+
+(defn ref
+  "(ref) / (ref initial) → the host ref object (React `useRef`), the everyday
+  \"I need the DOM node\" primitive (focus, measurement, a third-party widget).
+  Bound in a defview's top-region `let`; read/write via `(.-current ref)`.
+  Assignment NEVER re-renders — its reason to exist beside `local` — and it is
+  the preferred object ref for a `:ref` position. No deps.
+
+  The canonical shape captures the ref in the body, hands it to `:ref`, and reads
+  `(.-current node)` from an `effect` — the object ref attaches at commit BEFORE
+  effects fire, so `.-current` is populated by first effect time:
+
+      (ui/defview chart [{:keys [series]}]
+        (let [node (ui/ref)]
+          (ui/effect [node series]
+            (when-let [el (.-current node)]
+              (draw! el series)
+              #(destroy! el)))
+          [:canvas {:ref node}]))
+
+  Callback refs via `ui/raw-fn` remain the honest expert seam for when the target
+  node's identity change must ITSELF trigger work — `ui/ref` is the common case.
+
+  On the JVM structural render `ref` yields an inert ref (`current` nil, stays
+  nil); refs never appear in the JVM tree.
+
+  This var exists for symbol resolution only; a direct call fails loudly."
+  ([] (error/throw-error!
+       :rf.error/ui-tree-malformed 're-frame.ui/ref
+       (str "(ref) executed outside compiler lowering — it is a lexical defview "
+            "form bound in a top-region let, not a callable helper. Author it as "
+            "(let [node (ui/ref)] …) in the view body")
+       nil))
+  ([_initial] (error/throw-error!
+               :rf.error/ui-tree-malformed 're-frame.ui/ref
+               (str "(ref initial) executed outside compiler lowering — it is a "
+                    "lexical defview form bound in a top-region let, not a "
+                    "callable helper. Author it as (let [node (ui/ref initial)] …) "
+                    "in the view body")
+               nil)))
 
 (defn effect
   "(effect [deps…] body…) / (effect :connect body…) is the compiler-owned host

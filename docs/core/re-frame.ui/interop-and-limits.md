@@ -82,9 +82,10 @@ Real apps embed React that someone else wrote. The doors are explicit and narrow
 - **`ui/html`** is the one escaping bypass — visible at the call site, you vouch
   for the string.
 - **React hooks at a genuine foreign boundary** come from `re-frame.ui.react`
-  (`use-ref`, `use-effect`, `use-context`, …) — thin wrappers, an interop/migration
-  tier. Inside ordinary views you never reach for them: `sub`, `local`, and
-  `effect` are the component story. See the
+  (`use-effect`, `use-context`, `use-layout-effect`, …) — thin wrappers, an
+  interop/migration tier. Inside ordinary views you never reach for them: `sub`,
+  `local`, `ref`, and `effect` are the component story (the DOM-node ref is the
+  substrate-native `ui/ref`, not an interop wrapper). See the
   [`re-frame.ui.react` reference](../../api/re-frame.ui.react.md).
 
 ### Forwarding props onto a foreign component: `ui/spread`

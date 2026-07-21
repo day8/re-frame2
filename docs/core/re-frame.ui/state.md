@@ -124,13 +124,20 @@ library attached through a ref. Never app logic; that is events and
 
 ```clojure
 (ui/defview chart [{:keys [series]}]
-  (let [[node set-node] (ui/local nil)]
+  (let [node (ui/ref)]                     ; the DOM-node ref (object ref)
     (ui/effect [node series]              ; value deps, compared by rf=
-      (when node
-        (draw! node series)
-        #(destroy! node)))                ; optional cleanup fn
-    [:canvas {:ref (ui/raw-fn set-node)}]))
+      (when-let [el (.-current node)]     ; read the node from .current
+        (draw! el series)
+        #(destroy! el)))                  ; optional cleanup fn
+    [:canvas {:ref node}]))
 ```
+
+`(ui/ref)` is the everyday **"I need the DOM node"** primitive — the object ref,
+bound in the top-region `let`, handed to `:ref`, and read via `(.-current node)`
+from the effect (it attaches at commit, *before* the effect fires). Assignment
+never re-renders (contrast `local`). For the expert case where the node's
+*identity* change must itself trigger work, a `(ui/raw-fn f)` callback ref is the
+honest seam.
 
 Deps are **values** — a rebuilt-but-equal vector is the same dep. No identity
 traps, no `useCallback`, no stale closures. The returned cleanup runs on dep

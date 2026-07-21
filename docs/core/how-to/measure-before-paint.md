@@ -14,7 +14,7 @@ This is the one job [`app-db`](../glossary.md#app-db), [subscriptions](../glossa
 
 ## The three pieces
 
-**1 — A ref for the element.** `react/use-ref` gives you a stable mutable box whose `.current` React points at the DOM node via a `:ref` prop. Writing it never re-renders — that is exactly why it exists next to `local`.
+**1 — A ref for the element.** `ui/ref` — the substrate DOM-node primitive — gives you a stable mutable box whose `.current` React points at the DOM node via a `:ref` prop. Writing it never re-renders — that is exactly why it exists next to `local`.
 
 **2 — Pure placement geometry.** Keep the decision — "does this fit below, or flip above?" — in a plain function of numbers. No DOM, no host, no re-frame. It is trivially testable and it reads the same on every host.
 
@@ -41,7 +41,7 @@ This is the one job [`app-db`](../glossary.md#app-db), [subscriptions](../glossa
   ordinary props; the placement is applied before paint, so the panel never
   flashes in the wrong spot."
   [{:keys [anchor-bottom viewport]}]
-  (let [el (react/use-ref)
+  (let [el (ui/ref)
         _  (react/use-layout-effect
             (fn []
               (let [node   (.-current el)
@@ -76,11 +76,11 @@ The deps vector `[anchor-bottom viewport]` is compared by `rf=` (value equality)
   [])                                   ; [] deps ⇒ attach once, detach on unmount
 ```
 
-**Every wrapper obeys the position law.** `use-ref` and `use-layout-effect` are real host hooks, so they are legal only in the straight-line top of the view body — an outer `let` binding, never inside a branch, a loop, or a callback. React's hook order must be static; the compiler rejects a misplaced hook with a didactic message. Add or remove a hook and the view remounts cleanly (its hook signature changed); edit a deps vector or an effect body and state is preserved.
+**Every wrapper obeys the position law.** `ui/ref` and `use-layout-effect` are real host hooks, so they are legal only in the straight-line top of the view body — an outer `let` binding, never inside a branch, a loop, or a callback. React's hook order must be static; the compiler rejects a misplaced hook with a didactic message. Add or remove a hook and the view remounts cleanly (its hook signature changed); edit a deps vector or an effect body and state is preserved.
 
 **Application state still goes through events.** Whether the popover is *open* is application state — a `local`, or `app-db` behind an event if other views care. Geometry is the only thing that belongs in the layout effect. Keep the split and both stay testable: the open/close logic through the [event pipeline](../events.md), the placement through a pure `place` function on the JVM.
 
-**On the server there is no layout.** In a JVM/SSR structural render the layout effect does not run and `use-ref` is inert (`.current` stays nil) — the panel renders its markup, and the real measurement happens once, on the client, after hydration. That is correct: there is nothing to measure until the DOM exists.
+**On the server there is no layout.** In a JVM/SSR structural render the layout effect does not run and `ui/ref` is inert (`.current` stays nil) — the panel renders its markup, and the real measurement happens once, on the client, after hydration. That is correct: there is nothing to measure until the DOM exists.
 
 ---
 

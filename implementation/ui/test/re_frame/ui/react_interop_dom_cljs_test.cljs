@@ -2,7 +2,7 @@
   "rf2-vxgfnd.95.4 — the frozen re-frame.ui.react interop tier on a real React
   root (jsdom/browser): the client behaviour the JVM suite cannot exercise.
 
-    - use-ref: `.current` survives re-renders; a write never re-renders; the
+    - ui/ref: `.current` survives re-renders; a write never re-renders; the
       ref attaches to a `:ref` position;
     - use-effect: passive, `rf=` VALUE deps (a distinct-but-value-equal CLJS
       deps value is NOT a change — rf2-u53yy.6 converged the interop tier onto
@@ -47,24 +47,24 @@
 (defn- reset-log! [] (reset! log []) (reset! idents []))
 
 ;; ---------------------------------------------------------------------------
-;; use-ref — survives re-render; a write never re-renders
+;; ui/ref — survives re-render; a write never re-renders
 ;; ---------------------------------------------------------------------------
 
 (defview ref-view []
-  ;; a use-ref cell written from a committed handler (never during render — that
+  ;; a ui/ref cell written from a committed handler (never during render — that
   ;; would be a render-phase mutation); it survives re-renders and its write
   ;; does NOT re-render (contrast `local`).
   (let [[n set-n] (local 0)
-        r         (react/use-ref)]
+        r         (ui/ref)]
     [:div
      [:span {:data-role "n"} (str n)]
      [:button {:data-role "stash" :on-click (ui/handler [_] (set! (.-current r) 77))} "stash"]
      [:button {:data-role "re" :on-click (ui/handler [_] (set-n (inc n)))} "re"]
      [:button {:data-role "read" :on-click (ui/handler [_] (swap! log conj [:read (.-current r)]))} "read"]]))
 
-(deftest use-ref-current-survives-re-render
+(deftest ref-current-survives-re-render
   (if-not (browser?)
-    (is true ":node — browser gate runs use-ref persistence")
+    (is true ":node — browser gate runs ui/ref persistence")
     (async done
       (reset-log!)
       (let [f (make-frame ::ref {})]
@@ -75,7 +75,7 @@
                   (.then host-turn!)
                   (.then (fn []
                            (is (= "0" (.-textContent (.querySelector root "[data-role='n']")))
-                               "writing use-ref's current never re-renders")
+                               "writing ui/ref's current never re-renders")
                            ;; force an unrelated re-render, then read the ref back.
                            (uit/flush! #(click! (.querySelector root "[data-role='re']")))))
                   (.then host-turn!)
@@ -303,7 +303,7 @@
   ;; a NATIVE consumer (no foreign boundary): measure the element in a layout
   ;; effect (before paint), compute placement with pure geometry, apply it, and
   ;; clean up exactly on teardown / re-measure.
-  (let [el (react/use-ref)
+  (let [el (ui/ref)
         _  (react/use-layout-effect
             (fn []
               (let [h  (.-offsetHeight (.-current el))

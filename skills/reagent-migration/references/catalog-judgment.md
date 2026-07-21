@@ -41,7 +41,7 @@
 
 **The decision: decompose each lifecycle body into host work vs domain work.** Mechanical parts first: delete `:should-component-update` (memo-by-default makes it dead), and extract `:reagent-render` as the view body (the other rules apply to it). Then, per lifecycle body, split by *what the body does*:
 
-- **Host / DOM work** → split by *timing*, because `component-did-mount` fired **before paint** and the passive `effect` fires **after** it. Ordinary listeners and deferrable host work (wire a listener, focus a node, kick off a fetch, attach a chart that sizes itself) → `(effect :connect …)`; its signature is a trap — read **the `effect` signature** below before you emit one. But work that **measures or mutates the DOM before the browser paints** — reading a node's geometry to place a popover/dropdown, sizing a table viewport — must NOT move to the passive `effect` (it would measure a frame late and flicker). Route that to **`re-frame.ui.react/use-ref` + `use-layout-effect`** — the measure-before-paint door (see **below**).
+- **Host / DOM work** → split by *timing*, because `component-did-mount` fired **before paint** and the passive `effect` fires **after** it. Ordinary listeners and deferrable host work (wire a listener, focus a node, kick off a fetch, attach a chart that sizes itself) → `(effect :connect …)`; its signature is a trap — read **the `effect` signature** below before you emit one. But work that **measures or mutates the DOM before the browser paints** — reading a node's geometry to place a popover/dropdown, sizing a table viewport — must NOT move to the passive `effect` (it would measure a frame late and flicker). Route that to **`ui/ref` + `re-frame.ui.react/use-layout-effect`** — the measure-before-paint door (see **below**).
 - **Domain work on MOUNT** ("mark viewed", "load on mount") → a route/domain **event** through the dataflow (name it for the author). There is deliberately **no** `:on-mount` primitive; domain-on-mount is a dispatch through the dataflow, not a lifecycle hook.
 - **Domain work on UNMOUNT** ("release a held resource", "mark the draft abandoned") → **re-home it OUT of the view** — see **Domain work on unmount** below. There is **no dispatch-at-unmount** in native re-frame.ui; you do **not** preserve it as an `effect` cleanup.
 
@@ -57,9 +57,9 @@ The mount/unmount split above covers `:component-did-mount` and `:component-will
 
 The two "stays on reagent-slim Form-3" cells are honest **holds**, not gaps in the skill: the snapshot protocol and (when `ui/error-boundary` does not fit) the error boundary have no faithful native passive-effect translation, so the class shape is the answer — which is exactly why the `create-class` cap keeps those keys.
 
-### Measure/mutate before paint → `use-ref` + `use-layout-effect`
+### Measure/mutate before paint → `ui/ref` + `use-layout-effect`
 
-Only for the narrow pre-paint case (geometry read, DOM mutation the layout depends on), and only when a passive `effect` would visibly flicker. The interop hooks live in `re-frame.ui.react` (`[re-frame.ui.react :as react]`) and take React's own `setup`→cleanup shape (a `setup` fn returning a cleanup fn or `nil`) — *unlike* `ui/effect`'s body-return shape:
+Only for the narrow pre-paint case (geometry read, DOM mutation the layout depends on), and only when a passive `effect` would visibly flicker. The node ref is the substrate-native `ui/ref`; the layout-effect hook lives in `re-frame.ui.react` (`[re-frame.ui.react :as react]`) and takes React's own `setup`→cleanup shape (a `setup` fn returning a cleanup fn or `nil`) — *unlike* `ui/effect`'s body-return shape:
 
 ```clojure
 ;; before — measurement in :component-did-mount (pre-paint), Form-3
@@ -67,9 +67,9 @@ Only for the narrow pre-paint case (geometry read, DOM mutation the layout depen
  {:component-did-mount (fn [this] (place! (rdom/dom-node this) (measure anchor)))
   :reagent-render      (fn [] [:div.popover …])})
 
-;; after — pre-paint semantics preserved by the layout effect, node via use-ref
+;; after — pre-paint semantics preserved by the layout effect, node via ui/ref
 (ui/defview popover [{:keys [anchor]}]
-  (let [el (react/use-ref)]
+  (let [el (ui/ref)]
     (react/use-layout-effect
       (fn [] (place! (.-current el) (measure anchor)) nil)   ; runs BEFORE paint; nil = no cleanup
       [anchor])

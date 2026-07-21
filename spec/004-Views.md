@@ -611,6 +611,37 @@ semantics.
   invisible to tools and unrecoverable on replay; a value in `app-db` that turns out
   never to be read is merely slightly verbose. Prefer the recoverable failure.
 
+## The DOM node — `ui/ref`
+
+```clojure
+(ui/defview chart [{:keys [series]}]
+  (let [node (ui/ref)]
+    (ui/effect [node series]
+      (when-let [el (.-current node)]
+        (draw! el series)
+        #(destroy! el)))
+    [:canvas {:ref node}]))
+```
+
+`(ui/ref)` / `(ui/ref initial)` → the host ref object (React `useRef`) — the everyday
+**"I need the DOM node"** primitive (focus, measurement, a third-party widget). Bound in
+a `defview`'s top-region `let` and handed to a `:ref` position; read/write via
+`(.-current node)`. **Assignment never re-renders** — its reason to exist beside `local`
+— and it is the **preferred object ref** for a `:ref` slot. No deps.
+
+The object ref attaches at commit **before effects fire**, so `(.-current node)` is
+populated by the first `effect` time: guard it (`when-let`) and include the ref in the
+effect's deps. `ui/ref` is a **host hook** — it obeys the same position law as `local`
+(legal only where it evaluates unconditionally, exactly once per render — the
+straight-line top region; React's hook order must be static) and contributes its `:ref`
+kind to the view's hook signature. On the JVM structural render it is an **inert ref**
+(`current` nil, stays nil); refs never appear in the JVM tree.
+
+Callback refs via `(ui/raw-fn f)` remain the honest **expert seam** — the
+identity-as-protocol form for when the *target node's identity change* must itself
+trigger work. `ui/ref` is the common case; reach for `ui/raw-fn` only when you need the
+callback.
+
 ## Effects — the view-side surface
 
 ```clojure
@@ -691,7 +722,7 @@ enter/exit retention is out of scope):
 
 Wave-2 rows ship only on the demand bar (a named consumer in the repo's examples,
 tools, or guide fixtures — guide examples authored by this project do not count as
-independent demand for platform-scale features). The seven wrappers of the foreign
+independent demand for platform-scale features). The six wrappers of the foreign
 React-interop tier — `re-frame.ui.react` — carry their own call-shape contract in
 §The React interop tier below.
 
@@ -1025,10 +1056,13 @@ see the same merged element both hosts produce.
 ## The React interop tier — `re-frame.ui.react`
 
 The `re-frame.ui.react` namespace (alias `react`, artifact `day8/re-frame2-ui`, per R-3
-above) is the **interop tier of the foreign boundary**: seven wrappers for views that
+above) is the **interop tier of the foreign boundary**: six wrappers for views that
 must participate in a *foreign* React world — an exported `defview` living inside a
 legacy/foreign parent (`ui/->react`, the outward migration bridge), or a foreign widget
-embedded inside a `defview` whose API demands refs, contexts, ids, or code-splitting. It
+embedded inside a `defview` whose API demands contexts, ids, effects, or code-splitting.
+(The everyday DOM-node ref is **not** here — it is the substrate-native
+[`ui/ref`](#the-dom-node--uiref), promoted out of this tier; its lowering target stays the
+`re-frame.ui.hooks/use-ref` runtime fn.) It
 is **not** a second state or reactivity model, and the absences below are deliberate. The
 call-shape contract is stated here in full; its conformance slice **lands S3** with the
 events/debugging-as-consumer work (§Stage conformance profiles) — the text is final, the
@@ -1045,10 +1079,12 @@ Suspense is not an authoring surface — `lazy` (below) states the one contained
 treats their call sites exactly as it treats `sub` / `frame` sites: recognised
 by resolved head symbol against a closed FQN set inside the S1 expression walk, indexed
 into the manifest, and position-checked at compile time — the analyzer's existing
-finite-site machinery. Six of the seven (`use-ref`, `use-effect`, `use-layout-effect`,
+finite-site machinery. Five of the six (`use-effect`, `use-layout-effect`,
 `use-effect-event`, `use-context`, `use-id`) are **host hooks** and obey the position law
 below; `lazy` is a def-level constructor, exempt from the position law but subject to its
-own.
+own. The substrate [`ui/ref`](#the-dom-node--uiref) is recognised and lowered by this same
+finite-site machinery and obeys the same position law — it is documented on the substrate
+surface, not here.
 
 **The deps law.** Everywhere this tier takes a deps vector, deps are a CLJS vector
 compared by `rf=` (VALUE equality) against the previous render's vector (arity change ⇒
@@ -1066,7 +1102,6 @@ without touching React's hook order — the property the position law relies on.
 
 | Wrapper | Call shape | Wraps / contract |
 |---|---|---|
-| `use-ref` | `(react/use-ref)` / `(react/use-ref initial)` → ref | `useRef`; the foreign ref object, read/write via `(.-current ref)`. Assignment never re-renders — its reason to exist beside `local` — and it is the preferred object ref for `:ref` positions. No deps. |
 | `use-effect` | `(react/use-effect setup)` / `(react/use-effect setup deps)` → nil | `useEffect` (passive, after paint); `setup` returns a cleanup fn or nil, honored on dep change, disconnect, and unmount; StrictMode dev replay is expected and MUST be idempotent-safe — the `effect` contract in a foreign spelling. |
 | `use-layout-effect` | `(react/use-layout-effect setup)` / `(… setup deps)` → nil | `useLayoutEffect` (after DOM mutation, before paint) for measure-then-mutate work that would flicker under passive timing; observes the committed frame, never a mid-commit state. |
 | `use-effect-event` | `(react/use-effect-event f)` → fn | `useEffectEvent` (React 19.2, native — no shim); a fn whose body always sees the latest render's committed values. Its identity is **not** stable — React allocates a fresh fn every render, so never rely on stability. Takes **no** deps; the returned fn MUST NOT appear in any deps vector and MUST NOT be called during render (it is effect-phase machinery). App intent still goes through event vectors / `ui/event`. |
@@ -1074,7 +1109,7 @@ without touching React's hook order — the property the position law relies on.
 | `use-id` | `(react/use-id)` → string | `useId`; a host-generated tree-positional token prefixed by the root's `identifierPrefix`. Determinism under SSR rides the root contract — a hydrating root takes the server's prefix from the manifest ([004C](004C-Roots-and-Mount.md)). |
 | `lazy` | `(react/lazy load-thunk)` / `(react/lazy load-thunk {:fallback tpl})` | `React.lazy` over a foreign component-loading thunk (a zero-arg fn returning a Promise of a foreign component); the result is a foreign component reference, legal exactly where foreign heads are. Def-level only. |
 
-**Position law (the six hooks).** A wrapper site is legal only where it evaluates
+**Position law (the five hooks).** A wrapper site is legal only where it evaluates
 **unconditionally, exactly once per render**: the straight-line top level of the view
 body — outer `let` bindings and positions reachable without crossing a control form, a fn
 form, or a loop. `sub`'s conditional reads are licensed because `sub` is not a hook; the
@@ -1090,12 +1125,14 @@ compile-time ids they carry **no Spec 009 catalogue rows** — only runtime-tier
 rejected where statically recognisable, because calling it per render mints a new
 component type and remount-loops.
 
-**Hook-signature hash.** The six hooks are real host hook calls, so they contribute to a
+**Hook-signature hash.** These five hooks — together with the substrate `ui/ref` — are
+real host hook calls, so they contribute to a
 view's **hook-signature hash** — the `hs1-` digest over the ordered host-hook plan, today
 `[1 {:locals […] :effects […]}]` with `sub` sites deliberately excluded (subs reconcile
-through the single ViewCell binding, not React hook order). Each of the six contributes
-**one entry, in source order** — its kind keyword (`:ref` / `:effect` / `:layout-effect`
-/ `:effect-event` / `:context` / `:id`) — and **kind + order only**: never deps contents,
+through the single ViewCell binding, not React hook order). Each contributes
+**one entry, in source order** — its kind keyword (`ui/ref`'s `:ref`, and the interop
+tier's `:effect` / `:layout-effect` / `:effect-event` / `:context` / `:id`) — and **kind +
+order only**: never deps contents,
 deps arity, context identity, or argument forms, since the fixed-shape lowering keeps
 those off hook order. Editing a deps vector or a setup body is therefore a same-signature
 edit (state preserved), while adding, removing, or reordering any wrapper changes the
@@ -1111,17 +1148,17 @@ is a component of the `build-digest` triple
 `build-digest`, so a stale SSR page's manifest fails digest validation and that root takes
 the loud client-fresh path (per [011](011-SSR.md)) — correct and intended. Honest
 asymmetry: dev's fixed hook skeleton makes adding your first `sub` a same-signature edit,
-but hook counts must be static and the wrappers' count is unbounded, so **adding your
-first `use-ref` is a remount edit** — dev and prod alike. Every wrapper site (all seven)
-is recorded in the compiler manifest with kind, source coordinates, and template path —
-like `effect` sites — consumed by Xray/Story before mount.
+but hook counts must be static and the host-hook count is unbounded, so **adding your
+first `ui/ref` is a remount edit** — dev and prod alike. Every wrapper site (the five
+hooks and `lazy`), together with each `ui/ref` site, is recorded in the compiler manifest
+with kind, source coordinates, and template path — like `effect` sites — consumed by
+Xray/Story before mount.
 
 **Host behaviour — JVM structural render, SSR, `render-static`.** One JVM emitter, one
 contract; these rows extend the JVM structural subset in its own idiom:
 
 | Wrapper | JVM structural render |
 |---|---|
-| `use-ref` | an **inert ref** (`current` nil, stays nil); passing it to a `:ref` position is fine (refs never appear in JVM tree output) |
 | `use-effect` / `use-layout-effect` | **do not run; recorded as capability metadata** — the existing `effect` row |
 | `use-effect-event` | metadata-only; the returned fn raises `:rf.error/jvm-host-op` if invoked |
 | `use-context` | the **JVM-provided test value** (a `ui.test/render` option) **or fails loud** with `:rf.error/jvm-host-op` — never silently nil |
@@ -1129,19 +1166,20 @@ contract; these rows extend the JVM structural subset in its own idiom:
 | `lazy` | **never invokes the thunk**; renders its declared `:fallback`, else `:nothing` |
 
 The transitive capability already names effects, refs, context, and foreign components, so
-`use-effect` / `use-layout-effect` / `use-effect-event` fold into effects, `use-ref` into
-refs, `use-context` into context, and `lazy` into foreign components — a view using any of
-those five cannot be part of a proven-static root; `use-id` is recommended exempt (inert
-deterministic ids are static-safe).
+`use-effect` / `use-layout-effect` / `use-effect-event` fold into effects, `use-context`
+into context, and `lazy` into foreign components — a view using any of those cannot be part
+of a proven-static root; `use-id` is recommended exempt (inert deterministic ids are
+static-safe). The substrate `ui/ref` folds into **refs** (as does an authored
+element/component `:ref` slot).
 
 **Hot reload.** §Hot reload applies unmodified. Adding, removing, or reordering any of the
-six hooks changes the hook signature ⇒ a deliberate clean remount (never a corrupted hook
+five hooks (or a `ui/ref`) changes the hook signature ⇒ a deliberate clean remount (never a corrupted hook
 order); same-signature edits preserve state. Fast Refresh re-runs effects on every refresh
 (cleanup then setup) even when deps are unchanged, so the view generation participates in
 the kernel-internal deps comparison — the `rf=` economy must never out-vote Fast Refresh
 semantics. `use-effect-event` picks up its latest body across same-signature refreshes —
 its identity is not preserved, and never was stable to begin with (React allocates a
-fresh fn every render); `use-ref`'s `current` survives same-signature refreshes and
+fresh fn every render); `ui/ref`'s `current` survives same-signature refreshes and
 resets on remount. Reloading the module that defines a `react/lazy` mints a new component
 identity, so the foreign subtree below it remounts — the foreign boundary's cost, not a
 `ui` HMR defect.
@@ -1158,12 +1196,12 @@ suspend; the `:rf/suspense-boundary` marker stays low-level with no general auth
 sugar (per [011](011-SSR.md)).
 
 **Consumers, and the demand-bar escape.** This tier ships on the demand bar. S1 closed
-with **no current guide consumer** (guide 03's chart example uses `local` / `effect` /
-`ui/raw-fn`, not these hooks); the intended consumers are migration bridges (a
+with **no current guide consumer** (guide 03's chart example uses `ui/ref` / `effect`, not
+these hooks); the intended consumers are migration bridges (a
 `ui/->react`-exported view reading the host's foreign contexts, aria-id pairing, and
 latest-values callbacks demanded by the host's effect-driven APIs) and foreign-widget
-embedding (a mutable ref container without re-render-on-write, measure-before-paint sync,
-or a code-split widget). The audit obligation rides forward: if no concrete consumer
+embedding (measure-before-paint sync via `use-layout-effect`, or a code-split widget via
+`lazy`). The audit obligation rides forward: if no concrete consumer
 materialises by S3 dispatch, this row returns to Mike as a row-level delta before the
 tier's beads cut.
 
@@ -1175,7 +1213,7 @@ the `lazy`-in-render dynamic diagnostic; `use-effect-event`-in-deps static-detec
 scope; the JVM `use-context` keying token and whether the fail-loud path reuses
 `:rf.error/jvm-host-op` or earns a dedicated id; the JVM `use-id` derivation and the
 hydrating-root mismatch rule (diagnostic vs. error); and the capability-bit mapping of the
-seven onto the static-root vocabulary. The catalogue-row question is **settled** — the
+six onto the static-root vocabulary. The catalogue-row question is **settled** — the
 compile-time ids take no Spec 009 rows (above).
 
 ## Roots and mounting
@@ -1324,6 +1362,7 @@ browser renders it, the server renders it" is scoped to exactly this table:
 |---|---|
 | structure, props, subs, branches, lists, event intent, `ui/html` | full semantics (subs via the pure snapshot path — no ownership, no watches) |
 | `local` | contributes its **initial value**; the setter is absent — invoking it in a JVM test raises `:rf.error/jvm-host-op` |
+| `ui/ref` | an **inert ref** (`current` nil, stays nil); passing it to a `:ref` position is fine (refs never appear in JVM tree output) |
 | `effect` | does not run; recorded as capability metadata |
 | refs | absent |
 | `portal` / `client-only` | explicit deterministic fallbacks |
@@ -1503,7 +1542,7 @@ a conflict is resolved in that order and is a defect in this table.
 | §Interop — `ui/spread` | **S1** | with the conversion-table row above; plus the foreign-props position rule (§`ui/spread` at a foreign component call site) — literal part analysed normally, opaque forwarded map layered under it, `:rf.ui.compile/spread-internal-view` at an internal view |
 | §The safe-spread policy — `ui/spread-safe` | **S3** | owned-key deny in dev AND advanced builds (G-17); `aria-*`/`data-*`/`title`/`:class`/`:style` passthrough per the 004B table; allowed `:on-*` classify through the handler table; the controlled split — policy retains the sync door, general spread forfeits it (both asserted) |
 | §Interop — `ui/->react` | **S6** | compat-boundary fixtures, both nesting directions (the compat-boundary contract) |
-| §The React interop tier — `re-frame.ui.react` | **S3** | the seven wrappers' call shapes; the position law (finite-site analyzer extension — conditional/inside-fn rejection); the hook-signature-hash `:react` extension + the one-time remount wave; JVM host-render rows; HMR remount/preservation. Declared until then |
+| §The React interop tier — `re-frame.ui.react` | **S3** | the six wrappers' call shapes; the position law (finite-site analyzer extension — conditional/inside-fn rejection); the hook-signature-hash `:react` extension + the one-time remount wave; JVM host-render rows; HMR remount/preservation. Declared until then |
 | §Interop — `element` / `view` / `portal` / `re-frame.ui.data` | — | [WAVE-2]: no stage, no assertion, no v1 existence |
 | §Roots and mounting — mount grammar, root identity, Root Descriptor v1, client host fns, duplicate Layers 1+3, static frame-plan extraction | **S1** | the [004C-Roots-and-Mount.md](004C-Roots-and-Mount.md) §10 S1 row |
 | §Roots and mounting — frame preflight ENSURE (runtime) + `frame-root`/`frame-provider` scoping | **S2** | preflight-exactly-once, non-reseed, StrictMode/HMR-immune fixtures |
