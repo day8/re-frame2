@@ -98,7 +98,7 @@
 
     :compile-finish
     (let [snap     (build/accepted-snapshot build-state)
-          manifest (build/accepted-aggregate build/elements build-state)
+          manifest (build/accepted-element-manifest build-state)
           views    (build/accepted-aggregate build/views build-state)
           members  (member-nss build-state)]
       (record! build-id

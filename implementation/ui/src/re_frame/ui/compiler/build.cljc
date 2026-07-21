@@ -54,8 +54,24 @@
 (def roots       ::roots)        ; Layer-1 root-site index
 (def plans       ::plans)        ; Layer-1 frame-plan index
 (def descriptors ::descriptors)  ; Root Descriptor index
-(def elements    ::elements)     ; compile-time custom-element declarations
+(def elements    ::elements)     ; compile-time custom-element declarations (plain-JVM/SSR slice)
 (def ^:private element-declarations ::element-declarations) ; tag -> owning ns
+
+;; Custom-element declarations are DECOUPLED from the view-slice on the Shadow
+;; build path (rf2-u53yy.1 S1). Property lowering is decided at MACROEXPANSION,
+;; before compile-finish, so elements are the one ordering exception that cannot
+;; ride the compile-finish analyzer-map carrier the other registries use. Instead
+;; the build hook HARVESTS every authoritative build member's literal
+;; declarations at `:compile-prepare` (`harvest.clj`, a bounded syntactic reader)
+;; into a flat all-members manifest `{tag {:properties #{…}}}` — a pure function
+;; of the build's SOURCE, independent of which sources re-expand. That manifest
+;; lives beside the accepted snapshot (`:elements`) and in the open pass's scratch
+;; (`:element-manifest`), NEVER in the per-source `:committed`/`:staged`/`:touched`
+;; ledger, so harvesting a WARM source's elements can no longer mark it touched
+;; and evict its committed views at commit. The `ui/custom-element` macro is then
+;; validation/reporting-only during a real Shadow build pass. The plain-JVM / SSR
+;; and REPL paths (no `:compile-prepare` hook) keep populating the per-source
+;; `::elements` slice through the macro + lazy own-source harvest below.
 
 ;; ---------------------------------------------------------------------------
 ;; State
@@ -100,6 +116,7 @@
 (defn- empty-snapshot [build-id]
   {:build-id build-id
    :registries {}
+   :elements {}
    :version 0})
 
 (def ^:private shadow-bridge-key
@@ -169,6 +186,15 @@
   (reduce-kv (fn [m _src regs] (merge m (get regs reg-id)))
              {}
              (:registries (accepted-snapshot build-state-or-compiler-env))))
+
+(defn accepted-element-manifest
+  "The accepted flat custom-element manifest `{tag {:properties #{…}}}` from an
+  explicit Shadow build-state/compiler-env — the all-members harvest the last
+  successful build finalized. Decoupled from `:registries` (it is not a
+  per-source view-slice registry); the coarse warm-invalidation baseline and the
+  warm-watch topology gate read it here."
+  [build-state-or-compiler-env]
+  (:elements (accepted-snapshot build-state-or-compiler-env) {}))
 
 ;; ---------------------------------------------------------------------------
 ;; Ambient build identity
@@ -354,15 +380,33 @@
    (reduce-kv (fn [m _src regs] (merge m (get regs reg-id)))
               {} (:committed (get @state build-id empty-slice)))))
 
+#?(:clj
+   (defn- shadow-pass-manifest
+     "The prepare-harvested flat custom-element manifest of the OPEN Shadow build
+     pass (`[scratch-key :element-manifest]`), or nil. Present only inside a real
+     Shadow build pass the build hook opened; nil on a Shadow REPL overlay
+     (no `:compile-prepare` harvest), plain JVM/SSR, and CLJS — those fall back to
+     the per-source `elements` slice. The carrier's identity is validated
+     (`validated-compiler-state`) before the manifest is observed."
+     []
+     (when-let [cs (validated-compiler-state)]
+       (get-in cs [scratch-key :element-manifest]))))
+
 (defn element-properties
   "The declared `:properties` set for custom-element `tag` in the ambient (or
-  given) build's compile-time `elements` registry — the compile-path read the
+  given) build's compile-time custom-element manifest — the compile-path read the
   template analyzer uses to classify a custom element's props (property vs
-  attribute). Per-build, resolved through the ambient compiler build identity
-  (the SAME `current-build-id` mechanism every other registry read uses), so
-  one daemon's parallel builds never cross-classify; NEVER a process-global
-  last-writer-wins mirror. Empty set when `tag` is undeclared in this build."
-  ([tag] (get-in (aggregate elements) [tag :properties] #{}))
+  attribute). Inside a real Shadow build pass it reads the prepare-time
+  all-members harvest manifest (`shadow-pass-manifest`), which is a pure function
+  of the build's source and independent of macro re-expansion; on the plain-JVM /
+  SSR / REPL path it reads the per-source `elements` slice through the ambient
+  build identity. Per-build either way, so one daemon's parallel builds never
+  cross-classify; NEVER a process-global last-writer-wins mirror. Empty set when
+  `tag` is undeclared in this build."
+  ([tag]
+   (if-let [m #?(:clj (shadow-pass-manifest) :cljs nil)]
+     (get-in m [tag :properties] #{})
+     (get-in (aggregate elements) [tag :properties] #{})))
   ([tag build-id] (get-in (aggregate elements build-id) [tag :properties] #{})))
 
 (defn pass-open?
@@ -383,6 +427,19 @@
   Always false on CLJS (there is no compile-path host there)."
   []
   #?(:clj (boolean (validated-compiler-state)) :cljs false))
+
+(defn shadow-build-pass?
+  "Whether a real Shadow build PASS is bound — a `:compile-prepare`-opened scratch
+  is present. Inside this window the prepare-time all-members custom-element
+  harvest is authoritative and the `ui/custom-element` macro is
+  validation/reporting-only (it does not populate the compile-time registry).
+  False on a Shadow REPL overlay (no scratch, no prepare harvest), plain JVM/SSR,
+  and CLJS — where the macro's own contribution still populates the `elements`
+  slice."
+  []
+  #?(:clj (boolean (when-let [cs (validated-compiler-state)]
+                     (contains? cs scratch-key)))
+     :cljs false))
 
 ;; ---------------------------------------------------------------------------
 ;; Contribution (pure transitions)
@@ -600,14 +657,13 @@
     (::conflict outcome)))
 
 (defn- stage-element-checked
-  "Pure: admit `source`'s `tag` -> `decl` into `slice` under the ruled
-  cross-source conflict law, returning `[slice' conflict|nil]`. The barrier both
-  the ambient `contribute-element-checked!` and the pre-pass
-  `seed-shadow-elements` share, so no aggregation path can pick a merge-order
-  winner regardless of which route wrote the row. An `rf=`-equal duplicate is
-  idempotent; a contradiction from another live source (or a second
-  contradictory declaration in the same open pass of one ns) is refused without
-  writing, leaving the last-known-good slice untouched."
+  "Pure: admit `source`'s `tag` -> `decl` into the per-source `slice` under the
+  ruled cross-source conflict law, returning `[slice' conflict|nil]` — the write
+  barrier the plain-JVM / SSR / REPL `contribute-element-checked!` uses (the
+  Shadow build path re-derives the same verdict wholesale in `element-manifest`).
+  An `rf=`-equal duplicate is idempotent; a contradiction from another live
+  source (or a second contradictory declaration in the same open pass of one ns)
+  is refused without writing, leaving the last-known-good slice untouched."
   [slice source tag decl]
   (let [other-decl (get (effective slice elements source) tag)
         other-owner (get (effective slice element-declarations source) tag)
@@ -663,24 +719,50 @@
          slice')))
     @outcome))
 
-(defn seed-shadow-elements
-  "Purely PRE-STAGE harvested custom-element declarations into `build-state`'s
-  open scratch pass, BEFORE any view analyzes — the order-independence seam the
-  build hook uses at `:compile-prepare` (rf2-vxgfnd.141, dimension 2). Each
-  `[source tag decl]` triple is admitted under the SAME cross-source conflict
-  law as `contribute-element-checked!`: an `rf=`-equal duplicate co-exists, a
-  contradictory same-tag declaration is REFUSED here (the `ui/custom-element`
-  macro reports it with source coordinates when it later expands) so the slice
-  never carries a merge-order winner. A pure build-state transform because
-  `cljs.env/*compiler*` is not bound during hook execution; when no scratch pass
-  is open the build-state is returned unchanged."
-  [build-state seeded]
+(defn- seeded->registries
+  "Pure: group harvested `[source tag decl]` triples into the per-source shape
+  `elements-conflict` folds — `{source {elements {tag decl}}}`."
+  [seeded]
+  (reduce (fn [m [source tag decl]] (assoc-in m [source elements tag] decl))
+          {} seeded))
+
+(defn element-manifest
+  "Pure: fold harvested `[source tag decl]` triples into the flat all-members
+  custom-element manifest `{tag {:properties #{…}}}`. The SAME cross-source
+  conflict law as `contribute-element-checked!` governs admission — a non-`rf=`
+  same-tag declaration from a DIFFERENT source is a contradiction and THROWS
+  (a `:compile-prepare` error is a build-time error), so the manifest never
+  carries a merge-order winner; `rf=`-equal duplicates fold idempotently.
+  `build-id` anchors the thrown evidence."
+  [build-id seeded]
+  (when-let [c (elements-conflict build-id (seeded->registries seeded))]
+    (throw
+     (ex-info
+      (str "re-frame.ui found contradictory custom-element declarations for "
+           (:tag c) " while harvesting the build's declarations; refusing to "
+           "publish a merge-order winner")
+      {::error ::custom-element-conflict
+       :build-id build-id
+       :recovery :reconcile-custom-element-declarations
+       :tag (:tag c)
+       :declarations (:declarations c)})))
+  (reduce (fn [m [_source tag decl]]
+            (assoc m tag {:properties (:properties decl #{})}))
+          {} seeded))
+
+(defn set-shadow-element-manifest
+  "Purely store the prepare-harvested all-members custom-element `manifest`
+  (`{tag {:properties #{…}}}`, built by `element-manifest`) into `build-state`'s
+  open scratch pass, BEFORE any view analyzes — the order-independence +
+  macro-independence seam the build hook uses at `:compile-prepare`
+  (rf2-vxgfnd.141 dim 2, rf2-u53yy.1 S1). The manifest is a pure function of the
+  build's SOURCE, held beside the pass rather than in its per-source `:touched`
+  ledger, so harvesting a warm source's declarations never evicts its committed
+  views. A pure build-state transform (`cljs.env/*compiler*` is not bound during
+  the hook); when no scratch pass is open the build-state is returned unchanged."
+  [build-state manifest]
   (if (get-in build-state [:compiler-env scratch-key])
-    (update-in build-state [:compiler-env scratch-key]
-               (fn [slice]
-                 (reduce (fn [s [source tag decl]]
-                           (first (stage-element-checked s source tag decl)))
-                         slice seeded)))
+    (assoc-in build-state [:compiler-env scratch-key :element-manifest] manifest)
     build-state))
 
 ;; ---------------------------------------------------------------------------
@@ -816,25 +898,15 @@
         {::error ::missing-shadow-scratch
          :build-id build-id
          :recovery :configure-ui-build-hook-once})))
+    ;; Custom elements are NOT in the committed view-slice on this path
+    ;; (rf2-u53yy.1 S1): the manifest was harvested wholesale at
+    ;; `:compile-prepare` (all-members, macro-independent) and its cross-source
+    ;; conflict law was enforced there. Carry that finalized manifest onto the
+    ;; snapshot beside `:registries`.
     (let [after (-> scratch commit-slice (keep-members (set members)))
-          ;; Defence in depth (rf2-vxgfnd.143): `contribute-element-checked!`
-          ;; is the barrier, so a contradiction cannot reach here. Re-deriving
-          ;; the verdict from the FINALIZED rows — once per pass, not per read —
-          ;; means no aggregation can publish a merge-order winner even if a row
-          ;; arrived by a route that bypassed the barrier.
-          _ (when-let [c (elements-conflict build-id (:committed after))]
-              (throw
-               (ex-info
-                (str "re-frame.ui found contradictory custom-element declarations "
-                     "for " (:tag c) " in the finalized build; refusing to publish "
-                     "a merge-order winner")
-                {::error ::custom-element-conflict
-                 :build-id build-id
-                 :recovery :reconcile-custom-element-declarations
-                 :tag (:tag c)
-                 :declarations (:declarations c)})))
           snapshot {:build-id build-id
                     :registries (:committed after)
+                    :elements (:element-manifest scratch {})
                     :version (inc (long (or (:version accepted) 0)))}]
       {:snapshot snapshot})))
 
