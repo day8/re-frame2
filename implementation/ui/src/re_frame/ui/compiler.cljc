@@ -202,7 +202,14 @@
 (defn build-view-static
   "The ambient build's per-view static-render facts index (view-id ->
   `{:caps :deps}`) — the read `re-frame.ui/render-static`'s transitive proof
-  closes over (Spec 004C §3). Per-build like every other registry read."
+  closes over (Spec 004C §3). Per-build like every other registry read.
+
+  Populated by the `defview` macro's slice contribution ONLY off the Shadow
+  build path (plain-JVM / SSR / REPL): render-static is JVM-only, so a real
+  Shadow build never reads this index and the macro does not contribute to it
+  there (rf2-u53yy.1 S3). A dependency compiled in another build/context resolves
+  from its registered manifest's `:static-facts` instead
+  (`root/registered-view-static-facts`)."
   []
   (build/aggregate build/view-static))
 
@@ -290,10 +297,12 @@
                                   (:id w) ": " (:msg w)))))
         sites   @(:sites e)
         ;; The render-static no-silent-elision facts (Spec 004C §3, EP-0034 §2),
-        ;; computed once: contributed to the ambient `view-static` build index
-        ;; AND carried on the registered manifest so a view compiled in ANOTHER
-        ;; build/context (AOT / precompiled JAR) stays fact-bearing — the
-        ;; render-static proof never treats an unknown dependency as static-safe.
+        ;; computed once: contributed to the ambient `view-static` build index on
+        ;; the plain-JVM/SSR path (render-static's JVM-only read; gated off the
+        ;; Shadow build path below) AND carried on the registered manifest so a
+        ;; view compiled in ANOTHER build/context (AOT / precompiled JAR) stays
+        ;; fact-bearing — the render-static proof never treats an unknown
+        ;; dependency as static-safe.
         static-facts (view-static-facts ast sites)
         ast-projection (ana/template-fingerprint-projection ast)
         tf      (fingerprint/template-fingerprint ast-projection)
@@ -389,11 +398,23 @@
                :declaration [ns-sym vname]
                :existing-declaration conflict})))
     ;; Per-view static-render facts for the render-static transitive proof
-    ;; (Spec 004C §3 / EP-0034 §2). Keyed per declaring ns like every other
-    ;; registry row, so a recompiled / removed source replaces / evicts its
-    ;; contribution; not folded into the build digest (derived from the same
-    ;; source the `views` digest already tracks).
-    (build/contribute! build/view-static ns-sym view-id static-facts)
+    ;; (Spec 004C §3 / EP-0034 §2). render-static is view-static's ONLY reader
+    ;; and is JVM-only (a CLJS expansion is rejected with
+    ;; `:rf.ui.compile/ui-render-static-jvm-only`), so a real Shadow build PASS
+    ;; NEVER reads `view-static` — its slice there has no consumer and, unlike
+    ;; `views`/`elements`, is not blocker/eviction-relevant. Gate the contribution
+    ;; off the Shadow path like S1 (elements) / S2 (views), so the Shadow-path
+    ;; registries stay a pure function of the cache-durable analyzer map,
+    ;; macro-independent — the direction S6 needs (rf2-u53yy.1 S3). Because
+    ;; nothing reads view-static on the Shadow path, it needs NO compile-finish
+    ;; replacement descriptor there (the simpler mechanism the S3 note names).
+    ;; Off that path (plain-JVM / SSR, REPL — where render-static reads
+    ;; `build/view-static` MID-EXPANSION) the macro contributes the facts to the
+    ;; per-source slice, keyed per declaring ns so a recompiled / removed source
+    ;; replaces / evicts its row; the SAME facts also ride the per-view registered
+    ;; manifest (`:static-facts`) for the cross-build/AOT resolution seam.
+    (when-not (build/shadow-build-pass?)
+      (build/contribute! build/view-static ns-sym view-id static-facts))
     (if cljs?
       ;; Direct no-pass REPL evaluation may replace the runtime view body, but
       ;; carries no digest assignment. Only a successful configured file/watch

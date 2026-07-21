@@ -50,7 +50,7 @@
 
 (def views       ::views)        ; view-id -> [template-fp hook-sig] (digest)
 (def ^:private view-declarations ::view-declarations) ; view-id -> [ns var]
-(def view-static ::view-static)  ; view-id -> {:caps #{..} :deps #{..}} (static-root proof, Spec 004C §3)
+(def view-static ::view-static)  ; view-id -> {:caps #{..} :deps #{..}} (static-root proof, Spec 004C §3; plain-JVM/SSR slice, rf2-u53yy.1 S3)
 (def roots       ::roots)        ; Layer-1 root-site index
 (def plans       ::plans)        ; Layer-1 frame-plan index
 (def descriptors ::descriptors)  ; Root Descriptor index
@@ -72,6 +72,18 @@
 ;; validation/reporting-only during a real Shadow build pass. The plain-JVM / SSR
 ;; and REPL paths (no `:compile-prepare` hook) keep populating the per-source
 ;; `::elements` slice through the macro + lazy own-source harvest below.
+
+;; `::view-static` is similarly DECOUPLED from the Shadow build path (rf2-u53yy.1
+;; S3), but by the simplest mechanism of all: its ONLY reader, `ui/render-static`,
+;; is JVM-only (a CLJS expansion is rejected), so a real Shadow build never reads
+;; it. Unlike `views`/`elements` it is not blocker/eviction-relevant, so it needs
+;; NO cache-durable Shadow-path descriptor — the `defview` macro simply does not
+;; contribute it under a Shadow build pass (`shadow-build-pass?`), keeping the
+;; Shadow-path registries macro-independent (the S6 direction). The per-source
+;; slice here is populated + read only on the plain-JVM / SSR / REPL path, where
+;; render-static reads it MID-EXPANSION; the same per-view `{:caps :deps}` facts
+;; also ride each view's registered manifest (`:static-facts`) for cross-build/AOT
+;; resolution.
 
 ;; ---------------------------------------------------------------------------
 ;; State
