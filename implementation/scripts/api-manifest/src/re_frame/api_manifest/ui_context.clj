@@ -18,27 +18,49 @@
   loadable context sheet. Its authored sections (valid `defview` forms,
   the state/sub/event/effect decision table, the foreign-boundary + ref
   rules, the forbidden-idioms list, the build contract) are stable
-  template prose emitted verbatim. Its COMPILE-REJECTION ROSTER is
-  GENERATED: this namespace reads the compiler's analyzer source
-  (`implementation/ui/src/re_frame/ui/compiler/analyze.cljc`), extracts
-  every `:rf.ui.compile/*` diagnostic from its `env/fail!` (reject) and
-  `env/warn!` (dev-warning) call sites together with the didactic message
-  each one carries, and renders that as the roster. The message names the
-  fix; nothing is transcribed.
+  template prose emitted verbatim. Two slices are GENERATED from live
+  repo data so they cannot drift:
 
-  HOW THE EXTRACTION WORKS. The analyzer source is read with the Clojure
-  reader (`:read-cond :preserve`, UTF-8), then tree-walked. A diagnostic
-  call is a list whose head is `env/fail!` / `env/warn!` (or the bare
-  `fail!` / `warn!`); `fail!` is positional `(fail! env :id msg data?)`
-  and `warn!` takes a map `(warn! env {:id … :msg …})`. The message form
-  is a string literal, a `(str …)` of literals + runtime interpolations,
-  or an `(if … (str …) (str …))`; the didactic PROSE is exactly its string
-  literals, so we collect every string literal in the message form's
-  subtree in document order, join, and collapse whitespace (the dropped
-  interpolations are runtime specifics — a prop name, a form — not part of
-  the rule or its fix). Reading the forms (not grepping text) means a
-  renamed id, a reworded message, or a new/removed rejection changes the
-  extracted data, and `--check` then reds until the sheet is regenerated.
+    1. THE COMPILE-REJECTION ROSTER, from the compiler's own front-door
+       analyzers. This namespace reads a BOUNDED, EXPLICIT roster of
+       compiler source files (see `compiler-source-files`), extracts every
+       `:rf.ui.compile/*` diagnostic from their raise sites together with
+       the didactic message each carries, and renders that as the roster.
+       The message names the fix; nothing is transcribed.
+
+    2. THE AUTHORING SURFACE, from the public API manifest
+       (`spec/api-manifest.edn`). Every public `re-frame.ui` var is
+       classified `:taught` (covered by the prose) or `[:omitted reason]`
+       in `authoring-disposition`; the build asserts that classification
+       covers the manifest EXACTLY, so a var added to / removed from the
+       public API reds the context check until it is consciously handled.
+
+  RAISE-SITE CALL SHAPES (the bounded set — no generic diagnostics
+  framework). A diagnostic is raised through one of a few call heads:
+    - `env/fail!` / `fail!` (analyzer/env)  — `(fail! env :id msg data?)`
+    - `fail` (compiler / header / root)      — `(fail :id msg data?)`
+    - `env/compile-error` (ui.test)          — `(compile-error :id msg data)`
+    - `env/warn!` / `warn!` (analyzer)       — `(warn! env {:id … :msg …})`
+    - `report!` (a11y)                       — `(report! env {:id … :msg …})`
+  The `fail`-family (id-first OR env-first) and `compile-error` are
+  REJECTS; the `warn`-family and a11y's `report!` are dev-time WARNINGS.
+  `:rf.ui.compile/error` is NOT a diagnostic id — it is the ex-data
+  ENVELOPE key every compile error carries (`{:rf.ui.compile/error <id>}`),
+  so it is classified out (see `envelope-only-ids`), never a roster row.
+
+  HOW THE EXTRACTION WORKS. Each source file is read with the Clojure
+  reader (`:read-cond :preserve`, UTF-8, and a permissive default
+  data-reader so a CLJS-only `#js` literal in a `.cljc` file does not
+  break the read), then tree-walked. The message form is a string literal,
+  a `(str …)`, an `(if/when/case/cond …)`, or a runtime interpolation
+  (a prop keyword, an offending form). `render-msg` reconstructs the prose
+  HONOURING that structure — concatenating a `(str …)`, showing both arms
+  of a conditional, and rendering each runtime interpolation as a TYPED
+  PLACEHOLDER (`‹prop›`, `‹bindings›`, …) so every advertised fix stays a
+  complete, actionable sentence rather than a truncated fragment. Reading
+  the forms (not grepping text) means a renamed id, a reworded message, or
+  a new/removed rejection changes the extracted data, and `--check` then
+  reds until the sheet is regenerated.
 
   DRIFT-CHECK. `--check` regenerates the sheet in memory and compares it
   to the committed file (LF-normalised, so a CRLF Windows checkout does
@@ -49,6 +71,8 @@
     clojure -M -m re-frame.api-manifest.ui-context           ; regenerate
     clojure -M -m re-frame.api-manifest.ui-context --check    ; drift-check (CI)"
   (:require [clojure.java.io :as io]
+            [clojure.edn :as edn]
+            [clojure.set :as set]
             [clojure.string :as str])
   (:import [java.io PushbackReader]
            [clojure.lang ReaderConditional]))
@@ -68,31 +92,59 @@
    (api-manifest → scripts → implementation → <repo-root>)."
   (-> here .getParentFile .getParentFile .getParentFile))
 
-(def analyzer-source
-  "The compiler's analyzer source — the single source of truth for the
-   compile-rejection roster."
-  (delay (io/file repo-root "implementation" "ui" "src" "re_frame" "ui"
-                  "compiler" "analyze.cljc")))
+(def ^:private compiler-src-dir
+  (io/file repo-root "implementation" "ui" "src" "re_frame" "ui"))
+
+(def compiler-source-files
+  "The BOUNDED, EXPLICIT roster of compiler FRONT-DOOR source files whose
+   raise sites mint the `:rf.ui.compile/*` diagnostics an author meets.
+   Reading only `analyze.cljc` (the original scope) silently omitted the
+   defview/options rejections (compiler.cljc, header.cljc), the root /
+   mount / static rejections (root.cljc), the unresolved-head rejections
+   (env.cljc), the four a11y warnings + suppression reject (a11y.cljc),
+   and the ui.test front-door rejections (test.cljc). This list IS the
+   scope; the exact-id inventory test pins that the extraction sees every
+   diagnostic these files raise, so none can disappear silently."
+  ["compiler.cljc"
+   "compiler/analyze.cljc"
+   "compiler/header.cljc"
+   "compiler/root.cljc"
+   "compiler/env.cljc"
+   "compiler/a11y.cljc"
+   "test.cljc"])
+
+(defn source-files
+  "The bounded compiler-source roster as absolute Files, in declared order."
+  []
+  (mapv #(io/file compiler-src-dir %) compiler-source-files))
 
 (def sheet-file
   "The generated context sheet."
   (delay (io/file repo-root "skills" "re-frame2-ui-context" "SKILL.md")))
 
+(def manifest-file
+  "The public-API manifest — the source of truth for the authoring surface."
+  (delay (io/file repo-root "spec" "api-manifest.edn")))
+
 ;; ---------------------------------------------------------------------------
-;; Reading + tree-walking the analyzer source.
+;; Reading + tree-walking the compiler sources.
 ;; ---------------------------------------------------------------------------
 
 (defn read-forms
   "Every top-level form of `file`, read with the Clojure reader. UTF-8 so
-   the em-dashes / arrows in the compiler's messages survive verbatim, and
+   the em-dashes / arrows in the compiler's messages survive verbatim;
    `:read-cond :preserve` so reader-conditional branches are kept (not
-   collapsed to one platform) for the tree walk to descend into."
+   collapsed to one platform) for the tree walk to descend into; and a
+   permissive `*default-data-reader-fn*` so a CLJS-only literal such as
+   `#js {…}` inside a `.cljc` file reads through instead of throwing
+   (these sit outside diagnostic messages — we only need to not crash)."
   [file]
-  (with-open [r (PushbackReader. (io/reader file :encoding "UTF-8"))]
-    (let [eof (Object.)]
-      (loop [acc []]
-        (let [form (read {:read-cond :preserve :eof eof} r)]
-          (if (identical? form eof) acc (recur (conj acc form))))))))
+  (binding [*default-data-reader-fn* (fn [_tag val] val)]
+    (with-open [r (PushbackReader. (io/reader file :encoding "UTF-8"))]
+      (let [eof (Object.)]
+        (loop [acc []]
+          (let [form (read {:read-cond :preserve :eof eof} r)]
+            (if (identical? form eof) acc (recur (conj acc form)))))))))
 
 (defn- branch-children
   "The children of a node for the diagnostic tree walk. A ReaderConditional
@@ -113,9 +165,25 @@
             branch-children
             x))
 
-(def ^:private diagnostic-heads
-  "Call heads that raise a `:rf.ui.compile/*` diagnostic."
-  #{"env/fail!" "env/warn!" "fail!" "warn!"})
+;; ---------------------------------------------------------------------------
+;; Raise-site classification (the bounded call-shape set).
+;; ---------------------------------------------------------------------------
+
+(def ^:private reject-heads
+  "Call heads that raise a REJECT (compile error). Positional, id-first
+   (`fail` / `compile-error`) OR env-first (`fail!` / `env/fail!`); either
+   way the id is the sole keyword arg and the message is the form right
+   after it."
+  #{"fail" "fail!" "env/fail!" "compile-error" "env/compile-error"})
+
+(def ^:private warn-heads
+  "Call heads that raise a dev-time WARNING. Map-arg shape
+   `(head env {:id … :msg …})` — analyzer `warn!`/`env/warn!` and a11y's
+   `report!` (which forwards to `env/warn!` internally; that forwarder
+   carries a symbol :id and so is naturally filtered out)."
+  #{"warn!" "env/warn!" "report!"})
+
+(def ^:private diagnostic-heads (set/union reject-heads warn-heads))
 
 (defn- diagnostic-call?
   [x]
@@ -124,91 +192,108 @@
        (contains? diagnostic-heads (name (first x)))))
 
 ;; ---------------------------------------------------------------------------
-;; Message extraction.
+;; Message reconstruction.
 ;;
-;; The didactic PROSE of a diagnostic is exactly the string literals in its
-;; message form — a bare string, a `(str …)` of literals + interpolations,
-;; or an `(if … (str …) (str …))`. We collect every string literal in the
-;; message form's subtree in document order and collapse whitespace; the
-;; dropped interpolations (a prop keyword, an offending form) are runtime
-;; specifics, not part of the rule or its fix.
+;; A diagnostic's message form is a string literal, a `(str …)`, an
+;; `(if/when/case/cond …)`, or a runtime interpolation (a prop keyword, an
+;; offending form). We reconstruct the prose HONOURING that structure, and
+;; render each dropped interpolation as a TYPED PLACEHOLDER so no fix is
+;; ever truncated (the original design deleted interpolations, which left
+;; fragments like "…; got" and "is not a prop … Use").
 ;; ---------------------------------------------------------------------------
 
-(defn- collapse-ws
-  "Whitespace/seam-normalise a reconstructed message. A dropped
-   interpolation leaves seams the compiler never rendered; these
-   transforms are GENERIC (not per-message) and only tidy those seams,
-   never the rule or its fix:
-     1. collapse whitespace runs to one space;
-     2. drop a dangling `got` verb the compiler wrote as `…; got <value>`
-        — the offending value is the interpolation we dropped, so `got`
-        with nothing after it is a seam (word-boundaried and only when
-        followed by punctuation or end, so real words are untouched);
-     3. drop the space a dropped interpolation left before a
-        comma/semicolon/period (e.g. a nested `(str/join \", \" …)`
-        separator whose items were interpolations);
-     4. strip a trailing lone separator; trim."
-  [s]
-  (-> s
-      (str/replace #"\s+" " ")
-      (str/replace #"[;,]?\s*\bgot\b\s*(?=[.,;)\]]|$)" " ")
-      (str/replace #"\s+" " ")
-      (str/replace #"\s+([,;.)\]])" "$1")
-      (str/replace #"[;,]\s*$" "")
-      str/trim))
+(def ^:private structural-heads
+  "Message-form heads `render-msg` walks STRUCTURALLY — `str` concatenates,
+   the conditionals show their branch bodies as alternatives. Every other
+   head (str/join, name, pr-str, an arbitrary call) is a runtime
+   interpolation rendered as a single placeholder, which is exactly how a
+   formatting-only `(str/join sep coll)` collapses to one `‹coll›` token
+   (its separator dropped) rather than leaking a literal separator."
+  #{"str" "when" "when-not" "if" "if-not" "cond" "condp" "case"})
 
 (def ^:private branch-sep
-  "Separator between the mutually-exclusive branches of an `(if …)` /
-   `(case …)` message — the compiler renders exactly one at runtime; the
-   sheet shows both as alternatives."
+  "Separator between the mutually-exclusive branches of a conditional
+   message — the compiler renders exactly one at runtime; the sheet shows
+   both as alternatives."
   " / ")
 
-(defn- render-msg
-  "Reconstruct a message form's didactic prose HONOURING its structure:
-     - a string literal renders as itself;
-     - `(str …)` CONCATENATES its rendered args (so a `(when … \"s\")`
-       plural suffix merges: `\"option\" \"s\"` → `\"options\"`);
-     - `(if …)` / `(when …)` / `(case …)` / `(cond …)` render their branch
-       bodies as `branch-sep`-separated ALTERNATIVES (both arms of a
-       conditional message are shown; the test is dropped);
-     - a `(str/join sep …)` separator, and every other call / interpolation
-       (a prop keyword, an offending form), render as nothing — runtime
-       specifics, not part of the rule or its fix.
-   This structural walk is what keeps two `(if … (str A) (str B))` arms
-   from running together and drops orphaned `str/join` separators, without
-   any per-message special-casing."
+(defn- collect-value-syms
+  "Symbols of `form` in ARGUMENT (non-call-head) position, in document
+   order — the candidate labels for a placeholder. A seq's head is its call
+   operator and is dropped; its args recurse. Collections recurse fully.
+   Because heads are always dropped, a wrapper like `pr-str` / `name` in
+   HEAD position never becomes a label; the value it wraps does."
   [form]
   (cond
-    (string? form)
-    form
+    (symbol? form) [form]
+    (seq? form)    (mapcat collect-value-syms (rest form))
+    (vector? form) (mapcat collect-value-syms form)
+    (map? form)    (mapcat collect-value-syms (interleave (keys form) (vals form)))
+    (set? form)    (mapcat collect-value-syms form)
+    :else          nil))
 
-    (and (seq? form) (symbol? (first form)))
+(defn- placeholder
+  "A dropped runtime interpolation shown by NAME so the fix stays a complete
+   sentence — \"…; got ‹bindings›\" not a truncated \"…; got\". The label is
+   the LAST value symbol of the interpolation — the datum the expression
+   formats: `(str/join \", \" (map pr-str unknown))` labels `‹unknown›`, not
+   the `pr-str` fn passed to `map`. A bare marker when none reads cleanly."
+  [form]
+  (let [syms (collect-value-syms form)]
+    (str "‹" (if (seq syms) (name (last syms)) "…") "›")))
+
+(defn- branch-join [rendered]
+  (str/join branch-sep (distinct (remove str/blank? rendered))))
+
+(defn- render-msg
+  "Reconstruct a message form's didactic prose:
+     - a string literal renders as itself; a literal number/char/keyword as
+       its printed form (a `:fallback` written into the message survives);
+     - `(str …)` CONCATENATES its rendered args (so a `(when … \"s\")` plural
+       suffix merges: `\"option\" \"s\"` → `\"options\"`);
+     - `(if/when/case/cond …)` render their branch bodies as `branch-sep`-
+       separated ALTERNATIVES (the test is dropped);
+     - every OTHER form (str/join, name, pr-str, an arbitrary call, a bare
+       value symbol) is a runtime interpolation → a typed `‹label›`
+       placeholder."
+  [form]
+  (cond
+    (string? form)                   form
+    (number? form)                   (str form)
+    (char? form)                     (str form)
+    (keyword? form)                  (str form)
+    (or (nil? form) (boolean? form)) ""
+
+    (and (seq? form) (symbol? (first form))
+         (contains? structural-heads (name (first form))))
     (let [args (rest form)]
       (case (name (first form))
-        "str"                (apply str (map render-msg args))
-        ("when" "when-not")  (render-msg (last args))
-        ("if" "if-not")      (str/join branch-sep
-                                       (remove str/blank?
-                                               (map render-msg (rest args))))
-        ("case" "cond" "condp") (str/join branch-sep
-                                          (remove str/blank?
-                                                  (map render-msg args)))
-        ""))
+        "str"                   (apply str (map render-msg args))
+        ("when" "when-not")     (render-msg (last args))
+        ("if" "if-not")         (branch-join (map render-msg (rest args)))
+        ("case" "cond" "condp") (branch-join (map render-msg args))))
 
-    :else ""))
+    :else (placeholder form)))
+
+(defn- collapse-ws
+  "Whitespace-normalise a reconstructed message: collapse runs to one space
+   and trim. With interpolations rendered as visible placeholders there are
+   no dropped-value seams left to repair, so this is deliberately minimal."
+  [s]
+  (-> s (str/replace #"\s+" " ") str/trim))
 
 (defn- message-text
-  "The didactic prose of a message form (see `render-msg`), whitespace/
-   seam-normalised. nil when the form carries no string literal at all."
+  "The didactic prose of a message form (see `render-msg`), whitespace-
+   normalised. nil when the form carries no renderable prose at all."
   [msg-form]
   (let [t (render-msg msg-form)]
     (when-not (str/blank? t)
       (collapse-ws t))))
 
-(defn- fail-diagnostic
-  "Extract {:id :tier :message} from a positional `(env/fail! env :id msg data?)`
-   call. id is the first keyword arg; the message form is the arg right
-   after it."
+(defn- reject-diagnostic
+  "Extract {:id :tier :message} from a positional reject call — id-first
+   `(fail :id msg data?)` OR env-first `(fail! env :id msg data?)`. id is
+   the sole keyword arg; the message form is the form right after it."
   [call]
   (let [args     (rest call)
         id       (first (filter keyword? args))
@@ -216,26 +301,36 @@
     {:id id :tier :reject :message (message-text msg-form)}))
 
 (defn- warn-diagnostic
-  "Extract {:id :tier :message} from a map-arg `(env/warn! env {:id … :msg …})`
-   call."
+  "Extract {:id :tier :message} from a map-arg warn call
+   `(warn! env {:id … :msg …})` / `(report! env {:id … :msg …})`."
   [call]
   (let [m (first (filter map? (rest call)))]
     {:id (:id m) :tier :warning :message (message-text (:msg m))}))
 
 (defn- diagnostic-of [call]
-  (if (str/includes? (name (first call)) "warn")
+  (if (contains? warn-heads (name (first call)))
     (warn-diagnostic call)
-    (fail-diagnostic call)))
+    (reject-diagnostic call)))
+
+(def ^:private envelope-only-ids
+  "Compile-namespaced keywords that are NOT diagnostics — infrastructure the
+   roster must never claim. `:rf.ui.compile/error` is the ex-data ENVELOPE
+   key every compile error carries (`{:rf.ui.compile/error <id>}`); it is a
+   map key, never the id argument to a raise call, so extraction excludes it
+   both structurally (it is never a call-id) and explicitly (here)."
+  #{:rf.ui.compile/error})
 
 (defn compile-ns?
-  "Is `id` a `:rf.ui.compile/*` diagnostic keyword?"
+  "Is `id` an in-scope `:rf.ui.compile/*` diagnostic keyword (i.e. a real
+   diagnostic, not an envelope-only key)?"
   [id]
-  (and (keyword? id) (= "rf.ui.compile" (namespace id))))
+  (and (keyword? id)
+       (= "rf.ui.compile" (namespace id))
+       (not (contains? envelope-only-ids id))))
 
-(defn extract-diagnostics
-  "Every `{:id :tier :message}` diagnostic raised in the analyzer source
-   `file` — read from the compiler's own `env/fail!` / `env/warn!` call
-   sites. Order is source order; ids/messages are otherwise unmassaged."
+(defn extract-diagnostics-from
+  "Every `{:id :tier :message}` diagnostic raised in a single source `file`,
+   in source order; ids/messages otherwise unmassaged."
   [file]
   (->> (read-forms file)
        (mapcat walk-all)
@@ -243,12 +338,17 @@
        (map diagnostic-of)
        (filter #(compile-ns? (:id %)))))
 
+(defn extract-diagnostics
+  "Every diagnostic across the bounded compiler-source roster, in
+   file-declared then source order."
+  ([] (extract-diagnostics (source-files)))
+  ([files] (mapcat extract-diagnostics-from files)))
+
 (defn roster
   "The compile diagnostics grouped for rendering: a vector of
    `{:id :tier :messages [distinct-in-source-order]}`, one entry per id,
    sorted by id name. `:tier` is `:reject` when any of the id's sites is a
-   `fail!` (an id raised by both `fail!` and `warn!` classifies as a
-   reject), else `:warning`."
+   reject (an id raised as both classifies as a reject), else `:warning`."
   [diagnostics]
   (->> (group-by :id diagnostics)
        (map (fn [[id ds]]
@@ -261,35 +361,123 @@
        (sort-by (comp name :id))
        vec))
 
+(defn roster-ids
+  "The sorted set of diagnostic ids the extraction currently sees — the
+   inventory the exact-id test pins."
+  ([] (roster-ids (roster (extract-diagnostics))))
+  ([roster*] (into (sorted-set) (map :id) roster*)))
+
 ;; ---------------------------------------------------------------------------
 ;; Non-vacuity floor.
 ;;
-;; A broken extraction (the analyzer source moved / renamed, the reader
-;; walk stopped matching `env/fail!`) must FAIL loudly rather than ship an
-;; empty roster that silently green-lights. The floor sits well below the
-;; live count (~70 ids) so it trips only on a near-total collapse, never on
-;; ordinary churn — the same discipline as skills-check's min-references.
+;; A broken extraction (a source file moved / renamed, the reader walk
+;; stopped matching a raise head) must FAIL loudly rather than ship a thin
+;; roster that silently green-lights. The floor sits well below the live
+;; count (~90 ids across the bounded roster) so it trips only on a near-
+;; total collapse, never on ordinary churn.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private min-ids 50)
+(def ^:private min-ids 70)
 
 (defn- assert-non-vacuous! [roster*]
   (when (< (count roster*) min-ids)
     (throw (ex-info
             (str "ui-context extraction is vacuous: only " (count roster*)
-                 " :rf.ui.compile/* diagnostics found in the analyzer source "
-                 "(floor " min-ids "). The reader walk likely stopped matching "
-                 "env/fail! / env/warn! — check "
-                 "implementation/ui/src/re_frame/ui/compiler/analyze.cljc.")
+                 " :rf.ui.compile/* diagnostics found across the bounded "
+                 "compiler-source roster (floor " min-ids "). The reader walk "
+                 "likely stopped matching a raise head — check the sources in "
+                 "compiler-source-files.")
             {:found (count roster*) :floor min-ids})))
   roster*)
 
 ;; ---------------------------------------------------------------------------
+;; The authoring surface — driven by the public API manifest.
+;;
+;; Every public `re-frame.ui` var is classified here as `:taught` (covered
+;; by the prose above) or `[:omitted reason]` (deliberately out of this
+;; compact sheet's scope, with a pointer). The build asserts this map's key
+;; set EQUALS the manifest's `re-frame.ui` var set, so a var added to /
+;; removed from the public API reds the context check until it is
+;; consciously classified — the API-drift ownership the sheet promises.
+;; ---------------------------------------------------------------------------
+
+(defn manifest-ui-vars
+  "The public `re-frame.ui` authoring vars from `spec/api-manifest.edn` — a
+   set of var-name strings."
+  []
+  (->> (:vars (edn/read-string (slurp @manifest-file :encoding "UTF-8")))
+       (filter #(= "re-frame.ui" (:namespace %)))
+       (map :var)
+       set))
+
+(def authoring-disposition
+  "Disposition for EVERY public `re-frame.ui` var: `:taught` (named + taught
+   in the prose) or `[:omitted reason]` (out of this compact sheet's scope;
+   reason points onward). The build asserts this covers the manifest exactly."
+  {"defview"        :taught
+   "sub"            :taught
+   "local"          :taught
+   "frame"          :taught
+   "event"          :taught
+   "handler"        :taught
+   "dispatch-fn"    :taught
+   "effect"         :taught
+   "raw"            :taught
+   "raw-fn"         :taught
+   "->react"        :taught
+   "spread"         :taught
+   "spread-safe"    :taught
+   "html"           :taught
+   "custom-element" :taught
+   "render-fn"      :taught
+   "slot"           :taught
+   "mount"          :taught
+   "frame-provider" :taught
+   "frame-root"     :taught
+   "render-static"  :taught
+   "hydrate-root"   :taught
+   "client-only"    :taught
+   "adapter"        :taught
+   "create-root"    [:omitted "low-level root primitive; author mounts with ui/mount"]
+   "render!"        [:omitted "imperative render under ui/mount; author uses ui/mount"]
+   "unmount!"       [:omitted "teardown primitive paired with ui/mount"]
+   "route-link"     [:omitted "router integration; see the routing docs + the route-link roster entry"]
+   "presence"       [:omitted "enter/exit presence choreography; see presence.md + the presence-* diagnostics"]
+   "presence-phase" [:omitted "presence phase accessor; see presence.md"]
+   "error-boundary" [:omitted "error-boundary form; see interop-and-limits.md + the bad-error-boundary diagnostic"]})
+
+(defn- assert-disposition-covers-manifest!
+  "Reds when `authoring-disposition` and the manifest's re-frame.ui var set
+   disagree — a var added to the public API with no classification, or a
+   classification left behind after a var was removed. This is the API-drift
+   ownership: a new authoring var cannot ship silently un-taught."
+  []
+  (let [manifest (manifest-ui-vars)
+        declared (set (keys authoring-disposition))
+        missing  (set/difference manifest declared)
+        stale    (set/difference declared manifest)]
+    (when (or (seq missing) (seq stale))
+      (throw (ex-info
+              (str "ui-context authoring-surface disposition is out of sync "
+                   "with spec/api-manifest.edn.\n"
+                   (when (seq missing)
+                     (str "  UNCLASSIFIED public re-frame.ui var(s) — classify "
+                          ":taught or [:omitted reason] in authoring-disposition: "
+                          (str/join ", " (sort missing)) "\n"))
+                   (when (seq stale)
+                     (str "  STALE classification(s) for var(s) no longer public "
+                          "— remove from authoring-disposition: "
+                          (str/join ", " (sort stale)) "\n"))
+                   "Then regenerate the sheet.")
+              {:missing missing :stale stale})))
+    manifest))
+
+;; ---------------------------------------------------------------------------
 ;; Rendering.
 ;;
-;; The authored sections are stable template prose. The roster is the
-;; GENERATED slice. Keep the two clearly separated so a reader (human or
-;; model) knows which lines carry the compiler's own words.
+;; The authored sections are stable template prose. The roster and the
+;; authoring surface are the GENERATED slices. Keep them clearly separated
+;; so a reader (human or model) knows which lines carry live repo data.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private front-matter
@@ -299,26 +487,31 @@ description: >-
   Compact, machine-first reference for authoring re-frame.ui `defview`
   templates — the closed grammar's valid forms and call shapes, the
   state/subscription/event/effect decision table, the foreign-boundary and
-  ref rules, the forbidden React/UIx idioms, the build contract, and the
-  full compile-rejection roster (every `:rf.ui.compile/*` diagnostic with
-  its direct fix). Load when writing, reviewing, or debugging a compiled
-  re-frame.ui view. The compile-rejection roster is GENERATED from the
-  compiler's own didactic messages; the deep references are the docs
-  (docs/core/re-frame.ui/) and the spec (spec/004-Views.md).
+  ref rules, the forbidden React/UIx idioms, the build contract, the
+  authoring-surface disposition, and the compile-rejection roster (the
+  `:rf.ui.compile/*` diagnostics the compiler's front-door analyzers raise,
+  each with its direct fix). Load when writing, reviewing, or debugging a
+  compiled re-frame.ui view. The roster is GENERATED from the compiler's own
+  didactic messages and the authoring surface from the API manifest; the
+  deep references are the docs (docs/core/re-frame.ui/) and the spec
+  (spec/004-Views.md).
 ---")
 
 (def ^:private generated-banner
   ";; GENERATED by implementation/scripts/api-manifest — do NOT hand-edit.
 ;; Regenerate: clojure -M -m re-frame.api-manifest.ui-context (from
-;; implementation/scripts/api-manifest/). The compile-rejection roster is
-;; extracted from the compiler's own env/fail! / env/warn! messages in
-;; implementation/ui/src/re_frame/ui/compiler/analyze.cljc; the surrounding
-;; prose is authored template. A drift check (ui-context --check) reds in CI
-;; until this file is regenerated. Keystone rf2-u53yy.8.")
+;; implementation/scripts/api-manifest/). Two slices are generated from live
+;; repo data: the compile-rejection roster from the compiler's own env/fail!
+;; / fail / env/warn! / report! messages across the bounded source roster in
+;; the generator's compiler-source-files, and the authoring surface from the
+;; public API manifest (spec/api-manifest.edn); the surrounding prose is
+;; authored template. A drift check (ui-context --check) reds in CI until this
+;; file is regenerated. Keystone rf2-u53yy.8.")
 
 (def ^:private prose-body
-  "The authored, machine-first prose — everything except the generated
-   compile-rejection roster. Grounded in the re-frame.ui public surface
+  "The authored, machine-first prose — everything except the two generated
+   slices (the compile-rejection roster and the authoring surface).
+   Grounded in the re-frame.ui public surface
    (implementation/ui/src/re_frame/ui.cljc) and the docs
    (docs/core/re-frame.ui/)."
   "# re-frame.ui context sheet
@@ -329,7 +522,7 @@ one macro, `defview`, in a **closed template grammar** the compiler reads at
 versioned structural tree on the JVM. There is **no runtime hiccup interpreter**
 in the production bundle, so anything the compiler cannot prove is a **compile
 error with a didactic message and a fix** — the roster at the end of this sheet
-is the complete list, generated from the compiler itself.
+is the list, generated from the compiler itself.
 
 Everything upstream of the view — events, app-db, subscriptions, effects,
 frames — is ordinary re-frame2 (`rf/reg-event`, `rf/reg-sub`, `rf/dispatch`,
@@ -371,7 +564,10 @@ foreign-component var. A runtime-chosen head is `:rf.ui.compile/dynamic-head`
 ```
 
 `ui/mount` = create-root + frame preflight + render, idempotent per root. The
-root form is **literal** (the compiler extracts static frame plans). Server
+root form is **literal** (the compiler extracts static frame plans).
+`ui/frame-provider` **scopes** an existing frame for a subtree; `ui/frame-root`
+is the static **ensure-plan** root wrapper (its `:id` a literal keyword) that
+mount/`ui/render!`/`ui/hydrate-root` turn into the frame the root owns. Server
 paths: `ui/render-static` (inert HTML string) and `ui/hydrate-root` +
 `re-frame.ssr/hydrate!` (SSR-then-hydrate).
 
@@ -429,17 +625,21 @@ committed frame.
 
 ```clojure
 (ui/defview chart [{:keys [data]}]
-  (let [[el set-el!] (ui/local nil)]
-    (ui/effect [data]                 ; re-runs (rf=) when data changes
-      (let [c (make-chart @el data)]
-        (fn [] (destroy-chart c))))    ; returned fn = cleanup
-    [:div {:ref (ui/raw-fn set-el!)}]))
+  (let [[node set-node] (ui/local nil)]   ; the ref target, as a value
+    (ui/effect [node data]                ; re-runs (rf=) when node or data change
+      (when node                          ; guard: the ref may not be attached yet
+        (let [c (make-chart node data)]
+          (fn [] (destroy-chart c)))))    ; returned fn = cleanup
+    [:canvas {:ref (ui/raw-fn set-node)}]))
 ```
 
 - `(ui/effect [deps…] body…)` — a **leading statement** in the top region,
   before the final template. Runs after commit when the literal `deps` change,
   compared by **`rf=`** (keep deps narrow — broad values walk). A returned fn is
   the cleanup.
+- A ref target comes from `ui/local` as a **value** (`set-node` stores the node,
+  `node` reads it) — include the node in the deps and **guard** it, since it is
+  `nil` until the ref attaches. There is no atom to deref.
 - `(ui/effect :connect body…)` runs at each connect (mount / reveal) with
   cleanup at each disconnect. There is deliberately **no `\"once\"`/`\"mount\"`**
   name; StrictMode dev replay is expected and cleanup must make it idempotent.
@@ -451,11 +651,19 @@ committed frame.
 
 ## Foreign boundary & refs
 
-- **Foreign React element:** `(ui/raw react-element)` in child position (SSR
-  needs a `ui/client-only` sibling fallback). **Foreign component head:** a
+- **Foreign React element (inward):** `(ui/raw react-element)` in child position
+  (SSR needs a `ui/client-only` sibling fallback). **Foreign component head:** a
   literal foreign-component var as the head — its props are passed through; a
   **bare fn** on a foreign prop is `:rf.ui.compile/bare-fn-prop`, so wrap it in
   `(ui/handler …)` or `(ui/raw-fn …)`.
+- **Export a view (outward):** `(ui/->react view)` turns a compiled `defview`
+  into a **React component** a foreign React/UIx/Helix tree can render
+  (`(def CartRow (ui/->react cart-row))` → `<CartRow …/>` anywhere) — the reverse
+  of `ui/raw` and the incremental-adoption bridge. It is **stable/memoised per
+  view identity**, creates **no root** and runs no preflight (it renders inside
+  the host's root), and scopes — never creates — a frame: the one reserved prop
+  `frame` (a frame-id or live frame) scopes the subtree, else it resolves the
+  ambient frame or fails loud. A JVM call raises `:rf.error/jvm-host-op`.
 - **Refs:** `:ref` takes an object ref (preferred) or a `(ui/raw-fn f)` callback
   ref (identity-as-protocol); a **bare fn** at `:ref` is
   `:rf.ui.compile/bare-fn-ref`. An internal **view forwards `:ref` only by
@@ -528,17 +736,27 @@ below carries the exact id + fix:
 - Docs: `docs/core/re-frame.ui/` (mental model, build-a-view, state,
   events-and-handlers, interop-and-limits, testing, ssr, presence).
 - Spec: `spec/004-Views.md` (the normative grammar).
-- API: the `re-frame.ui` / `re-frame.ui.test` API references.
+- API: the `re-frame.ui` / `re-frame.ui.test` API references.")
 
----
-
-## Compile-rejection roster (GENERATED)
-
-Every `:rf.ui.compile/*` diagnostic the compiler raises, extracted from its own
-`env/fail!` (reject) and `env/warn!` (dev-warning) messages in
-`implementation/ui/src/re_frame/ui/compiler/analyze.cljc`. Each bullet is the
-compiler's own message — it names the fix. This section is machine-generated; do
-not edit it by hand.")
+(defn- render-authoring-surface
+  "The GENERATED authoring-surface slice — the public re-frame.ui var set
+   from the manifest, split into taught-here vs deliberately-out-of-scope
+   (each with a pointer). Drives the sheet off the API manifest so a var
+   added to / removed from the surface changes this section (and the
+   disposition assertion reds until it is classified)."
+  [manifest-vars]
+  (let [taught  (->> authoring-disposition (filter #(= :taught (val %))) (map key) sort)
+        omitted (->> authoring-disposition (filter #(vector? (val %))) (sort-by key))]
+    (str "## Authoring surface (GENERATED from the API manifest)\n\n"
+         "The public `re-frame.ui` authoring API is **" (count manifest-vars)
+         " vars** (`spec/api-manifest.edn`). Every one is either taught above or "
+         "deliberately outside this compact sheet's scope; a var added to or "
+         "removed from the public surface reds the context check until it is "
+         "classified.\n\n"
+         "**Taught here:** " (str/join ", " (map #(str "`ui/" % "`") taught)) ".\n\n"
+         "**Out of scope** (use the API reference): "
+         (str/join "; " (map (fn [[v [_ reason]]] (str "`ui/" v "` — " reason)) omitted))
+         ".\n")))
 
 (defn- render-roster [roster*]
   (let [rejects  (filter #(= :reject (:tier %)) roster*)
@@ -551,20 +769,32 @@ not edit it by hand.")
                  1 (str " — " (first messages))
                  (str "\n"
                       (str/join "\n" (map #(str "  - " %) messages))))))]
-    (str "### Rejections (`env/fail!` — compile errors)\n\n"
+    (str "## Compile-rejection roster (GENERATED)\n\n"
+         "Every `:rf.ui.compile/*` diagnostic the compiler's front-door analyzers "
+         "raise, extracted from their own raise sites (`env/fail!` / `fail` / "
+         "`env/compile-error` rejects and `env/warn!` / a11y `report!` warnings) "
+         "across a bounded source roster: `compiler.cljc`, `compiler/analyze.cljc`, "
+         "`compiler/header.cljc`, `compiler/root.cljc`, `compiler/env.cljc`, "
+         "`compiler/a11y.cljc`, `test.cljc`. Each bullet is the compiler's own "
+         "message — it names the fix; `‹…›` marks a runtime value the compiler "
+         "fills in. (`:rf.ui.compile/error` is the ex-data envelope key every "
+         "compile error carries, not a diagnostic.) This section is "
+         "machine-generated; do not edit it by hand.\n\n"
+         "### Rejections (compile errors)\n\n"
          (str/join "\n" (map render-group rejects))
-         "\n\n### Dev-time warnings (`env/warn!`)\n\n"
+         "\n\n### Dev-time warnings\n\n"
          (str/join "\n" (map render-group warnings))
          "\n")))
 
 (defn render-sheet
-  "Render the full context sheet from the extracted roster. Deterministic
-   and LF-normalised so the committed file is byte-identical across a
-   Windows regeneration and a Linux CI check."
-  [roster*]
+  "Render the full context sheet from the extracted roster + the manifest
+   authoring surface. Deterministic and LF-normalised so the committed file
+   is byte-identical across a Windows regeneration and a Linux CI check."
+  [roster* manifest-vars]
   (let [raw (str front-matter "\n\n"
                  "<!--\n" generated-banner "\n-->\n\n"
                  prose-body "\n\n"
+                 (render-authoring-surface manifest-vars) "\n"
                  (render-roster roster*))]
     (str/replace raw "\r\n" "\n")))
 
@@ -573,23 +803,24 @@ not edit it by hand.")
 ;; ---------------------------------------------------------------------------
 
 (defn build-sheet
-  "Extract the roster from the analyzer source and render the sheet string."
+  "Extract the roster from the bounded compiler sources + the authoring
+   surface from the manifest, assert both are healthy, and render the sheet."
   []
-  (-> (extract-diagnostics @analyzer-source)
-      roster
-      assert-non-vacuous!
-      render-sheet))
+  (let [roster* (-> (extract-diagnostics) roster assert-non-vacuous!)
+        manifest-vars (assert-disposition-covers-manifest!)]
+    (render-sheet roster* manifest-vars)))
 
 (defn generate!
-  "Regenerate skills/re-frame2-ui-context/SKILL.md from the compiler's
-   didactic messages + the authored prose. Returns the sheet string."
+  "Regenerate skills/re-frame2-ui-context/SKILL.md. Returns the sheet string."
   []
-  (let [sheet (build-sheet)]
+  (let [sheet   (build-sheet)
+        roster* (roster (extract-diagnostics))]
     (io/make-parents @sheet-file)
     (spit @sheet-file sheet :encoding "UTF-8")
-    (println (format "Wrote %s (%d compile-diagnostic ids)."
+    (println (format "Wrote %s (%d compile-diagnostic ids, %d authoring vars)."
                      (.getPath ^java.io.File @sheet-file)
-                     (count (roster (extract-diagnostics @analyzer-source)))))
+                     (count roster*)
+                     (count (manifest-ui-vars))))
     sheet))
 
 (defn check!
@@ -607,16 +838,17 @@ not edit it by hand.")
           false)
 
       (= generated committed)
-      (do (println (format "OK: skills/re-frame2-ui-context/SKILL.md in sync (%d ids)."
-                           (count (roster (extract-diagnostics @analyzer-source)))))
+      (do (println (format "OK: skills/re-frame2-ui-context/SKILL.md in sync (%d ids, %d authoring vars)."
+                           (count (roster (extract-diagnostics)))
+                           (count (manifest-ui-vars))))
           true)
 
       :else
       (do (binding [*out* *err*]
             (println "DRIFT: generated context sheet differs from"
                      "skills/re-frame2-ui-context/SKILL.md.")
-            (println "A compiler message (or the authored prose) changed."
-                     "Regenerate with:")
+            (println "A compiler message, the API surface, or the authored prose"
+                     "changed. Regenerate with:")
             (println "  clojure -M -m re-frame.api-manifest.ui-context"))
           false))))
 
