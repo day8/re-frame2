@@ -614,7 +614,16 @@
       "(ui/raw-fn f) is the callback-ref forwarding spelling on a view")
   (is (= :rf.ui.compile/bare-fn-ref
          (reject-id '[child-view {:ref (fn [el] el)}]))
-      "a bare-fn :ref on an internal view still needs (ui/raw-fn f)"))
+      "a bare-fn :ref on an internal view still needs (ui/raw-fn f)")
+  ;; rf2-u53yy.3 obligation 3: the foreign seam is NOT a bare-fn exception —
+  ;; Spec 004 and the guide say every callback ref is explicit (ui/raw-fn f).
+  (is (= :rf.ui.compile/bare-fn-ref
+         (reject-id '[ForeignComp {:ref (fn [el] el)}]))
+      "a bare-fn :ref at a foreign component still needs (ui/raw-fn f)")
+  (is (nil? (reject-id '[ForeignComp {:ref (raw-fn (fn [el] el))}]))
+      "(ui/raw-fn f) is the callback-ref spelling at a foreign component")
+  (is (nil? (reject-id '[ForeignComp {:ref object-ref}]))
+      "an object :ref forwards to a foreign component (ordinary foreign props stay open)"))
 
 (deftest ui-handler-grammar
   (is (= :rf.ui.compile/bad-ui-handler

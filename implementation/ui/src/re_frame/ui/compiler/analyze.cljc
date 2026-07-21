@@ -1594,12 +1594,14 @@
                     "render fragment; a ref is a commit-phase host hook, which a "
                     "slot body may not own. Mount a defview that owns the ref")
                {:form form}))
-  ;; :element and :view share the ref contract: object refs preferred, a
-  ;; callback ref MUST be explicit `(ui/raw-fn f)` (React invokes it during
+  ;; :element, :view and :foreign share ONE ref contract: object refs preferred,
+  ;; a callback ref MUST be explicit `(ui/raw-fn f)` (React invokes it during
   ;; commit before the owning view's layout publication, so no committed-slot
-  ;; promise), a bare fn is rejected. An internal view accepts a forwarded ref
-  ;; only by declaring `:ref` in its header; React 19 passes `:ref` as an
-  ;; ordinary prop, so the call site just carries it into the props object.
+  ;; promise), a bare fn is rejected on every tier — Spec 004 and the guide say
+  ;; every callback ref is explicit, so the foreign seam is not an exception
+  ;; (rf2-u53yy.3). An internal view accepts a forwarded ref only by declaring
+  ;; `:ref` in its header; React 19 passes `:ref` as an ordinary prop, so the
+  ;; call site just carries it into the props object.
   (case context
     (:element :view)
     (cond
@@ -1614,7 +1616,14 @@
       :else
       {:form (walk-expr e [:ref context] form) :raw-fn? false})
     :foreign
-    {:form (walk-expr e [:ref :foreign] form) :raw-fn? false}))
+    (if (fn-form? form)
+      (env/fail! e :rf.ui.compile/bare-fn-ref
+                 (str "bare fn in :ref at a foreign component — the bare-fn "
+                      "shorthand applies only to native event properties, never "
+                      "refs. A callback ref must be explicit: (ui/raw-fn f); "
+                      "object refs are preferred")
+                 {:form form})
+      {:form (walk-expr e [:ref :foreign] form) :raw-fn? false})))
 
 (defn- analyze-literal-props
   "Analyze a DOM/custom element's LITERAL props map `m` (`properties` is the
