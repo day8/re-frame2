@@ -142,8 +142,8 @@
 (defn- deps-token
   "Render-time pure token for an authored deps vector held in the useRef cell
   `ref`. Returns one internal token whose identity changes iff the authored deps
-  stop being `rf=` (VALUE equality) against the previous render's deps — a
-  distinct-but-`rf=`-equal deps value keeps the SAME token, so React's own
+  stop being PER-SLOT `rf=` (`eq/deps-rf=?`) against the previous render's deps —
+  a distinct-but-`rf=`-equal deps value keeps the SAME token, so React's own
   cleanup→setup does not fire. Deriving the token during render is a pure
   function of (prev, deps): equal deps yield the same token, so a StrictMode
   double-render (or any re-render with `rf=`-equal deps) is idempotent. Because
@@ -152,11 +152,13 @@
   fixed one-element React deps array.
 
   This is re-frame.ui's ONE effect-dependency equality doctrine — the same `rf=`
-  the memo/prop comparator and the native `effect` tier use, shared verbatim by
-  the react-interop wrappers, never a second per-tier regime."
+  the memo/prop comparator and the native `effect` tier use, walked PER SLOT so a
+  stable `##NaN` slot (which whole-vector `rf=` would falsely report changed) or
+  a rebuilt-but-equal CLJS collection slot does not re-run the effect. Shared
+  verbatim by the react-interop wrappers, never a second per-tier regime."
   [^js ref deps]
   (let [prev ^js (.-current ref)]
-    (if (and (some? prev) (eq/rf= (.-deps prev) deps))
+    (if (and (some? prev) (eq/deps-rf=? (.-deps prev) deps))
       (.-token prev)
       (let [t #js {}]
         (set! (.-current ref) #js {:deps deps :token t})

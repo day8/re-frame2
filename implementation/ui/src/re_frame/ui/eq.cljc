@@ -39,3 +39,24 @@
                (and (number? a) (number? b)
                     (or (and (Double/isNaN (double a)) (Double/isNaN (double b)))
                         (== (double a) (double b)))))))
+
+(defn deps-rf=?
+  "The effect-dependency equality doctrine: two authored deps vectors are equal
+  iff they have equal arity and every authored slot is `rf=` its counterpart —
+  the SAME per-slot `rf=` the memo/prop comparator uses, walked element-wise.
+
+  Element-wise is load-bearing: `rf=` on the WHOLE vector would fall to `(= a b)`
+  (the vectors are freshly allocated, so the `Object.is` fast path misses), and
+  `(= [##NaN] [##NaN])` is FALSE — CLJS `=` is not NaN-reflexive — so a stable
+  `##NaN` slot would spuriously re-run the effect every render. The per-slot walk
+  routes each `##NaN` slot through `rf=`'s `Object.is` branch (NaN-reflexive) and
+  each rebuilt-but-equal CLJS collection slot through its `=` branch, so both
+  compare equal and the effect does not re-run."
+  [a b]
+  (and (== (count a) (count b))
+       (loop [i 0]
+         (if (< i (count a))
+           (if (rf= (nth a i) (nth b i))
+             (recur (inc i))
+             false)
+           true))))
