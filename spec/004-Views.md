@@ -1143,10 +1143,9 @@ algorithm, not the input shape — is unchanged). Any such extension re-serialis
 existing hook signature, so it is taken honestly as a **one-time global signature change
 → one clean remount wave when S3 lands** (pre-alpha, no shim). `lazy` contributes nothing
 (not a hook); its effect on identity is ordinary code identity. Because the hook signature
-is a component of the `build-digest` triple
-(`[view-id template-fingerprint hook-signature]`), adding a wrapper to a view changes
-`build-digest`, so a stale SSR page's manifest fails digest validation and that root takes
-the loud client-fresh path (per [011](011-SSR.md)) — correct and intended. Honest
+is a component of the view's compiled identity
+(`[template-fingerprint hook-signature]`), adding a wrapper to a view changes that
+identity — a remount edit, dev and prod alike — correct and intended. Honest
 asymmetry: dev's fixed hook skeleton makes adding your first `sub` a same-signature edit,
 but hook counts must be static and the host-hook count is unbounded, so **adding your
 first `ui/ref` is a remount edit** — dev and prod alike. Every wrapper site (the five

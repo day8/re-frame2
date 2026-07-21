@@ -75,18 +75,16 @@ server, no render, no reactivity.
  :static-props         {:promo :spring}           ; present iff :props-shape :literal (§5)
  :frame-plans          [{:frame-id :shop
                          :config-fingerprint "…"}] ; extracted ENSURE plans (§6)
- :template-fingerprint "…"                        ; over the compiled root template
- :build-digest         "…"}                       ; build identity — a READ-TIME projection, NOT baked at expansion (§2.1)
+ :template-fingerprint "…"}                       ; over the compiled root template
 ```
 
-`:build-digest` is the one field that is **not** a per-root static fact and is
-**never baked** into the emitted descriptor at expansion — see §2.1 for where it
-lives and why.
+Every field is a **per-root static fact** the compiler bakes at the mount site's own
+expansion — see §2.1.
 
 **Fingerprint/digest algorithms — ownership.** `:render-fingerprint` and the semantic
 normalization `N` it hashes are owned by
 [004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md)
-(§Semantic normalization). The `:template-fingerprint`, `:build-digest`, and
+(§Semantic normalization). The `:template-fingerprint` and
 hook-signature-hash algorithms are defined by the S1 compiler-slice PR (rf2-vxgfnd.2);
 this Spec pins only the fields and their comparison semantics.
 
@@ -121,55 +119,34 @@ This split resolves the 12-§3-postpones-S5 / 08-§2-requires-S1 tension without
 either stage: S1 ships the descriptor (compiler artefact, `ui.test`/Xray consumer); S5
 ships the manifest as its extension.
 
-### 2.1 The static core, the whole-build digest, and the read-time projection
+### 2.1 The descriptor is per-root static facts
 
-`:build-digest` is a **whole-build aggregate** — a hash over *every* view in the build,
-**identical for every root**. It is therefore **not a per-root static fact** and, unlike
-every other descriptor key, **cannot be baked at the mount site's expansion**: at the
-moment a `ui/mount` / `ui/render!` / `ui/hydrate-root` form macroexpands, the build is
-still compiling and only the views seen so far are known — baking the digest there makes
-it *compile-order dependent*, and it goes *stale* the instant a view's file recompiles
-without the mount site re-expanding (an ordinary view-only hot-reload edit). The per-build
-compiler-state authority does not change this: the candidate digest is finalized only
-after every source has compiled, strictly *after* every mount-site macroexpansion, so no
-expansion-time value can ever be the finalized identity. The candidate becomes accepted
-only when the configured build/watch pipeline succeeds (§2.1.1).
+Every field of Root Descriptor v1 is a **per-root static fact** resolvable at the mount
+site's own expansion. The compiler bakes the descriptor at expansion into the emitted
+client code, and it rides each live-root registry entry (its `:descriptor`) and the
+compiler's build-emitted descriptor index. The descriptor carries **no whole-build
+aggregate** and is assembled by **no read-time projection**: the descriptor a consumer
+reads is exactly the static descriptor the compiler baked, `:rf.root/schema-version 1` and
+schema-valid.
 
-Root Descriptor v1 is therefore realised as **two named shapes, one contract:**
+The two hosts read the same per-root descriptor:
 
-- **The static core** — the per-root static facts above **minus** `:build-digest`. This is
-  what the compiler bakes at expansion into the emitted client code and what rides each
-  live-root registry entry (its `:descriptor`) and the compiler's build-emitted descriptor
-  index. It is `:rf.root/schema-version 1` and schema-valid; the digest is simply supplied
-  by the projection, not the core.
-- **The complete descriptor** — the static core **plus** the finalized `:build-digest`,
-  assembled by a **read-time projection** at each consumer. Any value handed out *as* a
-  complete "Root Descriptor v1 / Root Manifest v1" carries the digest.
-
-The digest is projected — never baked — at read on **both hosts**, from the **same accepted
-compiler snapshot**, so the two projections **agree byte-for-byte** for a given build:
-
-- **Compiler / JVM** — the retained build-state carries one accepted
-  `{registries,digest,version}` snapshot per build-id. JVM tooling passes that explicit
-  build-state/compiler-env to `re-frame.ui.compiler.root/descriptor-index`; there is no
-  process-global "latest build". The projection stamps the snapshot's already-computed
-  digest. An open, failed, or interleaved build cannot change the retained snapshot.
+- **Compiler / JVM** — `re-frame.ui.compiler.root/descriptor-index` returns the build's
+  per-root descriptors. JVM tooling passes the explicit retained build-state/compiler-env;
+  there is no process-global "latest build". An open, failed, or interleaved build cannot
+  change a retained accepted snapshot.
 - **Client / dev runtime** — `re-frame.ui.client/descriptor-index` (and per-root
-  `re-frame.ui.client/descriptor`) reads one compiler-projected scalar from a dev-only
-  carrier in O(1). It **never recomputes identity from runtime-registered or currently
-  loaded views**. The compiler includes every build member, including an unexecuted lazy
-  module, so runtime module-loading order cannot change identity. A successful view-only
-  hot reload evaluates the refreshed carrier and updates what already-mounted roots read
-  without re-expanding their mount sites.
+  `re-frame.ui.client/descriptor`) reads the stored per-root descriptor off the live-root
+  registry in O(1). It **never recomputes identity from runtime-registered or currently
+  loaded views**, so runtime module-loading order cannot change it. A successful view-only
+  hot reload updates a view's body without re-expanding its mount site; the stored
+  descriptor is unchanged.
 
-**Home of the build identity, made explicit:** the finalized whole-build `:build-digest`
-lives in the **accepted build snapshot plus its read-time projections**, not in the static
-core or runtime registrar. Clean, incremental and watch paths converge on the same scalar.
 Direct unsaved no-pass REPL evaluation may replace a live view body and exercise the same
-generation/remount machinery as HMR, but it **does not change `:build-digest`**. Saving the
-source and completing the next configured build/watch pass publishes the new identity.
-Macroexpand-only, never-evaluated and runtime-failed REPL forms therefore cannot become
-digest members or pollute a later build.
+generation/remount machinery as HMR, but it does not re-derive descriptors; only the next
+successful configured build/watch pass re-derives them from the recompiled sources.
+Macroexpand-only, never-evaluated and runtime-failed REPL forms therefore cannot pollute a
+later build.
 
 #### 2.1.1 The accepted-build transaction
 
@@ -185,9 +162,8 @@ transaction boundary:
    final UI declaration therefore evicts its prior rows even though no registry macro runs,
    while output-present warm cache hits retain their accepted rows.
 2. Macro expansion writes scratch only. At compile finish, the adapter reconciles scratch
-   against the authoritative whole build graph, computes the digest once, validates and
-   patches exactly one fixed-width dev carrier in the returned output state, and carries
-   the candidate snapshot in the returned compiler-env.
+   against the authoritative whole build graph and carries the candidate snapshot in the
+   returned compiler-env.
 3. The build tool retains that returned state only if all later configured
    optimize/check/flush/watch work succeeds. A downstream failure discards the candidate;
    the next attempt seeds from the prior accepted snapshot. No external commit/rollback
@@ -199,15 +175,16 @@ contract does not claim filesystem rollback for that directory. Consumers activa
 successful build output.
 
 For Shadow 3.4.10 the build hook and top-level
-`:cache-blockers #{re-frame.ui}` are load-bearing: the hook supplies the transaction,
-version-zero retained-output invalidation and carrier projection; the blocker prevents
-those invalidated sources from being reloaded from stale disk cache. Together they ensure
-all macro-contributed members are present after a warm daemon start. A configured dev build
-without either fails loudly rather than publishing a plausible partial identity.
+`:cache-blockers #{re-frame.ui}` are load-bearing: the hook supplies the transaction and
+version-zero retained-output invalidation; the blocker prevents those invalidated sources
+from being reloaded from stale disk cache. Together they ensure all macro-contributed
+members are present after a warm daemon start. A dev build that configures the hook but
+omits the cache blocker fails loudly at compile-prepare rather than proceeding with a
+plausible but incomplete warm-cache build.
 
-Dev-only: the carrier, sentinel, digest literal, view manifests and descriptor/digest
-projections are `goog.DEBUG`-guarded and absent from advanced production output, so the
-mechanism adds no production bytes or runtime work.
+Dev-only: the descriptor projections (`re-frame.ui.client/descriptor` and
+`descriptor-index`) are `goog.DEBUG`-guarded and absent from advanced production output, so
+the mechanism adds no production bytes or runtime work.
 
 ## 3. The mount grammar and the host signature set
 
