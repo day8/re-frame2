@@ -126,6 +126,25 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
 - **Placement**: legal only in a `defview`'s unconditional top region (not a loop,
   branch, deferred callback, or render-fn slot → `:rf.ui.compile/hook-misplaced`).
 
+### `ref`
+
+- **Kind**: function (compile-time authoring form)
+- **Signature**: `(ref) / (ref init) → host ref object` (bound in a `defview` top-region `let`)
+- **Description**: The substrate-native DOM-node ref — the everyday **"I need the DOM
+  node"** primitive (focus, measurement, a third-party widget), promoted from the
+  `re-frame.ui.react` ref hook (rf2-u53yy.9). Bound in the top-region `let` and handed to a `:ref`
+  position; read/write via `(.-current node)`. **Assignment never re-renders** — its
+  reason to exist beside `local` — and it is the **preferred object ref** for a `:ref`
+  slot; no deps. The object ref attaches at commit **before effects fire**, so
+  `(.-current node)` is populated by the first `effect` time (guard it with `when-let`
+  and include the ref in the effect's deps). Callback refs via `(ui/raw-fn f)` remain the
+  expert seam for when the node's *identity* change must itself trigger work. On the JVM
+  structural render it is an inert ref (`current` nil, stays nil); refs never appear in the
+  JVM tree.
+- **Placement**: a host hook — legal only in a `defview`'s unconditional top region (not a
+  loop, branch, deferred callback, or render-fn slot → `:rf.ui.compile/react-hook-misplaced`);
+  contributes its `:ref` kind to the view's hook signature.
+
 ### `effect`
 
 - **Kind**: function (compile-time authoring form)

@@ -87,8 +87,8 @@
      "prompt": "Migrate this Reagent Form-3 view to re-frame.ui:\n(ns app.popover (:require [reagent.core :as r] [reagent.dom :as rdom]))\n(defn popover [anchor]\n  (r/create-class\n   {:component-did-mount (fn [this] (place! (rdom/dom-node this) (measure anchor)))\n    :reagent-render      (fn [a] [:div.popover])}))",
      "expectations": [
        "Recognises MIG-17 Form-3 and that :component-did-mount here does MEASURE-then-mutate BEFORE paint (reads geometry to place the popover), so a passive effect would measure a frame late and flicker.",
-       "Does NOT route this to (effect :connect …); routes it to re-frame.ui.react/use-ref + use-layout-effect (the measure-before-paint door), preserving the pre-paint semantics component-did-mount gave.",
-       "Uses the React interop shape for the hook — (react/use-layout-effect (fn [] … cleanup-or-nil) deps) with a setup fn returning a cleanup fn or nil — NOT ui/effect's body-return shape, and reads the node via (.-current (react/use-ref)).",
+       "Does NOT route this to (effect :connect …); routes it to ui/ref + re-frame.ui.react/use-layout-effect (the measure-before-paint door), preserving the pre-paint semantics component-did-mount gave.",
+       "Uses the React interop shape for the layout-effect hook — (react/use-layout-effect (fn [] … cleanup-or-nil) deps) with a setup fn returning a cleanup fn or nil — NOT ui/effect's body-return shape, and reads the node via (.-current (ui/ref)).",
        "Keeps ordinary listeners / focus / deferrable host work on the passive effect — the split is only for the narrow pre-paint case, not a wholesale hooks migration.",
        "Holds/decides the WHOLE view (cardinal rule 2) rather than half-migrating it."
      ]},

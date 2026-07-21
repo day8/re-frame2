@@ -2,8 +2,10 @@
   "rf2-vxgfnd.95.4 — the frozen re-frame.ui.react interop tier on the JVM
   Tier-1 structural host, plus the COMPILE-TIME position law.
 
-  The seven wrappers (Spec 004 §The React interop tier): use-ref, use-effect,
-  use-layout-effect, use-effect-event, use-context, use-id, lazy. This suite
+  The six wrappers (Spec 004 §The React interop tier): use-effect,
+  use-layout-effect, use-effect-event, use-context, use-id, lazy — plus the
+  promoted substrate host hook `ui/ref` (rf2-u53yy.9), lowered by the same
+  finite-site machinery and exercised here alongside the interop tier. This suite
   pins:
     - the position law rejections (`:rf.ui.compile/react-hook-misplaced`,
       `-bad-deps`, `react-lazy-misplaced`) — compile-time ids in COMPILER PROSE,
@@ -17,7 +19,7 @@
       fails loud, use-id is a deterministic inert string, lazy renders its
       fallback / nothing and NEVER invokes the load thunk.
 
-  Real React client behaviour (use-ref no-re-render, per-slot rf= deps + cleanup,
+  Real React client behaviour (ui/ref no-re-render, per-slot rf= deps + cleanup,
   use-layout-effect measure-before-paint, use-effect-event latest-body + unstable
   identity, use-context foreign provider, use-id, lazy activation, StrictMode,
   HMR) rides the DOM suite `react_interop_dom_cljs_test`."
@@ -59,12 +61,12 @@
   (testing "a wrapper in a branch is misplaced (React hook order must be static)"
     (is (= :rf.ui.compile/react-hook-misplaced
            (compile-error '(re-frame.ui/defview v []
-                             (when true (let [r (re-frame.ui.react/use-ref)] [:div])))))))
+                             (when true (let [r (re-frame.ui/ref)] [:div])))))))
   (testing "a wrapper in a loop is misplaced"
     (is (= :rf.ui.compile/react-hook-misplaced
            (compile-error '(re-frame.ui/defview v []
                              [:ul (for [i [1 2]]
-                                    (let [r (re-frame.ui.react/use-ref)] [:li {:key i} i]))])))))
+                                    (let [r (re-frame.ui/ref)] [:li {:key i} i]))])))))
   (testing "a wrapper in a deferred fn body is misplaced"
     (is (= :rf.ui.compile/react-hook-misplaced
            (compile-error '(re-frame.ui/defview v []
@@ -89,7 +91,7 @@
                            (let [id (re-frame.ui.react/use-id :extra)] [:div id])))))
   (is (= :rf.ui.compile/unsupported-form
          (compile-error '(re-frame.ui/defview v []
-                           (let [r (re-frame.ui.react/use-ref 1 2)] [:div]))))))
+                           (let [r (re-frame.ui/ref 1 2)] [:div]))))))
 
 (deftest lazy-in-a-view-body-is-def-level-only
   (is (= :rf.ui.compile/react-lazy-misplaced
@@ -99,7 +101,7 @@
 (deftest a-valid-top-region-view-compiles
   (is (nil? (compile-error
              '(re-frame.ui/defview v []
-                (let [r  (re-frame.ui.react/use-ref)
+                (let [r  (re-frame.ui/ref)
                       id (re-frame.ui.react/use-id)
                       th (re-frame.ui.react/use-context :theme)
                       _  (re-frame.ui.react/use-effect (fn [] nil) [th])]
@@ -110,7 +112,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defview manifest-probe []
-  (let [r  (react/use-ref)
+  (let [r  (ui/ref)
         id (react/use-id)
         th (react/use-context :theme)
         _  (react/use-effect (fn [] nil) [th])
@@ -131,7 +133,7 @@
 
 (deftest capability-bits-fold-onto-the-static-root-vocabulary
   (let [caps (set (:capabilities (manifest ::manifest-probe)))]
-    (is (contains? caps :ref)     "use-ref → :ref")
+    (is (contains? caps :ref)     "ui/ref → :ref")
     (is (contains? caps :effect)  "use-effect/use-layout-effect/use-effect-event → :effect")
     (is (contains? caps :context) "use-context → :context")
     (is (not (contains? caps :id)) "use-id is exempt (inert deterministic ids are static-safe)")))
@@ -161,30 +163,30 @@
       (is (not= (sig {:react [{:kind :ref :order 0} {:kind :context :order 1}]})
                 (sig {:react [{:kind :context :order 0} {:kind :ref :order 1}]}))))
     (testing "a local↔react reorder (both live in the top-region let)"
-      ;; local advances the shared ordinal, so moving it across a use-ref shifts
+      ;; local advances the shared ordinal, so moving it across a ui/ref shifts
       ;; the ref's ordinal — a per-category count vector could not catch this.
       (is (not= (sig {:locals [:local] :react [{:kind :ref :order 1}]})
                 (sig {:locals [:local] :react [{:kind :ref :order 0}]}))))))
 
 ;; A NATIVE (non-foreign-boundary) measure-before-paint consumer (readiness
-;; C-6): use-ref for the element + use-layout-effect to measure and place. Its
+;; C-6): ui/ref for the element + use-layout-effect to measure and place. Its
 ;; real-compiler hook-signature drives the HMR law below (and its client
 ;; behaviour rides the DOM suite).
 (defview popover-v1 [{:keys [anchor]}]
-  (let [el (react/use-ref)
+  (let [el (ui/ref)
         _  (react/use-layout-effect (fn [] nil) [anchor])]
     [:div {:ref el :data-role "popover"} "menu"]))
 
 ;; same wrappers, same order, edited layout-effect body + deps → SAME signature
 ;; (a compatible refresh: state preserved).
 (defview popover-v1-edited [{:keys [anchor]}]
-  (let [el (react/use-ref)
+  (let [el (ui/ref)
         _  (react/use-layout-effect (fn [] (identity :edited)) [anchor :extra])]
     [:div {:ref el :data-role "popover"} "MENU"]))
 
 ;; an ADDED passive effect → DIFFERENT signature (a deliberate clean remount).
 (defview popover-v2-added [{:keys [anchor]}]
-  (let [el (react/use-ref)
+  (let [el (ui/ref)
         _  (react/use-layout-effect (fn [] nil) [anchor])
         _  (react/use-effect (fn [] nil) [])]
     [:div {:ref el :data-role "popover"} "menu"]))
@@ -200,13 +202,14 @@
 ;; JVM structural subset
 ;; ---------------------------------------------------------------------------
 
-(defview inert-ref-view [] (let [r (react/use-ref 42)] [:div {:ref r} "x"]))
+(defview inert-ref-view [] (let [r (ui/ref 42)] [:div {:ref r} "x"]))
 
-(deftest use-ref-is-inert-on-the-jvm
+(deftest ref-is-inert-on-the-jvm
   (let [t (uit/render [inert-ref-view {}])]
     (is (= "x" (uit/text (some #(when (= :div (:tag %)) %) (tree-seq map? :children t)))) "the view renders; the ref is inert")))
 
-(deftest jvm-use-ref-current-stays-nil
+(deftest jvm-ref-current-stays-nil
+  ;; the runtime lowering target keeps its name (`hooks/use-ref`), unchanged.
   (is (nil? (:current (hooks/use-ref)))    "0-arg inert ref")
   (is (nil? (:current (hooks/use-ref 99))) "1-arg inert ref ignores the initial"))
 

@@ -132,7 +132,8 @@ absence is proven under G-7/G-11.
 
 ### Clarifications (prose, not machinery)
 
-- **C-6 · Native-library layout/ref blessing.** `react/use-ref` +
+- **C-6 · Native-library layout/ref blessing.** `ui/ref` (the substrate
+  DOM-node ref, promoted from the `re-frame.ui.react` ref hook — rf2-u53yy.9) +
   `react/use-layout-effect` (call shapes frozen at S1) gain a second
   sanctioned audience: native-library measure-before-paint (popover/dropdown
   positioning, table geometry) — measure in the layout effect, compute

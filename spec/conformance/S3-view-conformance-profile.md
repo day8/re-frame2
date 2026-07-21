@@ -67,25 +67,30 @@ client-render proof homes are named here.
 
 ### 1.3 The React interop tier (`re-frame.ui.react`)
 
-The frozen `re-frame.ui.react` interop tier is seven wrappers (Spec 004 §The
+The frozen `re-frame.ui.react` interop tier is six wrappers (Spec 004 §The
 React interop tier) for compiled views that must participate in a *foreign* React
 world — an exported `defview` living inside a foreign parent, or a foreign widget
-whose API demands refs, contexts, ids, or code-splitting. It is **not** a second
-state or reactivity model, and the roster is closed. Six of the seven
-(`use-ref` … `use-id`) are **host hooks**: `(defn …)` stubs the compiler
+whose API demands contexts, ids, effects, or code-splitting. It is **not** a second
+state or reactivity model, and the roster is closed. Five of the six
+(`use-effect` … `use-id`) are **host hooks**: `(defn …)` stubs the compiler
 recognises by resolved head and lowers to `re-frame.ui.hooks/*` under the
 position law (a hook site is legal only where it evaluates unconditionally,
 exactly once per render); like the verbs, a **direct call fails loud** with
 `:rf.error/ui-tree-malformed`. `lazy` is a **def-level macro** (a `React.lazy`
 constructor), exempt from the position law but a compile error inside a view
-body/template. All seven ride the same proof homes:
+body/template. All six ride the same proof homes:
 `re-frame.ui.react-interop-jvm-test` (JVM structural subset + compile-time
 position law + HMR signature) and `re-frame.ui.react-interop-dom-cljs-test` (real
 React client behaviour).
 
+The everyday DOM-node ref is **not** in this tier — it is the substrate-native
+`ui/ref` (a `re-frame.ui` public, promoted out of the interop tier, rf2-u53yy.9;
+its lowering target stays the `re-frame.ui.hooks/use-ref` runtime fn). It is a
+`re-frame.ui` non-verb public (catalogued in the facade exact-set), lowered by
+the same finite-site machinery and proven by the same two react-interop suites.
+
 | Wrapper | Kind | Contract | Direct-call behaviour |
 |---|---|---|---|
-| `react/use-ref` | host hook (`useRef`) | host ref object; read/write via `.current`; assignment never re-renders; the preferred `:ref` object; no deps (JVM yields an inert ref) | fails loud `:rf.error/ui-tree-malformed` |
 | `react/use-effect` | host hook (`useEffect`) | passive after-paint effect; setup returns a cleanup; per-slot `rf=` deps (the one effect-dependency doctrine — value semantics, shared with `effect`); `[]` = connect-only; StrictMode-replay-idempotent — the `effect` contract in a foreign spelling | fails loud `:rf.error/ui-tree-malformed` |
 | `react/use-layout-effect` | host hook (`useLayoutEffect`) | after DOM mutation, **before** paint — the measure-before-paint door; same setup/cleanup/per-slot-`rf=`-deps contract as `use-effect` | fails loud `:rf.error/ui-tree-malformed` |
 | `react/use-effect-event` | host hook (`useEffectEvent`, React 19.2) | returned fn always sees the latest render's committed values; its identity is **not** stable (a fresh fn each render); takes no deps; must never appear in a deps vector nor be called during render | fails loud `:rf.error/ui-tree-malformed` |

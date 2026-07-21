@@ -211,16 +211,17 @@
   (events/dispatch-fn))
 
 ;; ---------------------------------------------------------------------------
-;; re-frame.ui.react interop tier — the frozen seven wrappers' CLJS lowering
-;; targets. The analyzer rewrites (react/use-* …) authored sites to these; the
-;; position law keeps them straight-line and once-per-render, so React's hook
+;; Host-hook CLJS lowering targets — the six re-frame.ui.react interop wrappers
+;; plus the substrate `re-frame.ui/ref` (lowered to the `use-ref` fn below,
+;; unchanged — rf2-u53yy.9). The analyzer rewrites the authored sites to these;
+;; the position law keeps them straight-line and once-per-render, so React's hook
 ;; order stays static. Every React-property access is `^js`-hinted so the
 ;; advanced build carries zero :infer-warning.
 ;; ---------------------------------------------------------------------------
 
 (defn use-ref
-  "react/use-ref lowering target — `useRef`. Returns the host ref object;
-  read/write `(.-current ref)`; assignment never re-renders."
+  "`re-frame.ui/ref` (`ui/ref`) lowering target — `useRef`. Returns the host ref
+  object; read/write `(.-current ref)`; assignment never re-renders."
   ([] (react/useRef nil))
   ([initial] (react/useRef initial)))
 
@@ -320,17 +321,18 @@
                        "(ui/dispatch-fn) dispatch is a host-only client operation")))
 
 ;; ---------------------------------------------------------------------------
-;; re-frame.ui.react interop tier — the JVM structural subset (Spec 004 §Host
-;; behaviour). Refs are inert; passive/layout effects do not run; effect-event
-;; is metadata-only and its returned fn fails loud; use-context resolves a
-;; JVM-provided test value or fails loud; use-id is a deterministic inert string.
+;; Host-hook JVM structural subset (Spec 004 §Host behaviour) — the substrate
+;; `ui/ref` and the re-frame.ui.react interop hooks. Refs are inert; passive/
+;; layout effects do not run; effect-event is metadata-only and its returned fn
+;; fails loud; use-context resolves a JVM-provided test value or fails loud;
+;; use-id is a deterministic inert string.
 ;; ---------------------------------------------------------------------------
 
 (defrecord InertRef [current])
 
 (defn use-ref
-  "JVM react/use-ref: an inert ref (`current` nil, stays nil) — refs never
-  appear in the JVM structural tree."
+  "JVM `re-frame.ui/ref` (lowering target `use-ref`): an inert ref (`current`
+  nil, stays nil) — refs never appear in the JVM structural tree."
   ([] (->InertRef nil))
   ([_initial] (->InertRef nil)))
 

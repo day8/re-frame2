@@ -430,8 +430,8 @@
            (root/registered-view-static-facts :uv7n6/seam-probe)))))
 
 ;; HOLE 3 — an authored element :ref is a runtime-requiring capability. RED
-;; before: view-static-facts folded :ref only from re-frame.ui.react use-ref
-;; hooks, never from an authored element/component :ref slot, and the JVM emitter
+;; before: view-static-facts folded :ref only from the host-hook ref (ui/ref),
+;; never from an authored element/component :ref slot, and the JVM emitter
 ;; omits refs — so `[:div {:ref r} "x"]` rendered `<div>x</div>` with the ref
 ;; silently removed. GREEN after: a server-reachable authored ref is the loud
 ;; :rf.ui.compile/static-root-requires-runtime.

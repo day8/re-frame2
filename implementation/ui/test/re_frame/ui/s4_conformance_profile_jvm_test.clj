@@ -287,6 +287,16 @@
   UIx-review feature."
   '#{->react})
 
+(def s3-ref-promotion
+  "The substrate DOM-node host hook `ref` (rf2-u53yy.9) — promoted OUT of the
+  re-frame.ui.react interop tier into the re-frame.ui facade. An S3-era host hook
+  (peer of `local`), not an S4/S5/S6 delta and not an S1/S2 carry-over; held as
+  its own partition SLOT so the non-S3 exact-set classification recognises it as
+  the promoted ref rather than an unexpected surface member. Its runtime
+  behaviour rides the react-interop JVM/DOM suites (not an S3 verb-arm gate), so
+  it is a non-S3-verb facade public catalogued here."
+  '#{ref})
+
 (def s4-inherits-profile
   "The frozen profile this one inherits by exact reference. A broken inheritance
   link — the file gone, or the reference dropped from §0 — is red."
@@ -332,17 +342,17 @@
                               frozen-s4-forms)))))
 
 (deftest new-public-surface-fails-loudly
-  (testing "the non-S3 facade publics partition EXACTLY into the S4 delta + the S1/S2 carry-over + the S5 delta + the S6 delta — a NEW public var is red until it is classified"
+  (testing "the non-S3 facade publics partition EXACTLY into the S4 delta + the S1/S2 carry-over + the S5 delta + the S6 delta + the S3 ref promotion — a NEW public var is red until it is classified"
     (let [non-s3     s3/non-s3-facade-publics
           classified (set/union (s4-facade-forms) s1-s2-carryover-publics
-                                s5-facade-delta s6-facade-delta)]
+                                s5-facade-delta s6-facade-delta s3-ref-promotion)]
       (is (= non-s3 classified)
           (str "facade classification drift — "
                "unclassified (new?) publics: " (sort (set/difference non-s3 classified))
                "; classified-but-absent: " (sort (set/difference classified non-s3))))))
   (testing "the live facade agrees — every classified name actually resolves"
     (doseq [sym (set/union (s4-facade-forms) s1-s2-carryover-publics
-                           s5-facade-delta s6-facade-delta)]
+                           s5-facade-delta s6-facade-delta s3-ref-promotion)]
       (is (some? (ns-resolve 're-frame.ui sym))
           (str "ui/" sym " is classified but does not resolve")))))
 

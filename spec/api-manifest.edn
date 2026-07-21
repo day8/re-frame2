@@ -509,6 +509,7 @@
   {:namespace "re-frame.ui", :var "presence-phase", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S4", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "raw", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "raw-fn", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "ref", :tier :front-porch, :kind :fn, :owner "004", :status "Spec-004 S3", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "render!", :tier :advanced, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "render-fn", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S3", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "render-static", :tier :advanced, :kind :macro, :owner "004", :status "Spec-004 S5", :facade? false, :runtime-verified? true}
@@ -524,7 +525,6 @@
   {:namespace "re-frame.ui.react", :var "use-effect-event", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S3", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui.react", :var "use-id", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S3", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui.react", :var "use-layout-effect", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S3", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ui.react", :var "use-ref", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S3", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui.test", :var "attrs", :tier :testing, :kind :fn, :owner "008", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui.test", :var "flush!", :tier :testing, :kind :fn, :owner "008", :status "Spec-004 S2", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui.test", :var "flush-presence!", :tier :testing, :kind :fn, :owner "008", :status "Spec-004 S4", :facade? false, :runtime-verified? true}

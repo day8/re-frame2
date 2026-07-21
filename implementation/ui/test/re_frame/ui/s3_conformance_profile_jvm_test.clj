@@ -10,8 +10,10 @@
        when called outside compiler lowering;
     2. `ui/route-link` — the ONE framework-authored S3 VIEW (an ordinary
        compiled `defview`, NOT a fail-loud stub and NOT a compiler intrinsic);
-    3. the seven `re-frame.ui.react` interop-tier WRAPPERS (six host-hook
-       fail-loud stubs + the def-level `lazy` macro).
+    3. the six `re-frame.ui.react` interop-tier WRAPPERS (five host-hook
+       fail-loud stubs + the def-level `lazy` macro). The everyday DOM-node ref
+       is NOT here — it is the substrate `ui/ref` (a re-frame.ui public,
+       promoted out of the interop tier, rf2-u53yy.9).
 
   For each entry it names the direct-call/kind contract the CODE must honour on
   the JVM and the gate/proof home that proves the entry's real runtime
@@ -92,27 +94,23 @@
                                 "native/modifier clicks defer to the browser"]}})
 
 ;; ---------------------------------------------------------------------------
-;; (3) The frozen `re-frame.ui.react` INTEROP TIER — seven wrappers (Spec 004
-;; §The React interop tier). NOT a second state/reactivity model. Six are HOST
+;; (3) The frozen `re-frame.ui.react` INTEROP TIER — six wrappers (Spec 004
+;; §The React interop tier). NOT a second state/reactivity model. Five are HOST
 ;; HOOKS: `(defn …)` stubs the compiler recognises by resolved head and lowers,
-;; and which fail loud on a direct call. `lazy` is a DEF-LEVEL macro. Proof
-;; homes: JVM structural subset + compile-time position law + HMR-signature ->
+;; and which fail loud on a direct call. `lazy` is a DEF-LEVEL macro. The
+;; everyday DOM-node ref left this tier for the substrate `ui/ref` (rf2-u53yy.9),
+;; catalogued as a re-frame.ui public in `non-s3-facade-publics`. Proof homes:
+;; JVM structural subset + compile-time position law + HMR-signature ->
 ;; re-frame.ui.react-interop-jvm-test; real React client behaviour ->
 ;; re-frame.ui.react-interop-dom-cljs-test.
 ;; ---------------------------------------------------------------------------
 ;; `:host` is the wrapped React primitive the row must name; `:row-fragments`
 ;; are the small EXACT contract fragments the §1.3 row must carry (so swapping
-;; two wrappers' contracts, or hollowing one out, is red). All seven share the
+;; two wrappers' contracts, or hollowing one out, is red). All six share the
 ;; two proof homes, but each entry names its own so dropping or swapping a proof
 ;; association is red per wrapper rather than tier-wide.
 (def frozen-react-wrappers
-  {'use-ref           {:kind :hook :error :rf.error/ui-tree-malformed :host "useRef"
-                       :jvm-proof "re-frame.ui.react-interop-jvm-test"
-                       :cljs-proof "re-frame.ui.react-interop-dom-cljs-test"
-                       :row-fragments ["host ref object"
-                                       "read/write via `.current`"
-                                       "assignment never re-renders"]}
-   'use-effect        {:kind :hook :error :rf.error/ui-tree-malformed :host "useEffect"
+  {'use-effect        {:kind :hook :error :rf.error/ui-tree-malformed :host "useEffect"
                        :jvm-proof "re-frame.ui.react-interop-jvm-test"
                        :cljs-proof "re-frame.ui.react-interop-dom-cljs-test"
                        :row-fragments ["passive after-paint effect"
@@ -158,6 +156,13 @@
 (def non-s3-facade-publics
   '#{adapter defview custom-element mount create-root render! hydrate-root
      unmount! frame-root frame-provider sub frame raw html raw-fn spread
+     ;; ui/ref (rf2-u53yy.9): the substrate-native DOM-node host hook, promoted
+     ;; out of the re-frame.ui.react interop tier (which lost its ref hook). A
+     ;; fail-loud `(defn …)` stub like `local`, lowered by the same finite-site
+     ;; machinery; its runtime behaviour rides the react-interop JVM/DOM suites
+     ;; (not an S3 verb-arm gate), so it is catalogued here rather than in
+     ;; frozen-s3-verbs.
+     ref
      ;; S4 presence (rf2-uckeg): the enter/exit retention template form + its
      ;; single phase read — not part of the S3 surface
      presence presence-phase
@@ -227,7 +232,6 @@
   [wrapper]
   (try
     (case wrapper
-      use-ref           (react/use-ref)
       use-effect        (react/use-effect nil)
       use-layout-effect (react/use-layout-effect nil)
       use-effect-event  (react/use-effect-event nil)
@@ -237,7 +241,7 @@
     (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
 
 (deftest react-wrappers-resolve-with-frozen-kinds
-  (testing "the seven interop wrappers resolve; the six hooks fail loud, lazy is a macro"
+  (testing "the six interop wrappers resolve; the five hooks fail loud, lazy is a macro"
     (doseq [[wrapper {:keys [kind error]}] frozen-react-wrappers]
       (let [v (ns-resolve 're-frame.ui.react wrapper)]
         (is (some? v) (str "react/" wrapper " must resolve in re-frame.ui.react"))

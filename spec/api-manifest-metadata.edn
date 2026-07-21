@@ -378,6 +378,12 @@
   ;; `export-surface-is-exactly-the-blessed-set` JVM row landed with this
   ;; feature.
   {:namespace "re-frame.ui" :var "local"          :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  ;; ref (rf2-u53yy.9) — the substrate-native DOM-node host hook, promoted from
+  ;; the interop-tier re-frame.ui.react ref hook. A resolution-only `defn` (fails loud on a
+  ;; direct call, like `local`), recognised + lowered by the same finite-site
+  ;; machinery to the `re-frame.ui.hooks/use-ref` runtime fn. Front-porch: the
+  ;; everyday "I need the DOM node" primitive, the common-case sibling of `local`.
+  {:namespace "re-frame.ui" :var "ref"            :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S3" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "effect"         :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "dispatch-fn"    :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
   ;; handler / error-boundary / client-only (rf2-vxgfnd.95.3) — the S3 explicit
@@ -438,15 +444,16 @@
   ;; the CLJS probe reconciles it (re-frame.ui is fully-rowed, both directions),
   ;; so it LEAVES the :api-md-known-unmanifested allowlist below.
   {:namespace "re-frame.ui" :var "->react"        :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S6" :runtime-verified? true}
-  ;; re-frame.ui.react (rf2-vxgfnd.95.4) — the frozen seven-wrapper React interop
-  ;; tier (Spec 004 §The React interop tier). Six host hooks (use-ref /
-  ;; use-effect / use-layout-effect / use-effect-event / use-context / use-id)
-  ;; are resolution-only `defn`s the compiler recognises + lowers inside a
-  ;; compiled view, position-checked by the finite-site machinery; `lazy` is a
-  ;; def-level `defmacro` (React.lazy over a foreign component-loading thunk).
-  ;; Interop surfaces — advanced tier. Their live vars + the DOM/JVM fixtures
-  ;; landed with this feature.
-  {:namespace "re-frame.ui.react" :var "use-ref"           :kind :fn    :facade? false :tier :advanced :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  ;; re-frame.ui.react (rf2-vxgfnd.95.4) — the frozen six-wrapper React interop
+  ;; tier (Spec 004 §The React interop tier). Five host hooks (use-effect /
+  ;; use-layout-effect / use-effect-event / use-context / use-id) are
+  ;; resolution-only `defn`s the compiler recognises + lowers inside a compiled
+  ;; view, position-checked by the finite-site machinery; `lazy` is a def-level
+  ;; `defmacro` (React.lazy over a foreign component-loading thunk). The everyday
+  ;; DOM-node ref was promoted OUT to the substrate `re-frame.ui/ref` (rf2-u53yy.9
+  ;; — its `ref` row is in the re-frame.ui block above; its lowering target stays
+  ;; the `re-frame.ui.hooks/use-ref` runtime fn). Interop surfaces — advanced
+  ;; tier. Their live vars + the DOM/JVM fixtures landed with this feature.
   {:namespace "re-frame.ui.react" :var "use-effect"        :kind :fn    :facade? false :tier :advanced :owner "004" :status "Spec-004 S3" :runtime-verified? true}
   {:namespace "re-frame.ui.react" :var "use-layout-effect" :kind :fn    :facade? false :tier :advanced :owner "004" :status "Spec-004 S3" :runtime-verified? true}
   {:namespace "re-frame.ui.react" :var "use-effect-event"  :kind :fn    :facade? false :tier :advanced :owner "004" :status "Spec-004 S3" :runtime-verified? true}

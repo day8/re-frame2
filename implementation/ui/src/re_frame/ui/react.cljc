@@ -1,38 +1,42 @@
 (ns re-frame.ui.react
-  "The frozen `re-frame.ui.react` interop tier — seven wrappers (Spec 004
+  "The frozen `re-frame.ui.react` interop tier — six wrappers (Spec 004
   §The React interop tier) for compiled views that must participate in a
   *foreign* React world: an exported `defview` living inside a legacy/foreign
   parent (`ui/->react`), or a foreign widget embedded inside a `defview` whose
-  API demands refs, contexts, ids, or code-splitting.
+  API demands contexts, ids, effects, or code-splitting.
 
   This is NOT a second state or reactivity model. The roster is deliberately
-  tiny and closed: `use-ref`, `use-effect`, `use-layout-effect`,
-  `use-effect-event`, `use-context`, `use-id`, `lazy`. `use-state` (that is
+  tiny and closed: `use-effect`, `use-layout-effect`, `use-effect-event`,
+  `use-context`, `use-id`, `lazy`. The everyday DOM-node ref is NOT here — it is
+  the substrate-native `re-frame.ui/ref` (promoted out of this tier, rf2-u53yy.9;
+  its lowering target stays `re-frame.ui.hooks/use-ref`). `use-state` (that is
   `local`), `use-memo`/`use-callback` (per-site stable identity is the
   compiler's job), `use-reducer`/`use-sync-external-store`/`use-transition`/
   `use-deferred-value` (a second state model / `startTransition` over app-db)
   do NOT exist.
 
-  Six of the seven (`use-ref` … `use-id`) are HOST HOOKS: the compiler
+  Five of the six (`use-effect` … `use-id`) are HOST HOOKS: the compiler
   recognises their call sites by resolved head symbol (the same finite-site
-  machinery as `sub`/`local`/`effect`), lowers them to `re-frame.ui.hooks/*`,
-  and enforces the POSITION LAW — a hook site is legal only where it evaluates
-  unconditionally, exactly once per render (the straight-line top region of a
-  view body: outer `let` bindings and positions reachable without crossing a
-  control form, a fn form, or a loop). React's hook order must be static.
+  machinery as `sub`/`local`/`effect`/`ui/ref`), lowers them to
+  `re-frame.ui.hooks/*`, and enforces the POSITION LAW — a hook site is legal
+  only where it evaluates unconditionally, exactly once per render (the
+  straight-line top region of a view body: outer `let` bindings and positions
+  reachable without crossing a control form, a fn form, or a loop). React's hook
+  order must be static.
 
   `lazy` is a DEF-LEVEL constructor (a macro), exempt from the position law but
   subject to its own: a `react/lazy` call inside a view body/template is a
   compile error, because calling it per render mints a new component type and
   remount-loops.
 
-  Second sanctioned audience (readiness C-6): `use-ref` + `use-layout-effect`
-  serve native component-library infrastructure doing measure-before-paint
-  (popover/dropdown placement, table viewport geometry) — measure in the layout
-  effect, compute placement with pure `.cljc` geometry, apply, clean up exactly.
-  Passive `use-effect` stays the home for listeners and deferrable work.
+  Second sanctioned audience (readiness C-6): `use-layout-effect` — paired with
+  the substrate `ui/ref` — serves native component-library infrastructure doing
+  measure-before-paint (popover/dropdown placement, table viewport geometry):
+  measure in the layout effect, compute placement with pure `.cljc` geometry,
+  apply, clean up exactly. Passive `use-effect` stays the home for listeners and
+  deferrable work.
 
-  The six hook vars exist for symbol resolution only; a direct call fails
+  The five hook vars exist for symbol resolution only; a direct call fails
   loudly. The compiler rewrites the authored form to the lowered runtime call.
 
   The OUTWARD bridge `ui/->react` (rf2-u53yy.2) — a compiled view exported as a
@@ -55,19 +59,6 @@
         "a callable helper. Author it as " shape " in a defview's unconditional "
         "top region")
    nil))
-
-(defn use-ref
-  "(react/use-ref) / (react/use-ref initial) → the host ref object (`useRef`).
-  Read/write via `(.-current ref)`; assignment NEVER re-renders — its reason to
-  exist beside `local` — and it is the preferred object ref for `:ref`
-  positions. No deps. On the JVM structural render it yields an inert ref
-  (`current` nil, stays nil); refs never appear in the JVM tree.
-
-  This var exists for symbol resolution only; a direct call fails loudly."
-  ([] (lowering-only! 're-frame.ui.react/use-ref
-                      "(let [r (react/use-ref)] …)"))
-  ([_initial] (lowering-only! 're-frame.ui.react/use-ref
-                              "(let [r (react/use-ref initial)] …)")))
 
 (defn use-effect
   "(react/use-effect setup) / (react/use-effect setup deps) → nil (`useEffect`,

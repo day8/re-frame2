@@ -146,8 +146,8 @@
      :deps <set of directly-referenced view-ids>}
 
   `:caps` unions the runtime-requiring SITE kinds (subs / committed handlers /
-  frame reads / host locals / effects / dispatch-fns), the
-  re-frame.ui.react host hooks (use-ref -> `:ref`, use-context -> `:context`,
+  frame reads / host locals / effects / dispatch-fns), the substrate `ui/ref`
+  (-> `:ref`) and the re-frame.ui.react host hooks (use-context -> `:context`,
   use-effect family -> `:effect`; `use-id` is EXEMPT — an inert deterministic id
   is static-safe), authored element/component `:ref` slots (a commit-phase host
   hook a static render cannot honour -> `:ref`), and foreign heads (`:foreign`,
@@ -342,8 +342,8 @@
                                    (seq (:locals sites))       (conj :local)
                                    (seq (:effects sites))      (conj :effect)
                                    (seq (:dispatch-fns sites)) (conj :dispatch-fn))
-                                 ;; re-frame.ui.react hooks fold onto the static-
-                                 ;; root vocabulary: use-ref→:ref; use-effect /
+                                 ;; host hooks fold onto the static-root
+                                 ;; vocabulary: ui/ref→:ref; use-effect /
                                  ;; use-layout-effect / use-effect-event→:effect;
                                  ;; use-context→:context; use-id is exempt (inert
                                  ;; deterministic ids are static-safe). lazy folds

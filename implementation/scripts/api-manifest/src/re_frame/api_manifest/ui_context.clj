@@ -417,6 +417,7 @@
   {"defview"        :taught
    "sub"            :taught
    "local"          :taught
+   "ref"            :taught
    "frame"          :taught
    "event"          :taught
    "handler"        :taught
@@ -625,21 +626,23 @@ committed frame.
 
 ```clojure
 (ui/defview chart [{:keys [data]}]
-  (let [[node set-node] (ui/local nil)]   ; the ref target, as a value
-    (ui/effect [node data]                ; re-runs (rf=) when node or data change
-      (when node                          ; guard: the ref may not be attached yet
-        (let [c (make-chart node data)]
-          (fn [] (destroy-chart c)))))    ; returned fn = cleanup
-    [:canvas {:ref (ui/raw-fn set-node)}]))
+  (let [node (ui/ref)]                     ; the DOM-node ref (object ref)
+    (ui/effect [node data]                 ; re-runs (rf=) when node or data change
+      (when-let [el (.-current node)]      ; guard: read the node from .current
+        (let [c (make-chart el data)]
+          (fn [] (destroy-chart c)))))     ; returned fn = cleanup
+    [:canvas {:ref node}]))
 ```
 
 - `(ui/effect [deps…] body…)` — a **leading statement** in the top region,
   before the final template. Runs after commit when the literal `deps` change,
   compared by **`rf=`** (keep deps narrow — broad values walk). A returned fn is
   the cleanup.
-- A ref target comes from `ui/local` as a **value** (`set-node` stores the node,
-  `node` reads it) — include the node in the deps and **guard** it, since it is
-  `nil` until the ref attaches. There is no atom to deref.
+- `(ui/ref)` is the everyday **DOM-node** primitive — the object ref
+  bound in the top-region `let`, passed to `:ref`, and read via `(.-current node)`
+  from the effect (it attaches at commit, before the effect fires). Assignment
+  never re-renders (contrast `ui/local`). Callback refs via `(ui/raw-fn f)` are
+  the expert seam for when the node's *identity* change must itself trigger work.
 - `(ui/effect :connect body…)` runs at each connect (mount / reveal) with
   cleanup at each disconnect. There is deliberately **no `\"once\"`/`\"mount\"`**
   name; StrictMode dev replay is expected and cleanup must make it idempotent.
@@ -664,8 +667,10 @@ committed frame.
   the host's root), and scopes — never creates — a frame: the one reserved prop
   `frame` (a frame-id or live frame) scopes the subtree, else it resolves the
   ambient frame or fails loud. A JVM call raises `:rf.error/jvm-host-op`.
-- **Refs:** `:ref` takes an object ref (preferred) or a `(ui/raw-fn f)` callback
-  ref (identity-as-protocol); a **bare fn** at `:ref` is
+- **Refs:** `:ref` takes an object ref — `(ui/ref)`, the substrate DOM-node
+  primitive, is the common case (bind it in the top-region `let`, read
+  `(.-current node)` from an `effect`) — or a `(ui/raw-fn f)` callback ref
+  (identity-as-protocol) for the expert case; a **bare fn** at `:ref` is
   `:rf.ui.compile/bare-fn-ref`. An internal **view forwards `:ref` only by
   declaring it** in its header (React 19 ref-as-prop) — passing `:ref` to a view
   carries it on the props object, and the callee reads it via the declared slot.

@@ -137,21 +137,23 @@ committed frame.
 
 ```clojure
 (ui/defview chart [{:keys [data]}]
-  (let [[node set-node] (ui/local nil)]   ; the ref target, as a value
-    (ui/effect [node data]                ; re-runs (rf=) when node or data change
-      (when node                          ; guard: the ref may not be attached yet
-        (let [c (make-chart node data)]
-          (fn [] (destroy-chart c)))))    ; returned fn = cleanup
-    [:canvas {:ref (ui/raw-fn set-node)}]))
+  (let [node (ui/ref)]                     ; the DOM-node ref (object ref)
+    (ui/effect [node data]                 ; re-runs (rf=) when node or data change
+      (when-let [el (.-current node)]      ; guard: read the node from .current
+        (let [c (make-chart el data)]
+          (fn [] (destroy-chart c)))))     ; returned fn = cleanup
+    [:canvas {:ref node}]))
 ```
 
 - `(ui/effect [deps…] body…)` — a **leading statement** in the top region,
   before the final template. Runs after commit when the literal `deps` change,
   compared by **`rf=`** (keep deps narrow — broad values walk). A returned fn is
   the cleanup.
-- A ref target comes from `ui/local` as a **value** (`set-node` stores the node,
-  `node` reads it) — include the node in the deps and **guard** it, since it is
-  `nil` until the ref attaches. There is no atom to deref.
+- `(ui/ref)` is the everyday **DOM-node** primitive — the object ref
+  bound in the top-region `let`, passed to `:ref`, and read via `(.-current node)`
+  from the effect (it attaches at commit, before the effect fires). Assignment
+  never re-renders (contrast `ui/local`). Callback refs via `(ui/raw-fn f)` are
+  the expert seam for when the node's *identity* change must itself trigger work.
 - `(ui/effect :connect body…)` runs at each connect (mount / reveal) with
   cleanup at each disconnect. There is deliberately **no `"once"`/`"mount"`**
   name; StrictMode dev replay is expected and cleanup must make it idempotent.
@@ -176,8 +178,10 @@ committed frame.
   the host's root), and scopes — never creates — a frame: the one reserved prop
   `frame` (a frame-id or live frame) scopes the subtree, else it resolves the
   ambient frame or fails loud. A JVM call raises `:rf.error/jvm-host-op`.
-- **Refs:** `:ref` takes an object ref (preferred) or a `(ui/raw-fn f)` callback
-  ref (identity-as-protocol); a **bare fn** at `:ref` is
+- **Refs:** `:ref` takes an object ref — `(ui/ref)`, the substrate DOM-node
+  primitive, is the common case (bind it in the top-region `let`, read
+  `(.-current node)` from an `effect`) — or a `(ui/raw-fn f)` callback ref
+  (identity-as-protocol) for the expert case; a **bare fn** at `:ref` is
   `:rf.ui.compile/bare-fn-ref`. An internal **view forwards `:ref` only by
   declaring it** in its header (React 19 ref-as-prop) — passing `:ref` to a view
   carries it on the props object, and the callee reads it via the declared slot.
@@ -252,9 +256,9 @@ below carries the exact id + fix:
 
 ## Authoring surface (GENERATED from the API manifest)
 
-The public `re-frame.ui` authoring API is **31 vars** (`spec/api-manifest.edn`). Every one is either taught above or deliberately outside this compact sheet's scope; a var added to or removed from the public surface reds the context check until it is classified.
+The public `re-frame.ui` authoring API is **32 vars** (`spec/api-manifest.edn`). Every one is either taught above or deliberately outside this compact sheet's scope; a var added to or removed from the public surface reds the context check until it is classified.
 
-**Taught here:** `ui/->react`, `ui/adapter`, `ui/client-only`, `ui/custom-element`, `ui/defview`, `ui/dispatch-fn`, `ui/effect`, `ui/event`, `ui/frame`, `ui/frame-provider`, `ui/frame-root`, `ui/handler`, `ui/html`, `ui/hydrate-root`, `ui/local`, `ui/mount`, `ui/raw`, `ui/raw-fn`, `ui/render-fn`, `ui/render-static`, `ui/slot`, `ui/spread`, `ui/spread-safe`, `ui/sub`.
+**Taught here:** `ui/->react`, `ui/adapter`, `ui/client-only`, `ui/custom-element`, `ui/defview`, `ui/dispatch-fn`, `ui/effect`, `ui/event`, `ui/frame`, `ui/frame-provider`, `ui/frame-root`, `ui/handler`, `ui/html`, `ui/hydrate-root`, `ui/local`, `ui/mount`, `ui/raw`, `ui/raw-fn`, `ui/ref`, `ui/render-fn`, `ui/render-static`, `ui/slot`, `ui/spread`, `ui/spread-safe`, `ui/sub`.
 
 **Out of scope** (use the API reference): `ui/create-root` — low-level root primitive; author mounts with ui/mount; `ui/error-boundary` — error-boundary form; see interop-and-limits.md + the bad-error-boundary diagnostic; `ui/presence` — enter/exit presence choreography; see presence.md + the presence-* diagnostics; `ui/presence-phase` — presence phase accessor; see presence.md; `ui/render!` — imperative render under ui/mount; author uses ui/mount; `ui/route-link` — router integration; see the routing docs + the route-link roster entry; `ui/unmount!` — teardown primitive paired with ui/mount.
 
@@ -447,8 +451,8 @@ Every `:rf.ui.compile/*` diagnostic the compiler's front-door analyzers raise, e
 - **`:rf.ui.compile/raw-text-children`**
   - <‹tag›> is an HTML raw-text element and takes a SINGLE text child, but ‹child-fs› children were given — React joins them into an array that warns and loses the body. Construct ONE string, e.g. (str a b …), or use (ui/html s) for trusted markup.
   - <‹tag›> is an HTML raw-text element and takes a SINGLE text child, not structural markup — React drops or stringifies an element child here. Construct ONE string, e.g. (str …), or use (ui/html s) for trusted markup.
-- **`:rf.ui.compile/react-hook-bad-deps`** — (react/‹name› setup deps): deps must be a literal vector (compared by rf= value equality); got ‹deps-arg›
-- **`:rf.ui.compile/react-hook-misplaced`** — (react/‹name› …) is a host hook — legal ONLY where it evaluates unconditionally, once per render: the straight-line top region of a defview body (an outer let binding). It cannot run in a loop, branch, deferred callback, render-fn slot, or root expression — React's hook order must be static. Hoist it to the top of the view body, or extract a keyed child view
+- **`:rf.ui.compile/react-hook-bad-deps`** — (‹authored› setup deps): deps must be a literal vector (compared by rf= value equality); got ‹deps-arg›
+- **`:rf.ui.compile/react-hook-misplaced`** — (‹authored› …) is a host hook — legal ONLY where it evaluates unconditionally, once per render: the straight-line top region of a defview body (an outer let binding). It cannot run in a loop, branch, deferred callback, render-fn slot, or root expression — React's hook order must be static. Hoist it to the top of the view body, or extract a keyed child view
 - **`:rf.ui.compile/react-lazy-misplaced`** — (react/lazy …) is DEF-LEVEL only — bind it at the top level: (def HeavyChart (react/lazy load-thunk {:fallback tpl})), then use the component as a foreign head [HeavyChart {…}]. Calling it inside a view body mints a new component type per render and remount-loops
 - **`:rf.ui.compile/rejected-prop-spelling`** — ‹k› is not a prop — one spelling per name, ambiguities removed. Use ‹replacement›
 - **`:rf.ui.compile/render-fn-misplaced`**
@@ -482,7 +486,7 @@ Every `:rf.ui.compile/*` diagnostic the compiler's front-door analyzers raise, e
   - (sub query) takes exactly one query argument
   - (frame) takes no arguments — it returns the operation bundle locked to the committed frame; to target a different frame, scope the subtree with [frame-provider {:frame f} ...]
   - (local init) takes exactly one initial-value argument
-  - (react/‹name› …) takes ‹min-args› / ‹min-args›–‹max-args› argument(s); got ‹argc›
+  - (‹authored› …) takes ‹min-args› / ‹min-args›–‹max-args› argument(s); got ‹argc›
   - (ui/dispatch-fn) takes no arguments — it returns the stable committed-frame dispatcher
   - bare ‹kind› reference below macro ‹head› would become an unindexed reactive call after expansion. Write the explicit ‹kind› call
   - macro ‹head› is outside the compiler's audited expression set and could inject, duplicate, or defer a reactive call after lexical site analysis. Rewrite it with ordinary functions/control forms, or hoist the computation around the view template
