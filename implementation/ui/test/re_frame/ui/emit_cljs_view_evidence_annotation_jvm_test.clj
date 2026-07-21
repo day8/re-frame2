@@ -122,7 +122,21 @@
           "two clause branches + the default, each a concrete host element")))
   (testing "the if-let family (let over if) descends to both arms"
     (let [form (cljs-emit 'app.cond 'bound '(if-let [v x] [:a v] [:b]) 7 3)]
-      (is (= 2 (stamp-count form "data-rf-view"))))))
+      (is (= 2 (stamp-count form "data-rf-view")))))
+  (testing "the whole if-let family emits through the real cljs path (rf2-u53yy.4 repair)"
+    ;; if-some / when-some exercise the generated host-qualified `(not= temp nil)`
+    ;; test; when-let / when-some exercise the `if … nil` (never generated `when`)
+    ;; single-body shape. Two-arm forms stamp both arms; one-arm forms stamp the
+    ;; concrete arm only (the implicit nil else is exempt).
+    (is (= 2 (stamp-count (cljs-emit 'app.cond 'som '(if-some [v x] [:a v] [:b]) 7 3)
+                          "data-rf-view"))
+        "if-some descends to both arms")
+    (is (= 1 (stamp-count (cljs-emit 'app.cond 'wl '(when-let [v x] [:a v]) 7 3)
+                          "data-rf-view"))
+        "when-let stamps the one concrete arm; the nil else is exempt")
+    (is (= 1 (stamp-count (cljs-emit 'app.cond 'ws '(when-some [v x] [:a v]) 7 3)
+                          "data-rf-view"))
+        "when-some stamps the one concrete arm; the nil else is exempt")))
 
 (deftest non-host-roots-carry-no-annotation
   (testing "a fragment root is exempt (no positional host node)"

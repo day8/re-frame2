@@ -117,20 +117,70 @@
           keys vals seq re-seq]))
 
 (def ^:private control-heads
-  #{'if 'if-not 'when 'when-not 'cond 'case 'let 'letfn 'do 'for
-    'if-let 'when-let 'if-some 'when-some})
+  #{'if 'if-not 'when 'when-not 'cond 'case 'let 'letfn 'do 'for})
 
 (def ^:private if-let-family
   "The admitted conditional-binder family (rf2-u53yy.4): if-let / when-let /
-  if-some / when-some. `:some?` selects the some?-based test over truthiness;
-  `:else?` selects the two-arm if-let/if-some shape over the single-body
-  when-let/when-some shape. The set is CLOSED — case in expression position,
-  condp, doto and the rest stay outside the grammar (Spec 004 §Expression
-  positions); additions are S1e roster changes."
+  if-some / when-some, keyed by the UNQUALIFIED core name. `:some?` selects the
+  `some?`-based nil test over truthiness; `:else?` selects the two-arm
+  if-let/if-some shape over the single-body when-let/when-some shape. This map is
+  the source of truth for `if-let-family-fqns`; admission is RESOLVER-confirmed
+  (see `if-let-family-config`), never keyed on the raw spelling. The set is
+  CLOSED — case in expression position, condp, doto and the rest stay outside the
+  grammar (Spec 004 §Expression positions); additions are S1e roster changes."
   {'if-let    {:some? false :else? true}
    'if-some   {:some? true  :else? true}
    'when-let  {:some? false :else? false}
    'when-some {:some? true  :else? false}})
+
+(def ^:private if-let-family-fqns
+  "The four admitted binders' fully-qualified `clojure.core` / `cljs.core` names
+  mapped to their desugar config. Admission is RESOLVER-confirmed against this
+  set (rf2-u53yy.4 audit repair): a same-spelled user macro/var resolves to a
+  different fqn and is NOT admitted (it fails loudly as an unaudited macro), a
+  qualified core binder (`clojure.core/if-let`) IS admitted, and a local shadow
+  yields no resolution at all — the spelling alone never decides admission."
+  (into {}
+        (mapcat (fn [[s cfg]]
+                  [[(symbol "clojure.core" (name s)) cfg]
+                   [(symbol "cljs.core" (name s)) cfg]]))
+        if-let-family))
+
+(defn- if-let-family-config
+  "The desugar config {:some? :else?} for `head` when it is the core
+  if-let-family binder, else nil (rf2-u53yy.4 audit repair). Admission is
+  RESOLVER-confirmed, never keyed on the raw spelling alone:
+
+    - a LOCAL shadow (`head` in `(:locals e)`) is never admitted — it falls
+      through to an ordinary call;
+    - a spelling whose unqualified name is in the family and that resolves to a
+      NON-core var (a `:refer`d look-alike user macro, `my.ns/if-let`) is NOT
+      admitted — it fails loudly as an unaudited macro;
+    - a spelling that resolves to a core binder var (bare `if-let` or qualified
+      `clojure.core/if-let`) IS admitted;
+    - a BARE core name whose host offers no resolution (a data-only emit env)
+      falls back to the name — the plain core spelling with no resolver is
+      overwhelmingly the core macro, matching how the other control heads are
+      admitted in that path.
+
+  The caller passes an env whose `:locals` already carry the lexical scope."
+  [e head]
+  (when (and (symbol? head) (not (contains? (:locals e) head)))
+    (when-let [cfg (get if-let-family (symbol (name head)))]
+      (let [r (env/resolve-sym e head)]
+        (cond
+          (contains? if-let-family-fqns (:fqn r))        cfg
+          (and (nil? r) (nil? (namespace head)))         cfg)))))
+
+(defn- core-sym
+  "A host-qualified `clojure.core` / `cljs.core` symbol. A namespace-qualified
+  symbol cannot be shadowed by a user local, so a compiler-GENERATED core call —
+  the some?-binder's nil test `(core/not= temp nil)` — keeps core semantics even
+  under a hostile `(let [not= (constantly true)] (if-some …))`. `not=` is a plain
+  core function on both hosts (unlike `some?`/`nil?`, which are cljs.core macros
+  and would be rejected by the expression grammar on re-analysis)."
+  [e nm]
+  (symbol (if (= :cljs (:host e)) "cljs.core" "clojure.core") nm))
 
 (defn- binder-temp
   "A deterministic, reserved temp symbol for the if-let-family desugar. Stable
@@ -144,16 +194,23 @@
 
 (defn- desugar-if-let
   "Desugar one if-let/when-let/if-some/when-some form into the analyzer's own
-  let + if/when over a reserved temp — mirroring clojure.core's expansions. The
-  init is an ordinary evaluated expression (it may own a finite reactive site);
-  the pattern binds into the then/body branch ONLY; the else branch never sees
-  it. Both grammar tiers then reuse their EXISTING let/if machinery on the
-  result, so the family inherits the SAME scope threading, destructuring, and
-  reactive-escape rejection as a hand-written let + if — no runtime interpreter,
-  no dynamic site, no open macro system. Fails with the shared bad-let/bad-if
-  ids on a malformed binding vector or branch arity."
-  [e head temp form]
-  (let [{:keys [some? else?]} (get if-let-family head)
+  let + if over a reserved temp — mirroring clojure.core's expansions, but using
+  ONLY host-safe generated semantics (rf2-u53yy.4 audit repair): the conditional
+  is `if` (a special form, so a user local named `when`/`if` cannot capture it),
+  the some?-variants' nil test is a host-qualified core `(not= temp nil)`
+  (un-shadowable by a user local, and — unlike `some?`/`nil?`, which are cljs.core
+  macros — a plain function the expression grammar accepts on re-analysis), and
+  the single-body when-* shape lowers to `(if test body nil)` rather than a
+  generated `when`. `config` is the resolver-confirmed
+  {:some? :else?} for `head`. The init is an ordinary evaluated expression (it
+  may own a finite reactive site); the pattern binds into the then/body branch
+  ONLY; the else branch never sees it. Both grammar tiers then reuse their
+  EXISTING let/if machinery on the result, so the family inherits the SAME scope
+  threading, destructuring, and reactive-escape rejection as a hand-written let +
+  if — no runtime interpreter, no dynamic site, no open macro system. Fails with
+  the shared bad-let/bad-if ids on a malformed binding vector or branch arity."
+  [e head config temp form]
+  (let [{:keys [some? else?]} config
         [_ bindings & body] form]
     (when-not (and (vector? bindings) (= 2 (count bindings)))
       (env/fail! e :rf.ui.compile/bad-let
@@ -161,7 +218,7 @@
                       " [pattern init] " (if else? "then else?" "body …") ")")
                  {:form form}))
     (let [[pattern init] bindings
-          test  (if some? (list 'some? temp) temp)
+          test  (if some? (list (core-sym e "not=") temp nil) temp)
           inner (fn [& tail] (apply list 'let [pattern temp] tail))]
       (if else?
         (do
@@ -173,7 +230,7 @@
           (list 'let [temp init]
                 (list 'if test (inner (first body)) (second body))))
         (list 'let [temp init]
-              (list 'when test (apply inner body)))))))
+              (list 'if test (apply inner body) nil))))))
 
 (defn- fn-form? [f]
   (and (seq? f) (contains? #{'fn 'fn* 'clojure.core/fn 'cljs.core/fn} (first f))))
@@ -1074,16 +1131,18 @@
                    (= 'try head) (rw-try f locals p)
 
                    ;; if-let / when-let / if-some / when-some (rf2-u53yy.4):
-                   ;; admitted conditional binders. Desugar into the analyzer's
-                   ;; own let + if/when — the position-aware binder machinery it
-                   ;; already controls — so the init lowers a reactive site, the
-                   ;; pattern's reactive-escape is rejected, and the deferred /
-                   ;; loop position law all fall out of the existing rw-let / if
-                   ;; recursion. A local shadow of the spelling falls through to
-                   ;; an ordinary call (tier 1's control-heads guard, mirrored).
-                   (and (contains? if-let-family head)
-                        (not (contains? locals head)))
-                   (rw (desugar-if-let e head (binder-temp p) f) locals p)
+                   ;; admitted conditional binders, RESOLVER-confirmed against the
+                   ;; core binder vars (a same-spelled user macro is NOT admitted;
+                   ;; a local shadow yields no resolution and falls through to an
+                   ;; ordinary call). Desugar into the analyzer's own let + if —
+                   ;; the position-aware binder machinery it already controls — so
+                   ;; the init lowers a reactive site, the pattern's
+                   ;; reactive-escape is rejected, and the deferred / loop position
+                   ;; law all fall out of the existing rw-let / if recursion.
+                   (if-let-family-config e* head)
+                   (rw (desugar-if-let e head (if-let-family-config e* head)
+                                       (binder-temp p) f)
+                       locals p)
 
                    (and (macro-info e* head locals)
                         (contains? transparent-macro-fqns
@@ -3227,10 +3286,23 @@
   (analyze-hooks-body e "defview" forms (cons 'defview-body forms)))
 
 (defn- analyze-list [e form]
-  (let [head (first form)]
-    (if (and (symbol? head)
-             (contains? control-heads head)
-             (not (contains? (:locals e) head)))
+  (let [head (first form)
+        fam  (if-let-family-config e head)]
+    (cond
+      ;; if-let / when-let / if-some / when-some (rf2-u53yy.4): admitted
+      ;; conditional binders, RESOLVER-confirmed against the core binder vars (a
+      ;; same-spelled user macro is NOT admitted; a local shadow yields no
+      ;; resolution and falls through to an ordinary call). Desugar into the
+      ;; analyzer's own let + if and re-analyze — the branch is a conditional
+      ;; (its then/else leave the hooks region, exactly like if/when), the init
+      ;; lowers a finite reactive site, and the pattern's reactive-escape is
+      ;; rejected, all through the existing template machinery.
+      fam
+      (analyze e (desugar-if-let e head fam (binder-temp (:path e)) form))
+
+      (and (symbol? head)
+           (contains? control-heads head)
+           (not (contains? (:locals e) head)))
       (case head
         if       (let [[_ t a b & extra] form]
                    (when (seq extra)
@@ -3251,15 +3323,9 @@
         do       (if (:hooks-region? e)
                    (analyze-hooks-body e "do" (vec (rest form)) form)
                    (analyze e (single-body! e "do" (vec (rest form)) form)))
-        for      (analyze-for e form)
-        ;; if-let / when-let / if-some / when-some (rf2-u53yy.4): admitted
-        ;; conditional binders. Desugar into the analyzer's own let + if/when and
-        ;; re-analyze — the branch is a conditional (its then/else leave the
-        ;; hooks region, exactly like if/when), the init lowers a finite reactive
-        ;; site, and the pattern's reactive-escape is rejected, all through the
-        ;; existing template machinery.
-        (if-let when-let if-some when-some)
-        (analyze e (desugar-if-let e head (binder-temp (:path e)) form)))
+        for      (analyze-for e form))
+
+      :else
       (cond
         (raw-form? e form)
         (let [[_ x & extra] form]

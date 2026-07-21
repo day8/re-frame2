@@ -38,6 +38,19 @@
   [{:keys [v]}]
   (if-let [x v] [:span.has (str x)] [:span.none "none"]))
 
+(defview if-some-root
+  "if-some binds on NON-NIL, not truthiness (rf2-u53yy.4 audit crux): a `false`
+  value takes the THEN arm. The generated host-safe `(not= v nil)` makes this
+  correct on a real render — an `if-let` here would wrongly take the else arm."
+  [{:keys [v]}]
+  (if-some [x v] [:span.some (str x)] [:span.none "none"]))
+
+(defview when-some-root
+  "One-arm when-some: the concrete arm renders on any non-nil value (incl. false);
+  the implicit nil else is exempt (lowered to `if … nil`, never a generated `when`)."
+  [{:keys [v]}]
+  (when-some [x v] [:span.present (str x)]))
+
 (defview case-root
   "A (case …) host root: each clause branch and the default is a concrete
   element and is tagged."
@@ -94,6 +107,29 @@
     (let [html (render if-let-root #js {:v nil})]
       (is (str/includes? html "<span class=\"none\"") "the none arm rendered")
       (is (tagged-as? html "if-let-root")))))
+
+(deftest an-if-some-root-binds-on-non-nil-not-truthiness
+  ;; rf2-u53yy.4 audit crux — some? tests nil, NOT truthiness. The generated
+  ;; host-safe `(not= v nil)` executes correctly at real render time.
+  (testing "a non-nil truthy value takes the some arm"
+    (let [html (render if-some-root #js {:v 5})]
+      (is (str/includes? html "<span class=\"some\"") "the some arm rendered")
+      (is (tagged-as? html "if-some-root"))))
+  (testing "a FALSE value is non-nil, so it ALSO takes the some arm (some? ≠ truthy)"
+    (let [html (render if-some-root #js {:v false})]
+      (is (str/includes? html "<span class=\"some\"") "false is non-nil → the some arm")
+      (is (str/includes? html ">false</span>") "the bound false value rendered")))
+  (testing "a nil value takes the else arm"
+    (let [html (render if-some-root #js {:v nil})]
+      (is (str/includes? html "<span class=\"none\"") "nil → the none arm"))))
+
+(deftest a-when-some-root-renders-on-non-nil-incl-false
+  (testing "false is non-nil → the present arm renders"
+    (let [html (render when-some-root #js {:v false})]
+      (is (str/includes? html "<span class=\"present\"") "false is present (some? ≠ truthy)")))
+  (testing "nil → nothing"
+    (let [html (render when-some-root #js {:v nil})]
+      (is (not (str/includes? html "data-rf-view=\"")) "nil renders nothing"))))
 
 (deftest a-case-root-tags-every-clause-and-the-default
   (doseq [[k tag] [[:a "<a "] [:b "<b "] [:z "<i "]]]

@@ -152,10 +152,16 @@ be host-native and need not themselves be serialisable.**
 Reagent-familiar hiccup with the ambiguities removed. Control forms — `let` / `letfn` /
 `if` / `if-not` / `when` / `when-not` / `if-let` / `when-let` / `if-some` / `when-some` /
 `cond` / `case` / statically-pure `do` / `for` — normalize **into the AST**; all
-analyzers and both emitters see through branches. The four conditional binders desugar
-into the analyzer's own `let` + `if`/`when` over a reserved temp (mirroring
-`clojure.core`'s expansions), so they inherit the same scope threading, destructuring,
-and reactive-escape rejection as a hand-written `let` + `if`.
+analyzers and both emitters see through branches. The four conditional binders are
+admitted by **resolver-confirmed core identity** (the host resolver confirms the
+`clojure.core` / `cljs.core` var — a same-spelled user macro is not admitted, a local
+shadow falls through to an ordinary call) and desugar into the analyzer's own `let` +
+`if` over a reserved temp, using only host-safe generated semantics: the conditional is
+the special form `if` (never a generated `when`), and the `some?`-variants' nil test is
+a host-qualified core nil check written with a plain core function (never a shadowable
+core predicate macro) — neither can be captured by a user local. They thus inherit the
+same scope threading, destructuring, and reactive-escape rejection as a hand-written
+`let` + `if`.
 
 | Form | Meaning |
 |---|---|
@@ -191,11 +197,13 @@ expression grammar is therefore **closed**:
 - **Binder-aware structural forms**, handled with position-aware traversal:
   `quote` (never traversed — quoted data is not executable), `fn`/`fn*`, `let`/`let*`,
   `loop`/`loop*`, `letfn`/`letfn*`, `try`, and the conditional binders `if-let` /
-  `when-let` / `if-some` / `when-some`. The four conditional binders desugar into the
-  analyzer's own `let` + `if`/`when` over a reserved temp: the binding init is an
-  ordinary evaluated expression that may own a finite reactive site, the pattern binds
-  into the then/body branch only, and the `some?`-variants test the raw init value
-  (never destructure-then-test). Binding patterns and destructuring `:or`
+  `when-let` / `if-some` / `when-some`. The four conditional binders are admitted by
+  resolver-confirmed core identity and desugar into the analyzer's own `let` + `if`
+  over a reserved temp: the binding init is an ordinary evaluated expression that may
+  own a finite reactive site, the pattern binds into the then/body branch only, and the
+  `some?`-variants test the raw init value with a host-qualified core nil check (never
+  destructure-then-test, and un-shadowable by a user local). Binding patterns and
+  destructuring `:or`
   defaults may contain neither reactive calls nor unaudited macros — those positions
   are consumed by the host compiler, not expression rewriting, so they cannot own a
   lexical render site (hoist the read into the view body and bind its value). This is
@@ -243,7 +251,10 @@ compatibility fallback. The set grows only by ruling, and any addition requires
 lexical-scope plus hidden-reactive-injection counterfixtures (the rf2-vxgfnd.100
 hidden-sub / helper / binder-macro proofs in
 `re-frame.ui.compiler-macro-resolution-jvm-test` are the template — the admitted
-`if-let` family adds its own binder-lowering + out-of-family + pattern-escape rows).
+`if-let` family adds its own binder-lowering + out-of-family + pattern-escape rows,
+plus the resolver-confirmation and generated-code-hygiene counterfixtures: a
+same-spelled user macro is rejected, and a hostile local named `some?` / `when`
+cannot capture the compiler-generated nil test or branch).
 
 **DOM prop spelling is pinned:** hyphenated lowercase words mirroring React's camelCase
 — `:on-click`, `:on-key-down`, `:on-input` (never `:on-keydown`). Handler-map options:
