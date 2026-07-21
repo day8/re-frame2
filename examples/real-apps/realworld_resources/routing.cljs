@@ -225,25 +225,36 @@
 
 ;; `current` is the current route slice ([:rf.runtime/routing :current]) — needed
 ;; to resolve an in-place request (no :to / :url — stay on the current route,
-;; change only the query) the same way the runtime does. Without it a session
-;; that expires WHILE on a `:requires-auth` route could navigate in place straight
-;; past the guard.
+;; change only the query / #fragment) the same way the runtime does. Without it a
+;; session that expires WHILE on a `:requires-auth` route could navigate in place
+;; straight past the guard.
+;;
+;; What comes back is the FULL resolved address — `{:to :params :query :fragment}`,
+;; a valid `:rf.route/navigate` request in its own right — so the guard can stash
+;; the EXACT place the user was headed, not a bare route. A partial `{:to :params}`
+;; would strand the query string and #fragment: a deep-link to
+;; `/editor/my-slug?draft=1#preview` would bounce back to a bare `/editor/my-slug`
+;; after login. `:query` / `:params` default to `{}` (never nil); `:fragment` is
+;; `nil` when absent.
 (defn- resolve-nav-target [[ev-id a _b] current]
   (case ev-id
-    :rf.route/navigate (let [{:keys [to url params]} a]    ;; a is the flat request map
+    :rf.route/navigate (let [{:keys [to url params query fragment]} a]  ;; a is the flat request map
                          (cond
-                           to  {:id to :params (or params {})}   ;; route-id destination
-                           url (when-let [{:keys [route-id params]} (routing/match-url url)]  ;; {:url ...} escape hatch
-                                 {:id route-id :params (or params {})})
-                           :else                            ;; in-place — stay on the current route
-                           {:id (:route-id current) :params (or (:params current) {})}))
-    :rf.route/url-requested  (let [{:keys [to params url]} a]
+                           to  {:to to :params (or params {}) :query (or query {}) :fragment fragment}   ;; route-id destination
+                           url (when-let [{:keys [route-id params query fragment]} (routing/match-url url)]  ;; {:url ...} escape hatch
+                                 {:to route-id :params (or params {}) :query (or query {}) :fragment fragment})
+                           :else                            ;; in-place — stay on the current route, patch query / #fragment
+                           {:to       (:route-id current)
+                            :params   (or (:params current) {})
+                            :query    (or query (:query current) {})
+                            :fragment (if (contains? a :fragment) fragment (:fragment current))}))
+    :rf.route/url-requested  (let [{:keys [to params url query fragment]} a]
                          (cond
-                           to  {:id to :params (or params {})}
-                           url (when-let [{:keys [route-id params]} (routing/match-url url)]
-                                 {:id route-id :params (or params {})})))
-    :rf.route/handle-url-change (when-let [{:keys [route-id params]} (routing/match-url a)]
-                                  {:id route-id :params (or params {})})
+                           to  {:to to :params (or params {}) :query (or query {}) :fragment fragment}
+                           url (when-let [{:keys [route-id params query fragment]} (routing/match-url url)]
+                                 {:to route-id :params (or params {}) :query (or query {}) :fragment fragment})))
+    :rf.route/handle-url-change (when-let [{:keys [route-id params query fragment]} (routing/match-url a)]
+                                  {:to route-id :params (or params {}) :query (or query {}) :fragment fragment})
     nil))
 
 ;; The guard is a registered interceptor, referenced by id
@@ -255,25 +266,30 @@
 ;; looking for it at frame creation.
 (rf/reg-interceptor :realworld-resources.routing/auth-guard
   {:doc "Route-level auth guard: redirect unauthenticated users away from
-         `:requires-auth`-tagged routes to login, stashing where they were going
-         for a post-login bounce-back."}
+         `:requires-auth`-tagged routes to login, stashing the FULL address they
+         were headed for (path, params, query, and #fragment) under
+         `[:auth :return-to]` so `:auth/post-login-redirect` (auth.cljs) can bounce
+         them back to the exact URL."}
   {:before (fn auth-guard-before [ctx]
              ;; The route slice is framework runtime-db state — read it from the
              ;; :rf.db/runtime coeffect so an in-place request resolves to the
              ;; protected route the user is already on.
-             (if-let [{:keys [id params]} (resolve-nav-target
-                                            (get-in ctx [:coeffects :event])
-                                            (get-in ctx [:coeffects :rf.db/runtime
-                                                         :rf.runtime/routing :current]))]
-               (let [route-meta  (rf/handler-meta :route id)
+             (if-let [{:keys [to] :as target} (resolve-nav-target
+                                                (get-in ctx [:coeffects :event])
+                                                (get-in ctx [:coeffects :rf.db/runtime
+                                                             :rf.runtime/routing :current]))]
+               (let [route-meta  (rf/handler-meta :route to)
                      needs-auth? (boolean (some #{:requires-auth} (:tags route-meta)))
                      logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
                  (if (and needs-auth? (not logged-in?))
                    (-> ctx
                        (assoc :rf/skip-handler? true)
+                       ;; `target` IS the full resolved address {:to :params :query
+                       ;; :fragment} — stash it whole so the bounce-back returns to
+                       ;; the exact URL, query string and #fragment included.
                        (assoc-in [:effects :db]
                                  (assoc-in (get-in ctx [:coeffects :db])
-                                           [:auth :return-to] {:id id :params params}))
+                                           [:auth :return-to] target))
                        (assoc-in [:effects :fx]
                                  [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]))
                    ctx))

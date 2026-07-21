@@ -47,14 +47,20 @@
    would roll the login back. The resource cache scope isn't stored here — it's
    derived from :user's :username by the named session resolver (see
    realworld-resources.scope). :return-to is the optional post-login bounce-back
-   target the routing auth-guard stashes."
+   target the routing auth-guard stashes — the FULL resolved address
+   (`{:to :params :query :fragment}`, a valid `:rf.route/navigate` request in its
+   own right) so the bounce-back returns to the exact URL (path, params, query,
+   and #fragment), not just the bare route. `:auth/post-login-redirect` reads and
+   clears it (auth.cljs)."
   [:map
    [:user      [:maybe ws/SessionUser]]
    [:token     [:maybe :string]]
    [:return-to {:optional true}
     [:map
-     [:id     :keyword]
-     [:params [:maybe :map]]]]])
+     [:to       :keyword]
+     [:params   :map]
+     [:query    :map]
+     [:fragment [:maybe :string]]]]])
 
 (def FormSlice
   "The standard form-draft slice, shared by the login / register / settings

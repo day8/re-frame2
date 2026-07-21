@@ -277,6 +277,20 @@
 (defn- route-id [frame] (rf/compute-sub [:rf.route/id] (state-value frame)))
 (defn- route-params [frame] (rf/compute-sub [:rf.route/params] (state-value frame)))
 (defn- route-query [frame] (rf/compute-sub [:rf.route/query] (state-value frame)))
+(defn- route-fragment [frame] (rf/compute-sub [:rf.route/fragment] (state-value frame)))
+(defn- return-to [frame] (get-in (rf/app-db-value frame) [:auth :return-to]))
+
+(defn- guarded-frame!
+  "A fresh anon frame with the example's REAL auth-guard interceptor installed on
+   its chain — exactly the way core.cljs wires it onto the `:rf/default` app-frame
+   (`:interceptors [:realworld-resources.routing/auth-guard]`) — so a routing
+   dispatch actually runs the guard. `:url-bound? true` lets the route slice track
+   the current route (needed so an in-place request resolves against it); url-push
+   is a no-op so navigation is deterministic without a browser."
+  []
+  (frame/make-anon-frame-record! {:url-bound?   true
+                                  :interceptors [:realworld-resources.routing/auth-guard]
+                                  :fx-overrides {:rf.nav/push-url :rf/no-op}}))
 
 (defn- gc-recheck!
   "Fire the GC re-check for a scoped key on `frame` (the timer-fired event).
@@ -1186,3 +1200,85 @@
       (reply-success! @last-managed-args {} f)
       (is (= :realworld/home (route-id f))
           ":ui/article-deleted navigates home on a successful delete"))))
+
+(deftest auth-guard-return-to-preserves-full-address
+  ;; rf2-78x8j (twin of rf2-k5zty in realworld_http) — the auth-guard's return-to
+  ;; stash is the FULL resolved address ({:to :params :query :fragment}), so a login
+  ;; bounce-back lands on the EXACT URL the visitor was headed for, not a bare route.
+  ;; Before the fix the stash was {:id :params}, stranding the query string and
+  ;; #fragment. This drives the REAL example wiring: the auth-guard interceptor
+  ;; (routing.cljs) writes the crumb, and :auth/post-login-redirect (auth.cljs) reads
+  ;; it back wholesale via [:rf.route/navigate (assoc return-to :replace? true)].
+  (testing "examples/real-apps/realworld_resources — auth return-to preserves query + #fragment (rf2-78x8j)"
+
+    ;; --- 1. destination deep-link carrying BOTH a query and a #fragment ---
+    (with-new-frame [f (guarded-frame!)]
+      ;; Logged-out deep-link (URL-bar / reload) to the guarded editor with a query
+      ;; AND a fragment. (`tab` is an undeclared query key — the guarded routes
+      ;; declare none — so it rides as a string key; the point is it SURVIVES rather
+      ;; than being stranded, exactly as the #fragment does.)
+      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/my-slug?tab=preview#comments"] {:frame f})
+      (is (= :realworld.auth/login (route-id f))
+          "deep-link to a guarded route with ?query#fragment is refused → login")
+      (is (= {:to       :realworld.editor/edit
+              :params   {:slug "my-slug"}
+              :query    {"tab" "preview"}
+              :fragment "comments"}
+             (return-to f))
+          "the stash carries the FULL address — query and #fragment included, not stranded")
+
+      ;; Sign in and bounce back — the return lands on the EXACT address.
+      (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
+      (rf/dispatch-sync [:auth/post-login-redirect] {:frame f})
+      (is (= :realworld.editor/edit (route-id f))
+          "bounce-back landed on the editor route")
+      (is (= {:slug "my-slug"} (route-params f))
+          "bounce-back restored the path params")
+      (is (= {"tab" "preview"} (route-query f))
+          "bounce-back restored the query — NOT stranded")
+      (is (= "comments" (route-fragment f))
+          "bounce-back restored the #fragment — NOT stranded")
+      (is (nil? (return-to f))
+          "the crumb was read AND cleared in one step"))
+
+    ;; --- 2. in-place edit under an expired session ---
+    (with-new-frame [f (guarded-frame!)]
+      ;; Enter the editor legitimately, then let the session expire.
+      (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/my-slug"] {:frame f})
+      (is (= :realworld.editor/edit (route-id f))
+          "entered the editor while signed in")
+      (rf/dispatch-sync [:auth/clear-session] {:frame f})
+      ;; An in-place navigation (change only the #fragment) is re-gated by the
+      ;; guard — the classic in-place fail-open door, closed — and the stash carries
+      ;; the resolved in-place address (current route + params + the new #fragment).
+      (rf/dispatch-sync [:rf.route/navigate {:fragment "comments"}] {:frame f})
+      (is (= :realworld.auth/login (route-id f))
+          "the in-place edit under an expired session is refused → login")
+      (is (= {:to       :realworld.editor/edit
+              :params   {:slug "my-slug"}
+              :query    {}
+              :fragment "comments"}
+             (return-to f))
+          "the in-place edit's resolved address (current route + new #fragment) is stashed whole"))
+
+    ;; --- 3. absent query/#fragment and an unmatched URL degrade gracefully ---
+    (with-new-frame [f (guarded-frame!)]
+      ;; A guarded destination with NO query and NO fragment stashes clean defaults —
+      ;; :query {} (never nil, so it validates against the schema's `:query :map`
+      ;; slot) and :fragment nil — no nil leaking through the `(or query {})` guard.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
+      (is (= :realworld.auth/login (route-id f))
+          "logged-out reload of a guarded route with no query/#fragment → login")
+      (is (= {:to :realworld.user/settings :params {} :query {} :fragment nil}
+             (return-to f))
+          "absent query/#fragment degrade to {} / nil — clean defaults, valid against the schema")
+
+      ;; An unmatched URL is not a protected route — resolve yields no guarded
+      ;; target, so the guard stays inert (no redirect, no new stash, no crash).
+      (let [crumb (return-to f)]
+        (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-route-zzzz"] {:frame f})
+        (is (not= :realworld.auth/login (route-id f))
+            "an unmatched URL is not gated — the guard leaves it alone")
+        (is (= crumb (return-to f))
+            "an unmatched URL leaves the existing crumb untouched — no spurious re-stash")))))
