@@ -1275,10 +1275,25 @@ rather than fabricating them (`tools/xray/spec/021` §3.4.1).
   **no Spec 009 rows** — only runtime-tier ids are catalogued (per the position law
   above). Spec 009 catalogues the runtime diagnostic surface; the compiler owns its
   own compile-error roster.
-- **Source ↔ DOM navigation.** Compile-time `data-rf2-source-coord` + render-key
-  (+ occurrence-path) annotation on compiler-owned host roots — today's attribute
-  vocabulary, so existing Xray click-to-source works day one. Dev-gated; production
-  builds carry none of it.
+- **Source ↔ DOM navigation.** Compile-time `data-rf2-source-coord` (+
+  occurrence-path) annotation and the per-commit `data-rf-render-key` stamp on
+  compiler-owned host roots — today's attribute vocabulary, so existing Xray
+  click-to-source works day one. Dev-gated; production builds carry none of it.
+  The static annotation is stamped at render on the props object; `render-key`
+  does not exist at render time (it is minted at connected commit), so
+  `data-rf-render-key` is stamped **at commit time** onto the committed host-root
+  DOM node, and re-stamped on each connected commit (a truthful per-commit key).
+  **Owned, not clobbered (the authored-wins collision law):** the stamp is an
+  owned attribute with an explicit boundary — a programmer-authored
+  `data-rf-render-key` wins and is left untouched (trust the programmer; only an
+  unclaimed root is stamped), the same law the compiler applies to
+  `data-rf2-source-coord` / `data-rf-view`. **Cleanup:** the framework removes
+  only its **own** stamp when its host callback detaches or ownership moves — a
+  no-ref → authored-ref transition on a reused host node erases the prior
+  framework stamp without disturbing the authored ref, so a now-opted-out node
+  never keeps a stale key. Development-only erasure holds for all three: none of
+  the attributes, the ownership tracking, or the stamp/cleanup reaches a
+  production build.
 - **Production erasure is a proof (I-12).** Compile-time defines + bundle-scan gates;
   manifests, cause vectors, histories, warning text, and `data-rf2-*` strings are on the
   scanned absence roster. The always-on Spec 009 error contracts remain.
