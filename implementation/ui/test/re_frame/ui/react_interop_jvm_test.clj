@@ -204,7 +204,7 @@
 
 (deftest use-ref-is-inert-on-the-jvm
   (let [t (uit/render [inert-ref-view {}])]
-    (is (= "x" (uit/text (uit/find t :div))) "the view renders; the ref is inert")))
+    (is (= "x" (uit/text (some #(when (= :div (:tag %)) %) (tree-seq map? :children t)))) "the view renders; the ref is inert")))
 
 (deftest jvm-use-ref-current-stays-nil
   (is (nil? (:current (hooks/use-ref)))    "0-arg inert ref")
@@ -232,7 +232,7 @@
 (deftest use-context-resolves-a-jvm-provided-value
   (binding [hooks/*jvm-react-context-values* {:theme "dark"}]
     (let [t (uit/render [ctx-view {}])]
-      (is (= "dark" (uit/text (uit/find t :div)))
+      (is (= "dark" (uit/text (some #(when (= :div (:tag %)) %) (tree-seq map? :children t))))
           "the JVM-provided test value flows through"))))
 
 (deftest use-context-with-no-provided-value-fails-loud
@@ -244,7 +244,7 @@
 
 (deftest use-id-is-a-deterministic-inert-string
   (let [t (uit/render [id-view {}])]
-    (is (= "rf2-uid-0" (uit/text (uit/find t :div)))
+    (is (= "rf2-uid-0" (uit/text (some #(when (= :div (:tag %)) %) (tree-seq map? :children t))))
         "a deterministic prefix + occurrence-counter string; safe for static roots")))
 
 (deftest jvm-use-id-counter-makes-repeats-distinct

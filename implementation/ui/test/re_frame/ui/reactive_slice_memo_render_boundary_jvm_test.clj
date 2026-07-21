@@ -4,7 +4,7 @@
   (which the JVM path never enters).
 
   The public headless render surface — `re-frame.ui.tree/render` and
-  `ui.test/render`'s view-reference / literal / plan-bearing routes — executes
+  `ui.test/render`'s literal view-form route — executes
   the compiled view thunk and probes `sub-read` DIRECTLY. Before this fix the
   JVM slice scope lived only in the reactive host entry `with-capture`, so a
   Tier-1 render ran OUTSIDE any scope and `current-slice-memo` minted a FRESH
@@ -38,15 +38,13 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.ui :as ui :refer [defview]]
-            [re-frame.ui.frames :as frames]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.test :as uit]
             [re-frame.ui.tree :as tree])
   (:import [java.util.concurrent CyclicBarrier Executors TimeUnit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
-  (fn [t] (frames/reset-installed-plans!) (t) (frames/reset-installed-plans!)))
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures — two sibling subs sharing ONE cold derived parent, whose compute
@@ -71,19 +69,19 @@
    [:span (ui/sub [:slice/b])]])
 
 ;; ---------------------------------------------------------------------------
-;; Route 1 — `ui.test/render` view reference (render-view* → render-with-opts)
+;; Route 1 — `ui.test/render` literal view form (render-form* → render-with-opts)
 ;; ---------------------------------------------------------------------------
 
-(deftest ui-test-render-view-reference-shares-one-slice-memo
+(deftest ui-test-render-shares-one-slice-memo-within-and-recomputes-between
   (reg-slice-subs!)
   (let [f (rf/make-frame {:initial-events [[:rf/set-db {:n 5}]]})]
     (reset! parent-runs 0)
-    (uit/render siblings {:frame f})
+    (rf/with-frame f (uit/render [siblings {}]))
     (is (= 1 @parent-runs)
-        "within ONE Tier-1 view-reference render the sibling probes share one
-         memo — the cold derived parent computes ONCE, not once per sibling
-         (fresh-per-call, the pre-fix defect, would make it two)")
-    (uit/render siblings {:frame f})
+        "within ONE Tier-1 render the sibling probes share one memo — the cold
+         derived parent computes ONCE, not once per sibling (fresh-per-call, the
+         pre-fix defect, would make it two)")
+    (rf/with-frame f (uit/render [siblings {}]))
     (is (= 2 @parent-runs)
         "a LATER render (unchanged frame/incarnation/registry tags, no
          reset-scheduler!) recomputes the parent exactly once — the prior
@@ -91,37 +89,7 @@
          global holder would reuse the tag-matching table and NOT recompute")))
 
 ;; ---------------------------------------------------------------------------
-;; Route 2 — `ui.test/render` plan-free literal root form
-;; (render-form* → render-with-opts): converges with route 1 through
-;; render-with-opts, and route 3 (plan-bearing) through render-plan-bearing.
-;; ---------------------------------------------------------------------------
-
-(deftest ui-test-render-literal-form-shares-one-slice-memo
-  (reg-slice-subs!)
-  (let [f (rf/make-frame {:initial-events [[:rf/set-db {:n 5}]]})]
-    (reset! parent-runs 0)
-    (uit/render [siblings {}] {:frame f})
-    (is (= 1 @parent-runs)
-        "the plan-free literal route shares one slice memo within a render —
-         it converges with the view-reference route through render-with-opts")))
-
-(deftest ui-test-render-plan-bearing-shares-one-slice-memo
-  (reg-slice-subs!)
-  (uit/render [ui/frame-root {:id :slice/plan-a
-                              :initial-events [[:rf/set-db {:n 5}]]}
-               [siblings {}]])
-  (is (= 1 @parent-runs)
-      "the plan-bearing Tier-1 route (render-plan-bearing) shares one slice memo
-       within a render — the parent computes once across both sibling probes")
-  (uit/render [ui/frame-root {:id :slice/plan-b
-                              :initial-events [[:rf/set-db {:n 7}]]}
-               [siblings {}]])
-  (is (= 2 @parent-runs)
-      "each plan-bearing render is its OWN slice — a later render recomputes
-       (its preflighted frame is a distinct render scope)"))
-
-;; ---------------------------------------------------------------------------
-;; Route 3 — `re-frame.ui.tree/render` (the frameless public JVM entry)
+;; Route 2 — `re-frame.ui.tree/render` (the frameless public JVM entry)
 ;; ---------------------------------------------------------------------------
 
 (deftest tree-render-shares-one-slice-memo
@@ -196,7 +164,7 @@
         gate  (CyclicBarrier. 2)
         run   (fn [] (future
                        (.await gate 10 TimeUnit/SECONDS)
-                       (uit/render siblings {:frame f})))
+                       (rf/with-frame f (uit/render [siblings {}]))))
         r1    (run)
         r2    (run)]
     @r1 @r2
@@ -216,9 +184,9 @@
         _    (reset! parent-runs 0)
         exec (Executors/newSingleThreadExecutor)]
     (try
-      (let [t1 (.submit exec ^Callable (fn [] (uit/render siblings {:frame f})))
+      (let [t1 (.submit exec ^Callable (fn [] (rf/with-frame f (uit/render [siblings {}]))))
             _  (.get t1 10 TimeUnit/SECONDS)
-            t2 (.submit exec ^Callable (fn [] (uit/render siblings {:frame f})))]
+            t2 (.submit exec ^Callable (fn [] (rf/with-frame f (uit/render [siblings {}]))))]
         (.get t2 10 TimeUnit/SECONDS)
         (is (= 2 @parent-runs)
             "the second sequential task cannot reuse the first's table — each
@@ -354,7 +322,7 @@
                    (run-two-renders!
                      (fn [label]
                        (binding [*render-label* label]
-                         (uit/render siblings {:frame f}))))))
+                         (rf/with-frame f (uit/render [siblings {}])))))))
           handle-sets (vals seen)]
       (is (empty? @gate-errors)
           (str "both renders reached the acquisition barrier and rendezvoused —"

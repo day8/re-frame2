@@ -1,76 +1,69 @@
 (ns re-frame.ui.test
-  "`ui.test` — the Tier-1 testing surface of the compiled-view substrate
-  (rf2-vxgfnd S1d; 07 §2 'one namespace, one table').
+  "`ui.test` — the testing surface of the compiled-view substrate (Spec 004
+  S1/S3, Spec 008). SIX names across two hosts.
 
-  Tier-1 tests are HEADLESS: `render` runs the real compiled view
-  against a real frame on the JVM and returns the versioned public
-  STRUCTURAL TREE (node schema v1, the jvm-tree-and-conversion-contract
-  ABI); `find`/`find-all` query it with the CLOSED selector grammar;
-  `attrs`/`text` are the read projections. Handlers are event vectors as
-  data, so 'what does this button do' is an equality check — no click
-  simulation, no DOM, no flake:
+  ## JVM structural host (Tier-1, headless)
 
-      (rf/with-new-frame [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})]
-        (let [tree (ui.test/render [product-card {:product p}] {:frame frame})]
+      (render [view props] {:sub-overrides {query-v value}})
+      (attrs node)
+      (text node)
+
+  `render` runs the real compiled view against the AMBIENT frame and returns
+  the versioned public STRUCTURAL TREE (node schema v1, the
+  jvm-tree-and-conversion-contract ABI). ONE input grammar — the literal view
+  form, props carried IN the form; ONE option — `:sub-overrides`. Frame scope
+  is the programmer's ordinary bracket: `rf/with-new-frame` for a fresh owned
+  frame (eval-bind-run-destroy), `rf/with-frame` to pin an existing one. Drive
+  state with `rf/dispatch-sync` and assert on a FRESH `render`.
+
+  Handlers are event vectors as data, so 'what does this button do' is an
+  equality check — no click simulation, no DOM, no flake:
+
+      (deftest add-button-carries-intent
+        (let [tree (ui.test/render [app/add-button {:product-id 42}]
+                                   {:sub-overrides {[:cart/locked?] false}})]
           (is (= [:cart/add 42]
-                 (-> tree (ui.test/find :button) ui.test/attrs :on-click)))
-          (is (= \"Add to cart\"
-                 (-> tree (ui.test/find :button) ui.test/text)))))
+                 (-> (some #(when (= :button (:tag %)) %)
+                           (tree-seq map? :children tree))
+                     ui.test/attrs :on-click)))))
 
-  A frame supplied through `{:frame f}` stays CALLER-OWNED: `render` binds it
-  for the render but never creates or destroys it. `rf/with-new-frame` is the
-  eval-bind-run-destroy form — it destroys the `make-frame` VALUE on body exit
-  (success OR throw), incarnation-exact on the value it created, so the frame
-  never leaks into `rf/frame-ids` to contaminate later tests. A bare
-  `make-frame` left unreleased is a residue bug, not a frame `render` reclaims.
+  Traverse with ordinary Clojure: `(tree-seq map? :children tree)` and a
+  predicate over `(:tag %)` (element tag) or `(:view-id %)` (view boundary);
+  `filterv` for every match. `attrs`/`text` are the read projections — the ONE
+  attribute read (a bare `(:on-click node)` is a FIELD miss: events live under
+  `:events`, so read them through `attrs`) and the document-order text
+  concatenation.
 
-  ## The selector grammar (closed — drafts/ui-test-selector-grammar.md)
+  ## CLJS mounted host (Tier-3)
 
-      selector := tag-kw    ; unqualified keyword — element tag, exact
-                | view-sel  ; qualified keyword (view id) or defview var
-                | attr-map  ; {attr-key expected} matched by rf= over the
-                            ; attrs projection (events match by vector)
-                | pred-fn   ; (fn [node] boolean) — the escape
+      (with-root [container [app-root ...]] body ...)
+      (flush!)  (flush! thunk)
+      (flush-presence!)  (flush-presence! ms)
 
-  The path/vector form `[selector+]` (OPEN-2) and the strict `find!`
-  (OPEN-3) are demand-bar items NOT shipped at S1 — no Stage-1 fixture
-  or guide example materialised the need; a vector selector raises a
-  typed error naming the composition alternative
-  `(find (find tree :form) :button)`.
-
-  ## Tier split
-
-  `query` is the Tier-3 LIVE-DOM counterpart of `find` — a mounted root
-  + a native CSS selector string, sharing nothing with the grammar
-  above. Handing a CSS string to `find`, a structural tree to `query`,
-  or a DOM element to `attrs`/`text` is a typed error
-  (`:rf.error/ui-test-tier-mismatch`) pointing at the other tier.
-  Tier-3 mounting is deliberately small: `with-root` owns one real React
-  mount with total teardown, `query` delegates a native CSS selector to
-  that root's container, programmatic `dispatch!` drives S2 framework
-  state, and Promise-backed `flush!` drains framework work to quiescence
-  under awaited React `act`. Ordinary DOM APIs cover already-host-owned mechanics; compiled
-  event-vector delivery through native events lands S3. There is no gesture
-  DSL and no production `re-frame.ui/flush!` twin.
+  `with-root` mounts the literal root form into a connected test-owned DOM
+  CONTAINER, awaits the initial commit, runs/awaits the body with that container
+  bound, then tears down the React root and container on every exit. Query the
+  container with native `.querySelector` / `.querySelectorAll` and read ordinary
+  DOM properties/events. `flush!` is the sole compiled-view test flush: the thunk
+  (when supplied) runs inside awaited React 19 `act`, then framework
+  notifications and React commits alternate to a fixed point — drive a mounted
+  dispatch with `(flush! #(rf/dispatch-sync event {:frame f}))`.
+  `flush-presence!` advances the presence fake clock so retained
+  (`:unmounting`) children reach their `:timeout-ms` removal without wall-clock
+  sleeps.
 
   ## JVM semantics under test (06 §1 subset)
 
-  Structure, branches, lists and event intent are fully faithful; `sub`
-  reads are the one-shot headless read (03 §3) — resolved against the
-  render's frame and the explicit `:sub-overrides` door — effects don't
-  run, host ops raise `:rf.error/jvm-host-op`. The events/subs a view
-  touches must be `.cljc` — the standard re-frame discipline.
+  Structure, branches, lists and event intent are fully faithful; `sub` reads
+  are the one-shot headless read (03 §3) — resolved against the ambient frame
+  and the explicit `:sub-overrides` door; effects don't run, host ops raise
+  `:rf.error/jvm-host-op`. The events/subs a view touches must be `.cljc` — the
+  standard re-frame discipline.
 
-  Dev/test scope ONLY: nothing in a production bundle may `:require`
-  this namespace (bundle-isolation gate)."
-  (:refer-clojure :exclude [find])
+  Dev/test scope ONLY: nothing in a production bundle may `:require` this
+  namespace (bundle-isolation gate)."
   #?(:cljs (:require-macros [re-frame.ui.test]))
   (:require [re-frame.error :as error]
-            [re-frame.frame :as rframe]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.router :as router]
-            [re-frame.ui.eq :as eq]
             [re-frame.ui.presence-runtime :as presence]
             [re-frame.ui.reactive :as reactive]
             #?@(:clj [[re-frame.ui.compiler.emit-jvm :as emit-jvm]
@@ -96,12 +89,6 @@
                       {:recovery :use-the-other-tier
                        :extra    extra}))
 
-(defn- bad-selector!
-  [where reason extra]
-  (error/throw-error! :rf.error/ui-test-bad-selector where reason
-                      {:recovery :use-a-grammar-selector
-                       :extra    extra}))
-
 (defn- bad-opts!
   [where reason extra]
   (error/throw-error! :rf.error/ui-test-bad-opts where reason
@@ -109,7 +96,7 @@
                        :extra    extra}))
 
 ;; ---------------------------------------------------------------------------
-;; Node discrimination + traversal (tree contract §Node schema)
+;; Node discrimination (tree contract §Node schema)
 ;; ---------------------------------------------------------------------------
 
 (defn- node-kind
@@ -141,39 +128,13 @@
                        (pr-str m))
                   m))))
 
-(defn- child-nodes
-  "The MAP-node children of `m` in document order — text content (strings)
-  is skipped (content, not a queryable node); anything else in a
-  :children vector is malformed."
-  [where m]
-  (into []
-        (keep (fn [c]
-                (cond
-                  (string? c) nil
-                  (map? c)    c
-                  :else (malformed!
-                         where
-                         (str "malformed tree — a :children entry must be a node "
-                              "map or text content (a string); got " (pr-str c))
-                         c))))
-        (:children m)))
-
-(defn- node-seq
-  "Depth-first pre-order (document order) seq of the MAP nodes of `n` —
-  the node itself first, then its descendants; fragment and view-boundary
-  children are descended alike; trusted-HTML nodes are leaves (their
-  markup is unparsed); text is never visited."
-  [where n]
-  (node-kind where n) ; validates (throws on malformed)
-  (lazy-seq (cons n (mapcat #(node-seq where %) (child-nodes where n)))))
-
 #?(:cljs
    (defn- dom-element? [x]
      (and (exists? js/Element) (instance? js/Element x))))
 
 (defn- not-a-node!
   "Shared rejection for a non-node input where a structural node was
-  required — a mounted/host root points at the Tier-3 surface."
+  required — a live DOM element points at the Tier-3 mounted surface."
   [where x]
   #?(:cljs
      (when (dom-element? x)
@@ -181,14 +142,15 @@
         where
         (str where " projects Tier-1 STRUCTURAL nodes — got a live DOM "
              "element (Tier 3). Read live DOM via host interop on the "
-             "element (e.g. (.-value el)) after ui.test/query")
+             "element (e.g. (.-value el)) inside a ui.test/with-root body")
         {:got :dom-element})))
   (tier-mismatch!
    where
    (str where " takes a structural Tier-1 tree node (the value "
-        "ui.test/render returns / ui.test/find matches); got "
-        (pr-str x) ". A mounted (Tier-3) root queries with "
-        "ui.test/query + a native CSS selector string")
+        "ui.test/render returns, or any node reached by traversing it with "
+        "(tree-seq map? :children tree)); got " (pr-str x) ". A mounted "
+        "(Tier-3) test reads the DOM natively via the container bound by "
+        "ui.test/with-root")
    {:got x}))
 
 ;; ---------------------------------------------------------------------------
@@ -207,10 +169,12 @@
                      options maps / opaque markers AS DATA)
     view-boundary  → the `:props` map
     fragment/html  → `{}` (no attributes exist; total, not an error)
-    nil            → nil (nil-punning threads through a missed `find`)
+    nil            → nil (nil-punning threads through a missed traversal)
 
   Intent assertion is an equality check:
-  `(is (= [:cart/add 42] (:on-click (ui.test/attrs (ui.test/find tree :button)))))`."
+  `(is (= [:cart/add 42] (:on-click (ui.test/attrs node))))` where `node`
+  is the button reached by `(some #(when (= :button (:tag %)) %)
+  (tree-seq map? :children tree))`."
   [node]
   (cond
     (nil? node) nil
@@ -259,160 +223,18 @@
     :else (not-a-node! 'rf.ui.test/text node)))
 
 ;; ---------------------------------------------------------------------------
-;; The selector grammar (closed)
+;; Mounted Tier 3 — one connected container, total ownership
 ;; ---------------------------------------------------------------------------
-
-(defn- registered-view-fn?
-  "Best-effort didactic guard: is `f` a registered compiled view's
-  handler-fn? (A defview NAME evaluates to the view fn — as a selector
-  that would silently behave as a match-everything pred-fn; the grammar's
-  view-selector spellings are the view-id keyword or the defview VAR.)"
-  [f]
-  (boolean
-   (some (fn [[_ m]] (identical? f (:handler-fn m)))
-         (get @registrar/kind->id->metadata :view))))
-
-(defn- var-view-pred
-  [where sel]
-  (let [m  (meta sel)
-        id (:rf.ui/view-id m)]
-    (when-not (and (:rf.ui/view m) id)
-      (bad-selector!
-       where
-       (str "var " sel " is not a defview — a view selector is the "
-            "registered view id (qualified keyword) or the defview var")
-       {:selector sel}))
-    (fn [node] (= id (:view-id node)))))
-
-(defn- selector-pred
-  "Compile one selector of the CLOSED grammar into a node predicate.
-  Anything else is a typed error — deliberately absent forms
-  (sibling/nth/positional combinators, wildcard, text-content selectors)
-  are covered by pred-fn, the grammar's escape."
-  [where sel]
-  (cond
-    ;; tag-kw — unqualified keyword, exact element-tag match
-    ;; view-sel — qualified keyword matches the view-boundary node
-    ;; (fragment/nil-rooted views ARE matchable — the boundary marker
-    ;; exists even when no single root element does)
-    (keyword? sel)
-    (if (namespace sel)
-      (fn [node] (= sel (:view-id node)))
-      (fn [node] (= sel (:tag node))))
-
-    (var? sel)
-    (var-view-pred where sel)
-
-    ;; attr-map — every entry present in the attrs projection and rf= to
-    ;; the expected value ({} matches every node — vacuous truth)
-    (map? sel)
-    (fn [node]
-      (let [proj (attrs node)]
-        (every? (fn [[k v]]
-                  (and (contains? proj k)
-                       (eq/rf= v (get proj k))))
-                sel)))
-
-    ;; CSS string → the Tier-3 surface
-    (string? sel)
-    (tier-mismatch!
-     where
-     (str "a CSS selector string was handed to the Tier-1 structural query "
-          where " — CSS is the Tier-3 contract: (ui.test/query root "
-          (pr-str sel) ") on a MOUNTED root. Structural trees query with "
-          "the closed grammar: tag keyword, view id / defview var, attr "
-          "map, or pred fn")
-     {:selector sel :other-tier 'rf.ui.test/query})
-
-    ;; path/vector form — OPEN-2, demand-bar: NOT shipped at S1
-    (vector? sel)
-    (bad-selector!
-     where
-     (str "the path/vector selector form " (pr-str sel) " is not in the "
-          "shipped grammar (demand-bar item OPEN-2 — no Stage-1 fixture "
-          "or guide example needs it). Compose finds instead: "
-          "(find (find tree :form) :button) — a found node is itself a "
-          "valid tree argument")
-     {:selector sel})
-
-    ;; pred-fn — the escape (any fn; receives MAP nodes only)
-    (fn? sel)
-    (do (when (registered-view-fn? sel)
-          (bad-selector!
-           where
-           (str "the selector is a compiled view FN — as a pred-fn it would "
-                "match every node. A view selector is the registered view id "
-                "(qualified keyword) or the defview VAR (#'the-view)")
-           {:selector sel}))
-        (fn [node] (boolean (sel node))))
-
-    :else
-    (bad-selector!
-     where
-     (str (pr-str sel) " is not a selector — the CLOSED grammar is: an "
-          "unqualified keyword (element tag), a qualified keyword or "
-          "defview var (view boundary), an attr map (rf= over the attrs "
-          "projection), or a pred fn")
-     {:selector sel})))
-
-(defn- find-tree-seq
-  "Validated document-order node seq of a `find`/`find-all` tree argument."
-  [where tree]
-  (cond
-    (string? tree)
-    (malformed! where
-                "text content is not a queryable node — selectors never match text; query the node that contains it"
-                tree)
-    (map? tree) (node-seq where tree)
-    :else
-    (tier-mismatch!
-     where
-     (str where " queries structural Tier-1 trees (the value ui.test/render "
-          "returns); got " (pr-str tree) ". A mounted (Tier-3) root queries "
-          "with ui.test/query + a native CSS selector string")
-     {:got tree :other-tier 'rf.ui.test/query})))
-
-(defn find
-  "The FIRST node of `tree` matching `selector`, in depth-first pre-order
-  (document order) — the tree node itself is tested first, then its
-  descendants. Returns the structural node (a plain map — itself a valid
-  `tree` argument, so finds compose), or nil on no match (idiomatic
-  nil-punning: `(-> tree (find :button) attrs :on-click)` yields nil
-  through the thread)."
-  [tree selector]
-  (if (nil? tree)
-    nil
-    (let [pred (selector-pred 'rf.ui.test/find selector)]
-      (some #(when (pred %) %) (find-tree-seq 'rf.ui.test/find tree)))))
-
-(defn find-all
-  "ALL nodes of `tree` matching `selector`, as a vector in document order
-  (possibly empty — `[]` on no match)."
-  [tree selector]
-  (if (nil? tree)
-    []
-    (let [pred (selector-pred 'rf.ui.test/find-all selector)]
-      (into [] (filter pred) (find-tree-seq 'rf.ui.test/find-all tree)))))
-
-;; ---------------------------------------------------------------------------
-;; Mounted Tier 3 — one opaque root, one native query, total ownership
-;; ---------------------------------------------------------------------------
-
-#?(:cljs (deftype ^:private MountedRoot [host-root container live?]))
-
-#?(:cljs
-   (defn- mounted-root? [x]
-     (instance? MountedRoot x)))
 
 (defn- mounted-unavailable!
   [where got]
   (tier-mismatch!
    where
    #?(:clj  (str "Tier-3 mounted tests require a browser/jsdom host — the "
-                 "JVM surface is Tier-1 structural render + find/find-all")
-      :cljs (str "Tier-3 mounted tests require a live DOM host and a root "
-                 "created by ui.test/with-root"))
-   {:got got :other-tier 'rf.ui.test/find}))
+                 "JVM surface is the Tier-1 structural render")
+      :cljs (str "Tier-3 mounted tests require a live DOM host and a "
+                 "container bound by ui.test/with-root"))
+   {:got got :other-tier 'rf.ui.test/render}))
 
 #?(:cljs
    (do
@@ -595,10 +417,12 @@
 #?(:cljs
    (defn- with-root*
      "Promise-backed runtime owner for the `with-root` macro. Initial mount
-     settles under React 19 `act` before the body runs; the body may return a
-     value or Promise and is awaited. Every exit awaits host unmount and
-     container removal. Cleanup never masks a primary mount/body failure; a
-     second cleanup failure is attached as `rfUiTestCleanupError`."
+     settles under React 19 `act` before the body runs; the body binds the
+     connected DOM CONTAINER (native `.querySelector`/`.querySelectorAll` +
+     ordinary DOM properties/events), may return a value or Promise, and is
+     awaited. Every exit awaits host unmount and container removal. Cleanup
+     never masks a primary mount/body failure; a second cleanup failure is
+     attached as `rfUiTestCleanupError`."
      [create-f render-f body-f]
      (when-not (exists? js/document)
        (mounted-unavailable! 'rf.ui.test/with-root :no-dom-host))
@@ -607,7 +431,6 @@
      (guard-no-active-act! 'rf.ui.test/with-root)
      (let [container     (js/document.createElement "div")
            host-root     (volatile! nil)
-           mounted-root  (volatile! nil)
            result        (volatile! nil)
            primary-error (volatile! absent)
            cleanup-error (volatile! absent)]
@@ -624,10 +447,9 @@
                  (render-f root)))
         (.then
          (fn []
-           ;; Only an ACTUALLY settled initial commit opens the body context.
-           (vreset! mounted-root
-                    (MountedRoot. @host-root container (atom true)))
-           (promise-call #(body-f @mounted-root))))
+           ;; Only an ACTUALLY settled initial commit opens the body context;
+           ;; the body binds the connected DOM CONTAINER.
+           (promise-call #(body-f container))))
         (.then (fn [value]
                  (vreset! result value)
                  nil)
@@ -636,8 +458,6 @@
                  nil))
         (.then
          (fn []
-           (when-let [^MountedRoot r @mounted-root]
-             (reset! (.-live? r) false))
            ;; An un-awaited nested operation can still be inside act when the
            ;; outer body returns. Preserve that misuse as the rejection, but
            ;; wait/sequence the host unmount so the outer Root is reclaimed.
@@ -661,10 +481,12 @@
 
 #?(:clj
    (defmacro with-root
-     "`(with-root [root root-form] body...)` — return a Promise that mounts
-     the literal root form into a connected test-owned DOM container, awaits
-     the initial commit, invokes/awaits the body with its opaque mounted root,
-     then awaits teardown of the React root and container on every exit.
+     "`(with-root [container root-form] body...)` — return a Promise that mounts
+     the literal root form into a connected test-owned DOM CONTAINER, awaits the
+     initial commit, invokes/awaits the body with that container bound, then
+     awaits teardown of the React root and container on every exit. Query the
+     container with native `.querySelector` / `.querySelectorAll` and read
+     ordinary DOM properties/events.
 
      Browser/jsdom only. The root form is compiled by the same analyzer and
      emitter as `ui/render!`; each invocation mints a private runtime root
@@ -698,91 +520,28 @@
        `(re-frame.error/throw-error!
          :rf.error/ui-test-tier-mismatch 'rf.ui.test/with-root
          (str "Tier-3 mounted tests require a browser/jsdom host — the "
-              "JVM surface is Tier-1 structural render + find/find-all")
+              "JVM surface is the Tier-1 structural render")
          {:recovery :use-the-other-tier
-          :extra {:got :jvm :other-tier 'rf.ui.test/find}}))))
-
-(defn query
-  "`(query root css-selector)` — the Tier-3 LIVE-DOM counterpart of
-  `find`: a MOUNTED root (`with-root`) + a native CSS selector string,
-  answered by the host DOM's querySelector. It shares nothing with the
-  Tier-1 selector grammar — no rf= matching, no structural projections,
-  no view-id selectors: CSS is the whole contract.
-
-  The root must be the live opaque value bound by `with-root`; the selector
-  must be a string. A miss returns nil, exactly like `querySelector`."
-  [root css-selector]
-  (if (map? root)
-    (tier-mismatch!
-     'rf.ui.test/query
-     (str "a structural Tier-1 tree was handed to ui.test/query — query is "
-          "the Tier-3 live-DOM counterpart (mounted root + native CSS). "
-          "Structural trees query with ui.test/find / find-all and the "
-          "closed selector grammar (tag keyword, view id / defview var, "
-          "attr map, pred fn)")
-     {:got root :other-tier 'rf.ui.test/find})
-    #?(:clj
-       (mounted-unavailable! 'rf.ui.test/query root)
-       :cljs
-       (let [^MountedRoot root root]
-         (when-not (mounted-root? root)
-           (mounted-unavailable! 'rf.ui.test/query root))
-         (when-not @(.-live? root)
-           (mounted-unavailable! 'rf.ui.test/query :released-root))
-         (when-not (string? css-selector)
-           (bad-selector!
-            'rf.ui.test/query
-            (str "ui.test/query takes a native CSS selector STRING; got "
-                 (pr-str css-selector))
-            {:selector css-selector}))
-         (.querySelector (.-container root) css-selector)))))
-
-;; ---------------------------------------------------------------------------
-;; Frames (07 §2 — `dispatch!`). A test frame is minted with the canonical
-;; `rf/make-frame` + `:initial-events` (seed via `[:rf/set-db {…}]`) — one
-;; frame-init grammar, shared with production. A `make-frame` frame is
-;; CALLER-OWNED: nothing here destroys it (a `{:frame f}` opt only binds it for
-;; the render), so wrap it in `rf/with-new-frame` — eval-bind-run-destroy,
-;; incarnation-exact on the value it created — or it leaks into `rf/frame-ids`.
-;; ---------------------------------------------------------------------------
-
-(defn dispatch!
-  "Real dispatch + drain into `frame-target` (a frame value or id):
-  processes `event` synchronously end-to-end, then drains any
-  synchronously-enqueued events to fixed point. Drive state with real
-  events, re-render, assert on the new tree."
-  [frame-target event]
-  (router/dispatch-sync! event {:frame frame-target})
-  nil)
+          :extra {:got :jvm :other-tier 'rf.ui.test/render}}))))
 
 ;; ---------------------------------------------------------------------------
 ;; flush! — the epoch drain (07 §2 "act + epoch drain + commit — the only
-;; flush idiom")
+;; flush idiom"). CLJS mounted host only: the JVM structural render has no
+;; React tree to settle — a Tier-1 checkpoint is a FRESH render after a
+;; synchronous rf/dispatch-sync.
 ;; ---------------------------------------------------------------------------
 
-(defn- guard-open-drain!
-  []
-  ;; The open-event-drain ruling is owned by `re-frame.ui.reactive` and shared
-  ;; with the first-party adapter's `flush-render!` — ONE guard, not two copies.
-  ;; It survives a handler destroying its own frame (`*run-frame-state-before*`
-  ;; outlives a live-registry scan), so a destroy-self-then-flush call still
-  ;; fails before delivering render-phase work inside the still-open run.
-  (reactive/guard-open-drain! 'rf.ui.test/flush!))
-
-#?(:clj
-   (defn flush!
-     "`(flush!)` — synchronously drain the host-agnostic ViewCell registry on
-     the JVM Tier-1 host. There is no React tree to settle. Returns nil."
-     []
-     (guard-open-drain!)
-     ;; Initial drain, then the SHARED bounded convergence law (rf2-0faipl): a
-     ;; non-quiescent registry fails loud with
-     ;; :rf.error/flush-convergence-exceeded rather than spinning forever.
-     (reactive/flush-pending!)
-     (reactive/converge-flush! 'rf.ui.test/flush! reactive/flush-pending!)
-     nil)
-   :cljs
+#?(:cljs
    (do
+     (defn- guard-open-drain!
+       []
+       ;; The open-event-drain ruling is owned by `re-frame.ui.reactive` and shared
+       ;; with the first-party adapter's `flush-render!` — ONE guard, not two copies.
+       ;; It survives a handler destroying its own frame (`*run-frame-state-before*`
+       ;; outlives a live-registry scan), so a destroy-self-then-flush call still
+       ;; fails before delivering render-phase work inside the still-open run.
+       (reactive/guard-open-drain! 'rf.ui.test/flush!))
+
      (defn- flush-async!
        [thunk]
        ;; The async twin of the JVM `converge-flush!` loop: framework
@@ -815,7 +574,8 @@
        `(flush!)` and `(flush! thunk)` return Promises on CLJS. The thunk
        (when supplied) runs inside awaited React 19 `act`; then framework
        notifications and React commits alternate to a fixed point. Await the
-       Promise before asserting or beginning another mounted operation.
+       Promise before asserting or beginning another mounted operation. Drive a
+       mounted dispatch with `(flush! #(rf/dispatch-sync event {:frame f}))`.
 
        The open-event-drain guard runs synchronously BEFORE Promise
        construction and throws `:rf.error/flush-in-open-epoch`."
@@ -829,22 +589,12 @@
                      (str "the flush! thunk arity requires a function; got "
                           (pr-str thunk))
                      {:got thunk}))
-        (flush-async! thunk)))))
+        (flush-async! thunk)))
 
-;; ---------------------------------------------------------------------------
-;; flush-presence! — the S4 fake-clock transition advance (rf2-uckeg)
-;; ---------------------------------------------------------------------------
+     ;; ------------------------------------------------------------------------
+     ;; flush-presence! — the S4 fake-clock transition advance (rf2-uckeg)
+     ;; ------------------------------------------------------------------------
 
-#?(:clj
-   (defn flush-presence!
-     "`(flush-presence!)` — advance presence transitions on the JVM Tier-1 host.
-     The JVM structural render has no lifecycle (presence renders :present, no
-     retention timers), so this is a synchronous no-op returning nil. Present
-     for host-parity: a `.cljc` test body can call it on either host."
-     ([] nil)
-     ([_ms] nil))
-   :cljs
-   (do
      (defn flush-presence!
        "Advance the presence fake clock so retained (:unmounting) children reach
        their :timeout-ms removal WITHOUT wall-clock sleeps — the S4 twin of
@@ -867,38 +617,20 @@
 
 #?(:clj
    (defn- validate-render-opts!
-     [opts allow-props? plan-bearing?]
+     [opts]
      (when (some? opts)
        (when-not (map? opts)
          (bad-opts! 'rf.ui.test/render
                     (str "render opts must be a map; got " (pr-str opts))
                     {:got opts}))
-       (when-let [unknown (seq (remove #{:frame :props :sub-overrides}
-                                       (keys opts)))]
+       (when-let [unknown (seq (remove #{:sub-overrides} (keys opts)))]
          (bad-opts! 'rf.ui.test/render
                     (str "unknown render opt" (when (next unknown) "s") " "
-                         (pr-str (vec unknown)) " — the opts are CLOSED: "
-                         ":frame, :props (bare-view form only), "
-                         ":sub-overrides")
+                         (pr-str (vec unknown)) " — the only render option is "
+                         ":sub-overrides. Props ride IN the view form "
+                         "([view props]); frame scope is rf/with-frame / "
+                         "rf/with-new-frame")
                     {:unknown (vec unknown)}))
-       (when (and (contains? opts :props) (not allow-props?))
-         (bad-opts! 'rf.ui.test/render
-                    "a literal root form carries its props IN the form — {:props …} combines only with a bare view reference"
-                    {:props (:props opts)}))
-       (when (and plan-bearing? (contains? opts :frame))
-         (bad-opts! 'rf.ui.test/render
-                    (str "a PLAN-BEARING root form OWNS its frames — its "
-                         "top-region frame-root(s) preflight fresh test frames "
-                         "before the render. Drop {:frame …}; a "
-                         "frame plan and an explicit frame are two ways to say "
-                         "one thing. Explicit frame opts stay valid for "
-                         "plan-free root/view forms")
-                    (select-keys opts [:frame])))
-       (when (and (contains? opts :props) (not (map? (:props opts))))
-         (bad-opts! 'rf.ui.test/render
-                    (str ":props must be a map — a view is a pure function of "
-                         "ONE props map; got " (pr-str (:props opts)))
-                    {:props (:props opts)}))
        (when (contains? opts :sub-overrides)
          (let [so (:sub-overrides opts)]
            (when-not (and (map? so) (every? vector? (keys so)))
@@ -909,302 +641,51 @@
 
 #?(:clj
    (defn- render-with-opts
-     "Establish the frame scope + override door, run the compiled render
-  thunk, stamp the root with the tree version (the root is always the
-  view's boundary node — a map). Without :frame, structural rendering
-  proceeds frameless — any frame-scoped read raises honestly rather
-  than defaulting."
+     "Establish the override door, run the compiled render thunk under the
+  AMBIENT frame, stamp the root with the tree version (the root is always the
+  view's boundary node — a map). With no ambient frame bound, structural
+  rendering proceeds frameless — any frame-scoped read raises honestly rather
+  than defaulting; establish frame scope with rf/with-frame / rf/with-new-frame."
      [opts thunk]
      (let [run   (if (contains? opts :sub-overrides)
                    #(binding [reactive/*sub-overrides* (:sub-overrides opts)] (thunk))
                    thunk)
            ;; Establish the JVM render-slice memo scope around the render thunk
-           ;; (rf2-vxgfnd.267): the two `ui.test/render` compiled routes — a
-           ;; view reference and a plan-free literal root form — converge HERE,
-           ;; so a single render shares ONE slice memo (sibling cold probes of a
-           ;; shared derived parent compute it once) and a later render
-           ;; recomputes. Re-entrant, so a nested `with-capture` reuses it.
+           ;; (rf2-vxgfnd.267): a single render shares ONE slice memo (sibling
+           ;; cold probes of a shared derived parent compute it once) and a later
+           ;; render recomputes. Re-entrant, so a nested `with-capture` reuses it.
            slice #(reactive/with-slice-memo run)
-           root  (cond
-                   (contains? opts :frame)
-                   (binding [rframe/*current-frame*
-                             (rframe/frame-target->id (:frame opts))]
-                     (slice))
-
-                   :else (slice))]
+           root  (slice)]
        (assoc root :rf.ui/tree-version tree/tree-version))))
 
 #?(:clj
-   (defn- reject-frame-collision!
-     "The Tier-1 fresh-frame contract (rf2-vxgfnd.55): a plan-bearing
-  `ui.test/render` GUARANTEES fresh ISOLATED test frames — each declared
-  `frame-root` plan mints (and, after the render, tears down) its OWN frame,
-  seeded with its declared `:initial-events`/config. If a plan frame-id is
-  already LIVE at render time, running the production ENSURE path would
-  silently ADOPT that ambient frame (03 §8 / `frames` ns — create-if-absent
-  ADOPTS a live frame, its config authoritative), so the plan's declared
-  seed/config would be IGNORED, ambient state reused, and the assertion still
-  pass. That is a test-isolation violation, not an adoption — reject BEFORE
-  any frame/install mutation, naming the colliding frame(s) and root, rather
-  than adopting via the production path. (Production adoption semantics are
-  deliberately unchanged; this reject is the test HOST's contract, not a
-  `frame-root` behaviour.)"
-     [root-id live-collisions]
-     (let [many? (next live-collisions)]
-       (error/throw-error!
-        :rf.error/ui-test-frame-collision 'rf.ui.test/render
-        (str "plan-bearing ui.test/render for root " (pr-str root-id)
-             " declares a frame-root plan" (when many? "s")
-             " for the ALREADY-LIVE frame" (when many? "s") " "
-             (pr-str (vec live-collisions)) " — a Tier-1 test render OWNS "
-             "FRESH ISOLATED frames and must not adopt ambient frame state "
-             "(the plan's declared :initial-events/config would be silently "
-             "ignored, the pre-existing frame's state reused). Destroy the "
-             "pre-existing frame(s) before rendering — a fresh test frame is "
-             "created + seeded per plan — or target a frame you hold with a "
-             "plan-free form + {:frame f}")
-        {:recovery :isolate-the-test-frame
-         :extra {:root-id     root-id
-                 :collisions  (vec live-collisions)}}))))
-
-;; ---------------------------------------------------------------------------
-;; The Tier-1 atomic plan-frame claim registry (rf2-vxgfnd.64)
-;; ---------------------------------------------------------------------------
-
-#?(:clj
-   ;; A plan-bearing render RESERVES its declared frame ids here — as one
-   ;; all-or-nothing claim — before installing anything. Without a claim, two
-   ;; renders racing on the same id could BOTH pass a bare liveness check and
-   ;; then silently share one frame (the production ENSURE adopt path), and a
-   ;; stale before/after id snapshot could let a concurrently-created frame be
-   ;; adopted (and later destroyed) by a losing render. The claim closes both
-   ;; windows. Keyed by the bare frame-id: the set of ids currently owned by an
-   ;; in-flight render. Process-global; each render's `finally` releases its
-   ;; OWN ids, so a completed or failed render never leaks a claim. This is the
-   ;; test HOST's stronger ownership rule — production ENSURE is unchanged.
-   (defonce ^:private claimed-plan-ids (atom #{})))
-
-#?(:clj
-   (defn- claim-plan-frames!
-     "ATOMIC all-or-nothing acquisition of a plan-bearing render's declared
-  frame ids (`wanted`, document order). Reserves EVERY id iff none is already
-  claimed by another in-flight render AND none is LIVE in the frames registry;
-  the liveness read and the reservation linearize through a single CAS on the
-  claim set, so two renders racing on the same id cannot both win — one CAS
-  succeeds and installs, the other sees the id claimed (or live) and loses.
-  Returns nil on a successful claim (the ids are now this render's to install
-  and tear down), or the document-order vector of colliding ids on failure —
-  a fail-BEFORE-write: nothing is reserved, no frame is installed, no initial
-  event drains."
-     [wanted]
-     (loop []
-       (let [claimed @claimed-plan-ids
-             busy    (filterv (fn [fid]
-                                (or (contains? claimed fid)
-                                    (some? (rframe/frame fid))))
-                              wanted)]
-         (cond
-           (seq busy) busy
-           (compare-and-set! claimed-plan-ids claimed (into claimed wanted)) nil
-           :else (recur))))))
-
-#?(:clj
-   (defn- release-plan-frames!
-     "Release this render's claim on `wanted` (the `finally` half of the
-  acquisition — a completed or failed render leaves no claim behind)."
-     [wanted]
-     (swap! claimed-plan-ids #(reduce disj % wanted))
-     nil))
-
-#?(:clj
-   (defn- render-plan-bearing
-     "Runtime half of a PLAN-BEARING literal root form: install the root's
-  static frame plans as FRESH ISOLATED test frames, bind the resolved ambient
-  frame (the innermost top-region frame-root enclosing the mounted view) for the
-  JVM structural render, and tear down every frame THIS render created in a
-  `finally`. Plan config expressions evaluate exactly once, at the top, before
-  any install or tree traversal.
-
-  ATOMIC, REGISTRY-RESTED, INCARNATION-OWNED acquisition (rf2-vxgfnd.76,
-  strengthening rf2-vxgfnd.64 / .55). Correctness rests on the AUTHORITATIVE core
-  frame registry, not a parallel advisory atom:
-
-    - CLAIM (render-vs-render fast path): the declared plan ids are reserved
-      together in `claimed-plan-ids` (`claim-plan-frames!`). Two `ui.test`
-      renders racing on the same id linearize through that single CAS — the
-      loser sees the id claimed (or already live) and is REJECTED before any
-      write, so render-vs-render losses are strictly ZERO-write.
-
-    - INSTALL (EXCLUSIVE mode — the registry IS the linearization authority):
-      each plan is installed by `make-frame` with `:rf.frame/must-create? true`,
-      so the FRESH-frame contract rests on core's own guarded-CAS decide→install
-      (frame.cljc `upsert-frame!`), NOT on the advisory claim atom. A raw actor
-      that creates a wanted id in the window between the claim CAS and this
-      install loses the guarded CAS inside `upsert-frame!` and throws typed
-      `:rf.error/frame-id-taken`: adopt/refresh (production ENSURE dispositions)
-      become COLLISIONS here — a plan NEVER silently adopts an ambient frame.
-
-    - TEARDOWN (exact incarnation tokens ONLY, never a bare id): each installed
-      frame's incarnation token is PINNED IMMEDIATELY after its own install, so
-      the `finally` (which serves both success and partial-failure) destroys a
-      frame ONLY while that EXACT pinned token is still the live one. A frame a
-      later actor destroyed + re-created under the same id (a distinct token) —
-      or the raw actor's colliding frame — is left UNTOUCHED. There is no bare-id
-      teardown on any path.
-
-  AC3 RELAXATION — a DOCUMENTED, NAMED RESIDUAL (rf2-vxgfnd.76 ruling): a
-  raw-actor collision introduced on plan N is detected at N's install, AFTER
-  plans 1..N-1 already installed and drained their (irreversible) `:initial-
-  events`. So on such a collision this render tears down its 1..N-1 incarnations
-  (exact tokens) and re-raises `:rf.error/frame-id-taken`, matching the
-  executor's existing partial-failure posture — NOT a strict zero-initial-events
-  rollback (which would require holding a lock across user construction code, a
-  contention shape no real workload reaches). Render-vs-render losses remain
-  strictly zero-write via the claim CAS above.
-
-  Production `execute-frame-plans!` adoption/HMR semantics are deliberately
-  unchanged; this stronger exclusive rule is the test HOST's, not a `frame-root`
-  behaviour."
-     [opts thunk root-id plans-thunk ambient-frame-id]
-     (let [plans  (plans-thunk)
-           wanted (mapv :frame-id plans)
-           busy   (claim-plan-frames! wanted)]
-       (when (seq busy)
-         (reject-frame-collision! root-id busy))
-       (let [run   (if (contains? opts :sub-overrides)
-                     #(binding [reactive/*sub-overrides* (:sub-overrides opts)] (thunk))
-                     thunk)
-             ;; [frame-id token] pairs THIS render installed, in document order.
-             ;; Each pair is conj'd IMMEDIATELY after its own must-create install
-             ;; so a partial failure (a later plan collides / throws) tears down
-             ;; exactly the frames already installed — and the exact-token guard
-             ;; means a bare id is never destroyed. Serves both the success-path
-             ;; and partial-failure teardown; there is no separate catch.
-             owned (volatile! [])]
-         (try
-           ;; EXCLUSIVE install: every plan MUST create a fresh frame. The claim
-           ;; proved every id absent; must-create rests correctness on the core
-           ;; registry's guarded CAS — a raw-actor collision in the claim→install
-           ;; window throws `:rf.error/frame-id-taken` here, and the `finally`
-           ;; tears down the pinned prefix (AC3 residual documented above).
-           (doseq [{:keys [frame-id config]} plans]
-             (live-frame/make-frame (assoc (or config {}) :id frame-id
-                                           :rf.frame/must-create? true))
-             (vswap! owned conj [frame-id (rframe/frame-incarnation-token frame-id)]))
-           ;; Establish the JVM render-slice memo scope around the plan-bearing
-           ;; render thunk (rf2-vxgfnd.267) — the plan-bearing literal route's
-           ;; Tier-1 boundary — so a single render shares ONE slice memo and a
-           ;; later render recomputes. Re-entrant (a nested capture reuses it).
-           (let [slice #(reactive/with-slice-memo run)
-                 root  (if (some? ambient-frame-id)
-                         (binding [rframe/*current-frame* ambient-frame-id] (slice))
-                         (slice))]
-             (assoc root :rf.ui/tree-version tree/tree-version))
-           (finally
-             ;; Incarnation-owned teardown: destroy each frame we installed ONLY
-             ;; while its pinned incarnation is still the live one. A
-             ;; destroy+recreate under the same id (a distinct token), or a
-             ;; colliding actor's frame, survives. Never a bare id.
-             (doseq [[fid t] @owned]
-               (rframe/destroy-frame! fid t))
-             (release-plan-frames! wanted)))))))
-
-#?(:clj
-   (defn ^:no-doc render-view*
-     "Runtime half of `render` form 1 (bare view reference — never plan-bearing)."
-     [view-fn opts]
-     (validate-render-opts! opts true false)
-     (render-with-opts (or opts {}) #(view-fn (get opts :props {})))))
-
-#?(:clj
    (defn ^:no-doc render-form*
-     "Runtime half of `render` form 2 (literal root form — the compiled
-  template thunk). `plans-thunk` is nil for a plan-free form (frames combine
-  with :frame, today's behaviour) and the evaluate-at-preflight
-  thunk when the root owns frames (a top-region frame-root); `root-id` and
-  `ambient-frame-id` are the compile-resolved identity + innermost ambient
-  frame the plan-bearing path binds."
-     [thunk opts root-id plans-thunk ambient-frame-id]
-     (validate-render-opts! opts false (some? plans-thunk))
-     (if plans-thunk
-       (render-plan-bearing (or opts {}) thunk root-id plans-thunk ambient-frame-id)
-       (render-with-opts (or opts {}) thunk))))
-
-#?(:clj
-   (defn- render-view-reference-form
-     "Expansion for form 1: a compile-resolved defview var/symbol."
-     [menv vsym opts]
-     (when (contains? menv vsym)
-       (throw (env/compile-error
-               :rf.ui.compile/bad-test-render-form
-               (str "ui.test/render: " vsym " is a LOCAL binding — render "
-                    "needs the compile-resolved defview var/symbol (or a "
-                    "literal root form). Hiccup is compiled, not interpreted; "
-                    "a runtime-chosen view cannot be a template")
-               {:head vsym})))
-     (let [e (env/make-env {:host :clj :ns-sym (ns-name *ns*)})
-           r (env/resolve-sym e vsym)]
-       (when-not (and r (:rf.ui/view (:meta r)))
-         (throw (env/compile-error
-                 :rf.ui.compile/bad-test-render-form
-                 (str "ui.test/render: " vsym
-                      (if r
-                        " resolves but is not a defview"
-                        " does not resolve")
-                      " — render accepts exactly two forms: a defview "
-                      "var/symbol, or a literal root form vector")
-                 {:head vsym})))
-       `(render-view* ~vsym ~opts))))
-
-#?(:clj
-   (defn- innermost-frame-root-id
-     "The frame-id of the INNERMOST top-region `frame-root` enclosing the
-  root form's single mounted view (nil when the view sits under no
-  frame-root). The JVM emits `frame-root` transparently, so this collapses
-  the client's nearest-ancestor React-context scope to the one ambient
-  frame a Tier-1 headless render binds; a `frame-provider` in the subtree
-  re-binds its own frame at emission and wins for its descendants."
-     [ast]
-     (let [result (volatile! nil)]
-       (letfn [(walk [n enclosing]
-                 (case (:op n)
-                   :view       (vreset! result enclosing)
-                   :frame-root (run! #(walk % (:frame-id n)) (:children n))
-                   (:element :fragment :frame-provider)
-                   (run! #(walk % enclosing) (:children n))
-                   nil))]
-         (walk ast nil))
-       @result)))
-
-#?(:clj
-   (defn- emit-plans-thunk
-     "Emit the evaluate-at-preflight plans thunk — `(fn [] [{:frame-id ..
-  :config-fingerprint .. :config <expr>} ..])` in document order — mirroring
-  `re-frame.ui.compiler.root`'s mount-side thunk so config EXPRESSIONS
-  evaluate exactly when preflight runs. nil when the root form carries no
-  plans."
-     [plans]
-     (when (seq plans)
-       `(fn []
-          [~@(map (fn [{:keys [frame-id config-fingerprint config]}]
-                    `{:frame-id ~frame-id
-                      :config-fingerprint ~config-fingerprint
-                      :config ~config})
-                  plans)]))))
+     "Runtime half of `render` — the compiled template thunk of a literal
+  view form."
+     [thunk opts]
+     (validate-render-opts! opts)
+     (render-with-opts (or opts {}) thunk)))
 
 #?(:clj
    (defn- render-literal-form
-     "Expansion for form 2: a literal root form — the SAME root grammar
-  `ui/mount` takes (`root/analyze-root`: the top-region scan collects the
-  mounted view + static frame plans; conditional/list `frame-root` is a
-  compile error there). One mounted view per root form is the invariant
-  (root identity is the view's id). A plan-bearing form preflights fresh
-  test frames and binds the ambient frame; a plan-free form combines with
-  the explicit :frame opt as before."
+     "Expansion for the render form: a literal view form — the SAME root grammar
+  `ui/mount` takes (`root/analyze-root`) surrounding exactly ONE mounted view
+  (root identity is the view's id). A top-region `frame-root` (a plan-bearing
+  form) is NOT a render form — render owns no frame lifecycle."
      [menv form opts]
      (let [e   (-> (env/make-env {:host :clj :ns-sym (ns-name *ns*)})
                    (env/with-locals (keys menv)))
            {:keys [ast views plans]} (root/analyze-root e 'rf.ui.test/render form)]
+       (when (seq plans)
+         (throw (env/compile-error
+                 :rf.ui.compile/bad-test-root
+                 (str "ui.test/render: a plan-bearing root form (a top-region "
+                      "frame-root) is not a render form — render owns no frame "
+                      "lifecycle. Establish the frame with rf/with-new-frame "
+                      "(eval-bind-run-destroy) and render the plan-free view, "
+                      "or mount the root under ui.test/with-root where runtime "
+                      "root preflight is the test subject")
+                 {:form form})))
        (when-not (= 1 (count views))
          (throw (env/compile-error
                  :rf.ui.compile/bad-test-root
@@ -1221,58 +702,40 @@
          (binding [*out* *err*]
            (println (str "WARNING re-frame.ui [ui.test/render] "
                          (:id w) ": " (:msg w)))))
-       `(render-form* (fn [] ~(emit-jvm/emit-node ast))
-                      ~opts
-                      ~(:view-id (first views))
-                      ~(emit-plans-thunk plans)
-                      ~(innermost-frame-root-id ast)))))
+       `(render-form* (fn [] ~(emit-jvm/emit-node ast)) ~opts))))
 
 #?(:clj
    (defmacro render
-     "`(render root-or-view opts?)` — run the real compiled view against a
-  real frame on the JVM and return the versioned public STRUCTURAL TREE
-  (the top node — a view boundary, or the top-region wrapper enclosing the
-  one mounted view — stamped `:rf.ui/tree-version`).
+     "`(render [view props] opts?)` — run the real compiled view against the
+  AMBIENT frame on the JVM and return the versioned public STRUCTURAL TREE
+  (the top node — a view boundary, or the top-region wrapper enclosing the one
+  mounted view — stamped `:rf.ui/tree-version`).
 
-  Accepted forms — exactly two (root-identity-and-mount §9):
+  ONE input grammar: a LITERAL view form — the SAME root grammar `mount` takes
+  (`root/analyze-root`): the top-region wrappers (element / fragment /
+  `frame-provider`) surrounding exactly ONE mounted view, props carried IN the
+  form, e.g. `(render [product-card {:product p}])`. A runtime-assembled vector
+  is the same compile error as at `mount` — hiccup is compiled, not
+  interpreted.
 
-    1. A VIEW REFERENCE — the compile-resolved defview var/symbol:
-       `(render product-card {:props {:product p} :frame f})`.
-       Props ride `{:props p}`; a frame rides `{:frame f}` (mint it
-       with `rf/make-frame` + `:initial-events`). A frame supplied via
-       `{:frame f}` stays CALLER-OWNED — `render` binds it for the
-       render but never creates or destroys it; release it with
-       `rf/with-new-frame` (eval-bind-run-destroy) or an explicit
-       `rf/destroy-frame!`, or it leaks into `rf/frame-ids`. With no
-       frame, structural rendering proceeds frameless and any
-       frame-scoped read raises honestly.
+  ONE option: `{:sub-overrides {query-v value}}` (the explicit JVM override
+  door, consumed by the S2 read slice). `:sub-overrides` affects render READS
+  only — it does not mutate app-db.
 
-    2. A LITERAL ROOT FORM — the SAME root grammar `mount` takes
-       (`root/analyze-root`): the top-region wrappers (element / fragment /
-       `frame-root` / `frame-provider`) surrounding exactly ONE mounted
-       view, e.g. `(render [product-card {:product p}] {:frame f})` or
-       `(render [frame-root {:id :shop :initial-events [[:shop/boot]]}
-                 [product-card {:product p}]])`.
-       `{:props p}` is REJECTED (props live in the form). A PLAN-BEARING
-       root form (a top-region `frame-root`) OWNS its frames: its static
-       plans preflight FRESH test frames (the S2c ENSURE executor) before
-       the structural render, the mounted view resolves the innermost
-       enclosing `frame-root`'s frame as its ambient scope, and every
-       test-owned frame is torn down after. `{:frame …}`
-       alongside a plan-bearing form is rejected ('the root form owns its
-       frames' — §9 [S1-CONFIRM]); with plan-free forms it combines.
+  Frame scope is the programmer's ordinary bracket — there is no frame option:
+  `rf/with-new-frame [f (rf/make-frame {:initial-events [...]})]` for a fresh
+  owned frame (eval-bind-run-destroy — the frame never leaks into `rf/frame-ids`),
+  or `rf/with-frame f` to pin one you hold. Drive state with
+  `(rf/dispatch-sync [...] {:frame f})` and assert on a FRESH `render`. With no
+  ambient frame, structural rendering proceeds frameless and any frame-scoped
+  read raises honestly.
 
-  A runtime-assembled vector is the same compile error as at `mount` —
-  hiccup is compiled, not interpreted. `{:sub-overrides {query value}}`
-  combines with both forms (the explicit JVM override door; consumed by
-  the S2 read slice). Registrations come from the loaded namespaces.
-
-  Tier-1 renders the JVM structural subset: no effects, no host ops;
-  `sub` is the one-shot headless read (03 §3). CLJS has no structural
-  trees (the client emitter targets React directly) — expanding this
-  macro in a CLJS compile is a didactic compile error."
-     ([root-or-view] `(render ~root-or-view nil))
-     ([root-or-view opts]
+  Tier-1 renders the JVM structural subset: no effects, no host ops; `sub` is
+  the one-shot headless read (03 §3). CLJS has no structural trees (the client
+  emitter targets React directly) — expanding this macro in a CLJS compile is a
+  didactic compile error."
+     ([root-form] `(render ~root-form nil))
+     ([root-form opts]
       (when (some? (:ns &env))
         (throw (env/compile-error
                 :rf.ui.compile/ui-test-jvm-only
@@ -1282,23 +745,11 @@
                      ".clj/.cljc-on-JVM; mounted CLJS tests arrive with the "
                      "Tier-3 surface (with-root, S1c/S2)")
                 nil)))
-      (cond
-        (vector? root-or-view)
-        (render-literal-form &env root-or-view opts)
-
-        (symbol? root-or-view)
-        (render-view-reference-form &env root-or-view opts)
-
-        (and (seq? root-or-view)
-             (= 'var (first root-or-view))
-             (symbol? (second root-or-view)))
-        (render-view-reference-form &env (second root-or-view) opts)
-
-        :else
+      (if (vector? root-form)
+        (render-literal-form &env root-form opts)
         (throw (env/compile-error
                 :rf.ui.compile/bad-test-render-form
-                (str "ui.test/render accepts exactly two forms — a defview "
-                     "var/symbol, or a LITERAL root form vector (hiccup is "
-                     "compiled, not interpreted; a runtime-assembled value "
-                     "cannot be a template); got " (pr-str root-or-view))
-                {:form root-or-view}))))))
+                (str "ui.test/render takes a LITERAL view form vector "
+                     "(hiccup is compiled, not interpreted; a runtime-assembled "
+                     "value cannot be a template); got " (pr-str root-form))
+                {:form root-form}))))))

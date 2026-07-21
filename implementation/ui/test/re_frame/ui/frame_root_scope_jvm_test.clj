@@ -8,8 +8,9 @@
 
     - the `jvm-root-scope` helper binds `*current-frame*` (the emit mechanism,
       exercised directly, independent of the test render host);
-    - end to end: a `(sub …)` under a `frame-root` reads that frame's app-db
-      through `ui.test/render`."
+    - end to end: an ambient `(sub …)` reads its frame's app-db through
+      `ui.test/render` when that frame is the ambient scope (established here
+      with `rf/with-new-frame` — the same ambient a `frame-root` binds)."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -52,12 +53,20 @@
 
 (deftest sub-under-frame-root-resolves-its-frame-jvm
   (rf/reg-sub :greet/text (fn [db _] (:greet db)))
-  (let [before (set (keys @frame/frames))
-        tree   (uit/render
-                [ui/frame-root {:id :app/rooted
-                                :initial-events [[:rf/set-db {:greet "scoped"}]]}
-                 [rooted-greeting {}]])]
-    (is (= "scoped" (uit/text (uit/find tree :h1)))
-        "the ambient (sub …) resolved the frame-root's frame on the JVM")
+  ;; Frame scope is the programmer's ordinary bracket: rf/with-new-frame binds
+  ;; the fresh frame as the ambient *current-frame* for the render (the same
+  ;; ambient a frame-root would establish) and destroys it on exit, so an
+  ;; ambient (sub …) in the rendered view resolves that frame's app-db. (The
+  ;; frame-root emit mechanism itself is pinned by jvm-root-scope-binds-the-
+  ;; ambient-frame above.)
+  (let [before (set (keys @frame/frames))]
+    (rf/with-new-frame [_f (rf/make-frame
+                            {:id :app/rooted
+                             :initial-events [[:rf/set-db {:greet "scoped"}]]})]
+      (let [tree (uit/render [rooted-greeting {}])]
+        (is (= "scoped"
+               (uit/text (some #(when (= :h1 (:tag %)) %)
+                               (tree-seq map? :children tree))))
+            "the ambient (sub …) resolved the frame's app-db on the JVM")))
     (is (= before (set (keys @frame/frames)))
         "the test-owned frame is torn down — no residue")))

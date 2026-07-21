@@ -43,11 +43,13 @@
  ;; AND its :kind while losing / adding / reshaping a supported arity, and
  ;; every ordinary manifest / projection / `gen --check` gate stays green.
  ;; That is the exact false-green this key closes. It matters here because
- ;; the public contract is HOST-SPECIFIC: `flush!` is 0-arity on the JVM but
- ;; 0/1-arity on CLJS; `render` / `with-root` are macros with blessed call
- ;; grammars. This is the ONE machine-readable signature authority for the
- ;; nine blessed vars — not a second namespace inventory (the same nine are
- ;; classified below) and not prose.
+ ;; the public contract is HOST-SPECIFIC: `flush!` / `flush-presence!` are
+ ;; CLJS-ONLY (`:clj nil`) — the JVM structural host has no React tree to
+ ;; settle; `render` / `with-root` are macros with blessed call grammars. This
+ ;; is the ONE machine-readable signature authority for the blessed ui.test
+ ;; surface (render / attrs / text / with-root + the two CLJS-only flush verbs)
+ ;; — not a second namespace inventory (the JVM four are classified below; the
+ ;; two CLJS-only flush verbs are `:cljs-only` rows) and not prose.
  ;;
  ;; SHAPE. `:vars` maps each bare var-name to
  ;;   {:kind :fn|:macro :clj #{arity ...} :cljs #{arity ...}}
@@ -87,17 +89,16 @@
   :vars
   {"attrs"     {:kind :fn    :clj #{[1]}     :cljs #{[1]}}
    "text"      {:kind :fn    :clj #{[1]}     :cljs #{[1]}}
-   "find"      {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
-   "find-all"  {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
-   "query"     {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
-   "dispatch!" {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
-   ;; The blessed reader-conditional difference: 0-arity headless drain on
-   ;; the JVM; 0-arity or 1-arity (thunk) awaited drain on CLJS.
-   "flush!"    {:kind :fn    :clj #{[0]}     :cljs #{[0] [1]}}
-   ;; flush-presence! (rf2-uckeg, S4) — the fake-clock transition advance.
-   ;; Host-uniform 0/1-arity on BOTH hosts: `(flush-presence!)` advances to
-   ;; quiescence, `(flush-presence! ms)` by ms (JVM both no-op nil; CLJS awaited).
-   "flush-presence!" {:kind :fn :clj #{[0] [1]} :cljs #{[0] [1]}}
+   ;; flush! / flush-presence! are CLJS-ONLY (the JVM structural host has no
+   ;; React tree to settle — a Tier-1 checkpoint is a fresh render after a
+   ;; synchronous rf/dispatch-sync). `:clj nil` marks "not a JVM var": the JVM
+   ;; lane (ui-test-arity-problems) does not expect it via ns-publics, and the
+   ;; CLJS lane arity-checks `:cljs`. `(flush!)`/`(flush! thunk)` and
+   ;; `(flush-presence!)`/`(flush-presence! ms)` are 0/1-arity awaited drains.
+   ;; Their MANIFEST rows are carried under `:cljs-only` (not `:classification`,
+   ;; which is JVM-introspected) since the JVM ns-publics no longer exposes them.
+   "flush!"    {:kind :fn    :clj nil        :cljs #{[0] [1]}}
+   "flush-presence!" {:kind :fn :clj nil     :cljs #{[0] [1]}}
    ;; Macros — host-invariant call grammars (single .cljc definition).
    "render"    {:kind :macro :clj #{[1] [2]} :cljs #{[1] [2]}}
    "with-root" {:kind :macro :clj #{[1 :&]}  :cljs #{[1 :&]}}}}
@@ -142,6 +143,17 @@
   ;; §View ergonomics. Not covered by the CLJS probe (loads adapters, not
   ;; re-frame.core's CLJS branch).
   {:namespace "re-frame.core" :var "frame-root" :kind :fn :facade? true :tier :front-porch :owner "002" :status "v1" :runtime-verified? false}
+  ;; --- re-frame.ui.test CLJS-only mounted flush verbs (epic rf2-n7jtp) ---
+  ;; `re-frame.ui.test` is JVM-introspected for its structural surface (render /
+  ;; text / attrs / with-root are `:classification` rows above), but `flush!`
+  ;; and `flush-presence!` are CLJS-ONLY: the JVM structural host has no React
+  ;; tree to settle, so a Tier-1 checkpoint is a fresh render after
+  ;; rf/dispatch-sync — the JVM `ns-publics` does not expose them. Their rows
+  ;; are carried here (verbatim, like any CLJS-only public) so the manifest
+  ;; enumerates the full public surface; the 2mtte CLJS probe covers
+  ;; re-frame.ui.test (fully-rowed), so removal/rename → RED.
+  {:namespace "re-frame.ui.test" :var "flush!"          :kind :fn :facade? false :tier :testing :owner "008" :status "Spec-004 S2" :runtime-verified? true}
+  {:namespace "re-frame.ui.test" :var "flush-presence!" :kind :fn :facade? false :tier :testing :owner "008" :status "Spec-004 S4" :runtime-verified? true}
   ;; --- Reagent adapter (day8/re-frame2-reagent) — probe fully-rowed ---
   {:namespace "re-frame.adapter.reagent" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
@@ -1222,32 +1234,30 @@
   ;; (day8/re-frame2-ui; epic rf2-vxgfnd, Spec 004; contract in Spec 008).
   ;; Unlike its sibling `re-frame.ui` (a curated :cljs-only surface — its
   ;; runtime targets React), `re-frame.ui.test`'s Tier-1 surface runs
-  ;; HEADLESS on the JVM (`render` builds the structural tree; find /
-  ;; find-all / text / attrs / dispatch! query it), so it is JVM-INTROSPECTED
-  ;; — the generator classpath carries day8/re-frame2-ui BUILD-ONLY
-  ;; (rf2-vxgfnd.200) and `re-frame.ui.test` is in the generator's
-  ;; `jvm-namespaces`, giving the same authoritative `ns-publics` existence +
-  ;; :kind + :facade? derivation re-frame.core gets. The reader-conditional
-  ;; CLJS surface is reconciled by the 2mtte CLJS probe (fully-rowed, BOTH
-  ;; directions), so neither host can silently expose an extra public. The two
-  ;; ^:no-doc runtime halves (`render-view*` / `render-form*`) are dropped by
-  ;; the generator's `public-vars-of` carve-out; the CLJS-only `with-root*`
-  ;; owner + `with-root-outcome` (^:no-doc) are internal by classification.
-  ;; Tier 1 (S1): render / find / find-all / text / attrs / dispatch!.
-  ;; Tier 3 (S2): with-root / native-CSS query / (flush!)/(flush! thunk).
-  ;; S4 (rf2-uckeg): `flush-presence!` — the fake-clock enter/exit transition
-  ;; advance (the S4 twin of `flush!`; JVM synchronous no-op, CLJS awaited).
+  ;; HEADLESS on the JVM (`render` builds the structural tree; text / attrs
+  ;; project it), so it is JVM-INTROSPECTED — the generator classpath carries
+  ;; day8/re-frame2-ui BUILD-ONLY (rf2-vxgfnd.200) and `re-frame.ui.test` is in
+  ;; the generator's `jvm-namespaces`, giving the same authoritative
+  ;; `ns-publics` existence + :kind + :facade? derivation re-frame.core gets.
+  ;; The reader-conditional CLJS surface is reconciled by the 2mtte CLJS probe
+  ;; (fully-rowed, BOTH directions), so neither host can silently expose an
+  ;; extra public. The `^:no-doc` runtime half `render-form*` is dropped by the
+  ;; generator's `public-vars-of` carve-out; the CLJS-only `with-root*` owner +
+  ;; `with-root-outcome` (^:no-doc) are internal by classification.
+  ;;
+  ;; The blessed surface (epic rf2-n7jtp — minimized to what crosses a real
+  ;; host boundary plus the two tree-ABI projections):
+  ;;   JVM structural (S1): render (one grammar, one :sub-overrides option) /
+  ;;     text / attrs. These four rows (with with-root) are JVM-introspected.
+  ;;   CLJS mounted (S2/S4): with-root (binds the connected DOM container) /
+  ;;     (flush!)/(flush! thunk) / (flush-presence!)/(flush-presence! ms).
+  ;;     `flush!` / `flush-presence!` are CLJS-ONLY (no JVM React tree to
+  ;;     settle) — their manifest rows live under `:cljs-only` below, NOT here.
   ;; =========================================================================
   ["re-frame.ui.test" "render"]    {:tier :testing :owner "008" :status "Spec-004 S1"}
-  ["re-frame.ui.test" "find"]      {:tier :testing :owner "008" :status "Spec-004 S1"}
-  ["re-frame.ui.test" "find-all"]  {:tier :testing :owner "008" :status "Spec-004 S1"}
   ["re-frame.ui.test" "text"]      {:tier :testing :owner "008" :status "Spec-004 S1"}
   ["re-frame.ui.test" "attrs"]     {:tier :testing :owner "008" :status "Spec-004 S1"}
-  ["re-frame.ui.test" "dispatch!"] {:tier :testing :owner "008" :status "Spec-004 S1"}
   ["re-frame.ui.test" "with-root"] {:tier :testing :owner "008" :status "Spec-004 S2"}
-  ["re-frame.ui.test" "query"]     {:tier :testing :owner "008" :status "Spec-004 S2"}
-  ["re-frame.ui.test" "flush!"]    {:tier :testing :owner "008" :status "Spec-004 S2"}
-  ["re-frame.ui.test" "flush-presence!"] {:tier :testing :owner "008" :status "Spec-004 S4"}
 
   ;; =========================================================================
   ;; re-frame.schemas — optional artefact (day8/re-frame2-schemas), §010.

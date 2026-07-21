@@ -91,7 +91,7 @@ How it behaves:
   `:present`, running the enter animation.
 
 In tests, transitions advance on a fake clock with `ui.test/flush-presence!` —
-never a wall-clock sleep ([Testing](testing.md#tier-3--mounted-tests-when-the-dom-is-the-point)).
+never a wall-clock sleep ([Testing](testing.md#mounted-tests--when-the-dom-is-the-point)).
 
 ## When it goes wrong
 

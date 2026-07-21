@@ -131,7 +131,7 @@
 
 (defn- rendered-values
   [root n]
-  (.-textContent (uit/query root (str "[data-g3-sites='" n "']"))))
+  (.-textContent (.querySelector root(str "[data-g3-sites='" n "']"))))
 
 (defn- cache-entry
   [frame-id query]
@@ -208,7 +208,7 @@
                  (is (= 1 (reactive/listener-count cell))))
                (assert-ownership! frame-id cells-by-count))
              (reset! evidence (body-evidence))
-             (let [p (uit/flush! #(uit/dispatch! f [::write-next 0]))]
+             (let [p (uit/flush! #(rf/dispatch-sync [::write-next 0] {:frame f}))]
                (testing "the complete queued update and commit phases precede any read/render work"
                  (is (= 29 (:writes (rf/app-db-value f))))
                  (is (= (vec (repeat 29 1)) (site-values (rf/app-db-value f))))

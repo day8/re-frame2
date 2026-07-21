@@ -48,8 +48,7 @@
             ;; rosters AND the row-binding machinery (repo-root / table-row-for /
             ;; section-between). This profile reuses both rather than restating
             ;; the S3 surface or re-implementing its helpers.
-            [re-frame.ui.s3-conformance-profile-jvm-test :as s3]
-            [re-frame.ui.test :as uit]))
+            [re-frame.ui.s3-conformance-profile-jvm-test :as s3]))
 
 ;; ---------------------------------------------------------------------------
 ;; (1) The frozen S4 FORMS — presence, custom elements, the foreign boundary.
@@ -102,15 +101,14 @@
     :token         "`ui.test/flush-presence!`"
     :ns            're-frame.ui.test
     :kind          :fn
+    :cljs-only?    true                     ; CLJS mounted host only (rf2-n7jtp) — no JVM var
     :direct-error  nil
-    :jvm-value     nil                      ; synchronous no-op on the JVM
-    :arities       #{0 1}
     :jvm-proof     "re-frame.ui.presence-jvm-test"
     :cljs-proof    "re-frame.ui.presence-dom-cljs-test"
     :row-fragments ["fake clock"
                     "no wall-clock sleep"
                     "drains to quiescence"
-                    "synchronous `nil` no-op on the JVM"]}
+                    "CLJS mounted host only"]}
 
    ;; --- §1.2 custom elements ----------------------------------------------
    'custom-element
@@ -384,16 +382,21 @@
 
 (deftest s4-forms-resolve-with-their-frozen-kinds
   (testing "every catalogued S4 form resolves in its namespace with the frozen kind"
-    (doseq [[sym {:keys [ns kind]}] frozen-s4-forms]
+    (doseq [[sym {:keys [ns kind cljs-only?]}] frozen-s4-forms]
       (let [v (ns-resolve ns sym)]
-        (is (some? v) (str sym " must resolve in " ns))
-        (case kind
-          :macro (is (true? (:macro (meta v)))
-                     (str sym " must be a def-level macro"))
-          (is (not (:macro (meta v)))
-              (str sym " must be a fn, not a macro")))
-        (is (not (:rf.ui/view (meta v)))
-            (str sym " is an S4 form, not a compiled view"))))))
+        (if cljs-only?
+          (is (nil? v)
+              (str sym " is CLJS-only — it has no JVM var in " ns
+                   " (the JVM structural host has no presence lifecycle)"))
+          (do
+            (is (some? v) (str sym " must resolve in " ns))
+            (case kind
+              :macro (is (true? (:macro (meta v)))
+                         (str sym " must be a def-level macro"))
+              (is (not (:macro (meta v)))
+                  (str sym " must be a fn, not a macro")))
+            (is (not (:rf.ui/view (meta v)))
+                (str sym " is an S4 form, not a compiled view"))))))))
 
 (deftest presence-is-a-fail-loud-template-form
   (testing "a direct (ui/presence …) call fails loud — the compiler owns the form"
@@ -409,11 +412,12 @@
   (is (= :present (ui/presence-phase))
       "presence-phase outside a boundary (and on the JVM) is :present"))
 
-(deftest flush-presence-is-a-jvm-no-op-at-both-arities
-  (let [{:keys [arities jvm-value]} (frozen-s4-forms 'flush-presence!)]
-    (is (= #{0 1} arities))
-    (is (= jvm-value (uit/flush-presence!)) "zero-arity JVM flush is a nil no-op")
-    (is (= jvm-value (uit/flush-presence! 500)) "ms-arity JVM flush is a nil no-op")))
+;; `flush-presence!` is the CLJS mounted host only (the ratified ui.test
+;; minimization deleted the JVM no-op — the JVM structural render has no presence
+;; lifecycle, it renders :present). Its two-arity awaited-drain behaviour is
+;; proven in re-frame.ui.presence-dom-cljs-test; the JVM half of the presence
+;; story (presence renders :present, no lifecycle) is proven in
+;; re-frame.ui.presence-jvm-test above.
 
 (deftest raw-and-html-honour-their-catalogued-jvm-behaviour
   (testing "ui/raw is host-bearing: a JVM call raises the typed host-op error naming its op"

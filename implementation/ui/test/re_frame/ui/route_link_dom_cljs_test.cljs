@@ -52,8 +52,8 @@
                                       :aria-label "Home"
                                       :data-testid "home"} "Home"]
                       [ui/route-link {:to :route/user :params {:id "42"}} "User 42"]]]]
-              (let [home (uit/query root "a[data-testid='home']")
-                    user (uit/query root "a:not([data-testid])")]
+              (let [home (.querySelector root"a[data-testid='home']")
+                    user (.querySelector root"a:not([data-testid])")]
                 (testing "the compiled defview mounts real DOM anchors"
                   (is (some? home) "the home route-link mounted a real <a>")
                   (is (some? user) "the user route-link mounted a real <a>"))
@@ -79,7 +79,7 @@
         (-> (uit/with-root
               [root [ui/frame-provider {:frame f}
                      [ui/route-link {:to :route/home :target "_blank"} "Home"]]]
-              (let [a (uit/query root "a")]
+              (let [a (.querySelector root"a")]
                 (testing "a native anchor renders its target so the browser owns the click"
                   (is (= "_blank" (.getAttribute a "target")))
                   (is (= "/home" (.getAttribute a "href"))))))

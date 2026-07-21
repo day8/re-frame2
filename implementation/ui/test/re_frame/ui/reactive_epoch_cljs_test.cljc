@@ -291,10 +291,15 @@
         c3 (reactive/make-cell ::c3)]
     (doseq [c [c1 c2 c3]] (reactive/mark-dirty! c 1))
     (is (= 3 (reactive/pending-cell-count)))
-    (testing "ui.test/flush! is the test-only GLOBAL all-roots spelling"
+    (testing "the global registry drain settles every dirty root to fixed point"
       #?(:clj
+         ;; JVM has no ui.test/flush! (no React tree to settle) — the drain
+         ;; being tested here IS reactive/flush-pending! + converge-flush!,
+         ;; the internal law ui.test/flush! wraps on CLJS. Drive it directly.
          (do
-           (uit/flush!)
+           (reactive/flush-pending!)
+           (reactive/converge-flush! 'global-flush-drains-every-root
+                                     reactive/flush-pending!)
            (is (= 1 (reactive/revision c1)))
            (is (= 1 (reactive/revision c2)))
            (is (= 1 (reactive/revision c3)))

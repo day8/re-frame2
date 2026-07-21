@@ -80,9 +80,9 @@
     (let [f (make-frame ::cnt {})]
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [counter]]]
-              (let [n-el (uit/query root "[data-role='n']")
-                    s2   (uit/query root "[data-role='set-twice']")
-                    u2   (uit/query root "[data-role='up-twice']")]
+              (let [n-el (.querySelector root "[data-role='n']")
+                    s2   (.querySelector root "[data-role='set-twice']")
+                    u2   (.querySelector root "[data-role='up-twice']")]
                 (is (= "0" (.-textContent n-el)) "local exposes its initial value")
                 (-> (uit/flush! #(do (click! s2) (host-turn!)))
                     (.then
@@ -112,9 +112,9 @@
     (let [f (make-frame ::fnv {})]
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [fn-value-holder]]]
-              (let [kind (uit/query root "[data-role='kind']")]
+              (let [kind (.querySelector root "[data-role='kind']")]
                 (is (= "5" (.-textContent kind)))
-                (-> (uit/flush! #(do (click! (uit/query root "[data-role='store-fn']"))
+                (-> (uit/flush! #(do (click! (.querySelector root "[data-role='store-fn']"))
                                      (host-turn!)))
                     (.then
                      (fn []
@@ -176,14 +176,14 @@
                      (fn []
                        (is (= [[:run 0] [:connect]] (filter-first-run @effect-log))
                            "value-deps effect + :connect both run after mount")
-                       (uit/flush! #(uit/dispatch! f [::set-other 9]))))
+                       (uit/flush! #(rf/dispatch-sync [::set-other 9] {:frame f}))))
                     (.then (fn [] (host-turn!)))
                     (.then
                      (fn []
                        (is (not-any? #(= % [:run 9]) @effect-log))
                        (is (= 1 (count (filter #(= (first %) :run) @effect-log)))
                            "a non-dep (other) change does NOT re-run the effect (rf= deps)")
-                       (uit/flush! #(uit/dispatch! f [::set-dep 1]))))
+                       (uit/flush! #(rf/dispatch-sync [::set-dep 1] {:frame f}))))
                     (.then (fn [] (host-turn!)))
                     (.then
                      (fn []
@@ -267,13 +267,13 @@
                      (fn []
                        (reset! first-d @captured-d)
                        (is (fn? @first-d) "dispatch-fn returns a function")
-                       (uit/flush! #(do (click! (uit/query root "[data-role='bump']"))
+                       (uit/flush! #(do (click! (.querySelector root "[data-role='bump']"))
                                         (host-turn!)))))
                     (.then
                      (fn []
                        (is (identical? @first-d @captured-d)
                            "dispatch-fn identity is stable across renders")
-                       (uit/flush! #(do (click! (uit/query root "[data-role='send']"))
+                       (uit/flush! #(do (click! (.querySelector root "[data-role='send']"))
                                         (host-turn!)))))
                     (.then
                      (fn []
@@ -317,7 +317,7 @@
       (let [f (make-frame ::mix {})]
         (async done
           (-> (uit/with-root [root [ui/frame-provider {:frame f} [mixed-input]]]
-                (let [el (uit/query root "[data-role='mixed']")]
+                (let [el (.querySelector root "[data-role='mixed']")]
                   (-> (host-turn!)
                       (.then
                        (fn []
@@ -376,7 +376,7 @@
       (let [f (make-frame ::mixu {})]
         (async done
           (-> (uit/with-root [root [ui/frame-provider {:frame f} [mixed-update-input]]]
-                (let [el (uit/query root "[data-role='mixed-update']")]
+                (let [el (.querySelector root "[data-role='mixed-update']")]
                   (-> (host-turn!)
                       (.then
                        (fn []

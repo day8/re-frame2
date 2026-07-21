@@ -123,7 +123,7 @@
                              (is (= "present" (phase-of root "a")))
                              (is (= "present" (phase-of root "b"))))
                            ;; remove toast "b" from the source list
-                           (uit/dispatch! f [::set-toasts [{:id 1 :msg "a"}]])
+                           (rf/dispatch-sync [::set-toasts [{:id 1 :msg "a"}]] {:frame f})
                            (uit/flush!)))
                   (.then (fn [_]
                            (testing "exit: the removed child is RETAINED :unmounting"
@@ -158,11 +158,11 @@
               (-> (uit/flush!)
                   (.then (fn [_]
                            ;; remove, then re-insert BEFORE the timeout fires
-                           (uit/dispatch! f [::set-toasts []])
+                           (rf/dispatch-sync [::set-toasts []] {:frame f})
                            (uit/flush!)))
                   (.then (fn [_]
                            (is (= "unmounting" (phase-of root "a")) "a is exiting")
-                           (uit/dispatch! f [::set-toasts [{:id 1 :msg "a"}]])
+                           (rf/dispatch-sync [::set-toasts [{:id 1 :msg "a"}]] {:frame f})
                            (uit/flush!)))
                   (.then (fn [_]
                            (testing "re-entry: the exit is interrupted, a is :present again"
@@ -238,7 +238,7 @@
                                    "…and the boundary it collided at")))
                            ;; drop the whole source list: the aliased identity must
                            ;; own exactly ONE exit timer, not one shared by two entries.
-                           (uit/dispatch! f [::set-toasts []])
+                           (rf/dispatch-sync [::set-toasts []] {:frame f})
                            (uit/flush!)))
                   (.then (fn [_]
                            (testing "exit ownership stays 1:1"

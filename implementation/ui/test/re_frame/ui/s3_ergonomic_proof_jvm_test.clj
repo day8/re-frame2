@@ -48,16 +48,23 @@
     (t)
     (frames/reset-installed-plans!)))
 
+(defn- by-testid
+  "The first node whose merged attrs carry :data-testid = testid, in document
+  order — ordinary traversal over the structural tree + the attrs projection."
+  [tree testid]
+  (some #(when (and (map? %) (= testid (:data-testid (uit/attrs %)))) %)
+        (tree-seq map? :children tree)))
+
 (defn- attrs-of [tree testid]
-  (uit/attrs (uit/find tree {:data-testid testid})))
+  (uit/attrs (by-testid tree testid)))
 
 (defn- anchor-with
   "The `<a>` ELEMENT carrying `testid` — route-link is a defview, so a
-  `{:data-testid …}` selector matches its view-boundary node first; the anchor
+  `{:data-testid …}` match hits its view-boundary node first; the anchor
   the route-link renders is a child element carrying the same passthrough attr."
   [tree testid]
   (some #(when (= testid (:data-testid (uit/attrs %))) %)
-        (uit/find-all tree :a)))
+        (filterv #(= :a (:tag %)) (tree-seq map? :children tree))))
 
 ;; ---------------------------------------------------------------------------
 ;; The article editor — create + edit + error, via :sub-overrides
@@ -83,8 +90,9 @@
             vectors carrying the :rf.ui/value placeholder, and a disabled
             publish button while the can-submit? flow is false"
     (let [f    (rf/make-frame {:initial-events [[:rf/set-db {}]]})
-          tree (uit/render editor/editor-page
-                           {:frame f :sub-overrides (editor-overrides)})]
+          tree (rf/with-frame f
+                 (uit/render [editor/editor-page]
+                             {:sub-overrides (editor-overrides)}))]
       (testing "each field is a controlled input: literal value + placeholder vector"
         (is (= [:editor/edit-field :title :rf.ui/value]
                (:on-input (attrs-of tree "editor-title")))
@@ -101,56 +109,56 @@
       (testing "the flow output drives the submit button"
         (is (true? (:disabled (attrs-of tree "editor-submit")))
             "can-submit? false → the publish button is disabled")
-        (is (= "Publish Article" (uit/text (uit/find tree {:data-testid "editor-submit"})))
+        (is (= "Publish Article" (uit/text (by-testid tree "editor-submit")))
             "create-mode label"))
       (testing "create mode has no delete control"
-        (is (nil? (uit/find tree {:data-testid "editor-delete"}))))
+        (is (nil? (by-testid tree "editor-delete"))))
       (testing "no error banner without a failed save"
-        (is (nil? (uit/find tree {:data-testid "editor-error"})))))))
+        (is (nil? (by-testid tree "editor-error")))))))
 
 (deftest editor-edit-mode-enables-submit-shows-delete-and-fills-fields
   (testing "edit mode (slug present, valid+dirty draft) fills the fields, enables
             the update button, and shows the delete control with its intent"
     (let [f    (rf/make-frame {:initial-events [[:rf/set-db {}]]})
-          tree (uit/render
-                editor/editor-page
-                {:frame f
-                 :sub-overrides
-                 (editor-overrides
-                  :slug "hello-conduit"
-                  :draft {:title "Hello, Conduit" :description "A greeting"
-                          :body "Body text" :tagList "clojure, conduit"}
-                  :can-submit? true)})]
+          tree (rf/with-frame f
+                 (uit/render
+                  [editor/editor-page]
+                  {:sub-overrides
+                   (editor-overrides
+                    :slug "hello-conduit"
+                    :draft {:title "Hello, Conduit" :description "A greeting"
+                            :body "Body text" :tagList "clojure, conduit"}
+                    :can-submit? true)}))]
       (is (= "Hello, Conduit" (:value (attrs-of tree "editor-title")))
           "the field renders the loaded draft value")
       (is (= "clojure, conduit" (:value (attrs-of tree "editor-tags"))))
       (is (false? (:disabled (attrs-of tree "editor-submit")))
           "valid + dirty → the update button is enabled")
-      (is (= "Update Article" (uit/text (uit/find tree {:data-testid "editor-submit"})))
+      (is (= "Update Article" (uit/text (by-testid tree "editor-submit")))
           "edit-mode label")
       (let [del (attrs-of tree "editor-delete")]
-        (is (some? (uit/find tree {:data-testid "editor-delete"})) "delete control present in edit mode")
+        (is (some? (by-testid tree "editor-delete")) "delete control present in edit mode")
         (is (= [:editor/delete] (:on-click del))
             "the delete button commits [:editor/delete]")))))
 
 (deftest editor-shows-the-error-banner-on-a-failed-save
   (testing "a failed save (mutation :error?) renders the error banner"
     (let [f    (rf/make-frame {:initial-events [[:rf/set-db {}]]})
-          tree (uit/render editor/editor-page
-                           {:frame f
-                            :sub-overrides (editor-overrides
-                                            :save {:error? true :error {:kind :network}})})]
-      (is (some? (uit/find tree {:data-testid "editor-error"}))
+          tree (rf/with-frame f
+                 (uit/render [editor/editor-page]
+                             {:sub-overrides (editor-overrides
+                                              :save {:error? true :error {:kind :network}})}))]
+      (is (some? (by-testid tree "editor-error"))
           "the error banner renders when the save mutation reports :error?"))))
 
 (deftest editor-disables-fields-while-the-save-is-in-flight
   (testing "a pending save disables the inputs and the submit button"
     (let [f    (rf/make-frame {:initial-events [[:rf/set-db {}]]})
-          tree (uit/render editor/editor-page
-                           {:frame f
-                            :sub-overrides (editor-overrides
-                                            :slug "s" :can-submit? true
-                                            :save {:pending? true})})]
+          tree (rf/with-frame f
+                 (uit/render [editor/editor-page]
+                             {:sub-overrides (editor-overrides
+                                              :slug "s" :can-submit? true
+                                              :save {:pending? true})}))]
       (is (true? (:disabled (attrs-of tree "editor-title"))) "title disabled while busy")
       (is (true? (:disabled (attrs-of tree "editor-submit"))) "submit disabled while busy")
       (is (true? (:disabled (attrs-of tree "editor-delete"))) "delete disabled while busy"))))
@@ -162,8 +170,8 @@
 (deftest counter-renders-value-and-literal-event-vectors
   (testing "the counter reads its count sub and its buttons carry literal intent"
     (let [f    (rf/make-frame {:initial-events [[:rf/set-db {:ui-counter/count 3}]]})
-          tree (uit/render counter/counter {:frame f})]
-      (is (= "Count: 3" (uit/text (uit/find tree {:data-testid "counter-value"})))
+          tree (rf/with-frame f (uit/render [counter/counter]))]
+      (is (= "Count: 3" (uit/text (by-testid tree "counter-value")))
           "the value reads through (sub [:ui-counter/count])")
       (is (= [:ui-counter/inc 1] (:on-click (attrs-of tree "counter-inc"))))
       (is (= [:ui-counter/dec 1] (:on-click (attrs-of tree "counter-dec"))))
@@ -181,35 +189,35 @@
   (testing "the dashboard renders its nav route-links (SSR anchor shell), a keyed
             metric grid over an internal view, a controlled filter, and a summary"
     (let [f    (rf/make-frame {:initial-events [[:ui-dash/init]]})
-          tree (uit/render dashboard/dashboard {:frame f})]
+          tree (rf/with-frame f (uit/render [dashboard/dashboard]))]
       (testing "route-link renders a real handler-free <a href> on the JVM"
         (let [nav-dash (uit/attrs (anchor-with tree "nav-dashboard"))]
           (is (= "/dashboard" (:href nav-dash)) "route-link SSR shell has the encoded href")
           (is (not (contains? nav-dash :on-click)) "no raw host handler in the server tree"))
         (is (= "/counter" (:href (uit/attrs (anchor-with tree "nav-counter"))))))
       (testing "the metric cards render (keyed internal view) with bump intent"
-        (is (= "1280" (uit/text (uit/find tree {:data-testid "metric-users-value"}))))
+        (is (= "1280" (uit/text (by-testid tree "metric-users-value"))))
         (is (= [:ui-dash/bump :users 1] (:on-click (attrs-of tree "metric-users-bump")))
             "the +1 control commits [:ui-dash/bump :users 1]")
-        (is (some? (uit/find tree {:data-testid "metric-errors-value"}))
+        (is (some? (by-testid tree "metric-errors-value"))
             "all four declared metrics render"))
       (testing "the filter is a controlled input"
         (is (= [:ui-dash/set-filter :rf.ui/value] (:on-input (attrs-of tree "dashboard-filter")))))
       (testing "the derived summary renders"
         (is (= "4 metrics · total 49805"
-               (uit/text (uit/find tree {:data-testid "dashboard-summary"}))))))))
+               (uit/text (by-testid tree "dashboard-summary"))))))))
 
 (deftest dashboard-filter-narrows-the-keyed-list
   (testing "seeding a filter narrows the visible metrics (the :ui-dash/visible
             sub), and the compact local defaults to false (initial value on JVM)"
     (let [f    (rf/make-frame {:initial-events [[:ui-dash/init]
                                                 [:ui-dash/set-filter "rev"]]})
-          tree (uit/render dashboard/dashboard {:frame f})]
-      (is (some? (uit/find tree {:data-testid "metric-revenue"}))
+          tree (rf/with-frame f (uit/render [dashboard/dashboard]))]
+      (is (some? (by-testid tree "metric-revenue"))
           "revenue matches the filter and renders")
-      (is (nil? (uit/find tree {:data-testid "metric-users"}))
+      (is (nil? (by-testid tree "metric-users"))
           "non-matching metrics are filtered out of the keyed list")
       (testing "local exposes its initial value on the JVM structural render"
         ;; compact? false → the +1 controls render
-        (is (some? (uit/find tree {:data-testid "metric-revenue-bump"}))
+        (is (some? (by-testid tree "metric-revenue-bump"))
             "the compact toggle's local is false initially, so controls show")))))

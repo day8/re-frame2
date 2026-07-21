@@ -107,9 +107,9 @@
               (uit/with-root
                 [root [ui/frame-provider {:frame fc}
                        [selected-frame-controls]]]
-                (let [text-el        (uit/query root "[data-role='text']")
-                      check-el       (uit/query root "[data-role='check']")
-                      key-el         (uit/query root "[data-role='key']")
+                (let [text-el        (.querySelector root "[data-role='text']")
+                      check-el       (.querySelector root "[data-role='check']")
+                      key-el         (.querySelector root "[data-role='key']")
                       text-cell      (cell-observing ::a [::text])
                       before-revision (reactive/revision text-cell)]
                   (testing "the controlled input door drains inside dispatchEvent"
@@ -138,7 +138,7 @@
                          (is (true? (:checked? (app-db ::a))))
                          (is (= "typed-a" (.-value text-el)))
                          (uit/flush!
-                          #(uit/dispatch! fc [::select-frame ::b]))))
+                          #(rf/dispatch-sync [::select-frame ::b] {:frame fc}))))
                       (.then
                        (fn []
                          (is (= "b" (.-value text-el)))
@@ -174,7 +174,7 @@
               (uit/with-root
                 [root [ui/frame-provider {:frame f}
                        [batch-button {:renders renders}]]]
-                (let [button       (uit/query root "[data-role='batch']")
+                (let [button       (.querySelector root "[data-role='batch']")
                       before-epoch (frame/frame-commit-epoch ::batch)]
                   (reset! renders 0)
                   (-> (uit/flush!
@@ -228,7 +228,7 @@
               (uit/with-root
                 [root [ui/frame-provider {:frame f}
                        [reusable-prefix-input {:on-value [::set-text]}]]]
-                (let [input     (uit/query root "[data-role='prefix']")
+                (let [input     (.querySelector root "[data-role='prefix']")
                       text-cell (cell-observing ::prefix [::text])
                       before    (reactive/revision text-cell)]
                   (set! (.-value input) "typed-live")
@@ -266,7 +266,7 @@
               (uit/with-root
                 [root [ui/frame-provider {:frame f}
                        [filtering-input {}]]]
-                (let [input (uit/query root "[data-role='filter']")]
+                (let [input (.querySelector root "[data-role='filter']")]
                   (set! (.-value input) "nope")
                   (dispatch-native! input (bubbling-event "input"))
                   (is (= [] @delivered)

@@ -56,7 +56,7 @@
   (let [ran (atom nil)]
     (binding [*effect-ran* ran]
       (let [t (uit/render [widget {:start 7}])]
-        (is (= "7" (uit/text (uit/find t :span)))
+        (is (= "7" (uit/text (some #(when (= :span (:tag %)) %) (tree-seq map? :children t))))
             "the structural render exposes local's INITIAL value")
         (is (nil? @ran)
             "effects DO NOT run in a JVM structural render (metadata only)")))))

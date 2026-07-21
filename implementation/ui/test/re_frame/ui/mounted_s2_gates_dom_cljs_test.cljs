@@ -157,14 +157,14 @@
              (is (obs/owned? handle) "the control runs through a real node handle")
              (reset! evidence {:bodies 0 :root-commits 0})
              (->
-              (uit/flush! #(uit/dispatch! f [::equal-noop]))
+              (uit/flush! #(rf/dispatch-sync [::equal-noop] {:frame f}))
               (.then
                (fn []
                  (testing "the projection really recomputed"
                    (is (> @equality-computes initial-computes)))
                  (testing "rf=-equal output advances no mounted render surface"
                    (is (= "1" (.-textContent
-                                (uit/query root "[data-role='equal-value']"))))
+                                (.querySelector root"[data-role='equal-value']"))))
                    (is (= initial-version (:version (obs/read handle))))
                    (is (= initial-revision (reactive/revision cell)))
                    (is (= {:bodies 0 :root-commits 0} @evidence))
@@ -173,12 +173,12 @@
                         (get (reactive/committed-values cell) target-k))))
                  (let [equal-version (:version (obs/read handle))]
                    (->
-                    (uit/flush! #(uit/dispatch! f [::equal-control]))
+                    (uit/flush! #(rf/dispatch-sync [::equal-control] {:frame f}))
                     (.then
                      (fn []
                        (testing "a value-changing control moves once"
                          (is (= "2" (.-textContent
-                                      (uit/query root "[data-role='equal-value']"))))
+                                      (.querySelector root"[data-role='equal-value']"))))
                          (is (= (inc equal-version)
                                 (:version (obs/read handle))))
                          (is (= (inc initial-revision)
@@ -232,8 +232,8 @@
       (is (= 1 (obs/active-owner-count hidden-rx))
           "the parent Activity controller has its own real owner")
       (is (= "7" (.-textContent
-                   (uit/query root "[data-role='retained-leaf']"))))
-      (-> (uit/flush! #(uit/dispatch! f [::hide-activity]))
+                   (.querySelector root"[data-role='retained-leaf']"))))
+      (-> (uit/flush! #(rf/dispatch-sync [::hide-activity] {:frame f}))
           (.then
            (fn []
              (testing "Activity hide releases the leaf but preserves its cell"
@@ -245,7 +245,7 @@
                                [::activity-hidden?]))
                    "the visible owner remains reactive so reveal is reachable"))
              (is (= 1 (obs/active-owner-count hidden-rx)))
-             (uit/flush! #(uit/dispatch! f [::show-activity]))))
+             (uit/flush! #(rf/dispatch-sync [::show-activity] {:frame f}))))
           (.then
            (fn []
              (let [revealed-rx (:reaction
@@ -265,7 +265,7 @@
                  (is (= 1 (obs/active-owner-count revealed-rx)))
                  (is (= 1 (obs/active-owner-count hidden-rx)))
                  (is (= "7" (.-textContent
-                              (uit/query root "[data-role='retained-leaf']"))))
+                              (.querySelector root"[data-role='retained-leaf']"))))
                  (is (contains? (reactive/committed-target-keys
                                  (cell-for hidden-key))
                                 hidden-key))))
@@ -363,13 +363,13 @@
                                   [mounted-override-tree]]]
               (testing "nearest provider wins and nested scope restores in LIFO order"
                 (is (= "outer" (.-textContent
-                                  (uit/query root "[data-role='outer-before']"))))
+                                  (.querySelector root"[data-role='outer-before']"))))
                 (is (= "inner" (.-textContent
-                                  (uit/query root "[data-role='inner']"))))
+                                  (.querySelector root"[data-role='inner']"))))
                 (is (= "outer" (.-textContent
-                                  (uit/query root "[data-role='outer-after']"))))
+                                  (.querySelector root"[data-role='outer-after']"))))
                 (is (= "ordinary" (.-textContent
-                                     (uit/query root "[data-role='ordinary']")))))
+                                     (.querySelector root"[data-role='ordinary']")))))
               (let [override-cells
                     (filter #(contains? (reactive/committed-target-keys %)
                                         override-k)

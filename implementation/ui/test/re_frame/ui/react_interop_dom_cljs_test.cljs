@@ -69,16 +69,16 @@
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [ref-view]]]
               (-> (host-turn!)
                   ;; write the ref from a handler — this must NOT re-render.
-                  (.then (fn [] (uit/flush! #(click! (uit/query root "[data-role='stash']")))))
+                  (.then (fn [] (uit/flush! #(click! (.querySelector root "[data-role='stash']")))))
                   (.then host-turn!)
                   (.then (fn []
-                           (is (= "0" (.-textContent (uit/query root "[data-role='n']")))
+                           (is (= "0" (.-textContent (.querySelector root "[data-role='n']")))
                                "writing use-ref's current never re-renders")
                            ;; force an unrelated re-render, then read the ref back.
-                           (uit/flush! #(click! (uit/query root "[data-role='re']")))))
+                           (uit/flush! #(click! (.querySelector root "[data-role='re']")))))
                   (.then host-turn!)
                   (.then (fn []
-                           (uit/flush! #(click! (uit/query root "[data-role='read']")))))
+                           (uit/flush! #(click! (.querySelector root "[data-role='read']")))))
                   (.then host-turn!)
                   (.then (fn []
                            (is (some #(= % [:read 77]) @log)
@@ -113,12 +113,12 @@
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [effect-view]]]
               (-> (host-turn!)
                   (.then (fn [] (is (some #(= % [:run 0]) @log) "runs after mount")
-                           (uit/flush! #(uit/dispatch! f [::set-other 9]))))
+                           (uit/flush! #(rf/dispatch-sync [::set-other 9] {:frame f}))))
                   (.then host-turn!)
                   (.then (fn []
                            (is (= 1 (count (filter #(= (first %) :run) @log)))
                                "an unchanged (rf=) dep does NOT re-run")
-                           (uit/flush! #(uit/dispatch! f [::set-dep 1]))))
+                           (uit/flush! #(rf/dispatch-sync [::set-dep 1] {:frame f}))))
                   (.then host-turn!)
                   (.then (fn []
                            (is (some #(= % [:cleanup 0]) @log) "dep change cleans up the prior run")
@@ -160,13 +160,13 @@
                   (.then (fn [] (is (some #(= % [:vrun 0]) @log) "runs after mount")
                            ;; unrelated re-render: rebuilds the {:k 0} dep slot to a
                            ;; DISTINCT-but-rf=-equal object.
-                           (uit/flush! #(uit/dispatch! f [::set-vother 9]))))
+                           (uit/flush! #(rf/dispatch-sync [::set-vother 9] {:frame f}))))
                   (.then host-turn!)
                   (.then (fn []
                            (is (= 1 (count (filter #(= (first %) :vrun) @log)))
                                "a fresh-but-rf=-equal collection dep does NOT rerun (rf=, not Object.is)")
                            ;; a value-different collection dep DOES rerun.
-                           (uit/flush! #(uit/dispatch! f [::set-vn 1]))))
+                           (uit/flush! #(rf/dispatch-sync [::set-vn 1] {:frame f}))))
                   (.then host-turn!)
                   (.then (fn []
                            (is (some #(= % [:vcleanup 0]) @log)
@@ -213,7 +213,7 @@
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [popover {:anchor 10 :viewport 500}]]]
               (-> (host-turn!)
                   (.then (fn []
-                           (let [^js el (uit/query root "[data-role='popover']")]
+                           (let [^js el (.querySelector root "[data-role='popover']")]
                              ;; the layout effect measured + applied placement to the DOM.
                              (is (some #(= (first %) :place) @log)
                                  "the layout effect measured and computed placement")
@@ -267,7 +267,7 @@
       (-> (uit/with-root [root [theme-host]]
             (-> (host-turn!)
                 (.then (fn []
-                         (is (= "themed" (.-textContent (uit/query root "[data-role='theme']")))
+                         (is (= "themed" (.-textContent (.querySelector root "[data-role='theme']")))
                              "the foreign context value flows through uncoerced")))))
           (.then (fn [] (done)) (fn [e] (is false (str e)) (done)))))))
 
@@ -291,7 +291,7 @@
       (let [f (make-frame ::id {})]
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [id-view]]]
               (-> (host-turn!)
-                  (.then (fn [] (uit/flush! #(click! (uit/query root "[data-role='re']")))))
+                  (.then (fn [] (uit/flush! #(click! (.querySelector root "[data-role='re']")))))
                   (.then host-turn!)
                   (.then (fn []
                            (let [ids (map second (filter #(= (first %) :id) @log))]
@@ -319,7 +319,7 @@
       (let [f (make-frame ::ee {})]
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [effect-event-view]]]
               (-> (host-turn!)
-                  (.then (fn [] (uit/flush! #(click! (uit/query root "[data-role='inc']")))))
+                  (.then (fn [] (uit/flush! #(click! (.querySelector root "[data-role='inc']")))))
                   (.then host-turn!)
                   (.then (fn []
                            ;; the effect (runs every commit) calls the effect-event,
@@ -356,7 +356,7 @@
                 (.then host-turn!)
                 (.then host-turn!)
                 (.then (fn []
-                         (is (some? (uit/query root "[data-role='heavy']"))
+                         (is (some? (.querySelector root "[data-role='heavy']"))
                              "the code-split foreign component activated after its Promise resolved")
-                         (is (= "heavy!" (.-textContent (uit/query root "[data-role='heavy']"))))))))
+                         (is (= "heavy!" (.-textContent (.querySelector root "[data-role='heavy']"))))))))
           (.then (fn [] (done)) (fn [e] (is false (str e)) (done)))))))

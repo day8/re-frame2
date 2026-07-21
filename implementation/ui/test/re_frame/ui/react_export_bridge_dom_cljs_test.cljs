@@ -279,7 +279,7 @@
       (is (re-find #"milk=1" (.-innerHTML c)) "mount-time seed rendered")
       (async done
         (-> (js/Promise.resolve)
-            (.then (fn [] (uit/flush! #(uit/dispatch! :app/live [:cart/set-qty 5]))))
+            (.then (fn [] (uit/flush! #(rf/dispatch-sync [:cart/set-qty 5] {:frame :app/live}))))
             (.then
              (fn []
                (is (re-find #"milk=5" (.-innerHTML c))

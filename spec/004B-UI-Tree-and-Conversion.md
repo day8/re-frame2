@@ -5,8 +5,8 @@
 > half of Spec 004's portability law. [004-Views.md](004-Views.md) §The JVM
 > structural subset and §Template grammar reference this contract; it is never
 > restated there. Consumers: `ui.test/render`'s return value (per
-> [008](008-Testing.md)), the selector grammar
-> ([004D-UI-Test-Selectors.md](004D-UI-Test-Selectors.md)), parity/fingerprints
+> [008](008-Testing.md)), tree traversal (ordinary Clojure —
+> `(tree-seq map? :children tree)`), parity/fingerprints
 > (per [008](008-Testing.md) and [011](011-SSR.md)), and the `day8/re-frame2-ssr`
 > artifact (§The SSR consumption boundary). The optimizer/compiler AST is
 > explicitly private: the public contract is this tree plus the conversion
@@ -215,7 +215,7 @@ under their own keys.
   `nil` → `nil`.
 
 Intent assertion, respelled to this contract:
-`(is (= [:cart/add 42] (:on-click (ui.test/attrs (ui.test/find tree :button)))))`.
+`(is (= [:cart/add 42] (:on-click (ui.test/attrs (some #(when (= :button (:tag %)) %) (tree-seq map? :children tree))))))`.
 
 ## Semantic normalization `N` — the parity/fingerprint input
 
@@ -621,12 +621,13 @@ encoding, and the manifest field that carries it are Spec 011's (§Normalization
 
 ## Ripples
 
-- [004D-UI-Test-Selectors.md](004D-UI-Test-Selectors.md) — reconciled in this
-  fold-in (direct-keyword-lookup promise removed; OPEN-1 resolved via the
-  view-boundary node).
-- `guide/08-testing.md` — one-line respell of the intent assertion to
-  `(-> tree (ui.test/find :button) ui.test/attrs :on-click)` (owned by the guide
-  pass, not this fold-in).
+- Tree traversal is ordinary Clojure — `(tree-seq map? :children tree)` and a
+  `(:view-id %)` / `(:tag %)` predicate. (The former 004D `ui.test/find`/`find-all`
+  selector grammar is retired, rf2-n7jtp; a `:view-id` predicate matches the
+  view-boundary node, so fragment-rooted and nil-rooted views stay matchable.)
+- `guide/08-testing.md` — the intent assertion reads
+  `(-> (some #(when (= :button (:tag %)) %) (tree-seq map? :children tree)) ui.test/attrs :on-click)`
+  (owned by the guide pass, not this fold-in).
 - [004 §The JVM structural subset](004-Views.md#the-jvm-structural-subset) and
   [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views)
   point at this contract; the 009 catalogue gains rows for

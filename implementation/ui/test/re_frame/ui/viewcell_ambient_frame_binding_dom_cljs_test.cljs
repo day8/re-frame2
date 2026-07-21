@@ -225,7 +225,7 @@
       ;; the framework's awaited-act flush idiom and assert the ViewCell repaints.
       (async done
         (-> (js/Promise.resolve)
-            (.then (fn [] (uit/flush! #(uit/dispatch! :app/a [:test/set-db {:n 43}]))))
+            (.then (fn [] (uit/flush! #(rf/dispatch-sync [:test/set-db {:n 43}] {:frame :app/a}))))
             (.then
              (fn []
                (is (re-find #"n=43" (.-innerHTML c))

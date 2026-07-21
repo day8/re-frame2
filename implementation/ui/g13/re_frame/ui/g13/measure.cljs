@@ -54,8 +54,8 @@
      Because the opening witness is read inside the seam — after anything the
      caller did before calling it — work hoisted OUT of `work!` is visible in
      the delta. A caller that dispatches before calling this function has
-     already advanced app-db by the time `pre-hot` is read (`uit/dispatch!` is
-     `dispatch-sync!`: the write epochs land synchronously), so `pre-hot`
+     already advanced app-db by the time `pre-hot` is read (`rf/dispatch-sync`
+     lands the write epochs synchronously), so `pre-hot`
      and `post-hot` agree and the delta collapses to 0. Same for work deferred
      until after the returned Promise resolves: `post-hot` was read first.
 

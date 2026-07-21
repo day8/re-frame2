@@ -4,116 +4,95 @@
 (`re-frame.ui`). It is dev/test only — nothing in a production bundle may
 `:require` it (the bundle-isolation gate enforces this).
 
-It has two tiers that share nothing:
+Six names across two hosts:
 
-- **Tier 1 — headless structural render.** `render` runs the real compiled view
-  against a real frame **on the JVM** and returns the versioned public **structural
-  tree** (a plain map). `find` / `find-all` query it with a closed selector grammar;
-  `attrs` / `text` are the read projections. Handlers are event vectors as data, so
-  "what does this button do" is an equality check — no DOM, no click simulation, no
-  flake.
-- **Tier 3 — mounted DOM.** `with-root` owns one real React mount with total
-  teardown; `query` answers a native CSS selector against that mounted root.
-
-Handing a CSS string to `find`, a structural tree to `query`, or a DOM element to
-`attrs` / `text` is a typed error (`:rf.error/ui-test-tier-mismatch`) that points at
-the other tier.
+- **JVM structural host (Tier 1, headless).** `render` runs the real compiled view
+  against the **ambient frame** and returns the versioned public **structural tree**
+  (a plain map). Traverse it with ordinary Clojure — `(tree-seq map? :children tree)`
+  and a predicate — and read nodes with the `attrs` / `text` projections. Handlers are
+  event vectors as data, so "what does this button do" is an equality check — no DOM,
+  no click simulation, no flake.
+- **CLJS mounted host (Tier 3).** `with-root` owns one real React mount with total
+  teardown and binds the connected DOM **container** (query it with native
+  `.querySelector`); `flush!` / `flush-presence!` settle framework and presence work.
 
 ```clojure
 (:require [re-frame.core :as rf]
           [re-frame.ui.test :as ui.test])
 ```
 
-Test frames are minted with the canonical `rf/make-frame` + `:initial-events` (seed
-via `[:rf/set-db {…}]`) — one frame-init grammar, shared with production. A supplied
-frame stays **caller-owned**: `render` binds a `{:frame f}` frame for the render but
-never creates or destroys it, so wrap it in `rf/with-new-frame` (eval-bind-run-destroy,
-incarnation-exact on the value it created) — or an unreleased `make-frame` value leaks
-into `rf/frame-ids` and contaminates later tests. The events and subs a view touches
-must be `.cljc` (the standard re-frame discipline) so the JVM render can resolve them.
+Frame scope is the programmer's ordinary bracket, not a `ui.test` concept: mint a frame
+with `rf/make-frame` (+ `:initial-events`, seeded via `[:rf/set-db {…}]`) and establish
+it with `rf/with-new-frame` (eval-bind-run-destroy — the frame is destroyed on exit, so
+nothing leaks into `rf/frame-ids`) or `rf/with-frame` (pin one you already hold). Drive
+state with `rf/dispatch-sync` and assert on a fresh `render`. The events and subs a view
+touches must be `.cljc` (the standard re-frame discipline) so the JVM render can resolve
+them.
 
-## Tier 1 — headless structural render
+## JVM structural host (Tier 1)
 
 ### `render`
 
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (render root-or-view)
-  (render root-or-view opts) → structural-tree
+  (render [view props])
+  (render [view props] opts) → structural-tree
   ```
-- **Description**: Run the real compiled view against a real frame on the JVM and
-  return the versioned public **structural tree** (the top node, stamped
-  `:rf.ui/tree-version`). Accepts exactly two forms: a **view reference** (the
-  compile-resolved `defview` var/symbol — props ride `{:props …}`, a frame rides
-  `{:frame …}`), or a **literal root form** (the same root grammar `ui/mount` takes;
-  `{:props …}` is rejected because props live in the form). A **plan-bearing** root
-  form (a top-region `frame-root`) OWNS its frames: its plans preflight **fresh
-  isolated** test frames before the render and tear them down after, so `{:frame …}`
-  alongside it is rejected. `opts` are closed: `:frame`, `:props` (view-reference form
-  only), `:sub-overrides` (a map of query vector → value, the explicit JVM read door).
-  Without a frame, rendering proceeds frameless and any frame-scoped read raises
-  honestly. Tier-1 renders the JVM structural subset — no effects, no host ops; `sub`
-  is the one-shot headless read. Expanding this macro in a CLJS build is a didactic
-  compile error (the client emitter targets React directly; mounted CLJS tests use the
-  Tier-3 surface). A frame supplied via `{:frame …}` stays **caller-owned** — `render`
-  binds it for the render but never creates or destroys it; release it with
-  `rf/with-new-frame` or `rf/destroy-frame!` (a plan-bearing `frame-root` form, by
-  contrast, owns and tears down its own frames).
+- **Description**: Run the real compiled view against the **ambient frame** on the JVM
+  and return the versioned public **structural tree** (the top node, stamped
+  `:rf.ui/tree-version`). ONE input grammar — a **literal view form**, the same
+  top-region grammar `ui/mount` takes (wrappers included) surrounding exactly one
+  mounted view, with props carried **in** the form. ONE option —
+  `{:sub-overrides {query-v value}}`, the explicit JVM read door (a map of query vector
+  → value; it affects render **reads** only, never app-db). Frame scope is
+  `rf/with-new-frame` / `rf/with-frame` — there is no frame option; with no ambient
+  frame, rendering proceeds frameless and any frame-scoped read raises honestly. A
+  plan-bearing form (a top-region `frame-root`) is **not** a render form — establish the
+  frame with `rf/with-new-frame` and render the plain view. Tier-1 renders the JVM
+  structural subset — no effects, no host ops; `sub` is the one-shot headless read.
+  Expanding this macro in a CLJS build is a didactic compile error (the client emitter
+  targets React directly; mounted CLJS tests use the Tier-3 surface).
 - **Example**:
   ```clojure
-  ;; with-new-frame owns the lifecycle — the frame is destroyed on exit (even on
-  ;; throw), so nothing leaks into rf/frame-ids to contaminate later tests:
-  (rf/with-new-frame [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})]
-    (let [tree (ui.test/render [product-card {:product p}] {:frame frame})]
+  ;; Frameless: a view that reads only its props needs no frame at all —
+  ;; the shortest correct test. :sub-overrides pins any sub the view reads.
+  (deftest add-button-carries-intent
+    (let [tree (ui.test/render [app/add-button {:product-id 42}]
+                               {:sub-overrides {[:cart/locked?] false}})]
       (is (= [:cart/add 42]
-             (-> tree (ui.test/find :button) ui.test/attrs :on-click)))
-      (is (= "Add to cart"
-             (-> tree (ui.test/find :button) ui.test/text)))))
+             (-> (some #(when (= :button (:tag %)) %)
+                       (tree-seq map? :children tree))
+                 ui.test/attrs
+                 :on-click)))))
+
+  ;; Frame tier: a real registered-sub derivation reads the ambient frame's
+  ;; app-db; with-new-frame binds it and tears it down on exit.
+  (rf/with-new-frame [f (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})]
+    (rf/dispatch-sync [:cart/add 42] {:frame f})
+    (let [tree (ui.test/render [cart-badge {}])]
+      (is (= "1" (ui.test/text (some #(when (= :span (:tag %)) %)
+                                     (tree-seq map? :children tree)))))))
   ```
-
-### `find`
-
-- **Kind**: function
-- **Signature**: `(find tree selector) → node | nil`
-- **Description**: The **first** node of `tree` matching `selector`, in depth-first
-  pre-order (document order) — the tree node itself is tested first, then its
-  descendants. Returns the structural node (itself a valid `tree` argument, so finds
-  compose), or `nil` on no match (idiomatic nil-punning threads through). The closed
-  selector grammar: an **unqualified keyword** (element tag, exact), a **qualified
-  keyword** or **`defview` var** (view boundary), an **attr map** (each entry present
-  and `rf=` to the expected value in the attrs projection; events match by vector), or
-  a **pred fn** (the escape; receives map nodes). A CSS string, a vector selector, or
-  any other value is a typed error naming the alternative.
-- **Example**:
-  ```clojure
-  ;; compose finds to scope a query:
-  (-> tree (ui.test/find :form) (ui.test/find :button))
-  ```
-
-### `find-all`
-
-- **Kind**: function
-- **Signature**: `(find-all tree selector) → [node …]`
-- **Description**: **All** nodes of `tree` matching `selector`, as a vector in
-  document order (possibly empty — `[]` on no match). Same closed selector grammar as
-  `find`.
 
 ### `attrs`
 
 - **Kind**: function
 - **Signature**: `(attrs node) → map | nil`
 - **Description**: The **merged attribute projection** of a structural node — the one
-  attribute read (a keyword lookup on a node reads its FIELDS, never its attributes).
-  For an **element**, `:attrs` merged with `:events` (collision-free by construction —
-  the compiler routes `:on-*` to `:events`; handler slots carry event vectors / option
-  maps / opaque markers **as data**). For a **view boundary**, the `:props` map. For a
-  **fragment / html** node, `{}` (total, not an error). `nil` → `nil` (threads through
-  a missed `find`). Intent assertion is an equality check on the projected handler.
+  attribute read (a keyword lookup on a node reads its FIELDS, never its attributes, so
+  a bare `(:on-click node)` is a field miss). For an **element**, `:attrs` merged with
+  `:events` (collision-free by construction — the compiler routes `:on-*` to `:events`;
+  handler slots carry event vectors / option maps / opaque markers **as data**). For a
+  **view boundary**, the `:props` map. For a **fragment / html** node, `{}` (total, not
+  an error). `nil` → `nil` (threads through a missed traversal). Intent assertion is an
+  equality check on the projected handler.
 - **Example**:
   ```clojure
   (is (= [:cart/add 42]
-         (:on-click (ui.test/attrs (ui.test/find tree :button)))))
+         (:on-click (ui.test/attrs
+                     (some #(when (= :button (:tag %)) %)
+                           (tree-seq map? :children tree))))))
   ```
 
 ### `text`
@@ -125,96 +104,80 @@ must be `.cljc` (the standard re-frame discipline) so the JVM render can resolve
   nodes contribute nothing (their content is unparsed markup). No whitespace
   normalization beyond what the tree carries. `nil` → `nil` (nil-punning).
 
-## Tier 3 — mounted DOM
+### Traversal — ordinary Clojure
+
+`ui.test` ships **no** selector helper: a structural tree is deliberately plain data, so
+traversal is ordinary Clojure over `(tree-seq map? :children tree)` (which yields the map
+nodes and skips string content):
+
+```clojure
+;; first element by tag:            (some #(when (= :button (:tag %)) %) (tree-seq map? :children tree))
+;; first node at a view boundary:   (some #(when (= :shop/product-card (:view-id %)) %) (tree-seq map? :children tree))
+;; every match:                     (filterv #(= :li (:tag %)) (tree-seq map? :children tree))
+;; attribute assertion:             read the matched node through (ui.test/attrs node)
+```
+
+## CLJS mounted host (Tier 3)
 
 ### `with-root`
 
 - **Kind**: macro
-- **Signature**: `(with-root [root root-form] body…) → js/Promise`
+- **Signature**: `(with-root [container root-form] body…) → js/Promise`
 - **Description**: Mount the **literal** `root-form` into a connected, test-owned DOM
-  container, await the initial commit, invoke/await `body` with its opaque mounted
-  `root`, then await teardown of the React root and container on **every** exit.
-  Browser / jsdom only (a JVM expansion is a tier-mismatch error). The root form is
-  compiled by the same analyzer/emitter as `ui/render!`; each invocation mints a
-  private runtime root identity, so concurrent calls cannot collide or claim an
-  application's authored roots. Cleanup never masks a primary mount/body failure; a
-  secondary cleanup failure rides the primary rejection as `rfUiTestCleanupError`.
-  Await the returned Promise before asserting or starting another mounted operation.
+  container, await the initial commit, invoke/await `body` with the connected DOM
+  **container** bound, then await teardown of the React root and container on **every**
+  exit. Query the bound container with native `.querySelector` / `.querySelectorAll` and
+  read ordinary DOM properties/events. Browser / jsdom only (a JVM expansion is a
+  tier-mismatch error). The root form is compiled by the same analyzer/emitter as
+  `ui/render!`; each invocation mints a private runtime root identity, so concurrent
+  calls cannot collide or claim an application's authored roots. Cleanup never masks a
+  primary mount/body failure; a secondary cleanup failure rides the primary rejection as
+  `rfUiTestCleanupError`. Await the returned Promise before asserting or starting another
+  mounted operation.
 - **Example**:
   ```clojure
-  (ui.test/with-root [root [ui/frame-root {:id :app :initial-events [[:app/init]]}
-                            [counter]]]
-    (-> (ui.test/flush! #(ui.test/dispatch! :app [:count/inc]))
-        (.then (fn [] (is (= "1" (.-textContent (ui.test/query root ".count"))))))))
+  (ui.test/with-root [container [ui/frame-root {:id :app :initial-events [[:app/init]]}
+                                 [counter]]]
+    (-> (ui.test/flush! #(rf/dispatch-sync [:count/inc] {:frame :app}))
+        (.then (fn [] (is (= "1" (.-textContent (.querySelector container ".count"))))))))
   ```
-
-### `query`
-
-- **Kind**: function
-- **Signature**: `(query root css-selector) → js/Element | nil`
-- **Description**: The Tier-3 live-DOM counterpart of `find`: a **mounted** root (from
-  `with-root`) + a **native CSS selector string**, answered by the host DOM's
-  `querySelector`. It shares nothing with the Tier-1 grammar — no `rf=` matching, no
-  structural projections, no view-id selectors; CSS is the whole contract. `root` must
-  be the live opaque value bound by `with-root`; the selector must be a string. A miss
-  returns `nil`, exactly like `querySelector`. Handing it a structural tree is a
-  tier-mismatch error pointing at `find`.
-
-## Driving state and draining work
-
-### `dispatch!`
-
-- **Kind**: function
-- **Signature**: `(dispatch! frame-target event) → nil`
-- **Description**: Real dispatch + drain into `frame-target` (a frame value or id):
-  processes `event` synchronously end-to-end, then drains any synchronously-enqueued
-  events to fixed point. Drive state with real events, re-render, and assert on the new
-  tree — no click simulation. Under a mounted (Tier-3) root, wrap it in `flush!` so the
-  React commit settles before you assert.
 
 ### `flush!`
 
-- **Kind**: function
+- **Kind**: function (CLJS only)
 - **Signature**:
   ```clojure
-  ;; JVM (Tier 1): synchronous
-  (flush!) → nil
-  ;; CLJS (Tier 3): Promise-backed
   (flush!) → js/Promise
   (flush! thunk) → js/Promise
   ```
-- **Description**: Drain framework work to quiescence. On the **JVM** it synchronously
-  drains the host-agnostic ViewCell registry (there is no React tree to settle) and
-  returns `nil`. On **CLJS** it returns a Promise: the optional `thunk` runs inside
-  awaited React 19 `act`, then framework notifications and React commits alternate to a
-  fixed point — await the Promise before asserting or beginning another mounted
-  operation. Both paths are bounded by the shared convergence budget: a registry that
-  never quiesces fails loud with `:rf.error/flush-convergence-exceeded` rather than
-  spinning. Calling it inside an open event drain throws `:rf.error/flush-in-open-epoch`
-  (CLJS) / fails the shared open-drain guard.
+- **Description**: The **sole** public compiled-view test flush. The optional `thunk`
+  runs inside awaited React 19 `act`, then framework notifications and React commits
+  alternate to a fixed point — await the Promise before asserting or beginning another
+  mounted operation. Drive a mounted dispatch with
+  `(flush! #(rf/dispatch-sync event {:frame f}))`. Bounded by the shared convergence
+  budget: a registry that never quiesces fails loud with
+  `:rf.error/flush-convergence-exceeded` rather than spinning. Calling it inside an open
+  event drain throws `:rf.error/flush-in-open-epoch` synchronously, before Promise
+  construction. **CLJS mounted host only** — the JVM structural render has no React tree
+  to settle, so a Tier-1 checkpoint is a fresh `render` after a synchronous
+  `rf/dispatch-sync`.
 
 ### `flush-presence!`
 
-- **Kind**: function
+- **Kind**: function (CLJS only)
 - **Signature**:
   ```clojure
-  ;; JVM (Tier 1): synchronous no-op
-  (flush-presence!) → nil
-  (flush-presence! ms) → nil
-  ;; CLJS (Tier 3): Promise-backed
   (flush-presence!) → js/Promise
   (flush-presence! ms) → js/Promise
   ```
 - **Description**: Advance **presence** enter/exit transitions on a fake clock — the S4
   twin of `flush!` — so retained (`:unmounting`) children reach their `:timeout-ms`
-  removal **without** wall-clock sleeps. `(flush-presence!)` advances to quiescence (every
-  pending exit fires); `(flush-presence! ms)` advances the logical clock by `ms`, firing
-  only the exits that come due. On **CLJS** the advance and its removal commits run inside
-  awaited React `act` and the returned Promise settles at the framework/React fixed point —
-  await it before asserting an enter/exit. On the **JVM** the structural render has no
-  lifecycle (presence renders `:present`, no retention timers), so both arities are a
-  synchronous no-op returning `nil`, present for host-parity. The open-event-drain guard
-  runs synchronously first.
+  removal **without** wall-clock sleeps. `(flush-presence!)` advances to quiescence
+  (every pending exit fires); `(flush-presence! ms)` advances the logical clock by `ms`,
+  firing only the exits that come due. The advance and its removal commits run inside
+  awaited React `act` and the returned Promise settles at the framework/React fixed
+  point — await it before asserting an enter/exit. The open-event-drain guard runs
+  synchronously first. **CLJS mounted host only.**
 
 ## See also
 

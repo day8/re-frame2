@@ -113,7 +113,7 @@
                                [profiled-strict-root {:evidence evidence}]]]
            (testing "OFF owns only the unconditional lexical site"
              (is (= "off" (.-textContent
-                             (uit/query root
+                             (.querySelector root
                                         "[data-role='conditional-value']"))))
              (is (nil? (site-for-query-head ::conditional-value)))
              (is (zero? @conditional-computes))
@@ -125,12 +125,12 @@
                          (cache-entry frame-id (:query enabled-record)))))))
            (reset! evidence (empty-evidence))
            (->
-            (uit/flush! #(uit/dispatch! f [::set-enabled true]))
+            (uit/flush! #(rf/dispatch-sync [::set-enabled true] {:frame f}))
             (.then
              (fn []
                (testing "ON acquires one real owner at the compiled sid"
                  (is (= "0" (.-textContent
-                              (uit/query root
+                              (.querySelector root
                                          "[data-role='conditional-value']"))))
                  (let [[cell sid record]
                        (site-for-query-head ::conditional-value)
@@ -149,16 +149,16 @@
                    (let [epoch-before    (frame/frame-commit-epoch frame-id)
                          revision-before (reactive/revision cell)
                          p               (uit/flush!
-                                          #(uit/dispatch!
-                                            f
-                                            [::value-disable-value 1 2]))]
+                                          #(rf/dispatch-sync
+                                            [::value-disable-value 1 2]
+                                            {:frame f}))]
                      (testing "all queued event writes finish before the render phase"
                        (is (= {:enabled? false :value 2}
                               (rf/app-db-value f)))
                        (is (= (+ 3 epoch-before)
                               (frame/frame-commit-epoch frame-id)))
                        (is (= "0" (.-textContent
-                                    (uit/query
+                                    (.querySelector
                                      root
                                      "[data-role='conditional-value']"))))
                        (is (= (empty-evidence) @evidence))
@@ -186,7 +186,7 @@
                        (fn []
                          (testing "one commit drops the absent site; stale delivery is absorbed without stale read or reattachment"
                            (is (= "off" (.-textContent
-                                          (uit/query
+                                          (.querySelector
                                            root
                                            "[data-role='conditional-value']"))))
                            (is (= 1 (:root-commits @evidence)))
@@ -209,7 +209,7 @@
                                absent-computes @conditional-computes
                                absent-epoch    (frame/frame-commit-epoch frame-id)]
                            (->
-                            (uit/flush! #(uit/dispatch! f [::set-value 3]))
+                            (uit/flush! #(rf/dispatch-sync [::set-value 3] {:frame f}))
                             (.then
                              (fn []
                                (testing "a value move performs no work while the site is absent"
@@ -218,7 +218,7 @@
                                  (is (= (inc absent-epoch)
                                         (frame/frame-commit-epoch frame-id)))
                                  (is (= "off" (.-textContent
-                                                (uit/query
+                                                (.querySelector
                                                  root
                                                  "[data-role='conditional-value']"))))
                                  (is (= (empty-evidence) @evidence))
@@ -233,12 +233,12 @@
                                (reset! evidence (empty-evidence))
                                (->
                                 (uit/flush!
-                                 #(uit/dispatch! f [::set-enabled true]))
+                                 #(rf/dispatch-sync [::set-enabled true] {:frame f}))
                                 (.then
                                  (fn []
                                    (testing "reappearance reuses the sid but owns a fresh handle"
                                      (is (= "3" (.-textContent
-                                                  (uit/query
+                                                  (.querySelector
                                                    root
                                                    "[data-role='conditional-value']"))))
                                      (let [[cell-next sid-next record-next]
@@ -265,12 +265,12 @@
                                        (reset! evidence (empty-evidence))
                                        (->
                                         (uit/flush!
-                                         #(uit/dispatch! f [::set-value 4]))
+                                         #(rf/dispatch-sync [::set-value 4] {:frame f}))
                                         (.then
                                          (fn []
                                            (testing "a live move preserves exact ownership"
                                              (is (= "4" (.-textContent
-                                                          (uit/query
+                                                          (.querySelector
                                                            root
                                                            "[data-role='conditional-value']"))))
                                              (is (= 1 (:root-commits @evidence)))

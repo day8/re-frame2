@@ -94,7 +94,7 @@
        (swap! evidence update :commits inc)
        (when (and (= 1 n) (not (:cascaded? @evidence)))
          (swap! evidence assoc :cascaded? true)
-         (uit/dispatch! f [::cascade-step]))
+         (rf/dispatch-sync [::cascade-step] {:frame f}))
        js/undefined)
      #js [n])
     nil))
@@ -132,7 +132,7 @@
         (.appendChild js/document.body outside)
         (let [p (uit/with-root [root [strict-query-fixture]]
                   ;; Initial mount/commit has ALREADY settled before this body.
-                  (let [inside (uit/query root "[data-role='field']")]
+                  (let [inside (.querySelector root "[data-role='field']")]
                     (is (some? inside))
                     (is (not (identical? outside inside)) "query is container-scoped")
                     (is (= "ready" (.-value inside)))))]
@@ -170,7 +170,7 @@
               (swap! evidence conj :body-start)
               (-> (js/Promise.resolve nil)
                   (.then (fn []
-                           (is (= "mounted" (.-textContent (uit/query root "span"))))
+                           (is (= "mounted" (.-textContent (.querySelector root "span"))))
                            (swap! evidence conj :body-finished)))))
             (.then (fn []
                      (swap! evidence conj :with-root-settled)
@@ -200,12 +200,12 @@
         (-> (uit/with-root [outer [lifecycle-fixture
                                    {:evidence evidence :label "outer"}]]
               (let [outer-state (mounted-baseline)]
-                (is (= "outer" (.-textContent (uit/query outer "span"))))
+                (is (= "outer" (.-textContent (.querySelector outer "span"))))
                 (-> (uit/with-root [inner [lifecycle-fixture
                                            {:evidence evidence :label "inner"}]]
                       (is (= (+ 2 (count (:live-roots before)))
                              (count (:live-roots (mounted-baseline)))))
-                      (is (= "inner" (.-textContent (uit/query inner "span"))))
+                      (is (= "inner" (.-textContent (.querySelector inner "span"))))
                       (swap! evidence conj :inner-body))
                     (.then (fn []
                              (swap! evidence conj :inner-settled)
@@ -411,7 +411,7 @@
         (-> (uit/with-root [root [ui/frame-provider {:frame f}
                                   [strict-observed-fixture]]]
               (is (= "owned" (.-textContent
-                               (uit/query root "[data-role='observed']"))))
+                               (.querySelector root "[data-role='observed']"))))
               (is (> (reactive/root-cell-count) cell-baseline)
                   "the settled initial commit owns a ViewCell")
               (is (some? (get @(:sub-cache (frame/frame frame-id))
@@ -425,18 +425,6 @@
                    (fn [e]
                      (rf/destroy-frame! f)
                      (reject-unexpectedly! done "StrictMode teardown rejected" e))))))))
-
-(deftest query-rejects-the-wrong-tier-and-non-css-input
-  (when (browser?)
-    (async done
-      (-> (uit/with-root [root [query-fixture]]
-            (is (= :rf.error/ui-test-bad-selector
-                   (error-id #(uit/query root :input))))
-            (is (= :rf.error/ui-test-tier-mismatch
-                   (error-id #(uit/query {:tag :div :children []} "div")))))
-          (.then (fn [] (done))
-                 (fn [e]
-                   (reject-unexpectedly! done "query test rejected" e)))))))
 
 (deftest overlapping-unawaited-act-fails-loud
   (when (browser?)
@@ -519,7 +507,7 @@
                                 (error-id uit/flush!))}))
     (let [f (rf/make-frame {:initial-events [[:rf/set-db {}]]})]
       (try
-        (uit/dispatch! f [::flush-during-handler])
+        (rf/dispatch-sync [::flush-during-handler] {:frame f})
         (is (= :rf.error/flush-in-open-epoch
                (:flush-error (rf/app-db-value f))))
         (finally
@@ -536,7 +524,7 @@
                       nil))
       (let [f (rf/make-frame {:initial-events [[:rf/set-db {}]]})]
         (vreset! target f)
-        (uit/dispatch! f [::destroy-self-then-flush])
+        (rf/dispatch-sync [::destroy-self-then-flush] {:frame f})
         (is (= :rf.error/flush-in-open-epoch @seen)
             "the current run remains open after its frame leaves the registry")))))
 
@@ -562,16 +550,16 @@
               (let [p (uit/flush!
                        (fn []
                          (is (true? (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)))
-                         (uit/dispatch! f [::fixed-point-step 7])))]
+                         (rf/dispatch-sync [::fixed-point-step 7] {:frame f})))]
                 (is (= 8 (:n (rf/app-db-value f))))
                 (is (= "0" (.-textContent
-                             (uit/query root "[data-role='fixed-point']"))))
+                             (.querySelector root "[data-role='fixed-point']"))))
                 (is (pos? (reactive/pending-cell-count)))
                 (is (= {:reads 0 :renders 0 :commits 0} @evidence))
                 (-> p
                     (.then (fn []
                              (is (= "8" (.-textContent
-                                          (uit/query root "[data-role='fixed-point']"))))
+                                          (.querySelector root "[data-role='fixed-point']"))))
                              (is (= {:reads 1 :renders 1 :commits 1} @evidence)
                                  "eight writes settle into one read/render/layout commit")
                              (is (zero? (reactive/pending-cell-count))))))))
@@ -595,11 +583,11 @@
                                   [cascading-fixed-point-fixture
                                    {:evidence evidence :frame f}]]]
               (reset! evidence {:renders 0 :commits 0 :cascaded? false})
-              (-> (uit/flush! #(uit/dispatch! f [::cascade-step]))
+              (-> (uit/flush! #(rf/dispatch-sync [::cascade-step] {:frame f}))
                   (.then (fn []
                            (is (= "2" (.-textContent
-                                        (uit/query root
-                                                   "[data-role='cascade-fixed-point']"))))
+                                        (.querySelector root
+                                                        "[data-role='cascade-fixed-point']"))))
                            nil))))
             (.then (fn []
                      (is (= 2 (:n (rf/app-db-value f)))

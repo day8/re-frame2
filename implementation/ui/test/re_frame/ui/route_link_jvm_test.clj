@@ -59,8 +59,8 @@
 (deftest route-link-embeds-as-an-ordinary-component-child
   (testing "a parent view embeds [ui/route-link ...] with no special-casing"
     (let [f    (rf/make-frame {:initial-events [[:rf/set-db {}]]})
-          tree (uit/render [nav {:label "Home"}] {:frame f})
-          a    (uit/find tree :a)]
+          tree (rf/with-frame f (uit/render [nav {:label "Home"}]))
+          a    (some #(when (= :a (:tag %)) %) (tree-seq map? :children tree))]
       (is (some? a) "the route-link rendered a real <a> inside the wrapper")
       (is (= "Home" (uit/text a)))
       (is (= "/home" (:href (uit/attrs a))))
@@ -74,8 +74,8 @@
 (deftest jvm-renders-a-handler-free-path-form-anchor
   (testing "the JVM/SSR tree is a real <a> with the path-form href and children, no on-click"
     (let [f     (rf/make-frame {:initial-events [[:rf/set-db {}]]})
-          tree  (uit/render [ui/route-link {:to :route/home} "Home"] {:frame f})
-          a     (uit/find tree :a)]
+          tree  (rf/with-frame f (uit/render [ui/route-link {:to :route/home} "Home"]))
+          a     (some #(when (= :a (:tag %)) %) (tree-seq map? :children tree))]
       (is (= :a (:tag a)) "renders a real anchor element")
       (is (= "/home" (:href (uit/attrs a))) "path-form (identity encode) href on the SSR shell")
       (is (= "Home" (uit/text a)) "children pass through")
@@ -86,21 +86,21 @@
 (deftest jvm-encodes-route-params
   (testing "path params synthesise into the path-form href"
     (let [f    (rf/make-frame {:initial-events [[:rf/set-db {}]]})
-          tree (uit/render [ui/route-link {:to :route/user :params {:id "42"}} "User"]
-                           {:frame f})]
-      (is (= "/users/42" (:href (uit/attrs (uit/find tree :a))))))))
+          tree (rf/with-frame f
+                 (uit/render [ui/route-link {:to :route/user :params {:id "42"}} "User"]))]
+      (is (= "/users/42" (:href (uit/attrs (some #(when (= :a (:tag %)) %) (tree-seq map? :children tree)))))))))
 
 (deftest jvm-forwards-arbitrary-passthrough-attrs
   (testing "class / aria / data / title / target / download reach the anchor (mechanical passthrough — MIG-32)"
     (let [f    (rf/make-frame {:initial-events [[:rf/set-db {}]]})
-          tree (uit/render [ui/route-link {:to :route/home
-                                           :class "btn"
-                                           :title "Go home"
-                                           :aria-label "Home"
-                                           :data-testid "home-link"
-                                           :target "_blank"} "Home"]
-                           {:frame f})
-          at   (uit/attrs (uit/find tree :a))]
+          tree (rf/with-frame f
+                 (uit/render [ui/route-link {:to :route/home
+                                             :class "btn"
+                                             :title "Go home"
+                                             :aria-label "Home"
+                                             :data-testid "home-link"
+                                             :target "_blank"} "Home"]))
+          at   (uit/attrs (some #(when (= :a (:tag %)) %) (tree-seq map? :children tree)))]
       (is (= "/home" (:href at)))
       (is (= "btn" (:class at)))
       (is (= "Go home" (:title at)))
@@ -124,13 +124,13 @@
       (fn []
         (let [f (rf/make-frame {:initial-events [[:rf/set-db {}]]})]
           (is (= :rf.error/routing-artefact-missing
-                 (err-id #(uit/render [ui/route-link {:to :route/home} "Home"] {:frame f})))
+                 (err-id #(rf/with-frame f (uit/render [ui/route-link {:to :route/home} "Home"]))))
               "the ui view fails loud at the link site, not a half-formed anchor")))))
   (testing "the thrown message names the missing routing artefact + Maven coord"
     (with-hook-as-nil :routing/link-model
       (fn []
         (let [f   (rf/make-frame {:initial-events [[:rf/set-db {}]]})
-              msg (try (uit/render [ui/route-link {:to :route/home} "Home"] {:frame f})
+              msg (try (rf/with-frame f (uit/render [ui/route-link {:to :route/home} "Home"]))
                        ""
                        (catch clojure.lang.ExceptionInfo e (.getMessage e)))]
           (is (str/includes? msg "day8/re-frame2-routing"))

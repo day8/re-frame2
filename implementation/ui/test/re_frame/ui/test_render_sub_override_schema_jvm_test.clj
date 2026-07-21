@@ -60,10 +60,10 @@
           errors (collect-errors
                    (fn []
                      (reset! tree
-                             (uit/render counter
-                                         {:frame f
-                                          :sub-overrides {[:count/value] "not-an-int"}}))))]
-      (is (= "n=" (uit/text (uit/find @tree :span)))
+                             (rf/with-frame f
+                               (uit/render [counter]
+                                           {:sub-overrides {[:count/value] "not-an-int"}})))))]
+      (is (= "n=" (uit/text (some #(when (= :span (:tag %)) %) (tree-seq map? :children @tree))))
           "the violating override is replaced-with-default (nil), so only the
            literal prefix renders — the impossible value never reaches the tree")
       (let [failure (first (filter #(= :rf.error/schema-validation-failure
@@ -81,10 +81,10 @@
           errors (collect-errors
                    (fn []
                      (reset! tree
-                             (uit/render counter
-                                         {:frame f
-                                          :sub-overrides {[:count/value] 42}}))))]
-      (is (= "n=42" (uit/text (uit/find @tree :span)))
+                             (rf/with-frame f
+                               (uit/render [counter]
+                                           {:sub-overrides {[:count/value] 42}})))))]
+      (is (= "n=42" (uit/text (some #(when (= :span (:tag %)) %) (tree-seq map? :children @tree))))
           "the conforming override renders unchanged")
       (is (not-any? #(= :rf.error/schema-validation-failure (:operation %)) errors)
           "no schema-validation-failure for a conforming override"))))
@@ -97,10 +97,10 @@
           errors (collect-errors
                    (fn []
                      (reset! tree
-                             (uit/render counter
-                                         {:frame f
-                                          :sub-overrides {[:count/value] 99}}))))]
-      (is (= "n=99" (uit/text (uit/find @tree :span)))
+                             (rf/with-frame f
+                               (uit/render [counter]
+                                           {:sub-overrides {[:count/value] 99}})))))]
+      (is (= "n=99" (uit/text (some #(when (= :span (:tag %)) %) (tree-seq map? :children @tree))))
           "any override value renders when the sub declares no schema")
       (is (not-any? #(= :rf.error/schema-validation-failure (:operation %)) errors)
           "no validation runs when the sub has no :schema"))))

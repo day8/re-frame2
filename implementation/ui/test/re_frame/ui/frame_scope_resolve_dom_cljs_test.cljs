@@ -306,7 +306,7 @@
              (fn []
                (with-console-error-capture warnings
                  (fn []
-                   (uit/flush! #(uit/dispatch! :app/live [:test/set-db {:n 43}]))))))
+                   (uit/flush! #(rf/dispatch-sync [:test/set-db {:n 43}] {:frame :app/live}))))))
             (.then
              (fn []
                (is (re-find #"n=43" (.-innerHTML c))
@@ -374,7 +374,7 @@
                    ;; React warns. Yield to the host macrotask queue (draining the
                    ;; whole microtask cascade) and poll to the fixed point where
                    ;; the real warning has been caught.
-                   (uit/dispatch! :app/unacted [:test/set-db {:n 43}])
+                   (rf/dispatch-sync [:test/set-db {:n 43}] {:frame :app/unacted})
                    (drive-until! #(pos? @warnings) 30)))))
             (.then
              (fn []
