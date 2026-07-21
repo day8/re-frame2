@@ -98,10 +98,11 @@
                                         'ui/mount opts views)]
       (root/register-root-site! 'ui/mount root-id provenance ns-sym coords)
       (doseq [p plans] (root/register-plan-site! 'ui/mount p ns-sym coords))
-      (build/contribute! build/descriptors ns-sym root-id
-                         (root/root-descriptor
-                          {:root-id root-id :provenance provenance
-                           :views views :plans plans :ast ast})))))
+      (root/register-descriptor! root-id
+                                 (root/root-descriptor
+                                  {:root-id root-id :provenance provenance
+                                   :views views :plans plans :ast ast})
+                                 ns-sym))))
 
 (defn- snapshot
   "The observable state of all five build registries for the ambient build.

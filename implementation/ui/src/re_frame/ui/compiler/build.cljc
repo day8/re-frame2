@@ -869,15 +869,17 @@
   (merge-with (fn [ra rb] (merge-with merge ra rb)) a b))
 
 ;; ---------------------------------------------------------------------------
-;; Root/plan descriptor carrier (rf2-u53yy.1 S4)
+;; Root/plan/descriptor carrier (rf2-u53yy.1 S4 + S5)
 ;;
-;; Roots and plans are CALL SITES (`ui/mount` / `ui/create-root` / `ui/render!` /
-;; `ui/hydrate-root`), not defs, so unlike views (S2) they carry NO generated def
-;; whose analyzer var-meta could hold their descriptor. On the Shadow build path
-;; each site is instead stamped onto a SYNTHETIC per-namespace descriptor in the
-;; analyzer namespace map (variant B, S0 proof rf2-u53yy.1.1): a single ns-level
-;; key `[::namespaces <ns> :rf.ui/root-plan-descriptor]` accumulating this
-;; namespace's `{:roots [..] :plans [..]}` sites. Shadow persists the whole ns
+;; Roots, plans, and Root Descriptors are CALL SITES (`ui/mount` / `ui/create-root`
+;; / `ui/render!` / `ui/hydrate-root`), not defs, so unlike views (S2) they carry NO
+;; generated def whose analyzer var-meta could hold their descriptor. On the Shadow
+;; build path each site is instead stamped onto a SYNTHETIC per-namespace descriptor
+;; in the analyzer namespace map (variant B, S0 proof rf2-u53yy.1.1): a single
+;; ns-level key `[::namespaces <ns> :rf.ui/root-plan-descriptor]` accumulating this
+;; namespace's `{:roots [..] :plans [..] :descriptors [..]}` sites — S5 folds the
+;; Root Descriptor index onto the SAME carrier (one carrier for all three call-site
+;; registries) rather than inventing a new key. Shadow persists the whole ns
 ;; analyzer entry to its disk cache and RESTORES it under
 ;; `[:compiler-env :cljs.analyzer/namespaces <ns>]` on a cache HIT, so the build
 ;; hook harvests the roots/plans registries from it at compile-finish — present
@@ -898,18 +900,21 @@
   :rf.ui/root-plan-descriptor)
 
 (defn stamp-root-plan-site!
-  "Accumulate one Layer-1 `site` under `sub-key` (`:roots` | `:plans`) in the live
-  analyzer map's SYNTHETIC per-namespace descriptor for `ns-sym` — the S4
-  variant-B carrier. Called at macro expansion on a real Shadow build pass
-  (`register-root-site!` / `register-plan-site!` gate on `shadow-build-pass?`) in
-  place of the per-source slice contribution: the whole-build roots/plans
+  "Accumulate one Layer-1 `site` under `sub-key` (`:roots` | `:plans` |
+  `:descriptors`) in the live analyzer map's SYNTHETIC per-namespace descriptor for
+  `ns-sym` — the S4 variant-B carrier, extended to carry the Root Descriptor index
+  too (rf2-u53yy.1 S5): all three call-site registries ride ONE carrier. Called at
+  macro expansion on a real Shadow build pass (`register-root-site!` /
+  `register-plan-site!` / `register-descriptor!` gate on `shadow-build-pass?`) in
+  place of the per-source slice contribution: the whole-build roots/plans/descriptor
   registries are then harvested from this carrier at compile-finish, present
   identically for a cache-hit member and a freshly compiled one. A `:roots` site is
   `{:root-id .. :row {:file .. :line .. :provenance ..}}`; a `:plans` site is
-  `{:frame-id .. :row {:config-fingerprint .. :file .. :line ..}}` (the same row
-  shape the slice path contributes off the Shadow path). A direct `swap!` on the
-  per-thread compiler env (parallel builds each own theirs); a no-op when no
-  compiler env is bound (never reached — the caller gates on a live Shadow pass)."
+  `{:frame-id .. :row {:config-fingerprint .. :file .. :line ..}}`; a `:descriptors`
+  site is `{:root-id .. :row <Root Descriptor v1>}` (the same row the slice path
+  contributes off the Shadow path). A direct `swap!` on the per-thread compiler env
+  (parallel builds each own theirs); a no-op when no compiler env is bound (never
+  reached — the caller gates on a live Shadow pass)."
   [ns-sym sub-key site]
   #?(:clj (when-let [a (compiler-env-atom)]
             (swap! a update-in
@@ -925,20 +930,25 @@
   (select-keys row [:file :line]))
 
 (defn harvest-root-plan-registries
-  "PURE: fold the SYNTHETIC analyzer-map root/plan descriptors of every
+  "PURE: fold the SYNTHETIC analyzer-map root/plan/descriptor sites of every
   authoritative `members` namespace in `build-state` into per-source registry rows
-  `{source {::roots {root-id row} ::plans {frame-id row}}}`. Reads
+  `{source {::roots {root-id row} ::plans {frame-id row} ::descriptors {root-id
+  descriptor}}}`. Reads
   `[:compiler-env :cljs.analyzer/namespaces <ns> :rf.ui/root-plan-descriptor]` —
-  Shadow's disk-cache-durable variant-B carrier (rf2-u53yy.1 S4), present
-  identically for a cache-hit member and a freshly compiled one. Same-namespace
-  re-declaration replaces (a source's own later site wins — watch/HMR tolerance);
-  the cross-NAMESPACE Layer-1 laws run HERE (a compile-finish error is still a
-  build-time error): two namespaces resolving one root-id THROW
-  `::duplicate-root-id`; two namespaces carrying DIFFERING config fingerprints for
-  one frame-id THROW `::frame-payload-conflict` (matching fingerprints are the
-  ratified idempotent no-op). Members are folded in sorted order so the reported
-  evidence is stable under every graph permutation. Empty (no root/plan sites in
-  the build) yields `{}`, so the finish overlay is a no-op for a mount-free build."
+  Shadow's disk-cache-durable variant-B carrier (rf2-u53yy.1 S4, extended to the
+  Root Descriptor index at S5), present identically for a cache-hit member and a
+  freshly compiled one. Same-namespace re-declaration replaces (a source's own later
+  site wins — watch/HMR tolerance); the cross-NAMESPACE Layer-1 laws run HERE (a
+  compile-finish error is still a build-time error): two namespaces resolving one
+  root-id THROW `::duplicate-root-id`; two namespaces carrying DIFFERING config
+  fingerprints for one frame-id THROW `::frame-payload-conflict` (matching
+  fingerprints are the ratified idempotent no-op). Root Descriptors ride alongside
+  their root sites keyed by the SAME root-id (every `:descriptors` site is stamped
+  at a site that also stamps a `:roots` site), so the `::duplicate-root-id` law above
+  is their cross-namespace conflict check — no separate descriptor check is needed.
+  Members are folded in sorted order so the reported evidence is stable under every
+  graph permutation. Empty (no root/plan/descriptor sites in the build) yields `{}`,
+  so the finish overlay is a no-op for a mount-free build."
   [build-state members]
   (let [nss (get-in build-state [:compiler-env :cljs.analyzer/namespaces])]
     (loop [srcs        (sort-by str members)
@@ -952,7 +962,9 @@
               src-roots (reduce (fn [m {:keys [root-id row]}] (assoc m root-id row))
                                 {} (:roots d))
               src-plans (reduce (fn [m {:keys [frame-id row]}] (assoc m frame-id row))
-                                {} (:plans d))]
+                                {} (:plans d))
+              src-descs (reduce (fn [m {:keys [root-id row]}] (assoc m root-id row))
+                                {} (:descriptors d))]
           (doseq [[root-id row] src-roots]
             (when-let [{owner-row :row} (get root-owners root-id)]
               (throw
@@ -985,7 +997,8 @@
           (recur (rest srcs)
                  (cond-> regs
                    (seq src-roots) (assoc-in [ns-sym roots] src-roots)
-                   (seq src-plans) (assoc-in [ns-sym plans] src-plans))
+                   (seq src-plans) (assoc-in [ns-sym plans] src-plans)
+                   (seq src-descs) (assoc-in [ns-sym descriptors] src-descs))
                  (into root-owners
                        (map (fn [[rid row]] [rid {:source ns-sym :row row}]))
                        src-roots)
@@ -1144,15 +1157,16 @@
           ;; directly through the slice — the analyzer map is empty and the slice
           ;; rows carry through unchanged.)
           view-registries (harvest-view-registries build-state members)
-          ;; Roots + plans ride the disk-cache-durable SYNTHETIC per-namespace
-          ;; analyzer-map descriptor on the Shadow path (rf2-u53yy.1 S4). Their
-          ;; register-*-site! macros contribute NO slice row under a Shadow build
-          ;; pass, so harvest every authoritative member's root/plan sites from the
-          ;; carrier and overlay them onto the slice-derived rows of the other
-          ;; registries — a cache-hit member contributes its RESTORED sites
-          ;; identically to a freshly compiled one. The cross-namespace Layer-1 laws
-          ;; run inside the harvest. (Off the Shadow path the analyzer carrier is
-          ;; empty and the slice rows carry through unchanged.)
+          ;; Roots + plans + Root Descriptors ride the disk-cache-durable SYNTHETIC
+          ;; per-namespace analyzer-map descriptor on the Shadow path (rf2-u53yy.1
+          ;; S4 roots/plans, S5 folds descriptors onto the same carrier). Their
+          ;; register-*-site! / register-descriptor! macros contribute NO slice row
+          ;; under a Shadow build pass, so harvest every authoritative member's
+          ;; root/plan/descriptor sites from the carrier and overlay them onto the
+          ;; slice-derived rows of the other registries — a cache-hit member
+          ;; contributes its RESTORED sites identically to a freshly compiled one. The
+          ;; cross-namespace Layer-1 laws run inside the harvest. (Off the Shadow path
+          ;; the analyzer carrier is empty and the slice rows carry through unchanged.)
           root-plan-registries (harvest-root-plan-registries build-state members)
           snapshot {:build-id build-id
                     :registries (-> (:committed after)

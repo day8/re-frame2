@@ -522,6 +522,30 @@
                 :sites        [(dissoc conflict :config-fingerprint) coords]}})))
   nil)
 
+(defn register-descriptor!
+  "Index one root site's compile-emitted Root Descriptor (the build-artefact the
+  S5 tooling / Xray read through `descriptor-index`), keyed by `root-id`, owned by
+  its declaring namespace `ns-sym`.
+
+  On a real Shadow build PASS (rf2-u53yy.1 S5) the descriptor rides the SAME
+  SYNTHETIC per-namespace analyzer-map carrier as roots/plans (S4), under a
+  `:descriptors` sub-key, via `build/stamp-root-plan-site!` — so a warm cache-hit
+  source's descriptor is RESTORED from the disk cache without the macro re-running,
+  and the whole-build descriptor index is harvested from the carrier at
+  compile-finish. It contributes NO per-source slice row on that path. Every
+  descriptor is registered at a mount / hydrate site that ALSO registers a root site
+  under the same `root-id`, so the cross-namespace `:rf.error/duplicate-root-id`
+  law (`register-root-site!` off the Shadow path, `harvest-root-plan-registries` at
+  compile-finish on it) is the descriptor's conflict check too — no separate one is
+  needed. Off the Shadow path (plain-JVM / SSR, REPL — no compile-finish harvest)
+  the per-source slice contribution applies, the read path `descriptor-index` uses."
+  [root-id descriptor ns-sym]
+  (if (build/shadow-build-pass?)
+    (build/stamp-root-plan-site!
+     ns-sym :descriptors {:root-id root-id :row descriptor})
+    (build/contribute! build/descriptors ns-sym root-id descriptor))
+  nil)
+
 ;; ---------------------------------------------------------------------------
 ;; Root opts (contract §3)
 ;; ---------------------------------------------------------------------------
@@ -675,8 +699,7 @@
                        (register-plan-site! 'ui/mount p ns-sym coords))
               desc   (root-descriptor {:root-id root-id :provenance provenance
                                        :views views :plans plans :ast ast})
-              _      (build/contribute! build/descriptors ns-sym
-                                        root-id desc)
+              _      (register-descriptor! root-id desc ns-sym)
               body   (emit-cljs/emit-inline ast 'rf-ui-root)]
           `(re-frame.ui.client/mount*
             {:root-id ~root-id
@@ -779,9 +802,11 @@
               (let [derived (:view-id (first views))]
                 (register-root-site! 'ui/hydrate-root derived :derived
                                      ns-sym coords)
-                (build/contribute! build/descriptors ns-sym derived
-                       (root-descriptor {:root-id derived :provenance :derived
-                                         :views views :plans plans :ast ast}))))
+                (register-descriptor!
+                 derived
+                 (root-descriptor {:root-id derived :provenance :derived
+                                   :views views :plans plans :ast ast})
+                 ns-sym)))
             (doseq [p plans]
               (register-plan-site! 'ui/hydrate-root p ns-sym coords))
             (let [body (emit-cljs/emit-inline ast 'rf-ui-root)]
