@@ -154,16 +154,16 @@ The build adapter uses the build tool's retained **functional build-state** as t
 transaction boundary:
 
 1. At compile prepare, disposable scratch is seeded from the incoming accepted snapshot;
-   isolated no-pass REPL bookkeeping and abandoned scratch are cleared. On a version-zero
-   daemon pass, retained output for every `re-frame.ui` cache-blocker-covered CLJS source is
-   removed before scheduling, so current registry macros reconstruct the initial accepted
-   snapshot instead of silently inheriting output whose macro side effects did not run.
-   Every source the build tool will actually compile is pre-touched: removing a source's
-   final UI declaration therefore evicts its prior rows even though no registry macro runs,
-   while output-present warm cache hits retain their accepted rows.
-2. Macro expansion writes scratch only. At compile finish, the adapter reconciles scratch
-   against the authoritative whole build graph and carries the candidate snapshot in the
-   returned compiler-env.
+   isolated no-pass REPL bookkeeping and abandoned scratch are cleared. Every source the
+   build tool will actually compile is pre-touched: removing a source's final UI declaration
+   therefore evicts its prior rows, while output-present warm cache hits retain their
+   accepted rows.
+2. At compile finish, the adapter harvests every authoritative member's descriptor — restored
+   from the build tool's disk cache for a cache-hit member and freshly stamped for a compiled
+   one — into the whole-build registries, and carries the candidate snapshot in the returned
+   compiler-env. Because the registries are a pure aggregation over cache-durable per-namespace
+   descriptors rather than a reconstruction of macro-expansion side effects, a warm daemon start
+   reuses the disk cache instead of re-expanding the UI-consuming namespace set.
 3. The build tool retains that returned state only if all later configured
    optimize/check/flush/watch work succeeds. A downstream failure discards the candidate;
    the next attempt seeds from the prior accepted snapshot. No external commit/rollback
@@ -174,13 +174,15 @@ have partially rewritten its raw output directory before reporting a late failur
 contract does not claim filesystem rollback for that directory. Consumers activate only
 successful build output.
 
-For Shadow 3.4.10 the build hook and top-level
-`:cache-blockers #{re-frame.ui}` are load-bearing: the hook supplies the transaction and
-version-zero retained-output invalidation; the blocker prevents those invalidated sources
-from being reloaded from stale disk cache. Together they ensure all macro-contributed
-members are present after a warm daemon start. A dev build that configures the hook but
-omits the cache blocker fails loudly at compile-prepare rather than proceeding with a
-plausible but incomplete warm-cache build.
+For Shadow the build hook is the one load-bearing top-level setting: it supplies the
+transaction and harvests the whole-build registries from the per-namespace analyzer
+descriptors the build tool persists to its disk cache and restores on a cache hit. Because
+those descriptors are present identically for a cache-hit member and a freshly compiled one,
+all members are present after a warm daemon start without disabling the cache — the earlier
+`:cache-blockers #{re-frame.ui}` requirement is removed (rf2-u53yy.1). The descriptor carrier
+is tested across shadow-cljs 3.4.0 through 3.4.11. A dev build that omits the hook publishes
+no registries; the failure surfaces at runtime, when a compiled view or root cannot be
+resolved.
 
 Dev-only: the descriptor projections (`re-frame.ui.client/descriptor` and
 `descriptor-index`) are `goog.DEBUG`-guarded and absent from advanced production output, so

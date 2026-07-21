@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 'use strict';
 
-// rf2-tm1xi (Arm 2 of rf2-4vm19) — a real Shadow 3.4.10 warm-watch/file-edit
-// fixture proving the re-frame.ui custom-element HARVEST TOPOLOGY survives real
-// warm edits, and that a removed/renamed saved source's `:build-sources` graph
-// delta evicts (or re-owns) its runtime declarations. It complements the
+// rf2-tm1xi (Arm 2 of rf2-4vm19) — a real Shadow warm-watch/file-edit fixture
+// proving the re-frame.ui custom-element HARVEST TOPOLOGY survives real warm
+// edits, that a removed/renamed saved source's `:build-sources` graph delta
+// evicts (or re-owns) its runtime declarations, and (rf2-u53yy.1 S6) that a real
+// daemon restart REUSES Shadow's disk cache for the UI-consuming sources without
+// re-expanding them. It complements the
 // synthetic JVM fixtures (compiler_harvest_hook_jvm_test / custom_element_
 // warm_staleness_jvm_test), which hand-build build state and cannot exercise a
 // real Shadow watch, real inherited-then-build-local hook deep-merge, or real
@@ -177,7 +179,7 @@ function setClientLeaf(mode) {
   fs.writeFileSync(CLIENT, next);
 }
 
-// --- shadow watch driver (mirrors check-ui-final-schedule.cjs) ---------------
+// --- shadow watch driver -----------------------------------------------------
 
 function watch() {
   const child = spawnHarnessProcess(process.execPath, [
@@ -387,20 +389,61 @@ async function failedCompileThenRetry(w) {
   console.log('  successful retry: build converged clean, :probe-card #{:model}');
 }
 
+// WARM DISK-CACHE REUSE — the S6 binary acceptance (rf2-u53yy.1). Stop the watch
+// daemon and start a FRESH one with the same cache-root and untouched sources: a
+// real cold-daemon start over a primed disk cache. Every UI-consuming source is a
+// genuine disk-cache HIT (`:view-cached true`), yet the view registry and the
+// custom-element manifest are RESTORED intact from the cache-durable analyzer
+// descriptors WITHOUT the macros re-running. This is the path the old
+// `:cache-blockers #{re-frame.ui}` tax used to disable; dropping it is only
+// correct if this stays green. TEETH: revert the S6 build-hook cut-over (restore
+// the cache blocker) and `:view-cached` reads false — the sources recompile and
+// reuse never happens; break the compile-finish analyzer harvest and
+// `:view-present` reads false on the cache-hit restart.
+async function warmRestartReuse(w) {
+  await terminateProcessTree(w.child, { timeoutMs: 5000 });
+  await sleep(1500); // let the JVM release the cache-root / output locks (Windows)
+  const finBefore = countStage('finish'); // observe records accumulate across daemons
+  const w2 = watch();
+  try {
+    await w2.waitSuccess(0);
+    await awaitRecord('finish', finBefore);
+    const fin = lastOfStage('finish');
+    if (str(fin, 'accepted-build-id') !== ':ui-warm-watch') {
+      fail(`warm restart: accepted build id regressed (${str(fin, 'accepted-build-id')})`);
+    }
+    if (bool(fin, 'view-cached') !== true) {
+      fail(`warm restart: the consumer view was RE-COMPILED, not served from the disk cache — warm-cache reuse is not happening (${fin})`);
+    }
+    if (bool(fin, 'view-present') !== true) {
+      fail(`warm restart: the view registry was NOT restored from the analyzer descriptor on a disk-cache hit (${fin})`);
+    }
+    if (str(fin, 'card-props') !== '[:model]') {
+      fail(`warm restart: the custom-element manifest was not intact after the disk-cache restart (${str(fin, 'card-props')})`);
+    }
+  } catch (e) {
+    await terminateProcessTree(w2.child, { timeoutMs: 5000 });
+    throw e;
+  }
+  console.log('  warm restart: UI sources served from disk cache (:view-cached true), view registry + manifest RESTORED without re-expansion — WARM-CACHE REUSE PROVEN');
+  return w2;
+}
+
 async function drive() {
   console.log(`\n=== ${BUILD_ID} (real warm watch, parallel compile schedule) ===`);
-  const w = watch();
+  let active = watch();
   try {
-    await coldAccept(w);
-    await zeroDeclarationPass(w);
-    await declarationShrinkPass(w);
-    await sameNamespaceMovePass(w);
-    await renamePass(w);
-    await deletePass(w);
-    await failedCompileThenRetry(w);
+    await coldAccept(active);
+    await zeroDeclarationPass(active);
+    await declarationShrinkPass(active);
+    await sameNamespaceMovePass(active);
+    await renamePass(active);
+    await deletePass(active);
+    await failedCompileThenRetry(active);
+    active = await warmRestartReuse(active);
     console.log(`  PASS ${BUILD_ID}`);
   } finally {
-    await terminateProcessTree(w.child, { timeoutMs: 5000 });
+    await terminateProcessTree(active.child, { timeoutMs: 5000 });
   }
 }
 
