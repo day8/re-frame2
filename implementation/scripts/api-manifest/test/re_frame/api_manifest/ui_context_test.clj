@@ -269,9 +269,12 @@
   (testing "bad-tag — the '(write :‹s›)' fix keeps its value"
     (let [m (messages-for :rf.ui.compile/bad-tag)]
       (is (str/includes? m "(write :‹s›)"))))
-  (testing "unsupported-form — the React-hook arity keeps its counts"
+  (testing "unsupported-form — the host-hook arity keeps its counts"
+    ;; The host-hook arity message names the AUTHORED head (`ui/ref` /
+    ;; `react/use-effect` …) rather than a hardcoded `react/` prefix (rf2-u53yy.9),
+    ;; so the pinned interpolation is `‹authored›`, not `‹name›`.
     (let [m (messages-for :rf.ui.compile/unsupported-form)]
-      (is (str/includes? m "(react/‹name› …) takes"))
+      (is (str/includes? m "(‹authored› …) takes"))
       (is (str/includes? m "got ‹argc›"))))
   (testing "bad-ui-event — the callback names its site and offending binding"
     (let [m (messages-for :rf.ui.compile/bad-ui-event)]
