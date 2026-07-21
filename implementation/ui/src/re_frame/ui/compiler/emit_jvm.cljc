@@ -122,14 +122,28 @@
   `-Dre-frame.debug=false`). So a dev JVM/SSR render carries the SAME host-root
   evidence the CLJS emit stamps (byte-identical values via the one cross-host
   `re-frame.source-coords` projection), and a production SSR build drops it —
-  symmetric with the CLJS `:advanced` + goog.DEBUG=false DCE."
+  symmetric with the CLJS `:advanced` + goog.DEBUG=false DCE.
+
+  AUTHORED OWN VALUE WINS (rf2-x1nbv): the annotation only fills an attribute the
+  view author did NOT already supply as a LITERAL host-root attr — an authored
+  own value in `:static` is preserved, never overwritten. A DYNAMIC / `ui/spread`
+  / `ui/spread-safe`-caller authored value is layered OVER `:static` at runtime by
+  `tree/element` (dyn over static; caller under owned), so it already wins there;
+  this compile-time guard closes the remaining static path so the JVM law matches
+  the CLJS `annotate-host-root-props` set-if-absent law across the whole collision
+  matrix (static / dynamic / ui.spread / spread-safe)."
   [static annotate]
   (if annotate
-    (let [{:keys [source-coord view-tag]} annotate]
-      `(cond-> ~(or static {})
-         re-frame.interop/debug-enabled?
-         (assoc :data-rf2-source-coord ~source-coord
-                :data-rf-view ~view-tag)))
+    (let [{:keys [source-coord view-tag]} annotate
+          base (or static {})
+          ann  (cond-> {}
+                 (not (contains? base :data-rf2-source-coord))
+                 (assoc :data-rf2-source-coord source-coord)
+                 (not (contains? base :data-rf-view))
+                 (assoc :data-rf-view view-tag))]
+      (if (seq ann)
+        `(cond-> ~base re-frame.interop/debug-enabled? (merge ~ann))
+        (when (seq base) base)))
     (when (seq static) static)))
 
 (defn- emit-element [node]

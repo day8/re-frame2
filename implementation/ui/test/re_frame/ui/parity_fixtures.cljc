@@ -522,6 +522,26 @@
   [:div.attrish
    [:parity-attrish {:tab-index idx :role "note" :data-k "keep"}]])
 
+;; rf2-x1nbv — the host-root view-evidence AUTHORED-OWN-VALUE-WINS collision law.
+;; A view whose compiler-owned root authors `data-rf-view` /
+;; `data-rf2-source-coord` (the annotation spelling) keeps the AUTHORED value on
+;; BOTH emitters — the compiler evidence never overwrites it. The two hosts agree
+;; by construction (CLJS set-if-absent over the final props object; JVM
+;; static-form fills only absent keys / dyn layered over static), so a divergence
+;; in either annotation path fails the corpus.
+(defview collision-root
+  "Literal host-root attrs spelled like the annotation — authored values win."
+  [{:keys [tag]}]
+  [:div.collide {:data-rf-view "authored-view"
+                 :data-rf2-source-coord "authored-coord"
+                 :data-x tag}])
+
+(defview collision-safe-owned
+  "A `ui/spread-safe` OWNED map authors the annotation spelling — the owned own
+  value wins over the compiler evidence AND the caller (owned-wins)."
+  [{:keys [caller]}]
+  [:div.safe-collide (ui/spread-safe {:data-rf-view "owned-view"} caller)])
+
 ;; ---------------------------------------------------------------------------
 ;; Cases — pure data; the SINGLE corpus both hosts consume
 ;; ---------------------------------------------------------------------------
@@ -563,6 +583,9 @@
    :presence-toasts       presence-toasts
    :presence-inline       presence-inline
    :ce-attrish            custom-element-attrish
+   ;; rf2-x1nbv — host-root authored-collision law
+   :collision-root        collision-root
+   :collision-safe-owned  collision-safe-owned
    :page            page})
 
 (def cases
@@ -630,4 +653,8 @@
                                                                      {:id "n2" :label "two & <three>"}]}}
    {:id :ce-declared-attr-name :view :ce-attrish     :props {:idx "3"}}
    {:id :trusted-hostile      :view :trusted         :props {:markup "<a href=\"javascript:alert(1)\" target=\"_blank\">click</a><b>bold & raw</b>"}}
+   ;; rf2-x1nbv — the cross-host authored-collision matrix (static literal + a
+   ;; spread-safe owned map); both emitters preserve the authored value.
+   {:id :collision-root       :view :collision-root  :props {:tag "t"}}
+   {:id :collision-safe-owned :view :collision-safe-owned :props {:caller {:data-c "c"}}}
    {:id :page                 :view :page            :props {:items items-3 :on? true}}])

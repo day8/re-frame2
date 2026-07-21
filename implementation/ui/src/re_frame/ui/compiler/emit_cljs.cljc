@@ -344,6 +344,15 @@
   The props object is mutated in place BEFORE it reaches the JSX runtime, exactly
   as the trusted-markup spread branch sets `dangerouslySetInnerHTML`.
 
+  AUTHORED OWN VALUE WINS (rf2-x1nbv): each attribute is stamped ONLY when the
+  props object does not already carry it — an author-supplied own value (a literal
+  pair, a dynamic attr, a `ui/spread` merge, or a `ui/spread-safe` result) is never
+  overwritten. This is the adapter / trust-programmer law: because this runs over
+  the FINAL props object (after every spread/spread-safe merge), the surviving
+  authored value wins uniformly, and the JVM `static-form` twin matches it. The
+  `unchecked-get` presence reads sit INSIDE the `goog.DEBUG` gate, so they DCE with
+  the stamp under :advanced + goog.DEBUG=false.
+
   The per-commit integer `render-key` is deliberately NOT stamped here: it is
   minted at CONNECTED COMMIT in the ViewCell layout effect (`reactive/commit*`),
   which runs AFTER this child host element has already committed, so no honest
@@ -353,8 +362,10 @@
   (let [p (gensym "rf-ui-host-root")]
     `(let [~p ~props-form]
        (when ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
-         (cljs.core/unchecked-set ~p "data-rf2-source-coord" ~source-coord)
-         (cljs.core/unchecked-set ~p "data-rf-view" ~view-tag))
+         (when (cljs.core/undefined? (cljs.core/unchecked-get ~p "data-rf2-source-coord"))
+           (cljs.core/unchecked-set ~p "data-rf2-source-coord" ~source-coord))
+         (when (cljs.core/undefined? (cljs.core/unchecked-get ~p "data-rf-view"))
+           (cljs.core/unchecked-set ~p "data-rf-view" ~view-tag)))
        ~p)))
 
 (defn- jsx-call
