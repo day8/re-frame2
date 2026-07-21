@@ -388,7 +388,9 @@ Every `:rf.ui.compile/*` diagnostic the compiler's front-door analyzers raise, e
 - **`:rf.ui.compile/bare-fn-prop`**
   - bare fn at non-event prop ‹k› — bare fns are legal only in known native event properties (:on-* on DOM/custom elements). Use ui/raw-fn for identity-as-protocol callbacks
   - bare fn prop ‹k› at a foreign-component boundary — invoker and phase are unknown there. Choose ui/raw-fn (identity-as-protocol), ui/event (returns the event vector to dispatch), ui/handler (imperative work), or ui/render-fn (a compiled render slot) — never a bare fn
-- **`:rf.ui.compile/bare-fn-ref`** — bare fn in :ref — the bare-fn shorthand applies only to native event properties, never refs. A callback ref must be explicit: (ui/raw-fn f); object refs are preferred
+- **`:rf.ui.compile/bare-fn-ref`**
+  - bare fn in :ref — the bare-fn shorthand applies only to native event properties, never refs. A callback ref must be explicit: (ui/raw-fn f); object refs are preferred
+  - bare fn in :ref at a foreign component — the bare-fn shorthand applies only to native event properties, never refs. A callback ref must be explicit: (ui/raw-fn f); object refs are preferred
 - **`:rf.ui.compile/capability-in-fallback`** — ‹context› must be CAPABILITY-FREE — the JVM/SSR and first hydration render it deterministically, then the client swaps in the live subtree, so a capability here would tear on hydration. Found ‹found›. A fallback is static markup (structure, props, branches, ui/html); move reactive reads, host state/effects, and event handlers into the client subtree
 - **`:rf.ui.compile/children-not-accepted`** — view ‹info› does not accept children — it declares none (:children in the header destructuring, an :as binding, or a [:children ...] schema entry would declare them). Q4 pin
 - **`:rf.ui.compile/children-prop`** — :children as an explicit prop at a call site — children are positional ([view {...} child1 child2]) and arrive as :children on the definition side. One spelling per concept
