@@ -1,10 +1,10 @@
 (ns re-frame.ui.fingerprint
   "The NAMED HOME of the compiled-view identity digests (S0 coverage-pass
-  addendum, rf2-vxgfnd.2): `template-fingerprint`, `hook-signature-hash`,
-  and `build-digest`. `render-fingerprint` and normalization `N` are NOT
+  addendum, rf2-vxgfnd.2): `template-fingerprint` and `hook-signature-hash`.
+  `render-fingerprint` and normalization `N` are NOT
   here — they stay owned by jvm-tree-and-conversion-contract.md / Spec 011.
 
-  ## The algorithm (shared by all three)
+  ## The algorithm (shared by all)
 
       digest  = FNV-1a 64-bit over the UTF-8 bytes of the canonical-EDN
                 serialisation of the input form
@@ -38,17 +38,6 @@
                             re-serialises every hook signature: a deliberate
                             one-time global remount wave when S3 lands (pre-
                             alpha, no shim).
-      build-digest          \"bd1-\"  input: the SORTED vector of the build's
-                            identity rows, each `[row-key & values]` (sorted
-                            by row-key so the digest is compile-order
-                            independent). The caller supplies the rows; the
-                            compiler's build slice contributes one per view
-                            ([[::views view-id] template-fingerprint
-                            hook-signature]) and one per custom-element
-                            declaration ([[::elements tag] declaration]) —
-                            element :properties decide attribute-vs-property
-                            emission, so they are build output, not
-                            bookkeeping (rf2-0wvoj)
       config-fingerprint    \"cf1-\"  input: [frame-id config-source-map]
                             — a root form's static frame plan (S1c,
                             root-identity contract §6): the frame-root's
@@ -107,7 +96,7 @@
 ;; `(->RecB 1)`, and `{:x 1}` — three pairwise-UNEQUAL values — all encoded as
 ;; the plain map `{:x 1}` and digested identically. That is the same class of
 ;; GUARANTEED pre-hash collision as the pre-#5745 set flattening, and it lands
-;; on the same failure mode: `config-fingerprint` / `build-digest` plan-conflict
+;; on the same failure mode: `config-fingerprint` plan-conflict
 ;; detection reads a false digest MATCH as "nothing changed", so a genuine plan
 ;; conflict is silently treated as an idempotent no-op. The `r` token therefore
 ;; carries the record's fully-qualified type name as its own leading `t` token,
@@ -293,14 +282,6 @@
   (digest "hs1-" [2 {:locals  (vec locals)
                      :effects (vec effects)
                      :react   (vec react)}]))
-
-(defn build-digest
-  "\"bd1-\" digest over the build's identity `rows` — each `[row-key & values]`
-  — sorted by row-key (compile-order independent). The compiler's build slice
-  supplies a row per view and a row per custom-element declaration; see the
-  namespace docstring for the row shapes."
-  [rows]
-  (digest "bd1-" (vec (sort-by (comp pr-str first) rows))))
 
 (defn config-fingerprint
   "\"cf1-\" digest of a static frame plan (S1c root-identity contract §6):

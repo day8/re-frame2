@@ -412,14 +412,13 @@
  ;; warm-cache start). Cost: defview/mount-consuming namespaces recompile on
  ;; daemon start; warm-watch incrementals are unaffected. (Follow-up: move the
  ;; contributions into cacheable analyzer data to recover caching.)
- ;; Whole-build digest publication: both settings are load-bearing and apply
- ;; once to every configured build. Shadow reads :cache-blockers from the
- ;; top-level config (and unions it into each build's build-options); the
- ;; blocker prevents stale disk-cache reload after the hook invalidates
- ;; retained UI-consumer output on a version-zero daemon pass. The hook seeds
- ;; scratch from the incoming accepted functional build-state, carries
- ;; the finalized candidate in the returned state, and patches the one dev-only
- ;; digest carrier. A later Shadow failure discards the returned candidate.
+ ;; Both settings are load-bearing and apply once to every configured build.
+ ;; Shadow reads :cache-blockers from the top-level config (and unions it into
+ ;; each build's build-options); the blocker prevents stale disk-cache reload
+ ;; after the hook invalidates retained UI-consumer output on a version-zero
+ ;; daemon pass. The hook seeds scratch from the incoming accepted functional
+ ;; build-state and carries the finalized candidate in the returned state. A
+ ;; later Shadow failure discards the returned candidate.
  :cache-blockers #{re-frame.ui}
  :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
 
@@ -592,7 +591,7 @@
   {:target    :node-test
    :output-to "out/node-test.js"
    :ns-regexp "cljs-test$"
-   ;; The compiler pass-boundary + digest-publication hook is inherited once
+   ;; The compiler pass-boundary hook is inherited once
    ;; from :build-defaults (rf2-n7ff9f); do not duplicate it per build.
    ;; rf2-try1x — silent-on-success reporter. Custom runner installs
    ;; the cljs.test/report defmethod overrides before discovery. Source
@@ -748,36 +747,9 @@
    :output-to "out/node-test-ui.js"
    :ns-regexp "^re-frame\\.ui\\..+-cljs-test$"
    :main      re-frame.test-quiet.shadow-node/main
-   ;; The load-bearing watch/digest hook is inherited from :build-defaults.
+   ;; The load-bearing watch hook is inherited from :build-defaults.
    :compiler-options {:warnings      {:redef false}
                        :infer-externs false}}
-
-  ;; Real Option-C transaction proof: a base module reads the compiler-patched
-  ;; carrier while a view declaration lives in an unexecuted lazy module. The
-  ;; runner keeps one watch daemon and browser alive across good / downstream-
-  ;; failed / good passes, proving warm recompilation and active-runtime LKG.
-  ;;
-  ;; Shadow serves the build's single :output-dir directly (dev-http :http-root
-  ;; points at it). A downstream :flush failure reverts the accepted compiler
-  ;; snapshot and the active runtime to last-known-good; it does NOT roll back
-  ;; the raw output directory — Shadow's output dir is Shadow's. The digest-probe
-  ;; test hook (deep-merged FIRST, after the build-default compile hook) injects
-  ;; the downstream :flush failure the runner drives.
-  :ui-digest-probe-lazy
-  {:target :browser
-   :output-dir "out/ui-digest-probe-lazy"
-   :asset-path "."
-   :modules
-   {:base {:entries [re-frame.ui.digest-probe.base]
-           :init-fn re-frame.ui.digest-probe.base/init}
-    :lazy {:entries [re-frame.ui.digest-probe.lazy]
-           :depends-on #{:base}}}
-   :devtools {:http-root "out/ui-digest-probe-lazy"
-              :http-port 8059}
-   ;; Deep-merged after the load-bearing build-default compile hook: the test
-   ;; hook runs at :flush after target output and injects a true downstream
-   ;; failure, proving the accepted compiler/runtime authority reverts.
-   :build-hooks [(re-frame.ui.digest-probe.build-hook/hook)]}
 
   ;; rf2-vxgfnd.6 — the G-1 direct-render parity gate (07 §5) for the
   ;; re-frame.ui compiled-view substrate. A :node-script RELEASE build
@@ -793,7 +765,7 @@
   {:target    :node-script
    :main      re-frame.ui.bench.main/-main
    :output-to "out/ui-bench.js"
-   ;; The load-bearing pass/digest hook is inherited from :build-defaults.
+   ;; The load-bearing pass hook is inherited from :build-defaults.
    :compiler-options {:optimizations :advanced
                       :infer-externs :auto}}
 

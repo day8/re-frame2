@@ -92,10 +92,9 @@
   1)
 
 (def descriptor-keys
-  "Root Descriptor v1 — the S1 compile-time static SUBSET, as
-  `re-frame.ui.compiler.root/root-descriptor` emits it plus the
-  read-time-projected `:build-digest` (004C §2/§2.1). Listed here as
-  DATA so the subset property is checkable rather than asserted."
+  "Root Descriptor v1 — the compile-time static key set, as
+  `re-frame.ui.compiler.root/root-descriptor` emits it (004C §2). Listed here
+  as DATA so the subset property is checkable rather than asserted."
   #{:rf.root/schema-version
     :root-id
     :root-id-provenance
@@ -103,8 +102,7 @@
     :props-shape
     :static-props
     :frame-plans
-    :template-fingerprint
-    :build-digest})
+    :template-fingerprint})
 
 (def extension-keys
   "The six render-time keys Root Manifest v1 ADDS to the descriptor

@@ -562,18 +562,6 @@ else
         cljs_node_test=true
         ui_gates=true
         ;;
-      implementation/scripts/check-ui-digest-carrier.cjs)
-        # This checker IS the real-browser digest-carrier proof hosted by
-        # cljs-browser. A checker-only PR must start that Playwright-owning
-        # job and satisfy the proof step's ui_gates condition; preserve the
-        # generic script coverage while widening it to the UI gate.
-        cljs_node_test=true
-        cljs_browser=true
-        cljs_prod=true
-        bundle_isolation=true
-        reagent_slim_bundle=true
-        ui_gates=true
-        ;;
       implementation/reply-conformance/*|implementation/derivation-conformance/*|implementation/event-conformance/*)
         # rf2-dxndhc — the three EP cross-conformance tiers
         # (reply-conformance / derivation-conformance / event-conformance)

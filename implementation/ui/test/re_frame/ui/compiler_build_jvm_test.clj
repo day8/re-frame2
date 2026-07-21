@@ -104,13 +104,10 @@
                            :views views :plans plans :ast ast})))))
 
 (defn- snapshot
-  "The observable state of all five build registries + the build digest for
-  the ambient build. The descriptor index is read through
-  `root/descriptor-index` so its read-time `:build-digest` projection is part
-  of what clean-vs-incremental compares."
+  "The observable state of all five build registries for the ambient build.
+  The descriptor index is read through `root/descriptor-index`."
   []
   {:views       (build/aggregate build/views)
-   :digest      (compiler/current-build-digest)
    :roots       (root/build-roots)
    :plans       (root/build-plans)
    :descriptors (root/descriptor-index)
@@ -287,7 +284,7 @@
 
 (deftest drifted-private-carrier-with-missing-build-id-fails-loud
   (binding [cljs-env/*compiler*
-            (atom {build/accepted-snapshot-key {:registries {} :digest "d" :version 0}})]
+            (atom {build/accepted-snapshot-key {:registries {} :version 0}})]
     (let [ex (try (build/current-build-id) nil
                   (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? ex) "a private carrier missing its build id must not downgrade")
@@ -297,7 +294,7 @@
 (deftest private-carrier-disagreeing-with-present-shadow-id-fails-loud
   (binding [cljs-env/*compiler*
             (atom {build/accepted-snapshot-key {:build-id :app-a :registries {}
-                                                :digest "d" :version 1}
+                                                :version 1}
                    :shadow.build.cljs-bridge/state {:shadow.build/build-id :app-b}})]
     (let [ex (try (build/current-build-id) nil
                   (catch clojure.lang.ExceptionInfo ex ex))]
@@ -309,7 +306,7 @@
   ;; The current (non-drifted) path: bridge marker present with an AGREEING id.
   (binding [cljs-env/*compiler*
             (atom {build/accepted-snapshot-key {:build-id :app-a :registries {}
-                                                :digest "d" :version 1}
+                                                :version 1}
                    :shadow.build.cljs-bridge/state {:shadow.build/build-id :app-a}})]
     (is (= :app-a (build/current-build-id))
         "canonical marker + agreeing private id resolves to that id")))
@@ -379,14 +376,13 @@
             (atom {build/accepted-snapshot-key
                    {:build-id :app-a
                     :registries {'app.a {build/views {:a/view ["tfa" "hsa"]}}}
-                    :digest "d" :version 1}
+                    :version 1}
                    :shadow.build.cljs-bridge/state {:shadow.build/build-id :app-b}})]
     (doseq [[label read-fn]
             [[:aggregate          #(build/aggregate build/views)]
              [:committed-aggregate #(build/committed-aggregate build/views)]
              [:element-properties #(build/element-properties :x-el)]
-             [:pass-open?         #(build/pass-open?)]
-             [:finalized-digest   #(build/finalized-build-digest)]]]
+             [:pass-open?         #(build/pass-open?)]]]
       (testing (name label)
         (let [ex (try (read-fn) nil (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex)
@@ -416,7 +412,7 @@
   (binding [cljs-env/*compiler*
             (atom {build/accepted-snapshot-key
                    {:registries {'app.a {build/views {:a/view ["tfa" "hsa"]}}}
-                    :digest "d" :version 0}})]        ; NO :build-id
+                    :version 0}})]        ; NO :build-id
     (let [read-ex (try (build/aggregate build/views) nil
                        (catch clojure.lang.ExceptionInfo e e))]
       (is (= :re-frame.ui.compiler.build/private-build-id-unresolved
@@ -482,9 +478,7 @@
       (is (nil? (build/contribute! build/views 'app.a :a/view ["tfa" "hsa"]))
           "a matched carrier accepts the write")
       (is (= {:a/view ["tfa" "hsa"]} (build/aggregate build/views))
-          "and the read exposes the staged row")
-      (is (string? (build/finalized-build-digest))
-          "and the digest read resolves"))
+          "and the read exposes the staged row"))
     (let [finished (build/shadow-finish-candidate {:compiler-env @carrier}
                                                   :app '#{app.a})]
       (is (= :app (get-in finished [:snapshot :build-id]))
@@ -549,7 +543,7 @@
                                          :shared/card [:section "v2"] 1))
           "the same declaration may replace itself during an open pass")
       (is (not= v1 (get (build/aggregate build/views :app) :shared/card))
-          "same-var HMR publishes the replacement digest"))
+          "same-var HMR publishes the replacement view identity"))
     (build/commit-build! :app)
     (is (= 1 (count (build/aggregate build/views :app)))))
   ;; No-pass REPL re-evaluation is the other same-var replacement path.
@@ -735,159 +729,7 @@
         (is (= #{:page/cart} (set (keys (:descriptors incremental)))) "descriptor :page/shop gone")
         (is (contains? (:elements incremental) :y-el))
         (is (not (contains? (:elements incremental) :x-el))          "custom-element :x-el gone")
-        (is (= 1 (count (:views incremental)))                        "view foo gone, only bar"))
-      (testing "the digest is a function of the CURRENT declared facts — no ghost of the pre-edit source"
-        (is (= (:digest clean) (:digest incremental)))))))
-
-;; ---------------------------------------------------------------------------
-;; The descriptor :build-digest is a READ-TIME projection (rf2-vxgfnd.47) —
-;; compile-order independent + never stale under an incremental view edit.
-;; ---------------------------------------------------------------------------
-
-(deftest descriptor-digest-is-compile-order-independent-and-covers-all-views
-  ;; ORDER 1: the mount site expands BEFORE the rest of the build's views
-  (build/begin-build! :app)
-  (declare-view! 'app.a 'a-view [:div "a"])
-  (mount-site!   'app.m "app/m.cljs" '[app-view {}] {:root-id :page/m})
-  (declare-view! 'app.b 'b-view [:section "b"])
-  (build/commit-build! :app)
-  (let [digest-1 (get-in (root/descriptor-index) [:page/m :build-digest])]
-    (is (= (compiler/current-build-digest) digest-1)
-        "the descriptor digest reflects ALL build views (a-view AND b-view)")
-    ;; ORDER 2: same two views, but the mount site expands LAST
-    (build/reset-build!)
-    (build/begin-build! :app)
-    (declare-view! 'app.b 'b-view [:section "b"])
-    (declare-view! 'app.a 'a-view [:div "a"])
-    (mount-site!   'app.m "app/m.cljs" '[app-view {}] {:root-id :page/m})
-    (build/commit-build! :app)
-    (is (= digest-1 (get-in (root/descriptor-index) [:page/m :build-digest]))
-        "same whole-build digest whether the mount site expands first or last")))
-
-(deftest descriptor-digest-tracks-an-incremental-view-only-edit
-  (build/begin-build! :app)
-  (mount-site!   'app.m "app/m.cljs" '[app-view {}] {:root-id :page/m})
-  (declare-view! 'app.v 'v-view [:div "one"])
-  (build/commit-build! :app)
-  (let [d1 (get-in (root/descriptor-index) [:page/m :build-digest])]
-    (is (= (compiler/current-build-digest) d1))
-    ;; INCREMENTAL pass: recompile ONLY the view file. The mount site is NOT
-    ;; re-expanded — under baked-at-expansion its descriptor would keep the OLD
-    ;; digest; the read-time projection tracks the new whole-build digest.
-    (build/begin-build! :app)
-    (declare-view! 'app.v 'v-view [:div "two"])
-    (build/commit-build! :app)
-    (let [d2 (get-in (root/descriptor-index) [:page/m :build-digest])]
-      (is (not= d1 d2) "the view edit changed the whole-build digest")
-      (is (= (compiler/current-build-digest) d2)
-          "the un-re-expanded mount-site descriptor reads the CURRENT digest (rf2-vxgfnd.47)"))))
-
-(deftest descriptor-digest-is-finalized-at-the-commit-boundary
-  ;; rf2-vxgfnd.68: the published digest reads the COMMITTED (last-known-good)
-  ;; view aggregate, so a read DURING an open / incomplete pass returns the last
-  ;; finalized identity — never a partial mid-pass mix of the staged edit. The
-  ;; digest advances only when the pass COMMITS.
-  (build/begin-build! :app)
-  (mount-site!   'app.m "app/m.cljs" '[app-view {}] {:root-id :page/m})
-  (declare-view! 'app.v 'v-view [:div "one"])
-  (build/commit-build! :app)
-  (let [committed-1 (get-in (root/descriptor-index) [:page/m :build-digest])]
-    ;; open an incremental pass and STAGE a view edit — do NOT commit yet.
-    (build/begin-build! :app)
-    (declare-view! 'app.v 'v-view [:div "two"])
-    (is (= committed-1 (get-in (root/descriptor-index) [:page/m :build-digest]))
-        "mid-pass read holds the last-known-good digest — the staged edit is not published")
-    (is (= committed-1 (compiler/current-build-digest))
-        "current-build-digest is the finalized (committed) identity, not the staged view")
-    ;; commit: NOW the finalized identity advances.
-    (build/commit-build! :app)
-    (is (not= committed-1 (get-in (root/descriptor-index) [:page/m :build-digest]))
-        "the digest advances only at the successful commit boundary")))
-
-;; ---------------------------------------------------------------------------
-;; The digest covers custom-element declarations too (rf2-0wvoj)
-;;
-;; The digest IS build identity. Custom-element `:properties` decide whether a
-;; prop is emitted as a DOM property or an attribute, so two builds whose
-;; element classification differs EMIT DIFFERENT DOM. A digest that folded only
-;; the view rows called those two builds identical, and everything keyed on the
-;; digest — caching, staleness, served-output freshness — inherited that lie.
-;;
-;; Each assertion below is driven by its OWN two-build fixture (rf2-wlqfq): the
-;; views are held byte-identical and ONLY the element declarations move, so the
-;; sole thing that can make the digests differ is the element fold. Dropping
-;; `elements` from `digest-for-slice` reds these and nothing else has to.
-;; ---------------------------------------------------------------------------
-
-(defn- digest-of
-  "Finalized whole-build digest of a fresh build authority containing exactly
-  what `declare!` contributes. Reset before AND after, so the value depends on
-  nothing a neighbouring test left behind."
-  [declare!]
-  (build/reset-build!)
-  (build/begin-build! :app)
-  (declare!)
-  (build/commit-build! :app)
-  (let [d (compiler/current-build-digest)]
-    (build/reset-build!)
-    d))
-
-(deftest digest-distinguishes-differing-custom-element-properties
-  ;; SAME view source, SAME tag, DIFFERENT :properties — different DOM, so the
-  ;; build identity must differ.
-  (let [with-help (digest-of (fn []
-                               (declare-view!    'app.a 'foo [:div "foo"])
-                               (declare-element! 'app.a :x-el #{:help-text})))
-        with-label (digest-of (fn []
-                                (declare-view!    'app.a 'foo [:div "foo"])
-                                (declare-element! 'app.a :x-el #{:label})))]
-    (is (not= with-help with-label)
-        "#{:help-text} vs #{:label} on the same tag classifies props differently (property vs attribute) — the digest must not call these one build")))
-
-(deftest digest-distinguishes-a-declared-element-from-no-declaration
-  ;; SAME view source; one build declares a custom element, the other declares
-  ;; none. An undeclared tag classifies every prop as an attribute.
-  (let [declared (digest-of (fn []
-                              (declare-view!    'app.a 'foo [:div "foo"])
-                              (declare-element! 'app.a :x-el #{:help-text})))
-        undeclared (digest-of (fn []
-                                (declare-view! 'app.a 'foo [:div "foo"])))]
-    (is (not= declared undeclared)
-        "adding a custom-element declaration changes what the build emits — the digest must advance")))
-
-(deftest digest-distinguishes-a-renamed-custom-element-tag
-  ;; SAME view source, SAME :properties, DIFFERENT tag.
-  (let [x-el (digest-of (fn []
-                          (declare-view!    'app.a 'foo [:div "foo"])
-                          (declare-element! 'app.a :x-el #{:help-text})))
-        y-el (digest-of (fn []
-                          (declare-view!    'app.a 'foo [:div "foo"])
-                          (declare-element! 'app.a :y-el #{:help-text})))]
-    (is (not= x-el y-el)
-        "renaming the declared tag re-points the classification — the digest must advance")))
-
-(deftest digest-is-stable-across-declaring-namespace-and-compile-order
-  ;; The complement, and the guard against "fix" by folding raw slice structure:
-  ;; the digest is a function of the DECLARED FACTS, not of which namespace
-  ;; declared them or in what order the macros expanded.
-  (let [a-first (digest-of (fn []
-                             (declare-view!    'app.a 'foo [:div "foo"])
-                             (declare-element! 'app.a :x-el #{:help-text})
-                             (declare-element! 'app.a :y-el #{:label})))
-        reordered (digest-of (fn []
-                               (declare-element! 'app.a :y-el #{:label})
-                               (declare-element! 'app.a :x-el #{:help-text})
-                               (declare-view!    'app.a 'foo [:div "foo"])))]
-    (is (= a-first reordered)
-        "compile order does not change build identity"))
-  (let [one-ns (digest-of (fn []
-                            (declare-view!    'app.a 'foo [:div "foo"])
-                            (declare-element! 'app.a :x-el #{:help-text})))
-        split-ns (digest-of (fn []
-                              (declare-view!    'app.a 'foo [:div "foo"])
-                              (declare-element! 'app.b :x-el #{:help-text})))]
-    (is (= one-ns split-ns)
-        "moving a declaration to another namespace declares the same fact — same identity")))
+        (is (= 1 (count (:views incremental)))                        "view foo gone, only bar")))))
 
 (deftest repeated-rebuilds-stay-bounded
   ;; correctness across a watch session — re-declaring the same namespace N

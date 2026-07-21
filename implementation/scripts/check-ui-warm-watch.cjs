@@ -25,12 +25,12 @@
 //      ran and its stage annotation is load-bearing.
 //   2. ZERO-DECLARATION warm pass — a viewless/declarationless trigger edit. The
 //      manifest is unchanged, the consumer view is a warm cache hit (coarse
-//      invalidation does NOT over-fire), the digest is stable.
+//      invalidation does NOT over-fire).
 //   3. DECLARATION-SHRINK warm pass — card drops :size. The harvest re-reads card
 //      (manifest :probe-card -> #{:model}) and the coarse manifest-change
-//      invalidation RECOMPILES the no-require-edge consumer view so it re-bakes;
-//      the digest moves. If the warm rebuild failed to re-harvest, the manifest
-//      would still read #{:model :size} -> RED.
+//      invalidation RECOMPILES the no-require-edge consumer view so it re-bakes.
+//      If the warm rebuild failed to re-harvest, the manifest would still read
+//      #{:model :size} -> RED.
 //   4. SAME-NAMESPACE FILE MOVE — leaf.cljs is relocated to the fixture's second
 //      source-path root, keeping its namespace. Because re-frame.ui's eviction
 //      unit is the declaring NAMESPACE (not the resource/file), :probe-leaf's
@@ -247,8 +247,6 @@ async function awaitRecord(stage, priorCount) {
 
 // --- the proof --------------------------------------------------------------
 
-let digestPrev;
-
 async function coldAccept(w) {
   await w.waitSuccess(0);
   await awaitRecord('finish', 0);
@@ -266,10 +264,7 @@ async function coldAccept(w) {
     fail(`cold accept: a probe namespace is missing from :build-sources (${fin})`);
   }
   if (bool(fin, 'view-present') !== true) fail(`cold accept: the consumer view is missing (${fin})`);
-  const digest0 = str(fin, 'digest');
-  if (!/^bd1-[0-9a-f]{16}$/.test(digest0)) fail(`cold accept: digest invalid (${digest0})`);
-  digestPrev = digest0;
-  console.log(`  cold accept: build id ${str(fin, 'accepted-build-id')}, :probe-card #{:model :size}, :probe-leaf #{:flag}, digest ${digest0}`);
+  console.log(`  cold accept: build id ${str(fin, 'accepted-build-id')}, :probe-card #{:model :size}, :probe-leaf #{:flag}`);
 }
 
 async function zeroDeclarationPass(w) {
@@ -286,10 +281,7 @@ async function zeroDeclarationPass(w) {
   if (str(fin, 'card-props') !== '[:model :size]' || str(fin, 'leaf-props') !== '[:flag]') {
     fail(`zero-declaration: a viewless edit perturbed the manifest (${fin})`);
   }
-  if (str(fin, 'digest') !== digestPrev) {
-    fail(`zero-declaration: a viewless edit moved the digest (${str(fin, 'digest')} != ${digestPrev})`);
-  }
-  console.log('  zero-declaration pass: manifest + digest stable, consumer view a warm cache hit');
+  console.log('  zero-declaration pass: manifest stable, consumer view a warm cache hit');
 }
 
 async function declarationShrinkPass(w) {
@@ -306,11 +298,7 @@ async function declarationShrinkPass(w) {
   if (bool(prep, 'view-output-present') !== false) {
     fail(`declaration-shrink: coarse invalidation did not recompile the no-require-edge consumer view (${prep})`);
   }
-  if (str(fin, 'digest') === digestPrev) {
-    fail(`declaration-shrink: shrinking :probe-card did not move the digest (${str(fin, 'digest')})`);
-  }
-  digestPrev = str(fin, 'digest');
-  console.log(`  declaration-shrink pass: :probe-card -> #{:model}, consumer view re-baked (coarse invalidation), digest ${digestPrev}`);
+  console.log('  declaration-shrink pass: :probe-card -> #{:model}, consumer view re-baked (coarse invalidation)');
 }
 
 async function sameNamespaceMovePass(w) {
@@ -394,9 +382,6 @@ async function failedCompileThenRetry(w) {
   const fin = lastOfStage('finish');
   if (str(fin, 'card-props') !== '[:model]') {
     fail(`retry: the fixed build did not converge to the last good manifest (${str(fin, 'card-props')})`);
-  }
-  if (!/^bd1-[0-9a-f]{16}$/.test(str(fin, 'digest'))) {
-    fail(`retry: converged digest invalid (${str(fin, 'digest')})`);
   }
   console.log('  successful retry: build converged clean, :probe-card #{:model}');
 }

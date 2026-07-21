@@ -2,7 +2,7 @@
   "The build-scoped compiler registries and Option-C acceptance transaction.
 
   A real Shadow build carries its own state. Its retained `:compiler-env`
-  contains one accepted `{build-id registries digest version}` snapshot and,
+  contains one accepted `{build-id registries version}` snapshot and,
   only while compiling, disposable scratch. Macro expansion mutates scratch
   through the bound `cljs.env/*compiler*` atom. Compile finish returns a new
   build-state containing the candidate snapshot; Shadow retaining that value
@@ -13,7 +13,7 @@
   One daemon can compile many build ids concurrently because each build's
   functional state and compiler-env are independent. JVM tooling outside a
   compiler binding must pass the explicit retained build-state it wants to
-  read (`accepted-snapshot`, `accepted-aggregate`, `accepted-build-digest`).
+  read (`accepted-snapshot`, `accepted-aggregate`).
 
   A compile slice has the shape:
 
@@ -37,13 +37,12 @@
 
   Direct no-pass REPL contributions use a separate overlay seeded from the
   accepted snapshot. They support immediate body/HMR diagnostics but never
-  change accepted registries or the digest; the next prepare clears the
+  change accepted registries; the next prepare clears the
   overlay and seeds fresh scratch from accepted state.
 
   `state` plus begin/commit/abort below remain only as a plain-JVM/test harness
   for the same pure slice transitions. They are not Shadow build authority."
-  (:require [re-frame.ui.eq :as eq]
-            [re-frame.ui.fingerprint :as fingerprint]))
+  (:require [re-frame.ui.eq :as eq]))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry ids (opaque keys naming the five build-scoped registries)
@@ -101,7 +100,6 @@
 (defn- empty-snapshot [build-id]
   {:build-id build-id
    :registries {}
-   :digest (fingerprint/build-digest [])
    :version 0})
 
 (def ^:private shadow-bridge-key
@@ -150,7 +148,7 @@
 (defn accepted-snapshot
   "Return the accepted re-frame.ui snapshot carried by an explicit Shadow
   build-state/compiler-env. This is the only JVM read of a real build's
-  finalized registries and digest; callers must name the build-state they mean.
+  finalized registries; callers must name the build-state they mean.
   Returns an empty version-0 snapshot when the build has not yet succeeded."
   [build-state-or-compiler-env]
   (let [compiler-env (or (:compiler-env build-state-or-compiler-env)
@@ -163,11 +161,6 @@
                      ::default)]
     (or (get compiler-env accepted-snapshot-key)
         (empty-snapshot build-id))))
-
-(defn accepted-build-digest
-  "Digest of an explicit accepted Shadow build-state/compiler-env."
-  [build-state-or-compiler-env]
-  (:digest (accepted-snapshot build-state-or-compiler-env)))
 
 (defn accepted-aggregate
   "Registry aggregate from an explicit accepted Shadow build-state/compiler-env.
@@ -762,42 +755,6 @@
   (reduce-kv (fn [m _src regs] (merge m (get regs reg-id)))
              {} (:committed slice)))
 
-(defn- digest-for-slice
-  "Pure whole-build digest of one finalized slice's committed build-identity
-  rows: the view rows AND the custom-element declarations.
-
-  Element declarations are in the fold because they are build OUTPUT, not
-  bookkeeping. A tag's declared `:properties` decide whether `ui/spread` emits
-  a prop as a DOM property or as an attribute (see `element-properties`), so
-  two builds with IDENTICAL view sources but different element classification
-  emit DIFFERENT DOM. The digest is build identity; folding only the views made
-  those two builds indistinguishable to every digest consumer — caching,
-  staleness detection, served-output freshness (rf2-0wvoj).
-
-  Declaration PROVENANCE is deliberately excluded: `element-declarations`
-  (tag -> owning ns) records WHO declared a fact, not WHAT the build emits, so
-  moving a declaration between namespaces must not change build identity.
-
-  Each row is keyed by `[reg-id k]`, so a view-id and an element tag can never
-  collide in the digest's sorted input."
-  [slice]
-  (fingerprint/build-digest
-   (into (mapv (fn [[id [tf hs]]] [[views id] tf hs])
-               (committed-rows slice views))
-         (map (fn [[tag decl]] [[elements tag] decl]))
-         (committed-rows slice elements))))
-
-(defn finalized-build-digest
-  "The accepted whole-build digest in the ambient compiler context, or the
-  plain-JVM fallback build's committed digest. Real Shadow tooling should use
-  `accepted-build-digest` with an explicit retained build-state."
-  ([]
-   (if-let [compiler-state #?(:clj (validated-compiler-state) :cljs nil)]
-     (:digest (accepted-snapshot compiler-state))
-     (finalized-build-digest (current-build-id))))
-  ([build-id]
-   (digest-for-slice (get @state build-id empty-slice))))
-
 (defn prepare-shadow-build
   "Purely open a disposable pass in `build-state` from its incoming accepted
   snapshot. Dirty scratch from an abandoned compile and every no-pass REPL
@@ -824,7 +781,7 @@
 (defn shadow-finish-candidate
   "Derive, but do not externally publish, the successful compiler candidate
   from `build-state`'s disposable scratch. The snapshot version advances once
-  per finalized pass and its digest is computed exactly once.
+  per finalized pass.
 
   Before deriving anything, the supplied `build-id` is validated against
   re-frame.ui's OWN accepted private carrier and any still-present Shadow bridge
@@ -876,13 +833,10 @@
                  :recovery :reconcile-custom-element-declarations
                  :tag (:tag c)
                  :declarations (:declarations c)})))
-          digest (digest-for-slice after)
           snapshot {:build-id build-id
                     :registries (:committed after)
-                    :digest digest
                     :version (inc (long (or (:version accepted) 0)))}]
-      {:snapshot snapshot
-       :digest digest})))
+      {:snapshot snapshot})))
 
 (defn carry-shadow-candidate
   "Purely associate `candidate` into the returned Shadow build-state and drop
@@ -895,17 +849,14 @@
 
 (defn finish-candidate
   "Purely derive `build-id`'s successful whole-build finish without publishing
-  it. Returns an opaque candidate containing the observed slice, finalized
-  slice and its compiler-owned whole-build digest. The Shadow hook must first
-  project that digest into exactly one carrier output; only then may it call
-  `commit-finish-candidate!`."
+  it. Returns an opaque candidate containing the observed slice and the
+  finalized slice; the Shadow hook then calls `commit-finish-candidate!`."
   [build-id members]
   (let [before (get @state build-id empty-slice)
         after  (-> before commit-slice (keep-members (set members)))]
     {:build-id build-id
      :before before
-     :after after
-     :digest (digest-for-slice after)}))
+     :after after}))
 
 (defn commit-finish-candidate!
   "Publish a previously derived finish candidate iff its build slice has not

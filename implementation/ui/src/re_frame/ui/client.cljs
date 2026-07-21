@@ -65,7 +65,6 @@
             [re-frame.error :as error]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            [re-frame.ui.digest-carrier :as digest-carrier]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.ui.frames :as frames]
             [re-frame.ui.reactive :as reactive]
@@ -264,80 +263,49 @@
      {:recovery :install-a-fresh-adapter})))
 
 ;; ---------------------------------------------------------------------------
-;; The COMPLETE Root Descriptor v1 — the client read-time projection (dev only)
+;; Root Descriptor v1 — the client read surface (dev only)
 ;; ---------------------------------------------------------------------------
 ;;
-;; Spec 004C §2 splits Root Descriptor v1 into a STATIC CORE (baked at
-;; expansion, NO `:build-digest` — it rides the emitted CLJS and each live-root
-;; entry's `:descriptor`) and the COMPLETE descriptor (static core PLUS the
-;; whole-build `:build-digest`). The digest is a READ-TIME projection on BOTH
-;; hosts, never baked: it is a whole-build aggregate the mount site cannot know
-;; at expansion — compile-order dependent AND stale under a view-only HMR edit
-;; (see `re-frame.ui.compiler.root/root-descriptor`). These fns are the CLIENT
-;; counterpart of the compiler's `re-frame.ui.compiler.root/descriptor-index`:
-;; they stamp the SAME compiler-finalized `:build-digest` onto the live-root
-;; static cores. The client does NOT derive identity from the set of modules
-;; currently loaded: compile-finish patches one dev-only carrier from the
-;; candidate whole-build snapshot; Shadow activates it only on successful
-;; build/watch completion, and client reads are O(1). Thus lazy/multi-entry
-;; loading cannot change identity, view-only HMR refreshes it without
-;; re-expanding a mount site, and unsaved no-pass REPL evaluation cannot mutate
-;; it. The whole carrier and these reads are goog.DEBUG-elided from production.
-
-(defn current-build-digest
-  "The client's whole-build view-identity digest (dev): the SAME compiler-
-  finalized digest. The compiler is the sole authority and publishes it into a
-  tiny dev-only carrier at the successful build boundary; this is an O(1)
-  read, independent of loaded modules and runtime registrar contents. nil in
-  production (goog.DEBUG=false)."
-  []
-  (digest-carrier/current))
+;; Root Descriptor v1 (Spec 004C §2) is per-root static facts, baked at
+;; expansion; it rides the emitted CLJS and each live-root entry's
+;; `:descriptor` (see `re-frame.ui.compiler.root/root-descriptor`). These fns
+;; are the CLIENT counterpart of the compiler's
+;; `re-frame.ui.compiler.root/descriptor-index`: they read the stored static
+;; descriptor off the live-root registry. The client does NOT derive identity
+;; from the set of modules currently loaded; reads are O(1). These reads are
+;; goog.DEBUG-elided from production.
 
 (defn descriptor
-  "The COMPLETE Root Descriptor v1 for live root `root-id` (dev): its static
-  core from the live-root registry, stamped with the current whole-build
-  `:build-digest` (`current-build-digest`) — the client read-time projection
-  (Spec 004C §2). During an active HMR digest fence, this returns the static
-  core with `:build-digest` nil. Consumers requiring a finalized-complete
-  descriptor must treat nil as not-yet-known; the static core alone does not
-  identify a build mid-fence. nil if `root-id` is not live, its entry carries
-  no descriptor yet (a `create-root` before its first `render!`), or in
-  production.
+  "Root Descriptor v1 for live root `root-id` (dev): the per-root static
+  descriptor from the live-root registry (Spec 004C §2). nil if `root-id` is
+  not live, its entry carries no descriptor yet (a `create-root` before its
+  first `render!`), or in production.
 
-  `goog.DEBUG`-gated, so the registry read and the `:build-digest` keyword cost
-  advanced production output zero bytes (Spec 004C §2: the descriptor/digest
-  projections are absent from production, not merely empty there). Before
-  rf2-vxgfnd.299 the nil was purely BEHAVIOURAL — `current-build-digest` folded
-  to nil and the registry was empty — while the lookup and the keyword literal
-  still shipped."
+  `goog.DEBUG`-gated, so the registry read costs advanced production output
+  zero bytes (Spec 004C §2: the descriptor read is absent from production, not
+  merely empty there)."
   [root-id]
   (when ^boolean js/goog.DEBUG
-    (when-let [d (:descriptor (get @live-roots root-id))]
-      (assoc d :build-digest (current-build-digest)))))
+    (:descriptor (get @live-roots root-id))))
 
 (defn descriptor-index
-  "Every live root's COMPLETE Root Descriptor v1 (dev): root-id -> static core
-  + the current whole-build `:build-digest`. The CLIENT counterpart of the
-  compiler's `re-frame.ui.compiler.root/descriptor-index` — the same shape and
-  the same (byte-identical) digest — the Xray / tool read surface for the live
-  runtime descriptors. During an active HMR digest fence, every included value
-  remains its static core with `:build-digest` nil. Consumers requiring
-  finalized-complete descriptors must treat nil as not-yet-known; the static
-  core alone does not identify a build mid-fence. Roots still awaiting their
-  first `render!` (no descriptor yet) are omitted. Empty in production.
+  "Every live root's Root Descriptor v1 (dev): root-id -> per-root static
+  descriptor. The CLIENT counterpart of the compiler's
+  `re-frame.ui.compiler.root/descriptor-index` — the same shape — the Xray /
+  tool read surface for the live runtime descriptors. Roots still awaiting
+  their first `render!` (no descriptor yet) are omitted. Empty in production.
 
-  `goog.DEBUG`-gated, so the registry TRAVERSAL and the `:build-digest` keyword
-  are removed from advanced production output rather than merely running over an
-  empty registry (Spec 004C §2). The empty-map return is kept as the production
-  branch so the documented shape holds on both sides of the gate."
+  `goog.DEBUG`-gated, so the registry TRAVERSAL is removed from advanced
+  production output rather than merely running over an empty registry (Spec
+  004C §2). The empty-map return is kept as the production branch so the
+  documented shape holds on both sides of the gate."
   []
   (if ^boolean js/goog.DEBUG
-    (let [bd (current-build-digest)]
-      (into {}
-            (keep (fn [[rid entry]]
-                    (when-let [d (:descriptor entry)]
-                      [rid (assoc d :build-digest bd)])))
-            @live-roots))
+    (into {}
+          (keep (fn [[rid entry]]
+                  (when-let [d (:descriptor entry)]
+                    [rid d])))
+          @live-roots)
     {}))
 
 (defn- container-owner
