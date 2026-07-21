@@ -15,6 +15,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.ui :as ui]
+            [re-frame.ui.compiler :as compiler]
             [re-frame.ui.compiler.root :as root]
             [re-frame.ui.tree :as ui-tree]
             [re-frame.ssr :as ssr]))
@@ -69,6 +70,30 @@
 (ui/defview dup-probe
   [_]
   [:main "probe"])
+
+;; ---------------------------------------------------------------------------
+;; rf2-uv7n6 audit-hole fixtures (the three re-verified conformance holes in the
+;; no-silent-elision proof). All compiled top-to-bottom so their view-static facts
+;; are indexed + registered when render-static below expands against them.
+;; ---------------------------------------------------------------------------
+
+;; HOLE 1 — an INLINE client-only interactive child (the live content authored
+;; directly, NOT behind a separate referenced view). Only the capability-free
+;; fallback is server-reachable, so render-static must render the fallback; the
+;; committed handler lives inside the browser-only child, whose sites must NOT be
+;; counted against the static root (server reachability governs cap collection).
+(ui/defview inline-island-card
+  [_]
+  [:div [:h2 "static"]
+   (ui/client-only {:fallback [:span "loading"]}
+     [:button {:on-click [:go]} "live"])])
+
+;; HOLE 3 — an AUTHORED element :ref (a commit-phase host hook a static render
+;; cannot honour). The JVM emitter drops refs, so an unchecked ref would render as
+;; inert HTML with the ref silently removed; render-static must reject it loud.
+(ui/defview authored-ref-card
+  [{:keys [node-ref]}]
+  [:div {:ref node-ref} "x"])
 
 (defn- caught-id
   "Run `f`; -> the thrown compile-error id (`:rf.ui.compile/error` ex-data),
@@ -333,3 +358,93 @@
             call renders — the late resolution loads and folds through emit-ui-tree"
     (is (= "<div class=\"card\"><h2>x</h2><p>static</p></div>"
            (ui/render-static [static-card {:title "x"}])))))
+
+;; ===========================================================================
+;; rf2-uv7n6 AUDIT HOLES — the three re-verified conformance gaps in the
+;; no-silent-elision proof (each reproduced RED on the real render-static path
+;; before the fix; the three focused falsifiers the audit prescribed).
+;; ===========================================================================
+
+;; HOLE 1 — server reachability must govern CAPABILITY collection, not only the
+;; dependency walk. RED before: view-static-facts read caps from the whole-view
+;; sites atom, so a committed handler AUTHORED inside a ui/client-only child
+;; (whose sites the shared atom still carries) marked the view runtime-requiring,
+;; falsely rejecting a legal static-plus-island root. GREEN after: only the
+;; server-reachable sites count, so render-static renders the fallback.
+(deftest render-static-allows-inline-client-only-live-content
+  (testing "an INLINE client-only interactive child (committed handler authored
+            directly in the fallback-guarded island, not behind a referenced
+            view) is legal — render-static renders ONLY the capability-free
+            fallback, never falsely rejecting the static root"
+    (let [html (ui/render-static [inline-island-card])]
+      (is (= "<div><h2>static</h2><span>loading</span></div>" html))
+      (is (not (str/includes? html "button"))
+          "the inline client-only interactive child is not in the static output"))))
+
+;; HOLE 2 — an unobtainable dependency's facts must not silently pass. RED before:
+;; static-capability-offender treated a view-id absent from the ambient index as
+;; empty caps/deps and continued, so an AOT/other-build interactive dependency
+;; rendered as inert HTML with its handler dropped. GREEN after: facts resolve
+;; from the registered manifest too, and a dependency resolvable from NEITHER
+;; source is the loud :rf.ui.compile/static-root-unproven-dependency.
+(deftest render-static-missing-dependency-facts-cannot-silently-pass
+  (testing "a nested interactive dependency whose facts are UNOBTAINABLE from
+            both the ambient index and the registered manifest is UNPROVEN — a
+            loud build error, never a silent static pass (unknown facts are not
+            proof of static safety)"
+    (is (= :rf.ui.compile/static-root-unproven-dependency
+           (with-redefs [compiler/build-view-static      (constantly {})
+                         root/registered-view-static-facts (constantly nil)]
+             (render-static-error-id '[static-parent])))))
+  (testing "the SAME dependency, absent from the ambient index but resolvable
+            from its REGISTERED manifest (the cross-build/AOT seam), is still
+            caught — the manifest's facts drive the proof, never a silent pass"
+    (is (= :rf.ui.compile/static-root-requires-runtime
+           (with-redefs [compiler/build-view-static (constantly {})
+                         root/registered-view-static-facts
+                         (constantly {:caps #{:handler} :deps #{}})]
+             (render-static-error-id '[static-parent]))))))
+
+;; HOLE 2 (companion) — the manifest actually CARRIES the facts the cross-build
+;; seam resolves. Proven by pure macroexpansion (immune to sibling clear-all!
+;; fixtures): the emitted register-view! call embeds :static-facts on the
+;; manifest, so a view compiled in another build stays fact-bearing here.
+(deftest defview-manifest-embeds-static-facts
+  (testing "a compiled view's emitted register-view! carries its render-static
+            {:caps :deps} facts on the manifest (:static-facts)"
+    (let [expansion (binding [*ns* (find-ns 're-frame.ssr.render-static-jvm-test)]
+                      (macroexpand
+                       '(re-frame.ui/defview uv7n6-facts-probe [_]
+                          [:button {:on-click [:x]} "x"])))
+          text      (pr-str expansion)]
+      (is (str/includes? text ":static-facts")
+          "the emitted manifest embeds :static-facts")
+      (is (str/includes? text ":handler")
+          "the embedded facts name the committed-handler capability")))
+  (testing "registered-view-static-facts reads those facts back off the manifest"
+    (ui-tree/register-view! :uv7n6/seam-probe
+                            (fn [_] nil)
+                            {:view-id :uv7n6/seam-probe
+                             :static-facts {:caps #{:handler} :deps #{}}})
+    (is (= {:caps #{:handler} :deps #{}}
+           (root/registered-view-static-facts :uv7n6/seam-probe)))))
+
+;; HOLE 3 — an authored element :ref is a runtime-requiring capability. RED
+;; before: view-static-facts folded :ref only from re-frame.ui.react use-ref
+;; hooks, never from an authored element/component :ref slot, and the JVM emitter
+;; omits refs — so `[:div {:ref r} "x"]` rendered `<div>x</div>` with the ref
+;; silently removed. GREEN after: a server-reachable authored ref is the loud
+;; :rf.ui.compile/static-root-requires-runtime.
+(deftest render-static-rejects-an-authored-ref
+  (testing "an authored element :ref (a commit-phase host hook a static render
+            cannot honour) is a loud build error, never a ref silently dropped
+            from inert HTML"
+    (is (= :rf.ui.compile/static-root-requires-runtime
+           (render-static-error-id '[authored-ref-card {:node-ref nil}]))))
+  (testing "the build error names the :ref capability"
+    (let [ex  (try (expand-render-static '[authored-ref-card {:node-ref nil}])
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))
+          msg (some-> ex ex-message)]
+      (is (some? msg))
+      (is (str/includes? msg "ref") "names the runtime-requiring ref capability"))))

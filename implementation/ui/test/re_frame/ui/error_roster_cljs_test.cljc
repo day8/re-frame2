@@ -150,6 +150,10 @@
     ;; capability anywhere in the static root's server-reachable view closure is a
     ;; loud build error, never a silently dropped capability (EP-0034 §2)
     :rf.ui.compile/static-root-requires-runtime
+    ;; render-static UNPROVEN dependency (S5, rf2-uv7n6 hole 2) — a referenced view
+    ;; whose static facts are absent from BOTH the ambient index and its registered
+    ;; manifest is a loud build error; unknown facts are not proof of static safety
+    :rf.ui.compile/static-root-unproven-dependency
     ;; a11y-diagnostic suppression grammar (S4-C, rf2-74vlo) — a malformed
     ;; ^{:rf.ui/suppress {<id> "reason"}} is loud, never a silent no-op
     :rf.ui.compile/bad-suppress})
@@ -198,7 +202,10 @@
                              expansion rejection is exercised where it renders) +
                              static-root-requires-runtime (the no-silent-elision
                              proof needs the build view-static index populated —
-                             not reachable by macroexpanding a single form)
+                             not reachable by macroexpanding a single form) +
+                             static-root-unproven-dependency (an unobtainable-facts
+                             dependency, exercised there via a controlled index +
+                             registry gap)
     custom_element_conflict_jvm_test
                              custom-element-conflict (needs TWO declaring
                              sources in one build — not reachable by
@@ -220,7 +227,8 @@
     :rf.ui.compile/bad-test-render-form
     :rf.ui.compile/bad-test-root
     :rf.ui.compile/ui-render-static-jvm-only
-    :rf.ui.compile/static-root-requires-runtime})
+    :rf.ui.compile/static-root-requires-runtime
+    :rf.ui.compile/static-root-unproven-dependency})
 
 (def ^:private direct-call-ids
   "Ids exercised by a direct analyzer-fn call below (defensive sites the

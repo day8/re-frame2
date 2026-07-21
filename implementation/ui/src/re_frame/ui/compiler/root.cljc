@@ -48,7 +48,8 @@
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.env :as env]
             [re-frame.ui.fingerprint :as fingerprint]
-            #?@(:clj [[re-frame.ui.compiler :as compiler]
+            #?@(:clj [[re-frame.registrar :as registrar]
+                      [re-frame.ui.compiler :as compiler]
                       [re-frame.ui.compiler.emit-cljs :as emit-cljs]
                       [re-frame.ui.compiler.emit-jvm :as emit-jvm]])))
 
@@ -789,19 +790,38 @@
                 ~(plans-thunk-form plans)
                 ~(react-opts-form nil opts)))))))))
 
+(defn registered-view-static-facts
+  "The render-static `{:caps :deps}` facts a compiled view carries on its
+  REGISTERED manifest (`re-frame.ui.tree/register-view!` → the `:view` registrar
+  entry) — the cross-build-context resolution seam (rf2-uv7n6 hole 2). A view
+  compiled in ANOTHER build (AOT / precompiled JAR) is absent from THIS build's
+  `view-static` index, but its registration runs when its namespace loads, so its
+  manifest (carrying `:static-facts`) is resolvable here. nil when the view is
+  unregistered or its manifest predates static-facts — a genuinely UNPROVEN
+  dependency the caller must fail loud on rather than treat as static-safe."
+  [view-id]
+  (get-in (registrar/lookup :view view-id) [:rf.ui/manifest :static-facts]))
+
 (defn- static-capability-offender
   "The render-static transitive static-capability proof (Spec 004C §3, EP-0034
   §2 no-silent-elision): given the ROOT form's own `{:caps :deps}` facts and the
-  ambient build's per-view `view-static` index, return `{:view-id .. :caps ..}`
-  for the FIRST server-reachable view (or the root form itself,
-  `:rf.root/root-form`) that carries a runtime-requiring capability, or nil when
-  the whole server-reachable closure is static-safe.
+  ambient build's per-view `view-static` index, return
+
+    - `{:view-id .. :caps ..}`     the FIRST server-reachable view (or the root
+                                   form itself, `:rf.root/root-form`) carrying a
+                                   runtime-requiring capability;
+    - `{:view-id .. :unproven? true}`  the first referenced view whose facts are
+                                   genuinely UNOBTAINABLE (absent from BOTH the
+                                   ambient index and the registered manifest);
+    - nil                          the whole server-reachable closure is proven
+                                   static-safe.
 
   Cycle-safe: the closure follows direct compiled-view dependencies breadth-first
   over a `seen` set, so a self-recursive or mutually-recursive view terminates.
-  A view-id absent from the index (compiled in another build/context) contributes
-  no known capability and is skipped — the proof catches the KNOWN interactive
-  views loaded in this render's build."
+  Each dependency's facts resolve from the ambient index first, then from its
+  registered manifest (a cross-build/AOT view). Unknown facts are NOT proof of
+  static safety (rf2-uv7n6 hole 2): a dependency resolvable from NEITHER source is
+  reported UNPROVEN, never silently skipped."
   [own-facts index]
   (if (seq (:caps own-facts))
     {:view-id :rf.root/root-form :caps (:caps own-facts)}
@@ -811,10 +831,12 @@
               queue (pop queue)]
           (if (contains? seen vid)
             (recur queue seen)
-            (let [{:keys [caps deps]} (get index vid)]
+            (if-let [{:keys [caps deps]} (or (get index vid)
+                                             (registered-view-static-facts vid))]
               (if (seq caps)
                 {:view-id vid :caps caps}
-                (recur (into queue deps) (conj seen vid))))))))))
+                (recur (into queue deps) (conj seen vid)))
+              {:view-id vid :unproven? true})))))))
 
 (defn render-static-form
   "`(ui/render-static root-form)` — the pure `:server`-phase static-HTML render
@@ -896,25 +918,43 @@
           ;; lazy heads) is a loud BUILD error with source coordinates — never a
           ;; silently dropped capability. `ui/client-only` stays legal (only its
           ;; capability-free fallback is server-reachable); `use-id` is exempt.
-          (when-let [{:keys [view-id caps]}
+          (when-let [{:keys [view-id caps unproven?]}
                      (static-capability-offender
                       (compiler/view-static-facts ast @(:sites e))
                       (compiler/build-view-static))]
-            (fail :rf.ui.compile/static-root-requires-runtime
-                  (str "ui/render-static: the static root's server-reachable view "
-                       "closure requires runtime capability "
-                       (str/join ", " (map name (sort caps)))
-                       (if (= :rf.root/root-form view-id)
-                         " in the root form itself"
-                         (str " (via view " (pr-str view-id) ")"))
-                       " — render-static is the pure :server static-HTML path (no "
-                       "subs, handlers, effects, refs, context, or foreign/lazy "
-                       "heads; no manifest, no hydration, no phase flip). Mount "
-                       "this tree in the browser with ui/mount / ui/hydrate-root, "
-                       "or move the live subtree behind a ui/client-only with a "
-                       "capability-free fallback")
-                  {:root-id root-id :offending-view view-id
-                   :capabilities (vec (sort caps))}))
+            (if unproven?
+              ;; A referenced view whose render-static facts are UNOBTAINABLE
+              ;; (absent from both the ambient index and the registered manifest)
+              ;; is UNPROVEN — a loud build error, never a silently-inert render
+              ;; that could drop an interactive dependency's handler (hole 2).
+              (fail :rf.ui.compile/static-root-unproven-dependency
+                    (str "ui/render-static: the static root depends on view "
+                         (pr-str view-id) " whose render-static facts are "
+                         "UNPROVEN — they are absent from this build's view-static "
+                         "index AND from the view's registered manifest (an "
+                         "AOT/precompiled view compiled before static-facts, or a "
+                         "stale registration). Unknown facts are not proof of "
+                         "static safety, so render-static fails loud rather than "
+                         "shipping a possibly-inert render. Recompile "
+                         (pr-str view-id) " against a current re-frame.ui, or "
+                         "mount this tree in the browser with ui/mount / "
+                         "ui/hydrate-root")
+                    {:root-id root-id :unproven-view view-id})
+              (fail :rf.ui.compile/static-root-requires-runtime
+                    (str "ui/render-static: the static root's server-reachable view "
+                         "closure requires runtime capability "
+                         (str/join ", " (map name (sort caps)))
+                         (if (= :rf.root/root-form view-id)
+                           " in the root form itself"
+                           (str " (via view " (pr-str view-id) ")"))
+                         " — render-static is the pure :server static-HTML path (no "
+                         "subs, handlers, effects, refs, context, or foreign/lazy "
+                         "heads; no manifest, no hydration, no phase flip). Mount "
+                         "this tree in the browser with ui/mount / ui/hydrate-root, "
+                         "or move the live subtree behind a ui/client-only with a "
+                         "capability-free fallback")
+                    {:root-id root-id :offending-view view-id
+                     :capabilities (vec (sort caps))})))
           ;; Layer-1 identity registration (§7): the static root participates in
           ;; the build-tier duplicate-root-id index exactly like mount / render! /
           ;; hydrate-root — the derived identity is retained, not discarded.

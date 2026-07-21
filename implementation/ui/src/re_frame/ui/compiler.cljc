@@ -149,39 +149,66 @@
   frame reads / host locals / effects / dispatch-fns), the
   re-frame.ui.react host hooks (use-ref -> `:ref`, use-context -> `:context`,
   use-effect family -> `:effect`; `use-id` is EXEMPT — an inert deterministic id
-  is static-safe), and foreign heads (`:foreign`, which a `react/lazy` head folds
-  into). `:deps` are the view references to close over transitively.
+  is static-safe), authored element/component `:ref` slots (a commit-phase host
+  hook a static render cannot honour -> `:ref`), and foreign heads (`:foreign`,
+  which a `react/lazy` head folds into). `:deps` are the view references to close
+  over transitively.
 
-  A `ui/client-only` subtree is skipped: the JVM emitter renders only its
-  capability-free FALLBACK, so the browser-only child is not server-reachable —
-  its views and capabilities never reach the static output and must not be
-  counted (a static root never flips)."
+  SERVER REACHABILITY governs BOTH the dependency walk AND the capability
+  collection: a `ui/client-only` subtree is browser-only — the JVM emitter
+  renders only its capability-free FALLBACK — so its views, its authored refs,
+  and its authored SITES (an inline `:on-click`, `sub`, effect …) never reach the
+  static output and must not be counted (a static root never flips). Since the
+  view-wide `sites` atom also carries the browser-only child's sites (the child
+  is analyzed against the shared atom), each client-only node's `:path` is
+  recorded and a site whose `:path` descends from one is excluded — the capability
+  proof only counts the SERVER-REACHABLE sites, mirroring the dependency walk."
   [ast sites]
   (let [deps     (volatile! #{})
-        foreign? (volatile! false)]
+        foreign? (volatile! false)
+        ref?     (volatile! false)
+        co-paths (volatile! [])]
     (letfn [(walk [n]
               (when (map? n)
                 (if (= :client-only (:op n))
-                  ;; browser-only child never reaches the JVM tree; only the
-                  ;; capability-free fallback does.
-                  (walk (:fallback n))
+                  ;; browser-only child never reaches the JVM tree; record its
+                  ;; path (so its sites drop out of the capability proof) and
+                  ;; walk ONLY the capability-free fallback.
+                  (do (vswap! co-paths conj (:path n))
+                      (walk (:fallback n)))
                   (do
                     (when (= :view (:op n))    (vswap! deps conj (:view-id n)))
                     (when (= :foreign (:op n)) (vreset! foreign? true))
+                    ;; an authored `:ref` (element OR component props) is a
+                    ;; commit-phase host hook — a static render cannot honour it,
+                    ;; so a server-reachable ref is a runtime-requiring capability
+                    ;; (the JVM emitter would otherwise drop it silently).
+                    (when (some? (get-in n [:props :ref])) (vreset! ref? true))
                     (doseq [[_ v] n]
                       (cond
                         (map? v)    (walk v)
                         (vector? v) (run! walk v)))))))]
       (walk ast))
-    {:caps (cond-> (into (into #{}
-                               (keep (fn [[kind cap]]
-                                       (when (seq (get sites kind)) cap)))
-                               runtime-requiring-site-caps)
-                         (keep {:ref :ref :context :context :effect :effect
-                                :layout-effect :effect :effect-event :effect})
-                         (map :kind (:react sites)))
-             @foreign? (conj :foreign))
-     :deps @deps}))
+    (let [cos       @co-paths
+          reachable (if (empty? cos)
+                      (fn [kind] (get sites kind))
+                      (let [under-co? (fn [p]
+                                        (boolean
+                                         (some (fn [co]
+                                                 (and (<= (count co) (count p))
+                                                      (= co (subvec p 0 (count co)))))
+                                               cos)))]
+                        (fn [kind] (remove #(under-co? (:path %)) (get sites kind)))))]
+      {:caps (cond-> (into (into #{}
+                                 (keep (fn [[kind cap]]
+                                         (when (seq (reachable kind)) cap)))
+                                 runtime-requiring-site-caps)
+                           (keep {:ref :ref :context :context :effect :effect
+                                  :layout-effect :effect :effect-event :effect})
+                           (map :kind (reachable :react)))
+               @foreign? (conj :foreign)
+               @ref?     (conj :ref))
+       :deps @deps})))
 
 (defn build-view-static
   "The ambient build's per-view static-render facts index (view-id ->
@@ -273,6 +300,12 @@
                     (println (str "WARNING re-frame.ui [" view-id "] "
                                   (:id w) ": " (:msg w)))))
         sites   @(:sites e)
+        ;; The render-static no-silent-elision facts (Spec 004C §3, EP-0034 §2),
+        ;; computed once: contributed to the ambient `view-static` build index
+        ;; AND carried on the registered manifest so a view compiled in ANOTHER
+        ;; build/context (AOT / precompiled JAR) stays fact-bearing — the
+        ;; render-static proof never treats an unknown dependency as static-safe.
+        static-facts (view-static-facts ast sites)
         ast-projection (ana/template-fingerprint-projection ast)
         tf      (fingerprint/template-fingerprint ast-projection)
         ;; The HMR hook signature: `local` sites (all `:local`) and `effect`
@@ -319,6 +352,10 @@
                                         :layout-effect :effect :effect-event :effect
                                         :context :context})
                                  (map :kind (:react sites)))
+                  ;; The render-static server-reachable {:caps :deps} proof
+                  ;; facts, carried so a cross-build/AOT dependency stays
+                  ;; fact-bearing (rf2-uv7n6 hole 2).
+                  :static-facts static-facts
                   :sites sites}
         args    {:vname vname
                  ;; The canonical current-namespace Var a self-recursive head
@@ -356,8 +393,7 @@
     ;; registry row, so a recompiled / removed source replaces / evicts its
     ;; contribution; not folded into the build digest (derived from the same
     ;; source the `views` digest already tracks).
-    (build/contribute! build/view-static ns-sym view-id
-                       (view-static-facts ast sites))
+    (build/contribute! build/view-static ns-sym view-id static-facts)
     (if cljs?
       ;; Direct no-pass REPL evaluation may replace the runtime view body, but
       ;; carries no digest assignment. Only a successful configured file/watch
