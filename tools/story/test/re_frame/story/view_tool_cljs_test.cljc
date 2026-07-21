@@ -160,7 +160,7 @@
         b    (enrol! (connect! (reactive/make-cell :story.demo/row)) 2)
         sink (evidence/installed-sink)]
     (doseq [cell [a b]]
-      (sink cell {:first-epoch 1 :latest-epoch 2 :count 1 :causes #{:value}
+      (sink cell {:first-epoch 1 :latest-epoch 2 :count 1 :causes #{:subscription}
                   :targets [[:sub :rf/default [:demo/total]]]
                   :dropped #{} :dropped-exact? true}))
     (let [ev (view-tool/view-evidence :story.demo/row)]
@@ -171,7 +171,7 @@
       (testing "render causes + loss accounting ride through explain-render"
         (let [occ (first (:render ev))]
           (is (some? occ))
-          (is (= #{:value} (:causes occ)))
+          (is (= #{:subscription} (:causes occ)))
           (is (contains? (:loss occ) :dropped) "the honest loss account is present")
           (is (contains? (:observations occ) :identity-exact?))))
       ;; keep the cells reachable so they are not collected mid-assertion

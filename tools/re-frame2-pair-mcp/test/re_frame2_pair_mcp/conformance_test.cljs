@@ -1925,7 +1925,7 @@
     [["__re_frame2_pair_runtime"         true]
      ["re-frame.ui.tool/explain-render"  {:ok? true :rf.ui.tool/version 3
                                           :view-id :my.app/row
-                                          :occurrences [{:occurrence 3 :causes #{:value}
+                                          :occurrences [{:occurrence 3 :causes #{:subscription}
                                                          :render-count 4
                                                          :observations {:identity-exact? true}
                                                          :loss {:dropped 0 :exact? true}}]}]
