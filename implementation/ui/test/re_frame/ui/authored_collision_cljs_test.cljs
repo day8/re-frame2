@@ -11,8 +11,15 @@
   `annotate-host-root-props` stamped both keys unconditionally (`unchecked-set`
   after final props construction), so the framework value OVERWROTE the author's —
   the exact CLJS<->JVM divergence the PR #6566 audit reproduced (JVM already let an
-  authored `ui/spread` value win). The cross-host agreement is pinned additionally
-  by the parity corpus `collision-root` fixture."
+  authored `ui/spread` value win).
+
+  CROSS-HOST MATRIX: this file and its JVM twin `authored_collision_jvm_test`
+  assert the SAME authored values for the SAME four prop-construction paths, so
+  together they pin the collision law cross-host BY CONSTRUCTION. The shared parity
+  corpus carries NO collision fixture on purpose — the annotation spelling is an
+  elision sentinel that legitimately survives (as an authored attr) in the
+  advanced/prod bundle, which the prod-elision corpus's blunt annotation strip
+  would misread as a divergence."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             ["react-dom/server" :as rds]
@@ -40,6 +47,12 @@
   "A `ui/spread` runtime prop map carrying the annotation spelling."
   []
   [:div (ui/spread {:data-rf-view "spread-view" :id "sc"})])
+
+(defview safe-owned-collision
+  "A `ui/spread-safe` OWNED map authors the annotation spelling — the owned own
+  value wins over the compiler evidence (and over the caller)."
+  [{:keys [caller]}]
+  [:div (ui/spread-safe {:data-rf-view "owned-view"} caller)])
 
 (defview no-collision
   "No authored collision — the canonical compiler evidence is present (the
@@ -76,6 +89,15 @@
         "a ui/spread-merged value survives — matching the JVM ui/spread path")
     (is (not (str/includes? html "/spread-collision\""))
         "the canonical view id did not overwrite the spread value")))
+
+(deftest a-spread-safe-owned-authored-value-wins
+  ;; the props ABI carries CLJS-map values inside the JS props object (as the
+  ;; parity corpus does), so `caller` reaches the view as a CLJS map.
+  (let [html (render safe-owned-collision #js {:caller {:data-c "c"}})]
+    (is (str/includes? html "data-rf-view=\"owned-view\"")
+        "the spread-safe OWNED value survives — owned wins over the evidence")
+    (is (not (str/includes? html "/safe-owned-collision\""))
+        "the canonical view id did not overwrite the owned value")))
 
 (deftest no-collision-still-carries-the-canonical-evidence
   (let [html (render no-collision #js {})]
