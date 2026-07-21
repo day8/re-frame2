@@ -421,22 +421,26 @@
 (defn- throw-preflight-lifecycle-loss!
   "Fail preflight CLOSED (rf2-5svfa1): the exact frame authority a plan was
   bound to stopped being the live incarnation mid-preflight, so ENSURE cannot
-  honour it. Raised on two arms of the SAME failure class — the plan's frame
+  honour it. Raised on three arms of the SAME failure class — the plan's frame
   authority was lost — under one id `:rf.error/frame-preflight-lifecycle-loss`:
 
-    :ensured-frame-lost      — publication was rejected AND the frame this
-                               `:install` / `:refresh` / `:adopt` had to leave
-                               live is now ABSENT. The usual cause is a
-                               self-destroying setup: an `:initial-events`
-                               handler destroyed the very frame it was seating.
-                               Previously the executor SILENTLY skipped the
-                               write and returned a normal receipt, so the
-                               client mounted a live host root scoped to an
-                               ABSENT frame (there is no frame-liveness guard
-                               between preflight and `createRoot`). A rejection
-                               The shared per-id reservation excludes a foreign
-                               concurrent destroy; any rejection is therefore
-                               fail-closed, never a silent successful ENSURE.
+    :ensured-frame-lost      — publication was rejected: the exact incarnation
+                               this `:install` / `:refresh` / `:adopt` had to
+                               leave live was destroyed, closed, or replaced
+                               before its plan record could be published. The
+                               usual cause is a self-destroying setup: an
+                               `:initial-events` handler destroyed the very
+                               frame it was seating. Previously the executor
+                               SILENTLY skipped the write and returned a normal
+                               receipt, so the client mounted a live host root
+                               scoped to a gone frame (there is no frame-
+                               liveness guard between preflight and
+                               `createRoot`). The authority-scoped per-id
+                               reservation excludes a foreign concurrent
+                               destroy, so EVERY rejection is fail-closed —
+                               whether the incarnation is now absent, still
+                               present but CLOSING, or replaced by a same-id
+                               successor — never a silent successful ENSURE.
     :refresh-target-replaced — a `:refresh` decided against the incarnation live
                                 at decision time, but that incarnation was
                                 destroyed or replaced by a different same-id

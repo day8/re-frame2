@@ -462,7 +462,7 @@ prefix-uniqueness backstop share the roster:
 | `:rf.error/root-not-live` | `render!` on a `Root` whose id is no longer live — `unmount!`ed, tearing-down, or superseded by a newer root claiming the same id (guarded like `unmount!`, but fails loud rather than no-op, before any side effect) |
 | `:rf.error/root-manifest-invalid` | manifest missing/unreadable at hydrate, schema-version incompatible, identity opts passed client-side, unserialisable props at emit, prefix conflict |
 | `:rf.error/frame-payload-conflict` | below |
-| `:rf.error/root-hydration-mismatch` | fingerprint/digest disagreement (an existing Spec 009 catalogue row — unchanged by this Spec) |
+| `:rf.ssr/hydration-mismatch` | server↔client render-tree fingerprint/digest disagreement at hydration (an existing Spec 009 catalogue row — unchanged by this Spec) |
 
 **Payload/frame-config conflict — fail-loud at preflight.** At any root's preflight
 (hydration or client mount), before install/hydrate:

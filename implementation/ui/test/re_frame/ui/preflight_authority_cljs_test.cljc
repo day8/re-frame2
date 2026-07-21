@@ -2,8 +2,10 @@
   "rf2-5svfa1 — the bounded, non-design-bearing core split out of parent
   rf2-vxgfnd.191: preflight ENSURE binds its plan decisions to the EXACT frame
   authority and FAILS CLOSED (a typed `:rf.error/frame-preflight-lifecycle-loss`)
-  when that authority is lost mid-preflight. Two arms, host-shared (.cljc: node
-  `test:cljs` / `test:ui` AND JVM `clojure -M:test`), against the REAL executor:
+  when that authority is lost mid-preflight. All THREE lifecycle-loss kinds are
+  pinned — `:ensured-frame-lost`, `:refresh-target-replaced`, and
+  `:found-live-authority-lost` — host-shared (.cljc: node `test:cljs` / `test:ui`
+  AND JVM `clojure -M:test`), against the REAL executor:
 
     (A) FAIL-CLOSED SETUP — a same-owner destroy from `:initial-events` joins
         the transaction and makes its provisional row lifecycle-dead; ordinary
@@ -12,15 +14,23 @@
         preflight lifecycle loss when a sibling plan destroys the boot frame a
         later config-less plan scopes.
 
-    (B) DECISION-TIME TOKEN REVALIDATION — a `:refresh` decided against the
+    (B) DECISION-TIME AUTHORITY REVALIDATION — a `:refresh` decided against the
         incarnation live at decision time must not apply to a same-id replacement
         that overtook it before the surgical `make-frame`. The executor captures
         the decision-time token in phase 1 and revalidates it before mutating in
-        phase 2; a stale target fails closed BEFORE any create-if-absent.
+        phase 2; a stale target fails closed (`:refresh-target-replaced`) BEFORE
+        any create-if-absent. A found-live no-op is pinned the same way: if its
+        decision-time incarnation or install/adopt record is lost before phase 2,
+        the stale receipt cannot settle an absent or replaced lifetime and fails
+        closed (`:found-live-authority-lost`).
 
-  The concurrent-destroy CLOSING race (a still-PRESENT rejected incarnation) is
-  deliberately NOT covered here — its coordination is parent .191 part C; the
-  pre-existing `frame-plan-publication-race` skip-not-throw contract stands.
+  Every publication rejection is fail-closed under this id — whether the exact
+  incarnation is now absent, still present but CLOSING, or replaced by a same-id
+  successor; the two publish sites throw on ANY rejection, with no absence check.
+  The concurrent-destroy CLOSING race is caught earlier still: the shared per-id
+  reservation rejects an overlapping run promptly with
+  `:rf.error/frame-preflight-overlap` (companion `frame-plan-publication-race`
+  JVM coverage), so it never reaches publication.
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator + `:kind`,
   never message bytes (Spec 009 §The thrown-error shape rule 3)."
