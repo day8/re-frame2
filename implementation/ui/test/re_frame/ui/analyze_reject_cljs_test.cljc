@@ -116,6 +116,29 @@
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (sub [:a] [:b])}]))))
 
+(deftest if-let-family-admission-is-resolver-confirmed
+  ;; rf2-u53yy.4 audit repair (chronological reopen 2026-07-21) — the family is
+  ;; admitted by RESOLUTION to the core binder var, not by raw spelling. A
+  ;; namespace-level USER macro spelled `if-let` (a look-alike `:refer`d in)
+  ;; resolves to its OWN fqn, so it is not the core binder: it fails loudly as an
+  ;; unaudited macro, exactly like any other opaque macro. Before the repair the
+  ;; raw-spelling match would have silently rewritten it as the core binder.
+  (let [user-if-let-env
+        (assoc (mk-env)
+               :resolver (fn [sym]
+                           (case sym
+                             if-let {:fqn 'app.userland/if-let :meta {:macro true}}
+                             sub    {:fqn 're-frame.ui/sub :meta {}}
+                             nil)))]
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id-in user-if-let-env
+                         '(if-let [x (sub [:q])] [:p x] [:p "no"])))
+        "a user macro spelled if-let is not the core binder — it rejects as an unaudited macro, never desugared")
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id-in user-if-let-env
+                         '[:div {:title (if-let [x (sub [:q])] x "none")}]))
+        "the same rejection holds in expression position")))
+
 (deftest computed-callee-value-escape
   ;; rf2-vxgfnd.252 — a reactive authoring var (sub/frame) is sound ONLY
   ;; as a compiler-owned DIRECT CALL HEAD, which the rewriter lowers to an

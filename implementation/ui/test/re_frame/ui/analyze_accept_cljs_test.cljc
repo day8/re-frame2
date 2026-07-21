@@ -35,7 +35,14 @@
       error-boundary {:fqn 're-frame.ui/error-boundary :meta {}}
       client-only    {:fqn 're-frame.ui/client-only :meta {}}
       ..          {:fqn 'clojure.core/.. :meta {:macro true}}
-      if-let      {:fqn 'clojure.core/if-let :meta {:macro true}}
+      ;; The if-let binder family (rf2-u53yy.4) — admission is RESOLVER-confirmed,
+      ;; so every member resolves to its core var, and a fully-qualified spelling
+      ;; resolves to the SAME var (admitted identically).
+      if-let      {:fqn 'clojure.core/if-let    :meta {:macro true}}
+      when-let    {:fqn 'clojure.core/when-let  :meta {:macro true}}
+      if-some     {:fqn 'clojure.core/if-some   :meta {:macro true}}
+      when-some   {:fqn 'clojure.core/when-some :meta {:macro true}}
+      clojure.core/if-some {:fqn 'clojure.core/if-some :meta {:macro true}}
       ->          {:fqn 'clojure.core/-> :meta {:macro true}}
       frame-provider {:fqn 're-frame.ui/frame-provider :meta {}}
       child-view  {:fqn 'app.views/child-view
@@ -465,19 +472,31 @@
         (is (= :if (get-in ast [:body :op])) (str "the branch is a conditional: " form))
         (is (= 1 (count (:subs sites)))
             (str "the binding init is a single finite reactive site: " form)))))
-  (testing "some?-variants test the raw init with some?; truthy-variants test it bare"
-    (is (= 'some? (first (get-in (:ast (ana-full '(if-some [u v] [:p "a"] [:p "b"])))
-                                 [:body :test])))
-        "if-some tests (some? temp)")
-    (is (= 'some? (first (get-in (:ast (ana-full '(when-some [u v] [:p "a"])))
-                                 [:body :test])))
-        "when-some tests (some? temp)")
+  (testing "some?-variants test the raw init with a HOST-QUALIFIED core nil test; truthy-variants test it bare"
+    ;; The generated nil test is `(clojure.core/not= temp nil)` (host :clj here) —
+    ;; a namespace-qualified symbol no user local can shadow, and a plain function
+    ;; (not the cljs.core `some?`/`nil?` MACROS) so it survives re-analysis.
+    (let [t (get-in (:ast (ana-full '(if-some [u v] [:p "a"] [:p "b"]))) [:body :test])]
+      (is (= 'clojure.core/not= (first t)) "if-some's nil test is host-qualified core not=")
+      (is (= 3 (count t)) "shape is (not= temp nil)")
+      (is (nil? (nth t 2)) "compared against the nil literal"))
+    (is (= 'clojure.core/not=
+           (first (get-in (:ast (ana-full '(when-some [u v] [:p "a"])))
+                          [:body :test])))
+        "when-some tests (clojure.core/not= temp nil)")
     (is (symbol? (get-in (:ast (ana-full '(if-let [u v] [:p "a"] [:p "b"])))
                          [:body :test]))
         "if-let tests the bare temp")
+    (is (= :if (get-in (:ast (ana-full '(when-let [u v] [:p "a"]))) [:body :op]))
+        "a when-* form lowers to `if … nil` (NOT a generated `when`) so no user local named `when` can capture the branch")
     (is (= :nothing (get-in (:ast (ana-full '(when-let [u v] [:p "a"])))
                             [:body :else :op]))
         "a when-* form renders nothing on the falsy branch (no else)"))
+  (testing "admission is resolver-confirmed: a fully-qualified core binder is admitted"
+    (let [{:keys [ast]} (ana-full '(clojure.core/if-some [u v] [:p "a"] [:p "b"]))]
+      (is (= :let (:op ast)) "the qualified core binder desugars like the bare spelling")
+      (is (= 'clojure.core/not= (first (get-in ast [:body :test])))
+          "and its generated nil test is host-safe too")))
   (testing "expression position (a prop value) lowers the init's reactive site"
     (doseq [form '[[:div {:title (if-let    [x (sub [:q])] x "none")}]
                    [:div {:title (if-some   [x (sub [:q])] x "none")}]
@@ -498,6 +517,29 @@
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
                  (ana* '(if-let [a b c] [:p "x"] [:p "y"])))
         "the binding is a single [pattern init] pair")))
+
+(deftest if-let-family-desugar-is-hygienic
+  ;; rf2-u53yy.4 audit repair (chronological reopen 2026-07-21) — the desugar
+  ;; emits ONLY host-safe generated semantics (a host-qualified core `(not= temp
+  ;; nil)` test and the special form `if`), so no hostile user local can capture
+  ;; the compiler-generated test/branch. Without the repair, the generated bare
+  ;; `(some? temp)` was captured by `(let [some? (constantly false)] (if-some [x
+  ;; 1] x :else))` (choosing the wrong arm), and a generated `when` could become
+  ;; an ordinary user call.
+  (testing "a user local named `not=` does NOT capture the some?-variant's nil test"
+    (let [e   (update (mk-env) :locals conj 'not=)
+          ast (ana/analyze e '(if-some [x v] [:p "a"] [:p "b"]))]
+      (is (= 'clojure.core/not= (first (get-in ast [:body :test])))
+          "the generated nil test stays the qualified core `not=`, never the shadowing local (which would flip `(if-some [x 1] …)` to the wrong arm)")))
+  (testing "a user local named `when` cannot capture the when-* branch — it lowers to `if`"
+    (let [e   (update (mk-env) :locals conj 'when)
+          ast (ana/analyze e '(when-let [x v] [:p "a"]))]
+      (is (= :if (get-in ast [:body :op]))
+          "the single-body when-* shape is `(if test body nil)` — `if` is a special form and unshadowable, so no generated `when` exists to capture")))
+  (testing "a LOCAL shadow of the family spelling falls through to an ordinary call (not admitted)"
+    (let [e (update (mk-env) :locals conj 'if-let)]
+      (is (not= :let (:op (ana/analyze e '(if-let [x v] [:p "a"] [:p "b"]))))
+          "a shadowed spelling is an ordinary call, never the admitted binder"))))
 
 (deftest event-sites-index-into-the-manifest
   (let [{:keys [sites]} (ana-full '[:div

@@ -65,8 +65,9 @@
     (fn [_ e]
       ;; A USER binder macro that expands to the SAME let + if is still opaque —
       ;; only the four core forms if-let/when-let/if-some/when-some are admitted
-      ;; (rf2-u53yy.4), by exact name, never by "looks like a binder". A bare
-      ;; threading step below `->` also stays rejected.
+      ;; (rf2-u53yy.4), by RESOLVED core identity (the host resolver confirms the
+      ;; var), never by raw spelling or "looks like a binder". A bare threading
+      ;; step below `->` also stays rejected.
       (doseq [form
               ['[:div {:title
                        (re-frame.ui.compiler-macro-resolution-jvm-test/user-binder
@@ -83,6 +84,17 @@
             "the admitted if-let lowers the branch (sub …) to one manifest site")
         (is (re-find #"re-frame.ui.reactive/sub-read" (pr-str ast))
             "the lowered runtime site is present in the desugared let + if"))
+      ;; rf2-u53yy.4 audit repair — under REAL CLJS resolution (:host :cljs) the
+      ;; some?-variant's generated nil test is the HOST-QUALIFIED core `not=`
+      ;; (`cljs.core/not=`), un-shadowable by a user local AND a plain function
+      ;; (cljs.core `some?`/`nil?` are MACROS the grammar would reject); the branch
+      ;; is `if`, never a generated `when`. Both keep core semantics under a shadow
+      ;; and both survive this real-resolution re-analysis without rejection.
+      (let [ast (analyze/analyze e '[:div {:title (if-some [x maybe] x "none")}])]
+        (is (re-find #"cljs\.core/not=" (pr-str ast))
+            "if-some tests the host-qualified plain-function cljs.core/not= (un-shadowable, re-analysis-safe)")
+        (is (not (re-find #"\(when " (pr-str ast)))
+            "no generated `when` — the branch is the special form `if`"))
       (is (= :rf.ui.compile/unsupported-form
              (compile-error-id
               #(analyze/analyze
