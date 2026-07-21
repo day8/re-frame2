@@ -181,6 +181,13 @@
 (defn- entry [scoped-key]
   (get-in (runtime-db) (state/entry-path scoped-key)))
 
+(defn- entry-in
+  "Read a resource entry from an EXPLICIT frame's runtime-db. The preview
+   tests drive their own anon frame (via `with-new-frame`), not `:rf/default`,
+   so they resolve entries against that frame rather than the shared helper."
+  [f scoped-key]
+  (get-in (:rf.db/runtime (rf/frame-state-value f)) (state/entry-path scoped-key)))
+
 (defn- list-key []
   (state/scoped-resource-key :rf.scope/global :articles/list {}))
 
@@ -276,6 +283,78 @@
         (let [e (get-in (:rf.db/runtime (rf/frame-state-value f)) (state/entry-path dkey))]
           (is (not (contains? (:active-owners e) preview-owner))
               "the owner was released — no dangling owner pins the entry"))))))
+
+;; The test above pins the SIMPLE case (open X → close X). The two below pin the
+;; REPLACE case — the leak rf2-5jtsh named. The list leaves every Preview button
+;; live, so opening B while A is open REPLACES A, but there is only ONE Close
+;; control and it reaches only the current slug. If :resources.app/preview-opened
+;; did not release the prior slug's owner on replace, [:resources.app/preview-
+;; opened A] would stay pinned and unreachable after A→B→close — an app-event
+;; owner LEAK against the very release teaching this example exists to make.
+
+(deftest replacing-a-preview-releases-the-prior-slug-owner-so-neither-leaks
+  (testing "examples/capabilities/resources/resources — opening preview B while
+            preview A is open REPLACES A: :resources.app/preview-opened releases
+            the prior slug's app-event owner [:resources.app/preview-opened A]
+            before ensuring B, so A's entry is no longer pinned. A→B→close then
+            proves NEITHER owner remains (the single Close control only ever
+            reaches the current slug, so a replaced owner left attached would
+            leak forever — rf2-5jtsh)."
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      (let [owner-a [:resources.app/preview-opened "resources-101"]
+            owner-b [:resources.app/preview-opened "owners-vs-causes"]
+            dkey-a  (detail-key "resources-101")
+            dkey-b  (detail-key "owners-vs-causes")]
+        ;; OPEN A — ensures A under owner-a; settle it :loaded so this mirrors the
+        ;; real flow (user previews A, it loads, then previews B).
+        (rf/dispatch-sync [:resources.app/preview-opened "resources-101"] {:frame f})
+        (reply-success! @last-managed-args {:slug "resources-101" :title "R101" :body "..."})
+        (is (contains? (:active-owners (entry-in f dkey-a)) owner-a)
+            "A is ensured under its app-event owner")
+        ;; OPEN B — replaces A. The prior slug's owner MUST be released here.
+        (rf/dispatch-sync [:resources.app/preview-opened "owners-vs-causes"] {:frame f})
+        (is (= "owners-vs-causes"
+               (rf/compute-sub [:resources.app/preview-slug] (rf/frame-state-value f)))
+            "the open slug is now B")
+        (is (not (contains? (:active-owners (entry-in f dkey-a)) owner-a))
+            "REPLACE released A's owner — the prior preview is no longer pinned (the fix)")
+        (is (contains? (:active-owners (entry-in f dkey-b)) owner-b)
+            "B is now ensured under its own app-event owner")
+        ;; CLOSE B — the only close control releases the CURRENT slug (B).
+        (rf/dispatch-sync [:resources.app/preview-closed "owners-vs-causes"] {:frame f})
+        (is (nil? (rf/compute-sub [:resources.app/preview-slug] (rf/frame-state-value f)))
+            "closing clears the open slug")
+        (is (not (contains? (:active-owners (entry-in f dkey-b)) owner-b))
+            "close released B's owner")
+        (is (not (contains? (:active-owners (entry-in f dkey-a)) owner-a))
+            "and A's owner is STILL released — neither preview leaks (A→B→close)")))))
+
+(deftest reopening-the-same-preview-slug-does-not-churn-its-owner
+  (testing "examples/capabilities/resources/resources — clicking Preview on the
+            ALREADY-open slug must not release-then-reacquire its owner. The
+            replace path is guarded on (not= prev slug), so reopening the same
+            slug re-ensures the owner it already holds (a fresh-skip cache hit —
+            attach-owner is a no-op for an owner already present) rather than
+            churning it. A release+reacquire would bump the entry's :revision
+            (detach of a present owner bumps it, Spec 016 rf2-cxwuhl); a clean
+            re-ensure leaves it untouched."
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      (let [owner-a [:resources.app/preview-opened "fresh-skip"]
+            dkey-a  (detail-key "fresh-skip")]
+        (rf/dispatch-sync [:resources.app/preview-opened "fresh-skip"] {:frame f})
+        (reply-success! @last-managed-args {:slug "fresh-skip" :title "Fresh" :body "..."})
+        (let [rev-before (:revision (entry-in f dkey-a))]
+          (reset! last-managed-args nil)
+          ;; Reopen the SAME slug.
+          (rf/dispatch-sync [:resources.app/preview-opened "fresh-skip"] {:frame f})
+          (is (contains? (:active-owners (entry-in f dkey-a)) owner-a)
+              "the owner is still held after reopening the same slug")
+          (is (= rev-before (:revision (entry-in f dkey-a)))
+              "no churn — the owner was not released+reacquired (:revision unchanged)")
+          (is (nil? @last-managed-args)
+              "reopening the fresh slug fresh-skips — no refetch either"))))))
 
 ;; ============================================================================
 ;; 3. MANUAL REFRESH — a `:cause`, never an owner

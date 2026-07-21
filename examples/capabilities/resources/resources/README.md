@@ -49,6 +49,10 @@ live. They go from "the framework decides" to "a workflow decides":
   preview** dispatches `:resources.app/preview-closed` to release it. *You* opened
   the owner, so *you* must close it. Forget the release and the entry pins forever
   (Xray lints the orphan). That is the trade for holding the owner yourself.
+  Opening a preview while a *different* one is open **replaces** it, so
+  `:resources.app/preview-opened` releases the prior slug's owner before ensuring
+  the new one — otherwise the replaced owner is stranded, out of reach of the one
+  Close control.
 
 - **Manual refresh — a cause with no owner.** The **Refresh** button dispatches
   `:rf.resource/refetch` with a `:cause` and deliberately **no** `:owner`. A
