@@ -39,12 +39,16 @@
    and feed and the instance settled, and the continuation branches save-vs-delete
    on the reply value (save and delete share one instance, so they share one
    continuation). The seed-on-load continuation is the `:realworld/article`
-   ensure's `:reply-to [:editor/article-loaded]`, the resource-read counterpart
-   of a mutation completion continuation: a cache-hit
-   fires it immediately, a fetch fires it on settle, and a stale/superseded reply
-   never fires it. Both are declarative, replayable causal events, not Form-3
-   `reagent.ratom/run!` reactions watching a settle. The render bodies, as
-   everywhere here, are pure functions of subs that never dispatch out of band."
+   ensure's `:reply-to [:editor/article-loaded slug]`, the resource-read
+   counterpart of a mutation completion continuation: a cache-hit fires it
+   immediately, a fetch fires it on settle. The reply carries the slug it was for,
+   because per-slug reads are distinct cache entries with independent generations
+   — the resource gate suppresses a reply superseded within one entry, but not a
+   late reply for a slug you've navigated away from — so the continuation seeds
+   only while the editor still targets that slug. Both are declarative, replayable
+   causal events, not Form-3 `reagent.ratom/run!` reactions watching a settle. The
+   render bodies, as everywhere here, are pure functions of subs that never
+   dispatch out of band."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.http.managed]
@@ -246,42 +250,68 @@
          baseline. The route declares `:realworld/article` as a `:resources` entry
          (routing.cljs), owning it under `[:route :realworld.editor/edit nav-token]`
          and releasing it on every leave; this event fires an OWNERLESS
-         `:reply-to [:editor/article-loaded]` ensure that JOINS that same read — a
-         cache-hit fires the continuation immediately, an in-flight fetch fires it
-         on settle — purely to seed. It mints NO owner of its own (nothing here to
-         release), and a `/editor/A` -> `/editor/B` re-match is a fresh navigation,
-         so the runtime releases the A owner and ensures B on its own — this event
-         only re-seeds. The `:editor/can-submit?` flow is registered ONCE at boot
-         by `:editor/register-flow`, not per entry. The seeded baseline is what
-         gives the dirty-check something to compare against."}
+         `:reply-to [:editor/article-loaded slug]` ensure that JOINS that same read
+         — a cache-hit fires the continuation immediately, an in-flight fetch fires
+         it on settle — purely to seed. It mints NO owner of its own (nothing here
+         to release), and a `/editor/A` -> `/editor/B` re-match is a fresh
+         navigation, so the runtime releases the A owner and ensures B on its own —
+         this event only re-seeds. The reply target carries the INTENDED slug so the
+         continuation can tell WHICH edit it was for: slug A and slug B are distinct
+         cache entries with independent generations, so leaving A for B (or new, or
+         home) releases A's owner but a best-effort-uncancelled A settle can still
+         fire A's continuation late — carrying the slug lets `:editor/article-loaded`
+         drop a reply the editor has moved on from. The `:editor/can-submit?` flow
+         is registered ONCE at boot by `:editor/register-flow`, not per entry. The
+         seeded baseline is what gives the dirty-check something to compare
+         against."}
   (fn [{rt :rf.db/runtime :keys [db]} _]
     (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
       {:db (assoc db :editor (editor-slice slug blank-draft))
        :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
             ;; Join the route-owned read to seed the baseline — no owner, so this
             ;; ensure adds no owner and there is nothing to release. The route's
-            ;; own `:resources` ownership handles the read's whole lifecycle.
+            ;; own `:resources` ownership handles the read's whole lifecycle. The
+            ;; slug rides in the reply target so the seed continuation can confirm
+            ;; the editor still targets THIS slug before it writes the draft.
             [:dispatch [:rf.resource/ensure
                         {:resource :realworld/article
                          :params   {:slug slug}
                          :cause    [:route-entry :realworld.editor/edit]
-                         :reply-to [:editor/article-loaded]}]]]})))
+                         :reply-to [:editor/article-loaded slug]}]]]})))
 
 (rf/reg-event :editor/article-loaded
-  {:doc "The article-read completion continuation (the ensure's `:reply-to`
-         target). It receives the canonical reply map as its final arg the moment
-         the `:realworld/article` read the editor caused settles — a cache-hit
-         fires it immediately, a fetch fires it on settle, and a stale/superseded
-         reply never fires it. On `:ok`, seed the editor draft + baseline from the
-         loaded article so the dirty-check has a baseline to compare against; a
-         load error surfaces through the read's own state, so there's nothing to
-         do here. This is the read counterpart of the mutation `:reply-to` idiom
+  {:doc "The article-read completion continuation (the ensure's
+         `:reply-to [:editor/article-loaded slug]` target). It receives the
+         intended `slug` and then the canonical reply map as its final args the
+         moment the `:realworld/article` read the editor caused settles — a
+         cache-hit fires it immediately, a fetch fires it on settle. The resource
+         reply gate suppresses a reply superseded WITHIN its own cache entry
+         (same key, newer generation), but slug A and slug B are DISTINCT cache
+         entries with independent generations: leaving A for B/new/home releases
+         A's owner and requests cancellation, yet that cancellation is best-effort,
+         so a late A settle can still be accepted for A's own entry and dispatch
+         THIS continuation after the editor has moved on. So the seed is
+         slug-correlated: it writes the draft only while the current route is still
+         `:realworld.editor/edit` targeting the reply's `slug`. That keeps a stale
+         A reply from clobbering the draft the editor now shows (an actively-edited
+         B, a fresh create draft, or — off the editor entirely — nothing). On `:ok`
+         for the still-current slug, seed the editor draft + baseline from the
+         loaded article so the dirty-check has a baseline to compare against; a load
+         error surfaces through the read's own state, so there's nothing to do
+         here. This is the read counterpart of the mutation `:reply-to` idiom
          settings.cljs uses — a declarative, replayable causal event, not an
          off-render Form-3 reaction watching the read settle."}
-  (fn [{:keys [db]} [_ {:keys [status value]}]]
-    (when (= :ok status)
-      (when-let [article (:article value)]
-        {:db (assoc db :editor (editor-slice (:slug article) (draft-from-article article)))}))))
+  (fn [{rt :rf.db/runtime :keys [db]} [_ slug {:keys [status value]}]]
+    ;; Only seed while the editor is STILL on the edit route for THIS slug — the
+    ;; framework already tracks the current route, so this reads it (the same
+    ;; `:rf.db/runtime` coeffect `:editor/load-article` reads) rather than adding
+    ;; any lifecycle machinery.
+    (let [current        (get-in rt [:rf.runtime/routing :current])
+          still-editing? (and (= :realworld.editor/edit (:route-id current))
+                              (= slug (get-in current [:params :slug])))]
+      (when (and still-editing? (= :ok status))
+        (when-let [article (:article value)]
+          {:db (assoc db :editor (editor-slice (:slug article) (draft-from-article article)))})))))
 
 ;; There is deliberately NO `:editor/release-article` event. The article read is
 ;; owned by the ROUTE (`:realworld.editor/edit` `:resources`, routing.cljs), so

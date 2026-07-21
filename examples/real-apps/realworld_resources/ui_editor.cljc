@@ -41,9 +41,10 @@
    save→the saved article, edit→new, and edit A→B all release through the one
    framework lifecycle, with no view teardown involved. Seeding the edit draft's
    baseline stays a causal event: `:editor/load-article` (the route's `:on-match`)
-   fires an OWNERLESS `:reply-to [:editor/article-loaded]` ensure that JOINS the
-   route's own load purely to be told when it settles — it mints no owner of its
-   own. The Reagent page released on `:component-will-unmount`; native re-frame.ui
+   fires an OWNERLESS `:reply-to [:editor/article-loaded slug]` ensure that JOINS
+   the route's own load purely to be told when it settles — it mints no owner of
+   its own, and it carries the slug so a late reply for an article the editor has
+   navigated away from is dropped rather than reseeding a stale draft. The Reagent page released on `:component-will-unmount`; native re-frame.ui
    has no dispatch-at-unmount (a committed dispatcher rejects firing from a
    disconnected view — the leaked-listener law), so this owner CANNOT ride the
    view. It doesn't need to: the read is app-minted by a ROUTE, and a route is a

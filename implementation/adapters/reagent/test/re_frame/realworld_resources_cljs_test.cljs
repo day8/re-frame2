@@ -829,6 +829,63 @@
       (is (= :realworld/home (route-id f))
           "a successful delete navigates home"))))
 
+(deftest editor-late-cross-slug-reply-does-not-clobber-the-current-draft
+  (testing "examples/real-apps/realworld_resources — the ownerless seed-on-load
+            continuation is SLUG-CORRELATED (rf2-y4mgw, the #6569 reopen). Slug A
+            and slug B are DISTINCT :realworld/article cache entries with
+            independent generations, so leaving edit A for edit B releases A's
+            route owner and requests an OPPORTUNISTIC abort — but that abort is
+            best-effort (stale suppression is by work-id+generation, per
+            release-owner-handler), so a late A settle is still ACCEPTED for A's
+            own live entry and fans out to A's `:reply-to [:editor/article-loaded
+            article-a]` target AFTER the editor has moved to B. Before the slug
+            guard that late reply reseeded the editor slice with A, clobbering the
+            B draft the user now edits; now `:editor/article-loaded` seeds only
+            while the current route still targets the reply's slug, so the late A
+            reply is dropped and the B draft survives"
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      ;; ENTER edit A. Capture A's in-flight read WITHOUT settling it — A's fetch is
+      ;; still outstanding when we navigate away (the leave-before-settle race).
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "article-a"}}] {:frame f})
+      (let [a-read @last-managed-args]
+        (is (some? a-read) "edit A lowered the article read")
+        (is (editor-route-owner? (entry f (article-key "article-a")))
+            "edit A owns its article read while the edit-A route is live")
+        ;; EDIT A → EDIT B: a real navigation. The route releases A's owner
+        ;; (best-effort abort of A's still-in-flight read) and `:editor/load-article`
+        ;; resets the slice to slug B and lowers B's DISTINCT read.
+        (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "article-b"}}] {:frame f})
+        (let [b-read @last-managed-args]
+          (is (not= a-read b-read)
+              "edit B lowered a distinct read (a different slug → a different cache key)")
+          (is (= "article-b" (rf/compute-sub [:editor/slug] (state-value f)))
+              "the editor now targets slug B")
+          ;; SETTLE B → the [:editor/article-loaded article-b ...] continuation seeds
+          ;; the B draft (the current route targets B, so the guard applies it).
+          (reply-success! b-read
+                          {:article {:slug "article-b" :title "Bee Article"
+                                     :description "about b" :body "body b" :tagList ["bee"]}}
+                          f)
+          (is (= "Bee Article" (:title (rf/compute-sub [:editor/draft] (state-value f))))
+              "the B draft is seeded while the editor targets B")
+          (is (false? (rf/compute-sub [:editor/dirty?] (state-value f)))
+              "the freshly-seeded B draft equals its baseline")
+          ;; THE LATE A SETTLE (ineffective cancellation): replay A's captured read
+          ;; reply. The resource gate accepts it for A's own live entry and fans out
+          ;; [:editor/article-loaded article-a ...] — AFTER the editor moved to B.
+          ;; RED on the pre-guard continuation: it reseeds the slice with A,
+          ;; clobbering the B draft. GREEN: the slug guard drops the stale A reply.
+          (reply-success! a-read
+                          {:article {:slug "article-a" :title "Ay Article"
+                                     :description "about a" :body "body a" :tagList ["ay"]}}
+                          f)
+          (is (= "article-b" (rf/compute-sub [:editor/slug] (state-value f)))
+              "the late A reply must NOT re-slug the editor back to A")
+          (is (= "Bee Article" (:title (rf/compute-sub [:editor/draft] (state-value f))))
+              "the late A reply must NOT clobber the current B draft — the seed is slug-correlated"))))))
+
 ;; ============================================================================
 ;; 10. SESSION-RESTORE-WITH-TOKEN — the documented "restore stays put" invariant,
 ;;     plus the passive-re-key feed re-ensure (rf2-svj926)
