@@ -50,7 +50,11 @@
   S6 committed-instance evidence schema (rf2-vxgfnd.98.1 / EP-0033 §S6 view-evidence
   delta): the DEBUG-only per-commit committed-instance record the reactive substrate
   now mints and exposes through `re-frame.ui.reactive/commit-record` — integer
-  `:render-key`, per-observation `:observations`, `:root-id`, `:generation`,
+  `:render-key`, per-observation `:observations`, `:root-incarnation` (the opaque
+  per-mount root-incarnation token the raw record carries, nil before
+  `attach-root!` — NOT a serializable authored root-id; the tool projection
+  resolves it to the authored root-id it surfaces downstream via
+  `re-frame.ui.tool.evidence`), `:generation`,
   `:connection`, and the per-commit `:rf.view/causes` vector (the six shipped kinds
   :mount / :subscription / :story-override / :local-state / :hmr / :disposed, plus
   the :foreign-or-react honesty fallback). Consumers that pin this version exactly
