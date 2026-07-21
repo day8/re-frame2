@@ -244,10 +244,14 @@ On success Conduit replies `{:user {... :token "<jwt>"}}`. The success handler s
                (update-in [:auth :login-form]
                           #(assoc % :status :submitted :submitted (:draft %))))
        :fx [[:auth.session/persist {:token (:token user)}]
-            ;; :replace? true so the login URL never lands on the back stack —
-            ;; pressing Back after signing in shouldn't return you to /login.
+            ;; return-to is the resolved ADDRESS the guard stashed — path,
+            ;; params, query, AND fragment — and a valid navigate request in
+            ;; its own right, so bounce there wholesale (a partial {:to :params}
+            ;; would drop the query string and #fragment). :replace? true so the
+            ;; login URL never lands on the back stack — pressing Back after
+            ;; signing in shouldn't return you to /login.
             [:dispatch (if return-to
-                         [:rf.route/navigate {:to (:id return-to) :params (:params return-to) :replace? true}]
+                         [:rf.route/navigate (assoc return-to :replace? true)]
                          [:rf.route/navigate {:to :conduit/home :replace? true}])]]})))
 ```
 
@@ -494,26 +498,57 @@ That normaliser is `nav-target` below. The link-click and URL-bar cases carry a 
 `:rf.route/navigate` has a **third** shape too: an *in-place* request — no `:to` and no `:url` — meaning *stay on the current route, change only the query* (search, pagination, tabs). It names no route id; the runtime resolves the target from the current route slice, so `nav-target` takes that slice (`current`) and resolves it the same way. This closes the trap's nastiest corner: a session that *expires while the user is already on `/settings`* would otherwise navigate in place (a filter toggle, `?page=2`) straight past a guard that only knows how to read route ids and URLs — the request carries no route id to tag-check. Resolved to `:conduit.user/settings`, the in-place nav is gated and the stale session is bounced to login:
 
 ```clojure
+(defn- in-place-query
+  "Fold an in-place request's query edit onto the current query: :query
+   replaces wholesale ({} clears); :query-merge folds, a nil value dropping a
+   key; neither present carries the current query unchanged."
+  [{:keys [query query-merge]} current-query]
+  (cond
+    (some? query) query
+    query-merge   (into {} (remove (comp nil? val)) (merge current-query query-merge))
+    :else         current-query))
+
+(defn- matched-address
+  "match-url → a resolved address, or nil for a non-match OR a schema-invalid
+   match (:validation-failed? true) — which the runtime routes to not-found,
+   so the guard must not treat it as a real destination."
+  [url]
+  (when-let [{:keys [route-id params query fragment validation-failed?]} (routing/match-url url)]
+    (when-not validation-failed?
+      {:to route-id :params (or params {}) :query (or query {}) :fragment fragment})))
+
 (defn- nav-target
-  "Normalise any navigation event to {:id route-id :params m};
-   nil for non-navigation events (the guard stands aside). `current` is the
-   current route slice ([:rf.runtime/routing :current]) — an in-place navigate
-   request resolves against it, as the runtime resolves it."
+  "Normalise any navigation event to a resolved ADDRESS map —
+   {:to route-id :params m :query m :fragment s-or-nil}, the FULL route state,
+   so a login bounce-back returns to the exact URL (path, params, query, and
+   fragment). nil for a non-navigation event, a non-match, or a malformed
+   request the runtime's structural gate will reject
+   (:rf.error/navigate-bad-request) — the guard leaves those to the router
+   rather than reclassifying them. Address keys only; policy fields (:replace?,
+   :scroll, :bypass-guards?) are dropped. `current` is the current route slice
+   ([:rf.runtime/routing :current]) — an in-place request resolves against it,
+   as the runtime resolves it."
   [[event-id a] current]
   (case event-id
-    :rf.route/navigate          (let [{:keys [to url params]} a]      ;; a is the request map
-                                  (cond
-                                    to  {:id to :params (or params {})}
-                                    url (when-let [m (routing/match-url url)]
-                                          {:id (:route-id m) :params (or (:params m) {})})
-                                    :else                              ;; in-place: stay on the current route
-                                    {:id (:route-id current) :params (or (:params current) {})}))
-    :rf.route/url-requested           (if-let [to (:to a)]
-                                  {:id to :params (or (:params a) {})}
-                                  (when-let [m (routing/match-url (:url a))]
-                                    {:id (:route-id m) :params (or (:params m) {})}))
-    :rf.route/handle-url-change (when-let [m (routing/match-url a)]
-                                  {:id (:route-id m) :params (or (:params m) {})})
+    :rf.route/navigate
+    (let [{:keys [to url params]} a]                          ;; a is the request map
+      (cond
+        to  {:to to :params (or params {}) :query (or (:query a) {}) :fragment (:fragment a)}
+        url (matched-address url)
+        ;; in-place: no :to/:url/:params, at least one query/fragment edit.
+        (and (nil? params)
+             (or (contains? a :query) (contains? a :query-merge) (contains? a :fragment)))
+        {:to       (:route-id current)
+         :params   (or (:params current) {})
+         :query    (in-place-query a (:query current))
+         :fragment (if (contains? a :fragment) (:fragment a) (:fragment current))}
+        :else nil))                                           ;; malformed → router rejects
+    :rf.route/url-requested                                   ;; route-link click
+    (let [{:keys [to url]} a]
+      (cond
+        to  {:to to :params (or (:params a) {}) :query (or (:query a) {}) :fragment (:fragment a)}
+        url (matched-address url)))
+    :rf.route/handle-url-change (matched-address a)
     nil))
 
 (rf/reg-interceptor :conduit/auth-guard
@@ -523,18 +558,18 @@ That normaliser is `nav-target` below. The link-click and URL-bar cases carry a 
      ;; The route slice is framework runtime-db state — read it from the
      ;; :rf.db/runtime coeffect so an in-place navigate request resolves
      ;; to the protected route the user is already on.
-     (let [{:keys [id params]} (nav-target (get-in ctx [:coeffects :event])
-                                           (get-in ctx [:coeffects :rf.db/runtime
-                                                        :rf.runtime/routing :current]))
-           needs-auth? (when id
-                         (contains? (:tags (rf/handler-meta :route id)) :requires-auth))
+     (let [target      (nav-target (get-in ctx [:coeffects :event])
+                                    (get-in ctx [:coeffects :rf.db/runtime
+                                                 :rf.runtime/routing :current]))
+           needs-auth? (when target
+                         (contains? (:tags (rf/handler-meta :route (:to target))) :requires-auth))
            signed-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
        (if (and needs-auth? (not signed-in?))
          (-> ctx
              (assoc :rf/skip-handler? true)        ;; the protected route never commits
-             (assoc-in [:effects :db]              ;; stash the target for the bounce-back
+             (assoc-in [:effects :db]              ;; stash the resolved address for the bounce-back
                        (assoc-in (get-in ctx [:coeffects :db])
-                                 [:auth :return-to] {:id id :params params}))
+                                 [:auth :return-to] target))
              (assoc-in [:effects :fx]
                        [[:dispatch [:rf.route/navigate {:to :conduit.auth/login}]]]))
          ctx)))})
@@ -542,11 +577,11 @@ That normaliser is `nav-target` below. The link-click and URL-bar cases carry a 
 
 You register the guard once, under the id `:conduit/auth-guard` — exactly like registering an event or a sub — and then the frame's chain *references* that id. A few pieces are doing precise work:
 
-- **`routing/match-url`** is the URL codec from `re-frame.routing` (`(:require [re-frame.routing :as routing])`) — **not** the `rf/` front porch. It's a pure function, `url → {:route-id :params :query :fragment :validation-failed?}` (or `nil` for a URL that matches nothing), and it runs on both hosts. `nav-target` uses it for the two cases that arrive as a raw URL string.
-- **The current route slice** (`current`, read from the `:rf.db/runtime` coeffect at `[:rf.runtime/routing :current]`) is what resolves an *in-place* navigate request — no `:to`/`:url` means "the route I'm already on," so the guard reads that route's id from the slice, exactly as the runtime does, and then checks its `:tags`.
-- **`rf/handler-meta :route id`** reads the route's [registration](../../core/glossary.md#registration) metadata — including its `:tags` — without activating it. It's the introspection seam pair tools use too, so the guard asks the registry the same question Xray would.
+- **`routing/match-url`** is the URL codec from `re-frame.routing` (`(:require [re-frame.routing :as routing])`) — **not** the `rf/` front porch. It's a pure function, `url → {:route-id :params :query :fragment :validation-failed?}` (or `nil` for a URL that matches nothing), and it runs on both hosts. `matched-address` wraps it in the two rejections the guard needs: a `nil` (unknown route) **and** a `:validation-failed? true` map (a match whose path/query params fail the route's schema) are *both* non-matches — the runtime routes a validation-failed URL to not-found, so the guard must not tag-check a route it will never land on. `nav-target` uses it for the two cases that arrive as a raw URL string.
+- **The current route slice** (`current`, read from the `:rf.db/runtime` coeffect at `[:rf.runtime/routing :current]`) is what resolves an *in-place* navigate request — no `:to`/`:url` means "the route I'm already on," so the guard reads that route's id from the slice, exactly as the runtime does, then folds any `:query`/`:query-merge` edit onto the current query (`in-place-query`) before checking `:tags`. A request that is neither a destination nor a valid in-place edit resolves to `nil`, so the guard stands aside and lets the runtime's structural gate reject it with `:rf.error/navigate-bad-request` rather than reclassifying a malformed request as a valid guarded destination.
+- **`rf/handler-meta :route (:to target)`** reads the route's [registration](../../core/glossary.md#registration) metadata — including its `:tags` — without activating it. It's the introspection seam pair tools use too, so the guard asks the registry the same question Xray would.
 - **`:rf/skip-handler? true`** tells the runtime to skip the event's own handler. For a navigation that means the protected route never commits and its `:on-match` loads (`[:settings/load]`) never fire — a signed-out user can't even trigger the route's data fetch.
-- **The stash** lands the destination at `[:auth :return-to]` — the same spot `submit-success` read earlier — and the guard dispatches the login navigation instead.
+- **The stash** lands the *resolved address* — `{:to :params :query :fragment}`, the full route state — at `[:auth :return-to]`, the same spot `submit-success` read earlier, so the bounce-back returns to the exact URL (query string and `#fragment` included). The guard dispatches the login navigation instead.
 
 Attached frame-wide, the guard wraps every event and quietly stands aside (returns `ctx` untouched) for everything `nav-target` returns `nil` for — which is every event that isn't a navigation. [Interceptors](../../core/interceptors.md) is the deeper model.
 
