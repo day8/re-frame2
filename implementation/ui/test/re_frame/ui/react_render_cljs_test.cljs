@@ -550,6 +550,46 @@
                       (.-prototype js/Object))
           (str (name surface) " keeps Object.prototype unchanged")))))
 
+(deftest foreign-spread-props-literal-wins-by-presence-and-proto-ownership
+  ;; rf2-xu095 — the FOREIGN `ui/spread` merge helper, executed directly. A
+  ;; foreign boundary is OPEN: forwarded keys pass through VERBATIM as own props;
+  ;; the compiled literal object WINS every collision BY PRESENCE (even an
+  ;; explicit null literal), retaining false/0; and the magic `__proto__` key
+  ;; stays a verbatim OWN prop, never a prototype mutation.
+  (testing "verbatim forwarded names; ordinary + nil collision precedence; false/0 retained"
+    (let [fwd     {:label "hi" :data/x "keep" :id "fwd" :title "fwd-title"}
+          literal (js-obj)]
+      ;; literal owns: id (ordinary win), title=null (nil win), disabled=false, count=0
+      (unchecked-set literal "id" "lit")
+      (unchecked-set literal "title" nil)      ; explicit own null, as a nil dynamic literal materializes
+      (unchecked-set literal "disabled" false)
+      (unchecked-set literal "count" 0)
+      (let [o (rt/foreign-spread-props fwd literal)]
+        (is (= "hi" (unchecked-get o "label")) "plain forwarded name is verbatim")
+        (is (= "keep" (unchecked-get o "data/x")) "namespaced forwarded name is verbatim ns/name")
+        (is (= "lit" (unchecked-get o "id")) "ordinary collision: literal wins")
+        (is (has-own? o "title") "nil-literal collision still materializes the key by presence")
+        (is (nil? (unchecked-get o "title")) "nil literal WINS the collision — forwarded value does not survive")
+        (is (false? (unchecked-get o "disabled")) "false literal retained")
+        (is (= 0 (unchecked-get o "count")) "0 literal retained"))))
+  (testing "forwarded __proto__ is an OWN prop; output prototype unchanged"
+    (let [sentinel (js-obj "tag" "fwd-proto")
+          o        (rt/foreign-spread-props {:__proto__ sentinel} (js-obj))]
+      (is (has-own? o "__proto__") "forwarded __proto__ is an own data property")
+      (is (identical? sentinel (unchecked-get o "__proto__")) "verbatim forwarded value")
+      (is (identical? (js/Object.getPrototypeOf o) (.-prototype js/Object))
+          "output keeps Object.prototype — no prototype mutation")))
+  (testing "literal __proto__ wins the collision and stays an own prop"
+    (let [lit-proto (js-obj "tag" "lit-proto")
+          literal   (js-obj)]
+      (js/Object.defineProperty
+       literal "__proto__" #js {:value lit-proto :writable true :enumerable true :configurable true})
+      (let [o (rt/foreign-spread-props {:__proto__ (js-obj "tag" "fwd-proto")} literal)]
+        (is (has-own? o "__proto__") "own data property, not a prototype mutation")
+        (is (identical? lit-proto (unchecked-get o "__proto__")) "literal __proto__ wins the collision")
+        (is (identical? (js/Object.getPrototypeOf o) (.-prototype js/Object))
+            "output keeps Object.prototype unchanged")))))
+
 ;; ---------------------------------------------------------------------------
 ;; Handlers — committed callback identity + compile-time placeholder provenance
 ;; ---------------------------------------------------------------------------
