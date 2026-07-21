@@ -15,7 +15,16 @@
   commit is caused by `:mount`. The record still invents NO :parent-render-key
   (deferred — no capture machinery) and claims NO singular top-level :frame-id
   (frame attribution is PER-OBSERVATION). The full per-cause cause-vector proof
-  lives in `reactive_commit_causes_cljs_test`."
+  lives in `reactive_commit_causes_cljs_test`.
+
+  ROOT IDENTITY (rf2-vxgfnd.98.1.2): the record's owning-root field carries the
+  PRIVATE opaque per-mount incarnation token (`make-root-incarnation`) under
+  `:root-incarnation` — never a serializable authored root-id keyword under a
+  `:root-id` key. The authored root-id is resolved DOWNSTREAM at the tool
+  boundary (`re-frame.ui.tool.evidence`'s incarnation->root-id index over the
+  live-root registry); the substrate holds only opaque identity, and the FIRST
+  connected commit is honestly nil-rooted because the mount seam's `attach-root!`
+  runs in the LATER lifecycle effect, after this reconcile commit."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core                 :as rf]
@@ -151,6 +160,91 @@
       (reactive/commit! cell cap2)
       (is (> (reactive/render-key cell) rk1)
           "a distinct capture is a distinct committed render — render-key advances"))))
+
+;; ===========================================================================
+;; Root identity (rf2-vxgfnd.98.1.2) — the record carries the PRIVATE opaque
+;; per-mount incarnation under :root-incarnation, never an opaque token
+;; masquerading as a serializable authored root-id under :root-id.
+;; ===========================================================================
+
+(deftest rooted-commit-records-the-opaque-incarnation-never-a-root-id-keyword
+  (rf/reg-sub :cr/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell        (reactive/make-cell ::v)
+        incarnation (reactive/make-root-incarnation)]
+    ;; The FIRST connected commit runs BEFORE the mount seam's `attach-root!`
+    ;; (which fires in the LATER lifecycle effect, not this reconcile commit),
+    ;; so the record is honestly nil-rooted — never a fabricated keyword.
+    (render+commit! cell [[[:cr/site 0] [:cr/a]]])
+    (let [rec0 (reactive/commit-record cell)]
+      (is (not (contains? rec0 :root-id))
+          "the record NEVER exposes a :root-id key — no opaque root-incarnation
+           token is allowed to masquerade as a serializable authored root-id")
+      (is (contains? rec0 :root-incarnation)
+          "the owning-root field is the honestly-named :root-incarnation")
+      (is (nil? (:root-incarnation rec0))
+          "the FIRST connected commit is nil-rooted — attach-root! has not run yet
+           (the record captures the state at reconcile-commit time)"))
+    ;; The mount seam attaches the cell to its per-mount root incarnation; a
+    ;; subsequent commit records THAT exact opaque token.
+    (reactive/attach-root! cell incarnation)
+    (render+commit! cell [[[:cr/site 0] [:cr/a]]])
+    (let [rec1 (reactive/commit-record cell)]
+      (is (not (contains? rec1 :root-id))
+          "still no :root-id — the opaque token is never exposed under that key")
+      (is (identical? incarnation (:root-incarnation rec1))
+          "a rooted commit records the EXACT opaque per-mount incarnation token
+           under :root-incarnation — private identity, compared by identical?")
+      (is (not (keyword? (:root-incarnation rec1)))
+          "the substrate holds only opaque identity, never the authored keyword —
+           that resolution happens downstream at the tool boundary")
+      (is (identical? (reactive/cell-root cell) (:root-incarnation rec1))
+          "the record's :root-incarnation is exactly the cell's attached root
+           incarnation (`cell-root`) — the record ties to its owning root"))))
+
+(deftest distinct-roots-record-distinct-incarnations-no-collision
+  ;; Two views mounted under two DISTINCT root incarnations (e.g. two frames /
+  ;; two app instances) must key two DISTINCT commit-records — the root identity
+  ;; uniquely ties each record to its owning root and never collides with a
+  ;; sibling root.
+  (rf/reg-sub :cr/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell-a (reactive/make-cell ::a)
+        cell-b (reactive/make-cell ::b)
+        inc-a  (reactive/make-root-incarnation)
+        inc-b  (reactive/make-root-incarnation)]
+    (reactive/attach-root! cell-a inc-a)
+    (reactive/attach-root! cell-b inc-b)
+    (render+commit! cell-a [[[:cr/site 0] [:cr/a]]])
+    (render+commit! cell-b [[[:cr/site 0] [:cr/a]]])
+    (let [ra (:root-incarnation (reactive/commit-record cell-a))
+          rb (:root-incarnation (reactive/commit-record cell-b))]
+      (is (identical? inc-a ra) "cell-a's record carries root A's incarnation")
+      (is (identical? inc-b rb) "cell-b's record carries root B's incarnation")
+      (is (not (identical? ra rb))
+          "distinct roots produce distinct :root-incarnation identities — no
+           collision between sibling roots"))))
+
+(deftest a-remount-under-a-fresh-incarnation-records-the-new-root
+  ;; A root that re-mounts under the same reusable authored root-id gets a
+  ;; DISTINCT incarnation (rf2-vxgfnd.85); a commit after re-attach records the
+  ;; NEW incarnation, so a record is never keyed to a stale root.
+  (rf/reg-sub :cr/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell  (reactive/make-cell ::v)
+        inc-1 (reactive/make-root-incarnation)
+        inc-2 (reactive/make-root-incarnation)]
+    (reactive/attach-root! cell inc-1)
+    (render+commit! cell [[[:cr/site 0] [:cr/a]]])
+    (is (identical? inc-1 (:root-incarnation (reactive/commit-record cell)))
+        "the first rooted commit records the first incarnation")
+    ;; Re-mount: attaching a DIFFERENT incarnation first drops the old
+    ;; membership, so the cell never straddles two roots.
+    (reactive/attach-root! cell inc-2)
+    (render+commit! cell [[[:cr/site 0] [:cr/a]]])
+    (is (identical? inc-2 (:root-incarnation (reactive/commit-record cell)))
+        "a commit after re-attach records the FRESH incarnation, never the stale
+         one — the record's root identity tracks the live root")))
 
 ;; ===========================================================================
 ;; Observations carry PER-OBSERVATION frame attribution (Ruling-1 amendment)

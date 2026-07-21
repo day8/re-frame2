@@ -592,10 +592,13 @@
   ;;                             ;   commit-time fact). ABSENT in production + when unset
   ;;    :commit-record {…}|nil}  ; DEBUG-only S6 committed-instance record from
   ;;                             ;   the most-recent CONNECTED commit (Ruling 1/2;
-  ;;                             ;   integer render-key + per-observation
-  ;;                             ;   observations + the per-commit :rf.view/causes
-  ;;                             ;   vector). ABSENT in production (elided) and nil
-  ;;                             ;   before the first connect
+  ;;                             ;   integer render-key + :root-incarnation — the
+  ;;                             ;   PRIVATE opaque incarnation token, nil before
+  ;;                             ;   attach-root!, resolved to the authored root-id
+  ;;                             ;   downstream at the tool boundary — + per-
+  ;;                             ;   observation observations + the per-commit
+  ;;                             ;   :rf.view/causes vector). ABSENT in production
+  ;;                             ;   (elided) and nil before the first connect
   )
 
 (defn cell?
@@ -3479,10 +3482,17 @@
 (defn- mint-commit-record!
   "DEBUG-only: mint a fresh monotonic :render-key and publish the S6
   committed-instance record onto `cell` for THIS connected commit (Ruling 1/2).
-  Reads the cell's just-published state, so :view-id / :generation / :root-id
-  reflect the commit that connected. `:root-id` is the owning root incarnation —
-  the opaque per-mount token the tool projection resolves to the authored root-id
-  name (nil under no root, e.g. Tier-1/JVM). Projects the per-commit
+  Reads the cell's just-published state, so :view-id / :generation /
+  :root-incarnation reflect the commit that connected. `:root-incarnation` is the
+  PRIVATE opaque per-mount root-incarnation token (`make-root-incarnation`) the
+  cell is attached to, compared only by `identical?` — NOT a serializable authored
+  root-id, and NEVER exposed as one under a `:root-id` key. It is nil on the FIRST
+  connected commit (the mount seam's `attach-root!` runs in the LATER lifecycle
+  effect, after this reconcile commit) and the opaque token thereafter; under no
+  root (Tier-1/JVM) it stays nil. The developer-facing authored root-id keyword is
+  resolved DOWNSTREAM at the tool boundary (`re-frame.ui.tool.evidence`'s
+  incarnation->root-id index over the live-root registry), never minted here — the
+  substrate holds only opaque identity. Projects the per-commit
   :rf.view/causes vector of DETAILED cause records (Ruling 2, reworked rf2-qkq2k)
   from the carry-forward cause stash plus the commit-time lifecycle / override
   facts, then CLEARS the stash so a subsequent causeless re-render honestly reports
@@ -3538,12 +3548,12 @@
                                                {:override-id (:override-id t)
                                                 :version     (:version t)}))))
                                    to-acquire)
-            base       {:render-key    (next-render-key!)
-                        :view-id       (:view-id st0)
-                        :generation    (:generation cap)
-                        :root-id       (:root st0)
-                        :connection    :connected
-                        :observations  (project-observations new-order new-by)}]
+            base       {:render-key       (next-render-key!)
+                        :view-id          (:view-id st0)
+                        :generation       (:generation cap)
+                        :root-incarnation (:root st0)
+                        :connection       :connected
+                        :observations     (project-observations new-order new-by)}]
         (loop []
           (let [s        @st
                 pending  (or (:pending-commit-causes s) [])
@@ -3902,7 +3912,10 @@
   "The cell's most-recent CONNECTED-commit S6 committed-instance record, or nil
   when the cell has never connected — and always nil in a production build, where
   the view-evidence plane is elided. The per-commit record (Ruling 1/2; EP-0033
-  §Two evidence layers): integer :render-key, :view-id, :generation, :root-id,
+  §Two evidence layers): integer :render-key, :view-id, :generation,
+  :root-incarnation (the PRIVATE opaque per-mount incarnation token — nil before
+  the mount seam's `attach-root!` and under no root, resolved to the authored
+  root-id keyword downstream at the tool boundary, never a serializable id here),
   :connection, a per-observation :observations vector, and the per-commit
   :rf.view/causes vector (Ruling 2 — the SIX shipped kinds `:mount` /
   `:story-override` / `:subscription` / `:local-state` / `:hmr` / `:disposed`
