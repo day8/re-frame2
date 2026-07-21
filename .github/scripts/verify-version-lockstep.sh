@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # verify-version-lockstep.sh (rf2-ace2; substrate-paths updated rf2-zha9;
-# adapters/ rename rf2-0imy; tools/ coverage rf2-lwtke)
+# adapters/ rename rf2-0imy; tools/ coverage rf2-lwtke; day8/re-frame2-ui
+# publication + REQUIRED-publishable assertion rf2-vxgfnd.99.2)
 #
 # Asserts the lockstep-version contract documented in spec/Conventions.md
 # §Packaging conventions: every published artefact picks up its version
@@ -85,6 +86,7 @@ declare -A ARTEFACT_PATHS=(
   [reagent-slim]="adapters/reagent-slim"
   [uix]="adapters/uix"
   [helix]="adapters/helix"
+  [ui]="ui"
   [machines]="machines"
   [routing]="routing"
   [flows]="flows"
@@ -104,11 +106,16 @@ declare -A ARTEFACT_PATHS=(
 # below now also asserts that EVERY implementation/*/deps.edn carrying a
 # :clein/build alias appears in this list, so a future publishable
 # artefact cannot be omitted unnoticed.
-ARTEFACTS=(core schemas reagent reagent-slim uix helix machines routing flows http ssr ssr-ring resources epoch)
+# rf2-vxgfnd.99.2 — day8/re-frame2-ui (the compiled-view substrate) is now a
+# published artefact and a REQUIRED member of the alpha release train (spec/006
+# §R-6, core and ui ship together). It sits with the view-layer adapters in the
+# inventory; the REQUIRED_PUBLISHABLE assertion further down makes dropping its
+# :clein/build fail the release rather than silently revert it to pre-publication.
+ARTEFACTS=(core schemas reagent reagent-slim uix helix ui machines routing flows http ssr ssr-ring resources epoch)
 
 # core is the lockstep root: it does not depend on any other re-frame2
 # artefact, so the :local/root core-reference check below skips it.
-NON_CORE=(schemas reagent reagent-slim uix helix machines routing flows http ssr ssr-ring resources epoch)
+NON_CORE=(schemas reagent reagent-slim uix helix ui machines routing flows http ssr ssr-ring resources epoch)
 
 # Adapters (substrate adapters) are one directory deeper than per-feature
 # artefacts.
@@ -265,6 +272,26 @@ while IFS= read -r subpath; do
     errors=$((errors + 1))
   fi
 done <<< "${publishable_subpaths}"
+
+# rf2-vxgfnd.99.2 — REQUIRED-publishable positive assertion (the alpha release
+# train). The inventory guard above is CONDITIONAL: "IF a deps.edn declares
+# :clein/build THEN it must be inventoried + in the deploy matrix." By
+# construction it can never require an artefact to BECOME publishable —
+# dropping day8/re-frame2-ui's :clein/build reverts it to pre-publication and
+# the conditional guard falls silent, which would let a core-only alpha tag cut
+# without ui. That is exactly the rf2-pc479y drift the ratified packaging
+# decision forbids (spec/006 §R-6: core and ui ship together on the lockstep
+# train). This positive assertion closes the hole: every REQUIRED artefact MUST
+# appear in the publishable-authority output. If day8/re-frame2-ui is not
+# publishable, the release fails HERE — before the test gate and any deploy.
+REQUIRED_PUBLISHABLE=(ui)
+for required in "${REQUIRED_PUBLISHABLE[@]}"; do
+  subpath="${ARTEFACT_PATHS[$required]}"
+  if ! grep -qxF "${subpath}" <<< "${publishable_subpaths}"; then
+    echo "::error file=implementation/${subpath}/deps.edn::implementation/${subpath} (day8/re-frame2-${required}) is a REQUIRED artefact of the alpha release train but declares no :clein/build — core and ui ship together (spec/006 §R-6). A core-only tag is refused: add its :clein/build descriptor + the release.yml deploy leaf + release-body row (rf2-vxgfnd.99.2)."
+    errors=$((errors + 1))
+  fi
+done
 
 # Tools/* deployable jars (rf2-lwtke). Each tools/<name>/deps.edn that
 # carries a :clein/build alias publishes to Clojars at the same lockstep

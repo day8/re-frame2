@@ -10,6 +10,7 @@
 #                                         ├── deploy-reagent-slim
 #                                         ├── deploy-uix
 #                                         ├── deploy-helix
+#                                         ├── deploy-ui
 #                                         ├── deploy-machines
 #                                         ├── deploy-routing
 #                                         ├── deploy-flows
@@ -35,23 +36,27 @@
 # per rf2-2qit). The per-feature split set is now closed; further
 # additions require a new Spec-ulation increment.
 #
-# # The re-frame.ui substrate is deliberately absent (rf2-pc479y)
+# # The re-frame.ui substrate is a REQUIRED artefact (rf2-vxgfnd.99.2)
 #
 # implementation/ui/ (`day8/re-frame2-ui`; epic rf2-vxgfnd — the
-# compiled-view substrate that will replace the adapter trio) is a real,
-# JVM+CLJS-tested artefact — test.yml gates it at PR time via the jvm-ui
-# and cljs-ui-g1 jobs — but it is intentionally PRE-PUBLICATION: its
-# deps.edn carries no :clein/build alias "until the substrate is real".
-# So it has no pre-deploy test step and no deploy leaf here — by design,
-# not an omission. The publishing wiring (a jvm-ui pre-deploy step + a
-# deploy leaf after deploy-core + a verify-version-lockstep.sh inventory
-# entry + a release-notes line) lands in the SAME change that first gives
-# ui a :clein/build. That coupling is enforced, not merely documented:
-# verify-version-lockstep.sh's inventory guard (rf2-qmhysc) FAILS the
-# build the instant any implementation/*/deps.edn gains a :clein/build
-# without a matching lockstep-inventory + release-matrix entry — so ui
-# can neither be published nor silently omitted-once-publishable behind
-# the release train's back.
+# compiled-view substrate that replaces the adapter trio) ships on the
+# lockstep release train: it carries a jvm-ui pre-deploy test in the
+# `test` job, a `ui` deploy leaf in the matrix below (after deploy-core,
+# local-root ../core), a verify-version-lockstep.sh inventory entry, and a
+# release-notes line — all landed together per the ratified packaging
+# decision (spec/006 §R-6: core and ui ship together).
+#
+# ui is not merely inventoried-if-publishable, it is REQUIRED. The generic
+# inventory guard (rf2-qmhysc) is conditional — "IF a deps.edn declares
+# :clein/build THEN it must be inventoried + in the deploy matrix" — so it
+# cannot, by construction, require ui to BECOME publishable: dropping ui's
+# :clein/build would revert it to pre-publication and the conditional
+# guard would fall silent, allowing a core-only alpha tag (the rf2-pc479y
+# drift this gate exists to prevent). verify-version-lockstep.sh therefore
+# adds a REQUIRED_PUBLISHABLE positive assertion (rf2-vxgfnd.99.2): ui MUST
+# be publishable, so a core-only tag FAILS the verify-version-lockstep job
+# before the test gate and any deploy. That block is proven by the
+# hermetic `_release-ui-required-gate.test.cjs` in the script-policy suite.
 #
 # # Lockstep versioning policy through 1.0
 #
@@ -212,6 +217,16 @@ jobs:
 
       - name: JVM tests (helix artefact, classpath probe)
         working-directory: implementation/adapters/helix
+        run: clojure -M:test
+
+      # rf2-vxgfnd.99.2 — day8/re-frame2-ui is a published, REQUIRED artefact
+      # (spec/006 §R-6). Unlike the adapter probes above, ui ships a substantial
+      # JVM-runnable suite (the .cljc template analyzer + JVM node-schema emitter
+      # + build-hook tests), so a non-zero exit is a REAL failure that MUST stop
+      # the release — no skip-on-empty fallback. Mirrors the jvm-ui job in
+      # .github/workflows/test.yml.
+      - name: JVM tests (ui artefact)
+        working-directory: implementation/ui
         run: clojure -M:test
 
       - name: JVM tests (schemas artefact)
@@ -379,6 +394,13 @@ jobs:
             artefact: day8/re-frame2-helix
             directory: implementation/adapters/helix
             local-root: ../../core
+          # rf2-vxgfnd.99.2 — the compiled-view substrate. A per-feature-tier
+          # artefact (implementation/ui/, one level deep), so local-root ../core
+          # like schemas/machines/… — NOT the ../../core the deeper adapters use.
+          - leaf: ui
+            artefact: day8/re-frame2-ui
+            directory: implementation/ui
+            local-root: ../core
           - leaf: schemas
             artefact: day8/re-frame2-schemas
             directory: implementation/schemas
@@ -609,6 +631,7 @@ jobs:
             - `day8/reagent-slim` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-uix` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-helix` ${{ needs.deploy-core.outputs.version }}
+            - `day8/re-frame2-ui` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-schemas` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-machines` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-routing` ${{ needs.deploy-core.outputs.version }}
