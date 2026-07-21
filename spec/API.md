@@ -634,7 +634,7 @@ The eight `:kind` values inside a failure reply, all reserved under `:rf.http/*`
 
 | `:operation` | `:op-type` | When |
 |---|---|---|
-| `:rf.http/retry-attempt` | `:info` | Per intermediate attempt that matched `:retry :on` (and the terminal exhaustion row); carries `:request-id`, `:url`, `:attempt`, `:max-attempts`, `:failure`, `:next-backoff-ms` (`nil` on the terminal row) |
+| `:rf.http/retry-attempt` | `:info` | Per intermediate attempt that matched `:retry :on`, plus a terminal retry-sequence stop marker once the sequence ends (budget spent, or a later attempt failed outside `:retry :on`); carries `:request-id`, `:url`, `:attempt`, `:max-attempts`, `:failure`, `:next-backoff-ms` (`nil` on the terminal stop marker) |
 | `:rf.http.interceptor/registered` | `:info` | A `reg-http-interceptor` succeeded; carries `:frame`, `:id` (per [014 §Middleware](014-HTTPRequests.md#middleware)) |
 | `:rf.http.interceptor/cleared` | `:info` | A `clear-http-interceptor` removed an existing slot; carries `:frame`, `:id` |
 | `:rf.error/http-interceptor-failed` | `:error` | An interceptor `:before` **or** `:after` threw; carries `:frame`, `:interceptor-id`, `:url`, `:cause` (plus `:phase :after` on the response side). Request side: the request is NOT dispatched; response side: the reply is suppressed (per [014 §Middleware §Failure mode](014-HTTPRequests.md#failure-mode)) |
