@@ -255,4 +255,18 @@ jobs:
             ${{ runner.os }}-clj-
 
       - name: Run JVM slow/stress tests
+        # rf2-g2ytj — the routing `popstate-mid-push-stress` suite defaults
+        # to 5000 iters × 8 threads (~60s on an unstarved box), but the
+        # loaded nightly runner starves it ~8× so all 8 threads finish only
+        # ~650/5000 iters before the test's 120s per-future deref bound and
+        # the run TIMES OUT (a CPU-starvation wall-clock timeout, NOT a
+        # concurrency race — the correctness invariants are unchanged and
+        # still assert). Lower JUST the nightly routing run to 500 iters via
+        # the test's `RF2_KSBUR_STRESS_ITERS` override so it completes well
+        # within the bound; 500 × 8 threads still exercises the invariants
+        # meaningfully. The default (5000) is unchanged — the local rigorous
+        # sweep (`scripts/test-rigorous-local.sh`) still runs full strength.
+        # Scoped to `routing`; the other matrix artefacts never read this var.
+        env:
+          RF2_KSBUR_STRESS_ITERS: ${{ matrix.artefact == 'routing' && '500' || '' }}
         run: clojure -M:slow-test
