@@ -51,7 +51,7 @@
  [;; Step 1: first ensure. No-data entry → :loading, mints generation 1,
   ;; attaches the owner, lowers the managed-HTTP fetch.
   [:rf.resource/ensure {:resource :res/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:app :t 1] :cause :first-load}]
+                        :params {:slug "w"} :owner [:article/opened "w"] :cause :first-load}]
 
   ;; Step 2: the transport reply arrives (fed directly). Verified against the
   ;; live entry by work-id + generation, it settles :loaded with the data.
@@ -64,7 +64,7 @@
   ;; Step 3: a SECOND ensure of the fresh :loaded entry. FRESH-SKIP: serve
   ;; cache, no new generation, no new load; emit :rf.resource/cache-hit.
   [:rf.resource/ensure {:resource :res/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:app :t 1] :cause :revisit}]]
+                        :params {:slug "w"} :owner [:article/opened "w"] :cause :revisit}]]
 
  :fixture/expect
  {;; The public state view-model after the fresh-skip: :loaded with the

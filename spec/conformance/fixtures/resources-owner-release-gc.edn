@@ -7,7 +7,7 @@
 ;; :active-owners + nil :current-work) — there is no stored "gc-eligible"
 ;; boolean. Release alone does not remove; the fired GC re-check does.
 ;;
-;; ensure (owner [:app :gc 1]) → succeed → :loaded; release-owner drops the
+;; ensure (owner [:article/opened "w"]) → succeed → :loaded; release-owner drops the
 ;; owner (:rf.resource/owner-released) leaving the entry owner-free + idle; the
 ;; fired GC (:rf.resource.internal/gc-fired) re-checks and removes it
 ;; (:rf.resource/gc-fired). After removal the public state sub projects the
@@ -24,7 +24,7 @@
 {:fixture/id           :resources/owner-release-gc
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:resources/owner-gc}
- :fixture/doc          "ensure :res/article (owner [:app :gc 1], gc-after 60s) → :loaded; release-owner drops the owner (owner-free + idle → GC-eligible); the fired GC re-check removes the entry. Traces: :rf.resource/owner-released then :rf.resource/gc-fired. The state sub then projects the :idle empty-state. A second resource (:res/no-gc-policy, no :gc-after-ms declared) proves the rf2-bbpu11 default-arming rule: its settle routes schedule-timers with the framework's default GC delay via :timers {:gc 300000}."
+ :fixture/doc          "ensure :res/article (owner [:article/opened \"w\"], gc-after 60s) → :loaded; release-owner drops the owner (owner-free + idle → GC-eligible); the fired GC re-check removes the entry. Traces: :rf.resource/owner-released then :rf.resource/gc-fired. The state sub then projects the :idle empty-state. A second resource (:res/no-gc-policy, no :gc-after-ms declared) proves the rf2-bbpu11 default-arming rule: its settle routes schedule-timers with the framework's default GC delay via :timers {:gc 300000}."
 
  :fixture/registry
  {:resource
@@ -48,7 +48,7 @@
  :fixture/dispatches
  [;; Step 1: ensure with an owner → :loading, generation 1.
   [:rf.resource/ensure {:resource :res/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:app :gc 1] :cause :view-mount}]
+                        :params {:slug "w"} :owner [:article/opened "w"] :cause :view-mount}]
 
   ;; Step 2: the reply settles :loaded (entry now idle: :current-work nil).
   [:rf.resource.internal/succeeded
@@ -59,7 +59,7 @@
 
   ;; Step 3: release the owner → entry becomes owner-free (still :loaded, idle).
   ;; Release alone does NOT remove — the entry is GC-eligible, not gone.
-  [:rf.resource/release-owner {:owner [:app :gc 1]}]
+  [:rf.resource/release-owner {:owner [:article/opened "w"]}]
 
   ;; Step 4: the GC timer fires → re-checks (owner-free + idle) → reaps the
   ;; entry. (The internal gc-fired event is what the armed timer dispatches.)
@@ -70,7 +70,7 @@
   ;; across every resource in the frame, not per resource-id), so this
   ;; frame's SECOND ensure mints generation 2.
   [:rf.resource/ensure {:resource :res/no-gc-policy :scope :rf.scope/global
-                        :params {:slug "d"} :owner [:app :gc 2] :cause :view-mount}]
+                        :params {:slug "d"} :owner [:dashboard/opened "d"] :cause :view-mount}]
 
   ;; Step 6: the reply settles :loaded — the :effects-routed expectation below
   ;; is the proof: schedule-timers carries the DEFAULT GC delay (:timers {:gc
@@ -97,7 +97,7 @@
   :trace-emissions
   [;; The owner was released (owner-free liveness change).
    {:operation :rf.resource/owner-released
-    :tags      {:owner [:app :gc 1]}}
+    :tags      {:owner [:article/opened "w"]}}
    ;; The fired GC re-check reaped the owner-free + idle entry.
    {:operation :rf.resource/gc-fired}]
 
