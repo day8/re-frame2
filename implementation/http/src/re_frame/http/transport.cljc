@@ -909,6 +909,45 @@
       ;; the registry, satisfying the helper's precondition.
       (emit-and-dispatch-failure! ctx effective))))
 
+(defn- emit-retry-attempt!
+  "rf2-fyt5i — emit one arm of the `:rf.http/retry-attempt` info trace.
+  The two honest arms are discriminated by `next-backoff-ms` / `recovery`:
+
+    - an intermediate attempt that is ACTUALLY starting (a real retry) →
+      the backoff that governed it (`next-backoff-ms` non-nil) + `:retried`;
+    - the terminal retry-sequence STOP marker (`next-backoff-ms` nil) +
+      `:no-recovery` — the sequence stopped and nothing further is
+      scheduled, either because the retry budget was spent or because a
+      later attempt failed with a category outside `:retry :on`.
+
+  `:recovery` is hoisted to the top level of the `:info` event by
+  `trace/build-event` only when the producer supplies it; an absent tag
+  left consumers reading nil. Callers gate on `interop/debug-enabled?`
+  (the production-elision seam) and, for the terminal arm, on the
+  real-retry-sequence guard.
+
+  rf2-t55hxg.10 — the nested intermediate `:failure` may carry a raw
+  error `:body` / `:body-text` (a retryable `:rf.http/http-4xx` /
+  `:rf.http/http-5xx`); stamp the off-box `:omit` disposition forward
+  (the raw error body is unschematized by construction — fail-closed) so
+  the off-box trace-events projector omits the nested `[:failure :body]`
+  slot off-box."
+  [ctx failure next-backoff-ms recovery]
+  (trace/emit! :info :rf.http/retry-attempt
+               (cond-> (privacy/prepare-emit-tags
+                         {:request-id      (:request-id ctx)
+                          :url             (:url ctx)
+                          :attempt         (:attempt ctx)
+                          :max-attempts    (get-in ctx [:retry :max-attempts])
+                          :failure         failure
+                          :next-backoff-ms next-backoff-ms
+                          :recovery        recovery}
+                         (true? (:sensitive? ctx))
+                         {:frame (:frame ctx)})
+                 (or (contains? failure :body)
+                     (contains? failure :body-text))
+                 (assoc :rf.http/off-box-body :omit))))
+
 (defn- schedule-backoff-handle!
   "rf2-wj8vv — arm the retry backoff timer AND keep the request
   registered (and therefore cancellable) for the whole backoff window.
@@ -962,8 +1001,14 @@
   `interop/set-timeout!` / `interop/clear-timeout!` are defined on both
   platforms (CLJS: `js/setTimeout` / `js/clearTimeout`; JVM:
   `ScheduledExecutorService` + `ScheduledFuture.cancel`), so the backoff
-  scheduling and its cancellation are uniform across hosts."
-  [ctx delay-ms prev-handle]
+  scheduling and its cancellation are uniform across hosts.
+
+  rf2-fyt5i — `failure` is the just-failed attempt's classified failure
+  map, threaded through solely so the timer callback can emit the honest
+  intermediate `:rf.http/retry-attempt` `:recovery :retried` trace at the
+  cancellation-safe point (the instant attempt N+1 is actually permitted
+  to start), never before."
+  [ctx delay-ms prev-handle failure]
   ;; rf2-6nczv9 — test-only interleaving seam: an abort injected HERE resolves
   ;; the prior live-fetch handle (still registered — the backoff has not yet
   ;; taken over the slot), reproducing the transitional / narrower-sibling
@@ -1105,6 +1150,21 @@
                          ;; post-arm re-check ran — the re-check missed the flip
                          ;; but the fresh attempt is still suppressed here.
                          (when-not (some? @aborted?)
+                           ;; rf2-fyt5i — HONEST timing for the intermediate
+                           ;; `:recovery :retried` disposition: emit it ONLY
+                           ;; here, the cancellation-safe point. The timer won
+                           ;; its `fired?` transition, the shared abort cell is
+                           ;; still clear, and attempt N+1 is about to start —
+                           ;; so `:retried` truthfully reports a retry the
+                           ;; runtime is actually running. An abort that landed
+                           ;; anywhere earlier (the `:maybe-retry/before-
+                           ;; schedule` window or during the backoff) flips
+                           ;; `@aborted?`, so this arm never runs and no phantom
+                           ;; `:retried` row is emitted for a retry that never
+                           ;; happened. `:next-backoff-ms` carries the backoff
+                           ;; `delay-ms` that governed this now-starting attempt.
+                           (when interop/debug-enabled?
+                             (emit-retry-attempt! ctx failure delay-ms :retried))
                            (run-attempt! (-> ctx
                                              (dissoc :handle)
                                              (update :attempt inc))))))
@@ -1173,36 +1233,20 @@
                          (not aborted?))]
     (if can-retry?
       (let [delay-ms (encoding/compute-backoff-ms (or backoff {}) attempt)]
-        (when interop/debug-enabled?
-          (trace/emit! :info :rf.http/retry-attempt
-                       ;; rf2-t55hxg.10 — the retry-attempt trace nests the
-                       ;; intermediate `failure` under `:failure`; a retryable
-                       ;; `:rf.http/http-4xx` / `:rf.http/http-5xx` carries the
-                       ;; raw `:body` there. Stamp the off-box `:omit`
-                       ;; disposition forward (the raw error body is
-                       ;; unschematized by construction — fail-closed) so the
-                       ;; off-box trace-events projector omits the nested
-                       ;; `[:failure :body]` slot off-box.
-                       (cond-> (privacy/prepare-emit-tags
-                                 {:request-id      request-id
-                                  :url             (:url ctx)
-                                  :attempt         attempt
-                                  :max-attempts    max-attempts
-                                  :failure         failure
-                                  :next-backoff-ms delay-ms
-                                  ;; rf2-fyt5i — this arm SCHEDULES another
-                                  ;; attempt (`:next-backoff-ms` non-nil), so its
-                                  ;; honest disposition is `:retried`. Spec 009's
-                                  ;; `:rf.http/retry-attempt` row promises this;
-                                  ;; `trace/build-event` hoists `:recovery` on an
-                                  ;; `:info` event ONLY when the producer supplies
-                                  ;; it, so an absent tag left consumers reading nil.
-                                  :recovery        :retried}
-                                 (true? (:sensitive? ctx))
-                                 {:frame (:frame ctx)})
-                         (or (contains? failure :body)
-                             (contains? failure :body-text))
-                         (assoc :rf.http/off-box-body :omit))))
+        ;; rf2-fyt5i — HONEST timing: the intermediate `:recovery :retried`
+        ;; disposition is deliberately NOT emitted here. This point only
+        ;; DECIDES a retry is eligible and arms the backoff; the request can
+        ;; still be aborted in the cancellation-safe window (the
+        ;; `:maybe-retry/before-schedule` interleave below, or anywhere during
+        ;; the async backoff) and then NEVER re-issued. Emitting `:retried`
+        ;; here let a trace listener report a retry that never happened
+        ;; (Spec 009's recovery law: `:retried` means the runtime actually
+        ;; retried). The emit now lives at the cancellation-safe point inside
+        ;; `schedule-backoff-handle!`'s timer callback — after it has won its
+        ;; `fired?` transition, confirmed the request was not aborted, and is
+        ;; about to call `run-attempt!`; `failure` is threaded there for it.
+        ;; Invariant: no `:retried` row unless attempt N+1 is actually
+        ;; permitted to start.
         ;; rf2-6nczv9 — test-only interleaving seam: an abort injected HERE
         ;; (after `aborted?` was already sampled `false`, so `can-retry?` is
         ;; committed) resolves the PRIOR live-fetch handle, still registered
@@ -1221,13 +1265,13 @@
         ;; cell after arming (Spec 014 §486-492). The actor-in-flight
         ;; accumulation the clear prevents (rf2-wvkn) still happens — just after
         ;; registration, by identity.
-        (schedule-backoff-handle! ctx delay-ms (:handle ctx)))
+        (schedule-backoff-handle! ctx delay-ms (:handle ctx) failure))
       (do
-        ;; rf2-upexd.3 — terminal failure: emit the final `:rf.http/retry-
-        ;; attempt` trace (with `:next-backoff-ms nil`) ONLY when retries
-        ;; were actually part of this request's lifecycle. The spec (§Retry
-        ;; × `:on-failure` semantics) ties the trace to "each intermediate
-        ;; attempt" — the final exhaustion event is meaningful only when a
+        ;; rf2-upexd.3 — terminal retry-sequence STOP marker: emit the final
+        ;; `:rf.http/retry-attempt` trace (with `:next-backoff-ms nil`) ONLY
+        ;; when retries were actually part of this request's lifecycle. The
+        ;; spec (§Retry × `:on-failure` semantics) ties the trace to "each
+        ;; intermediate attempt" — the final marker is meaningful only when a
         ;; retry sequence happened. The previous guard `(> max-attempts 1)`
         ;; fired for ANY terminal failure under a >1-attempt policy, even a
         ;; NON-retry-eligible failure on attempt 1 (e.g. a
@@ -1236,37 +1280,26 @@
         ;; phantom retry-attempt. Tighten to:
         ;;   - `(> attempt 1)`         — at least one retry actually fired
         ;;                               (we are on attempt 2+), OR
-        ;;   - `(contains? on-set kind)` — this failure WAS retry-eligible
-        ;;                               but attempts are now exhausted (the
-        ;;                               documented final-exhaustion case).
+        ;;   - `(contains? on-set kind)` — this failure WAS retry-eligible.
+        ;; rf2-fyt5i — this guard is why the marker is NOT always "exhaustion".
+        ;; It stops the retry sequence in one of two honest cases:
+        ;;   (a) the retry budget was spent — the last permitted attempt also
+        ;;       failed with a retryable category; or
+        ;;   (b) a later attempt (2+) failed with a category OUTSIDE
+        ;;       `:retry :on` — the sequence stops BEFORE the budget is spent
+        ;;       (e.g. attempt 1 retries a 5xx, attempt 2 hits a non-retryable
+        ;;       decode failure under `:max-attempts 3`).
         ;; A non-retried, non-eligible terminal failure emits nothing.
         (when (and interop/debug-enabled?
                    (some? max-attempts)
                    (> max-attempts 1)
                    (or (> attempt 1)
                        (contains? on-set kind)))
-          ;; rf2-t55hxg.10 — same off-box `:omit` stamp on the terminal
-          ;; exhaustion retry-attempt trace: its nested `:failure` may carry a
-          ;; raw `:body` (a retry-eligible 4xx/5xx that exhausted attempts).
-          (trace/emit! :info :rf.http/retry-attempt
-                       (cond-> (privacy/prepare-emit-tags
-                                 {:request-id      request-id
-                                  :url             (:url ctx)
-                                  :attempt         attempt
-                                  :max-attempts    max-attempts
-                                  :failure         failure
-                                  :next-backoff-ms nil
-                                  ;; rf2-fyt5i — the retained terminal-exhaustion
-                                  ;; marker schedules NOTHING (discriminated by
-                                  ;; `:next-backoff-ms nil`); stamping `:retried`
-                                  ;; here would be a lie, so its honest disposition
-                                  ;; is `:no-recovery` — no further attempt occurs.
-                                  :recovery        :no-recovery}
-                                 (true? (:sensitive? ctx))
-                                 {:frame (:frame ctx)})
-                         (or (contains? failure :body)
-                             (contains? failure :body-text))
-                         (assoc :rf.http/off-box-body :omit))))
+          ;; rf2-fyt5i — the terminal STOP marker schedules NOTHING
+          ;; (discriminated by `:next-backoff-ms nil`); stamping `:retried`
+          ;; here would be a lie, so its honest disposition is `:no-recovery`
+          ;; — no further attempt occurs.
+          (emit-retry-attempt! ctx failure nil :no-recovery))
         (finalise-failure! ctx failure)))))
 
 (defn- handle-response!

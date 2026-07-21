@@ -522,7 +522,10 @@
           ;; request-level cells the backoff reuses; this synthetic ctx has no
           ;; prior phase, so pass nil (schedule-backoff-handle! mints fresh
           ;; cells in that case).
-          _        (schedule-backoff-handle! ctx 600000 nil)
+          ;; rf2-fyt5i — the 4th arg is the just-failed `failure` map, threaded
+          ;; only for the timer callback's honest `:retried` emit; the 600000ms
+          ;; timer never fires in this test (the abort-fn wins), so pass nil.
+          _        (schedule-backoff-handle! ctx 600000 nil nil)
           slot     (get (http-managed/actor-in-flight-snapshot) actor-id)
           handle   (first slot)]
       (is (= 1 (count slot))

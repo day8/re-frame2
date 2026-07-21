@@ -44,7 +44,8 @@
             [re-frame.http.transport :as transport]
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.test-support :as test-support]
+            [re-frame.trace :as trace])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent.atomic AtomicInteger]))
@@ -100,12 +101,23 @@
   "Issue a retrying request against an always-500 server; install the
   interleaving hook so the abort fires (once) at `inject-point`, squarely in
   the transitional window. Assert: exactly ONE :rf.http/aborted reply, the
-  server was hit exactly ONCE (no re-issue), and the registry is clean."
+  server was hit exactly ONCE (no re-issue), and the registry is clean.
+
+  rf2-fyt5i — ALSO assert HONEST retry-timeline dispositions: because the
+  request is aborted in-window and attempt N+1 never starts, the trace stream
+  must carry NO `:rf.http/retry-attempt` claiming `:recovery :retried`. Before
+  the fix the intermediate `:retried` emit was ordered ahead of the
+  cancellation-safe backoff handoff, so a listener saw a `:retried` row (with
+  non-nil `:next-backoff-ms`) for a retry that never happened — a tool could
+  report a retry the runtime did not perform."
   [inject-point]
   (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
-        replies (atom [])
-        fired?  (atom false)]
+        replies     (atom [])
+        traces      (atom [])
+        listener-id ::retry-timeline-honesty
+        fired?      (atom false)]
     (try
+      (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
       (rf/reg-event :reply/recorder
         (fn [_ [_ payload]] (swap! replies conj payload) {}))
       (rf/reg-event :issue
@@ -147,7 +159,21 @@
           "the request-id registry is clean after the cancelled transition")
       (is (empty? (registry/actor-in-flight-snapshot))
           "the actor registry is clean")
+      ;; rf2-fyt5i — the honesty assertion (red before the fix): a retry that
+      ;; NEVER started must not surface a `:retried` disposition. The abort
+      ;; fired in-window and no attempt N+1 ran, so the trace stream carries
+      ;; ZERO `:rf.http/retry-attempt` events claiming `:recovery :retried`.
+      (let [retried (filter #(and (= :rf.http/retry-attempt (:operation %))
+                                  (= :retried (:recovery %)))
+                            @traces)]
+        (is (empty? retried)
+            (str "an in-window cancellation with zero reissue must NOT emit a "
+                 "phantom `:rf.http/retry-attempt` `:recovery :retried`; saw "
+                 (pr-str (mapv (fn [ev] {:recovery (:recovery ev)
+                                         :next-backoff-ms (get-in ev [:tags :next-backoff-ms])})
+                               retried)))))
       (finally
+        (trace/unregister-listener! listener-id)
         (transport/set-test-interleave-hook! nil)
         (stop-server! srv)))))
 
