@@ -449,23 +449,24 @@ See [Pattern-Boot §Worked example — auth-machine and the retry-ownership boun
 
 **Only the final exhausted-retries failure dispatches `:on-failure`.** Intermediate attempts that match `:retry :on` do NOT dispatch the failure handler — the user sees the success reply if any attempt succeeds, and exactly one failure reply (with `:max-attempts` reached) if every attempt fails.
 
-For debugging visibility the runtime emits a `:rf.http/retry-attempt` trace event on **each intermediate attempt** that schedules another try — carrying the attempt number, the failure category, the planned backoff delay (`:next-backoff-ms` non-nil), and `:recovery :retried` — plus a retained **terminal-exhaustion marker** once the last attempt is spent, carrying `:next-backoff-ms nil` and `:recovery :no-recovery` (it schedules nothing, so it does not claim a retry). The two arms are discriminated by `:next-backoff-ms`:
+For debugging visibility the runtime emits a `:rf.http/retry-attempt` trace event on **each intermediate attempt the runtime actually retries** — emitted at the moment the next attempt starts, not merely when a retry is scheduled, so a request cancelled during its backoff window never produces one (`:recovery :retried` means the runtime *did* retry). It carries the attempt number, the failure category, the backoff delay that governed the retry (`:next-backoff-ms` non-nil), and `:recovery :retried`. The runtime also emits a retained **terminal retry-sequence stop marker** once the sequence ends, carrying `:next-backoff-ms nil` and `:recovery :no-recovery` (it schedules nothing, so it does not claim a retry). The stop marker is *not* always "exhaustion": it fires in either of two honest cases — the retry budget was spent (the last permitted attempt also failed with a retryable category), **or** a later attempt (2+) failed with a category outside `:retry :on`, so the sequence stopped before the budget was spent. The two arms are discriminated by `:next-backoff-ms`:
 
 ```clojure
 {:operation :rf.http/retry-attempt
  :op-type   :info
- :recovery  <:retried|:no-recovery>  ;; :retried on an intermediate attempt that
-                                     ;; schedules another try; :no-recovery on the
-                                     ;; terminal-exhaustion marker (nothing further
-                                     ;; is scheduled). Hoisted to the top level, not
-                                     ;; under :tags (see Spec 009 §Re-frame2 additions).
+ :recovery  <:retried|:no-recovery>  ;; :retried on an intermediate attempt the
+                                     ;; runtime actually retries; :no-recovery on
+                                     ;; the terminal retry-sequence stop marker
+                                     ;; (nothing further is scheduled). Hoisted to
+                                     ;; the top level, not under :tags (see Spec
+                                     ;; 009 §Re-frame2 additions).
  :tags      {:request-id   <id-or-nil>
              :url          <url>
              :attempt      <n>           ;; 1-based; the failing attempt
              :max-attempts <max>
              :failure      {:kind <:rf.http/*> ...kind-tags...}
              :next-backoff-ms <ms-or-nil>}} ;; non-nil on an intermediate attempt;
-                                            ;; nil on the terminal-exhaustion marker
+                                            ;; nil on the terminal stop marker
 ```
 
 Pair tools and 10x panels surface the per-attempt trace; user code only sees the final outcome through `:on-failure` (or the unified `:reply-to` target).
