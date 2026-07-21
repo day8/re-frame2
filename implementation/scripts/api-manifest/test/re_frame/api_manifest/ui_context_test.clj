@@ -115,6 +115,7 @@
     :rf.ui.compile/no-single-mounted-view
     :rf.ui.compile/runtime-root-form
     :rf.ui.compile/static-root-requires-runtime
+    :rf.ui.compile/static-root-unproven-dependency
     :rf.ui.compile/ui-render-static-jvm-only
     ;; env.cljc — head resolution
     :rf.ui.compile/dynamic-head
