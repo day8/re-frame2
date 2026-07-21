@@ -539,31 +539,51 @@
 ;; ui/spread at a FOREIGN component call site (rf2-u53yy.5)
 ;; ---------------------------------------------------------------------------
 
+(defn- set-own!
+  "Set `k`→`v` as an OWN enumerable data property on the plain object `o`. Routes
+  the one magic key `\"__proto__\"` through `defineProperty`: a bare
+  `o[\"__proto__\"] = v` on an Object.prototype-backed object invokes the prototype
+  SETTER (mutating the chain) instead of defining an own property. The
+  `defineProperty` data descriptor writes the verbatim own prop and leaves the
+  output's prototype untouched — the runtime counterpart of the compiler's
+  literal-JSX invariant (`ordered-literal-object`'s computed-key trick). Ordinary
+  keys take the direct `unchecked-set` path."
+  [o k v]
+  (if (= "__proto__" k)
+    (js/Object.defineProperty o k #js {:value v :writable true :enumerable true :configurable true})
+    (unchecked-set o k v)))
+
 (defn foreign-spread-props
   "Merge a FOREIGN component spread's forwarded runtime map (`fwd`) UNDER its
-  LITERAL compiled props object (`literal-obj`). The literal props — the
-  component's own compiled handlers and props — WIN every key collision; the
-  forwarded map fills in the rest. A foreign boundary is OPEN: its props pass
-  through UNCONVERTED (no DOM rule table, no kebab→camel, no handler
-  classification — the foreign head owns its own prop ABI), so each forwarded
-  key is the author keyword's verbatim name (`namespace/name`, matching the
-  compiler's `prop-slot-name`) and its value is set as-is.
+  LITERAL compiled props object (`literal-obj`), returning a fresh plain JS
+  object. The literal props — the component's own compiled handlers and props —
+  WIN every key collision BY PRESENCE; the forwarded map fills in the rest. A
+  foreign boundary is OPEN: its props pass through UNCONVERTED (no DOM rule
+  table, no kebab→camel, no handler classification — the foreign head owns its
+  own prop ABI), so each forwarded key is the author keyword's verbatim name
+  (`namespace/name`, matching the compiler's `prop-slot-name`) and its value is
+  set as-is.
 
-  Mirrors `spread-safe-props`' owned-wins layering, minus the deny law — a
-  foreign boundary defends no owned/structural key (there is no per-slot memo
-  comparator or slot ABI to protect). NIL-MEANS-ABSENT: a compiled literal prop
-  whose dynamic value normalizes to nil sits in `literal-obj` as an explicit
-  null; layer key-by-key skipping nil so a nil literal stays ABSENT and the
-  forwarded value survives. Returns the merged JS object."
+  LITERAL-WINS-BY-PRESENCE (rf2-xu095): a foreign literal defends its slots by
+  KEY PRESENCE, not by value — unlike `spread-safe-props`' DOM-parity
+  NIL-MEANS-ABSENT rule. A compiled literal prop present with an explicit null
+  still WINS the collision (the forwarded value does NOT survive), and `false`/
+  `0` are retained; layer EVERY own key of `literal-obj` over the forwarded
+  value. There is no per-slot deny law — a foreign boundary defends no
+  owned/structural key (no memo comparator or slot ABI to protect).
+
+  `__proto__` (rf2-xu095): the one magic key with prototype-setter grammar on a
+  normal object. Every own set routes through `set-own!` so a forwarded (or
+  literal) `__proto__` lands as a VERBATIM own data property and the output
+  keeps its ordinary Object.prototype — never a prototype mutation, matching the
+  literal-JSX invariant. Returns the merged JS object."
   [fwd literal-obj]
   (let [o (js-obj)]
     (when (some? fwd)
       (doseq [[k v] fwd]
-        (unchecked-set o (if-some [ns* (namespace k)] (str ns* "/" (name k)) (name k)) v)))
+        (set-own! o (if-some [ns* (namespace k)] (str ns* "/" (name k)) (name k)) v)))
     (doseq [k (js/Object.keys literal-obj)]
-      (let [v (unchecked-get literal-obj k)]
-        (when (some? v)
-          (unchecked-set o k v))))
+      (set-own! o k (unchecked-get literal-obj k)))
     o))
 
 (defn jsx-spread2

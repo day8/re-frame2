@@ -200,7 +200,7 @@ Keep the caveat: views using refs/effects need `ui/client-only` (or restructure)
 
 ## MIG-28 — computed / dynamic DOM props → `ui/spread-safe` or `ui/spread`
 
-**The decision: which spread?** re-frame.ui ships an *ergonomic fork* (both DOM elements only) — reach for the safe form first, and drop to the generic one only when the props are genuinely opaque.
+**The decision: which spread?** For a DOM / custom-element props map re-frame.ui ships an *ergonomic fork* — reach for the safe form first, and drop to the generic one only when the props are genuinely opaque. (`ui/spread-safe` is DOM/custom-element only; the generic `ui/spread` *also* serves a foreign component call site — the wrapper idiom documented at the end of this section.)
 
 - **Literal owned props + a caller-forwarded attr map → `ui/spread-safe`** (the component-library shape, and the ergonomic default). `(ui/spread-safe owned caller)` takes a **literal** `owned` map — the compiler analyses it exactly like an element's props map, so a literal `:value`/`:checked` co-present with its handler **retains the controlled-input synchrony door** — and merges the runtime `caller` attrs over it. A compiler-visible **deny law** (enforced in *every* build) keeps `caller` from clobbering the structural/controlled/owned keys `:key` `:ref` `:value` `:checked` and the component's own `:on-*` handlers; owned props win a collision and `:class` composes. This is the shape a reusable input/control uses to forward a consumer's `data-*`/`aria-*`/`:class` without losing its own guarantees:
 

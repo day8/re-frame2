@@ -204,6 +204,21 @@ dispatch `(conj prefix payload…)`.
 | `ui/->react` | the outward migration bridge (export a view as a React component) — memoised per view identity; scopes a supplied frame without owning it; no root/manifest/preflight; one shallow props rule (children + ref preserved) | shipped (S6 delta #2; rf2-u53yy.2 — ahead of the migration wave) |
 | `ui/element` / `ui/view` / `ui/portal` / `re-frame.ui.data` | wave-2, demand-gated — no v1 existence. General `ui/element` is rejected outright; `ui/view` stays gated on an open-set-identity trigger; `ui/portal` is covered in part by the inline + top-layer overlay plan (EP-0035 records the rulings) | — |
 
+> **Erratum — 2026-07-21 (rf2-xu095 foreign-spread completion).** The `ui/spread`
+> row above, and the "one rule table (004B) serves static props, `ui/spread`, and
+> both emitters" claim in §2, describe `ui/spread` at a **DOM / custom-element**
+> props position — the generic runtime map converted through the 004B rule table,
+> later-arg-wins. They do **not** govern `ui/spread` at a **FOREIGN component** call
+> site, which is a distinct, unconverted merge: the forwarded runtime map passes
+> through **verbatim** (no rule table, no kebab→camel, no handler classification —
+> the foreign head owns its own prop ABI) and is layered **under** the compiled
+> literal props, which win every collision **by presence** — even an explicit null
+> literal wins (`false`/`0` retained), and `__proto__` stays a verbatim own prop
+> rather than mutating the output object's prototype. There is no deny law (a
+> foreign boundary defends no owned/structural key). Normative home:
+> [spec/004-Views.md §`ui/spread` at a foreign component call site](../../spec/004-Views.md);
+> the completed merge helper is `re-frame.ui.runtime/foreign-spread-props`.
+
 The foreign-React hook tier (`re-frame.ui.react`, seven wrappers) belongs to
 this surface; its contract detail is Spec 004 §The React interop tier.
 
