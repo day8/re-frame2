@@ -2703,7 +2703,7 @@ evidence the tier already records.
 ### explain-render
 
 Why did a compiled view's live incarnations render? Per occurrence: the
-bounded render `:causes` (`:value` / `:hmr` / `:disposed`), occurrence +
+bounded render `:causes` (`:subscription` / `:hmr` / `:disposed`), occurrence +
 batch counters, first/latest movement epochs, the moving observation
 targets, and **explicit loss accounting** — `:observations
 {:identity-exact? bool}` (did the SHOWN targets keep exact identity) and
@@ -2716,7 +2716,7 @@ evidence.
 ```clojure
 ;; explain-render {:view-id ":my.app/row"}
 {:ok? true :rf.ui.tool/version 3 :view-id :my.app/row
- :occurrences [{:occurrence 3 :causes #{:value} :render-count 4
+ :occurrences [{:occurrence 3 :causes #{:subscription} :render-count 4
                 :observations {:identity-exact? true}
                 :loss {:dropped 0 :exact? true}}]}
 ```

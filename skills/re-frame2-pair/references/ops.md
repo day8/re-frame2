@@ -182,7 +182,7 @@ Each response carries `:rf.ui.tool/version`. Read it, and reconcile if it differ
 | `read-view-dependencies` | `mcp__re-frame2-pair__read-view-dependencies {view-id: ":my.app/row"}` | The reactive sites it declares: `:subscriptions [{:query [:total] :dynamic? false} {:query-id :item :dynamic? true}]` |
 | `read-view-event-sites` | `mcp__re-frame2-pair__read-view-event-sites {view-id: ":my.app/form"}` | Its `:on-*` handler sites, each classified: `{:prop :on-click :site-kind :literal :handler [:submit] :serializable? true}` |
 | `read-mounted-views` | `mcp__re-frame2-pair__read-mounted-views {}` | Every retained incarnation: `{:occurrence 3 :view-id :my.app/row :connection :connected :lifecycle {…} :evidence {…}}` — no `view-id` arg, it spans the lot |
-| `explain-render` | `mcp__re-frame2-pair__explain-render {view-id: ":my.app/row"}` (omit `view-id` for every incarnation) | Per occurrence, the bounded render causes (`:value` / `:hmr` / `:disposed`), occurrence + batch counters, first/latest movement epochs, and the loss accounting described below |
+| `explain-render` | `mcp__re-frame2-pair__explain-render {view-id: ":my.app/row"}` (omit `view-id` for every incarnation) | Per occurrence, the bounded render causes (`:subscription` / `:hmr` / `:disposed`), occurrence + batch counters, first/latest movement epochs, and the loss accounting described below |
 
 All five also accept `build` and `max-tokens`. The three view-id reads **require** `view-id`; omitting it returns `{:ok? false :reason :missing-view-id}` with a usage hint. Read the id off `read-mounted-views`, off `read-ui`'s `:entity`, or straight from the source `defview`.
 

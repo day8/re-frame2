@@ -1370,7 +1370,7 @@
 (def explain-render
   {:name "explain-render"
    :description (str "Why did a compiled view's live incarnations render? (rf2-vxgfnd.95.8) Reads "
-                     "re-frame.ui.tool/explain-render: per occurrence the bounded render CAUSES (:value / :hmr / "
+                     "re-frame.ui.tool/explain-render: per occurrence the bounded render CAUSES (:subscription / :hmr / "
                      ":disposed), occurrence + batch counters, first/latest movement epochs, the moving observation "
                      "targets, and EXPLICIT loss accounting — :observations {:identity-exact? bool} (did the SHOWN "
                      "targets keep exact identity) and :loss {:dropped N :exact? bool} (how many DISTINCT targets "
@@ -1379,7 +1379,7 @@
                      "{:occurrences []} with no evidence. READ-ONLY, versioned. "
                      "Examples: "
                      "1. {:view-id \":my.app/row\"} -> {:ok? true :rf.ui.tool/version 3 :view-id :my.app/row "
-                     ":occurrences [{:occurrence 3 :causes #{:value} :render-count 4 :observations {:identity-exact? "
+                     ":occurrences [{:occurrence 3 :causes #{:subscription} :render-count 4 :observations {:identity-exact? "
                      "true} :loss {:dropped 0 :exact? true}}]}. "
                      "2. No arg (every incarnation): {} -> {:ok? true :rf.ui.tool/version 3 :view-id nil "
                      ":occurrences [...]}. "
