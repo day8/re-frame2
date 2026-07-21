@@ -297,7 +297,14 @@
   [incoming]
   (let [[pairs dups] (claim-identities (collect-elements [] incoming))]
     (warn-duplicate-identities! dups)
-    (warn-keyless-drops! (count-keyless 0 incoming))
+    ;; `count-keyless` is a SECOND full walk of the child tree, run purely to
+    ;; feed the dev advisory. Gate the traversal AND its warning together behind
+    ;; the compile-time `goog.DEBUG` branch so `:advanced` + `goog.DEBUG=false`
+    ;; DCEs the whole walk — an eager argument would otherwise still execute in
+    ;; production and discard its result (rf2-vz6a1). `dups` above needs no such
+    ;; gate: it is already computed by `claim-identities`, so its warning is free.
+    (when ^boolean js/goog.DEBUG
+      (warn-keyless-drops! (count-keyless 0 incoming)))
     pairs))
 
 (defn- render-entries
