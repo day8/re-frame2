@@ -75,9 +75,10 @@
   honoured on dep change, disconnect, and unmount; StrictMode dev replay is
   expected and MUST be idempotent-safe — the `effect` contract in a foreign
   spelling. One-arg form runs after every commit; a `deps` vector is compared
-  per authored slot by `Object.is` (React's own effect-dependency equality — a
-  synchronisation input, not a repaint value; `rf=` stays the memo/prop
-  comparator). `[]` deps ⇒ connect-only.
+  per authored slot by `rf=` (the ONE effect-dependency equality doctrine the
+  native `effect` tier and the memo/prop comparator share — value semantics, so
+  a distinct-but-`rf=`-equal CLJS deps value does not re-run). `[]` deps ⇒
+  connect-only.
 
   This var exists for symbol resolution only; a direct call fails loudly."
   ([_setup] (lowering-only! 're-frame.ui.react/use-effect
@@ -90,7 +91,7 @@
   after DOM mutation, BEFORE paint) for measure-then-mutate work that would
   flicker under passive timing — the component-library measure-before-paint
   door (readiness C-6). Observes the committed frame, never a mid-commit state.
-  Same setup/cleanup/`Object.is`-deps contract as `use-effect`.
+  Same setup/cleanup/per-slot-`rf=`-deps contract as `use-effect`.
 
   This var exists for symbol resolution only; a direct call fails loudly."
   ([_setup] (lowering-only! 're-frame.ui.react/use-layout-effect

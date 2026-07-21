@@ -17,7 +17,7 @@
       fails loud, use-id is a deterministic inert string, lazy renders its
       fallback / nothing and NEVER invokes the load thunk.
 
-  Real React client behaviour (use-ref no-re-render, Object.is deps + cleanup,
+  Real React client behaviour (use-ref no-re-render, per-slot rf= deps + cleanup,
   use-layout-effect measure-before-paint, use-effect-event latest-body + unstable
   identity, use-context foreign provider, use-id, lazy activation, StrictMode,
   HMR) rides the DOM suite `react_interop_dom_cljs_test`."

@@ -86,8 +86,8 @@ React client behaviour).
 | Wrapper | Kind | Contract | Direct-call behaviour |
 |---|---|---|---|
 | `react/use-ref` | host hook (`useRef`) | host ref object; read/write via `.current`; assignment never re-renders; the preferred `:ref` object; no deps (JVM yields an inert ref) | fails loud `:rf.error/ui-tree-malformed` |
-| `react/use-effect` | host hook (`useEffect`) | passive after-paint effect; setup returns a cleanup; `Object.is` deps; `[]` = connect-only; StrictMode-replay-idempotent — the `effect` contract in a foreign spelling | fails loud `:rf.error/ui-tree-malformed` |
-| `react/use-layout-effect` | host hook (`useLayoutEffect`) | after DOM mutation, **before** paint — the measure-before-paint door; same setup/cleanup/`Object.is`-deps contract as `use-effect` | fails loud `:rf.error/ui-tree-malformed` |
+| `react/use-effect` | host hook (`useEffect`) | passive after-paint effect; setup returns a cleanup; per-slot `rf=` deps (the one effect-dependency doctrine — value semantics, shared with `effect`); `[]` = connect-only; StrictMode-replay-idempotent — the `effect` contract in a foreign spelling | fails loud `:rf.error/ui-tree-malformed` |
+| `react/use-layout-effect` | host hook (`useLayoutEffect`) | after DOM mutation, **before** paint — the measure-before-paint door; same setup/cleanup/per-slot-`rf=`-deps contract as `use-effect` | fails loud `:rf.error/ui-tree-malformed` |
 | `react/use-effect-event` | host hook (`useEffectEvent`, React 19.2) | returned fn always sees the latest render's committed values; its identity is **not** stable (a fresh fn each render); takes no deps; must never appear in a deps vector nor be called during render | fails loud `:rf.error/ui-tree-malformed` |
 | `react/use-context` | host hook (`useContext`) | reads a **foreign** Context object's current value (theme/i18n/router); internal state uses `frame-provider`/`sub`, never React context | fails loud `:rf.error/ui-tree-malformed` |
 | `react/use-id` | host hook (`useId`) | host-generated tree-positional id token; SSR determinism rides the root contract; JVM yields a deterministic inert string | fails loud `:rf.error/ui-tree-malformed` |
