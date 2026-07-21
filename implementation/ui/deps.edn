@@ -40,6 +40,14 @@
                        ;; sources are loaded on the JVM). Examples stay test-free.
                        "../../examples/real-apps"]
          :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}
+                       ;; TEST-ONLY boundary control (rf2-2n0cv / rf2-han0r,
+                       ;; pinned by scripts/_ui-deps-edn-boundary.test.cjs):
+                       ;; production `re-frame.ui` MUST NOT depend on the optional
+                       ;; Resources artefact, but the :test alias legitimately
+                       ;; MAY — this positive control proves the G-13 boundary
+                       ;; scopes it OUT of production rather than banning it
+                       ;; outright. It depends on core; ui depends on core — no cycle.
+                       day8/re-frame2-resources {:local/root "../resources"}
                        ;; TEST-ONLY: the compiled `ui/route-link` defview
                        ;; (rf2-vxgfnd.95.5) consumes the routing-owned
                        ;; `:routing/link-model` / `:routing/activate-link!`
