@@ -5,6 +5,18 @@ Type: standards-track
 Created: 2026-07-16
 Resolution: accepted 2026-07-11; component-library gates added 2026-07-16
 
+> **Addendum — 2026-07-21 (rf2-n7jtp).** The `ui.test` surface was minimized to
+> six names — `render` / `attrs` / `text` on the JVM structural host, and
+> `with-root` / `flush!` / `flush-presence!` on the CLJS mounted host.
+> `ui.test/find`, `find-all`, `query`, `dispatch!`, render's `:frame`/`:props`
+> options, and the **004D selector grammar** (`spec/004D-UI-Test-Selectors.md`,
+> now retired) are deleted: traversal is ordinary Clojure
+> (`(tree-seq map? :children tree)` + a `:tag`/`:view-id` predicate), state is
+> driven with `rf/dispatch-sync` under `rf/with-new-frame` / `rf/with-frame`, and
+> a mounted container is queried with native `.querySelector`. The `ui.test`
+> contract's home is [`spec/008-Testing.md`](../../spec/008-Testing.md). Text
+> below that names the retired verbs or 004D is historical.
+
 ## Abstract
 
 This EP decides **how the `re-frame.ui` substrate proves itself**. The
@@ -20,8 +32,7 @@ G-1..G-18 roster.
 
 The normative homes are the Spec 004 rewrite's production/capability sections,
 [`spec/004B-UI-Tree-and-Conversion.md`](../../spec/004B-UI-Tree-and-Conversion.md)
-and [`spec/004D-UI-Test-Selectors.md`](../../spec/004D-UI-Test-Selectors.md)
-(both live), [`spec/008-Testing.md`](../../spec/008-Testing.md) (the `ui.test`
+(live), [`spec/008-Testing.md`](../../spec/008-Testing.md) (the `ui.test`
 contract's eventual home), and [`spec/011-SSR.md`](../../spec/011-SSR.md) (root
 manifests + hydration, S5). Each stage's spec edits merge **atomically with
 that stage's conformance slice**; per EP-0009, where this EP and the spec
@@ -389,11 +400,11 @@ stage, and the remaining budget/absence gates complete at S6.
   (re-com) readiness; G-15..G-18, the widened G-8 arm, and the proof pack
   originate there.
 - Specs [`008-Testing.md`](../../spec/008-Testing.md),
-  [`011-SSR.md`](../../spec/011-SSR.md),
-  [`004B-UI-Tree-and-Conversion.md`](../../spec/004B-UI-Tree-and-Conversion.md),
-  [`004D-UI-Test-Selectors.md`](../../spec/004D-UI-Test-Selectors.md) — the
-  graduated homes named in the Abstract; 004B/004D are live now, 008 and 011
-  receive their sections with their stages.
+  [`011-SSR.md`](../../spec/011-SSR.md), and
+  [`004B-UI-Tree-and-Conversion.md`](../../spec/004B-UI-Tree-and-Conversion.md) —
+  the graduated homes named in the Abstract; 004B is live now, 008 and 011
+  receive their sections with their stages. (The 004D selector grammar named in
+  the original Abstract was retired by rf2-n7jtp; see the Addendum above.)
 - Methodology provenance: the synthesis drafts
   `g10-bundle-baseline-methodology.md` and
   `w11-runtime-benchmark-methodology.md` (under the tombstoned synthesis

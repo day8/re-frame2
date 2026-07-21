@@ -123,15 +123,15 @@
   (if (= generation cycles)
     (js/Promise.resolve nil)
     (-> (uit/flush!
-         #(uit/dispatch! f [::churn-set {:visible? true
-                                         :generation generation}]))
+         #(rf/dispatch-sync [::churn-set {:visible? true
+                                          :generation generation}] {:frame f}))
         (.then #(uit/flush!
                  (fn []
-                   (uit/dispatch! f [::churn-set
-                                      {:value (+ 2 generation)}]))))
+                   (rf/dispatch-sync [::churn-set
+                                      {:value (+ 2 generation)}] {:frame f}))))
         (.then #(uit/flush!
                  (fn []
-                   (uit/dispatch! f [::churn-set {:visible? false}]))))
+                   (rf/dispatch-sync [::churn-set {:visible? false}] {:frame f}))))
         (.then #(churn-cycles! f (inc generation) cycles)))))
 
 (def ^:private cycle-evidence
@@ -201,14 +201,14 @@
                                   [evidence-probe]]]
               (testing "mount alone projects nothing — no invalidation yet"
                 (is (= "0" (.-textContent
-                            (uit/query root "[data-role='evidence-probe']"))))
+                            (.querySelector root "[data-role='evidence-probe']"))))
                 (is (nil? (probe-row))))
-              (-> (uit/flush! #(uit/dispatch! f [::set-value 1]))
+              (-> (uit/flush! #(rf/dispatch-sync [::set-value 1] {:frame f}))
                   (.then
                    (fn []
                      (testing "the port movement rendered…"
                        (is (= "1" (.-textContent
-                                   (uit/query root
+                                   (.querySelector root
                                               "[data-role='evidence-probe']")))))
                      (testing "…and the flush projected the bounded evidence
                                with developer-facing identity (AC1/AC2/AC6)"
@@ -268,12 +268,12 @@
         (-> (uit/with-root [root [ui/frame-provider {:frame f} [churn-host]]]
               ;; Give the Activity leaf real evidence, then hide it. React
               ;; retains that fiber/cell even though the lifecycle disconnects.
-              (-> (uit/flush! #(uit/dispatch! f [::churn-set {:value 1}]))
+              (-> (uit/flush! #(rf/dispatch-sync [::churn-set {:value 1}] {:frame f}))
                   (.then #(uit/flush!
                            (fn []
-                             (uit/dispatch! f
-                                            [::churn-set
-                                             {:activity-hidden? true}]))))
+                             (rf/dispatch-sync [::churn-set
+                                                {:activity-hidden? true}]
+                                               {:frame f}))))
                   (.then
                    (fn []
                      (let [activity-row (first (rows-for
@@ -321,13 +321,13 @@
                                 (is (= activity-ev (:evidence activity-row))
                                     "GC preserved exact classification/loss"))
                               (uit/flush!
-                               #(uit/dispatch!
-                                 f [::churn-set {:activity-hidden? false}]))))
+                               #(rf/dispatch-sync
+                                 [::churn-set {:activity-hidden? false}] {:frame f}))))
                            (.then
                             (fn []
                               (is (= "25"
                                      (.-textContent
-                                      (uit/query
+                                      (.querySelector
                                        root
                                        "[data-role='evidence-activity-leaf']")))
                                   "Activity reveal reconnected the retained leaf")

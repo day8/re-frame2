@@ -100,11 +100,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest idiomatic-threads
-  (let [tree {:view-id :shop/card
-              :children [{:tag :div :children [button]}]}]
+  (let [tree   {:view-id :shop/card
+                :children [{:tag :div :children [button]}]}
+        by-tag (fn [t tag] (some #(when (= tag (:tag %)) %)
+                                 (tree-seq map? :children t)))]
     (is (= [:cart/add 42]
-           (-> tree (uit/find :button) uit/attrs :on-click)))
+           (-> (by-tag tree :button) uit/attrs :on-click)))
     (is (= "Add to cart"
-           (-> tree (uit/find :button) uit/text)))
+           (-> (by-tag tree :button) uit/text)))
     (testing "miss nil-puns the whole thread"
-      (is (nil? (-> tree (uit/find :form) uit/attrs :on-click))))))
+      (is (nil? (-> (by-tag tree :form) uit/attrs :on-click))))))

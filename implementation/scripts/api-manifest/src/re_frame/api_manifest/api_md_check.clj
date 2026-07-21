@@ -617,9 +617,13 @@
    live kind and a disagreement is REJECTED (`:kind-mismatch`) — so a sidecar
    kind flipped `:fn`→`:macro` reddens THIS lane instead of being silently
    ignored, closing the JVM half of the rf2-d7sso seam. Four directions:
-     - every CONTRACT var must resolve live with a matching kind AND matching
-       `:clj` arities (`:kind-mismatch` / `:arity-mismatch`; a contract var that
-       no longer resolves → `:var-absent`);
+     - every JVM CONTRACT var (`:clj` non-nil) must resolve live with a matching
+       kind AND matching `:clj` arities (`:kind-mismatch` / `:arity-mismatch`; a
+       JVM contract var that no longer resolves → `:var-absent`);
+     - a CLJS-ONLY contract var (`:clj nil` — e.g. `flush!` / `flush-presence!`,
+       which have no JVM React tree to settle) is NOT expected via `ns-publics`:
+       it is legitimately absent from the JVM surface, so this lane skips it
+       (the CLJS lane's `signature-problems` arity-checks its `:cljs`);
      - a MACRO's `:cljs` grammar must EQUAL its `:clj` grammar
        (`:macro-host-variance`) — see below;
      - every LIVE blessed var must be in the contract (a fresh export with no
@@ -650,12 +654,17 @@
          (concat
           (when (not= kind live-kind)
             [{:kind :kind-mismatch :var var :declared kind :live-kind live-kind}])
-          (when (not= clj live-arities)
+          ;; A CLJS-only entry (`:clj nil`) has no JVM arity to reconcile; the
+          ;; CLJS lane owns its `:cljs`. Only reconcile when `:clj` is declared.
+          (when (and (some? clj) (not= clj live-arities))
             [{:kind :arity-mismatch :var var :expected clj :got live-arities}])
           ;; Selected by the AUTHORITATIVE live kind, never the declared one.
           (when (and (= live-kind :macro) (not= clj cljs))
             [{:kind :macro-host-variance :var var :expected clj :got cljs}]))
-         [{:kind :var-absent :var var :expected clj}]))
+         ;; Not live on the JVM. A JVM contract var (`:clj` non-nil) is a real
+         ;; absence; a CLJS-only entry (`:clj nil`) is legitimately absent here.
+         (when (some? clj)
+           [{:kind :var-absent :var var :expected clj}])))
      signatures)
     (keep (fn [[var {live-arities :arities}]]
             (when-not (contains? signatures var)

@@ -414,9 +414,8 @@
 ;;   - JVM: a THREAD-LOCAL render-slice scope (`*slice*`, opened by
 ;;     `with-slice-memo`). EVERY public Tier-1 JVM render entry opens one around
 ;;     the render thunk — `re-frame.ui.tree/render` and `ui.test/render`'s
-;;     view-reference / literal / plan-bearing routes (all three converge on
-;;     `render-with-opts` / `render-plan-bearing`) — and the reactive host entry
-;;     `with-capture` opens one around each ViewCell render. The box holds
+;;     literal view-form route (via `render-with-opts`) — and the reactive host
+;;     entry `with-capture` opens one around each ViewCell render. The box holds
 ;;     this slice's handle; the `binding` discards it on scope exit, so the
 ;;     prior table is unreachable with NO `reset-scheduler!`/tag-change
 ;;     dependency, two sequential executor tasks never share a table, and

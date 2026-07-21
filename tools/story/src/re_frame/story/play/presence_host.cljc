@@ -68,9 +68,16 @@
   []
   (presence/install-presence-flush!
     (fn [ms]
-      (if (some? ms)
-        (ui-test/flush-presence! ms)
-        (ui-test/flush-presence!))))
+      ;; `ui.test/flush-presence!` is the CLJS mounted host only (the ratified
+      ;; ui.test minimization deleted the JVM no-op). The JVM structural render
+      ;; has no presence lifecycle — no retention timers to advance — so a JVM
+      ;; `[:flush-presence]` step is a no-op returning nil, exactly the old JVM
+      ;; `flush-presence!` behaviour. Reader-conditional so the JVM arm never
+      ;; references the now-CLJS-only var.
+      #?(:clj nil
+         :cljs (if (some? ms)
+                 (ui-test/flush-presence! ms)
+                 (ui-test/flush-presence!)))))
   nil)
 
 ;; Load-time install, mirroring how `re-frame.story.canonical` registers its

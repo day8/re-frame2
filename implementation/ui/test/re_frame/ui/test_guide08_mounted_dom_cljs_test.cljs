@@ -307,7 +307,7 @@
                  [root [ui/frame-provider {:frame owned} [cached-value]]]
                  (is (= "42"
                         (.-textContent
-                          (uit/query root "[data-role='cached-value']"))))
+                          (.querySelector root "[data-role='cached-value']"))))
                  (is (some (fn [cache-keys]
                              (contains? cache-keys [::cached-value]))
                            (vals (runtime-footprint)))

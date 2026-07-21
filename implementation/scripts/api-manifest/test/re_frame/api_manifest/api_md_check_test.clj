@@ -645,30 +645,25 @@
 ;; COUNTS an ordinary function's &form/&env params (bead AC).
 ;; ---------------------------------------------------------------------------
 
-;; The nine blessed vars' signature contract, carrying BOTH halves exactly as
-;; the committed :ui-test-signatures rows do. `flush!` keeps the blessed
-;; reader-conditional FUNCTION difference (0-arity JVM, 0/1-arity CLJS); the
-;; two MACROS are host-invariant, so their halves are equal (rf2-qw31o).
+;; The blessed vars' signature contract, carrying BOTH halves exactly as the
+;; committed :ui-test-signatures rows do (epic rf2-n7jtp: render / text / attrs
+;; are JVM-introspected; with-root a JVM macro; flush! / flush-presence! are
+;; CLJS-ONLY — `:clj nil`, no JVM React tree to settle). The two MACROS are
+;; host-invariant, so their halves are equal (rf2-qw31o).
 (def ^:private ui-test-clj-contract
-  {"attrs"     {:kind :fn    :clj #{[1]}     :cljs #{[1]}}
-   "text"      {:kind :fn    :clj #{[1]}     :cljs #{[1]}}
-   "find"      {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
-   "find-all"  {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
-   "query"     {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
-   "dispatch!" {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
-   "flush!"    {:kind :fn    :clj #{[0]}     :cljs #{[0] [1]}}
-   "render"    {:kind :macro :clj #{[1] [2]} :cljs #{[1] [2]}}
-   "with-root" {:kind :macro :clj #{[1 :&]}  :cljs #{[1 :&]}}})
+  {"attrs"           {:kind :fn    :clj #{[1]}     :cljs #{[1]}}
+   "text"            {:kind :fn    :clj #{[1]}     :cljs #{[1]}}
+   "flush!"          {:kind :fn    :clj nil        :cljs #{[0] [1]}}
+   "flush-presence!" {:kind :fn    :clj nil        :cljs #{[0] [1]}}
+   "render"          {:kind :macro :clj #{[1] [2]} :cljs #{[1] [2]}}
+   "with-root"       {:kind :macro :clj #{[1 :&]}  :cljs #{[1 :&]}}})
 
 ;; The matching live-JVM SURFACE for an in-sync tree: {var {:kind :arities}}.
+;; flush! / flush-presence! are CLJS-only, so the JVM ns-publics surface does
+;; NOT expose them — only the four JVM-introspected vars appear here.
 (def ^:private ui-test-live-in-sync
   {"attrs"     {:kind :fn    :arities #{[1]}}
    "text"      {:kind :fn    :arities #{[1]}}
-   "find"      {:kind :fn    :arities #{[2]}}
-   "find-all"  {:kind :fn    :arities #{[2]}}
-   "query"     {:kind :fn    :arities #{[2]}}
-   "dispatch!" {:kind :fn    :arities #{[2]}}
-   "flush!"    {:kind :fn    :arities #{[0]}}
    "render"    {:kind :macro :arities #{[1] [2]}}
    "with-root" {:kind :macro :arities #{[1 :&]}}})
 
@@ -702,21 +697,32 @@
 
 (deftest ui-test-arities-in-sync-produce-no-problems
   (testing "the committed :clj contract reconciles clean against the matching
-            live JVM arities"
+            live JVM arities — the four JVM vars match, and the two CLJS-only
+            entries (:clj nil) are legitimately absent from the JVM surface"
     (is (empty? (c/ui-test-arity-problems ui-test-clj-contract ui-test-live-in-sync)))))
 
-(deftest flush-jvm-arity-reshape-goes-red
-  (testing "THE BUG (rf2-5bcdi): flush! reshaped from 0-arity to 1-arity on the
-            JVM fails against the contract's :clj #{[0]}, while its name + :kind
-            (a :fn) are unchanged"
+(deftest cljs-only-var-absent-from-jvm-is-not-a-problem
+  (testing "a CLJS-only contract entry (:clj nil — flush! / flush-presence!, no
+            JVM React tree to settle) is legitimately absent from the JVM
+            ns-publics surface: the JVM lane SKIPS it (the CLJS lane owns its
+            :cljs arity). A :clj-nil entry never appears in the live JVM surface,
+            yet must not produce :var-absent"
+    (is (empty? (c/ui-test-arity-problems ui-test-clj-contract ui-test-live-in-sync)))
+    (is (nil? (get ui-test-live-in-sync "flush!")) "flush! is not a JVM var")
+    (is (nil? (get ui-test-live-in-sync "flush-presence!")))))
+
+(deftest jvm-fn-arity-reshape-goes-red
+  (testing "THE BUG (rf2-5bcdi): a JVM function (attrs) reshaped from 1-arity to
+            2-arity fails against the contract's :clj #{[1]}, while its name +
+            :kind (a :fn) are unchanged"
     (let [problems (c/ui-test-arity-problems
                     ui-test-clj-contract
-                    (assoc-in ui-test-live-in-sync ["flush!" :arities] #{[1]}))]
+                    (assoc-in ui-test-live-in-sync ["attrs" :arities] #{[1] [2]}))]
       (is (= 1 (count problems)))
       (is (= :arity-mismatch (:kind (first problems))))
-      (is (= "flush!" (:var (first problems))))
-      (is (= #{[0]} (:expected (first problems))))
-      (is (= #{[1]} (:got (first problems)))))))
+      (is (= "attrs" (:var (first problems))))
+      (is (= #{[1]} (:expected (first problems))))
+      (is (= #{[1] [2]} (:got (first problems)))))))
 
 (deftest render-macro-arity-drop-goes-red
   (testing "render (a macro) losing its 2-arity — [1] only — fails against
@@ -740,13 +746,13 @@
       (is (= #{[1]} (:got (first problems)))))))
 
 (deftest added-jvm-arity-goes-red
-  (testing "ADDING a supported arity (query gains a 3-arity) fails — a superset
+  (testing "ADDING a supported arity (text gains a 2-arity) fails — a superset
             is drift, not a pass"
     (let [problems (c/ui-test-arity-problems
                     ui-test-clj-contract
-                    (assoc-in ui-test-live-in-sync ["query" :arities] #{[2] [3]}))]
+                    (assoc-in ui-test-live-in-sync ["text" :arities] #{[1] [2]}))]
       (is (= [:arity-mismatch] (map :kind problems)))
-      (is (= "query" (:var (first problems)))))))
+      (is (= "text" (:var (first problems)))))))
 
 (deftest jvm-sidecar-kind-flip-goes-red
   (testing "THE rf2-d7sso BUG: a sidecar entry whose :kind was flipped :fn→:macro
@@ -754,10 +760,10 @@
             longer IGNORES the sidecar :kind (its arities still match, so ONLY the
             kind mismatch fires)"
     (let [problems (c/ui-test-arity-problems
-                    (assoc-in ui-test-clj-contract ["flush!" :kind] :macro)
+                    (assoc-in ui-test-clj-contract ["attrs" :kind] :macro)
                     ui-test-live-in-sync)]
       (is (= [:kind-mismatch] (map :kind problems)))
-      (is (= "flush!" (:var (first problems))))
+      (is (= "attrs" (:var (first problems))))
       (is (= :macro (:declared (first problems))))
       (is (= :fn (:live-kind (first problems)))))))
 
@@ -820,10 +826,10 @@
 
 (deftest function-host-difference-is-never-forced-equal
   (testing "POSITIVE CONTROL for the other half of the rule — host-invariance
-            binds MACROS only. flush! is deliberately :clj #{[0]} / :cljs
-            #{[0] [1]}, a real reader-conditional difference, and reconciles
-            clean. A check that forced :clj = :cljs for every kind would redden
-            this legitimate row"
+            binds MACROS only. flush! is deliberately :clj nil / :cljs #{[0] [1]}
+            (a CLJS-only function), a real host difference, and reconciles clean.
+            A check that forced :clj = :cljs for every kind would redden this
+            legitimate row"
     (is (not= (get-in ui-test-clj-contract ["flush!" :clj])
               (get-in ui-test-clj-contract ["flush!" :cljs]))
         "the fixture really does carry the host difference")
@@ -843,13 +849,15 @@
             (str var ": macro :clj and :cljs must be equal (one .cljc defmacro)"))))))
 
 (deftest removed-var-flagged-absent
-  (testing "a contract var whose live var no longer resolves is :var-absent
-            (belt-and-braces alongside the gen --check existence guard)"
+  (testing "a JVM contract var (:clj non-nil) whose live var no longer resolves is
+            :var-absent (belt-and-braces alongside the gen --check existence
+            guard). A CLJS-only entry (:clj nil) is exempt — see
+            cljs-only-var-absent-from-jvm-is-not-a-problem"
     (let [problems (c/ui-test-arity-problems
                     ui-test-clj-contract
-                    (dissoc ui-test-live-in-sync "flush!"))]
+                    (dissoc ui-test-live-in-sync "attrs"))]
       (is (= [:var-absent] (map :kind problems)))
-      (is (= "flush!" (:var (first problems)))))))
+      (is (= "attrs" (:var (first problems)))))))
 
 (deftest new-uncontracted-var-flagged
   (testing "a NEW live blessed var with no signature entry is :uncontracted-var
@@ -863,20 +871,32 @@
 (deftest live-ui-test-jvm-signature-matches-contract
   (testing "the committed :ui-test-signatures contract reconciles clean against
             the LIVE re-frame.ui.test JVM surface (kind + :clj arities; no live
-            drift), and the enumeration actually covers the ten blessed vars"
+            drift). The contract carries the blessed surface (epic rf2-n7jtp);
+            the JVM lane owns the four JVM-introspected vars, and the two
+            CLJS-only flush verbs (:clj nil) are legitimately absent from JVM"
     (let [contract (:vars (c/read-ui-test-signatures))
-          surface  (c/live-ui-test-surface)]
-      (is (= 10 (count contract))
-          "the signature authority must carry all ten blessed vars")
-      (is (= (set (keys contract)) (set (keys surface)))
-          "live blessed vars and the contract must cover exactly the same names")
+          surface  (c/live-ui-test-surface)
+          jvm-vars   (set (keep (fn [[k v]] (when (some? (:clj v)) k)) contract))
+          cljs-only  (set (keep (fn [[k v]] (when (nil? (:clj v)) k)) contract))]
+      (is (= 6 (count contract))
+          "the signature authority carries the blessed surface (4 JVM + 2 CLJS-only)")
+      (is (= #{"attrs" "text" "render" "with-root"} jvm-vars)
+          "the JVM-introspected blessed vars carry a :clj arity")
+      (is (= #{"flush!" "flush-presence!"} cljs-only)
+          "flush! / flush-presence! are the CLJS-only (:clj nil) verbs")
+      (is (= jvm-vars (set (keys surface)))
+          "the live JVM surface is EXACTLY the contract's JVM-introspected vars")
       (is (empty? (c/ui-test-arity-problems contract surface))
           "live drift: a ui.test var's JVM signature disagrees with :ui-test-signatures")
-      ;; The host-specific facts the bead names, pinned against LIVE metadata.
-      (is (= :fn (get-in surface ["flush!" :kind]))
-          "flush! is classified :fn by the live JVM Var — the kind authority")
-      (is (= #{[0]} (get-in surface ["flush!" :arities]))
-          "flush! is 0-arity on the JVM")
+      ;; The host-specific facts, pinned against LIVE metadata.
+      (is (not (contains? surface "flush!"))
+          "flush! is CLJS-only — absent from the JVM ns-publics surface")
+      (is (not (contains? surface "flush-presence!"))
+          "flush-presence! is CLJS-only — absent from the JVM ns-publics surface")
+      (is (= :fn (get-in surface ["attrs" :kind]))
+          "attrs is classified :fn by the live JVM Var — the kind authority")
+      (is (= #{[1]} (get-in surface ["attrs" :arities]))
+          "attrs is a 1-arity projection fn")
       (is (= :macro (get-in surface ["with-root" :kind])))
       (is (= #{[1 :&]} (get-in surface ["with-root" :arities]))
           "with-root is a variadic macro ([binding] & body)")

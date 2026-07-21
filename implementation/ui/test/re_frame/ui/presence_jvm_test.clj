@@ -70,7 +70,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest presence-renders-the-present-marker-fragment
-  (let [t (uit/render toast-list {:props {:toasts [{:id 1 :msg "a"} {:id 2 :msg "b"}]}})
+  (let [t (uit/render [toast-list {:toasts [{:id 1 :msg "a"} {:id 2 :msg "b"}]}])
         p (presence-node t)]
     (is (some? p) "the JVM emits a `:rf.ui/presence` fragment node")
     (is (= {:phase :present :timeout-ms 300} (:rf.ui/presence p))
@@ -80,19 +80,19 @@
       (is (= #{"a" "b"} (set (all-strings t)))))))
 
 (deftest presence-phase-is-present-on-the-jvm
-  (let [t (uit/render toast-list {:props {:toasts [{:id 1 :msg "a"}]}})]
-    (is (= "present" (:data-phase (uit/attrs (uit/find t :li))))
+  (let [t (uit/render [toast-list {:toasts [{:id 1 :msg "a"}]}])]
+    (is (= "present" (:data-phase (uit/attrs (some #(when (= :li (:tag %)) %) (tree-seq map? :children t)))))
         "a presence-aware child reads :present on the JVM structural subset"))
   (testing "presence-phase OUTSIDE a boundary is also :present (reusable anywhere)"
-    (let [t (uit/render reusable-outside-boundary)]
-      (is (= "present" (:data-phase (uit/attrs (uit/find t :span))))))))
+    (let [t (uit/render [reusable-outside-boundary])]
+      (is (= "present" (:data-phase (uit/attrs (some #(when (= :span (:tag %)) %) (tree-seq map? :children t)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; §004B — the marker is a droppable diagnostic (stripped by N)
 ;; ---------------------------------------------------------------------------
 
 (deftest presence-marker-is-stripped-by-semantic-normalization
-  (let [t (uit/render toast-list {:props {:toasts [{:id 1 :msg "a"}]}})
+  (let [t (uit/render [toast-list {:toasts [{:id 1 :msg "a"}]}])
         n (semantic/normalize t)]
     (is (not-any? #(and (map? %) (contains? % :rf.ui/presence))
                   (tree-seq coll? seq n))
@@ -105,7 +105,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest empty-presence-still-carries-the-marker
-  (let [t (uit/render toast-list {:props {:toasts []}})
+  (let [t (uit/render [toast-list {:toasts []}])
         p (presence-node t)]
     (is (some? p) "an empty presence boundary still emits its marker fragment")
     (is (= {:phase :present :timeout-ms 300} (:rf.ui/presence p)))))
@@ -259,7 +259,7 @@
 
 (deftest keyed-literal-children-render-on-the-jvm
   ;; End to end: the documented literal route compiles AND renders.
-  (let [t (uit/render literal-toasts {:props {:banner? true}})]
+  (let [t (uit/render [literal-toasts {:banner? true}])]
     (is (some? (presence-node t)) "the boundary is there")
     (is (= #{"static" "frag" "banner"} (set (all-strings t)))
         "every keyed literal child renders under the boundary")))

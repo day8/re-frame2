@@ -201,8 +201,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- run-sync-matrix! [frame frame-id root]
-  (let [el   (uit/query root "[data-role='sync']")
-        hw   (uit/query root "[data-role='handwritten']")
+  (let [el   (.querySelector root "[data-role='sync']")
+        hw   (.querySelector root "[data-role='handwritten']")
         cell (cell-observing frame-id [::text])
         out  (atom {})]
     ;; Arm 1+2 — pre-paint synchronous commit + single revision advance,
@@ -304,7 +304,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- run-async-tooth! [frame frame-id root]
-  (let [el   (uit/query root "[data-role='async']")
+  (let [el   (.querySelector root "[data-role='async']")
         cell (cell-observing frame-id [::async-text])
         out  (atom {})]
     (let [before (reactive/revision cell)]
@@ -343,8 +343,8 @@
   arrays (the runner owns the stated nearest-rank quantile convention). EVIDENCE
   ONLY — no threshold is applied here."
   [root]
-  (let [compiled-el (uit/query root "[data-role='sync']")
-        hw-el       (uit/query root "[data-role='handwritten']")
+  (let [compiled-el (.querySelector root "[data-role='sync']")
+        hw-el       (.querySelector root "[data-role='handwritten']")
         n           (atom 0)
         compiled    (atom [])
         handwritten (atom [])]

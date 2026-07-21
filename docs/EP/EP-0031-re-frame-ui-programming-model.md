@@ -19,9 +19,8 @@ forms (`local`, `effect`, `frame`); every escape to the host world is a
 `reg-view`, positional args, ratoms, `:on-mount` — is a normative absence.
 
 The normative home is [`spec/004-Views.md`](../../spec/004-Views.md), with
-companions [004B](../../spec/004B-UI-Tree-and-Conversion.md),
-[004C](../../spec/004C-Roots-and-Mount.md), and
-[004D](../../spec/004D-UI-Test-Selectors.md); per EP-0009, where this EP and the
+companions [004B](../../spec/004B-UI-Tree-and-Conversion.md) and
+[004C](../../spec/004C-Roots-and-Mount.md); per EP-0009, where this EP and the
 spec differ, **the spec governs**. This EP is the durable design record behind
 that contract: what was decided, why, and what was rejected. `final` means what
 EP-0009 says — the decisions are settled and the spec is authoritative; it does
@@ -295,8 +294,7 @@ None on the decision surface.
 
 - Normative homes: [`spec/004-Views.md`](../../spec/004-Views.md) with
   [004B](../../spec/004B-UI-Tree-and-Conversion.md) (tree/conversion),
-  [004C](../../spec/004C-Roots-and-Mount.md) (roots/mount), and
-  [004D](../../spec/004D-UI-Test-Selectors.md) (test selectors).
+  [004C](../../spec/004C-Roots-and-Mount.md) (roots/mount).
 - [EP-0030](EP-0030-the-compiled-view-substrate-program.md) — the program
   umbrella; this EP is its programming-model pillar.
 - [EP-0032](EP-0032-re-frame-ui-reactivity-and-ownership.md) owns `sub`'s

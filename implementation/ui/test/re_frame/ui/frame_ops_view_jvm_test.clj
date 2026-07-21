@@ -4,7 +4,7 @@
   returns the frame-locked operation bundle against a REAL frame.
 
   `(frame)` is NOT a host-only op: core's dispatch/dispatch-sync/subscribe
-  are host-neutral (`ui.test/dispatch!` itself drives them on the JVM), so
+  are host-neutral (`rf/dispatch-sync` itself drives them on the JVM), so
   a Tier-1 structural render returns the SAME live bundle the client gets —
   no `:rf.error/jvm-host-op`. Covered here: valid placement (explicit
   `{:frame …}` opts AND ambient `frame-provider` scoping — the same
@@ -82,14 +82,14 @@
   (reg!)
   (let [f  (rf/make-frame {:initial-events [[:rf/set-db {:n 5}]]})
         id (rframe/frame-target->id f)
-        [tree [bundle :as all]] (render-capturing #(uit/render ops-probe {:frame f}))]
+        [tree [bundle :as all]] (render-capturing #(rf/with-frame f (uit/render [ops-probe])))]
     (is (= 1 (count all)) "one site, one bundle")
     (is (= #{:frame :dispatch :dispatch-sync :subscribe} (set (keys bundle)))
         "the standard capture-frame bundle shape")
     (is (= id (:frame bundle)) ":frame names the committed frame")
     (is (= 1 (:rf.ui/tree-version tree)))
     (is (= (str "frame=" id " dispatch=true")
-           (-> tree (uit/find :div) uit/text))
+           (-> (some #(when (= :div (:tag %)) %) (tree-seq map? :children tree)) uit/text))
         "the bundle is a render-time VALUE — the structural tree renders it")
     (testing "the ops are LIVE on the JVM host — not a jvm-host-op stub"
       ((:dispatch-sync bundle) [:ops/set-n 6])
@@ -117,7 +117,7 @@
 
 (deftest frameless-render-fails-loud
   (is (= :rf.error/no-frame-context
-         (err-id #(uit/render ops-probe)))
+         (err-id #(uit/render [ops-probe])))
       "a frameless structural render raises honestly at the (frame) site —
        the runtime never invents a frame"))
 
@@ -127,8 +127,8 @@
 
 (deftest bundle-is-stable-across-renders-within-one-incarnation
   (let [f (rf/make-frame {:initial-events [[:rf/set-db {}]]})
-        [_ [b1]] (render-capturing #(uit/render ops-probe {:frame f}))
-        [_ [b2]] (render-capturing #(uit/render ops-probe {:frame f}))]
+        [_ [b1]] (render-capturing #(rf/with-frame f (uit/render [ops-probe])))
+        [_ [b2]] (render-capturing #(rf/with-frame f (uit/render [ops-probe])))]
     (is (identical? b1 b2)
         "two renders against one live incarnation observe the IDENTICAL
          bundle — stable operation identity, no per-render construction")))
@@ -137,7 +137,7 @@
   (reg!)
   (live-frame/make-frame {:id :ops.jvm/reused})
   (rframe/replace-app-db! :ops.jvm/reused {:n 1})
-  (let [[_ [stale]] (render-capturing #(uit/render ops-probe {:frame :ops.jvm/reused}))]
+  (let [[_ [stale]] (render-capturing #(rf/with-frame :ops.jvm/reused (uit/render [ops-probe])))]
     (rframe/destroy-frame! :ops.jvm/reused)
     (testing "destroyed frame — carried ops fail with the canonical id"
       (is (= :rf.error/frame-destroyed
@@ -150,7 +150,7 @@
       (is (= {:n 41} (rf/app-db-value :ops.jvm/reused))
           "the replacement frame is untouched by the stale bundle"))
     (testing "a fresh render against the replacement mints a fresh bundle"
-      (let [[_ [fresh]] (render-capturing #(uit/render ops-probe {:frame :ops.jvm/reused}))]
+      (let [[_ [fresh]] (render-capturing #(rf/with-frame :ops.jvm/reused (uit/render [ops-probe])))]
         (is (not (identical? stale fresh)))
         ((:dispatch-sync fresh) [:ops/set-n 42])
         (is (= {:n 42} (rf/app-db-value :ops.jvm/reused)))))))

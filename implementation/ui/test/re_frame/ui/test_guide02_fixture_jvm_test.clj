@@ -81,7 +81,7 @@
   (reg-toasts!)
   (rf/with-new-frame
     [frame (rf/make-frame {:initial-events [[:rf/set-db {:toasts fixture-toasts}]]})]
-    (let [t (uit/render toast-tray {:frame frame})
+    (let [t (uit/render [toast-tray])
           p (presence-node t)]
       (is (some? p) "the fence's boundary renders as a presence node")
       (testing "the MANDATORY :timeout-ms safety bound is the fence's own 300"
@@ -97,18 +97,20 @@
   (reg-toasts!)
   (rf/with-new-frame
     [frame (rf/make-frame {:initial-events [[:rf/set-db {:toasts fixture-toasts}]]})]
-    (let [t (uit/render toast-tray {:frame frame})]
+    (let [t (uit/render [toast-tray])]
       (is (= "toast present"
-             (:class (uit/attrs (uit/find t :div))))
+             (:class (uit/attrs (some #(when (= :div (:tag %)) %)
+                                      (tree-seq map? :children t)))))
           "the `.toast` shorthand merges with the fence's computed phase class"))))
 
 (deftest presence-phase-is-present-outside-any-boundary
   ;; The chapter's own sentence, executable: a presence-aware child stays
   ;; reusable anywhere — no boundary required to render it.
-  (let [t (uit/render standalone-toast)]
+  (let [t (uit/render [standalone-toast])]
     (is (nil? (presence-node t))
         "no boundary was rendered")
-    (is (= "toast present" (:class (uit/attrs (uit/find t :div))))
+    (is (= "toast present" (:class (uit/attrs (some #(when (= :div (:tag %)) %)
+                                                    (tree-seq map? :children t)))))
         "(presence-phase) still resolves — :present outside a boundary")))
 
 ;; ---------------------------------------------------------------------------
@@ -127,8 +129,9 @@
   [{:id 7 :name "Ada"} {:id 9 :name "Grace"}])
 
 (defn- picker-node []
-  (uit/find (uit/render team-picker {:props {:users fixture-users :current-id 7}})
-            :user-picker))
+  (some #(when (= :user-picker (:tag %)) %)
+        (tree-seq map? :children
+                  (uit/render [team-picker {:users fixture-users :current-id 7}]))))
 
 ;; "A tag containing a `-` is a custom element — used directly, never forced
 ;; through `ui/raw`."

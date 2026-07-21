@@ -620,34 +620,35 @@ are [TRANSITION] — they belong to the stock-Reagent compatibility tier, which 
 
 | Tier | Input | Runs on | Selector | Reads |
 |---|---|---|---|---|
-| **Tier 1 — headless structural** | a structural tree (data) — the value `ui.test/render` returns | JVM + node, ms, no flake | the closed selector grammar ([004D-UI-Test-Selectors.md](004D-UI-Test-Selectors.md)) | `attrs` / `text` projections + node field reads; event vectors as data |
+| **Tier 1 — headless structural** | a structural tree (data) — the value `ui.test/render` returns | JVM + node, ms, no flake | ordinary Clojure — `(tree-seq map? :children tree)` + a predicate over `(:tag %)` / `(:view-id %)` | `attrs` / `text` projections + node field reads; event vectors as data |
 | **Tier 3 — mounted** | a mounted root (`with-root`) | browser/jsdom CI | a native CSS selector string, verbatim | host interop (real listeners, `(.-value el)`) |
 
-**S1 core surface (Tier-1, `.cljc`):** `render` / `find` / `find-all` / `query` / `text`
-/ `attrs` / `dispatch!` — the last being frame-targeted synchronous dispatch-and-drain,
-which lands here and is unchanged by the S2 mounted slice. `render` accepts a view
-reference or a literal root form. The literal form
-uses the same top-region grammar `mount` takes, wrappers included, but Tier 1 tightens
-it to exactly one mounted internal view. Zero or two-plus views fail expansion with
-`:rf.ui.compile/bad-test-root`; wrap a multi-view composition in one `defview`. See
-[004C-Roots-and-Mount.md](004C-Roots-and-Mount.md) §9.
-`find`/`find-all` run the closed selector grammar over Tier-1 trees; `query` is the
-Tier-3 live-DOM counterpart (CSS). **Node reading is the ruled projection** — `attrs`
-merges attributes + events on elements and props on view-boundary nodes; `(:on-click
-node)` is a *field* miss, never an attribute read — owned by
-[004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md) §Projections and the
-selector grammar in 004D.
+**S1 core surface (Tier-1, `.cljc`):** `render` / `text` / `attrs`. `render` takes ONE
+input grammar — a literal view form (props carried IN the form) — and ONE option,
+`:sub-overrides`. The form uses the same top-region grammar `mount` takes, wrappers
+included, but Tier 1 tightens it to exactly one mounted internal view. Zero or two-plus
+views fail expansion with `:rf.ui.compile/bad-test-root`; wrap a multi-view composition
+in one `defview`. See [004C-Roots-and-Mount.md](004C-Roots-and-Mount.md) §9. Frame scope
+is the programmer's ordinary bracket — `rf/with-new-frame` for a fresh owned frame,
+`rf/with-frame` to pin an existing one; drive state with `rf/dispatch-sync` and assert on
+a fresh `render`. Traverse the tree with ordinary Clojure — `(tree-seq map? :children
+tree)` and a predicate over `(:tag %)` (element tag) or `(:view-id %)` (view boundary);
+`filterv` for every match. **Node reading is the ruled projection** — `attrs` merges
+attributes + events on elements and props on view-boundary nodes; `(:on-click node)` is a
+*field* miss, never an attribute read — owned by
+[004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md) §Projections.
 
 **Mounted semantics.** On CLJS, `with-root` returns a Promise. It owns a real React root
 in a connected test container; awaits the initial mount; invokes and awaits the body
-value or Promise; then awaits teardown of the root and container on every exit. Success
-resolves to the awaited body value. A body error remains primary if cleanup also fails,
-with the cleanup failure retained as diagnostic evidence. `query` delegates a native
-CSS string to that container's `querySelector`. Inside a mounted root, the S1
-`ui.test/dispatch!` drives framework state programmatically; ordinary DOM properties
-and native events exercise mechanics already owned by the host or a foreign component. Compiled event-vector
-delivery through native events rides the S3 committed-handler contract. There is no
-gesture DSL.
+value or Promise with the connected DOM **container** bound; then awaits teardown of the
+root and container on every exit. Success resolves to the awaited body value. A body
+error remains primary if cleanup also fails, with the cleanup failure retained as
+diagnostic evidence. The bound container is queried with native `.querySelector` /
+`.querySelectorAll`. Inside a mounted root, drive framework state with
+`(ui.test/flush! #(rf/dispatch-sync event {:frame f}))`; ordinary DOM properties and
+native events exercise mechanics already owned by the host or a foreign component.
+Compiled event-vector delivery through native events rides the S3 committed-handler
+contract. There is no gesture DSL.
 
 `ui.test/flush!` is the **only** public test flush for compiled views. On CLJS,
 `(flush!)` and `(flush! thunk)` return Promises. The optional thunk runs inside the
@@ -656,8 +657,9 @@ fixed point, including work marked by a commit. Every returned Promise must sett
 before assertions or another mounted operation begins. A forgotten await makes the
 next public `with-root`/`flush!` fail synchronously with
 `:rf.error/ui-test-overlapping-act`; cleanup remains serialized so the diagnosed misuse
-does not strand a root. On the JVM, `(flush!)` synchronously drains the headless
-ViewCell registry and returns nil. There is no public production
+does not strand a root. `flush!` / `flush-presence!` are the CLJS mounted host only — the
+JVM structural render has no React tree to settle, so a Tier-1 checkpoint is a fresh
+`render` after a synchronous `rf/dispatch-sync`. There is no public production
 `re-frame.ui/flush!`. `flush-presence!` (fake-clock transition advance, no wall-clock
 sleeps) lands with S4 presence. Flushing inside an open event drain throws
 `:rf.error/flush-in-open-epoch` synchronously, before Promise construction or host work.

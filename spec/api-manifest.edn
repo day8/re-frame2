@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 518,
+ :var-count 514,
  :tier-vocab
  [:front-porch
   :advanced
@@ -526,12 +526,8 @@
   {:namespace "re-frame.ui.react", :var "use-layout-effect", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S3", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui.react", :var "use-ref", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S3", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui.test", :var "attrs", :tier :testing, :kind :fn, :owner "008", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ui.test", :var "dispatch!", :tier :testing, :kind :fn, :owner "008", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ui.test", :var "find", :tier :testing, :kind :fn, :owner "008", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ui.test", :var "find-all", :tier :testing, :kind :fn, :owner "008", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui.test", :var "flush!", :tier :testing, :kind :fn, :owner "008", :status "Spec-004 S2", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui.test", :var "flush-presence!", :tier :testing, :kind :fn, :owner "008", :status "Spec-004 S4", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ui.test", :var "query", :tier :testing, :kind :fn, :owner "008", :status "Spec-004 S2", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui.test", :var "render", :tier :testing, :kind :macro, :owner "008", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui.test", :var "text", :tier :testing, :kind :fn, :owner "008", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui.test", :var "with-root", :tier :testing, :kind :macro, :owner "008", :status "Spec-004 S2", :facade? false, :runtime-verified? true}]}

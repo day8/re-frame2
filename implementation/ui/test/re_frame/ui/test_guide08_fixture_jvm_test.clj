@@ -16,13 +16,12 @@
 
   Enrolled here: the Tier-1 code block (`add-button-carries-intent`), the
   intent-through-attrs respelling, the dispatch → sub → re-render loop, a
-  seeded-state render, the sub-override door, and — since S4 presence
-  shipped (rf2-uckeg) and the chapter dropped its `(lands S4)` marker —
-  the `flush-presence!` one-liner's HOST-PARITY claim (both arities
-  callable and inert on the JVM). The chapter's
-  selector-grammar and literal-root fences and its Tier-2/Tier-3 examples
-  are NOT enrolled by this file (README + guide-fixture-pipeline draft
-  track the exact per-chapter coverage)."
+  seeded-state render, and the sub-override door. Presence's fake-clock
+  behaviour is the CLJS host's (`presence_dom_cljs_test`) — the JVM
+  structural render has no lifecycle, so the JVM `flush-presence!` no-op is
+  gone (rf2-n7jtp.4). The chapter's literal-root fences and its
+  Tier-2/Tier-3 examples are NOT enrolled by this file (README +
+  guide-fixture-pipeline draft track the exact per-chapter coverage)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -90,10 +89,11 @@
   (let [baseline (runtime-footprint)]
     (rf/with-new-frame
       [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})]
-      (let [tree (uit/render [product-card {:product (product 42)}]
-                             {:frame frame})]
-        (is (= [:cart/add 42] (-> tree (uit/find :button) uit/attrs :on-click)))
-        (is (= "Add to cart"  (-> tree (uit/find :button) uit/text)))))
+      (let [tree (uit/render [product-card {:product (product 42)}])
+            button #(some (fn [n] (when (= :button (:tag n)) n))
+                          (tree-seq map? :children %))]
+        (is (= [:cart/add 42] (-> tree button uit/attrs :on-click)))
+        (is (= "Add to cart"  (-> tree button uit/text)))))
     (is (= baseline (runtime-footprint))
         "the copied with-new-frame form restores the live-frame/cache baseline")))
 
@@ -102,30 +102,32 @@
 (deftest intent-assertion-respelled-through-attrs
   (let [tree (uit/render [product-card {:product (product 42)}])]
     (is (= [:cart/add 42]
-           (:on-click (uit/attrs (uit/find tree :button))))
+           (:on-click (uit/attrs (some #(when (= :button (:tag %)) %)
+                                       (tree-seq map? :children tree)))))
         "the tree-contract respelling — same read, prefix form")))
 
-;; "Drive state with real events: (ui.test/dispatch! frame [:cart/add 42]),
+;; "Drive state with real events: (rf/dispatch-sync [:cart/add 42] {:frame frame}),
 ;; re-render, assert the button now reads 'Remove'. The whole loop, sub reads
 ;; included, runs on main today."
 (deftest drive-state-through-the-real-sub
   (reg-cart!)
   (rf/with-new-frame
     [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})]
-    ;; before: the sub reads an empty cart → the button offers Add
-    (is (= "Add to cart"
-           (-> (uit/render [toggle-card {:product (product 42)}] {:frame frame})
-               (uit/find :button) uit/text))
-        "the compiled (sub …) reads an empty cart on the first render")
-    (uit/dispatch! frame [:cart/add 42])
-    ;; after: the dispatched write has drained; the re-render's subscription
-    ;; observes the new membership and the rendered tree changes.
-    (let [tree (uit/render [toggle-card {:product (product 42)}] {:frame frame})]
-      (is (= "Remove" (-> tree (uit/find :button) uit/text))
-          "dispatch → write drain → (sub …) read → the re-render reads Remove")
-      (is (= [:cart/remove 42]
-             (-> tree (uit/find :button) uit/attrs :on-click))
-          "…and the changed tree carries the new intent"))))
+    (let [button #(some (fn [n] (when (= :button (:tag n)) n))
+                        (tree-seq map? :children %))]
+      ;; before: the sub reads an empty cart → the button offers Add
+      (is (= "Add to cart"
+             (-> (uit/render [toggle-card {:product (product 42)}]) button uit/text))
+          "the compiled (sub …) reads an empty cart on the first render")
+      (rf/dispatch-sync [:cart/add 42] {:frame frame})
+      ;; after: the dispatched write has drained; the re-render's subscription
+      ;; observes the new membership and the rendered tree changes.
+      (let [tree (uit/render [toggle-card {:product (product 42)}])]
+        (is (= "Remove" (-> tree button uit/text))
+            "dispatch → write drain → (sub …) read → the re-render reads Remove")
+        (is (= [:cart/remove 42]
+               (-> tree button uit/attrs :on-click))
+            "…and the changed tree carries the new intent")))))
 
 ;; "Loading and error states are just app-db values you install." — seed the
 ;; membership directly (no dispatch); the sub-reading view renders against it.
@@ -133,58 +135,29 @@
   (reg-cart!)
   (rf/with-new-frame
     [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{42} :catalog fixture-catalog}]]})]
-    (let [tree (uit/render [toggle-card {:product (product 42)}] {:frame frame})]
-      (is (= "Remove" (-> tree (uit/find :button) uit/text))
+    (let [tree (uit/render [toggle-card {:product (product 42)}])]
+      (is (= "Remove" (uit/text (some #(when (= :button (:tag %)) %)
+                                      (tree-seq map? :children tree))))
           "install a state, render against it — the (sub …) reads the seeded
            cart with no mocking layer and no dispatch"))))
 
 ;; "Stubbing a sub is the explicit option:
-;;  (ui.test/render [view] {:frame frame :sub-overrides {[:cart/locked?] true}})."
+;;  (ui.test/render [view] {:sub-overrides {[:cart/locked?] true}})."
 (deftest stubbing-a-sub-is-the-explicit-option
   (reg-cart!)
   (rf/with-new-frame
     [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})]
     (let [tree (uit/render [toggle-card {:product (product 42)}]
-                           {:frame frame
-                            :sub-overrides {[:cart/contains? 42] true}})]
-      (is (= "Remove" (-> tree (uit/find :button) uit/text))
+                           {:sub-overrides {[:cart/contains? 42] true}})]
+      (is (= "Remove" (uit/text (some #(when (= :button (:tag %)) %)
+                                      (tree-seq map? :children tree))))
           "the override door pins the membership read — the button reads Remove
            over an empty real cart, the read never touching app-db"))))
 
-;; ---------------------------------------------------------------------------
-;; §Presence transitions — the chapter's flush-presence! one-liner (S4)
-;; ---------------------------------------------------------------------------
-
-;; "Presence transitions advance with (ui.test/flush-presence!) … The zero-arity
-;;  form advances to quiescence …; (flush-presence! ms) advances the logical clock
-;;  by ms …. On the JVM structural host there is no lifecycle, so both arities are
-;;  a no-op — a .cljc test body calls them on either host."
-;;
-;; The chapter's claim is a HOST-PARITY claim, and that is exactly what this JVM
-;; fixture can prove: both arities exist, are callable, and are inert here. The
-;; fake-clock BEHAVIOUR (retention, :timeout-ms removal, exactly-once cleanup)
-;; is the client's and is proven in `presence_dom_cljs_test` — not duplicated
-;; here, and not claimed by this file.
-(deftest flush-presence-carries-both-arities-on-either-host
-  (testing "the zero-arity form the chapter names is callable on the JVM"
-    (is (nil? (uit/flush-presence!))
-        "no lifecycle on the JVM structural host — a no-op, not an error"))
-  (testing "the ms-arity form is callable on the JVM too (host parity)"
-    (is (nil? (uit/flush-presence! 300))
-        "a .cljc body may pass a duration on either host")))
-
-(deftest flush-presence-is-inert-on-the-jvm-structural-render
-  ;; Host parity is only useful if the call changes nothing on the JVM: a render
-  ;; either side of a flush-presence! must be identical, so a .cljc test body can
-  ;; carry the call unconditionally.
-  (reg-cart!)
-  (rf/with-new-frame
-    [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{42} :catalog fixture-catalog}]]})]
-    (let [before (uit/render [toggle-card {:product (product 42)}] {:frame frame})
-          _      (uit/flush-presence!)
-          after  (uit/render [toggle-card {:product (product 42)}] {:frame frame})]
-      (is (= before after)
-          "advancing the (absent) presence clock leaves the structural render untouched"))))
+;; §Presence transitions — the JVM structural host has no lifecycle, so the
+;; JVM `flush-presence!` no-op is gone (rf2-n7jtp.4: false portability — a public
+;; no-op is not parity). The fake-clock BEHAVIOUR (retention, :timeout-ms removal,
+;; exactly-once cleanup) is the CLJS host's and is proven in `presence_dom_cljs_test`.
 
 (deftest caller-owned-frame-releases-live-frame-and-sub-cache-after-throw
   (reg-cart!)

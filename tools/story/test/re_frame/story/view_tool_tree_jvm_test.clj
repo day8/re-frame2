@@ -64,14 +64,13 @@
 
 (deftest tree-vocabulary-summarises-a-real-rendered-tree
   (rf/reg-sub :greeting/text (fn [db _] (:greeting db)))
-  (let [f    (rf/make-frame {:initial-events [[:rf/set-db {:greeting "hello"}]]})
-        tree (ui.test/render greeting-card {:frame f})
-        voc  (view-tool/tree-vocabulary tree)]
-    (is (some? (:rf.ui/tree-version voc)) "the versioned tree ABI is surfaced")
-    (is (contains? (:view-ids voc) greeting-id)
-        "the rendered view's boundary id is visible in the tree")
-    (is (pos? (:element (:kinds voc))) "the element nodes (div/h1/button) are counted")
-    (rf/destroy-frame! f)))
+  (rf/with-new-frame [f (rf/make-frame {:initial-events [[:rf/set-db {:greeting "hello"}]]})]
+    (let [tree (ui.test/render [greeting-card])
+          voc  (view-tool/tree-vocabulary tree)]
+      (is (some? (:rf.ui/tree-version voc)) "the versioned tree ABI is surfaced")
+      (is (contains? (:view-ids voc) greeting-id)
+          "the rendered view's boundary id is visible in the tree")
+      (is (pos? (:element (:kinds voc))) "the element nodes (div/h1/button) are counted"))))
 
 ;; ===========================================================================
 ;; The `:sub-overrides` observation door — a pin flows through, non-owning
@@ -79,19 +78,19 @@
 
 (deftest sub-overrides-observation-door-is-honest-non-owning
   (rf/reg-sub :greeting/text (fn [db _] (:greeting db)))
-  (let [f    (rf/make-frame {:initial-events [[:rf/set-db {:greeting "real"}]]})
-        tree (ui.test/render greeting-card {:frame f
-                                            :sub-overrides {[:greeting/text] "pinned"}})]
-    (testing "the pinned value is OBSERVED in the tree (the JVM override door)"
-      (is (= "pinned" (ui.test/text (ui.test/find tree :h1)))
-          "Story observes the pinned value through ui.test/render :sub-overrides"))
-    (testing "Story surfaces that override as NON-OWNING (:owned? false)"
-      (let [ev (view-tool/view-evidence greeting-id {[:greeting/text] "pinned"})]
-        (is (false? (:owned? (:observation ev)))
-            "Story observes; core owns the static :story-override handle")
-        (is (= [:greeting/text] (:query (first (:overrides (:observation ev))))))
-        (is (= "pinned" (:value (first (:overrides (:observation ev))))))))
-    (rf/destroy-frame! f)))
+  (rf/with-new-frame [f (rf/make-frame {:initial-events [[:rf/set-db {:greeting "real"}]]})]
+    (let [tree (ui.test/render [greeting-card]
+                               {:sub-overrides {[:greeting/text] "pinned"}})]
+      (testing "the pinned value is OBSERVED in the tree (the JVM override door)"
+        (is (= "pinned" (ui.test/text (some #(when (= :h1 (:tag %)) %)
+                                            (tree-seq map? :children tree))))
+            "Story observes the pinned value through ui.test/render :sub-overrides"))
+      (testing "Story surfaces that override as NON-OWNING (:owned? false)"
+        (let [ev (view-tool/view-evidence greeting-id {[:greeting/text] "pinned"})]
+          (is (false? (:owned? (:observation ev)))
+              "Story observes; core owns the static :story-override handle")
+          (is (= [:greeting/text] (:query (first (:overrides (:observation ev))))))
+          (is (= "pinned" (:value (first (:overrides (:observation ev)))))))))))
 
 ;; ===========================================================================
 ;; view-evidence reads the REAL emitted manifest + tolerates absence

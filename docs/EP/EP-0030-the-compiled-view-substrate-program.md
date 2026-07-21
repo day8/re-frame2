@@ -436,8 +436,7 @@ posture recorded in their spec homes.
   law and preflight ENSURE build directly on them.
 - **Specs:** the Spec 004 family ([`spec/004-Views.md`](../../spec/004-Views.md),
   [`spec/004B-UI-Tree-and-Conversion.md`](../../spec/004B-UI-Tree-and-Conversion.md),
-  [`spec/004C-Roots-and-Mount.md`](../../spec/004C-Roots-and-Mount.md),
-  [`spec/004D-UI-Test-Selectors.md`](../../spec/004D-UI-Test-Selectors.md)),
+  [`spec/004C-Roots-and-Mount.md`](../../spec/004C-Roots-and-Mount.md)),
   [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md)
   (observation port; adapter contract),
   [`spec/008-Testing.md`](../../spec/008-Testing.md) (the `ui.test` contract

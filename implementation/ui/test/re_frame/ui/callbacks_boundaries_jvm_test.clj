@@ -77,8 +77,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest error-boundary-renders-the-child-transparently
-  (let [t (uit/render guarded)]
-    (is (= "SAFE-CONTENT" (uit/text (uit/find t :div)))
+  (let [t (uit/render [guarded])]
+    (is (= "SAFE-CONTENT" (uit/text (some #(when (= :div (:tag %)) %) (all-nodes t))))
         "the JVM/SSR renders the GUARDED CHILD, not the fallback")
     (is (nil? (boundary-node t :error-boundary))
         "no error-boundary marker on the JVM tree — it is a client mechanism")
@@ -91,13 +91,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest client-only-renders-the-fallback-with-the-boundary-marker
-  (let [t (uit/render only-on-client)
+  (let [t (uit/render [only-on-client])
         b (boundary-node t :client-only)]
     (is (some? b) "the JVM emits the `:rf.ui/boundary :client-only` fallback node")
-    (is (= "SERVER-FALLBACK" (uit/text (uit/find t :div)))
+    (is (= "SERVER-FALLBACK" (uit/text (some #(when (= :div (:tag %)) %) (all-nodes t))))
         "the deterministic capability-free fallback renders on the JVM/SSR")
     (testing "the browser-only client subtree — foreign content and all — is absent"
-      ;; (uit/render only-on-client) not throwing :rf.error/jvm-host-op already
+      ;; (uit/render [only-on-client]) not throwing :rf.error/jvm-host-op already
       ;; proves the FOREIGN client subtree never emitted; and no client content
       ;; leaks onto the JVM tree.
       (is (not-any? #(= "CLIENT-ONLY-CONTENT" %) (all-strings t))
@@ -108,7 +108,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest internal-fn-prop-is-opaque-on-the-view-boundary
-  (let [t  (uit/render passes-fn-prop)
+  (let [t  (uit/render [passes-fn-prop])
         vb (view-boundary-node t :re-frame.ui.callbacks-boundaries-jvm-test/leaf)]
     (is (some? vb) "the internal child renders as a view-boundary node")
     (is (= {:rf.ui/opaque :fn} (get-in vb [:props :cb]))

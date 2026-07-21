@@ -1330,9 +1330,9 @@ nodes) — `(:on-click node)` is a field miss, never an attribute read. Event ve
 retained as data under `:events`. The node schema, canonical-form rules, semantic
 normalization `N` (the parity/fingerprint input), and the SSR consumption boundary
 (`emit-ui-tree` + the `:rf.error/ssr-ui-tree-version-unsupported` version gate) are that
-contract's — summarised here, owned there. Selector semantics over these trees are
-[004D-UI-Test-Selectors.md](004D-UI-Test-Selectors.md)'s: view-id selectors match
-the view-boundary node, so fragment-rooted and nil-rooted views are matchable.
+contract's — summarised here, owned there. Traversal over these trees is ordinary
+Clojure — `(tree-seq map? :children tree)` and a predicate over `(:view-id %)` matches the
+view-boundary node, so fragment-rooted and nil-rooted views are matchable.
 
 Host-bearing features (state transitions, effects, refs, focus, portals, presence
 timing, error recovery) require mounted (Tier-3) tests — the guide says this out loud.

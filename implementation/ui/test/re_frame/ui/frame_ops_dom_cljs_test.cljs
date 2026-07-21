@@ -62,7 +62,7 @@
       (reg!)
       (let [f        (rf/make-frame {:initial-events [[:rf/set-db {:n 42}]]})
             frame-id (frame/frame-target->id f)
-            text     #(.-textContent (uit/query % "[data-role='ops-n']"))]
+            text     #(.-textContent (.querySelector %"[data-role='ops-n']"))]
         (async done
           (-> (uit/with-root [root [ui/frame-provider {:frame f} [ops-view]]]
                 (let [bundle (first @captured)]

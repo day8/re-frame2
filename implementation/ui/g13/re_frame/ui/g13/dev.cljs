@@ -101,7 +101,7 @@
     :flush!   uit/flush!
     ;; dispatch! completes all eight write epochs synchronously; the render
     ;; phase runs when flush!'s Promise advances to the commit.
-    :work!    (fn [] (uit/dispatch! frame [::fixture/step fixture/queued-writes]))}))
+    :work!    (fn [] (rf/dispatch-sync [::fixture/step fixture/queued-writes] {:frame frame}))}))
 
 (defn- correctness-cycle!
   "Exact push-work accounting for ONE drain — UNTIMED. Owns the O(V) live-cell
@@ -120,7 +120,7 @@
          (fn []
            ;; dispatch! completes all eight write epochs synchronously. The
            ;; render phase has not run until flush!'s returned Promise advances.
-           (uit/dispatch! frame [::fixture/step fixture/queued-writes])
+           (rf/dispatch-sync [::fixture/step fixture/queued-writes] {:frame frame})
            (reset! pre
                    {:pending (reactive/pending-cell-count)
                     :hot-dirty (count (filter reactive/dirty? hot))
@@ -203,7 +203,7 @@
                (doseq [i (range fixture/hot-count)]
                  (ensure! (= published
                              (.-textContent
-                              (uit/query
+                              (.querySelector
                                root
                                (str "[data-g13-kind='hot'][data-g13-index='"
                                     i "']"))))
@@ -211,7 +211,7 @@
                           {:v v :label label :index i :expected published})))
              (ensure! (= (str "cold-" (dec v))
                          (.-textContent
-                          (uit/query root (str "[data-g13-index='" (dec v) "']"))))
+                          (.querySelector root (str "[data-g13-index='" (dec v) "']"))))
                       "cold DOM changed during a hot-only drain"
                       {:v v :label label})
              {:label label
@@ -335,7 +335,7 @@
                        ;; before any projection comparison.
                        mounted-v (js/parseInt
                                   (.getAttribute
-                                   (uit/query root "[data-g13-v]") "data-g13-v")
+                                   (.querySelector root "[data-g13-v]") "data-g13-v")
                                   10)]
                    ;; rf2-vxgfnd.213 — the browser emits only the RAW warm
                    ;; dispatch-to-commit samples; the runner is the single owner
