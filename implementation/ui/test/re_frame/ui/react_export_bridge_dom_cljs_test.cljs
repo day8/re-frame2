@@ -134,6 +134,70 @@
                 (catch :default e (:rf.error/id (ex-data e))))))))
 
 ;; ---------------------------------------------------------------------------
+;; The reserved `frame` prop is EXACT + SELF-ATTRIBUTING (rf2-01rwd)
+;;
+;; The exported component is a plain React function component; invoking it
+;; directly runs its frame-prop boundary (own-property detection + validation)
+;; WITHOUT rendering the view — `jsx2` builds an element, it never mounts — so
+;; these controls need no DOM and run cross-runtime (under :node-test too).
+;; ---------------------------------------------------------------------------
+
+(defn- frame-boundary-error
+  "Invoke the exported component `Comp` with a props object `props` and return
+  the `{:rf.error/id … :where …}` of the typed error it throws, or `nil` when it
+  returns without throwing."
+  [Comp props]
+  (try (Comp props) nil
+       (catch :default e
+         (select-keys (ex-data e) [:rf.error/id :where]))))
+
+(deftest ->react-frame-prop-is-exact-and-self-attributing
+  ;; A live frame for the valid + omitted-with-ambient cases; the fixture resets
+  ;; the runtime around each test, so nothing else registers `:app/ok`.
+  (rf/make-frame {:id :app/ok})
+
+  (testing "OMITTED frame prop is the sole ambient-resolution case — no own
+            `frame` key means the boundary does NOT validate and hands the
+            element to the ambient chain (no throw here)"
+    (is (nil? (frame-boundary-error CartRow #js {:label "x"}))
+        "an omitted `frame` prop is never validated at the bridge")
+    (is (some? (CartRow #js {:label "x"}))
+        "the omitted-frame path returns the exported element for ambient resolution"))
+
+  (testing "an explicit `frame={null}` is an OWN property with a nil value — it
+            fails loud with the empty frame-target category instead of silently
+            adopting the ambient frame (the rf2-01rwd defect)"
+    (is (= {:rf.error/id :rf.error/no-frame-context
+            :where       're-frame.ui/->react}
+           (frame-boundary-error CartRow #js {:frame nil}))))
+
+  (testing "an explicit `frame={undefined}` own property fails loud identically"
+    (let [p (js-obj)]
+      (unchecked-set p "frame" js/undefined)
+      (is (= {:rf.error/id :rf.error/no-frame-context
+              :where       're-frame.ui/->react}
+             (frame-boundary-error CartRow p)))))
+
+  (testing "a MALFORMED target (a string, not a frame-id keyword / live frame
+            value) is `:rf.error/bad-frame-provider-arg`, self-attributed"
+    (is (= {:rf.error/id :rf.error/bad-frame-provider-arg
+            :where       're-frame.ui/->react}
+           (frame-boundary-error CartRow #js {:frame "app"}))))
+
+  (testing "a keyword target naming NO live frame is
+            `:rf.error/frame-provider-frame-absent`, self-attributed"
+    (is (= {:rf.error/id :rf.error/frame-provider-frame-absent
+            :where       're-frame.ui/->react}
+           (frame-boundary-error CartRow #js {:frame :app/ghost}))))
+
+  (testing "a VALID frame id scopes without owning — no throw, returns an element"
+    (is (nil? (frame-boundary-error CartRow #js {:frame :app/ok})))
+    (is (some? (CartRow #js {:frame :app/ok}))
+        "the valid-target path returns the scoped provider element")
+    (is (some? (frame/frame :app/ok))
+        "SCOPE-only — validating/scoping the target creates or destroys nothing")))
+
+;; ---------------------------------------------------------------------------
 ;; The mounted proof — export renders inside a FOREIGN react-dom root
 ;; ---------------------------------------------------------------------------
 
