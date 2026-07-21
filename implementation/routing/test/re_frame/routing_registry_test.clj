@@ -130,6 +130,56 @@
       (is (= :rf.error/no-such-route (:rf.error/id (ex-data ex)))
           ":rf.error/no-such-route is the structured error for an unregistered id"))))
 
+;; ---- rf2-oq0ld: route-url address-shape boundary is exact + total --------
+;;
+;; Every ADDRESS-shape failure routes through :rf.error/route-url-validation
+;; rather than a raw or misleading host error: a NON-MAP address reached
+;; `(keys address)` and threw a host exception; a MISSING :to fell through to
+;; the nil-pattern check and raised the misleading :rf.error/no-such-route "id
+;; nil"; a MIXED-KIND bad-key set reached a plain `sort` and threw a compare
+;; ClassCastException instead of naming the keys. The companion CLJS parity
+;; cases live in routing_url_non_edn_cljs_test.cljc.
+
+(deftest route-url-non-map-address-rejects
+  (testing "a non-map address rejects with :rf.error/route-url-validation
+            (:reason :not-a-map) — not a raw host `(keys …)` throw"
+    (doseq [bad ["/dest" 5 [:to :route/x] :route/x]]
+      (let [ex (try (routing/route-url bad) nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex) (str "route-url threw for a non-map address " (pr-str bad)))
+        (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex)))
+            "the structured id is :rf.error/route-url-validation")
+        (is (= :not-a-map (:reason (ex-data ex)))
+            ":reason names the non-map violation")))))
+
+(deftest route-url-missing-to-rejects
+  (testing "an address map with no :to rejects with :rf.error/route-url-validation
+            (:reason :missing-to) — not the misleading :rf.error/no-such-route 'id nil'"
+    (doseq [addr [{} {:params {:id "x"}} {:query {:q "x"}} {:fragment "f"}]]
+      (let [ex (try (routing/route-url addr) nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex) (str "route-url threw for a missing-:to address " (pr-str addr)))
+        (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex)))
+            "the structured id is :rf.error/route-url-validation, not :no-such-route")
+        (is (= :missing-to (:reason (ex-data ex)))
+            ":reason names the missing-:to violation")))))
+
+(deftest route-url-heterogeneous-bad-keys-report-totally
+  (testing "a MIXED-KIND bad-address-key set reports :bad-address-keys in total
+            canonical order rather than throwing a raw compare exception"
+    (let [ex (try
+               ;; :url is address-rejected; "s" and 3 are unknown keys of
+               ;; different kinds — a plain `(sort …)` throws on the JVM.
+               (routing/route-url {:to :route/x :url "/x" "s" 1 3 2})
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "route-url threw for heterogeneous bad address keys")
+      (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
+      (is (= :bad-address-keys (:reason (ex-data ex))))
+      (is (= (vec (sort-by identity/canonical-bytes #{:url "s" 3}))
+             (:keys (ex-data ex)))
+          ":keys are the heterogeneous bad keys in total canonical order"))))
+
 ;; ---- rf2-94o54l.1/.3: route-url fails closed on host-stringified values --
 ;;
 ;; EP-0012 §Canonical EDN identity (docs/EP/EP-0012 §893-896; Conventions

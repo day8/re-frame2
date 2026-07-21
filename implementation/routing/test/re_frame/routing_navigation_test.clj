@@ -8,6 +8,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
+            [re-frame.identity :as identity]
             [re-frame.late-bind :as late-bind]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
@@ -2003,3 +2004,115 @@
           "no explicit :fragment → the raw url (with its embedded fragment) rides verbatim")
       (is (= {:url "/no/such/path#keep"} (:params (nav-slice)))
           "not-found :params carries the raw url verbatim"))))
+
+;; ============================================================================
+;; rf2-oq0ld — exact + total navigate map-boundary validation
+;; ============================================================================
+;;
+;; Malformed / half-migrated shapes that previously escaped the request gate:
+;;   - `:params` beside an in-place key (silently ignored — params is never
+;;     accepted in-place; changing params requires a destination);
+;;   - a non-map payload (reached `dissoc` → raw host throw);
+;;   - a THIRD event element (a positional opts map left over from the deleted
+;;     [target opts] split — silently dropped while navigation proceeded);
+;;   - a heterogeneous unknown-key set (reached a plain `sort` → compare throw).
+;; Each now rejects LOUD through :rf.error/navigate-bad-request, slice unchanged.
+
+(deftest navigate-params-in-place-without-destination-rejects
+  (testing ":params without a destination (:to / :url) rejects — a request
+            carrying :params beside an in-place key no longer silently drops
+            the params (rf2-oq0ld)"
+    (rf/reg-route :route/items {:params [:map [:id :string]]} "/items/:id")
+    (let [pushed (atom [])
+          errors (atom [])]
+      (fx/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      ;; Land on /items/old so an in-place patch has a current route.
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/items :params {:id "old"}}])
+      (reset! pushed [])
+      (rf/register-listener! :trace ::params-reject
+                             (fn [ev] (when (= :error (:op-type ev))
+                                        (swap! errors conj ev))))
+      ;; The reproduction: :params beside an in-place :fragment. Pre-fix this
+      ;; emitted NO error and pushed /items/old#x with :params silently ignored.
+      (rf/dispatch-sync [:rf.route/navigate {:params {:id "new"} :fragment "x"}])
+      (rf/unregister-listener! :trace ::params-reject)
+      (is (= {:id "old"} (:params (nav-slice)))
+          "the slice params are UNCHANGED — the supplied :params did not sneak in")
+      (is (empty? @pushed) "no URL is pushed for the rejected request")
+      (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
+        (is (some? err) ":rf.error/navigate-bad-request emitted")
+        (is (= :params-requires-destination (-> err :tags :reason))
+            ":reason names the params-without-destination violation")
+        (is (= [:params] (-> err :tags :keys))
+            ":keys names the offending :params key")))))
+
+(deftest navigate-non-map-payload-and-extra-element-reject
+  (testing "a non-map payload and a third event element reject LOUD rather than
+            throwing a raw host exception / silently dropping the extra element
+            (rf2-oq0ld)"
+    (rf/reg-route :route/home {} "/")
+    (rf/reg-route :route/dest {} "/dest")
+    (let [pushed (atom [])
+          errors (atom [])]
+      (fx/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (fx/reg-fx :rf.nav/replace-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      ;; Establish a current route so the slice-unchanged assertion is meaningful.
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
+      (reset! pushed [])
+      (rf/register-listener! :trace ::shape-reject
+                             (fn [ev] (when (= :error (:op-type ev))
+                                        (swap! errors conj ev))))
+
+      (testing "non-map payload rejects with :request-not-a-map (no raw throw)"
+        (reset! errors [])
+        ;; Pre-fix this reached `(dissoc \"/dest\" …)` and threw a host exception.
+        (rf/dispatch-sync [:rf.route/navigate "/dest"])
+        (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
+          (is (some? err) ":rf.error/navigate-bad-request emitted for a non-map payload")
+          (is (= :request-not-a-map (-> err :tags :reason)))))
+
+      (testing "extra event element rejects with :bad-event-arity (not dropped)"
+        (reset! errors [])
+        ;; Pre-fix this navigated to :route/dest while dropping {:replace? true}.
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/dest} {:replace? true}])
+        (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
+          (is (some? err) ":rf.error/navigate-bad-request emitted for a 3-element event")
+          (is (= :bad-event-arity (-> err :tags :reason)))))
+
+      (rf/unregister-listener! :trace ::shape-reject)
+      (is (= :route/home (:route-id (nav-slice)))
+          "every malformed-shape request left the slice on the original route")
+      (is (empty? @pushed) "no malformed-shape request pushed a URL"))))
+
+(deftest navigate-heterogeneous-unknown-keys-report-totally
+  (testing "a request carrying MIXED-KIND unknown keys (keyword / string /
+            number) reports :unknown-keys in total canonical order rather than
+            throwing a raw compare exception (rf2-oq0ld)"
+    (rf/reg-route :route/gate {} "/gate")
+    (let [pushed (atom [])
+          errors (atom [])]
+      (fx/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/gate}])
+      (reset! pushed [])
+      (rf/register-listener! :trace ::hetero
+                             (fn [ev] (when (= :error (:op-type ev))
+                                        (swap! errors conj ev))))
+      ;; :a/b, "s", and 3 are all unknown keys of DIFFERENT kinds — a plain
+      ;; `(sort #{:a/b "s" 3})` throws a ClassCastException on the JVM.
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/gate :a/b 1 "s" 2 3 4}])
+      (rf/unregister-listener! :trace ::hetero)
+      (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
+        (is (some? err) ":rf.error/navigate-bad-request emitted (no raw compare throw)")
+        (is (= :unknown-keys (-> err :tags :reason)))
+        (is (= (vec (sort-by identity/canonical-bytes #{:a/b "s" 3}))
+               (-> err :tags :keys))
+            ":keys are the heterogeneous unknown keys in total canonical order"))
+      (is (empty? @pushed) "no URL is pushed for the rejected request"))))
