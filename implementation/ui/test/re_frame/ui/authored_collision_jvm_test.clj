@@ -8,7 +8,12 @@
   unconditionally, so an authored LITERAL host-root value was overwritten by the
   framework value. A DYNAMIC / `ui/spread` authored value already won on the JVM
   (it layers over `:static` at runtime), so this pins the remaining static path
-  and the cross-host agreement with the CLJS set-if-absent law."
+  and the cross-host agreement with the CLJS set-if-absent law.
+
+  CROSS-HOST MATRIX: this file and its CLJS twin `authored_collision_cljs_test`
+  assert the SAME authored values for the SAME prop-construction paths, pinning
+  the collision law cross-host by construction (the shared parity corpus carries
+  no collision fixture — the annotation spelling is an elision sentinel)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.ui :as ui :refer [defview]]
             [re-frame.ui.tree :as tree]))
@@ -18,6 +23,10 @@
   [:div.host {:data-rf-view "authored-view"
               :data-rf2-source-coord "authored-coord"}
    "body"])
+
+(defview safe-owned-collision
+  [{:keys [caller]}]
+  [:div (ui/spread-safe {:data-rf-view "owned-view"} caller)])
 
 (defview no-collision
   []
@@ -41,6 +50,12 @@
     (testing "the canonical evidence did not leak in"
       (is (not= "re-frame.ui.authored-collision-jvm-test/static-collision"
                 (:data-rf-view attrs))))))
+
+(deftest a-spread-safe-owned-authored-value-wins-on-the-jvm-tree
+  (let [attrs (host-root-attrs (tree/render safe-owned-collision {:caller {:data-c "c"}}))]
+    (is (= "owned-view" (:data-rf-view attrs))
+        "the spread-safe OWNED value survives — owned wins over the evidence")
+    (is (= "c" (:data-c attrs)) "the caller attr also rides through")))
 
 (deftest no-collision-still-carries-the-canonical-evidence
   (let [attrs (host-root-attrs (tree/render no-collision {}))]
