@@ -111,13 +111,7 @@
    (str "the core spine's own glitch-free derivation law — a multi-input derived "
         "value notifies once per coherent input epoch. That is a DERIVATION-layer "
         "statement about recompute coherence, not a claim about UI notification, "
-        "render, or React commit counts, and the bead explicitly preserves it")
-
-   "ai/findings/new-substrate-synthesis/reviews/fable1.md"
-   (str "a dated review that QUOTES G-3's retired 'one notification per epoch' "
-        "adversarially, to argue it would be vacuous under a hypothetical pull "
-        "design. Rewriting a historical review's quotation of the claim it "
-        "criticises would falsify the record")})
+        "render, or React commit counts, and the bead explicitly preserves it")})
 
 (defn- offending-lines
   "`[line-no line]` pairs of `content` carrying a retired render-law claim."

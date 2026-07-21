@@ -84,11 +84,6 @@ ACTIVE_AUTHORITIES = (
     "skills/re-frame2-implementor/references/phase-2-impl-order.md",
     "implementation/README.md",
     "implementation/adapters/reagent/README.md",
-    "ai/findings/new-substrate-synthesis/08-delivery.md",
-    "ai/findings/new-substrate-synthesis/11-adoption-workstreams.md",
-    "ai/findings/new-substrate-synthesis/12-implementation-plan.md",
-    "ai/findings/new-substrate-synthesis/prep/w3-docs-disposition.md",
-    "ai/findings/new-substrate-synthesis/prep/w9-ci-matrix-disposition.md",
 )
 
 EP0030_REL = "docs/EP/EP-0030-the-compiled-view-substrate-program.md"

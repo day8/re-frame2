@@ -55,7 +55,6 @@ story_xray_browser=false
 tenant_switcher_smoke=false
 skills_structural=false
 playground=false
-synthesis_docs=false
 
 mark_all() {
   implementation_jvm=true
@@ -76,7 +75,6 @@ mark_all() {
   tenant_switcher_smoke=true
   skills_structural=true
   playground=true
-  synthesis_docs=true
 }
 
 # rf2-k9ekz — predicate: does `$1` look like a Story/Xray runtime
@@ -167,66 +165,6 @@ else
       # it.)
       skills/re-frame2-pair/preload/*)
         examples_compile=true
-        ;;
-    esac
-
-    # rf2-vxgfnd.135 — tracked, authoritative pre-publication UI guide
-    # material gets a narrow gate without classifying unrelated ai/ scratch
-    # or pulling the guide into MkDocs before S6. The checker and focused JVM
-    # fixture arm their own job so a gate edit cannot avoid its proof.
-    #
-    # rf2-rf7gu — these arms MUST mirror check_doc_slugs.py's --synthesis-only
-    # inventory (SYNTHESIS_ROOTS + SYNTHESIS_FILES). rf2-d9v3n (#6127) widened
-    # that guard to prep/** and 11-adoption-workstreams.md without widening the
-    # trigger, so a PR touching only those paths never fired the job that runs
-    # the guard. Keep the two lists in lockstep; _changed-surfaces.test.cjs pins
-    # every guarded path. Note the roots are not a directory sweep — the 01-10
-    # narrative chapters and README sit beside the named files and stay
-    # deliberately unclassified.
-    case "$file" in
-      ai/findings/new-substrate-synthesis/guide/*|ai/findings/new-substrate-synthesis/drafts/*|ai/findings/new-substrate-synthesis/prep/*|ai/findings/new-substrate-synthesis/11-adoption-workstreams.md|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|implementation/ui/test/re_frame/ui/guide_truth_jvm_test.clj)
-        synthesis_docs=true
-        ;;
-    esac
-
-    # rf2-vs60jg — the authoritative re-frame.ui program plan
-    # (12-implementation-plan.md) carries the durable, one-time S0 coverage-pass
-    # disposition. Its guard (scripts/check_synthesis_plan_authority.py) runs in
-    # the synthesis-docs job, so a change to the plan OR to the guard itself must
-    # fire that job — otherwise a status-drift edit (or a guard edit that removes
-    # the pin) could avoid its own check.
-    case "$file" in
-      ai/findings/new-substrate-synthesis/12-implementation-plan.md|scripts/check_synthesis_plan_authority.py)
-        synthesis_docs=true
-        ;;
-    esac
-
-    # rf2-341p2 — the guide-truth JVM fixture
-    # (implementation/ui/test/re_frame/ui/guide_truth_jvm_test.clj) positively
-    # PINS content in these eight CROSS-TREE files: its compiler-model-authorities
-    # map (spec/Ownership.md, spec/004-Views.md, EP-0030, EP-0034, 06-ssr-islands,
-    # skill/SKILL.md), its R-1 delivery-record census (08-delivery.md), and its
-    # spec/API.md surface-table checks. That fixture runs in the surface-gated
-    # synthesis-docs job, so WITHOUT this arm a doc-only PR editing one of these
-    # files could merge without firing the job that guards it — the same
-    # inventory-vs-trigger bug class as rf2-2718r / rf2-rf7gu, one level out. This
-    # arm ADDS synthesis_docs for exactly these paths; every existing
-    # classification for them (e.g. spec/API.md -> cljs_node_test below) is
-    # untouched — separate `case` statements OR their outputs together.
-    # compiler.cljc and drafts/spec-004-rewrite-draft.md are the fixture's other
-    # pins but are ALREADY covered (jvm-ui runs `clojure -M:test` over the ui
-    # artefact on every implementation_jvm PR; the drafts/* arm above fires for the
-    # rewrite draft), so they are deliberately NOT repeated here.
-    #
-    # MAINTENANCE RULE (mirrored in the fixture's compiler-model-authorities
-    # comment): this list is a hand-kept mirror of the fixture's cross-tree pins.
-    # When a test in guide_truth_jvm_test.clj begins pinning a NEW file outside the
-    # already-firing roots (guide/, drafts/, prep/, the named synthesis files,
-    # implementation/**), add that path here AND to its assert in
-    # implementation/scripts/_changed-surfaces.test.cjs in the SAME change.
-    case "$file" in
-      spec/004-Views.md|spec/API.md|spec/Ownership.md|docs/EP/EP-0030-the-compiled-view-substrate-program.md|docs/EP/EP-0034-re-frame-ui-production-ssr-testing.md|ai/findings/new-substrate-synthesis/06-ssr-islands.md|ai/findings/new-substrate-synthesis/08-delivery.md|ai/findings/new-substrate-synthesis/skill/SKILL.md)
-        synthesis_docs=true
         ;;
     esac
 
@@ -1130,4 +1068,3 @@ emit story_xray_browser "$story_xray_browser"
 emit tenant_switcher_smoke "$tenant_switcher_smoke"
 emit skills_structural "$skills_structural"
 emit playground "$playground"
-emit synthesis_docs "$synthesis_docs"

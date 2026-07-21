@@ -404,13 +404,6 @@ UI_FRAMES_FILE = (
 )
 CONVENTIONS_FILE = REPO_ROOT / "spec" / "Conventions.md"
 SPEC_002_FILE = REPO_ROOT / "spec" / "002-Frames.md"
-SYNTH_03_FILE = (
-    REPO_ROOT
-    / "ai"
-    / "findings"
-    / "new-substrate-synthesis"
-    / "03-reactivity-and-ownership.md"
-)
 
 FRAME_ROOT_ANCHOR = "#frame-root--the-ensure-component-cljs-reference"
 FRAME_PROVIDER_ANCHOR = "#frame-provider--the-scope-only-component-cljs-reference"
@@ -726,7 +719,6 @@ def lifecycle_realization_problems(
     client: str | None,
     frames: str | None,
     conventions: str | None,
-    synth03: str | None,
     spec002: str | None,
 ) -> list[str]:
     """Positive-presence assertions for the two frame-root lifecycles. Each arg
@@ -827,20 +819,12 @@ def lifecycle_realization_problems(
                         "elsewhere do not count)."
                     )
 
-    # L7 — synthesis §8 keeps compiled preflight LANDED (not future work).
-    if synth03 is not None and "ENSURE is host preflight" not in synth03:
-        problems.append(
-            "LIFECYCLE-SYNTHESIS-PREFLIGHT: ai/findings/new-substrate-synthesis/"
-            '03-reactivity-and-ownership.md §8 no longer states "ENSURE is host '
-            'preflight" — the compiled preflight must not be reverted to future work.'
-        )
-
     return problems
 
 
 def find_lifecycle_drift() -> list[str]:
     """Read the Rule-7 source-of-truth files and run the presence assertions,
-    reporting a missing REQUIRED file as a SETUP error (the synthesis + spec + ui
+    reporting a missing REQUIRED file as a SETUP error (the spec + ui
     sources are all repo-tracked, so a miss means the guard's paths drifted)."""
     problems: list[str] = []
     texts: dict[str, str | None] = {}
@@ -849,7 +833,6 @@ def find_lifecycle_drift() -> list[str]:
         "client": UI_CLIENT_FILE,
         "frames": UI_FRAMES_FILE,
         "conventions": CONVENTIONS_FILE,
-        "synth03": SYNTH_03_FILE,
         "spec002": SPEC_002_FILE,
     }
     for key, path in required.items():
@@ -1147,7 +1130,6 @@ def _self_test() -> int:
         "| `day8/re-frame2-uix` | UIx adapter — the UIx-side frame-root / "
         "frame-provider consuming the shared React context. |\n"
     )
-    good_synth = "**ENSURE is host preflight, never render (I-1).**"
     # A Spec-002 doc whose ATX headings slugify to the two canonical fragments.
     good_spec002 = (
         "### frame-provider — the SCOPE-only component (CLJS reference)\n"
@@ -1160,7 +1142,6 @@ def _self_test() -> int:
         client=good_client,
         frames=good_frames,
         conventions=good_conv,
-        synth03=good_synth,
         spec002=good_spec002,
     )
 
@@ -1208,11 +1189,6 @@ def _self_test() -> int:
         {"frames": "(defn something-else [] nil)"},
         dirty=True, label="G7 compiled executor/evidence surface gone",
     )
-    expect_lifecycle(
-        {"synth03": "Frame ENSURE preflight remains future R-7 work."},
-        dirty=True, label="G9 synthesis preflight reverted to future work",
-    )
-
     # --- Rule 7 causal source assertions (client) — remove/reorder EACH
     # production preflight independently, and violate the one-shot allocation
     # ordering; every mutation must fail.

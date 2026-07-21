@@ -892,146 +892,6 @@ test('every Clojure CLI step calls the shared installer by absolute path (rf2-e7
   );
 });
 
-// rf2-vxgfnd.135 — the tracked synthesis guide/drafts are authoritative
-// working material but deliberately remain outside MkDocs until S6. They get
-// one narrow, non-vacuous link/anchor + guide-truth job instead.
-test('tracked synthesis guide and active drafts arm their focused docs gate only (rf2-vxgfnd.135)', () => {
-  assert.equal(
-    classify('ai/findings/new-substrate-synthesis/guide/09-debugging.md').synthesis_docs,
-    'true',
-  );
-  assert.equal(
-    classify('ai/findings/new-substrate-synthesis/drafts/guide-docs-move-plan.md').synthesis_docs,
-    'true',
-  );
-  assert.equal(classify('scripts/check_doc_slugs.py').synthesis_docs, 'true');
-  assert.equal(
-    classify('implementation/ui/test/re_frame/ui/guide_truth_jvm_test.clj').synthesis_docs,
-    'true',
-  );
-  assert.equal(classify('ai/findings/unrelated-scratch.md').synthesis_docs, 'false');
-});
-
-// rf2-rf7gu — the classifier's synthesis_docs arms MUST cover every path
-// check_doc_slugs.py guards under --synthesis-only (its SYNTHESIS_ROOTS +
-// SYNTHESIS_FILES). rf2-d9v3n (#6127) widened that guard to prep/** and
-// 11-adoption-workstreams.md but left the trigger behind, so a PR touching
-// only those paths never fired the job that runs the guard — the newly-covered
-// inventory went unchecked for exactly the PRs it was expanded to protect.
-// These arms pin the two ends together; a future SYNTHESIS_ROOTS widening that
-// forgets the trigger fails here instead of silently skipping CI.
-test('every check_doc_slugs --synthesis-only guarded path fires the synthesis-docs job (rf2-rf7gu)', () => {
-  // SYNTHESIS_ROOTS — all three directory roots.
-  assert.equal(
-    classify('ai/findings/new-substrate-synthesis/guide/03-state.md').synthesis_docs,
-    'true',
-  );
-  assert.equal(
-    classify('ai/findings/new-substrate-synthesis/drafts/spec-004-rewrite-draft.md').synthesis_docs,
-    'true',
-  );
-  assert.equal(
-    classify('ai/findings/new-substrate-synthesis/prep/w3-docs-disposition.md').synthesis_docs,
-    'true',
-  );
-  assert.equal(
-    classify('ai/findings/new-substrate-synthesis/prep/w9-ci-matrix-disposition.md').synthesis_docs,
-    'true',
-  );
-
-  // SYNTHESIS_FILES — the two named top-level operational authorities.
-  assert.equal(
-    classify('ai/findings/new-substrate-synthesis/11-adoption-workstreams.md').synthesis_docs,
-    'true',
-  );
-  assert.equal(
-    classify('ai/findings/new-substrate-synthesis/12-implementation-plan.md').synthesis_docs,
-    'true',
-  );
-
-  // The roots are still NOT a whole-directory sweep, but the pinned set grew.
-  // rf2-341p2 — 06-ssr-islands.md and 08-delivery.md USED to sit here as
-  // unclassified narrative chapters; they are now classified because the
-  // guide-truth JVM fixture
-  // (implementation/ui/test/re_frame/ui/guide_truth_jvm_test.clj) content-pins
-  // them (the compiler-model-authorities map + the R-1 delivery-record census),
-  // and the rf2-341p2 arm below fires synthesis_docs for exactly those pinned
-  // cross-tree files. An unpinned chapter like 02-programming-model.md and the
-  // README stay unclassified, so these arms remain non-vacuous and the rule is
-  // provably a pinned-file list, not a directory sweep.
-  assert.equal(
-    classify('ai/findings/new-substrate-synthesis/08-delivery.md').synthesis_docs,
-    'true',
-  );
-  assert.equal(
-    classify('ai/findings/new-substrate-synthesis/02-programming-model.md').synthesis_docs,
-    'false',
-  );
-  assert.equal(
-    classify('ai/findings/new-substrate-synthesis/README.md').synthesis_docs,
-    'false',
-  );
-});
-
-// rf2-341p2 — the guide-truth JVM fixture
-// (implementation/ui/test/re_frame/ui/guide_truth_jvm_test.clj) positively PINS
-// content in EIGHT cross-tree files that live OUTSIDE the synthesis roots the
-// rf7gu/vs60jg arms already fire for: its compiler-model-authorities map
-// (spec/Ownership.md, spec/004-Views.md, EP-0030, EP-0034, 06-ssr-islands.md,
-// skill/SKILL.md), its R-1 delivery-record census (08-delivery.md), and its
-// spec/API.md surface-table checks. That whole namespace runs in the
-// surface-gated synthesis-docs job, so without a classifier arm a doc-only PR
-// editing one of those eight files could merge without ever firing the job that
-// guards it — the same inventory-vs-trigger bug class as rf2-2718r / rf2-rf7gu,
-// one level out. The rf2-341p2 arm in report-changed-surfaces.sh fires
-// synthesis_docs for exactly these eight paths (a hardcoded mirror of the
-// fixture's cross-tree pins, kept in lockstep by the maintenance rule commented
-// in the fixture). These direct asserts pin each of the eight. The fixture also
-// pins compiler.cljc and drafts/spec-004-rewrite-draft.md, but those are ALREADY
-// covered (jvm-ui runs `clojure -M:test` over the ui artefact on every
-// implementation_jvm PR; the drafts/* arm fires for the rewrite draft), so they
-// are deliberately not re-listed.
-test('every guide-truth cross-tree pinned file fires the synthesis-docs job (rf2-341p2)', () => {
-  for (const file of [
-    'spec/004-Views.md',
-    'spec/API.md',
-    'spec/Ownership.md',
-    'docs/EP/EP-0030-the-compiled-view-substrate-program.md',
-    'docs/EP/EP-0034-re-frame-ui-production-ssr-testing.md',
-    'ai/findings/new-substrate-synthesis/06-ssr-islands.md',
-    'ai/findings/new-substrate-synthesis/08-delivery.md',
-    'ai/findings/new-substrate-synthesis/skill/SKILL.md',
-  ]) {
-    assert.equal(
-      classify(file).synthesis_docs,
-      'true',
-      `${file} is content-pinned by the guide-truth JVM fixture; editing it must fire the synthesis-docs job that guards it (rf2-341p2)`,
-    );
-  }
-
-  // The arm ADDS synthesis_docs; it replaces nothing. spec/API.md keeps its
-  // pre-existing cljs_node_test classification (rf2-4ka7c2), proving the two
-  // classifications OR together rather than shadowing each other.
-  assert.equal(classify('spec/API.md').cljs_node_test, 'true');
-
-  // Non-vacuity / not-a-directory-sweep: an unpinned sibling chapter under the
-  // same synthesis tree stays unclassified.
-  assert.equal(
-    classify('ai/findings/new-substrate-synthesis/02-programming-model.md').synthesis_docs,
-    'false',
-  );
-});
-
-test('synthesis-docs job runs the opt-in link scan and focused guide truth fixture (rf2-vxgfnd.135)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'synthesis-docs');
-  assert.match(block, /if: needs\.detect_changed_surfaces\.outputs\.synthesis_docs == 'true'/);
-  assert.match(block, /check_doc_slugs\.py --synthesis-only/);
-  assert.match(block, /clojure -M:test -n re-frame\.ui\.guide-truth-jvm-test/);
-
-  const aggregator = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
-  assert.match(aggregator, /- synthesis-docs\r?\n/);
-});
-
 // rf2-2718r — the adapter-disposition guard scans a FIXED cross-repo roster
 // (ACTIVE_AUTHORITIES: EP-0030, spec/004-Views.md, implementation/README.md,
 // skills/…), not the diff. Conditional execution keyed to a diff classifier is
@@ -1040,11 +900,11 @@ test('synthesis-docs job runs the opt-in link scan and focused guide truth fixtu
 // bug class as rf2-d9v3n / rf2-rf7gu). The ruled fix (option (e)) moves the
 // guard out of the surface-gated synthesis-docs job into the UNCONDITIONAL
 // verify-readme-links job so it runs on every PR, dissolving the roster<->
-// classifier sync problem with zero machinery. These arms pin the wiring:
-// verify-readme-links must carry BOTH guard invocations and synthesis-docs must
-// carry NONE. A future PR un-moving or gutting the wiring fails here (this file
-// runs under the unconditional js-harness-self-tests job's test:script-policy).
-test('adapter-disposition guard runs UNCONDITIONALLY in verify-readme-links, not synthesis-docs (rf2-2718r)', () => {
+// classifier sync problem with zero machinery. This arm pins the wiring:
+// verify-readme-links must carry BOTH guard invocations. A future PR un-moving
+// or gutting the wiring fails here (this file runs under the unconditional
+// js-harness-self-tests job's test:script-policy).
+test('adapter-disposition guard runs UNCONDITIONALLY in verify-readme-links (rf2-2718r)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   const readmeLinks = jobBlock(workflow, 'verify-readme-links');
   assert.match(
@@ -1056,12 +916,6 @@ test('adapter-disposition guard runs UNCONDITIONALLY in verify-readme-links, not
     readmeLinks,
     /python scripts\/check_adapter_disposition\.py --verbose --ci/,
     'verify-readme-links must run the adapter-disposition guard (unconditional job)',
-  );
-  const synthesis = jobBlock(workflow, 'synthesis-docs');
-  assert.doesNotMatch(
-    synthesis,
-    /check_adapter_disposition/,
-    'the surface-gated synthesis-docs job must no longer carry the fixed-roster guard (rf2-2718r moved it)',
   );
 });
 

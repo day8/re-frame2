@@ -102,29 +102,6 @@ else
   fi
 fi
 
-# The synthesis-plan S0-authority guard must run whenever EITHER the
-# authoritative plan (ai/findings/new-substrate-synthesis/12-implementation-plan.md)
-# OR its checker (scripts/check_synthesis_plan_authority.py) changes — a
-# checker-only edit must still run the guard's own self-tests + live scan.
-# Nesting it under the Markdown-only branch skipped exactly that case. CI already
-# routes this way (.github/scripts/report-changed-surfaces.sh emits
-# synthesis_docs=true for both paths); this mirrors it locally.
-synthesis_guard_changed=false
-_synthesis_paths='ai/findings/new-substrate-synthesis/12-implementation-plan\.md|scripts/check_synthesis_plan_authority\.py'
-if [ "$with_docs" = "force" ]; then
-  synthesis_guard_changed=true
-elif [ "$with_docs" = "skip" ]; then
-  synthesis_guard_changed=false
-else
-  if git -C "$repo_root" rev-parse --verify origin/main >/dev/null 2>&1; then
-    if git -C "$repo_root" diff --name-only origin/main HEAD 2>/dev/null | grep -qE "$_synthesis_paths"; then
-      synthesis_guard_changed=true
-    fi
-  fi
-  if git -C "$repo_root" status --porcelain 2>/dev/null | grep -qE "$_synthesis_paths"; then
-    synthesis_guard_changed=true
-  fi
-fi
 
 # ---- existing gates ----
 run "lockstep version drift" "./.github/scripts/verify-version-lockstep.sh" \
@@ -302,29 +279,5 @@ else
   printf '\n--- no markdown changes → skipping link/anchor gates (override with --with-docs) ---\n'
 fi
 
-# ---- synthesis-plan S0-authority guard (own routing) ----
-# rf2-jtyty: routed on the plan OR the checker changing (see
-# synthesis_guard_changed above), NOT nested under the Markdown-only branch, so
-# a checker-only local change still runs its own self-tests + live scan.
-# rf2-vs60jg / rf2-vxgfnd.235: the authoritative re-frame.ui program plan
-# (ai/findings/new-substrate-synthesis/12-implementation-plan.md) carries the
-# one-time, durable "S0 COVERAGE PASS (2026-07-12) — SHIP" disposition. The
-# durable record is the anchor item itself (honest provenance; epic rf2-vxgfnd
-# owns the S1–S7 program). The guard causally pins the checked anchor + its bare
-# epic authority attribution + the exact named item → bead associations, and
-# forbids an unqualified live-stage progress claim in the plan's active text.
-# Self-test first (proves the guard fires on unchecked/missing anchor, swapped
-# owners, a dropped bead, a dropped authority attribution, and a reintroduced
-# drift claim, and does NOT false-fail on inactive comment prose or a dated
-# snapshot), then the live scan.  See scripts/check_synthesis_plan_authority.py.
-if [ "$markdown_changed" = "true" ] || [ "$synthesis_guard_changed" = "true" ]; then
-  run "synthesis-plan S0-authority self-test" "python scripts/check_synthesis_plan_authority.py --self-test" \
-    python "$repo_root/scripts/check_synthesis_plan_authority.py" --self-test
-
-  run "synthesis-plan S0-authority guard" "python scripts/check_synthesis_plan_authority.py" \
-    python "$repo_root/scripts/check_synthesis_plan_authority.py"
-else
-  printf '\n--- no synthesis-plan/checker changes → skipping S0-authority guard ---\n'
-fi
 
 printf 'PASS fast PR spine\n'
