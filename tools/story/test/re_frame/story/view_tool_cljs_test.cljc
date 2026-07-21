@@ -114,6 +114,42 @@
     (is (= [] (:render ev)))))
 
 ;; ===========================================================================
+;; view-evidence — the version boundary is REAL (rf2-vxgfnd.98.1.1)
+;; ===========================================================================
+
+(deftest view-evidence-degrades-on-a-producer-version-it-was-not-taught
+  ;; The version boundary must be REAL, not nominal. `consumed-schema-version` is
+  ;; a consumer-owned LITERAL, so a producer that bumps its OWN schema-version
+  ;; (its projections then stamp the new version) is a DETECTABLE mismatch — and
+  ;; on mismatch Story SUPPRESSES every shape-dependent parse rather than shaping
+  ;; the evolved manifest/sites/mounted/render as if understood. RED before the
+  ;; fix, which set `:version-mismatch? true` yet STILL returned the parsed
+  ;; manifest / :compiled-view? / mounted / render — a mis-parse presented as
+  ;; exact.
+  (register-view! :story.demo/widget demo-manifest)
+  (let [producer-ahead (inc view-tool/consumed-schema-version)]
+    ;; Bumping the producer var alone makes the REAL projections stamp the new
+    ;; version — the running app's tier is simply ahead of this consumer.
+    (with-redefs [tool/schema-version producer-ahead]
+      (let [ev (view-tool/view-evidence :story.demo/widget {[:demo/total] 99})]
+        (is (true? (:version-mismatch? ev))
+            "a producer version the consumer was not taught is a detected mismatch")
+        (is (= producer-ahead (:rf.ui.tool/version ev))
+            "the producer's version is reported honestly")
+        (is (true? (:tier-available? ev))
+            "the tier is LIVE — the mismatch is the degrade, not absence")
+        (testing "every shape-dependent parse is suppressed — never mis-parsed as understood"
+          (is (false? (:compiled-view? ev)))
+          (is (nil? (:manifest ev)))
+          (is (nil? (:dependencies ev)))
+          (is (nil? (:event-sites ev)))
+          (is (= [] (:mounted ev)))
+          (is (= [] (:render ev))))
+        (testing "the non-shape-dependent observation frame (Story author data) still rides"
+          (is (false? (:owned? (:observation ev))))
+          (is (= 99 (:value (first (:overrides (:observation ev)))))))))))
+
+;; ===========================================================================
 ;; view-evidence — connected-instance records + render causes
 ;; ===========================================================================
 

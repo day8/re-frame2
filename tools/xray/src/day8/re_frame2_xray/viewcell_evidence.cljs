@@ -293,13 +293,23 @@
   (sync-sentinel! false)
   nil)
 
+(def ^:private expected-schema-version
+  "The `re-frame.ui.tool` evidence-schema version THIS Xray build was written to
+  parse — a CONSUMER-OWNED literal, deliberately NOT `tool/schema-version`.
+  Deriving support from the producer's own var makes ANY producer bump silently
+  'supported', so an evolved shape would be mis-parsed as exact — the version
+  boundary would be nominal. Pinning a literal makes a producer that bumps its
+  schema a DETECTABLE mismatch until Xray is taught the new shape and this pin is
+  bumped in lockstep. Currently 3, matching `re-frame.ui.tool/schema-version` 3."
+  3)
+
 (defn- supported-version?
-  "True when the projection envelope carries EXACTLY the `re-frame.ui.tool`
-  schema version this Xray build understands. A different (older or newer)
-  producer version is degraded honestly rather than mis-parsed — the shape
-  may have evolved incompatibly."
+  "True when the projection envelope carries EXACTLY the evidence-schema version
+  THIS Xray build understands (`expected-schema-version`, a consumer-owned
+  literal). A different (older or newer) producer version is degraded honestly
+  rather than mis-parsed — the shape may have evolved incompatibly."
   [version]
-  (= version tool/schema-version))
+  (= version expected-schema-version))
 
 (defn- project-occurrence
   "Shape ONE `re-frame.ui.tool/explain-render` occurrence into the

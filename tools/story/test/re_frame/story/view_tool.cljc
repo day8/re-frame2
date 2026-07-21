@@ -50,10 +50,16 @@
   (:require [re-frame.ui.tool :as tool]))
 
 (def consumed-schema-version
-  "The `re-frame.ui.tool/schema-version` this consumer was written against. A
-  projection stamped a DIFFERENT `:rf.ui.tool/version` is surfaced as
-  `:version-mismatch?` (degrade), never mis-parsed as the shape we know."
-  tool/schema-version)
+  "The `re-frame.ui.tool` evidence-schema version THIS consumer was written to
+  parse — a CONSUMER-OWNED literal, deliberately NOT `tool/schema-version`.
+  Binding it to the producer's own var makes ANY producer bump silently
+  'understood', so an evolved shape would be mis-parsed as the shape we know —
+  the version boundary would be nominal. A projection stamped a DIFFERENT
+  `:rf.ui.tool/version` is surfaced as `:version-mismatch?` and DEGRADES (every
+  shape-dependent field suppressed), never mis-parsed. Currently 3, matching
+  `re-frame.ui.tool/schema-version` 3; bump in lockstep only when Story is taught
+  the new shape."
+  3)
 
 (defn- version-of [projection]
   (:rf.ui.tool/version projection))
@@ -119,28 +125,49 @@
   record); a production build → `:tier-available? false` throughout."
   ([view-id] (view-evidence view-id nil))
   ([view-id sub-overrides]
-   (let [manifest (tool/view-manifest view-id)
-         deps     (tool/view-dependencies view-id)
-         events   (tool/view-event-sites view-id)
+   (let [manifest    (tool/view-manifest view-id)
+         deps        (tool/view-dependencies view-id)
+         events      (tool/view-event-sites view-id)
          ;; `mounted-views` / `explain-render` are non-nil in ANY dev build
          ;; (empty-but-versioned envelopes) and nil ONLY in production, so they
          ;; are the tier-liveness discriminator manifest-absence cannot give.
-         mounted  (tool/mounted-views)
-         render   (tool/explain-render view-id)
-         version  (some version-of [manifest deps events mounted render])
-         rows     (filterv #(= view-id (:view-id %)) (:views mounted))]
-     {:view-id            view-id
-      :rf.ui.tool/version version
-      :tier-available?    (some? mounted)
-      :version-mismatch?  (boolean (and version (not= consumed-schema-version version)))
-      :compiled-view?     (some? manifest)
-      :manifest           manifest
-      :dependencies       deps
-      :event-sites        events
-      :mounted            rows
-      :render             (vec (:occurrences render))
-      :observation        {:owned?    false
-                           :overrides (observation-overrides sub-overrides)}})))
+         mounted     (tool/mounted-views)
+         render      (tool/explain-render view-id)
+         version     (some version-of [manifest deps events mounted render])
+         mismatch?   (boolean (and version (not= consumed-schema-version version)))
+         observation {:owned?    false
+                      :overrides (observation-overrides sub-overrides)}]
+     (if mismatch?
+       ;; A producer stamped a version this consumer was not written against.
+       ;; DEGRADE honestly: surface the mismatch + tier liveness, but SUPPRESS
+       ;; every shape-dependent parse (manifest / sites / mounted / render). An
+       ;; evolved shape may mean something different, so returning it as
+       ;; understood would be a mis-parse — the exact hole the version boundary
+       ;; exists to close. This is the explicit empty/status form the absence
+       ;; path already returns, flagged `:version-mismatch? true`.
+       {:view-id            view-id
+        :rf.ui.tool/version version
+        :tier-available?    (some? mounted)
+        :version-mismatch?  true
+        :compiled-view?     false
+        :manifest           nil
+        :dependencies       nil
+        :event-sites        nil
+        :mounted            []
+        :render             []
+        :observation        observation}
+       (let [rows (filterv #(= view-id (:view-id %)) (:views mounted))]
+         {:view-id            view-id
+          :rf.ui.tool/version version
+          :tier-available?    (some? mounted)
+          :version-mismatch?  false
+          :compiled-view?     (some? manifest)
+          :manifest           manifest
+          :dependencies       deps
+          :event-sites        events
+          :mounted            rows
+          :render             (vec (:occurrences render))
+          :observation        observation})))))
 
 ;; ---------------------------------------------------------------------------
 ;; JVM structural-tree vocabulary (Tier-1)

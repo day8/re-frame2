@@ -1905,6 +1905,18 @@
     {:isError? false
      :edn-submap {:ok? true :views []}}}
 
+   {:fixture/id    :read-mounted-views/version-mismatch-iserror
+    :fixture/doc   "a projection stamped a schema version this pair build was NOT written against is converted to a typed {:ok? false :reason :view-tier-version-mismatch} (isError) by the consumer-owned version gate — Pair reaches an arbitrarily old/new app, so the producer's stamp does not define support (rf2-vxgfnd.98.1.1). The version boundary is real: an incompatible producer shape is never forwarded as a successful read."
+    :fixture/tool  "read-mounted-views"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"        true]
+     ["re-frame.ui.tool/mounted-views"  {:ok? true :rf.ui.tool/version 9999 :views []}]
+     [:default                          nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :view-tier-version-mismatch :expected 3 :actual 9999}}}
+
    {:fixture/id    :explain-render/happy
     :fixture/doc   "explain-render forwards the render-cause projection with the version + loss/observation fields per occurrence."
     :fixture/tool  "explain-render"

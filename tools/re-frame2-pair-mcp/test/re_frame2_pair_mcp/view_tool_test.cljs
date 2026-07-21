@@ -117,6 +117,54 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
+;; Version gate — the boundary is REAL, not nominal (rf2-vxgfnd.98.1.1)
+;; ---------------------------------------------------------------------------
+
+(deftest a-version-matching-projection-is-forwarded-as-success
+  ;; The ordinary version-`consumed-schema-version` read is unchanged: the
+  ;; envelope passes the gate and rides through as a successful (non-error) read.
+  (async done
+    (let [seen (atom nil)]
+      (-> (with-captured-form! seen {:ok? true
+                                     :rf.ui.tool/version view-tool/consumed-schema-version
+                                     :views []}
+            (fn []
+              (view-tool/read-mounted-views-tool (fresh-conn) #js {})))
+          (.then (fn [result]
+                   (is (false? (tu/error? result))
+                       "a version-matched projection is a successful read")
+                   (let [edn (tu/extract-edn result)]
+                     (is (true? (:ok? edn)))
+                     (is (= [] (:views edn))
+                         "a genuinely-empty version-matched read is NOT mislabelled as an error"))
+                   (done)))))))
+
+(deftest a-producer-version-this-build-does-not-understand-is-a-typed-mismatch
+  ;; rf2-vxgfnd.98.1.1 — Pair connects to an ARBITRARY running app, so it cannot
+  ;; trust the producer's own stamp to define support. A `:ok? true` projection
+  ;; stamped a `:rf.ui.tool/version` this build was NOT written against is a typed
+  ;; `:ok? false :view-tier-version-mismatch` (isError), never forwarded as
+  ;; success. RED before the fix, where every stamped envelope rode through
+  ;; `map-envelope-result` as `:ok? true` with no supported-version check.
+  (async done
+    (let [seen           (atom nil)
+          producer-ahead (+ 100 view-tool/consumed-schema-version)] ; unmistakably foreign
+      (-> (with-captured-form! seen {:ok? true :rf.ui.tool/version producer-ahead :views []}
+            (fn []
+              (view-tool/read-mounted-views-tool (fresh-conn) #js {})))
+          (.then (fn [result]
+                   (is (true? (tu/error? result))
+                       "a producer version this build does not understand is an isError")
+                   (let [edn (tu/extract-edn result)]
+                     (is (= false (:ok? edn)))
+                     (is (= :view-tier-version-mismatch (:reason edn)))
+                     (is (= producer-ahead (:actual edn)) "the producer's stamp is reported")
+                     (is (= view-tool/consumed-schema-version (:expected edn))
+                         "…against the consumer-owned expected version")
+                     (is (string? (:hint edn)) "carries an alignment hint"))
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
 ;; Tool wiring — the missing-view-id short-circuit
 ;; ---------------------------------------------------------------------------
 
