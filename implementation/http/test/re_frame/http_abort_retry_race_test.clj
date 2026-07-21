@@ -30,11 +30,29 @@
    - Spec 014 §Abort precedence (abort always wins), §486-492
    - Spec 014 §Retry and backoff / §Aborts
 
+  The SECOND transition — timer-fire→attempt-N+1 — is the symmetric boundary
+  (rf2-6nczv9, completing the original two-gap finding). When the backoff timer
+  fires it wins its once-only `fired?` transition, then hands off to
+  `run-attempt!`. Previously the callback cleared the backoff handle FIRST,
+  sampled the abort cell ONCE, then called `run-attempt!`, which minted FRESH
+  cancellation cells and only later re-registered — so an abort landing in that
+  window resolved NO handle (its abort-fn LOST the timer's `fired?` CAS and
+  dispatched nothing) and the fresh attempt started anyway: a cancelled
+  (possibly non-idempotent POST) request re-issued. The fix threads the SHARED
+  cells and the predecessor handle into `run-attempt!` (continuous handoff): the
+  successor registers FIRST, the predecessor is dropped only after, and a
+  post-registration re-check delivers the single aborted reply and suppresses
+  the fresh attempt.
+
   Coverage:
    1. abort injected in `maybe-retry!` (post-abort-snapshot, pre-schedule)
       → exactly one :rf.http/aborted reply, ZERO extra server hits.
    2. abort injected at the START of `schedule-backoff-handle!`
       (the narrower-sibling window) → same: one aborted reply, no retry.
+   2b. abort injected at the timer-fire→attempt-N+1 HANDOFF
+      (`:retry/before-attempt`, after the timer won `fired?`, before the
+      successor registers) → same: one aborted reply, ZERO re-issue, no phantom
+      `:retried`. This is the second transition gap the audit named.
    3. rf2-ous9e5 unit: `clear-in-flight!` (2-arg) is identity-conditional —
       a completing OLD attempt does NOT evict a same-id SUCCESSOR's handle."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -109,7 +127,16 @@
   the fix the intermediate `:retried` emit was ordered ahead of the
   cancellation-safe backoff handoff, so a listener saw a `:retried` row (with
   non-nil `:next-backoff-ms`) for a retry that never happened — a tool could
-  report a retry the runtime did not perform."
+  report a retry the runtime did not perform.
+
+  The `inject-point` selects WHICH transition window the abort lands in: the
+  `:maybe-retry/*` / `:backoff/*` points fire during the live-fetch→backoff
+  transition (attempt 1's completion thread, prior handle still registered),
+  while `:retry/before-attempt` fires at the timer-fire→attempt-N+1 handoff
+  (the timer has won `fired?`, the successor has not yet registered). Every
+  point yields the SAME contract outcome — one aborted reply, no re-issue,
+  clean registry, no phantom `:retried` — which is exactly the point: an abort
+  anywhere in the transition cancels the request cleanly."
   [inject-point]
   (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
         replies     (atom [])
@@ -188,6 +215,12 @@
 (deftest abort-injected-at-backoff-registration-boundary-no-reissue
   (testing "rf2-6nczv9 (narrower sibling) — an abort landing at the backoff registration boundary (prior clear now deferred, so the prior handle is still resolvable) yields one aborted reply and no retry"
     (run-injected-abort-case! :backoff/before-register)))
+
+;; ---- (2b) timer-fire → attempt-N+1 handoff window --------------------------
+
+(deftest abort-injected-at-timer-fire-handoff-no-reissue-no-phantom-retried
+  (testing "rf2-6nczv9 (second transition) — an abort landing at the timer-fire→attempt-N+1 handoff (after the timer won `fired?`, before the successor registers) yields exactly one :rf.http/aborted reply, ZERO re-issue, and NO phantom :retried; the abort resolves the still-registered predecessor backoff handle (its abort-fn loses the timer's fired? CAS), and run-attempt!'s post-registration re-check delivers the single reply and suppresses the fresh attempt"
+    (run-injected-abort-case! :retry/before-attempt)))
 
 ;; ---- (3) rf2-ous9e5 — identity-conditional clear-in-flight! ----------------
 
