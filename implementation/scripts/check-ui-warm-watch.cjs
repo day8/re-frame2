@@ -54,9 +54,10 @@
 //     re-frame.ui.compiler.build-hook/hook -> Shadow never runs the inherited
 //     hook -> the accepted build id falls back to ::default and no manifest is
 //     established -> COLD ACCEPT goes RED (annotation load-bearingness).
-//   * Delete the `build/seed-shadow-elements (harvest-seed …)` call (or the whole
-//     harvest) -> :probe-card is never seeded, so COLD ACCEPT's card-props read
-//     `nil`/attributes -> RED (the real source producer is load-bearing).
+//   * Delete the `build/set-shadow-element-manifest (harvest-all-seed …)` call (or
+//     the whole harvest) -> :probe-card is never seeded, so COLD ACCEPT's
+//     card-props read `nil`/attributes -> RED (the real source producer is
+//     load-bearing).
 //   * Delete the `(reconcile-declaration-edits build-state)` call -> the
 //     DECLARATION-SHRINK pass no longer recompiles the no-require-edge view
 //     (view-output-present stays true) and the stale manifest is not re-baked

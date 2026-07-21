@@ -23,21 +23,25 @@
 
   Two callers seed through it:
 
-  * the Shadow build hook, at `:compile-prepare`, folds every RECOMPILED UI
-    source's declarations into the open pass's disposable scratch
-    (`build/seed-shadow-elements`) — a pure build-state transform, since
-    `cljs.env/*compiler*` is not bound during hook execution;
+  * the Shadow build hook, at `:compile-prepare`, folds EVERY authoritative UI
+    source's declarations (not just the recompiled subset — rf2-u53yy.1 S1) into
+    the flat all-members manifest held beside the open pass
+    (`build/element-manifest` / `build/set-shadow-element-manifest`) — a pure
+    build-state transform, since `cljs.env/*compiler*` is not bound during hook
+    execution;
 
   * the plain-JVM / SSR path (which has no `:compile-prepare`) harvests the
     ambient namespace's own source ONCE, lazily, the first time a view in it
     classifies a custom element (`ensure-namespace-harvested!`), seeding through
     the ambient `build/contribute-element-checked!`.
 
-  Both routes admit through the ONE cross-source conflict barrier
-  (`build/contribute-element-checked!` / `build/seed-shadow-elements`): an
-  `rf=`-equal duplicate co-exists; a contradictory same-tag declaration is
-  refused here and reported by the macro with source coordinates. JVM-only: it
-  reads source text at build time and is never emitted into any bundle."
+  Both routes admit through the ONE cross-source conflict law: on the Shadow path
+  `build/element-manifest` re-derives the verdict over all members, and on the
+  plain-JVM path `build/contribute-element-checked!` is the write barrier — an
+  `rf=`-equal duplicate co-exists; a contradictory same-tag declaration is refused
+  (and reported with source coordinates on the plain-JVM path, or as a build-time
+  error at prepare on the Shadow path). JVM-only: it reads source text at build
+  time and is never emitted into any bundle."
   (:require [clojure.java.io :as io]
             [clojure.tools.reader :as rdr]
             [clojure.tools.reader.reader-types :as rt]
@@ -174,9 +178,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn source-seed
-  "The `[source tag decl]` triples `build/seed-shadow-elements` folds into an
-  open scratch pass, for one build source declaring namespace `ns-sym` with
-  `src` text. `ns-sym` is the declaring source (the conflict/eviction unit)."
+  "The `[source tag decl]` triples the build hook folds into the flat all-members
+  manifest (`build/element-manifest`), for one build source declaring namespace
+  `ns-sym` with `src` text. `ns-sym` is the declaring source (the conflict/owner
+  unit)."
   [ns-sym src]
   (mapv (fn [{:keys [tag properties]}]
           [ns-sym tag {:properties properties}])

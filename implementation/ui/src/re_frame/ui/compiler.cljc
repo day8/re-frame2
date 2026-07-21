@@ -509,27 +509,37 @@
     ;; only WHERE the failure is anchored — never who wins, and never whether
     ;; the build fails. `:declarations` evidence is sorted, so it is identical
     ;; under every source / evaluation / build-order permutation.
+    ;; During a real Shadow build PASS the compile-time custom-element registry
+    ;; is populated by the build hook's prepare-time ALL-MEMBERS source harvest,
+    ;; which also enforces the cross-source conflict law there (rf2-u53yy.1 S1);
+    ;; the macro is then validation/reporting-only — it validates the declaration
+    ;; grammar above and emits the runtime registration below, but does NOT
+    ;; contribute to (or evict from) the compile-time registry. Off that path
+    ;; (plain-JVM / SSR, REPL — there is no `:compile-prepare` harvest), the
+    ;; macro's own contribution populates the per-source `elements` slice and
+    ;; reports contradictions here with the declaration's source coordinates.
     (let [decl {:properties props}]
-      (when-let [{:keys [conflict]} (build/contribute-element-checked!
-                                     ns-sym tag decl)]
-        (let [build-id (build/current-build-id)
-              rows (vec (sort-by (juxt (comp str :build) (comp str :ns))
-                                 [{:build build-id
-                                   :ns (:owner conflict)
-                                   :properties (:properties (:declaration conflict) #{})}
-                                  {:build build-id :ns ns-sym :properties props}]))]
-          (fail :rf.ui.compile/custom-element-conflict
-                (str "conflicting (ui/custom-element " tag " ...) declarations — "
-                     (str/join " vs "
-                               (map (fn [{:keys [ns properties]}]
-                                      (str ns " declares :properties "
-                                           (pr-str (vec (sort properties)))))
-                                    rows))
-                     ". One tag has ONE property manifest: delete the duplicate "
-                     "declaration, or make both sources declare an IDENTICAL "
-                     ":properties set (identical declarations may co-exist). "
-                     "re-frame.ui will not pick a winner by compile order")
-                {:tag tag :declarations rows}))))
+      (when-not (build/shadow-build-pass?)
+        (when-let [{:keys [conflict]} (build/contribute-element-checked!
+                                       ns-sym tag decl)]
+          (let [build-id (build/current-build-id)
+                rows (vec (sort-by (juxt (comp str :build) (comp str :ns))
+                                   [{:build build-id
+                                     :ns (:owner conflict)
+                                     :properties (:properties (:declaration conflict) #{})}
+                                    {:build build-id :ns ns-sym :properties props}]))]
+            (fail :rf.ui.compile/custom-element-conflict
+                  (str "conflicting (ui/custom-element " tag " ...) declarations — "
+                       (str/join " vs "
+                                 (map (fn [{:keys [ns properties]}]
+                                        (str ns " declares :properties "
+                                             (pr-str (vec (sort properties)))))
+                                      rows))
+                       ". One tag has ONE property manifest: delete the duplicate "
+                       "declaration, or make both sources declare an IDENTICAL "
+                       ":properties set (identical declarations may co-exist). "
+                       "re-frame.ui will not pick a winner by compile order")
+                  {:tag tag :declarations rows})))))
     `(re-frame.ui.rules/register-custom-element!
       ~tag {:properties ~props} '~ns-sym)))
 

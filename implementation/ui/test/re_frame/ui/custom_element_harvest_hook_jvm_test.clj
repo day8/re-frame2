@@ -13,10 +13,11 @@
 
   The declaring source's own macro is never run here; the ONLY thing that can
   declare `:ce-two` is the prepare-time harvest reading its `:source`. So this
-  is a clean red-before lever of its own: revert the `build/seed-shadow-elements`
-  call in `build-hook/hook` and both orders classify `:model` as an attribute
-  (the emitted node carries no `:rf.ui/property-props`), while every other proof
-  stays green. The observable is the emitted node, not merely that nothing threw."
+  is a clean red-before lever of its own: revert the
+  `build/set-shadow-element-manifest` call in `build-hook/hook` and both orders
+  classify `:model` as an attribute (the emitted node carries no
+  `:rf.ui/property-props`), while every other proof stays green. The observable
+  is the emitted node, not merely that nothing threw."
   (:require [cljs.env :as cljs-env]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ui.compiler :as compiler]

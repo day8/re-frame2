@@ -523,22 +523,28 @@
     file (try (slurp file) (catch Throwable _ nil))
     :else nil))
 
-(defn- harvest-seed
-  "The `[source tag decl]` triples for every RECOMPILED re-frame.ui-consumer
-  source scheduled this pass — the declarations that must seed the elements
-  slice before any view analyzes."
-  [{:keys [build-sources sources] :as build-state}]
-  (let [parallel? (parallel-build? build-state)]
-    (into []
-          (mapcat
-           (fn [resource-id]
-             (let [{:keys [ns] :as rc} (get sources resource-id)]
-               (when (and ns
-                          (pass-recompiles-cljs? build-state parallel? resource-id)
-                          (ui-cache-blocked-source? rc))
-                 (some->> (resource-source rc)
-                          (harvest/source-seed ns))))))
-          build-sources)))
+(defn- harvest-all-seed
+  "The `[source tag decl]` triples for EVERY authoritative re-frame.ui-consumer
+  source in the build graph — not just the subset Shadow recompiles this pass.
+
+  Harvesting the WHOLE authoritative member set (rf2-u53yy.1 S1) makes the
+  custom-element manifest a pure function of the build's SOURCE: a warm
+  cache-hit's declarations are re-derived by reading its source, never by
+  re-running its macros. That is what lets the manifest be DECOUPLED from the
+  view-slice — a warm source's declarations no longer need staging into the pass
+  (which marked it touched and evicted its committed views), and the manifest no
+  longer depends on macro re-expansion (the direction S6 needs to drop the cache
+  blocker). `harvest/source-seed` is a bounded syntactic reader; a source we
+  cannot read is a graceful no-op."
+  [{:keys [build-sources sources]}]
+  (into []
+        (mapcat
+         (fn [resource-id]
+           (let [{:keys [ns] :as rc} (get sources resource-id)]
+             (when (and ns (ui-cache-blocked-source? rc))
+               (some->> (resource-source rc)
+                        (harvest/source-seed ns))))))
+        build-sources))
 
 ;; ---------------------------------------------------------------------------
 ;; Declaration-edit warm staleness — COARSE invalidation (rf2-vxgfnd.141, dim 3)
@@ -561,29 +567,16 @@
 ;; not either.
 ;; ---------------------------------------------------------------------------
 
-(defn- effective-manifest
-  "The `tag -> decl` manifest this pass WILL commit: the accepted rows of the
-  sources NOT recompiled this pass, overlaid with the harvested declarations of
-  the recompiled sources (whose accepted rows are being replaced). A pure
-  function of the accepted snapshot plus this pass's harvest."
-  [build-state recompiled-nss seed]
-  (let [warm (reduce-kv
-              (fn [m src regs]
-                (if (contains? recompiled-nss src)
-                  m
-                  (merge m (get regs build/elements))))
-              {}
-              (:registries (build/accepted-snapshot build-state)))]
-    (reduce (fn [m [_src tag decl]] (assoc m tag decl)) warm seed)))
-
 (defn- manifest-changed?
-  "Whether this pass's effective `tag -> decl` manifest differs from the accepted
-  one — the coarse invalidation trigger. Compares only the property manifest, so
-  a declaration's provenance (owning namespace) moving does not count as a change
-  unless the declared properties actually differ."
-  [build-state recompiled-nss seed]
-  (not= (build/accepted-aggregate build/elements build-state)
-        (effective-manifest build-state recompiled-nss seed)))
+  "Whether this pass's freshly-harvested all-members `tag -> {:properties …}`
+  manifest differs from the accepted one — the coarse invalidation trigger.
+  Because the manifest is now a wholesale all-members re-derivation over the
+  build's source (rf2-u53yy.1 S1), the comparison is simply the fresh manifest
+  against the accepted manifest; no accepted/recompiled overlay is needed. The
+  manifest carries `:properties` only, so a declaration's provenance (owning
+  namespace) moving does not count as a change unless the properties differ."
+  [build-state fresh-manifest]
+  (not= (build/accepted-element-manifest build-state) fresh-manifest))
 
 (defn- invalidate-ui-consumers
   "Reset retained output for every re-frame.ui literal-consumer source, so the
@@ -600,16 +593,15 @@
           (:build-sources build-state)))
 
 (defn- reconcile-declaration-edits
-  "If this pass changes the custom-element manifest on a WARM build (accepted
-  version > 0), coarse-invalidate the UI literal-consumer set so no view keeps a
-  stale baked lowering (rf2-vxgfnd.141, dimension 3). On the version-0 pass
-  `reset-cold-ui-consumer-output` already covers it, so this only acts warm."
-  [build-state]
+  "If this pass's freshly-harvested `fresh-manifest` changes the custom-element
+  manifest on a WARM build (accepted version > 0), coarse-invalidate the UI
+  literal-consumer set so no view keeps a stale baked lowering (rf2-vxgfnd.141,
+  dimension 3). On the version-0 pass `reset-cold-ui-consumer-output` already
+  covers it, so this only acts warm."
+  [build-state fresh-manifest]
   (let [version (long (or (:version (build/accepted-snapshot build-state)) 0))]
     (if (and (pos? version)
-             (manifest-changed? build-state
-                                (recompiled-member-nss build-state)
-                                (harvest-seed build-state)))
+             (manifest-changed? build-state fresh-manifest))
       (invalidate-ui-consumers build-state)
       build-state)))
 
@@ -625,12 +617,21 @@
     (do
       (validate-ui-cache-blocker! build-state)
       (let [build-state (reset-cold-ui-consumer-output build-state)
+            ;; Harvest EVERY authoritative member's literal custom-element
+            ;; declarations ONCE, up front, into the flat all-members manifest
+            ;; (rf2-u53yy.1 S1). Source is stable across the invalidation/stamp
+            ;; transforms below, so this is computed once and reused for both the
+            ;; coarse-invalidation comparison and the scratch manifest. `element-
+            ;; manifest` enforces the cross-source conflict law (throws on a
+            ;; contradiction — a build-time error).
+            fresh-manifest (build/element-manifest build-id
+                                                    (harvest-all-seed build-state))
             ;; Coarse dimension-3 invalidation: a WARM edit that changed the
             ;; custom-element manifest recompiles every UI literal consumer so
             ;; none keeps a stale baked lowering (rf2-vxgfnd.141). Must precede
             ;; the schedule/stamp so the widened consumer set is scheduled and
-            ;; re-seeded this same pass.
-            build-state (reconcile-declaration-edits build-state)
+            ;; re-baked this same pass.
+            build-state (reconcile-declaration-edits build-state fresh-manifest)
             pass-token  (str (java.util.UUID/randomUUID))
             witnessed   (atom #{})
             stamped     (-> build-state
@@ -654,11 +655,14 @@
                                         build-id
                                         (member-nss stamped)
                                         (recompiled-member-nss stamped))
-            ;; Pre-seed this pass's recompiled custom-element declarations into
-            ;; the open scratch BEFORE any view analyzes, so property lowering is
-            ;; order-independent (rf2-vxgfnd.141, dimension 2). Pure build-state
+            ;; Store the all-members custom-element manifest beside the open pass
+            ;; BEFORE any view analyzes, so property lowering is a pure function
+            ;; of the build's declarations rather than of evaluation order OR of
+            ;; which sources re-expand (rf2-vxgfnd.141 dim 2, rf2-u53yy.1 S1). The
+            ;; manifest sits outside the per-source `:touched` ledger, so it can
+            ;; never evict a warm source's committed views. Pure build-state
             ;; transform — `cljs.env/*compiler*` is not bound during the hook.
-            (build/seed-shadow-elements (harvest-seed stamped))
+            (build/set-shadow-element-manifest fresh-manifest)
             (assoc-in [:compiler-env build/scratch-key :pass-token]
                       pass-token)
             (assoc-in [:compiler-env build/scratch-key :compile-witness]
