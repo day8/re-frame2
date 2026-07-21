@@ -22,7 +22,8 @@
             [re-frame.story :as story]
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.state :as state]
-            #?@(:cljs [[re-frame.story.ui.sidebar :as sidebar]])))
+            #?@(:cljs [[re-frame.story.ui.sidebar :as sidebar]
+                       [re-frame.story.ui.sidebar-styles :refer [styles]]])))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -159,13 +160,21 @@
        (is (= :dot-pass    (sidebar/status->dot-style-key :pass)))
        (is (= :dot-fail    (sidebar/status->dot-style-key :fail)))
        (is (= :dot-running (sidebar/status->dot-style-key :running)))
-       (is (= :dot-pending (sidebar/status->dot-style-key :pending))))))
+       (is (= :dot-pending (sidebar/status->dot-style-key :pending)))
+       ;; `:error` (a run outcome the chrome widget CAN produce, e.g. a
+       ;; handler that throws) shares the danger tint with `:fail`.
+       (is (= :dot-fail    (sidebar/status->dot-style-key :error)))
+       ;; Chip-axis statuses that don't carry a bespoke dot style return
+       ;; nil — `status-dot` degrades them to the neutral pending ring
+       ;; rather than dereferencing nil as a fn (the sidebar-render crash).
+       (is (nil? (sidebar/status->dot-style-key :cannot-run))))))
 
 #?(:cljs
    (deftest status-dot-aria-labels
      (testing "every status produces a distinct accessible label"
        (is (= "tests passing"     (sidebar/dot-aria-label :pass)))
        (is (= "tests failing"     (sidebar/dot-aria-label :fail)))
+       (is (= "tests errored"     (sidebar/dot-aria-label :error)))
        (is (= "tests running"     (sidebar/dot-aria-label :running)))
        (is (= "tests not yet run" (sidebar/dot-aria-label :pending)))
        ;; Unrecognised → safe fallback.
@@ -256,7 +265,17 @@
          (is (= "pass"    (get (second dot-pass) :data-status)))
          (is (= "running" (get (second dot-running) :data-status)))
          ;; aria-label round-trips for screen-reader users.
-         (is (= "tests failing" (get (second dot-fail) :aria-label)))))))
+         (is (= "tests failing" (get (second dot-fail) :aria-label)))
+         ;; A status with no bespoke dot style (a chip-axis value that
+         ;; reaches the dot) must render — never crash — falling back to
+         ;; the neutral pending ring (regression guard for the sidebar
+         ;; null-deref that reddened the nightly for 13 nights).
+         (let [dot-unmapped (sidebar/status-dot :cannot-run)]
+           (is (= "cannot-run" (get (second dot-unmapped) :data-status)))
+           (is (= (:dot-pending styles)
+                  (select-keys (get (second dot-unmapped) :style)
+                               (keys (:dot-pending styles))))
+               "unmapped status degrades to the pending ring, not a crash"))))))
 
 ;; ---- rf2-k3y92 — status-dot is decorative img (not a live region) -------
 

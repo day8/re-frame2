@@ -97,6 +97,16 @@
                  day8/re-frame2-flows      {:local/root "../flows"}
                  day8/re-frame2-routing    {:local/root "../routing"}
                  day8/re-frame2-machines   {:local/root "../machines"}
+                 ;; TEST-ONLY (rf2-2mq2f): the Root Manifest v1
+                 ;; subset-property suite (`emit_ui_tree_cljs_test`)
+                 ;; `:require`s `re-frame.ui.rules`. cognitect
+                 ;; test-runner LOADS every test namespace at discovery
+                 ;; time before filtering by var metadata, so ui must be
+                 ;; on the classpath here too — matching the `:test`
+                 ;; alias above. Without it the nightly `:slow-test` run
+                 ;; dies at load with a FileNotFoundException for
+                 ;; `re_frame/ui/rules`.
+                 day8/re-frame2-ui         {:local/root "../ui"}
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner" "-i" ":slow" "-i" ":stress"]}
 

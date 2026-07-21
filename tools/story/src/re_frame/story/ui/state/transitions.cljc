@@ -153,18 +153,35 @@
   value into the collection kind the NEXT path segment actually needs
   (`vivify-for-key`) instead of letting plain `assoc-in` mint an
   int-keyed MAP for a missing vector/set, or throwing when it tries to
-  `assoc` a set by index (rf2-mzfh9c). When `coll` (or any intermediate
-  value walked along `path`) was a `set`, the walked result at that
-  level is coerced BACK into a set before returning — the vector
-  projection `vivify-for-key` uses is an addressing convenience, not a
-  change of the arg's declared collection kind."
-  [coll path value]
+  `assoc` a set by index (rf2-mzfh9c). When the level being written was a
+  `set`, the walked result is coerced BACK into a set before returning —
+  the vector projection `vivify-for-key` uses is an addressing
+  convenience, not a change of the arg's declared collection kind.
+
+  `override` is the current override collection at this level (`nil` when
+  none exists yet). `base` is the arg's resolved value navigated in
+  PARALLEL along `path`, consulted ONLY to seed a not-yet-overridden
+  `:vector`/`:set` level. That distinction is load-bearing (rf2-57ikh):
+  args resolution DEEP-MERGES maps but REPLACES vectors/sets wholesale
+  (002-Runtime.md). So a `:vector`/`:set` level MUST carry its sibling
+  entries — seed it from `base` or the edit truncates to a singleton
+  (rf2-mzfh9c) — while a `:map` level stays MINIMAL, vivified from `{}`
+  and carrying only the edited branch: deep-merge restores its unrelated
+  sibling KEYS from base at read time, so writing them into the override
+  would be redundant, would make a `:title` edit spuriously mark its
+  `:enabled?` sibling overridden, and would shadow later base changes."
+  [override base path value]
   (if (empty? path)
     value
     (let [[k & more] path
-          was-set?   (set? coll)
-          coll'      (vivify-for-key coll k)
-          updated    (assoc coll' k (assoc-in-kind-aware (get coll' k) more value))]
+          ;; Seed a not-yet-overridden vector/set from base (its siblings
+          ;; can't be restored by resolution). A map level — or any level
+          ;; that already has an override — starts from itself.
+          src        (if (and (int? k) (nil? override)) base override)
+          was-set?   (set? src)
+          coll'      (vivify-for-key src k)
+          child      (assoc-in-kind-aware (get coll' k) (get base k) more value)
+          updated    (assoc coll' k child)]
       (if was-set? (set updated) updated))))
 
 (defn set-cell-override
@@ -174,17 +191,19 @@
   nested Malli walker.
 
   A non-empty `sub-path` walks `assoc-in-kind-aware` against the
-  ARG-KEY's current override (or `base` when no override exists yet)
-  rather than raw `assoc-in` against `state` — the collection at
-  `[:cell-overrides variant-id arg-key]` may be absent (no override
-  established yet) or, for a `:set`-kind repeater, a real `set`; plain
-  `assoc-in` would either mint an int-keyed MAP for the absent case or
-  throw trying to `assoc` a set by index (rf2-mzfh9c). `base` — typically
-  the arg's current resolved value (the SAME 'saved' value the controls
-  panel already computes for its diff-from-saved affordance,
-  active-modes applied, cell-overrides excluded) — seeds the walk so an
-  edit to ONE entry of a not-yet-overridden `:vector`/`:set` preserves
-  every sibling entry instead of silently truncating to a singleton.
+  ARG-KEY's current override rather than raw `assoc-in` against `state`
+  — the collection at `[:cell-overrides variant-id arg-key]` may be
+  absent (no override established yet) or, for a `:set`-kind repeater, a
+  real `set`; plain `assoc-in` would either mint an int-keyed MAP for the
+  absent case or throw trying to `assoc` a set by index (rf2-mzfh9c).
+  `base` — typically the arg's current resolved value (the SAME 'saved'
+  value the controls panel already computes for its diff-from-saved
+  affordance, active-modes applied, cell-overrides excluded) — is
+  navigated in parallel and seeds ONLY not-yet-overridden `:vector`/`:set`
+  levels, so an edit to ONE entry preserves every sibling entry instead
+  of truncating to a singleton. `:map` levels stay minimal: deep-merge
+  resolution restores their unrelated sibling keys from base, so a nested
+  `:title` edit leaves its `:enabled?` sibling unwritten (rf2-57ikh).
 
   An empty path is a no-op (caller error; the state is returned
   unchanged). For top-level scalar overrides use `set-cell-override-
@@ -198,7 +217,8 @@
          (assoc-in state [:cell-overrides variant-id top-key] value)
          (assoc-in state [:cell-overrides variant-id top-key]
                    (assoc-in-kind-aware
-                     (get-in state [:cell-overrides variant-id top-key] base)
+                     (get-in state [:cell-overrides variant-id top-key])
+                     base
                      sub-path value))))
      state)))
 

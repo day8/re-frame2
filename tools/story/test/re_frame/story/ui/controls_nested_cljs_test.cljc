@@ -314,16 +314,22 @@
 (deftest set-cell-override-deeply-nested-vivifies-map-levels-with-set-base
   (testing "a deep path mixes map-vivification (keyword segments) and
             set-vivification (the integer segment) correctly at each
-            level, preserving sibling keys at every level"
+            level: the nested SET is seeded from base so its sibling
+            entries survive (replace-semantics), while the enclosing MAP
+            stays MINIMAL — its unrelated :other key is NOT written into
+            the override (rf2-57ikh), because deep-merge resolution
+            restores unrelated map keys from base at read time"
     (let [s  state/default-shell-state
           ;; :group has an unrelated sibling key + a nested :tags SET,
           ;; none of it overridden yet.
           s1 (state/set-cell-override s :story.a/x [:group :tags 0] "x"
                                       {:tags #{"a" "b"} :other 1})]
-      (is (= {:tags #{"x" "b"} :other 1}
+      (is (= {:tags #{"x" "b"}}
              (get-in s1 [:cell-overrides :story.a/x :group]))
-          "the nested set becomes {x b}; the group's :other sibling
-           survives untouched"))))
+          "the nested set becomes {x b} (its sibling entry \"b\" preserved
+           from base); the group's :other map sibling is NOT stored — a
+           deep-merge read against base restores it, so pinning it in the
+           override would be redundant and would shadow later base changes"))))
 
 ;; ---- rf2-mzfh9c: the edit -> resolve-args ROUND TRIP ---------------------
 ;;
@@ -393,6 +399,31 @@
         (is (= #{"y" "x"} (:tags overrides2))
             "sort-by str on #{x b} is [b x] — index 0 is \"b\"; replacing
              it with \"y\" leaves {y x}")))))
+
+(deftest set-cell-override-edit-nested-map-key-then-resolve-args-round-trip
+  (testing "rf2-57ikh: editing ONE key of a registered variant's nested
+            :map arg writes ONLY that key into the override (its map
+            siblings stay unwritten), yet `resolve-args`' deep-merge
+            restores the untouched siblings from base — the edit->read
+            round trip the isolated set-cell-override test can't prove"
+    (story/reg-variant :story.nest.roundtrip/map-arg
+      {:args   {:settings {:title "Nested title" :enabled? true}}
+       :events []})
+    (let [base      (get (args/resolve-args :story.nest.roundtrip/map-arg) :settings)
+          shell     (state/set-cell-override state/default-shell-state
+                                             :story.nest.roundtrip/map-arg
+                                             [:settings :title] "Edited" base)
+          overrides (get-in shell [:cell-overrides :story.nest.roundtrip/map-arg])
+          eff       (args/resolve-args :story.nest.roundtrip/map-arg
+                                       {:cell-overrides overrides})]
+      (is (= {:title "Nested title" :enabled? true} base)
+          "precondition: the registered base map")
+      (is (= {:title "Edited"} (:settings overrides))
+          "only the edited :title key is written; the :enabled? sibling
+           stays OUT of the override (rf2-57ikh)")
+      (is (= {:title "Edited" :enabled? true} (:settings eff))
+          "resolve-args' deep-merge restores the untouched :enabled?
+           sibling from base while reflecting the :title edit"))))
 
 (deftest set-cell-override-singleton-path-equivalent-to-scalar-wrapper
   (testing "a 1-element path produces the same result as the scalar wrapper"
