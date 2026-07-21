@@ -816,7 +816,7 @@ route data and URL strings in the route's domain.
 For every route id and every valid path params, query params, and fragment:
 
 ```text
-match-url(route-url(route-id, path-params, query-params, fragment))
+match-url(route-url({:to route-id :params path-params :query query-params :fragment fragment}))
 =
 {:route-id route-id
  :params   canonical-route-path-params
@@ -868,10 +868,10 @@ Example:
             [:page {:optional true} :int]]})
 
 (rf.routing/route-url
-  :route/article
-  {:slug "welcome"}
-  {:page 2 :tab "comments"}
-  "discussion")
+  {:to       :route/article
+   :params   {:slug "welcome"}
+   :query    {:page 2 :tab "comments"}
+   :fragment "discussion"})
 ;; => "/articles/welcome?page=2&tab=comments#discussion"
 
 (rf.routing/match-url "/articles/welcome?page=2&tab=comments#discussion")
@@ -886,10 +886,10 @@ The same route with query params in a different map insertion order prints the
 same URL:
 
 ```clojure
-(= (rf.routing/route-url :route/article {:slug "welcome"}
-                         {:tab "comments" :page 2})
-   (rf.routing/route-url :route/article {:slug "welcome"}
-                         {:page 2 :tab "comments"}))
+(= (rf.routing/route-url {:to :route/article :params {:slug "welcome"}
+                          :query {:tab "comments" :page 2}})
+   (rf.routing/route-url {:to :route/article :params {:slug "welcome"}
+                          :query {:page 2 :tab "comments"}}))
 ;; => true
 ```
 
@@ -1161,11 +1161,11 @@ Non-EDN values are rejected:
            [:archived? {:optional true} :boolean]]})
 
 (def url
-  (rf.routing/route-url :route/search
-                        {}
-                        {:archived? false
-                         :q "clojure data"
-                         :page 2}))
+  (rf.routing/route-url {:to     :route/search
+                         :params {}
+                         :query  {:archived? false
+                                  :q "clojure data"
+                                  :page 2}}))
 
 url
 ;; => "/search?archived%3F=false&page=2&q=clojure%20data"
