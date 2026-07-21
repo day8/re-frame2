@@ -13,17 +13,19 @@
 # the per-gate shellcheck below, aimed at the rf2-ldkuk class: a script CI
 # runs whose defects surface only on the runner.
 #
-# It also carries the tracked-`ai/` RATCHET (rf2-lsp1i) — see that job
-# below. The two gates live together because the ratchet is the UPSTREAM
-# lock for the exact leak this workflow catches downstream: the 2026-07-18
-# incident was a force-added ai/ dossier carrying a personal worktree path,
-# which failed the portability gate ON MAIN and reddened every open PR.
-# Both are whole-tree, sub-second git invariants with identical trigger
-# needs, so they share one workflow rather than spawning a second.
+# It also carries the tracked-`ai/` RATCHET (rf2-lsp1i) and the re-frame.ui
+# view-lifetime residue ratchet (rf2-5e8zv) — see those jobs below. The gates
+# live together because each is the UPSTREAM lock for a leak class that would
+# otherwise surface downstream: the 2026-07-18 incident was a force-added ai/
+# dossier carrying a personal worktree path, which failed the portability gate
+# ON MAIN and reddened every open PR; the view-lifetime ratchet likewise fires
+# on the PR that reintroduces the excised vocabulary rather than after it lands.
+# All are whole-tree, sub-second git invariants with identical trigger needs,
+# so they share one workflow rather than spawning more.
 #
-# UNLIKE lint.yml / docs.yml neither gate has a surface-detect job: ANY
-# tracked file can leak a personal path, and ANY commit can force-add under
-# ai/, so the only correct surface is "the whole tree". Both scripts are
+# UNLIKE lint.yml / docs.yml no gate here has a surface-detect job: ANY tracked
+# file can leak a personal path, force-add under ai/, or reintroduce the
+# excised term, so the only correct surface is "the whole tree". The scripts are
 # sub-second git invocations, so running them on every PR is cheap. They
 # run on PRs (the gate), on push to main (so a direct-to-main edit is still
 # caught), and via manual dispatch. Both trigger shapes matter to the
@@ -178,3 +180,37 @@ jobs:
         env:
           AI_RATCHET_BASE_REF: ${{ steps.base.outputs.ref }}
         run: sh scripts/check-ai-tracking-ratchet.sh
+
+  # The re-frame.ui view-lifetime residue ratchet (rf2-5e8zv, the excision
+  # epic finale). Like the tracked-ai/ ratchet above this is a whole-tree,
+  # every-PR git invariant with a ZERO baseline — the excision epic removed the
+  # view-lifetime concept in full (the observation surface returns a HANDLE,
+  # Resources pin liveness with an OWNER), and ANY tracked file can reintroduce
+  # its vocabulary, so the only correct surface is the whole tree. The guard
+  # scans `git ls-files` content AND paths for every lexical form (natural
+  # language singular/plural/past/gerund, snake/camel/kebab identifiers, and
+  # file names), excludes ONLY `.beads/**`, and carries no baseline, ceiling, or
+  # allowlist for product files. It constructs its own forbidden token so the
+  # guard is never its own violation, and ordinary words (release, please) plus
+  # the excision's survivors (handle, owner, route, machine, ssr, app-event) are
+  # never flagged.
+  view-lifetime-residue-ratchet:
+    name: No re-frame.ui view-lifetime residue
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+
+      # Prove the matcher discriminates (prose / snake / camel / filename
+      # positives; release / please / survivor negatives, plus a meta-check that
+      # the guard's own source carries no live occurrence) before trusting its
+      # verdict on the tree.
+      - name: Self-test the residue matcher
+        run: python scripts/check_view_lifetime_residue.py --self-test --verbose
+
+      - name: Scan the tracked tree for view-lifetime residue
+        run: python scripts/check_view_lifetime_residue.py --verbose

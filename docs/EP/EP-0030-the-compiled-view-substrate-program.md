@@ -224,8 +224,9 @@ The synthesis dossier this EP family distills is retired in two steps. The
 first is in force: its index is a tombstone pointer map, the blessed API tables
 live in their durable home (`spec/API.md` §`re-frame.ui`, carrying the
 delta protocol with them), and the binding per-finding review dispositions are
-retained under the tree's `reviews/` directory as durable evidence. The tree
-itself is removed at S7, once every cited contract has its spec home and no live
+archived in Git history at `41375ba940` under the tree's `reviews/` directory
+(the tree is untracked as of S4; restore via `git show 41375ba940:<path>`). The tree
+itself is disk-removed at S7, once every cited contract has its spec home and no live
 brief dangles. Until then: `drafts/*` survive until their owning stage consumes
 them (spec merges under the atomic-landing rule, or the W1/W3/W7a/W9/W11
 workstreams for the skill/docs/CI-facing drafts); `guide/` is overtaken by the
@@ -445,5 +446,6 @@ posture recorded in their spec homes.
   (SSR roots and hydration), and [`spec/API.md`](../../spec/API.md) (the blessed
   public-surface freeze); conformance profiles under `spec/conformance/`.
 - **Design provenance:** the synthesis dossier at
-  `ai/findings/new-substrate-synthesis/` (tombstoned; see §The design-record
-  retirement), with `reviews/` and `spikes/` retained as durable evidence.
+  `ai/findings/new-substrate-synthesis/` (tombstoned + untracked at S4; see §The
+  design-record retirement), with `reviews/` and `spikes/` archived in Git
+  history at `41375ba940` (restore via `git show 41375ba940:<path>`).

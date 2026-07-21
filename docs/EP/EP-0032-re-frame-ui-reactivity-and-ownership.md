@@ -336,7 +336,8 @@ None. No open implementation gaps are tracked on this EP's surface.
   `resolve-target` is the view tier's single resolution point for the explicit
   frame-context rule; preflight ENSURE rides the EP-0024 lifecycle.
 - Evidence: the ownership-spike report at
-  `ai/findings/new-substrate-synthesis/spikes/s3-ownership-report.md` (a
-  durable synthesis-tree survivor) — 55/55 ownership/concurrency fixtures on
+  `ai/findings/new-substrate-synthesis/spikes/s3-ownership-report.md` (untracked
+  at S4; archived in Git history at `41375ba940`, restore via
+  `git show 41375ba940:<path>`) — 55/55 ownership/concurrency fixtures on
   React 19.2, 10k abandoned renders retaining zero, the push-falsification
   PASS, and the sync-door jsdom matrix.
