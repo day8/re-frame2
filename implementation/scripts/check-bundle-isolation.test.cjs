@@ -111,8 +111,9 @@ let coverageMutations = 0;
 // A real deps.edn declaring a genuine :aliases/:clein/build alias.
 const PUBLISHABLE_DEPS =
   '{:paths ["src"]\n :aliases {:clein/build {:lib day8/re-frame2-fixture}}}\n';
-// A deps.edn that only MENTIONS :clein/build inside a comment — the exact shape
-// of implementation/ui/deps.edn today. Must NOT be discovered as publishable.
+// A deps.edn that only MENTIONS :clein/build inside a comment (a pre-publication
+// shape — this was implementation/ui/deps.edn's shape before rf2-vxgfnd.99.2 made
+// ui publishable). Must NOT be discovered as publishable.
 const COMMENT_ONLY_DEPS =
   ';; NO :clein deploy aliases yet — deliberate; mentions :clein/build in prose.\n' +
   '{:paths ["src"] :deps {day8/re-frame2 {:local/root "../core"}}}\n';
@@ -142,19 +143,19 @@ function writeArtefact(root, relPath, contents) {
 }
 
 // Minimal implementation/-shaped fixture: an excluded core + ssr-ring, a
-// generic-gated per-feature artefact (schemas), a comment-only pre-publication
-// ui, and a dedicated-gated adapter (reagent) — all correctly accounted for —
-// plus whatever `extra` mutation the caller injects. Gate VALIDATION resolves
-// against the REAL scripts/ + package.json (the four dedicated gates are a
-// property of this repo, not the temp fixture), so the temp fixture drives only
-// DISCOVERY while coverage validation stays authentic.
+// generic-gated per-feature artefact (schemas), a comment-only (pre-publication)
+// artefact that must not be discovered, and a dedicated-gated adapter (reagent) —
+// all correctly accounted for — plus whatever `extra` mutation the caller
+// injects. Gate VALIDATION resolves against the REAL scripts/ + package.json (the
+// four dedicated gates are a property of this repo, not the temp fixture), so the
+// temp fixture drives only DISCOVERY while coverage validation stays authentic.
 function withFixture(extra, body) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-iso-cov-'));
   try {
     writeArtefact(root, 'core', PUBLISHABLE_DEPS);            // excluded (lockstep root)
     writeArtefact(root, 'ssr-ring', PUBLISHABLE_DEPS);        // excluded (JVM-only)
     writeArtefact(root, 'schemas', PUBLISHABLE_DEPS);         // generic (in ARTEFACTS)
-    writeArtefact(root, 'ui', COMMENT_ONLY_DEPS);             // pre-publication: not discovered
+    writeArtefact(root, 'commentonly', COMMENT_ONLY_DEPS);    // pre-publication: not discovered
     writeArtefact(root, 'adapters/reagent', PUBLISHABLE_DEPS); // dedicated gate
     extra(root);
     body(root);
@@ -163,30 +164,33 @@ function withFixture(extra, body) {
   }
 }
 
-// Baseline: core/ssr-ring excluded, comment-only ui NOT discovered, the nested
-// adapter IS descended into, and everything discovered maps to a gate.
+// Baseline: core/ssr-ring excluded, the comment-only artefact NOT discovered, the
+// nested adapter IS descended into, and everything discovered maps to a gate.
 withFixture(() => {}, (root) => {
   const required = discoverBrowserOptionalRuntimes(root);
   assert.deepStrictEqual(required.map((r) => r.relPath).sort(), ['adapters/reagent', 'schemas'],
-    'baseline fixture: excluded core/ssr-ring, comment-only ui skipped, adapter descended into');
+    'baseline fixture: excluded core/ssr-ring, comment-only artefact skipped, adapter descended into');
   const cov = assertCanonicalInventoryCovered(required);
   assert(cov.ok, 'baseline fixture must be fully covered');
   assert.strictEqual(cov.genericCount, 1, 'schemas covered by generic ARTEFACTS gate (by relPath)');
   assert.strictEqual(cov.dedicatedCount, 1, 'adapters/reagent covered by its validated dedicated gate');
 });
 
-// Mutation 1 — hypothetical PUBLISHABLE UI (real :clein/build added to
-// implementation/ui/deps.edn) while no UI isolation entry/gate exists: coverage
-// must fail and NAME ui. Proves ui is no longer permanently defined away.
+// Mutation 1 — a hypothetical NEW flat publishable non-adapter runtime while no
+// generic ARTEFACTS entry or dedicated gate exists: coverage must fail and NAME
+// it. Proves a future-publishable flat runtime is not permanently defined away.
+// (Real `ui` was this case until rf2-vxgfnd.99.2 made it publishable AND enrolled
+// its generic gate; the real-tree floor below now asserts ui IS covered, so the
+// mechanism is exercised here with a fresh fictional path instead.)
 coverageMutations += 1;
-withFixture((root) => writeArtefact(root, 'ui', PUBLISHABLE_DEPS), (root) => {
+withFixture((root) => writeArtefact(root, 'newpub', PUBLISHABLE_DEPS), (root) => {
   const required = discoverBrowserOptionalRuntimes(root);
-  assert(required.some((rt) => rt.relPath === 'ui'),
-    'publishable ui must now be DISCOVERED (not permanently excluded)');
+  assert(required.some((rt) => rt.relPath === 'newpub'),
+    'a new flat publishable runtime must be DISCOVERED (not permanently excluded)');
   const cov = assertCanonicalInventoryCovered(required);
-  assert(!cov.ok, 'publishable ui with no isolation gate must FAIL coverage');
-  assert(cov.missing.some((rt) => rt.relPath === 'ui'),
-    'coverage failure must NAME ui');
+  assert(!cov.ok, 'a flat publishable runtime with no isolation gate must FAIL coverage');
+  assert(cov.missing.some((rt) => rt.relPath === 'newpub'),
+    'coverage failure must NAME the ungated runtime');
 });
 
 // Mutation 2 — hypothetical NEW PUBLISHABLE ADAPTER under
@@ -491,8 +495,8 @@ withFixture(
 
 // Real-tree floor: the current implementation/ tree must be fully covered, every
 // publishable adapter discovered under adapters/ and resolved by its real,
-// validated dedicated gate, and pre-publication ui NOT required (it has no real
-// :clein/build today, so it stays green naturally).
+// validated dedicated gate, and the now-publishable ui substrate (rf2-vxgfnd.99.2)
+// discovered AND covered by its generic ARTEFACTS isolation entry.
 const realCoverage = assertCanonicalInventoryCovered();
 assert(realCoverage.ok,
   `real implementation/ tree must be fully covered; missing: ${realCoverage.missing.map((rt) => `${rt.relPath} (${(rt.reasons || []).join('; ')})`).join(', ')}`);
@@ -501,8 +505,14 @@ for (const relPath of Object.keys(DEDICATED_ISOLATION_GATES)) {
   assert(rt && rt.via === 'dedicated' && rt.relPath.startsWith('adapters/'),
     `${relPath}: must be discovered under adapters/ and covered by its validated dedicated gate`);
 }
-assert(!realCoverage.required.some((rt) => rt.relPath === 'ui'),
-  'pre-publication ui must not be in the required set (no real :clein/build yet)');
+// rf2-vxgfnd.99.2 — ui declares a real :clein/build now, so it is a REQUIRED
+// browser-optional runtime and must be covered by its generic ARTEFACTS entry
+// (sentinel rf.error/ui-tree-malformed, positive control onModule 'ui').
+assert(realCoverage.required.some((rt) => rt.relPath === 'ui'),
+  'publishable ui must be in the required browser-optional set (it declares :clein/build)');
+const uiCov = realCoverage.covered.find((c) => c.relPath === 'ui');
+assert(uiCov && uiCov.via === 'generic',
+  'ui must be covered by its generic ARTEFACTS isolation entry');
 
 // Every generic-coverage path must correspond to a real publishable per-feature
 // runtime on disk (so a stale relPath can't paper over a missing runtime).
