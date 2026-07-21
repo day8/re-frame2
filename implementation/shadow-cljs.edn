@@ -1027,6 +1027,11 @@
                         :depends-on #{:trace-tooling}}
     :ssr               {:init-fn re-frame.bundle-isolation-positive-control.ssr/run
                         :depends-on #{:trace-tooling}}
+    ;; rf2-vxgfnd.99.2 — day8/re-frame2-ui is now a published, browser-optional
+    ;; substrate, so its client sentinel (rf.error/ui-tree-malformed) needs a
+    ;; positive control proving it is emitted by re-frame.ui.runtime.
+    :ui                {:init-fn re-frame.bundle-isolation-positive-control.ui/run
+                        :depends-on #{:trace-tooling}}
     :subs-tooling      {:init-fn re-frame.bundle-isolation-positive-control.subs-tooling/run
                         :depends-on #{:trace-tooling}}
     :flows-tooling     {:init-fn re-frame.bundle-isolation-positive-control.flows-tooling/run
