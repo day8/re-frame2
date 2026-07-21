@@ -35,7 +35,7 @@
  :fixture/dispatches
  [;; Step 1: ensure → :loading, generation 1.
   [:rf.resource/ensure {:resource :res/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:app :s 1] :cause :first-load}]
+                        :params {:slug "w"} :owner [:article/opened "w"] :cause :first-load}]
 
   ;; Step 2: refetch → forces a new generation (2), supersedes the gen-1 work.
   [:rf.resource/refetch {:resource :res/article :scope :rf.scope/global

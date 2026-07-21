@@ -14,7 +14,7 @@
 {:fixture/id           :resources/dedupe-join
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:resources/dedupe}
- :fixture/doc          "ensure :res/article (slug=w) with owner [:route :r 1] → :loading gen 1; a second ensure with owner [:app :x 2] while in flight JOINS — no new generation, both owners attached, :rf.resource/deduped emitted. The entry stays :loading on generation 1."
+ :fixture/doc          "ensure :res/article (slug=w) with owner [:route :r 1] → :loading gen 1; a second ensure with owner [:article/opened \"w\"] while in flight JOINS — no new generation, both owners attached, :rf.resource/deduped emitted. The entry stays :loading on generation 1."
 
  :fixture/registry
  {:resource
@@ -35,10 +35,10 @@
                         :params {:slug "w"} :owner [:route :r 1] :cause :route-enter}]
 
   ;; Step 2: a SECOND ensure while the first is in flight. JOINS the live work
-  ;; record — no new generation, attaches owner [:app :x 2] to the same entry.
+  ;; record — no new generation, attaches owner [:article/opened "w"] to the same entry.
   ;; No second fetch fires. :rf.resource/deduped emits.
   [:rf.resource/ensure {:resource :res/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:app :x 2] :cause :view-mount}]]
+                        :params {:slug "w"} :owner [:article/opened "w"] :cause :view-mount}]]
 
  :fixture/expect
  {;; The entry is still in flight on its single generation — the join added a
@@ -51,4 +51,4 @@
   :trace-emissions
   [;; The second ensure joined the in-flight work (no new generation minted).
    {:operation :rf.resource/deduped
-    :tags      {:generation 1 :cause :view-mount :owner [:app :x 2]}}]}}
+    :tags      {:generation 1 :cause :view-mount :owner [:article/opened "w"]}}]}}

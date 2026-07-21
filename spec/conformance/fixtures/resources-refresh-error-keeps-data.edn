@@ -32,7 +32,7 @@
  :fixture/dispatches
  [;; Step 1: ensure → :loading, generation 1.
   [:rf.resource/ensure {:resource :res/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:app :rf 1] :cause :first-load}]
+                        :params {:slug "w"} :owner [:article/opened "w"] :cause :first-load}]
 
   ;; Step 2: the reply settles :loaded with the data (generation 1).
   [:rf.resource.internal/succeeded
