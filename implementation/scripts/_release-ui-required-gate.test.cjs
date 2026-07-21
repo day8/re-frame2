@@ -73,8 +73,14 @@ const UI_DEPS_PREPUBLICATION = `{:paths ["src"]
 function runShippedScriptAt(repoRoot) {
   // The script resolves its own REPO_ROOT from BASH_SOURCE (dirname/../..), so
   // running the COPY located under <repoRoot>/.github/scripts targets <repoRoot>.
-  return spawnSync('bash', ['-lc', `./${SCRIPT_REL}`], {
+  // NB: a NON-login shell (`-c`, not `-lc`) that inherits process.env — the
+  // shipped script shells out to `node` (the publishable-runtimes authority),
+  // and a login shell can re-source profiles that drop the CI toolcache `node`
+  // from PATH. `-c` inherits the parent env verbatim, so `node` resolves the
+  // same way it does when the verify-version-lockstep CI job runs the script.
+  return spawnSync('bash', ['-c', `./${SCRIPT_REL}`], {
     cwd: repoRoot,
+    env: process.env,
     encoding: 'utf8',
   });
 }
