@@ -400,6 +400,28 @@ baseline is a recorded comparison, not a standing gate.
   rf2-3339ri records the plan as overtaken, not relocated). The W1 skill
   **applies the M-tier mechanical rewrites and reasons through the D-tier
   judgment cases with the author — it emits no review flags.**
+- **ERRATUM — the whole-build `:build-digest` removed as dead machinery
+  (2026-07-21, rf2-u53yy.1 C0).** The pre-C0 spec described a whole-build
+  `:build-digest` — a hash over every view (and custom-element declaration) in
+  the build, carried into the dev runtime by a `goog.DEBUG`-elided carrier and
+  projected, at read, onto Root Descriptor v1 as its `:build-digest` field.
+  **Prior clause:** spec/004-Views.md stated that a hook-signature change moves
+  `build-digest` "so a stale SSR page's manifest fails digest validation and that
+  root takes the loud client-fresh path"; spec/004C §2.1 split Root Descriptor v1
+  into a "static core" and a "complete descriptor" assembled by a "read-time
+  projection" of the digest on both hosts. **Current disposition:** the digest
+  had **no load-bearing consumer** (Codex Finding 2, independently re-verified):
+  SSR manifest validation never inspected `:build-digest`, `hydrate-root` read
+  only `:root-id`/`:identifier-prefix`, no `=`/compare/stale/fresh/valid gate
+  existed anywhere, and no tool gated on it — the "stale SSR manifest fails digest
+  validation" clause was a promise with **no implementation**. C0 therefore
+  **deletes** the digest carrier, its build-hook projection, the descriptor
+  `:build-digest` stamping, and the digest-specific gate scripts and real-Shadow
+  probe fixtures (a net deletion, no replacement). Root Descriptor v1 is now
+  **per-root static facts only** — no whole-build aggregate, no read-time
+  projection — and spec/004-Views.md, spec/004C §2/§2.1, and spec/004B are
+  reconciled to that truth. The install/cache contract and its tax lines are
+  unchanged here; they are the subject of the later programme slices (S1–S6).
 
 ## Open Issues
 

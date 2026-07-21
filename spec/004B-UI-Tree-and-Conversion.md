@@ -249,8 +249,8 @@ and to the render fingerprint. Pinned, in order:
 The semantic node is `{:ns … :tag … :attrs {final-name → serialised-value} :children
 […]}` with attribute maps order-insensitive and child vectors order-significant.
 **Fingerprint input = the canonical-EDN serialisation of `N(tree)`.** The hash
-*algorithm*, digest encoding, and the root manifest's `render-fingerprint`/
-`build-digest` fields are owned by Spec 011/008 (FNV-1a is today's checked-in choice) —
+*algorithm*, digest encoding, and the root manifest's `render-fingerprint` field are
+owned by Spec 011/008 (FNV-1a is today's checked-in choice) —
 this contract owns only the input. CLJS-side parity uses the same space: rendered HTML
 parsed into semantic nodes (the spike comparator is the reference).
 
