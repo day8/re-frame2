@@ -25,6 +25,7 @@
   these nodes."
   (:require [clojure.string :as str]
             [re-frame.error :as error]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.rules :as rules]))
@@ -555,11 +556,24 @@
      static serialisation, exactly as `goog.DEBUG=false` / `-Dre-frame.debug=false`
      erases it in a production build. Only this render-static seam strips it; the
      hydrating `render-to-string` path (a separate `re-frame.ssr.emit` hiccup
-     serialiser) is untouched."
+     serialiser) is untouched.
+
+     PROVENANCE (rf2-zgezz #3): removal is scoped by the out-of-band provenance
+     metadata `:rf.ui/host-root-annotation` the compiler attaches to a host-root
+     element node (`emit-jvm/with-host-root-provenance`) — a `{key -> canonical
+     value}` map. A marker key is dropped ONLY where the node's current attr value
+     still equals the compiler's canonical value; a PROGRAMMER-AUTHORED own value
+     of the same spelling (rf2-x1nbv collision law) differs and is PRESERVED, and a
+     node with no provenance metadata (any nested authored element) is left
+     untouched. The blunt recursive `dissoc` this replaced deleted authored nested
+     attributes of the same spelling."
      [node]
      (if (map? node)
-       (let [node (if-let [a (:attrs node)]
-                    (let [a (dissoc a :data-rf2-source-coord :data-rf-view)]
+       (let [prov (:rf.ui/host-root-annotation (meta node))
+             node (if (and prov (:attrs node))
+                    (let [a (reduce-kv (fn [a k canon]
+                                         (if (= (get a k ::absent) canon) (dissoc a k) a))
+                                       (:attrs node) prov)]
                       (if (seq a) (assoc node :attrs a) (dissoc node :attrs)))
                     node)]
          (cond-> node
@@ -582,10 +596,16 @@
 
      The DEV host-root view-evidence annotation (rf2-hac8p) is stripped from the
      tree first (see `strip-host-root-annotation`): render-static is the pure,
-     non-hydrating static-HTML path and carries no dev / adoption markers."
+     non-hydrating static-HTML path and carries no dev / adoption markers.
+
+     The strip is BYPASSED ENTIRELY when `interop/debug-enabled?` is false
+     (rf2-zgezz #4): the compiler emits no annotation and no provenance metadata in
+     that build, so there is nothing to remove — the whole recursive clone/walk is
+     skipped and the tree reaches the serialiser untouched (identical root/children
+     identities)."
      [tree]
      (if-let [emit (resolve-ssr-emitter)]
-       (emit (strip-host-root-annotation tree))
+       (emit (cond-> tree interop/debug-enabled? strip-host-root-annotation))
        (error/throw-error!
         :rf.error/ssr-artefact-missing
         'ui/render-static
