@@ -16,7 +16,6 @@ This table is also the command catalogue: each kind names the command that runs 
 | **JVM unit** — per-artefact `clojure -M:test` | fast | CLJC logic + pure helpers per artefact; the adapter probes double as classpath/deps wiring checks. |
 | **Security tier** — `test:security` (also rides `test:cljs`) | fast | Adversarial-property nets on redaction / escaping / egress boundaries: hostile-input corpus + generated shapes, each verified to go RED if the protection is reverted. |
 | **Lockstep + drift** — fast-pr spine | fast | Version drift between coordinated artefacts; skill / MCP-server schema drift. |
-| **Tracked synthesis guide** — `python scripts/check_doc_slugs.py --synthesis-only --verbose` + focused `re-frame.ui.guide-truth-jvm-test` | fast | Enumerates and validates links/anchors in the pre-publication `re-frame.ui` guide + active drafts, then pins the ruled guide claims (including Guide 09) without publishing them through MkDocs before S6. |
 | **JS harness self-tests** — `test:script-policy`, `test:script-helpers` | fast | The Node-side plumbing that runs everything else. |
 | **Skills structural** — `skills-structural` job | fast | Skill manifests + shared content stay valid against the schema. |
 | **Browser unit** — `test:browser` | medium | DOM-dependent tests only (`*_dom_cljs_test.cljs`): real React mounts, context tier, browser-only runtime features. |
@@ -119,7 +118,6 @@ The classifier is the **source of truth for "which jobs run when"** on a PR: the
 | `tenant_switcher_smoke` | `testbeds/tenant_switcher/**` or `implementation/scripts/serve-and-run-tenant-switcher-testbed.cjs` change | the `tenant-switcher-testbed-smoke` browser job |
 | `skills_structural` | `skills/re-frame2-pair/*`, `skills/re-frame2-setup/*`, or `skills/shared/*` change | `skills-structural` |
 | `playground` | the playground tool, the committed esbuild bootstrap bundle, the SCI input-digest script, or a change to any tree baked into the SCI bundle — `implementation/core/*`, `implementation/adapters/reagent-slim/*`, `implementation/machines/*`, `implementation/flows/*` (rf2-tzy13) | `tools-playground` |
-| `synthesis_docs` | tracked `ai/findings/new-substrate-synthesis/{guide,drafts,prep}/**`, the synthesis link/plan checkers, the focused guide-truth fixture, **or any of the eight cross-tree files that fixture content-pins** (rf2-341p2): `spec/004-Views.md`, `spec/API.md`, `spec/Ownership.md`, `docs/EP/EP-0030-the-compiled-view-substrate-program.md`, `docs/EP/EP-0034-re-frame-ui-production-ssr-testing.md`, `ai/findings/new-substrate-synthesis/06-ssr-islands.md`, `…/08-delivery.md`, `…/skill/SKILL.md`; unrelated `ai/` scratch is excluded | `synthesis-docs` — enumerated links/anchors + focused Guide 09 truth fixture |
 
 **Blast radius**: a change to either workflow file, the classifier script, or `TESTING.md` sets every output `true` — anything that re-tiers the matrix must re-run the matrix. `implementation/core/*` fans out to almost everything (core regressions can break every downstream invariant), deliberately excepting the two Playwright gates noted above.
 

@@ -136,11 +136,6 @@ TEETH = (
         "docs/api/re-frame.ui.md",
         "`:live → :tearing-down → :released`",
     ),
-    Tooth(
-        "guide-required-weakref",
-        "ai/findings/new-substrate-synthesis/guide/01-getting-started.md",
-        "standard JavaScript `WeakRef` constructor",
-    ),
     # rf2-sddbc / rf2-fjti6 — consumed-container fail-close teeth. A throwing host
     # `.unmount` may have QUEUED late DOM work before it threw, so an adapter reclaim
     # clearing the node is a SNAPSHOT, never proof the surface settled: the EXACT node

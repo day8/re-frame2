@@ -74,104 +74,17 @@ DEFAULT_ROOTS = (
     "migration",
 )
 
-# Tracked, authoritative pre-publication re-frame.ui material. This is an
-# explicit opt-in scope: it must not widen the default docs/MkDocs corpus or
-# sweep unrelated ai/ scratch. S6 owns publication; this gate owns only links
-# and anchors while the source remains here.
-#
-# The scope is ALSO the retired-operation guard's inventory (see
-# _scan_retired_synthesis_ops): every active runnable/dispatch authority a
-# worker executes directly must be covered, so a stale copy-from-mayor /
-# local-only directive cannot hide in a live authority. rf2-d9v3n expanded the
-# inventory from guide/ + drafts/ (which only covered publication-track pages)
-# to the operational authorities as well:
-#
-#   * prep/ — the per-workstream prep tables (w1/w2/w3/w9) workers run against.
-#   * the two top-level operational authorities named in SYNTHESIS_FILES.
-#
-# The inventory stays narrow and reviewable on purpose: the sibling 01-10
-# narrative chapters, README, and the reviews/ + spikes/ subtrees are
-# historical review/spike prose, NOT active operations, and stay out.
-SYNTHESIS_ROOTS = (
-    "ai/findings/new-substrate-synthesis/guide",
-    "ai/findings/new-substrate-synthesis/drafts",
-    "ai/findings/new-substrate-synthesis/prep",
-)
-
-# Individual top-level operational authorities. These two files live directly in
-# ai/findings/new-substrate-synthesis/ alongside the 01-10 narrative chapters and
-# README, so the whole directory is NOT a root — only these named files are
-# active authorities a worker dispatches/executes and must be guarded. Naming
-# them explicitly keeps the inventory an auditable list, not a directory sweep.
-SYNTHESIS_FILES = (
-    "ai/findings/new-substrate-synthesis/11-adoption-workstreams.md",
-    "ai/findings/new-substrate-synthesis/12-implementation-plan.md",
-)
-
-# Diff-ready spec drafts author their links for the file's eventual `spec/`
-# location, not for the temporary drafts/ directory. Validate that intended
-# link context explicitly. The target path also supplies existing headings for
-# same-file anchors in amendment fragments; a not-yet-created target (004A)
-# still contributes its `spec/` parent as the relative-link base.
-DRAFT_LANDING_TARGETS = {
-    "ai/findings/new-substrate-synthesis/drafts/spec-004-rewrite-draft.md":
-        "spec/004-Views.md",
-    "ai/findings/new-substrate-synthesis/drafts/spec-004A-reagent-compat-appendix.md":
-        "spec/004A-Reagent-Compat.md",
-    "ai/findings/new-substrate-synthesis/drafts/spec-006-observation-port-amendment.md":
-        "spec/006-ReactiveSubstrate.md",
-    "ai/findings/new-substrate-synthesis/drafts/spec-009-ui-catalogue-rows.md":
-        "spec/009-Instrumentation.md",
-    "ai/findings/new-substrate-synthesis/drafts/spec-011-ui-tree-amendment.md":
-        "spec/011-SSR.md",
-}
-
 # Tools live one tier deeper: tools/<tool-name>/spec/**/*.md.
 TOOLS_ROOT = "tools"
 
-# rf2-vxgfnd.136 — retired copy-from-mayor / local-only language guard.
-#
-# The synthesis subtree is force-tracked (see .gitignore's temporary exception):
-# a worker reads it directly in their own worktree at the exact revision being
-# implemented or reviewed. Operational instructions that still tell a worker the
-# tree is gitignored/absent and must be copied from the mayor checkout are stale
-# and dangerous — following them replaces the exact-head input with a divergent
-# newer copy, or stalls a clean-clone worker on an impossible prerequisite.
-#
-# This guard runs only under --synthesis-only (it must never widen the default
-# docs corpus) and rejects the retired IMPERATIVE directives. The patterns are
-# deliberately narrow: they match the copy-from-mayor commands, not the word
-# "local-only" on its own — the correct prose "the surrounding ai/ tree stays
-# local-only, so the pages are already in-repo" and "a local-only script"
-# (a CI-wiring status) are legitimate and must pass. Clearly historical prose is
-# also allowed: a match inside a blockquote whose opener is marked HISTORICAL /
-# RETIRED / non-operative is exempt (a dated audit may quote the old model).
-RETIRED_SYNTHESIS_OP_PATTERNS = (
-    ("MAYOR_CHECKOUT_ONLY", re.compile(r"mayor checkout only", re.IGNORECASE)),
-    ("DISPATCHER_COPIES", re.compile(r"dispatcher copies", re.IGNORECASE)),
-    ("ABSENT_FROM_WORKTREES",
-     re.compile(r"absent from worker worktrees", re.IGNORECASE)),
-    ("COPY_FROM_MAYOR",
-     re.compile(r"cop(?:y|ies)\b[^.\n]*\b(?:into the worktree|from the mayor)",
-                re.IGNORECASE)),
-    ("LOCAL_ONLY_NEVER_ADD",
-     re.compile(r"local-only working artefact\s*\(never\s*`?git add`?", re.IGNORECASE)),
-)
-
-# A blockquote line whose opener carries one of these tokens marks a historical,
-# non-operative block; retired-language matches inside it are quoted history.
-_HISTORICAL_MARKER_RE = re.compile(
-    r"\bHISTORICAL\b|\bRETIRED\b|non-operative", re.IGNORECASE
-)
-
 # Paths whose markdown should never be scanned.
 EXCLUDE_DIR_NAMES = frozenset({
-    "findings",      # default excludes exploratory work; synthesis opt-in is exact
+    "findings",      # excludes exploratory work
     "node_modules",
     "site",          # mkdocs build output
     ".git",
     ".beads",
-    "ai",            # default excludes AI work; tracked synthesis opt-in is exact
+    "ai",            # excludes AI working artefacts
     "__pycache__",
 })
 
@@ -270,8 +183,7 @@ _INLINE_CODE_RE = re.compile(r"(`+)(?:.+?)\1(?!`)")
 # rf2-57k74 generalized the mechanism from Machines-only to the bounded set of
 # covered handbooks (Machines, Async, API, Routing); rf2-zq5i6 made that set
 # DERIVED from this manifest's page keys (see COMPAT_HANDBOOKS) rather than a
-# separate hand-maintained tuple. Both checks run only in the default (docs-corpus)
-# scope, never under --synthesis-only.
+# separate hand-maintained tuple.
 HANDBOOK_COMPAT_ANCHORS = {
     "docs/machines/concepts.md": (
         "state-machines",
@@ -418,21 +330,11 @@ COMPAT_ANCHOR_PLACEMENT = {
 }
 
 
-def _is_excluded(
-    path: Path,
-    repo_root: Path,
-    *,
-    allow_ai_findings: bool = False,
-) -> bool:
+def _is_excluded(path: Path, repo_root: Path) -> bool:
     """Return True if path lies under a directory we should skip."""
     rel = path.relative_to(repo_root)
     parts = set(rel.parts)
-    excluded_names = EXCLUDE_DIR_NAMES
-    if allow_ai_findings:
-        # Safe only because `_iter_markdown` applies this exception beneath
-        # the two exact SYNTHESIS_ROOTS, never to an arbitrary ai/ path.
-        excluded_names = excluded_names - {"ai", "findings"}
-    if parts & excluded_names:
+    if parts & EXCLUDE_DIR_NAMES:
         return True
     for ex in EXCLUDE_DIR_REL:
         try:
@@ -443,60 +345,30 @@ def _is_excluded(
     return False
 
 
-def _iter_markdown(
-    repo_root: Path,
-    *,
-    synthesis_only: bool = False,
-) -> Iterable[Path]:
+def _iter_markdown(repo_root: Path) -> Iterable[Path]:
     """Yield absolute paths to every in-scope .md file."""
-    roots: list[tuple[Path, bool]] = []
-    explicit_files: list[Path] = []
-    if synthesis_only:
-        for d in SYNTHESIS_ROOTS:
-            p = repo_root / d
-            if p.is_dir():
-                roots.append((p, True))
-        for f in SYNTHESIS_FILES:
-            p = repo_root / f
-            if p.is_file():
-                explicit_files.append(p)
-    else:
-        for d in DEFAULT_ROOTS:
-            p = repo_root / d
-            if p.is_dir():
-                roots.append((p, False))
-        tools = repo_root / TOOLS_ROOT
-        if tools.is_dir():
-            for tool in sorted(tools.iterdir()):
-                spec = tool / "spec"
-                if spec.is_dir():
-                    roots.append((spec, False))
+    roots: list[Path] = []
+    for d in DEFAULT_ROOTS:
+        p = repo_root / d
+        if p.is_dir():
+            roots.append(p)
+    tools = repo_root / TOOLS_ROOT
+    if tools.is_dir():
+        for tool in sorted(tools.iterdir()):
+            spec = tool / "spec"
+            if spec.is_dir():
+                roots.append(spec)
 
     seen: set[Path] = set()
-    for root, allow_ai_findings in roots:
+    for root in roots:
         for path in sorted(root.rglob("*.md")):
-            if _is_excluded(
-                path,
-                repo_root,
-                allow_ai_findings=allow_ai_findings,
-            ):
+            if _is_excluded(path, repo_root):
                 continue
             ap = path.resolve()
             if ap in seen:
                 continue
             seen.add(ap)
             yield path
-    # Individually-named authority files (SYNTHESIS_FILES). Run through the same
-    # exclusion + dedup path; allow_ai_findings is True because these are the
-    # exact tracked synthesis authorities, never an arbitrary ai/ path.
-    for path in explicit_files:
-        if _is_excluded(path, repo_root, allow_ai_findings=True):
-            continue
-        ap = path.resolve()
-        if ap in seen:
-            continue
-        seen.add(ap)
-        yield path
 
 
 def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
@@ -820,43 +692,6 @@ def _is_ai_findings_link(path_part: str) -> bool:
     return False
 
 
-def _scan_retired_synthesis_ops(
-    files: Iterable[Path],
-    repo_root: Path,
-) -> list[tuple[Path, int, str, str]]:
-    """Flag retired copy-from-mayor / local-only directives (rf2-vxgfnd.136).
-
-    Returns (path, line_no, classification, line-text) for each retired
-    imperative. Fenced code is stripped first so a sample never trips the
-    guard, and a match inside a HISTORICAL/RETIRED-marked blockquote is
-    treated as quoted history and skipped.
-    """
-    hits: list[tuple[Path, int, str, str]] = []
-    for path in files:
-        text = path.read_text(encoding="utf-8", errors="replace")
-        in_historical_quote = False
-        for line_no, line in _strip_fences(text.splitlines()):
-            stripped = line.lstrip()
-            if stripped.startswith(">"):
-                # Track a historical blockquote: it opens with a marker token
-                # and runs until the blockquote ends (a non-`>` line).
-                if _HISTORICAL_MARKER_RE.search(line):
-                    in_historical_quote = True
-            elif stripped == "":
-                # Blank lines continue a blockquote in CommonMark lazy form
-                # only when followed by more `>`; treat blank as a soft break
-                # but keep the marker until a real non-quote content line.
-                pass
-            else:
-                in_historical_quote = False
-            if in_historical_quote:
-                continue
-            for classification, pattern in RETIRED_SYNTHESIS_OP_PATTERNS:
-                if pattern.search(line):
-                    hits.append((path, line_no, classification, line.strip()))
-    return hits
-
-
 def _check_compat_anchors(
     repo_root: Path,
     counts_for,
@@ -983,7 +818,6 @@ def check(
     repo_root: Path,
     verbose: bool = False,
     *,
-    synthesis_only: bool = False,
     compat_anchors: dict[str, tuple[str, ...]] | None = None,
     source_files: Iterable[Path] | None = None,
     source_comment_re: re.Pattern[str] | None = None,
@@ -998,10 +832,6 @@ def check(
                               (rf2-l7yj8).  Committed files must not reference
                               gitignored working artefacts; inline a sentence
                               summary instead.
-        * RETIRED_SYNTHESIS_OP — (synthesis scope only, rf2-vxgfnd.136) an
-                              active synthesis instruction still asserts the
-                              retired local-only / copy-from-mayor model for the
-                              force-tracked synthesis subtree.
         * MISSING COMPAT ANCHOR — (default scope, rf2-57k74) a manifest anchor
                               in HANDBOOK_COMPAT_ANCHORS no longer resolves on
                               its page (external bookmarks / source comments
@@ -1036,21 +866,7 @@ def check(
         source_comment_re = _HANDBOOK_DOC_LINK_RE
     if placement is None:
         placement = COMPAT_ANCHOR_PLACEMENT
-    files = list(_iter_markdown(repo_root, synthesis_only=synthesis_only))
-    if synthesis_only:
-        if not files:
-            sys.stderr.write(
-                "error: synthesis link gate matched zero markdown files under "
-                f"{', '.join(SYNTHESIS_ROOTS)}; refusing a vacuous pass.\n"
-            )
-            return 1
-        sys.stderr.write(
-            f"synthesis link gate files ({len(files)}):\n"
-        )
-        for path in files:
-            sys.stderr.write(
-                f"  {path.relative_to(repo_root.resolve()).as_posix()}\n"
-            )
+    files = list(_iter_markdown(repo_root))
     if verbose:
         sys.stderr.write(f"scanning {len(files)} markdown files...\n")
 
@@ -1076,10 +892,6 @@ def check(
     broken_target: list[tuple[Path, int, str, str]] = []
     ai_findings: list[tuple[Path, int, str]] = []
     for path in files:
-        path_rel = path.relative_to(repo_root.resolve()).as_posix()
-        landing_rel = DRAFT_LANDING_TARGETS.get(path_rel)
-        landing_target = (repo_root / landing_rel).resolve() if landing_rel else None
-        relative_base = landing_target.parent if landing_target else None
         for line_no, dest in _extract_links(path):
             # External / non-file references — out of scope.
             if dest.startswith(("http://", "https://", "mailto:", "tel:", "//")):
@@ -1105,8 +917,6 @@ def check(
                 if not anchor:
                     continue
                 same_file_slugs = set(slugs_for(path))
-                if landing_target and landing_target.is_file():
-                    same_file_slugs.update(slugs_for(landing_target))
                 if anchor not in same_file_slugs:
                     broken_anchor.append(
                         (path, line_no, dest, str(path.relative_to(repo_root.resolve())))
@@ -1124,7 +934,6 @@ def check(
                 path,
                 path_part,
                 repo_root,
-                relative_base=relative_base,
             )
             if target is None:
                 # Path escapes the repo — treat as external reference, skip.
@@ -1141,37 +950,23 @@ def check(
                     (path, line_no, dest, str(target.relative_to(repo_root.resolve())))
                 )
 
-    # rf2-vxgfnd.136 — the retired copy-from-mayor guard runs only in the
-    # synthesis scope. It never touches the default docs corpus.
-    retired_ops: list[tuple[Path, int, str, str]] = []
-    if synthesis_only:
-        retired_ops = _scan_retired_synthesis_ops(files, repo_root)
-
     # rf2-57k74 / rf2-zq5i6 — the cross-handbook compat-anchor manifest, uniqueness,
-    # placement, and source-comment link gates run only in the default docs scope
-    # (never under --synthesis-only).
-    compat_missing: list[tuple[str, str]] = []
-    compat_missing_pages: list[str] = []
-    compat_duplicate: list[tuple[str, str, int]] = []
-    compat_misplaced: list[tuple[str, str, str]] = []
-    source_comment_broken: list[tuple[Path, int, str, str]] = []
-    if not synthesis_only:
-        compat_missing, compat_missing_pages, compat_duplicate = _check_compat_anchors(
-            repo_root, counts_for, compat_anchors
-        )
-        compat_misplaced = _check_compat_anchor_placement(repo_root, placement)
-        source_comment_broken = _check_source_comment_links(
-            repo_root,
-            slugs_for,
-            source_files=source_files,
-            link_re=source_comment_re,
-        )
+    # placement, and source-comment link gates.
+    compat_missing, compat_missing_pages, compat_duplicate = _check_compat_anchors(
+        repo_root, counts_for, compat_anchors
+    )
+    compat_misplaced = _check_compat_anchor_placement(repo_root, placement)
+    source_comment_broken = _check_source_comment_links(
+        repo_root,
+        slugs_for,
+        source_files=source_files,
+        link_re=source_comment_re,
+    )
 
     total = (
         len(broken_anchor)
         + len(broken_target)
         + len(ai_findings)
-        + len(retired_ops)
         + len(compat_missing)
         + len(compat_missing_pages)
         + len(compat_duplicate)
@@ -1225,25 +1020,6 @@ def check(
             "summary of the finding (and a date) so the committed prose is "
             "self-contained and mkdocs strict's link validator doesn't trip "
             "on a missing target in CI.\n"
-        )
-
-    if retired_ops:
-        sys.stderr.write(
-            f"\n{len(retired_ops)} retired synthesis operation instruction(s) "
-            "found (rf2-vxgfnd.136):\n\n"
-        )
-        for src, line_no, classification, snippet in retired_ops:
-            rel = src.relative_to(repo_root.resolve())
-            sys.stderr.write(
-                f"  RETIRED_SYNTHESIS_OP [{classification}]: {rel}:{line_no}\n"
-                f"      {snippet}\n"
-            )
-        sys.stderr.write(
-            "\nFix: the new-substrate-synthesis subtree is force-tracked. Tell "
-            "workers to read the tracked path in their own worktree at the exact "
-            "revision being implemented/reviewed -- not to copy it from the mayor "
-            "checkout. If the line is genuinely historical, move it into a "
-            "blockquote whose opener is marked HISTORICAL / non-operative.\n"
         )
 
     if compat_missing_pages:
@@ -1365,16 +1141,6 @@ def main(argv: list[str]) -> int:
             "scripts/_test_fixtures/check_doc_slugs/ and exit."
         ),
     )
-    parser.add_argument(
-        "--synthesis-only",
-        action="store_true",
-        help=(
-            "Scan only the tracked re-frame.ui synthesis authority inventory: "
-            "the guide + active drafts, the prep/ workstream tables, and the "
-            "top-level adoption/implementation plans. Enumerates every matched "
-            "file and fails if the scope is empty."
-        ),
-    )
     args = parser.parse_args(argv)
 
     if args.self_test:
@@ -1395,7 +1161,6 @@ def main(argv: list[str]) -> int:
     broken = check(
         repo_root,
         verbose=args.verbose,
-        synthesis_only=args.synthesis_only,
     )
     return 0 if broken == 0 else 1
 
@@ -1477,120 +1242,6 @@ def _run_self_tests(verbose: bool = False) -> int:
                 f"self-test FAIL: {fixture} expected broken={expected}, got {got}\n"
             )
             failures += 1
-
-    # rf2-vxgfnd.135 — prove the new scope is explicit and has real teeth:
-    # both defects remain invisible to the unchanged default corpus, then fail
-    # when the narrow synthesis scope is selected. The valid fixture also
-    # proves both roots are enumerated while unrelated ai/ scratch stays out.
-    synthesis_cases: list[tuple[str, int]] = [
-        ("synthesis_broken_target", 1),
-        ("synthesis_broken_anchor", 1),
-        ("synthesis_valid_narrow_scope", 0),
-        # rf2-vxgfnd.136 — the retired copy-from-mayor guard has teeth in the
-        # synthesis scope, stays invisible to the default corpus, and exempts
-        # correct "surrounding ai/ stays local-only" prose + HISTORICAL-marked
-        # quotes of the old model.
-        ("synthesis_retired_op", 1),
-        ("synthesis_retired_op_allowed", 0),
-        # rf2-d9v3n — the inventory now covers the operational authorities too,
-        # so a retired copy-from-mayor / mayor-checkout-only directive can no
-        # longer hide in a prep/ workstream table (COPY_FROM_MAYOR) or a
-        # top-level plan named in SYNTHESIS_FILES (MAYOR_CHECKOUT_ONLY). Both
-        # trip under the synthesis scope and stay invisible to the default corpus.
-        ("synthesis_retired_op_prep", 1),
-        ("synthesis_retired_op_toplevel", 1),
-    ]
-    for fixture, expected in synthesis_cases:
-        root = _SELF_TEST_FIXTURE_ROOT / fixture
-        if not (root / "mkdocs.yml").is_file():
-            sys.stderr.write(
-                f"self-test FAIL: fixture {fixture!r} missing mkdocs.yml at {root}\n"
-            )
-            failures += 1
-            continue
-
-        saved_stderr = sys.stderr
-        sys.stderr = _DevNull()
-        try:
-            default_got = check(
-                root,
-                verbose=False,
-                compat_anchors={},
-                source_files=(),
-                placement={},
-            )
-            synthesis_got = check(root, verbose=False, synthesis_only=True)
-        finally:
-            sys.stderr = saved_stderr
-
-        if default_got != 0:
-            sys.stderr.write(
-                f"self-test FAIL: {fixture} leaked into the default corpus "
-                f"(broken={default_got}, expected 0)\n"
-            )
-            failures += 1
-        elif synthesis_got == expected:
-            if verbose:
-                sys.stderr.write(
-                    f"self-test PASS: {fixture} "
-                    f"(default=0, synthesis={synthesis_got})\n"
-                )
-        else:
-            sys.stderr.write(
-                f"self-test FAIL: {fixture} expected synthesis broken={expected}, "
-                f"got {synthesis_got}\n"
-            )
-            failures += 1
-
-    # rf2-d9v3n — prove the expanded inventory enumerates exactly the active
-    # authorities (guide + drafts + prep/ + the two top-level SYNTHESIS_FILES)
-    # and NOTHING else: the fixture also carries a top-level narrative chapter, a
-    # README, a reviews/ page, a spikes/ page (each with a retired directive), and
-    # unrelated ai/ scratch — none of which may enter the inventory. The parallel
-    # synthesis_valid_narrow_scope run above (expected synthesis broken=0) is the
-    # belt-and-suspenders proof that those retired-directive landmines are never
-    # scanned; this set-equality is the direct proof.
-    narrow_root = _SELF_TEST_FIXTURE_ROOT / "synthesis_valid_narrow_scope"
-    narrow_files = {
-        path.relative_to(narrow_root).as_posix()
-        for path in _iter_markdown(narrow_root, synthesis_only=True)
-    }
-    expected_narrow_files = {
-        "ai/findings/new-substrate-synthesis/guide/index.md",
-        "ai/findings/new-substrate-synthesis/drafts/design.md",
-        "ai/findings/new-substrate-synthesis/prep/w1-migrator-rule-table.md",
-        "ai/findings/new-substrate-synthesis/11-adoption-workstreams.md",
-        "ai/findings/new-substrate-synthesis/12-implementation-plan.md",
-    }
-    if narrow_files != expected_narrow_files:
-        sys.stderr.write(
-            "self-test FAIL: synthesis scope inventory mismatch: "
-            f"expected {sorted(expected_narrow_files)}, got {sorted(narrow_files)}\n"
-        )
-        failures += 1
-    elif verbose:
-        sys.stderr.write(
-            "self-test PASS: synthesis scope enumerates guide + drafts + prep + "
-            "top-level authorities only (narrative/README/reviews/spikes excluded)\n"
-        )
-
-    empty_root = _SELF_TEST_FIXTURE_ROOT / "valid_link"
-    saved_stderr = sys.stderr
-    sys.stderr = _DevNull()
-    try:
-        empty_got = check(empty_root, verbose=False, synthesis_only=True)
-    finally:
-        sys.stderr = saved_stderr
-    if empty_got != 1:
-        sys.stderr.write(
-            "self-test FAIL: empty synthesis scope did not fail closed "
-            f"(got broken={empty_got}, expected 1)\n"
-        )
-        failures += 1
-    elif verbose:
-        sys.stderr.write(
-            "self-test PASS: empty synthesis scope refuses a vacuous pass\n"
-        )
 
     # rf2-57k74 / rf2-zq5i6 — compat-anchor + source-comment TEETH. Drive the
     # generalized mechanism against fixture handbook pages through EXPLICIT
@@ -1868,7 +1519,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         return 1
     if verbose:
         sys.stderr.write(
-            f"all {len(cases) + len(synthesis_cases) + len(teeth_cases) + 6} "
+            f"all {len(cases) + len(teeth_cases) + 4} "
             "self-tests passed.\n"
         )
     return 0
