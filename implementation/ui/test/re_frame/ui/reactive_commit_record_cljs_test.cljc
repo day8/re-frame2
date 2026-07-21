@@ -100,6 +100,59 @@
         (str "render-key increments fresh per connected commit — " (pr-str keys)))))
 
 ;; ===========================================================================
+;; StrictMode replay idempotence (rf2-8ds0v, PR #6567) — re-committing the EXACT
+;; SAME capture mints NO second record, does not advance render-key, and does not
+;; overwrite the genuine :mount record with a spurious :foreign-or-react one.
+;; ===========================================================================
+
+(deftest re-committing-the-same-capture-is-idempotent-under-strictmode-replay
+  (rf/reg-sub :cr/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell    (reactive/make-cell ::v)
+        ;; ONE render → ONE immutable capture. React 19 StrictMode re-invokes the
+        ;; reconcile layout effect (setup→cleanup→setup) with THIS exact capture
+        ;; object; the substrate must treat the re-commit as idempotent.
+        [_ cap] (render! cell [[[:cr/site 0] [:cr/a]]])]
+    ;; First commit of the fresh capture mints the genuine committed instance.
+    (reactive/commit! cell cap)
+    (let [rec1 (reactive/commit-record cell)
+          rk1  (reactive/render-key cell)]
+      (is (= [{:cause :mount}] (:rf.view/causes rec1))
+          "the first connected commit of this capture is caused by :mount")
+      (is (integer? rk1) "it minted an integer render-key")
+      ;; Drive the StrictMode effect double-invoke at the substrate seam: the
+      ;; layout-effect CLEANUP disconnects the cell, then the effect re-runs with
+      ;; the IDENTICAL capture (React did not re-render between cleanup and setup).
+      (reactive/disconnect! cell)
+      (reactive/commit! cell cap)
+      (let [rec2 (reactive/commit-record cell)
+            rk2  (reactive/render-key cell)]
+        (is (identical? rec1 rec2)
+            "the replayed re-commit published NO new record — the genuine first
+             record stands (not overwritten)")
+        (is (= [{:cause :mount}] (:rf.view/causes rec2))
+            "the :mount cause is NOT overwritten by a spurious :foreign-or-react
+             replay record")
+        (is (= rk1 rk2)
+            "render-key does NOT advance twice for ONE rendered commit")))))
+
+(deftest a-fresh-render-after-a-commit-still-mints-a-new-record
+  ;; The idempotence guard keys on capture OBJECT identity, so a genuine
+  ;; re-render (a DISTINCT capture) is never mistaken for a replay — it mints a
+  ;; new record with a strictly greater render-key.
+  (rf/reg-sub :cr/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell    (reactive/make-cell ::v)
+        [_ cap1] (render! cell [[[:cr/site 0] [:cr/a]]])]
+    (reactive/commit! cell cap1)
+    (let [rk1 (reactive/render-key cell)
+          [_ cap2] (render! cell [[[:cr/site 0] [:cr/a]]])]
+      (is (not (identical? cap1 cap2)) "each render produces a distinct capture")
+      (reactive/commit! cell cap2)
+      (is (> (reactive/render-key cell) rk1)
+          "a distinct capture is a distinct committed render — render-key advances"))))
+
+;; ===========================================================================
 ;; Observations carry PER-OBSERVATION frame attribution (Ruling-1 amendment)
 ;; ===========================================================================
 

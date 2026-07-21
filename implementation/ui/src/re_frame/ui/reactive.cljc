@@ -3255,9 +3255,17 @@
 ;; OPTION 1A (honest capture). The record carries exactly what the substrate owns
 ;; at commit, and NOT what it cannot honestly source:
 ;;   - :render-key is a MODULE-GLOBAL monotonic integer minted fresh at EACH
-;;     connected commit (so re-renders increment it) — a total order over
-;;     committed renders the sub→view recompute edge (`:rf.sub/reader-render-key`)
-;;     and a React Performance-Tracks timeline correlate against.
+;;     DISTINCT connected commit (so a genuine re-render increments it; a
+;;     StrictMode re-commit of the SAME capture does NOT — see
+;;     `mint-commit-record!`) — a total order over committed renders for the
+;;     `data-rf-render-key` DOM stamp (rf2-ny34u) and a React Performance-Tracks
+;;     timeline correlate. It is NOT the legacy `:rf.sub/reader-render-key`: that
+;;     is a DIFFERENT identity (the stock-adapter `[view-id instance-token]` wire
+;;     shape), stamped during render-time sub reads from `re-frame.views/
+;;     *render-key*` — a dynamic var implementation/ui never binds, so a compiled
+;;     defview read stamps none. The direct sub→view relation is this record's
+;;     OWN `:observations`/`:query` rows, not a cross-key correlation to a key
+;;     this substrate never mints (rf2-8ds0v truth repair, PR #6562).
 ;;   - frame attribution is PER-OBSERVATION, never a single fabricated fact: a
 ;;     ViewCell observes a SET of frames (an override-only cell observes none),
 ;;     so each observation carries its own target's :frame-id and the record
@@ -3494,43 +3502,68 @@
   longer be LOST: a fold that commits BEFORE the CAS fails it (the loop re-reads,
   fences it by the waterline, and keeps it as residual), and one AFTER enrols a
   fresh next stash. `next-render-key!` is minted ONCE before the loop, so a retry
-  never wastes a key. Single-threaded CLJS runs exactly one iteration."
+  never wastes a key. Single-threaded CLJS runs exactly one iteration.
+
+  STRICTMODE REPLAY IDEMPOTENCE (rf2-8ds0v, PR #6567). React 19 StrictMode
+  intentionally re-invokes the ViewCell's reconcile layout effect
+  (setup→cleanup→setup) with the SAME committed capture (the effect closure of
+  ONE committed render). The reconciler is already OWNERSHIP-idempotent (kept-
+  check retains/reacquires), but a naive re-mint OVERWROTE the genuine first
+  record — its `:mount` cause — with a spurious `:foreign-or-react` replay record,
+  advanced `:render-key` twice for ONE rendered commit, and drained the causes.
+  So a mint is keyed on the ORIGINATING capture's object identity (stamped as
+  `:commit-record-capture`): a re-commit of the EXACT same capture is a no-op —
+  the first record stands, `:render-key` does not advance (the counter is not even
+  touched), and causes are not drained. This is not a StrictMode special case but
+  the honest invariant it exposed: ONE committed-instance record per DISTINCT
+  committed render. A genuine re-render (or a real hide→reveal that re-renders)
+  produces a FRESH capture object, so it is never mistaken for a replay and mints
+  honestly; a pure hide→reveal that does NOT re-render reuses the capture and is
+  correctly not a new committed render."
   [^ViewCell cell cap new-order new-by mounting? to-acquire]
-  (let [st         (state cell)
-        st0        @st
-        waterline  (:cause-waterline cap)
-        ;; ONE ruled record per (re)acquired Story-override target, in render order
-        ;; — `keep` preserves siblings that `some` (first-only) dropped (rf2-sy536).
-        override-details (into []
-                               (keep (fn [sid]
-                                       (let [t (:target (new-by sid))]
-                                         (when (= :story-override (:kind t))
-                                           {:override-id (:override-id t)
-                                            :version     (:version t)}))))
-                               to-acquire)
-        base       {:render-key    (next-render-key!)
-                    :view-id       (:view-id st0)
-                    :generation    (:generation cap)
-                    :root-id       (:root st0)
-                    :connection    :connected
-                    :observations  (project-observations new-order new-by)}]
-    (loop []
-      (let [s        @st
-            pending  (or (:pending-commit-causes s) [])
-            n        (count pending)
-            cut      (if (and waterline (< waterline n)) waterline n)
-            eligible (subvec pending 0 cut)
-            residual (subvec pending cut)
-            causes   (commit-causes eligible mounting? override-details
-                                    (boolean (:local-state-committed? s)))
-            record   (assoc base :rf.view/causes causes)
-            next-s   (-> (assoc s :commit-record record)
-                         (assoc :pending-commit-causes residual)
-                         (dissoc :local-state-committed?))]
-        (when-some [barrier *commit-publish-barrier*] (barrier cell))
-        (if (compare-and-set! st s next-s)
-          record
-          (recur))))))
+  (let [st  (state cell)
+        st0 @st]
+    (if (identical? cap (:commit-record-capture st0))
+      ;; StrictMode replay of the EXACT same committed capture — idempotent: the
+      ;; genuine first record stands, no render-key is minted, no causes drained.
+      (:commit-record st0)
+      (let [waterline  (:cause-waterline cap)
+            ;; ONE ruled record per (re)acquired Story-override target, in render
+            ;; order — `keep` preserves siblings `some` (first-only) dropped
+            ;; (rf2-sy536).
+            override-details (into []
+                                   (keep (fn [sid]
+                                           (let [t (:target (new-by sid))]
+                                             (when (= :story-override (:kind t))
+                                               {:override-id (:override-id t)
+                                                :version     (:version t)}))))
+                                   to-acquire)
+            base       {:render-key    (next-render-key!)
+                        :view-id       (:view-id st0)
+                        :generation    (:generation cap)
+                        :root-id       (:root st0)
+                        :connection    :connected
+                        :observations  (project-observations new-order new-by)}]
+        (loop []
+          (let [s        @st
+                pending  (or (:pending-commit-causes s) [])
+                n        (count pending)
+                cut      (if (and waterline (< waterline n)) waterline n)
+                eligible (subvec pending 0 cut)
+                residual (subvec pending cut)
+                causes   (commit-causes eligible mounting? override-details
+                                        (boolean (:local-state-committed? s)))
+                record   (assoc base :rf.view/causes causes)
+                next-s   (-> (assoc s :commit-record record)
+                             ;; stamp the originating capture so a StrictMode
+                             ;; re-commit of THIS capture is caught as a replay.
+                             (assoc :commit-record-capture cap)
+                             (assoc :pending-commit-causes residual)
+                             (dissoc :local-state-committed?))]
+            (when-some [barrier *commit-publish-barrier*] (barrier cell))
+            (if (compare-and-set! st s next-s)
+              record
+              (recur))))))))
 
 (defn- commit*
   "Run the 8-step layout commit for `cell` against the exact immutable
