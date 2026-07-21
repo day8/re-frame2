@@ -61,18 +61,26 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
    :schema [:cat [:= :cart/add-item] AddToCartForm]      ;; server-side schema check, never skipped
    :rf.cofx/requires [:rf.server/request
                       :app.csrf/active-token]}            ;; app-owned cofx — see §CSRF
-  (fn [{:keys [db app.csrf/active-token]} [_ form-params]]
+  (fn [{:keys [db rf.server/request app.csrf/active-token]} [_ form-params]]
     (if (not= (:csrf-token form-params) active-token)    ;; CSRF first — fail loud
       {:db (assoc-in db [:cart :add-form :errors :_form] ["Session expired. Refresh and retry."])
        :fx [[:rf.server/set-status 403]]}
       {:db (-> db
                (update-in [:cart :items] (fnil conj []) (select-keys form-params [:item-id :quantity]))
                (assoc-in  [:cart :add-form :status] :submitted))
-       :fx [[:rf.server/redirect {:status 303 :location "/cart"}]   ;; server only
-             [:dispatch [:rf.route/navigate {:to :route/cart}]]]})))  ;; client only — shipped routing event
+       ;; ONE destination, CHOSEN by a platform boundary the handler already
+       ;; reads: the :rf.server/request cofx is present on the server and, being
+       ;; :platforms #{:server}, skipped (absent) on the client. Server → the
+       ;; POST-redirect-GET 303; client → in-app navigation. We do NOT emit both:
+       ;; :rf.route/navigate is not a server no-op — dispatched server-side it
+       ;; writes the route slice and can fire the target route's :on-match work,
+       ;; with no browser history to anchor it.
+       :fx (if request
+             [[:rf.server/redirect {:status 303 :location "/cart"}]]      ;; server: POST-redirect-GET
+             [[:dispatch [:rf.route/navigate {:to :route/cart}]]])})))    ;; client: shipped routing event
 ```
 
-The success/failure effects are the only platform-divergent slot. `:rf.server/redirect` is the server-only POST-redirect-GET fx; on the client, navigate via the shipped routing event `[:rf.route/navigate {:to :route/cart}]` (dispatched through `:fx`) — `:platforms` gating no-ops the server redirect on the client. (`:rf.route/navigate` is the framework's programmatic-navigation event, registered by `day8/re-frame2-routing`; there is **no** `:rf.nav/navigate` fx. If you need a bare URL push rather than a route id, register an **app-owned** fx such as `:cart.nav/navigate` — the framework does not expose `:rf.nav/push-url` as a route-aware navigation surface.)
+The success path is the only platform-divergent slot, and the handler **chooses** the destination — it does not emit both. The boundary is one the handler already reads: the `:rf.server/request` cofx is present on the server and, being `:platforms #{:server}`, is skipped (absent) on the client, so `(if request …)` is a clean platform switch. On the server, emit the server-only POST-redirect-GET fx `:rf.server/redirect`; on the client, navigate in-app via the shipped routing event `[:rf.route/navigate {:to :route/cart}]`. Do **not** emit both and label the navigate "client-only": `:rf.route/navigate` is **not** a server no-op — dispatched server-side it writes the route slice and can run the target's `:on-match` loaders even though there is no browser history. (`:rf.route/navigate` is the framework's programmatic-navigation event, registered by `day8/re-frame2-routing`; there is **no** `:rf.nav/navigate` fx.) For a **raw URL** rather than a route id, the shipped request grammar takes one directly — `[:rf.route/navigate {:url "/cart"}]` (the `:url` escape hatch) — so **no app-owned navigation fx is needed**. Reserve an app-owned fx only for a deliberate routing *bypass* that skips the router entirely (a hard `window.location` assignment, an external redirect), on the rare occasion you actually want that.
 
 ## CSRF
 
@@ -98,7 +106,7 @@ The scrub is per-named-path, owned by the registration, not a whole-action toggl
 
 - **Skipping the `action` attribute.** A JS-only form breaks progressive enhancement. Always emit `method` + `action`; `:on-submit` is additive.
 - **Validating only on the client.** Client validation is UX; the server is the authority. Re-run the schema check via `:schema` on every POST — never trust the body.
-- **A client-navigation fx for the server redirect.** The client routing event `[:rf.route/navigate …]` is a no-op on the server; use `:rf.server/redirect` for POST-redirect-GET. (And do not invent `:rf.nav/navigate` — it does not exist; `:rf.route/navigate` is the shipped programmatic-navigation event.)
+- **Emitting both the redirect and the navigate unconditionally.** `:rf.route/navigate` is **not** a server no-op — dispatched on the server it writes the route slice and can run the target's `:on-match` work, with no browser history to back it. Choose per platform (the `:rf.server/request` cofx, present only on the server, is the boundary): `:rf.server/redirect` for the server's POST-redirect-GET, `[:rf.route/navigate …]` for the client. (And do not invent `:rf.nav/navigate` — it does not exist; `:rf.route/navigate` is the shipped programmatic-navigation event.)
 - **`302 Found` for POST success.** Some clients re-POST on 302; the canonical status is **303 See Other**. Set `:status 303` explicitly.
 - **CSRF token from a hardcoded value or query string.** Sessions rotate tokens; your app-owned `:app.csrf/active-token` cofx is the single source of truth. URL-borne tokens leak to referrer logs.
 - **Writing `app-db` from a multipart handler.** The drain runs to fixed point — a long upload inside the handler blocks the request thread. Hand the opaque `:tempfile` to a storage fx.
