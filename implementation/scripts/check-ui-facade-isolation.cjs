@@ -80,12 +80,16 @@
 // 495 tests / 2765 assertions green with a real seventh view). A `.cljs` test
 // cannot read library.cljs at runtime to self-derive without a macro/generated
 // source, so the completeness claim is owned here, next to the roster it already
-// derives: the derived defview set is compared against the sentinel literals the
-// mounted suite references (its `sel-*` selectors). A view uncovered by the suite
-// FAILS (a shipped view rendered nowhere), and a suite selector no library view
-// owns FAILS (a stale entry a removed/renamed view left behind) — so neither
-// side can drift on a hard-coded count. No new build, CI job, or registry: it is
-// a pure source comparison reusing this file's own defview derivation.
+// derives: the derived defview set is compared against the sentinels the mounted
+// suite actually EXERCISES. Coverage is behavioural, not textual (rf2-tt1ta): a
+// suite `sel-*` selector counts only when its symbol is referenced from a
+// `deftest` body (the DOM-query seam), never merely defined-but-unused or named
+// in a comment. A view no test exercises FAILS (a shipped view rendered nowhere),
+// and a queried selector no library view owns FAILS (a stale entry a
+// removed/renamed view left behind) — so neither side can drift on a hard-coded
+// count, and deleting a view's mounted test REDs on the now-uncovered view. No
+// new build, CI job, or registry: it is a pure source comparison reusing this
+// file's own defview derivation.
 //
 // `--self-test` drives the derivation over synthetic sources, including the
 // seven-view drift case, the roster-completeness red paths, and every
@@ -113,11 +117,40 @@ const MOUNTED_SUITE_SRC = path.join(PROOF_PACK, 'library_dom_cljs_test.cljs');
 const LIBRARY_NS = 're-frame.ui.proof-pack.library';
 
 // Clojure symbol characters, minus the namespace separator.
-const SYM = "[A-Za-z0-9*+!?<>=_'-]+";
+const SYM_CHARS = "A-Za-z0-9*+!?<>=_'-";
+const SYM = `[${SYM_CHARS}]+`;
 const SENTINEL_RE = /rf2-pp-[A-Za-z0-9-]*sentinel/g;
 
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Drop Clojure line comments (`;` to end of line) while preserving newlines and
+// respecting string literals and `\x` character literals, so a `;` inside a
+// string is not mistaken for a comment. Bounded line-comment lexer — NOT a form
+// parser: coverage must be read from live code, and a sentinel or `sel-*` name
+// that appears only in a comment must not count as exercising a view (rf2-tt1ta).
+function stripLineComments(src) {
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < src.length; i += 1) {
+    const c = src[i];
+    if (inString) {
+      out += c;
+      if (c === '\\' && i + 1 < src.length) { out += src[i + 1]; i += 1; }
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') { inString = true; out += c; continue; }
+    if (c === '\\' && i + 1 < src.length) { out += c + src[i + 1]; i += 1; continue; }
+    if (c === ';') {
+      while (i < src.length && src[i] !== '\n') i += 1;
+      if (i < src.length) out += '\n';
+      continue;
+    }
+    out += c;
+  }
+  return out;
 }
 
 class RosterError extends Error {}
@@ -269,13 +302,57 @@ function deriveRoster(librarySource, consumerSource) {
 
 // --- mounted-suite roster completeness (rf2-syell) --------------------------
 
-// Which library-view render sentinels the mounted browser suite references.
-// Each per-view test scopes its assertions by a `[data-pp='<sentinel>']`
-// selector, so the sentinel literals present in the suite source are exactly the
-// views it exercises — the same "sentinel literal present" coverage signal G-18
-// reads from a bundle, here read from the mounted suite's own source.
+// Which library-view render sentinels the mounted browser suite BEHAVIOURALLY
+// exercises. Not "which sentinel strings appear in the file": that textual
+// signal counted a `(def sel-x "...")` constant — or even a sentinel named only
+// in a comment — as coverage, so a shipped view could green this check with an
+// unused selector and no mounted test, and deleting a view's `deftest` while
+// leaving its constant was invisible (rf2-tt1ta, the #6492 residual).
+//
+// Behavioural signal instead: each top-level `sel-*` constant maps to the
+// sentinel its `[data-pp=...]` selector literal carries, and that sentinel counts
+// as covered ONLY when the `sel-*` symbol is referenced from inside a `deftest`
+// body — where the suite queries the mounted DOM. Comments are stripped first, so
+// a `sel-*` (or sentinel) mentioned only in a comment does not count; a selector
+// defined but never queried from a test does not count either. So a seventh view
+// REDs until a real test scopes an assertion to its sentinel, and removing a
+// view's test REDs on the now-uncovered view.
 function deriveMountedCoverage(mountedSuiteSource) {
-  return [...new Set(mountedSuiteSource.match(SENTINEL_RE) || [])];
+  const src = stripLineComments(mountedSuiteSource);
+
+  // Each top-level `sel-*` constant and the sentinel its selector literal carries.
+  const selToSentinel = new Map();
+  const defRe = new RegExp(`\\(def\\b[^"\\n]*?(sel-${SYM})\\s+"([^"]*)"`, 'g');
+  let d;
+  while ((d = defRe.exec(src)) !== null) {
+    const sentinel = (d[2].match(SENTINEL_RE) || [])[0];
+    if (sentinel) selToSentinel.set(d[1], sentinel);
+  }
+
+  // Every `sel-*` symbol referenced from a `deftest` body. A `deftest` form's
+  // span runs from its top-level open paren to the next top-level form, so a
+  // reference is attributed to the test that makes it (same span rule as the
+  // library `defview` derivation). The lookbehind keeps `sel-foo` from matching
+  // the tail of a longer symbol.
+  const referenced = new Set();
+  const headRe = /^\(deftest\b/gm;
+  const tokRe = new RegExp(`(?<![${SYM_CHARS}])sel-${SYM}`, 'g');
+  let h;
+  while ((h = headRe.exec(src)) !== null) {
+    const rest = src.slice(h.index + 1);
+    const nextTop = rest.search(/^\(/m);
+    const end = nextTop === -1 ? src.length : h.index + 1 + nextTop;
+    const body = src.slice(h.index, end);
+    tokRe.lastIndex = 0;
+    let t;
+    while ((t = tokRe.exec(body)) !== null) referenced.add(t[0]);
+  }
+
+  const covered = [];
+  for (const [selName, sentinel] of selToSentinel) {
+    if (referenced.has(selName)) covered.push(sentinel);
+  }
+  return [...new Set(covered)];
 }
 
 // The completeness contract, pure over the derived views and the suite's covered
@@ -658,11 +735,29 @@ function selfTest() {
   // arms use, so a 7th view REDs until it is exercised and a stale selector REDs
   // when a view is removed/renamed — the completeness gap #6459 could not see.
   //
-  // `mountedSuite` fakes the suite as the sel-* selector constants that carry
-  // the sentinels it exercises — the same shape the real suite has.
-  const mountedSuite = (...sentinels) =>
-    '(ns re-frame.ui.proof-pack.library-dom-cljs-test)\n' +
-    sentinels.map((s, i) => `(def ^:private sel-${i} "[data-pp='${s}']")`).join('\n') + '\n';
+  // Coverage is BEHAVIOURAL, not textual (rf2-tt1ta): `suiteSource` shapes the
+  // suite the way the real one is — a `sel-*` constant per sentinel, and a
+  // `deftest` body that QUERIES each `referenced` selector. A `definedOnly`
+  // selector is a constant no test uses; a `commented` selector is queried only
+  // inside a comment. Neither counts as coverage, so the unused-selector and
+  // comment-only arms below RED exactly as a missing mounted test should.
+  // `mountedSuite(...s)` is the healthy shape: every selector queried.
+  const selOf = (sentinel) => `sel-${sentinel.replace(/^rf2-pp-/, '').replace(/-sentinel$/, '')}`;
+  const suiteSource = ({ referenced = [], definedOnly = [], commented = [] }) => {
+    const defs = [...referenced, ...definedOnly, ...commented]
+      .map((s) => `(def ^:private ${selOf(s)} "[data-pp='${s}']")`).join('\n');
+    const queries = referenced
+      .map((s) => `    (is (some? (.querySelector root ${selOf(s)})))`).join('\n');
+    const commentedRefs = commented
+      .map((s) => `    ;; only mentioned here: ${selOf(s)}`).join('\n');
+    return '(ns re-frame.ui.proof-pack.library-dom-cljs-test)\n' +
+      `${defs}\n` +
+      '(deftest exercises-each-view\n  (let [root nil]\n' +
+      (queries ? `${queries}\n` : '') +
+      (commentedRefs ? `${commentedRefs}\n` : '') +
+      '    nil))\n';
+  };
+  const mountedSuite = (...sentinels) => suiteSource({ referenced: sentinels });
   const SIX_SENTINELS = [
     'rf2-pp-alpha-sentinel', 'rf2-pp-beta-sentinel', 'rf2-pp-gamma-sentinel',
     'rf2-pp-delta-sentinel', 'rf2-pp-epsilon-sentinel', 'rf2-pp-zeta-sentinel',
@@ -712,6 +807,55 @@ function selfTest() {
     const problems = evaluateMountedCoverage(renamed, covered);
     assert(problems.some((p) => p.includes('zeta') && p.includes('NOT')), 'the renamed view must be uncovered');
     assert(problems.some((p) => p.includes('rf2-pp-zeta-sentinel') && p.includes('stale')), 'the old selector must be stale');
+  });
+
+  // THE #6492 RESIDUAL (rf2-tt1ta), now caught. A `sel-*` constant DEFINED but
+  // never queried from a test is not behavioural coverage — under the textual
+  // scan its mere presence greened the view. Here the unused selector does not
+  // count, so its view REDs as unexercised.
+  check('COVERAGE: a defined-but-unqueried selector is NOT coverage (unused-selector red arm)', () => {
+    const r = deriveRoster(lib(...SIX), consumer('alpha'));
+    const covered = deriveMountedCoverage(suiteSource({
+      referenced: SIX_SENTINELS.filter((s) => s !== 'rf2-pp-zeta-sentinel'),
+      definedOnly: ['rf2-pp-zeta-sentinel'], // constant exists; no test queries it
+    }));
+    assert(!covered.includes('rf2-pp-zeta-sentinel'), 'an unused selector must not count as covered');
+    const problems = evaluateMountedCoverage(r.views, covered);
+    assert(
+      problems.some((p) => p.includes('zeta') && p.includes('NOT') && p.includes('exercised')),
+      `the unused-selector view must be reported unexercised, got: ${problems.join(' | ')}`,
+    );
+  });
+
+  // A sentinel/selector named only inside a comment is not coverage either —
+  // comments are stripped before references are read.
+  check('COVERAGE: a selector named only in a comment is NOT coverage (comment-only red arm)', () => {
+    const r = deriveRoster(lib(...SIX), consumer('alpha'));
+    const covered = deriveMountedCoverage(suiteSource({
+      referenced: SIX_SENTINELS.filter((s) => s !== 'rf2-pp-zeta-sentinel'),
+      commented: ['rf2-pp-zeta-sentinel'], // selector referenced only in a comment
+    }));
+    assert(!covered.includes('rf2-pp-zeta-sentinel'), 'a comment-only reference must not count as covered');
+    const problems = evaluateMountedCoverage(r.views, covered);
+    assert(
+      problems.some((p) => p.includes('zeta') && p.includes('NOT') && p.includes('exercised')),
+      `the comment-only view must be reported unexercised, got: ${problems.join(' | ')}`,
+    );
+  });
+
+  // And the whole point: deleting a view's mounted test while leaving its
+  // constant behind (the "invisible" case rf2-tt1ta named) REDs the view.
+  check('COVERAGE: deleting a view test while keeping its constant REDs the view', () => {
+    const r = deriveRoster(lib(...SIX), consumer('alpha'));
+    const covered = deriveMountedCoverage(suiteSource({
+      referenced: SIX_SENTINELS.filter((s) => s !== 'rf2-pp-alpha-sentinel'),
+      definedOnly: ['rf2-pp-alpha-sentinel'],
+    }));
+    const problems = evaluateMountedCoverage(r.views, covered);
+    assert(
+      problems.some((p) => p.includes('alpha') && p.includes('NOT')),
+      `the de-tested view must RED, got: ${problems.join(' | ')}`,
+    );
   });
 
   check('COVERAGE: the real mounted suite exercises every real library view', () => {
