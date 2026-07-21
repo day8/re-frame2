@@ -29,7 +29,7 @@ resources/public/index.html
 |---|---|
 | [`deps.edn`](deps.edn) | The Clojure classpath: the two framework artefacts, ClojureScript, and the `:shadow` alias that puts shadow-cljs's JVM side on the classpath. Also `:paths ["src"]` — shadow ignores `:source-paths` in `shadow-cljs.edn` when `:deps` is used. |
 | [`package.json`](package.json) | The npm half: `react` + `react-dom` (resolved from `node_modules` at compile time) and the `shadow-cljs` CLI. Without it there is no `npx shadow-cljs` and no React to compile against. |
-| [`shadow-cljs.edn`](shadow-cljs.edn) | The `:app` build, `:dev-http`, and the two load-bearing re-frame.ui settings — `:cache-blockers` and the `:build-defaults` build hook. |
+| [`shadow-cljs.edn`](shadow-cljs.edn) | The `:app` build, `:dev-http`, and the one load-bearing re-frame.ui setting — the `:build-defaults` build hook. |
 | [`src/my/app.cljs`](src/my/app.cljs) | The app: events, a sub, one `defview`, and the `ui/mount`. |
 | [`resources/public/index.html`](resources/public/index.html) | The host page — supplies the `<div id="root">` that `ui/mount` targets and loads the compiled bundle. |
 

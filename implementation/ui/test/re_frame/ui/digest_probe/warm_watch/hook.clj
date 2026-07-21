@@ -100,7 +100,15 @@
     (let [snap     (build/accepted-snapshot build-state)
           manifest (build/accepted-element-manifest build-state)
           views    (build/accepted-aggregate build/views build-state)
-          members  (member-nss build-state)]
+          members  (member-nss build-state)
+          ;; Warm disk-cache REUSE witness (rf2-u53yy.1 S6): whether the consumer
+          ;; VIEW source was served from Shadow's disk cache this build (`:cached
+          ;; true`) rather than re-compiled. On a fresh daemon start with a primed
+          ;; cache and untouched sources, a `true` here proves the view registry
+          ;; below was harvested from the RESTORED analyzer descriptor without the
+          ;; macro re-running — the whole point of dropping the cache blocker.
+          view-rid (source-rid build-state view-ns)
+          view-cached (boolean (:cached (get-in build-state [:output view-rid])))]
       (record! build-id
                {:stage :finish
                 :accepted-build-id (pr-str (:build-id snap))
@@ -112,7 +120,8 @@
                 :member-leaf (contains? members leaf-ns)
                 :member-leaf-renamed (contains? members leaf-renamed-ns)
                 :member-view (contains? members view-ns)
-                :view-present (contains? views view-id)})
+                :view-present (contains? views view-id)
+                :view-cached view-cached})
       build-state)
 
     build-state))

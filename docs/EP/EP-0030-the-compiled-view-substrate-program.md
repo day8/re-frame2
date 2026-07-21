@@ -499,6 +499,34 @@ baseline is a recorded comparison, not a standing gate.
   `rf2-nn5s8` (#6648) and P-2 `rf2-vvdzx` (#6651, 2026-07-21) — so S7 is the
   live stage. The §Stages sentence is corrected in place alongside this
   addendum.
+- **ERRATUM — the `:cache-blockers #{re-frame.ui}` install tax removed; a tested
+  Shadow version range (2026-07-22, rf2-u53yy.1 S6).** The pre-S6 spec (and the
+  C0 erratum's closing clause above) stated the install/cache contract as **two**
+  load-bearing top-level `shadow-cljs.edn` settings — `:cache-blockers
+  #{re-frame.ui}` plus the `:build-defaults` build hook — pinned to exactly one
+  Shadow version. **Prior clause:** spec/004C §2.1.1 stated that "for Shadow
+  3.4.10 the build hook and top-level `:cache-blockers #{re-frame.ui}` are
+  load-bearing" and that a build omitting the blocker "fails loudly at
+  compile-prepare"; the install how-to published the two-line contract, a
+  version-zero retained-output invalidation, a cache-blocker check, and the
+  (already-deleted) digest-carrier failure modes. **Current disposition:** with
+  the whole-build registries (elements, views, view-static, roots/plans,
+  descriptors) moved onto cache-durable per-namespace analyzer descriptors across
+  slices S1–S5, the cache blocker is no longer needed — a warm daemon start reads
+  the registries from the disk cache Shadow restores on a hit (S0 proof,
+  rf2-u53yy.1.1, across shadow-cljs 3.4.0/3.4.10/3.4.11). S6 therefore **removes**
+  `:cache-blockers #{re-frame.ui}` from every holder and **deletes** the now-dead
+  build-hook inference machinery (provenance marker, compile witness, verdict
+  classifier, unforgeable provenance, final-schedule reconciliation, version-zero
+  eviction, and the cache-blocker validation) that existed only to infer "which
+  sources recompiled" — the descriptor-carried truth dissolves it. The install
+  contract is now the **one** hook setting; the supported Shadow version is the
+  **tested range 3.4.0–3.4.11**, not a single exact pin; and hook omission,
+  formerly a runtime digest throw, now surfaces at runtime as an unresolvable
+  compiled view/root. spec/004C §2.1.1, the install how-to, the setup skill, the
+  template, and the `examples/ui/minimal-counter` scaffold are reconciled to that
+  truth. This discharges the pre-publication install-tax gate (rf2-u53yy.1) that
+  blocked `day8/re-frame2-ui` publication (rf2-vxgfnd.99.2).
 
 ## Open Issues
 

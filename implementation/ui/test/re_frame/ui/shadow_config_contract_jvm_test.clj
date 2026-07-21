@@ -2,10 +2,10 @@
   "rf2-vxgfnd.196 — pin the PUBLISHED re-frame.ui Shadow configuration against
   the repository's own real wiring.
 
-  `docs/core/how-to/install-re-frame-ui.md` ships two settings as a consumer
-  contract:
+  `docs/core/how-to/install-re-frame-ui.md` ships ONE setting as a consumer
+  contract (the old `:cache-blockers #{re-frame.ui}` tax was removed at the S6
+  cut-over, rf2-u53yy.1):
 
-      :cache-blockers #{re-frame.ui}
       :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
 
   and a supported shadow-cljs version. This suite proves the published text
@@ -13,13 +13,13 @@
   hand-copy of the rule.
 
   THE DESIGN CONSTRAINT, and the whole point of the bead: this namespace
-  contains NO literal expected value. It never spells `#{re-frame.ui}`, never
-  spells the hook form, never spells a version number. The expected value IS
+  contains NO literal expected value. It never spells the hook form, never
+  spells a version number. The expected value IS
   `implementation/shadow-cljs.edn`, read at run time. The only literals here are
-  the KEY names being compared at (`:cache-blockers`, `:build-defaults`) and the
-  markdown anchors — coordinates, not truth. A gate that restates the rule can
-  only ever confirm its own copy of it (the rf2-5e3ic failure mode: gates that
-  answered `true` for a 404 and for a path outside the repo).
+  the KEY name being compared at (`:build-defaults`) and the markdown anchors —
+  coordinates, not truth. A gate that restates the rule can only ever confirm
+  its own copy of it (the rf2-5e3ic failure mode: gates that answered `true` for
+  a 404 and for a path outside the repo).
 
   Four holders, compared as DATA:
 
@@ -151,7 +151,7 @@
 ;; The real holders
 ;; ---------------------------------------------------------------------------
 
-(def ^:private contract-keys [:cache-blockers :build-defaults])
+(def ^:private contract-keys [:build-defaults])
 
 (defn- top-level-contract
   "The contract slice of a real shadow-cljs.edn — the source of truth this gate
@@ -177,19 +177,30 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest source-of-truth-is-non-vacuous
-  (testing "this repo's own build actually carries both settings, non-empty"
-    ;; Without this, deleting the settings from ALL holders would make every
+  (testing "this repo's own build actually carries the setting, non-empty"
+    ;; Without this, deleting the setting from ALL holders would make every
     ;; comparison below `{} = {}` and the suite would pass on a repo that no
     ;; longer configures re-frame.ui at all.
     (let [real (top-level-contract impl-config-rel)]
       (is (= (set contract-keys) (set (keys real)))
-          (str impl-config-rel " no longer carries both top-level settings; "
-               "found " (sort (keys real))))
-      (is (and (set? (:cache-blockers real)) (seq (:cache-blockers real)))
-          (str impl-config-rel " :cache-blockers is not a non-empty set"))
+          (str impl-config-rel " no longer carries the top-level build-hook "
+               "setting; found " (sort (keys real))))
       (let [hooks (get-in real [:build-defaults :build-hooks])]
         (is (and (vector? hooks) (seq hooks))
-            (str impl-config-rel " :build-defaults :build-hooks is not a non-empty vector"))))))
+            (str impl-config-rel " :build-defaults :build-hooks is not a non-empty vector")))))
+  (testing "the removed :cache-blockers tax is gone from every real config (S6 cut-over, rf2-u53yy.1)"
+    ;; The whole point of S6: the tax line must not creep back into any real
+    ;; shadow-cljs.edn holder. (The anchored contract blocks in the page and the
+    ;; skill are pinned one-setting by the comparisons below; the page's prose
+    ;; may still discuss the removal.)
+    (doseq [rel [impl-config-rel example-config-rel]]
+      (is (not (contains? (read-config rel) :cache-blockers))
+          (str rel " still carries the removed :cache-blockers install tax")))
+    ;; And the anchored contract blocks themselves must be exactly one setting.
+    (is (not (contains? (published-contract) :cache-blockers))
+        (str page-rel " anchored contract block still carries :cache-blockers"))
+    (is (not (contains? (skill-contract) :cache-blockers))
+        (str skill-rel " anchored contract block still carries :cache-blockers"))))
 
 (deftest published-page-is-parseable
   (testing "both anchors resolve to blocks that read as data"
@@ -244,7 +255,9 @@
              " no longer configure re-frame.ui the same way."))))
 
 ;; ---------------------------------------------------------------------------
-;; Version posture — 3.4.10 sole supported (bead ruling 2026-07-15), lockstep
+;; Version posture — a concrete pin (3.4.10) within the supported, tested range
+;; 3.4.0–3.4.11 (rf2-u53yy.1 S6). The pin published on the page must still equal
+;; the pins the repo and the scaffold actually build with — lockstep.
 ;; ---------------------------------------------------------------------------
 
 (deftest published-version-matches-every-pin
