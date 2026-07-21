@@ -146,6 +146,30 @@
         (when (seq base) base)))
     (when (seq static) static)))
 
+(defn- with-host-root-provenance
+  "Attach DEV, debug-gated PROVENANCE metadata to a host-root element node,
+  recording the compiler's canonical view-evidence values
+  (`:data-rf2-source-coord` / `:data-rf-view`) so `render-static`'s strip
+  (`strip-host-root-annotation`) removes ONLY the generated markers — a key
+  whose runtime value still equals the canonical value — and PRESERVES an
+  authored own value of the same spelling under the rf2-x1nbv collision law
+  (rf2-zgezz #3: the recursive strip otherwise deleted programmer-authored
+  nested attributes too).
+
+  Metadata is out-of-band: it is invisible to structural `=` (goldens),
+  normalization N (parity/fingerprint), and every HTML serialiser — only the
+  JVM render-static strip reads it. Gated on `interop/debug-enabled?`, matching
+  the `static-form` stamp, so a production JVM/SSR build attaches nothing."
+  [element-form annotate]
+  (if annotate
+    (let [{:keys [source-coord view-tag]} annotate]
+      `(cond-> ~element-form
+         re-frame.interop/debug-enabled?
+         (vary-meta assoc :rf.ui/host-root-annotation
+                    {:data-rf2-source-coord ~source-coord
+                     :data-rf-view ~view-tag})))
+    element-form))
+
 (defn- emit-element [node]
   (let [{:keys [props]} node
         annotate  (:rf.ui/annotate node)
@@ -156,7 +180,8 @@
                       (into [] (keep emit-node) (:children node)))
         child-thunk (when (seq child-forms)
                       `(fn [] (re-frame.ui.tree/children ~@child-forms)))]
-    (cond
+    (with-host-root-provenance
+     (cond
       (:spread props)
       (let [spread (:spread props)
             sugar (get-in props [:class :base-str])]
@@ -233,7 +258,7 @@
            :key?   ~(:present? key-info)
            :key-val ~(:expr key-info)
            :props  ~(when (seq pp) pp)
-           :children ~child-thunk})))))
+           :children ~child-thunk}))) annotate)))
 
 ;; ---------------------------------------------------------------------------
 ;; Components

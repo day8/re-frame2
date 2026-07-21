@@ -26,6 +26,13 @@
   [{:keys [title]}]
   [:div.card [:h2 title] [:p "static"]])
 
+;; rf2-zgezz #3 — a view with a PROGRAMMER-AUTHORED nested attribute spelled like
+;; the host-root annotation. render-static must strip only the compiler-generated
+;; host-root markers, preserving this authored nested value.
+(ui/defview nested-authored-card
+  [_]
+  [:div.card [:span {:data-rf-view "authored-nested"} "x"]])
+
 ;; ---------------------------------------------------------------------------
 ;; Fixtures for the no-silent-elision proof (rf2-uv7n6 repair 1). All compiled
 ;; top-to-bottom so their view-static facts are indexed when render-static below
@@ -112,6 +119,23 @@
         (is (not (str/includes? html marker))
             (str "render-static output must not carry the hydration/adoption "
                  "marker " (pr-str marker) " — it is the non-hydrating static path"))))))
+
+;; ---------------------------------------------------------------------------
+;; Provenance — the strip removes ONLY the compiler-generated host-root markers,
+;; preserving programmer-authored attributes of the same spelling (rf2-zgezz #3).
+;; ---------------------------------------------------------------------------
+
+(deftest render-static-preserves-authored-nested-attrs
+  (testing "an authored nested data-rf-view survives the strip; the host-root
+            compiler annotation is still removed"
+    (let [html (ui/render-static [nested-authored-card])]
+      (is (str/includes? html "data-rf-view=\"authored-nested\"")
+          "RED before provenance — the recursive strip deleted this authored attr")
+      (is (not (str/includes?
+                html "data-rf-view=\":re-frame.ssr.render-static-jvm-test/nested-authored-card\""))
+          "the compiler's host-root view id is still stripped (pure static path)")
+      (is (not (str/includes? html "data-rf2-source-coord=\""))
+          "no compiler source-coord leaks — only the authored nested marker remains"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Literal-root enforcement — a macro sees the literal form; a fn cannot. The
