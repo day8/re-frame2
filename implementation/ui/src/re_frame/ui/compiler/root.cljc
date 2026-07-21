@@ -350,22 +350,11 @@
   nil (the `render!` descriptor-base — the client completes identity from
   its Root, fixed at `create-root`).
 
-  This is the Root Descriptor v1 STATIC CORE (Spec 004C §2): the per-root
-  static facts, baked at expansion into the emitted CLJS and stored on the
-  client live-root registry entry. `:build-digest` — a whole-build aggregate,
-  identical for every root in the build — is deliberately NOT baked here: it
-  is the ONE field that cannot be a per-site static fact, so it is a READ-TIME
-  projection stamped onto the COMPLETE descriptor by `descriptor-index`
-  (compiler side) and by `re-frame.ui.client/descriptor-index` (client side).
-  Baking it at expansion made it (a) compile-order dependent — a mount site
-  expanded before the rest of the build's views compiled froze the digest over
-  only the views seen so far — and (b) stale under an incremental view edit —
-  recompiling a view's file without re-expanding the mount site left the
-  descriptor carrying the old digest. The functional build-state authority
-  does not change that: compile-finish derives the candidate strictly AFTER
-  every mount-site macroexpansion, and Shadow accepts it only when the complete
-  pipeline succeeds. Projecting the accepted scalar at read is compile-order
-  independent and never exposes scratch."
+  This is Root Descriptor v1 (Spec 004C §2): the per-root static facts, baked
+  at expansion into the emitted CLJS and stored on the client live-root
+  registry entry. Every field is a per-root static fact resolvable at the
+  mount site's own expansion — the descriptor carries no whole-build
+  aggregate."
   [{:keys [root-id provenance views plans ast]}]
   (let [view (when (= 1 (count views)) (first views))]
     (cond-> {:rf.root/schema-version 1
@@ -427,36 +416,19 @@
 
 #?(:clj
    (defn descriptor-index
-     "The COMPLETE Root Descriptor v1 index projected for READING (the S5
-     tooling / Xray / ui.test compiler-side read; Spec 004C §2): every stored
-     per-root static core stamped with the finalized whole-build
-     `:build-digest`. The digest is a whole-build aggregate — identical for
-     every root — so it is resolved HERE at read, never baked into a
-     descriptor at expansion time, where it would reflect only the views
-     compiled before that mount site (compile-order dependent) and go stale
-     when a view recompiled without re-expanding the mount site
-     (rf2-vxgfnd.47). The value is
-     `re-frame.ui.compiler/current-build-digest`. Outside a compiler binding,
-     callers pass the explicit retained Shadow build-state; no global latest
-     build exists. This is the compiler projection; its CLIENT counterpart is
-     `re-frame.ui.client/descriptor-index`, which projects the SAME
-     byte-identical compiler value from the compile-finish-patched O(1) carrier
-     onto the live-root static cores — the client never recomputes identity from
-     loaded runtime modules. Compile-order independent + incremental==clean by
-     construction."
+     "The Root Descriptor v1 index projected for READING (the S5 tooling /
+     Xray / ui.test compiler-side read; Spec 004C §2): every stored per-root
+     descriptor. Outside a compiler binding, callers pass the explicit
+     retained Shadow build-state; no global latest build exists. Its CLIENT
+     counterpart is `re-frame.ui.client/descriptor-index`, which reads the
+     same per-root static descriptors from the live-root registry."
      ([]
-       (let [bd (compiler/current-build-digest)]
-         (into {}
-               (map (fn [[rid desc]] [rid (assoc desc :build-digest bd)]))
-               ;; COMPLETE reads must not mix effective open-pass descriptor
-               ;; rows with the accepted digest. Compiler diagnostics may use
-               ;; `build-descriptors`; tooling sees one coherent snapshot.
-               (build/committed-aggregate build/descriptors))))
+       ;; Reads must not mix effective open-pass descriptor rows with the
+       ;; accepted set. Compiler diagnostics may use `build-descriptors`;
+       ;; tooling sees one coherent snapshot.
+       (into {} (build/committed-aggregate build/descriptors)))
      ([build-state]
-      (let [bd (compiler/current-build-digest build-state)]
-        (into {}
-              (map (fn [[rid desc]] [rid (assoc desc :build-digest bd)]))
-              (build-descriptors build-state))))))
+      (into {} (build-descriptors build-state)))))
 
 (defn- site-str [{:keys [file line]}]
   (str (or file "<unknown-file>") (when line (str ":" line))))

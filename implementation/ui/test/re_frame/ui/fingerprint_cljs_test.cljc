@@ -1,5 +1,5 @@
 (ns re-frame.ui.fingerprint-cljs-test
-  "template-fingerprint / hook-signature-hash / build-digest — the named
+  "template-fingerprint / hook-signature-hash / config-fingerprint — the named
   home's algorithm pins (FNV-1a 64 over canonical EDN, version-prefixed
   hex). The literal golden pins CROSS-HOST equality: the same input must
   digest identically under `clojure -M:test` and `npm run test:ui`."
@@ -104,7 +104,7 @@
   ;; and `{:x 1}` all as the plain map `cfp2:m9:t2::xt1:1`. Those three values
   ;; are pairwise UNEQUAL, so collapsing them was a GUARANTEED pre-hash
   ;; collision of the same class as the pre-#5745 set flattening — and it lands
-  ;; on the worse failure mode: `config-fingerprint` / `build-digest`
+  ;; on the worse failure mode: `config-fingerprint`
   ;; plan-conflict detection reads a false digest MATCH as "nothing changed", so
   ;; a genuine plan conflict is silently treated as an idempotent no-op.
   (is (map? (->RecA 1)) "premise — a record IS `map?`, which is why it collapsed")
@@ -237,10 +237,3 @@
   ;; fixed hook skeleton makes adding your first sub a same-signature edit
   (is (= (fp/hook-signature-hash {}) (fp/hook-signature-hash {:subs [[:q]]}))))
 
-(deftest build-digest-order-independent
-  (let [t1 [[:a/v "tf1-x" "hs1-y"] [:b/v "tf1-z" "hs1-w"]]
-        t2 [[:b/v "tf1-z" "hs1-w"] [:a/v "tf1-x" "hs1-y"]]]
-    (is (= (fp/build-digest t1) (fp/build-digest t2)))
-    (is (string/starts-with? (fp/build-digest t1) "bd1-"))
-    (is (not= (fp/build-digest t1)
-              (fp/build-digest [[:a/v "tf1-x" "hs1-y"]])))))

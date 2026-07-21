@@ -296,8 +296,8 @@
         ":static-props records the literal map verbatim")
     (is (re-find #"^tf1-[0-9a-f]{16}$" (:template-fingerprint d)))
     (is (not (contains? d :build-digest))
-        "root-descriptor bakes NO :build-digest — the whole-build digest is a
-         read-time projection stamped by descriptor-index (rf2-vxgfnd.47)")))
+        "root-descriptor is per-root static facts only; it carries no
+         whole-build aggregate")))
 
 (deftest descriptor-dynamic-props
   (let [d (descriptor* '[app-view {:promo (current-promo)}] {})]

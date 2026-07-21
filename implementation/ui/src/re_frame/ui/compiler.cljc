@@ -23,9 +23,9 @@
 ;; Each Shadow build carries accepted registries plus disposable compiler-env
 ;; scratch. A recompiled / edited / renamed source replaces its prior rows and
 ;; independent builds never share state. Distinct declarations with equal ids
-;; fail atomically; the same var remains the HMR replacement path. The digest is
-;; computed once from the finalized candidate and becomes accepted only when
-;; Shadow retains the returned build-state after the complete pipeline.
+;; fail atomically; the same var remains the HMR replacement path. The finalized
+;; candidate registries become accepted only when Shadow retains the returned
+;; build-state after the complete pipeline.
 ;;
 ;; The compile-time custom-element declarations are a build-scoped registry
 ;; like the other four: WRITTEN here (macro expansion → `build/contribute!
@@ -38,17 +38,6 @@
 ;; `re-frame.ui.rules/custom-elements` ledger (populated by the emitted
 ;; `register-custom-element!`, read at render for dynamic `ui/spread` props);
 ;; it is separate from this compile registry.
-
-(defn current-build-digest
-  "The deterministic whole-build digest (`bd1-...`) of an accepted build.
-
-  With no argument this reads the currently bound compiler-env (or the
-  plain-JVM test fallback). JVM tooling outside compilation must pass the
-  explicit retained Shadow build-state/compiler-env; there is no process-global
-  'latest build' authority."
-  ([] (build/finalized-build-digest))
-  ([build-state-or-compiler-env]
-   (build/accepted-build-digest build-state-or-compiler-env)))
 
 (def ^:private defview-option-keys #{:props :id :display-name})
 

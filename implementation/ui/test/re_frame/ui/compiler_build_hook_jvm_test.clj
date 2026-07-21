@@ -141,9 +141,7 @@
                        [['app.a :app/view ["tf1-c" "hs1-c"]]])]
       (is (= {:app/view ["tf1-c" "hs1-c"]} (views good-2)))
       (is (= 2 (:version (build/accepted-snapshot good-2))))
-      (is (= 1 (:version (build/accepted-snapshot good-1))))
-      (is (not= (build/accepted-build-digest good-1)
-                (build/accepted-build-digest good-2))))))
+      (is (= 1 (:version (build/accepted-snapshot good-1)))))))
 
 (deftest prepare-overwrites-dirty-scratch-and-clears-repl-overlay
   (let [seed (graph-state :app :compile-prepare '#{app.a})
@@ -165,17 +163,15 @@
 (deftest no-pass-repl-is-an-isolated-non-publishing-overlay
   (let [seed (graph-state :app :compile-prepare '#{app.a})
         good (pass seed '#{app.a} [['app.a :app/view ["tf1-good" "hs1-good"]]])
-        digest (build/accepted-build-digest good)
         ;; Macroexpand-only / never-evaluated / runtime-failed forms all have
         ;; the same compiler-side shape. They may accumulate in the disposable
-        ;; overlay, but cannot enter the accepted snapshot or carrier digest.
+        ;; overlay, but cannot enter the accepted snapshot.
         repl-state (-> good
                        (declare-view 'repl.ghost :repl/ghost
                                      ["tf1-ghost" "hs1-ghost"])
                        (declare-view 'repl.success :repl/success
                                      ["tf1-success" "hs1-success"]))]
     (is (= {:app/view ["tf1-good" "hs1-good"]} (views repl-state)))
-    (is (= digest (build/accepted-build-digest repl-state)))
     (is (= #{:app/view :repl/ghost :repl/success}
            (set (keys (read-in-compiler repl-state
                                         #(build/aggregate build/views))))))
@@ -254,9 +250,7 @@
         b (pass (graph-state :b :compile-prepare '#{app.view})
                 '#{app.view} [['app.view :app/view ["tf1-b" "hs1-b"]]])]
     (is (= {:app/view ["tf1-a" "hs1-a"]} (views a)))
-    (is (= {:app/view ["tf1-b" "hs1-b"]} (views b)))
-    (is (not= (build/accepted-build-digest a)
-              (build/accepted-build-digest b)))))
+    (is (= {:app/view ["tf1-b" "hs1-b"]} (views b)))))
 
 (deftest descriptor-index-reads-one-coherent-explicit-accepted-snapshot
   (let [a (-> (graph-state :a :compile-prepare '#{app.a})
@@ -273,12 +267,6 @@
         b-index (root/descriptor-index b)]
     (is (= #{:page/a} (set (keys a-index))))
     (is (= #{:page/b} (set (keys b-index))))
-    (is (= (build/accepted-build-digest a)
-           (get-in a-index [:page/a :build-digest])))
-    (is (= (build/accepted-build-digest b)
-           (get-in b-index [:page/b :build-digest])))
-    (is (not= (get-in a-index [:page/a :build-digest])
-              (get-in b-index [:page/b :build-digest])))
 
     ;; A process-global fallback can contain unrelated data, but explicit
     ;; retained-state reads remain build-local.
@@ -289,13 +277,10 @@
     (is (= #{:page/a} (set (keys (root/descriptor-index a)))))
     (is (= #{:page/b} (set (keys (root/descriptor-index b)))))
 
-    ;; Stage a descriptor in disposable scratch. The ambient COMPLETE read
-    ;; must pair accepted rows with the accepted digest, never expose the
-    ;; candidate row stamped with an old scalar.
+    ;; Stage a descriptor in disposable scratch. The ambient read must expose
+    ;; only accepted rows, never the candidate row from open scratch.
     (let [open-a (-> a
                      (prepare '#{app.a app.pending} '#{app.pending})
                      (declare-descriptor 'app.pending :page/pending :pending))
           ambient-index (read-in-compiler open-a #(root/descriptor-index))]
-      (is (= #{:page/a} (set (keys ambient-index))))
-      (is (= (build/accepted-build-digest a)
-             (get-in ambient-index [:page/a :build-digest]))))))
+      (is (= #{:page/a} (set (keys ambient-index)))))))

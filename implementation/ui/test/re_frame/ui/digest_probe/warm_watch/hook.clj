@@ -105,7 +105,6 @@
                {:stage :finish
                 :accepted-build-id (pr-str (:build-id snap))
                 :version (:version snap)
-                :digest (:digest snap)
                 :card-props (props-image manifest card-tag)
                 :leaf-props (props-image manifest leaf-tag)
                 :leaf-tag-present (contains? manifest leaf-tag)

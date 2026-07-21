@@ -98,7 +98,7 @@ Every failure mode here is fail-closed by design. A build that cannot prove its 
 
 | What's missing | Where it fails | What you see |
 |---|---|---|
-| `:cache-blockers` (hook present) | build, at compile-prepare | `:re-frame.ui.compiler.build-hook/cache-blocker-missing` — *"re-frame.ui dev builds require `:cache-blockers #{re-frame.ui}`; refusing a plausible but incomplete warm-cache digest"*. The `ex-data` carries `:configured` (what you actually set) and `:expected`. |
+| `:cache-blockers` (hook present) | build, at compile-prepare | `:re-frame.ui.compiler.build-hook/cache-blocker-missing` — *"re-frame.ui dev builds require `:cache-blockers #{re-frame.ui}`; refusing a plausible but incomplete warm-cache build"*. The `ex-data` carries `:configured` (what you actually set) and `:expected`. |
 | the hook (blocker present or not) | runtime, on namespace load | `re-frame.ui build digest was not finalized. Configure (re-frame.ui.compiler.build-hook/hook) in Shadow :build-hooks and keep re-frame.ui in :cache-blockers.` |
 | carrier drift — the hook ran but the output shape isn't what it requires | build, at compile-finish | `:re-frame.ui.compiler.build-hook/carrier-output-invalid`, e.g. *"re-frame.ui expected exactly one compiled digest carrier output"*. Usually an unsupported Shadow version or a build hook ordering problem. |
 
@@ -115,7 +115,7 @@ The smoke test is short, and worth running once when you set the project up:
 
 Step 3 is the one people skip, and it is the only one that exercises the warm-cache path these settings exist to protect.
 
-Working from a checkout of this repository? `npm run test:ui-digest-carrier` is the in-repo proof, and [`examples/ui/minimal-counter`](https://github.com/day8/re-frame2/tree/main/examples/ui/minimal-counter) is a complete runnable project carrying exactly the configuration above.
+Working from a checkout of this repository? [`examples/ui/minimal-counter`](https://github.com/day8/re-frame2/tree/main/examples/ui/minimal-counter) is a complete runnable project carrying exactly the configuration above.
 
 ## The hook is a host seam, not an API
 

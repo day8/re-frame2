@@ -1541,31 +1541,6 @@ test('the UI isolation checker fires the focused gate it implements', () => {
   assert.match(block, /npm run test:ui-isolation/);
 });
 
-test('the UI digest-carrier checker fires its Playwright-owning browser proof', () => {
-  const result = classify('implementation/scripts/check-ui-digest-carrier.cjs');
-  assert.equal(
-    result.cljs_browser,
-    'true',
-    'the checker-only PR must start the browser job that owns the proof',
-  );
-  assert.equal(
-    result.ui_gates,
-    'true',
-    'the checker-only PR must satisfy the proof step condition',
-  );
-
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs-browser');
-  const install = block.indexOf('npx playwright install --with-deps chromium');
-  const proof = block.indexOf('npm run test:ui-digest-carrier');
-  assert.notEqual(install, -1, 'the owning job must install the pinned browser');
-  assert.notEqual(proof, -1, 'the owning job must run the digest-carrier proof');
-  assert.ok(install < proof, 'the browser install must precede the digest-carrier proof');
-  assert.match(
-    block,
-    /if: needs\.detect_changed_surfaces\.outputs\.ui_gates == 'true'/,
-  );
-});
-
 test('spec-only changes do not arm ui_gates (rf2-vxgfnd.6)', () => {
   assert.notEqual(classify('spec/Conventions.md').ui_gates, 'true');
 });

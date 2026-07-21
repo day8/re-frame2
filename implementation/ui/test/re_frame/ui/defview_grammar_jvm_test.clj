@@ -562,16 +562,7 @@
           text (pr-str forms)]
       (is (str/includes? text "re-frame.ui.runtime/register-view!"))
       (is (not (str/includes? text "bd1-"))
-          "ordinary file/watch output is finalized once by the carrier hook; registrations carry no scalar"))
+          "view registrations bake no build-identity scalar into the emitted output"))
     (finally
       (build/abort-build! ::file))))
 
-;; ---------------------------------------------------------------------------
-;; Build digest
-;; ---------------------------------------------------------------------------
-
-(deftest build-digest-has-a-home
-  (defview bd-probe [] [:div "bd"])
-  (is (str/starts-with? (compiler/current-build-digest) "bd1-"))
-  (is (= (compiler/current-build-digest) (compiler/current-build-digest))
-      "stable within a build"))

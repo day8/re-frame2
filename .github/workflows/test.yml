@@ -1826,15 +1826,6 @@ jobs:
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium
 
-      # The digest-carrier proof drives a real browser through lazy module
-      # loading, an intentional downstream flush failure, and recovery. Keep
-      # it in this Playwright-owning job rather than the node-test isolation
-      # step: npm installs the pinned Playwright package in both jobs, but only
-      # this job installs its matching Chromium binary and system libraries.
-      - name: re-frame.ui digest-carrier lazy/HMR/failure/recovery proof
-        if: needs.detect_changed_surfaces.outputs.ui_gates == 'true'
-        run: npm run test:ui-digest-carrier
-
       - name: Compile :browser-test, serve, and run Playwright runner
         run: npm run test:browser
 

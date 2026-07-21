@@ -16,10 +16,8 @@
   `analyze!` below is that reduction verbatim. `compile-ns!` applies it to the
   `:ns` AST node `cljs.analyzer`'s `parse 'ns` produces — the ONLY form a
   viewless zero-declaration recompile still has, and therefore the strictest
-  case. `witness-pass-is-driven-by-pinned-clojurescript` in
-  `re-frame.ui.compiler-digest-carrier-jvm-test` pins this model against the REAL
-  `cljs.analyzer/analyze*` on a REAL `(ns …)` form, so the shortcut cannot drift
-  from the machinery it stands in for.
+  case. The build-hook provenance fixtures drive this model, and the real-Shadow
+  warm-watch gate exercises the same witness end-to-end against a live daemon.
 
   Modelling the analyzer instead of Shadow's `[:shadow.build/build-info
   :compiled]` set is the whole point of rf2-suz5b: pinned Shadow derives that set
