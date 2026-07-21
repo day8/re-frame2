@@ -1554,20 +1554,48 @@
   loop uses the compiled group lookup rather than re-walking the pattern
   source."
   ([{route-id :to path-params :params query-params :query fragment :fragment :as address}]
+   ;; TOTAL address-shape boundary (Spec 012 route-url). Every shape failure
+   ;; routes through `:rf.error/route-url-validation` rather than a raw or
+   ;; misleading host error (rf2-oq0ld):
+   ;;   - a NON-MAP address reached `(keys address)` and threw a host
+   ;;     exception ("Don't know how to create ISeq from ...");
+   ;;   - a missing `:to` fell through to the `nil` pattern check and raised
+   ;;     the misleading `:rf.error/no-such-route` "id nil";
+   ;;   - a MIXED-KIND bad-key set reached a plain `sort` and threw a
+   ;;     `compare` ClassCastException instead of naming the keys.
+   ;; The destructuring above is total (`get` on a non-map yields nil), so
+   ;; these three guards run before any host throw.
+   (when-not (map? address)
+     (throw (route-error
+              :rf.error/route-url-validation
+              'rf.routing/route-url
+              (str "route-url requires an address map "
+                   "{:to <route-id> :params … :query … :fragment …}, got "
+                   (pr-str (type address)) ".")
+              {:reason :not-a-map :value address})))
    ;; Strictly ADDRESS-ONLY (Spec 012 route-url): reject `:url`,
    ;; `:query-merge`, policy keys, and any unknown key LOUD rather than
    ;; silently ignoring them. The navigate handler select-keys'es its request
    ;; and link-model projects its target map, so the framework callers never
-   ;; trip this; a direct misuse of the public `route-url` fails fast.
+   ;; trip this; a direct misuse of the public `route-url` fails fast. Bad
+   ;; keys are reported in TOTAL canonical order (`identity/canonical-bytes`)
+   ;; so a heterogeneous EDN-key set never trips `compare`.
    (when-let [bad (seq (remove #{:to :params :query :fragment} (keys address)))]
+     (let [bad (vec (sort-by identity/canonical-bytes bad))]
+       (throw (route-error
+                :rf.error/route-url-validation
+                'rf.routing/route-url
+                (str "route-url is address-only: it accepts only :to :params :query "
+                     ":fragment. Rejected key(s) " (pr-str bad)
+                     " (:url / :query-merge / policy keys / unknown keys are not "
+                     "accepted by route-url).")
+                {:route-id route-id :keys bad :reason :bad-address-keys}))))
+   (when (nil? route-id)
      (throw (route-error
               :rf.error/route-url-validation
               'rf.routing/route-url
-              (str "route-url is address-only: it accepts only :to :params :query "
-                   ":fragment. Rejected key(s) " (pr-str (vec (sort bad)))
-                   " (:url / :query-merge / policy keys / unknown keys are not "
-                   "accepted by route-url).")
-              {:route-id route-id :keys (vec (sort bad)) :reason :bad-address-keys})))
+              "route-url requires an address with a :to route-id (the destination route)."
+              {:reason :missing-to})))
    (let [query-params (or query-params {})
          ;; Elide nil-valued query keys before schema validation, and reuse
          ;; that same map for emission. Per

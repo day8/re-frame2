@@ -15,6 +15,7 @@
   `:reload` re-wires it on a fresh registrar."
   (:require [clojure.set :as set]
             [re-frame.frame :as frame]
+            [re-frame.identity :as identity]
             [re-frame.late-bind :as late-bind]
             [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
@@ -44,6 +45,30 @@
   requests."
   #{:query :query-merge :fragment})
 
+(defn- validate-event-shape
+  "The event-VECTOR shape gate for `:rf.route/navigate`, run BEFORE the
+  request map is examined (Spec 012 §Validity rules). The event is exactly
+  `[:rf.route/navigate {request}]`: a TWO-element vector whose payload is a
+  MAP. Returns nil when the shape is well-formed, else `{:reason <kw> :keys
+  []}`.
+
+  Two half-migrated / malformed shapes escaped the request gate before this
+  ran: a THIRD event element (a positional opts map left over from the
+  deleted `[:rf.route/navigate target opts]` split) was silently DROPPED
+  while the navigation proceeded, and a NON-MAP payload reached the request
+  gate's `dissoc` and threw a RAW host exception. Both now reject LOUD
+  through `:rf.error/navigate-bad-request` (`:reason :bad-event-arity` /
+  `:request-not-a-map`), slice unchanged, no push."
+  [event-vec]
+  (cond
+    (not= 2 (count event-vec))
+    {:reason :bad-event-arity :keys []}
+
+    (not (map? (second event-vec)))
+    {:reason :request-not-a-map :keys []}
+
+    :else nil))
+
 (defn- validate-request
   "The always-on structural gate for a `:rf.route/navigate` request map
   (Spec 012 Enforcement). Returns nil when the request is well-formed,
@@ -51,27 +76,38 @@
   violation. Plain set logic, total over `request-roster`; rejects BEFORE
   any guard evaluation so a malformed request never consumes a `:can-leave`
   run. `current` is the current route slice (nil before the first
-  navigation).
+  navigation). Runs AFTER `validate-event-shape`, so `request` is a map.
 
   The rules (Spec 012 Validity rules):
   1. `:to` xor `:url`.
   2. `:url` excludes `:params` / `:query` / `:query-merge` -- a raw URL IS
      the address. `:url` + `:fragment` is legal.
-  3. `:query` xor `:query-merge`.
-  4. `:query-merge` requires an in-place request (no `:to` / `:url`).
-  5. A destination (`:to` / `:url`) OR an in-place change is required;
+  3. `:params` requires a destination (`:to` / `:url`) -- it names path
+     params for a FRESH address, so it is NEVER accepted in-place (changing
+     params is a destination).
+  4. `:query` xor `:query-merge`.
+  5. `:query-merge` requires an in-place request (no `:to` / `:url`).
+  6. A destination (`:to` / `:url`) OR an in-place change is required;
      PRESENCE discriminates. Empty maps and pure-policy maps reject loud.
-  6. An in-place request before any current route exists rejects loud.
-  7. Unknown keys reject (namespaced included)."
+  7. An in-place request before any current route exists rejects loud.
+  8. Unknown keys reject (namespaced included), reported in a total
+     canonical order (`identity/canonical-bytes`) so heterogeneous EDN keys
+     never trip a `compare`-based `sort` -- the key report is TOTAL on both
+     hosts."
   [request current]
   (let [ks           (set (keys request))
         unknown      (set/difference ks request-roster)
         destination? (or (contains? request :to) (contains? request :url))
         in-place?    (boolean (seq (set/intersection ks in-place-change-keys)))
-        present      (fn [& kws] (vec (filter #(contains? request %) kws)))]
+        present      (fn [& kws] (vec (filter #(contains? request %) kws)))
+        ;; Total, host-symmetric key order over heterogeneous EDN keys -- a
+        ;; plain `sort` throws when a request carries mixed-kind keys (a
+        ;; keyword beside a string / number), so the offending-key report is
+        ;; ordered by the shared CEDN-1 identity the whole prism sorts by.
+        sorted-keys  (fn [kws] (vec (sort-by identity/canonical-bytes kws)))]
     (cond
       (seq unknown)
-      {:reason :unknown-keys :keys (vec (sort unknown))}
+      {:reason :unknown-keys :keys (sorted-keys unknown)}
 
       (and (contains? request :to) (contains? request :url))
       {:reason :to-url-exclusive :keys [:to :url]}
@@ -80,6 +116,9 @@
            (some #(contains? request %) [:params :query :query-merge]))
       {:reason :url-excludes-address :keys (present :params :query :query-merge)}
 
+      (and (contains? request :params) (not destination?))
+      {:reason :params-requires-destination :keys [:params]}
+
       (and (contains? request :query) (contains? request :query-merge))
       {:reason :query-exclusive :keys [:query :query-merge]}
 
@@ -87,10 +126,10 @@
       {:reason :query-merge-in-place-only :keys [:query-merge]}
 
       (not (or destination? in-place?))
-      {:reason :no-destination-or-change :keys (vec (sort ks))}
+      {:reason :no-destination-or-change :keys (sorted-keys ks)}
 
       (and (not destination?) in-place? (nil? current))
-      {:reason :no-current-route :keys (vec (sort ks))}
+      {:reason :no-current-route :keys (sorted-keys ks)}
 
       :else nil)))
 
@@ -267,9 +306,16 @@
           ;; enter-attempts` is threaded by `:rf.route/continue`
           ;; (can_leave.cljc) and is continuation bookkeeping, absent from the
           ;; published grammar. It still rides `event-vec` so the guard gate's
-          ;; `loop-count` can read it on a resume.
-          request (dissoc (or request0 {}) :rf.route/enter-attempts)
-          bad     (validate-request request current)]
+          ;; `loop-count` can read it on a resume. Guarded on `map?` so a
+          ;; non-map payload never reaches `dissoc` (a raw host throw) -- the
+          ;; event-shape gate rejects it first through the same channel.
+          request (when (map? request0)
+                    (dissoc request0 :rf.route/enter-attempts))
+          ;; The event-VECTOR shape gate runs first (arity + map payload),
+          ;; then the request-MAP structural gate. Both surface the same
+          ;; `:rf.error/navigate-bad-request` channel.
+          bad     (or (validate-event-shape event-vec)
+                      (validate-request request current))]
       (if bad
         ;; Spec 012 §Error surfaces #1: the always-on structural gate rejected
         ;; the request. `:rf.error/navigate-bad-request` is a DISTINCT channel
