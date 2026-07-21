@@ -18,7 +18,7 @@ It then applies a transformation catalog organised by what you do with each rule
 
 - **M-tier ("do this")** — unambiguous mechanical rewrites, before→after each: `reg-view`→`ui/defview`, deref-drop, dispatch-lifting, prop respelling, key-meta→prop, plain hiccup, mount, ns requires, `:dangerouslySetInnerHTML`→`ui/html`.
 - **D-tier ("how to DECIDE")** — the judgment cases the skill reasons through: Form-2/`with-let` local state (app-db vs `local`), Form-3 lifecycle (effect vs domain event), derived state (`track`/`cursor`/`reaction`), the ratom-as-store restructure, computed DOM props + the bare-symbol trap, third-party Reagent wrappers.
-- **R-tier ("don't migrate — stay on Reagent, or wait")** — the honesty backbone: genuine rejects (Reagent introspection/scheduler, dynamic tag heads, effectful subs) and the experimental capability gaps that remain unshipped (the explicit-frame `sub` frame-pin).
+- **R-tier ("don't migrate — stay on Reagent, or wait")** — the honesty backbone: genuine rejects (Reagent introspection/scheduler, dynamic tag heads) and the experimental capability gaps that remain unshipped (the explicit-frame `sub` frame-pin). (An effectful sub body is a *dataflow-side* heads-up — make the sub pure — not itself a view hold.)
 
 This is an **AI skill that applies judgment, not a codemod** — there is no rewrite-clj tool to run. For an ambiguous view it *reasons* about the right re-frame.ui shape rather than emitting a flag. It rewrites the **view tier** only; where a view forces a dataflow change (a new `reg-sub`, a hoisted event), it *names* it for the author rather than editing the dataflow layer.
 

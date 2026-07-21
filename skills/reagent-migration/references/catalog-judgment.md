@@ -41,7 +41,7 @@
 
 **The decision: decompose each lifecycle body into host work vs domain work.** Mechanical parts first: delete `:should-component-update` (memo-by-default makes it dead), and extract `:reagent-render` as the view body (the other rules apply to it). Then, per lifecycle body, split by *what the body does*:
 
-- **Host / DOM work** → split by *timing*, because `component-did-mount` fired **before paint** and the passive `effect` fires **after** it. Ordinary listeners and deferrable host work (wire a listener, focus a node, kick off a fetch, attach a chart that sizes itself) → `(effect :connect …)`; its signature is a trap — read **the `effect` signature** below before you emit one. But work that **measures or mutates the DOM before the browser paints** — reading a node's geometry to place a popover/dropdown, sizing a table viewport — must NOT move to the passive `effect` (it would measure a frame late and flicker). Route that to **`ui/ref` + `re-frame.ui.react/use-layout-effect`** — the measure-before-paint door (see **below**).
+- **Host / DOM work** → split by *timing*, because `component-did-mount` fired **before paint** and the passive `effect` fires **after** it. Ordinary listeners and genuinely deferrable host work (wire a listener, attach a resize observer) → `(effect :connect …)`; its signature is a trap — read **the `effect` signature** below before you emit one. But work whose **initial DOM/visual state must exist before the browser paints** — reading a node's geometry to place a popover/dropdown, sizing a table viewport — must NOT move to the passive `effect` (it would land a frame late and flicker). Route that to **`ui/ref` + `re-frame.ui.react/use-layout-effect`** — the measure-before-paint door (see **below**). **Classify focus and chart setup by that same timing test, not by filing them under one door:** an initial focus ring, scroll position, or first chart draw that must be on screen at first paint belongs in the layout effect; the same setup, when deliberately deferrable, stays on the passive `effect`. (Loading data is **not** host work — a "load on mount" is a domain event through the dataflow, next.)
 - **Domain work on MOUNT** ("mark viewed", "load on mount") → a route/domain **event** through the dataflow (name it for the author). There is deliberately **no** `:on-mount` primitive; domain-on-mount is a dispatch through the dataflow, not a lifecycle hook.
 - **Domain work on UNMOUNT** ("release a held resource", "mark the draft abandoned") → **re-home it OUT of the view** — see **Domain work on unmount** below. There is **no dispatch-at-unmount** in native re-frame.ui; you do **not** preserve it as an `effect` cleanup.
 
@@ -67,16 +67,21 @@ Only for the narrow pre-paint case (geometry read, DOM mutation the layout depen
  {:component-did-mount (fn [this] (place! (rdom/dom-node this) (measure anchor)))
   :reagent-render      (fn [] [:div.popover …])})
 
-;; after — pre-paint semantics preserved by the layout effect, node via ui/ref
+;; after — pre-paint semantics preserved by the layout effect, node via ui/ref.
+;; BOTH the ref and the hook are outer-let BINDINGS — `ui/ref` is bound in the
+;; defview's top-region let, and a host hook is a binding value, never a second
+;; statement in the let body. A hook call left in the body makes the let a
+;; two-form body and FAILS compilation with :rf.ui.compile/multi-form-body at
+;; [:body]; the single template is the only form the body may hold.
 (ui/defview popover [{:keys [anchor]}]
-  (let [el (ui/ref)]
-    (react/use-layout-effect
-      (fn [] (place! (.-current el) (measure anchor)) nil)   ; runs BEFORE paint; nil = no cleanup
-      [anchor])
+  (let [el (ui/ref)
+        _  (react/use-layout-effect
+             (fn [] (place! (.-current el) (measure anchor)) nil)   ; runs BEFORE paint; nil = no cleanup
+             [anchor])]
     [:div.popover {:ref el} …]))
 ```
 
-Everything else — listeners, focus, deferrable work — stays on the passive `effect` below. This is a targeted door, not a hooks-migration framework.
+Everything else — listeners and deferrable host work — stays on the passive `effect` below (focus and chart setup follow the timing test above: the layout-effect door only when the initial state must exist before paint). This is a targeted door, not a hooks-migration framework.
 
 ### `effect`'s signature (verify against `ui.cljc` — REQUIRED)
 
@@ -169,12 +174,12 @@ Coupled to MIG-16's state decision (local work often reads/writes view-local sta
 (reagent.dom.server/render-to-string [app])
 ```
 
-**The decision: which SSR path?** re-frame.ui ships both — pick by intent:
+**The decision: which SSR path?** re-frame.ui ships the **static-page** path end-to-end; the **SSR-then-hydrate** path has shipped its **client adoption half only** — pick by intent, and hold the hydrate path if you need the server half today:
 
-- **Static-page (non-hydrating) HTML** — the compiled counterpart of React's `renderToStaticMarkup` → **`(ui/render-static [app-root])`**. Pure `:server` phase, no manifest, no hydration payload; a `ui/client-only` site renders its capability-free fallback and stops. JVM/server only; the root form must be literal.
-- **SSR-then-hydrate** — server-emit then adopt on the client → **`re-frame.ssr/hydrate!`** (seed state, no `:render-tree-fn` for a compiled root) **then `ui/hydrate-root`** (per Spec 011). The `reagent.dom.client/hydrate-root` mount from MIG-15 routes here.
+- **Static-page (non-hydrating) HTML** — the compiled counterpart of React's `renderToStaticMarkup` → **`(ui/render-static [app-root])`**. Pure `:server` phase, no manifest, no hydration payload; a `ui/client-only` site renders its capability-free fallback and stops. JVM/server only; the root form must be literal. **This arm is shipped end-to-end.**
+- **SSR-then-hydrate — client half shipped, server half not yet.** The client adoption half is real: **`re-frame.ssr/hydrate!`** (seed state, no `:render-tree-fn` for a compiled root) **then `ui/hydrate-root`** (per Spec 011), and the `reagent.dom.client/hydrate-root` mount from MIG-15 routes here. But the **server** half is not a supported public path yet: `re-frame.ssr/emit-ui-tree` emits one root's **markup only**, and the page-assembly that renders the root *and* emits its adjacent Root Manifest (the response-local page registry a hydrating client needs) lives in an internal namespace under a separate, still-open owner. So a compiled **hydrating** root has **no shipped public server page-assembly path today**. **Hold** an SSR-then-hydrate migration — keep it on Reagent's `render-to-string` — until that server owner lands; the static-page arm above is unaffected.
 
-Keep the caveat: views using refs/effects need `ui/client-only` (or restructure) for the server phase. (The genuinely-still-unshipped SSR pieces are none of the above — `render-static` and `hydrate-root` shipped; verify any exotic SSR helper against `ui.cljc`'s exports before assuming it exists.)
+Keep the caveat: views using refs/effects need `ui/client-only` (or restructure) for the server phase. (`ui/render-static` and `ui/hydrate-root` shipped; the still-missing SSR piece is the public server page-assembly / Root-Manifest path for a hydrating root — verify any SSR helper against `re-frame.ssr`'s exports before assuming it exists.)
 
 ## MIG-19 — derived state (`r/track` / `r/cursor` / `reaction`)
 
