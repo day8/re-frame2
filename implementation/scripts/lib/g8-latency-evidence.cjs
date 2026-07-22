@@ -11,7 +11,10 @@
 // comparative REFERENCE BUDGET for that evidence — not as a gate requirement;
 // this module MEASURES that ratio, records the sample count + noise policy, and
 // REPORTS `within-10pct` — but nothing here becomes a pass/fail wall-clock
-// threshold. The gate follows G-13's
+// threshold. Since rf2-dpwel the evidence carries TWO channels per engine:
+// `commit` (the true event-to-commit boundary — the arm's own Profiler
+// onRender commitTime) and `settlement` (the former input-to-quiescence
+// metric, retained for comparison); the ratio is reported for both. The gate follows G-13's
 // evidence-only/no-threshold posture: a noisy CI host must never redden a
 // correctness gate on a timing number. Deterministic correctness (one React
 // commit per ordinary input, exactly one at the committed IME boundary) is the
@@ -41,13 +44,26 @@ const PERCENTILE_CONVENTION =
 const RATIO_BUDGET = 1.1;
 
 // The noise policy recorded in the artifact so the stated relative budget is
-// reproducible and meaningful.
+// reproducible and meaningful. rf2-dpwel resolved the two measurement effects
+// the rf2-5qz8z audit surfaced: the endpoint is now the arm's own Profiler
+// commit (not flush settlement), and the pair order alternates (no fixed
+// compiled-first sequence bias).
 const NOISE_POLICY =
-  'interleaved per sample (compiled then hand-written, same warmed run); ' +
-  `first ${WARMUP_SAMPLES} warm-up samples per control discarded; ` +
-  `${RECORDED_SAMPLES} recorded samples per control per engine; ` +
-  'each sample is one fresh-value native input dispatched to React commit ' +
-  `under awaited React act; ${PERCENTILE_CONVENTION}`;
+  'one compiled + one hand-written sample per pair, same warmed run; pair ' +
+  'order ALTERNATES compiled-first / hand-written-first (no fixed sequence ' +
+  `bias); first ${WARMUP_SAMPLES} warm-up pairs per engine discarded; ` +
+  `${RECORDED_SAMPLES} recorded samples per control per channel per engine; ` +
+  'each sample keys one fresh-value native input to its own React.Profiler ' +
+  'onRender commitTime with exactly one attributable commit asserted per ' +
+  `sample; ${PERCENTILE_CONVENTION}`;
+
+// The two measurement channels every sample carries (rf2-dpwel):
+//   commit     — TRUE event-to-commit: native input dispatch to the arm's own
+//                React.Profiler onRender commitTime.
+//   settlement — the FORMER metric, retained for comparison: the same input to
+//                ui.test/flush! settlement (awaited React act + framework
+//                draining to the fixed point — input-to-global-quiescence).
+const CHANNELS = ['commit', 'settlement'];
 
 function evidenceFail(message) {
   return new Error(`G-8 latency-evidence FAIL: ${message}`);
@@ -132,12 +148,12 @@ function p95Ratio(compiledP95, baselineP95) {
   return compiledP95 / baselineP95;
 }
 
-// The per-engine comparative-latency evidence object built from the two raw
-// sample arrays measured in the SAME warmed run. Pure — the runner folds this
-// into the artifact's `performance` section.
+// The comparative-latency evidence object for ONE channel, built from the two
+// raw sample arrays measured in the SAME warmed run. Pure — the runner folds
+// this into the artifact's `performance` section (per engine, per channel).
 function engineLatencyEvidence(engine, compiledRaw, handwrittenRaw) {
-  const compiled = summarizeLatency(compiledRaw, `[${engine}] compiled event-to-commit`);
-  const handwritten = summarizeLatency(handwrittenRaw, `[${engine}] hand-written event-to-commit`);
+  const compiled = summarizeLatency(compiledRaw, `[${engine}] compiled latency`);
+  const handwritten = summarizeLatency(handwrittenRaw, `[${engine}] hand-written latency`);
   return {
     engine,
     'samples-recorded': RECORDED_SAMPLES,
@@ -150,47 +166,77 @@ function engineLatencyEvidence(engine, compiledRaw, handwrittenRaw) {
   };
 }
 
+// The per-engine TWO-CHANNEL comparative-latency evidence built from the
+// fixture's latency payload: the `commit` channel is the true event-to-commit
+// evidence; the `settlement` channel is the former input-to-quiescence metric,
+// retained so the two boundaries stay comparable in the same artifact. Pure.
+function engineLatencyChannels(engine, lat) {
+  if (!lat || typeof lat !== 'object') {
+    throw evidenceFail(`[${engine}] latency payload is not an object: ${JSON.stringify(lat)}`);
+  }
+  return {
+    engine,
+    'order-policy': lat['order-policy'],
+    endpoints: lat.endpoints,
+    commit: engineLatencyEvidence(
+      `${engine}/commit`, lat['compiled-commit-raw-ms'], lat['handwritten-commit-raw-ms']),
+    settlement: engineLatencyEvidence(
+      `${engine}/settlement`, lat['compiled-settle-raw-ms'], lat['handwritten-settle-raw-ms']),
+  };
+}
+
 function fmt(x) {
   return Number(x).toFixed(3);
 }
 
 // Render the GitHub Actions step summary for the comparative-latency evidence.
-// Emits, per engine, the compiled + hand-written p95, the ratio, and the
-// within-10% OBSERVATION — the raw distributions collapsed behind a <details>
-// so the packet stays compact but nothing is hidden. Returns the markdown
-// string (the fs write lives in the runner so this stays pure).
+// Emits, per engine and per channel, the compiled + hand-written p95, the
+// ratio, and the within-10% OBSERVATION — the raw distributions collapsed
+// behind a <details> so the packet stays compact but nothing is hidden.
+// Returns the markdown string (the fs write lives in the runner so this stays
+// pure). Takes the per-engine TWO-CHANNEL shape from `engineLatencyChannels`.
 function buildPerformanceSummary(perEngine) {
   if (!Array.isArray(perEngine) || perEngine.length === 0) {
     throw evidenceFail(`summary requires a non-empty per-engine array; got ${JSON.stringify(perEngine)}`);
   }
   const lines = [
-    '### re-frame.ui G-8 comparative event-to-commit latency',
+    '### re-frame.ui G-8 comparative latency (commit + settlement channels)',
     '',
     'Compiled reusable control vs an equivalent hand-written React control — ' +
       'EVIDENCE ONLY; G-8 has no wall-clock threshold (the correctness matrix is ' +
       'the hard gate).',
+    'Channels: `commit` = TRUE event-to-commit (the arm\'s own React.Profiler ' +
+      'onRender commitTime, one attributable commit asserted per sample); ' +
+      '`settlement` = input to flush settlement (awaited React act + framework ' +
+      'draining — the former metric, retained for comparison).',
     `Percentiles: ${PERCENTILE_CONVENTION}.`,
     `Noise policy: ${NOISE_POLICY}.`,
     '',
-    '| engine | compiled p95 ms | hand-written p95 ms | p95 ratio | within 10% (evidence) |',
-    '|---|---:|---:|---:|:---:|',
+    '| engine | channel | compiled p95 ms | hand-written p95 ms | p95 ratio | within 10% (evidence) |',
+    '|---|---|---:|---:|---:|:---:|',
   ];
   for (const e of perEngine) {
-    lines.push(
-      `| ${e.engine} | ${fmt(e.compiled['p95-ms'])} | ${fmt(e.handwritten['p95-ms'])} | ` +
-        `${fmt(e['p95-ratio'])} | ${e['within-10pct'] ? '✓' : 'observed over'} |`,
-    );
+    for (const ch of CHANNELS) {
+      const ev = e[ch];
+      lines.push(
+        `| ${e.engine} | ${ch} | ${fmt(ev.compiled['p95-ms'])} | ${fmt(ev.handwritten['p95-ms'])} | ` +
+          `${fmt(ev['p95-ratio'])} | ${ev['within-10pct'] ? '✓' : 'observed over'} |`,
+      );
+    }
   }
   lines.push('');
-  lines.push('<details><summary>Raw event-to-commit samples (ms)</summary>');
+  lines.push('<details><summary>Raw latency samples (ms)</summary>');
   lines.push('');
   for (const e of perEngine) {
-    lines.push(
-      `- **${e.engine} compiled** — [${e.compiled['raw-ms'].map(fmt).join(', ')}]`,
-    );
-    lines.push(
-      `- **${e.engine} hand-written** — [${e.handwritten['raw-ms'].map(fmt).join(', ')}]`,
-    );
+    for (const ch of CHANNELS) {
+      const ev = e[ch];
+      lines.push(
+        `- **${e.engine} ${ch} compiled** — [${ev.compiled['raw-ms'].map(fmt).join(', ')}]`,
+      );
+      lines.push(
+        `- **${e.engine} ${ch} hand-written** — [${ev.handwritten['raw-ms'].map(fmt).join(', ')}]`,
+      );
+    }
   }
   lines.push('');
   lines.push('</details>');
@@ -204,11 +250,13 @@ module.exports = {
   PERCENTILE_CONVENTION,
   RATIO_BUDGET,
   NOISE_POLICY,
+  CHANNELS,
   latencyPercentile,
   validateLatencySamples,
   summarizeLatency,
   withinBudget,
   p95Ratio,
   engineLatencyEvidence,
+  engineLatencyChannels,
   buildPerformanceSummary,
 };

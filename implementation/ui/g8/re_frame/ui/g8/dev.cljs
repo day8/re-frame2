@@ -36,11 +36,25 @@
   COMPARATIVE LATENCY (evidence only; NO threshold — G-13's posture). The
   compiled reusable control's event-to-commit time is measured against an
   EQUIVALENT HAND-WRITTEN React control (a plain `useState`/`onChange`
-  controlled input) in the SAME warmed run, interleaved per sample, warm-ups
-  discarded. The runner owns the (stated nearest-rank) quantile convention,
-  records the sample count + noise policy, and reports the compiled-vs-baseline
-  p95 ratio and the within-10% OBSERVATION. Nothing here gates on a wall-clock
-  number; the runner's budget mutation teeth keep the comparison non-vacuous.
+  controlled input) in the SAME warmed run, warm-ups discarded. Two measurement
+  effects the rf2-5qz8z audit surfaced are resolved here (rf2-dpwel):
+
+    - TRUE event-to-commit endpoint — each sample is keyed to a fresh input
+      value and its endpoint is the arm's OWN `React.Profiler` `onRender`
+      commit timestamp, with the exact-one-attributable-commit assertion
+      retained per sample. The former metric — input to `ui.test/flush!`
+      settlement (awaited React act + framework draining to the fixed point)
+      — is recorded ALONGSIDE as the `settle` channel so the two boundaries
+      stay comparable; it is no longer presented as event-to-commit.
+    - ALTERNATING pair order — successive pairs alternate compiled-first and
+      hand-written-first, removing the fixed compiled-always-first sequence
+      bias of the original interleaving.
+
+  The runner owns the (stated nearest-rank) quantile convention, records the
+  sample count + noise policy, and reports the compiled-vs-baseline p95 ratio
+  and the within-10% OBSERVATION per channel. Nothing here gates on a
+  wall-clock number; the runner's budget mutation teeth keep the comparison
+  non-vacuous.
 
   The TOOTH: a second control — the deliberate ASYNC-DOOR REGRESSION — is the
   SAME controlled input whose write is deferred to a `setTimeout(0)` (a
@@ -60,17 +74,25 @@
 
 (defonce ^:private delivered (atom []))
 
-;; Attributable React commit counters. A `React.Profiler` around each control
-;; increments its counter in `onRender` — the ACTUAL React commit signal, read
-;; separately from the ViewCell revision. Reset at mount so a measured delta
-;; counts only the commits of the arm under observation.
+;; Attributable React commit counters + commit timestamps. A `React.Profiler`
+;; around each control increments its counter in `onRender` — the ACTUAL React
+;; commit signal, read separately from the ViewCell revision — and records the
+;; commit's `commitTime` (React's own `performance.now()`-based timestamp of
+;; the commit). The timestamp is the TRUE event-to-commit endpoint for the
+;; latency arm; the counter keeps every latency sample attributable to exactly
+;; one commit. Reset at mount so a measured delta counts only the commits of
+;; the arm under observation.
 (defonce ^:private sync-commit-count (atom 0))
 (defonce ^:private hw-commit-count (atom 0))
+(defonce ^:private sync-commit-at (atom 0))
+(defonce ^:private hw-commit-at (atom 0))
 
 (defn- register! []
   (reset! delivered [])
   (reset! sync-commit-count 0)
   (reset! hw-commit-count 0)
+  (reset! sync-commit-at 0)
+  (reset! hw-commit-at 0)
   (rf/reg-sub ::text (fn [db _] (:text db)))
   (rf/reg-sub ::async-text (fn [db _] (:async-text db)))
   (rf/reg-event
@@ -121,6 +143,17 @@
 ;; React baseline (comparative-latency counterpart)
 ;; ---------------------------------------------------------------------------
 
+(defn- profiler-on-render
+  "Build a Profiler `onRender` callback that counts the commit AND records its
+  `commitTime` — React's own timestamp (same `performance.now()` timebase) of
+  the moment the commit landed. The recorded timestamp is the latency arm's
+  TRUE event-to-commit endpoint; each sample's exact-one-commit assertion keys
+  it to that sample's fresh input."
+  [commit-count commit-at]
+  (fn [_id _phase _actual-dur _base-dur _start-time commit-time]
+    (swap! commit-count inc)
+    (reset! commit-at (or commit-time (js/performance.now)))))
+
 (defview profiled-sync-input [{:keys [on-change]}]
   ;; Wrap the reusable control in a real `React.Profiler`; `onRender` fires once
   ;; per React commit of the control's subtree. The frame context established by
@@ -130,7 +163,7 @@
    (React/createElement
     (.-Profiler React)
     #js {:id "g8-sync"
-         :onRender (fn [& _] (swap! sync-commit-count inc))}
+         :onRender (profiler-on-render sync-commit-count sync-commit-at)}
     (React/createElement reusable-prefix-input #js {:on-change on-change}))))
 
 (defn- handwritten-input [_props]
@@ -153,7 +186,7 @@
    (React/createElement
     (.-Profiler React)
     #js {:id "g8-handwritten"
-         :onRender (fn [& _] (swap! hw-commit-count inc))}
+         :onRender (profiler-on-render hw-commit-count hw-commit-at)}
     (React/createElement handwritten-input #js {}))))
 
 ;; ---------------------------------------------------------------------------
@@ -326,44 +359,99 @@
 (def ^:private latency-recorded 25)
 
 (defn- latency-sample!
-  "One dispatch-to-commit span for a single fresh-value native input, mirroring
-  G-13's timing-cycle: the timer starts immediately before the flush that fires
-  the input and stops the instant the post-commit Promise resolves — no evidence
-  scan, DOM read, or assertion runs inside the measured interval."
-  [el value]
-  (let [started (js/performance.now)]
-    (-> (uit/flush! (fn [] (fire-native-input! el value)))
-        (.then (fn [_] (- (js/performance.now) started))))))
+  "One latency sample for a single FRESH-VALUE native input, measured at TWO
+  boundaries at once (rf2-dpwel):
+
+    :commit-ms — the TRUE event-to-commit span. The timer starts inside the
+      awaited act thunk immediately before the native input dispatch; the
+      endpoint is the arm's own `React.Profiler` `onRender` `commitTime` for
+      the ONE commit this fresh input produced. No settlement, evidence scan,
+      DOM read, or assertion is inside the measured interval.
+    :settle-ms — the FORMER metric, retained for comparison: the same start,
+      ended when the `ui.test/flush!` Promise resolves (awaited React act +
+      framework draining to the fixed point — input-to-global-quiescence).
+
+  The exact-one-attributable-commit assertion is retained PER SAMPLE: the
+  arm's Profiler must record exactly one commit for the fresh input, else the
+  recorded `commitTime` would not be this sample's endpoint and the fixture
+  throws (a structural measurement failure, not a timing threshold)."
+  [el value commit-count commit-at]
+  (let [commits-before @commit-count
+        started        (atom 0)]
+    (-> (uit/flush! (fn []
+                      (reset! started (js/performance.now))
+                      (fire-native-input! el value)))
+        (.then (fn [_]
+                 (let [settled (js/performance.now)
+                       commits (- @commit-count commits-before)]
+                   (when-not (= 1 commits)
+                     (throw (ex-info (str "G-8 latency sample not attributable: "
+                                          "expected exactly one Profiler commit for "
+                                          (pr-str value) ", observed " commits)
+                                     {:value value :commits commits})))
+                   {:commit-ms (- @commit-at @started)
+                    :settle-ms (- settled @started)}))))))
+
+(def ^:private latency-order-policy
+  "alternating pair order: even pairs compiled-first, odd pairs hand-written-first")
+
+(def ^:private latency-endpoints
+  {:commit "arm's own React.Profiler onRender commitTime (true event-to-commit)"
+   :settle "ui.test/flush! settlement (awaited React act + framework draining; the former metric, retained for comparison)"})
 
 (defn- run-latency!
-  "Comparative event-to-commit latency — the compiled reusable control vs the
-  equivalent hand-written React control, INTERLEAVED per sample (compiled then
-  hand-written) in the same warmed run. The first `latency-warmups` samples per
-  control are discarded; the next `latency-recorded` are returned as raw ms
-  arrays (the runner owns the stated nearest-rank quantile convention). EVIDENCE
-  ONLY — no threshold is applied here."
+  "Comparative latency — the compiled reusable control vs the equivalent
+  hand-written React control, one pair per iteration in the same warmed run,
+  pair order ALTERNATING compiled-first / hand-written-first so neither arm
+  always pays a fixed sequence position. Every sample keys a fresh input value
+  to its own Profiler-commit endpoint (see `latency-sample!`) and carries the
+  settlement span alongside. The first `latency-warmups` pairs are discarded;
+  the next `latency-recorded` are returned as raw ms arrays per channel (the
+  runner owns the stated nearest-rank quantile convention). EVIDENCE ONLY — no
+  threshold is applied here."
   [root]
   (let [compiled-el (.querySelector root "[data-role='sync']")
         hw-el       (.querySelector root "[data-role='handwritten']")
         n           (atom 0)
-        compiled    (atom [])
-        handwritten (atom [])]
-    (letfn [(step [i]
+        acc         (atom {:compiled-commit []    :compiled-settle []
+                           :handwritten-commit [] :handwritten-settle []})]
+    (letfn [(sample-compiled! []
+              (latency-sample! compiled-el (str "c" (swap! n inc))
+                               sync-commit-count sync-commit-at))
+            (sample-handwritten! []
+              (latency-sample! hw-el (str "h" (swap! n inc))
+                               hw-commit-count hw-commit-at))
+            (record! [i c h]
+              (when (>= i latency-warmups)
+                (swap! acc
+                       (fn [m]
+                         (-> m
+                             (update :compiled-commit conj (:commit-ms c))
+                             (update :compiled-settle conj (:settle-ms c))
+                             (update :handwritten-commit conj (:commit-ms h))
+                             (update :handwritten-settle conj (:settle-ms h)))))))
+            (step [i]
               (if (>= i (+ latency-warmups latency-recorded))
-                (js/Promise.resolve {:compiled-raw-ms @compiled
-                                     :handwritten-raw-ms @handwritten
-                                     :samples-recorded latency-recorded
-                                     :warmups latency-warmups})
-                (-> (latency-sample! compiled-el (str "c" (swap! n inc)))
-                    (.then
-                     (fn [c-ms]
-                       (-> (latency-sample! hw-el (str "h" (swap! n inc)))
-                           (.then
-                            (fn [h-ms]
-                              (when (>= i latency-warmups)
-                                (swap! compiled conj c-ms)
-                                (swap! handwritten conj h-ms))
-                              (step (inc i))))))))))]
+                (js/Promise.resolve
+                 (let [{:keys [compiled-commit compiled-settle
+                               handwritten-commit handwritten-settle]} @acc]
+                   {:compiled-commit-raw-ms    compiled-commit
+                    :compiled-settle-raw-ms    compiled-settle
+                    :handwritten-commit-raw-ms handwritten-commit
+                    :handwritten-settle-raw-ms handwritten-settle
+                    :samples-recorded latency-recorded
+                    :warmups latency-warmups
+                    :order-policy latency-order-policy
+                    :endpoints latency-endpoints}))
+                (if (even? i)
+                  (-> (sample-compiled!)
+                      (.then (fn [c]
+                               (-> (sample-handwritten!)
+                                   (.then (fn [h] (record! i c h) (step (inc i))))))))
+                  (-> (sample-handwritten!)
+                      (.then (fn [h]
+                               (-> (sample-compiled!)
+                                   (.then (fn [c] (record! i c h) (step (inc i)))))))))))]
       (step 0))))
 
 ;; ---------------------------------------------------------------------------
