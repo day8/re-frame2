@@ -1816,7 +1816,20 @@ test('an ordinary UI cljs test (non-DOM) also fires cljs_browser + node-test (rf
   // The whole implementation/ui/** tree fires the browser gate — an
   // ordinary *_cljs_test.cljc under ui/test is not exempted (conservative
   // routing: UI test changes can move a shared fixture a DOM test :requires).
-  const result = classify('implementation/ui/test/re_frame/ui/eq_cljs_test.cljc');
+  //
+  // This arm is about a DONOR test that stayed, so the path must still name
+  // one: the previous fixture pointed at eq_cljs_test.cljc, which the F3a
+  // compiler transplant moved to implementation/freehand/test/. The classifier
+  // never stats a path, so that rot was silent and permanently green. Unlike
+  // the deliberately-not-yet-existing future paths pinned elsewhere in this
+  // file, this row's whole claim is "an existing ordinary UI test", so assert
+  // it exists.
+  const donorTest = 'implementation/ui/test/re_frame/ui/error_roster_cljs_test.cljc';
+  assert.ok(
+    fs.existsSync(path.join(REPO_ROOT, donorTest)),
+    `${donorTest} must exist — this row pins the routing of a REAL donor UI test`,
+  );
+  const result = classify(donorTest);
   assert.equal(result.cljs_browser, 'true');
   assert.equal(result.cljs_node_test, 'true');
 });
