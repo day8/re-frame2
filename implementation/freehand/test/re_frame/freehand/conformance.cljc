@@ -45,36 +45,36 @@
   #?(:cljs (:require-macros [re-frame.freehand.conformance :refer [fixture]])))
 
 #?(:clj
-   (def ^:private fixture-root
-     "Where the fixtures live, as path segments below the repository root.
-     The tail of this path is also the classpath path shadow-cljs
-     resolves, because `spec/conformance/` is the `:source-path` root."
-     ["spec" "conformance" "freehand" "fixtures"]))
+   (def ^:private classpath-root
+     "The directory that is the classpath ROOT for fixture lookups, as path
+     segments below the repository root — the shadow-cljs `:source-path`
+     the ClojureScript lane resolves resource paths against, and what the
+     JVM lane walks up the tree looking for."
+     ["spec" "conformance"]))
 
 #?(:clj
    (defn ^:private fixture-resource-path
-     "The classpath path of the fixture for `id`, relative to the
-     `spec/conformance/` root — e.g. `freehand/fixtures/fh-props-001.edn`.
-     The filename mirrors the id in lower case, per the fixture
-     convention in `spec/conformance/freehand/README.md`."
+     "The fixture for `id` as a path below [[classpath-root]] — e.g.
+     `freehand/fixtures/fh-props-001.edn`. The filename mirrors the id in
+     lower case, per the fixture convention in
+     `spec/conformance/freehand/README.md`."
      [id]
-     (str/join "/" (conj (subvec fixture-root 2)
-                         (str (str/lower-case (name id)) ".edn")))))
+     (str "freehand/fixtures/" (str/lower-case (name id)) ".edn")))
 
 #?(:clj
    (defn ^:private fixture-file
-     "Locate the fixture file for classpath path `path` by walking up from
-     the compile CWD looking for the fixture root — the JVM lane's
-     locator, where `spec/conformance/` is not on the classpath. Throws
-     an actionable error rather than yielding an absent table."
+     "Locate the fixture at `path` by walking up from the compile CWD
+     looking for [[classpath-root]] — the JVM lane's locator, where that
+     root is not on the classpath. Throws an actionable error rather than
+     yielding an absent table."
      [path]
      (loop [dir (io/file (System/getProperty "user.dir"))]
        (when (nil? dir)
          (throw (ex-info (str "Freehand conformance fixture " path " not found: no "
-                              (str/join "/" fixture-root) " directory walking up from "
+                              (str/join "/" classpath-root) " directory walking up from "
                               (System/getProperty "user.dir") ".")
-                         {:path path :root fixture-root})))
-       (let [candidate (apply io/file dir (conj (subvec fixture-root 0 2) path))]
+                         {:path path :root classpath-root})))
+       (let [candidate (apply io/file dir (conj classpath-root path))]
          (if (.exists candidate)
            candidate
            (recur (.getParentFile dir)))))))
