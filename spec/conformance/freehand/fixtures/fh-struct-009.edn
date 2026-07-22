@@ -1,0 +1,133 @@
+;; FH-STRUCT-009 — React's prop grammar, in a real browser.
+;;
+;; React does not take DOM attribute spellings. It takes PROPS, and their
+;; canonical names are React's own external contract: `contentEditable`,
+;; `acceptCharset`, `charSet`, `tabIndex`, `strokeWidth`. Hand React the
+;; lowercase or hyphen-collapsed form and it does not quietly do the right
+;; thing — it warns about an unrecognized property and treats it as one.
+;;
+;; That is why the `:dom` rows below are read off `document` after a real
+;; `react-dom/client` mount, and why the row that matters most is a
+;; NEGATIVE one: `:react-console-silent`. A structural assertion can show
+;; that the emitter produced a prop; only a mounted React can show that
+;; React ACCEPTED it. An emitter that spells a prop wrongly still produces
+;; a perfectly shaped `createElement` call, and several of the wrong
+;; spellings still land in the DOM — with a console warning and, for the
+;; reserved props, different behaviour. Warnings are the observable.
+;;
+;; The SVG rows are doubled deliberately. `stroke-width` is authored twice
+;; on the same page: once directly beneath `<svg>`, and once inside a
+;; declared view, which React renders as a real component whose body runs
+;; with no walk above it. A context-sensitive naming rule can only be
+;; right on the first, so it changes what reaches the DOM the moment an
+;; author extracts a view — a refactor that is supposed to change nothing.
+{:fh/id "FH-STRUCT-009"
+ :fh/law
+ "The interpreted React emitter spells attributes as React's canonical props, identically at every depth and across declared-view boundaries; the structural tree keeps author-space names; and the reserved and rejected spellings — `:children`, `:ref`, the raw-markup aliases — are refused by both emitters rather than reaching React."
+
+ :view :props-page
+
+ ;; The author keyword -> the React prop name the emitter writes. The
+ ;; vocabulary is react-dom 19.2.0's own `possibleStandardNames`; an
+ ;; unrecognized name passes verbatim, which is React 16+'s rule.
+ :prop-names
+ [{:note "the collapsed spelling is not a prop; tabIndex is"      :attr :tab-index        :prop "tabIndex"}
+  {:note "React warns about contenteditable and omits it"         :attr :content-editable :prop "contentEditable"}
+  {:note "already-camel author spellings hit the same row"        :attr :contentEditable  :prop "contentEditable"}
+  {:note "acceptcharset is the wrong attribute; acceptCharset is" :attr :accept-charset   :prop "acceptCharset"}
+  {:note "charset is React's charSet"                             :attr :char-set         :prop "charSet"}
+  {:note "and so is the collapsed authoring"                      :attr :charset          :prop "charSet"}
+  {:note ":class takes React's reserved className"                :attr :class            :prop "className"}
+  {:note "and :for takes htmlFor"                                 :attr :for              :prop "htmlFor"}
+  {:note "an SVG kebab attribute is a camelCase React prop"       :attr :stroke-width     :prop "strokeWidth"}
+  {:note "and so is the SVG viewBox"                              :attr :view-box         :prop "viewBox"}
+  {:note "data-* passes verbatim, casing intact (Spec 004B; React 19 separately warns at MOUNT about a camelCase data-* name, which is a question about that row rather than about this projection)"
+   :attr :data-fooBar :prop "data-fooBar"}
+  {:note "and a lowercase data-* is the ordinary case"            :attr :data-priority    :prop "data-priority"}
+  {:note "aria-* passes verbatim too"                             :attr :aria-hidden      :prop "aria-hidden"}
+  {:note "an unrecognized name passes verbatim — React 16+ pass-through" :attr :my-thing   :prop "my-thing"}]
+
+ ;; The structural tree is AUTHOR space. React prop names are the React
+ ;; emitter's concern and appear nowhere in the value the JVM answers.
+ :structural
+ [{:note "author-space keys survive into :attrs, uncanonicalised"
+   :form [:section {:tab-index 3 :content-editable true :data-fooBar "kept"}]
+   :tree {:tag :section
+          :attrs {:tab-index "3" :content-editable true :data-fooBar "kept"}
+          :rf.ui/tree-version 1}}
+  {:note "and an SVG attribute keeps its authored kebab name beside its :ns"
+   :form [:svg [:rect {:stroke-width 2}]]
+   :tree {:tag :svg :ns :svg
+          :children [{:tag :rect :ns :svg :attrs {:stroke-width "2"}}]
+          :rf.ui/tree-version 1}}]
+
+ ;; Read off `document`, after a real react-dom/client mount of :view.
+ :dom
+ [{:note "tabIndex reaches the DOM as tabindex"
+   :selector "#props" :attrs {"tabindex" "3"}}
+
+  {:note "a data-* name passes verbatim"
+   :selector "#props" :attrs {"data-priority" "high"}}
+
+  {:note "contentEditable is a booleanish attribute React writes as a string"
+   :selector "#ce" :attrs {"contenteditable" "true"}}
+
+  {:note "acceptCharset serialises as the hyphenated HTML attribute"
+   :selector "#f" :attrs {"accept-charset" "utf-8"}}
+
+  {:note "htmlFor serialises as for"
+   :selector "#f > label" :attrs {"for" "n"}}
+
+  {:note "maxLength serialises as maxlength, and readOnly as the bare boolean readonly"
+   :selector "#n" :attrs {"maxlength" "8" "readonly" ""}}
+
+  {:note "viewBox is case-sensitive in SVG and survives exactly"
+   :selector "#s" :attrs {"viewBox" "0 0 24 24"}}
+
+  {:note "an SVG attribute authored DIRECTLY under <svg> mounts correctly"
+   :selector "#r" :attrs {"stroke-width" "2" "fill-opacity" "0.5"}}
+
+  {:note "and the SAME attribute authored inside a declared view mounts identically — the boundary changes nothing"
+   :selector "#s circle" :attrs {"stroke-width" "3"}}
+
+  {:note "the SVG elements really are in the SVG namespace, so the naming rule had a namespace to lose"
+   :selector-all "#s rect, #s circle" :count 2}]
+
+ ;; The load-bearing negative. React reports an unrecognized property
+ ;; through console.error; a canonical prop produces nothing at all.
+ :react-console-silent true
+
+ ;; …and the control that makes that silence mean something. A production
+ ;; React build warns about nothing, so "no warnings" would pass on an
+ ;; emitter that spelled every prop wrongly. This row mounts the
+ ;; non-canonical spelling through `createElement` DIRECTLY, around the
+ ;; emitter, and requires React to complain — so the observable is proven
+ ;; live in the same browser, in the same build, in the same test.
+ :react-warning-control
+ {:note  "React reports an unrecognized DOM property through console.error, naming the canonical spelling it expected"
+  :tag   "div"
+  :prop  "contenteditable"
+  :value "true"
+  :names "contentEditable"}
+
+ ;; Reserved and rejected spellings never reach React. Each is refused by
+ ;; BOTH emitters, at the walk, with the same diagnostic id — so a
+ ;; declaration cannot be structurally fine and behaviourally different,
+ ;; and a void element cannot throw in React alone.
+ :rejected
+ [{:note ":children is React's reserved prop — through the attribute path it would render content the structural tree does not carry"
+   :form [:div {:children "ghost"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "and on a void element React throws rather than render it, which the structural walk would never have predicted"
+   :form [:img {:children "ghost"}] :error-id :rf.error/ui-tree-malformed}
+  {:note ":ref is a commit-phase host hook React consumes; the interpreted tier has no ref machinery"
+   :form [:div {:ref "node"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "React's raw-markup prop has one visible spelling in this grammar, and it is a node variant"
+   :form [:div {:dangerouslySetInnerHTML "<b>x</b>"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "its kebab alias is denied too"
+   :form [:div {:dangerously-set-inner-html "<b>x</b>"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "and so is the shorter one"
+   :form [:div {:inner-html "<b>x</b>"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "one spelling per name: :class-name is not a second way to write :class"
+   :form [:div {:class-name "a"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "nor :html-for a second way to write :for"
+   :form [:label {:html-for "n"}] :error-id :rf.error/ui-tree-malformed}]}

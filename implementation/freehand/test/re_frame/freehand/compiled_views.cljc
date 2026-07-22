@@ -56,11 +56,41 @@
     (for [i items]
       [row {:key i :label i}])]])
 
+(v/defview mark
+  "An SVG leaf declared as its own view, so the SAME authored attribute is
+  mounted once directly under `<svg>` and once across a declared-view
+  boundary. React renders a boundary as a real component, so the body runs
+  with no walk above it — which is exactly where a context-sensitive
+  attribute rule loses its context."
+  {:compiled true}
+  [{:keys [width]}]
+  [:circle {:cx 12 :cy 12 :r 6 :stroke-width width}])
+
+(v/defview props-page
+  "The composite the React prop-grammar assertion mounts: HTML author
+  spellings that React canonicalises, an SVG attribute directly and
+  through a boundary, and a `data-*` name whose casing must survive."
+  {:compiled true}
+  [_]
+  [:section#props {:tab-index 3 :data-priority "high"}
+   ;; contentEditable rides a CHILDLESS element on purpose: React warns
+   ;; about a contentEditable subtree it also manages, and that warning is
+   ;; about the declaration rather than about the prop spelling.
+   [:span#ce {:content-editable true}]
+   [:form#f {:accept-charset "utf-8"}
+    [:label {:for "n"} "Name"]
+    [:input#n {:read-only true :max-length 8}]]
+   [:svg#s {:view-box "0 0 24 24"}
+    [:rect#r {:x 1 :y 1 :width 22 :height 22 :stroke-width 2 :fill-opacity 0.5}]
+    [mark {:width 3}]]])
+
 (def by-name
   "Fixture view-name keyword -> the declared view. Keyed identically to
   `tree-views/by-name`, so one fixture table drives both."
-  {:panel   panel
-   :nothing nothing
-   :pair    pair
-   :row     row
-   :page    page})
+  {:panel      panel
+   :nothing    nothing
+   :pair       pair
+   :row        row
+   :page       page
+   :mark       mark
+   :props-page props-page})

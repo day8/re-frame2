@@ -200,3 +200,31 @@
                (str note " — inside the safe range the integer and its double spell alike"))
            (is (not= (conv/js-number-str value) (conv/js-number-str (double value)))
                (str note " — outside it the exact integer is not the double's spelling")))))))
+
+;; ---------------------------------------------------------------------------
+;; FH-STRUCT-009 — author space in the tree; React prop names in the emitter
+;; ---------------------------------------------------------------------------
+
+(def struct-009 (conf/fixture :FH-STRUCT-009))
+
+(deftest fh-struct-009-structural-output-stays-in-author-space
+  (testing "Per FH-STRUCT-009: React prop names are the React emitter's
+            concern and appear nowhere in the structural tree. The tree
+            carries the names the author wrote, so a structural test
+            asserts the declaration rather than a client-side projection
+            of it — and the JVM, which has no React, owes nothing to
+            React's vocabulary."
+    (is (seq (:structural struct-009)) "the fixture's structural table loaded")
+    (doseq [{:keys [note form tree]} (:structural struct-009)]
+      (is (= tree (tree/render form)) note))))
+
+(deftest fh-struct-009-reserved-and-rejected-spellings-are-refused
+  (testing "Per FH-STRUCT-009: `:children`, `:ref` and the raw-markup
+            aliases are refused at the walk, on both hosts, with the same
+            diagnostic id the React emitter raises — which is what stops a
+            declaration from being structurally fine and behaviourally
+            different, and what stops a structurally legal void element
+            from throwing in React alone."
+    (is (seq (:rejected struct-009)) "the fixture's rejected table loaded")
+    (doseq [{:keys [note form error-id]} (:rejected struct-009)]
+      (is (= error-id (conf/caught-id #(tree/render form))) note))))

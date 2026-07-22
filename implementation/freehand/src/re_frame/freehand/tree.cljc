@@ -106,6 +106,10 @@
   [tag sugar-classes sugar-id attrs]
   (reduce-kv
     (fn [m k raw]
+      (when-some [refusal (conv/attr-key-refusal k)]
+        (malformed!
+          (str "The element " tag " carries " k ". " refusal)
+          {:attr k}))
       (cond
         (= :key k)   m
         (= :class k) (assoc m :class raw)

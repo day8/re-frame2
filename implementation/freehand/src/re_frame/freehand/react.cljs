@@ -18,9 +18,11 @@
 
   ## What this slice emits
 
-    - **elements** — `.class#id` sugar merged, attributes in React's
-      spelling, `:key` lifted into the element's key, children passed as
-      varargs so React needs no synthetic keys for a literal run;
+    - **elements** — `.class#id` sugar merged, attributes in React's own
+      CANONICAL prop spelling (`:content-editable` is `contentEditable`,
+      `:stroke-width` is `strokeWidth`), `:key` lifted into the element's
+      key, children passed as varargs so React needs no synthetic keys for
+      a literal run;
     - **view boundaries** — a real React function component per declared
       view, memoized by descriptor identity, so React sees a boundary and
       DevTools sees a name;
@@ -77,7 +79,7 @@
              #js {} v))
 
 (defn- put-attr!
-  [o ns-ctx tag k raw]
+  [o tag k raw]
   (let [semantic (conv/attr-value raw)]
     (when (= ::conv/reject semantic)
       (malformed! (str "The " k " attribute on " tag " carries a " (type-name raw)
@@ -85,19 +87,26 @@
                        "keyword, a symbol, a number or a boolean; :class and :style have their "
                        "own richer grammars.")
                   {:attr k :value (shape raw)}))
-    (gobj/set o (conv/react-attr-name ns-ctx k) semantic)))
+    (gobj/set o (conv/react-prop-name k) semantic)))
 
 (defn- react-props
   "The React props object for one element: the author attribute map in
-  React's spelling, with the `.class#id` sugar merged in and handler sites
-  resolved per the emitter's stated coverage."
-  [ns-ctx tag sugar-classes sugar-id attrs]
+  React's CANONICAL prop spelling, with the `.class#id` sugar merged in
+  and handler sites resolved per the emitter's stated coverage.
+
+  No namespace context is threaded in, because a canonical prop name does
+  not depend on one — which is what stops a declared-view boundary from
+  changing which attribute reaches the DOM."
+  [tag sugar-classes sugar-id attrs]
   (let [o (js-obj)]
     (when-let [c (conv/class-string sugar-classes)]
       (gobj/set o "className" c))
     (when sugar-id
       (gobj/set o "id" sugar-id))
     (doseq [[k raw] attrs]
+      (when-some [refusal (conv/attr-key-refusal k)]
+        (malformed! (str "The element " tag " carries " k ". " refusal)
+                    {:attr k}))
       (cond
         (= :key k)   nil
         (nil? raw)   nil
@@ -126,9 +135,9 @@
                                " sugar and once as :id. Two id spellings on one element is an "
                                "ambiguity; keep one.")
                           {:attr :id :value (shape raw)}))
-            (put-attr! o ns-ctx tag k raw))
+            (put-attr! o tag k raw))
 
-        :else (put-attr! o ns-ctx tag k raw)))
+        :else (put-attr! o tag k raw)))
     (when (some? (:key attrs))
       (gobj/set o "key" (:key attrs)))
     o))
@@ -170,8 +179,8 @@
                          :extra    {:view-id view-id}}))
             body    (descriptor/render-body view)
             c       (fn freehand-view [js-props]
-                      (emit nil (body (conv/forward-children
-                                        (gobj/get js-props "props")))))]
+                      (emit (body (conv/forward-children
+                                    (gobj/get js-props "props")))))]
         (gobj/set c "displayName" (str view-id))
         (swap! components assoc view c)
         c)))
@@ -179,21 +188,31 @@
 ;; ---------------------------------------------------------------------------
 ;; The walk
 ;; ---------------------------------------------------------------------------
+;;
+;; This walk carries NO namespace context, and its sibling
+;; [[re-frame.freehand.tree]] does. That asymmetry is the contract, not an
+;; oversight: `:ns` is a field of the structural node, so the structural
+;; walk must know where a node sits, while React infers the SVG and MathML
+;; namespaces from the tag itself and takes canonical prop names that are
+;; canonical everywhere. Context threaded here would be context that
+;; decided nothing — and worse, context a declared-view boundary cannot
+;; carry: a boundary becomes a real React component, so the body runs in a
+;; fresh call with no walk above it. A rule that needed the context would
+;; be a rule that changed meaning when an author extracted a view.
 
 (declare ^:private children)
 
 (defn- element-node
-  [ns-ctx tag-kw args]
+  [tag-kw args]
   (when (namespace tag-kw)
     (malformed! (str "The element head " tag-kw " is namespaced. An element tag is an unqualified "
                      "keyword — its namespace would be silently dropped on the way to the DOM.")
                 {:value (shape tag-kw)}))
   (let [{:keys [tag classes id]} (conv/parse-tag tag-kw)
-        own-ns    (conv/enter-ns ns-ctx tag)
         attrs?    (map? (first args))
         attrs     (if attrs? (first args) {})
         kid-forms (if attrs? (rest args) args)
-        kids      (children (conv/child-ns own-ns tag attrs) kid-forms)]
+        kids      (children kid-forms)]
     (when (and (seq kids) (contains? conv/children-rejected-tags tag))
       (malformed! (str "The element " tag " cannot have children — it is a void element, and "
                        "React throws rather than render one. Put the content in an attribute, "
@@ -201,14 +220,14 @@
                   {:tag tag :children-count (count kids)}))
     (apply react/createElement
            (name tag)
-           (react-props (conv/element-ns own-ns) tag classes id attrs)
+           (react-props tag classes id attrs)
            kids)))
 
 (defn- fragment-node
-  [ns-ctx args]
+  [args]
   (let [attrs? (map? (first args))
         k      (when attrs? (:key (first args)))
-        kids   (children ns-ctx (if attrs? (rest args) args))]
+        kids   (children (if attrs? (rest args) args))]
     (apply react/createElement
            react/Fragment
            (when (some? k) #js {:key k})
@@ -223,12 +242,12 @@
     (react/createElement (component-for view) js-props)))
 
 (defn- node
-  [ns-ctx form]
+  [form]
   (let [head (first form)]
     (if (= tree/fragment-tag head)
-      (fragment-node ns-ctx (rest form))
+      (fragment-node (rest form))
       (case (descriptor/classify-head head)
-        :element (element-node ns-ctx head (rest form))
+        :element (element-node head (rest form))
         :view    (boundary-node head (rest form))
         :host    (malformed!
                    (str "A declared host descriptor is a legal vector head, but the React "
@@ -236,15 +255,15 @@
                         "shapes land with the host-lifecycle slice.")
                    {:value (shape head)})))))
 
-(defn- collect [ns-ctx acc form]
+(defn- collect [acc form]
   (cond
     (nil? form)     acc
     (boolean? form) acc
     (string? form)  (conj acc form)
     (number? form)  (conj acc (conv/js-number-str form))
-    (conv/child-run? form) (reduce (fn [a f] (collect ns-ctx a f)) acc form)
-    (vector? form)  (conj acc (node ns-ctx form))
-    (seq? form)     (reduce (fn [a f] (collect ns-ctx a f)) acc form)
+    (conv/child-run? form) (reduce collect acc form)
+    (vector? form)  (conj acc (node form))
+    (seq? form)     (reduce collect acc form)
     :else
     (malformed!
       (str "A view body produced a " (type-name form) " where a child was expected. "
@@ -253,12 +272,12 @@
       {:value (shape form)})))
 
 (defn- children
-  [ns-ctx forms]
-  (reduce (fn [acc f] (collect ns-ctx acc f)) [] forms))
+  [forms]
+  (reduce collect [] forms))
 
 (defn- emit
-  [ns-ctx form]
-  (let [kids (children ns-ctx [form])]
+  [form]
+  (let [kids (children [form])]
     (case (count kids)
       0 nil
       1 (first kids)
@@ -273,4 +292,4 @@
   Pure: it builds elements and mounts nothing. Handing the result to
   `react-dom/client` is what puts it on a page."
   [form]
-  (emit nil form))
+  (emit form))

@@ -86,11 +86,19 @@ on both hosts; a rule proven on one is a gap, not a pass.
 
 ### The React emitter
 
-The React emitter applies the **client half** of the conversion table: `:class`
-and `:for` take React's reserved spellings, `data-*` and `aria-*` pass verbatim,
-other HTML names hyphen-collapse, `:style` becomes a style object, `:key` becomes
-the element's key, and a declared-view boundary becomes a real React component so
-the boundary exists in React's tree and not only in ours.
+The React emitter applies the **client half** of the conversion table: every
+author attribute name becomes React's **canonical prop** — `:class` and `:for`
+take React's reserved spellings, `data-*` and `aria-*` pass verbatim, an
+unrecognized name passes verbatim, and everything else maps through react-dom's
+`possibleStandardNames` — `:style` becomes a style object, `:key` becomes the
+element's key, and a declared-view boundary becomes a real React component so the
+boundary exists in React's tree and not only in ours.
+
+Author space and React space stay **separate**: the structural tree carries the
+names the author wrote, and only this emitter projects them. That separation is
+what lets the JVM, which has no React, owe nothing to React's vocabulary — and it
+is why a structural assertion cannot stand in for a mounted one. An emitter that
+spells a prop wrongly still produces a perfectly shaped `createElement` call.
 
 Two coverage boundaries are stated rather than implied, because an unstated gap
 in an emitter is indistinguishable from a bug:
@@ -102,11 +110,14 @@ in an emitter is indistinguishable from a bug:
   [004 §Event intent and the payload materializer](004-Views.md#event-intent-and-the-payload-materializer)
   owns the projection, the listener options, and, decisively, which frame the
   intent dispatches into.
-- **The SVG camelCase attribute alias table is still `[S1-CONFIRM]`.** Inside an
-  SVG or MathML context the React emitter passes the authored attribute spelling
-  **verbatim** rather than collapsing hyphens, because those names are
-  case-sensitive; an author who needs `viewBox` today spells it that way. The
-  kebab alias table lands with the row that discharges it.
+- **The React prop vocabulary is implemented, not deferred.** The React emitter
+  writes React's canonical prop names from react-dom 19.2.0's own
+  `possibleStandardNames`, so `:stroke-width` is `strokeWidth` and `:view-box` is
+  `viewBox` wherever they are authored. The earlier context-sensitive rule — pass
+  verbatim inside SVG, collapse hyphens outside — could only be correct where the
+  walk knew the context, so inserting a declared view changed which attribute
+  reached the DOM. A canonical prop name needs no context, which is why the rule
+  and the context threading were removed together.
 
 ## The node schema — version 1
 
@@ -409,10 +420,12 @@ unexercised — Stage 1 confirms.
 |---|---|
 | pass-through default | unrecognized names emit verbatim (React 16+ behaviour); name grammar validated (the 011 attr-key check); illegal names = compile error |
 | hyphen-collapse | `:tab-index` → `tabindex` (the kebab spelling mirrors React camelCase; DOM attr is the collapsed form) |
-| `:class` / `:for` | → `class` / `for` attributes (React emitter: `className` / `htmlFor`); `:class-name`/`:html-for` spellings are compile errors — one spelling per name, ambiguities removed **[S1-CONFIRM]** |
+| **React prop names** | the React emitter writes React's **canonical prop**, not a DOM attribute spelling: `:tab-index` → `tabIndex`, `:content-editable` → `contentEditable`, `:accept-charset` → `acceptCharset`, `:char-set` → `charSet`, `:stroke-width` → `strokeWidth`. The vocabulary is react-dom 19.2.0's own `possibleStandardNames`; `data-*`/`aria-*` pass verbatim and an unrecognized name passes verbatim, which is React 16+'s pass-through. The mapping takes **no namespace context** — a canonical prop name is canonical at any depth and on either side of a declared-view boundary, which React renders as a real component whose body runs with no walk above it. Probed against React 19.2 in Chromium: the non-canonical spelling is not a harmless variant — React reports `Invalid DOM property \`contenteditable\`. Did you mean \`contentEditable\`?` and **omits the attribute** (likewise `readonly`, `maxlength`, `acceptcharset`, `strokewidth`, `fillopacity`, `viewbox`) |
+| `:class` / `:for` | → `class` / `for` attributes (React emitter: `className` / `htmlFor`); `:class-name`/`:html-for` spellings are errors — one spelling per name, ambiguities removed — **at compile time in compiled mode and at the walk in interpreted mode**, in both emitters, so a declaration cannot be structurally fine and behaviourally different |
 | `data-*` | verbatim, casing preserved (`:data-fooBar` → `data-fooBar`) |
 | `aria-*` | verbatim names; **values always stringify** — `:aria-hidden false` → `aria-hidden="false"`, never omitted |
-| SVG camelCase aliases | the kebab keyword maps through React's published SVG alias table: `:view-box` → `viewBox`, `:stroke-width` → `stroke-width` (SVG's own hyphenated attrs stay hyphenated); mirror `possibleStandardNames` **[S1-CONFIRM]** |
+| SVG camelCase aliases | the kebab keyword maps through React's published SVG alias table: `:view-box` → `viewBox`, `:stroke-width` → `stroke-width` (SVG's own hyphenated attrs stay hyphenated); mirrors `possibleStandardNames` — implemented, and probed in a real browser both directly under `<svg>` and beneath a declared view |
+| reserved props | `:children` is React's **reserved** prop and is refused in an attribute map by both emitters — through the attribute path it would render DOM content the structural tree does not carry, and on a void element it would throw in React alone. `dangerouslySetInnerHTML` and its aliases are refused the same way; `v/html` is the one visible trusted-markup spelling |
 | `xlink:`/`xml:` attrs | `:xlink-href` → `xlink:href`, `:xml-lang` → `xml:lang` (note `href` supersedes `xlink:href` in SVG2 — emit what was authored) **[S1-CONFIRM]** |
 
 ### Booleans and their neighbours
@@ -434,7 +447,7 @@ unexercised — Stage 1 confirms.
 | `:value` on `:textarea` | serialises as the element's **text child**, not an attribute **[S1-CONFIRM]** |
 | `:value` on `:select` | serialises as `selected` on the matching `:option`(s) **[S1-CONFIRM]** |
 | `dangerouslySetInnerHTML` | does not exist in this grammar — `v/html` is the one trusted-markup spelling, and it is a node variant, not a prop. A trusted-markup (`:html`) child **beneath `<textarea>`** is rejected at the SSR seam through `:rf.error/ui-tree-malformed` (react-dom/server 19.2 rejects `dangerouslySetInnerHTML` on a textarea — its content is `value`/`defaultValue` or a text child). The seam validates the **effective** child stream — a `:html` leaf spliced in through a transparent fragment or view boundary is caught at its actual path, not only an immediate child; the compiler rejects the source shape as `:rf.ui.compile/html-in-textarea` (rf2-ib4fd) |
-| `:ref` | absent from the JVM tree entirely ([004D §The JVM structural subset](004D-Freehand-Compiled-Grammar.md#the-jvm-structural-subset): refs absent) |
+| `:ref` | absent from the JVM tree entirely ([004D §The JVM structural subset](004D-Freehand-Compiled-Grammar.md#the-jvm-structural-subset): refs absent). The **interpreted** walk has no ref machinery at all — a ref is a commit-phase host hook — so it refuses `:ref` in an attribute map rather than carrying it as an ordinary attribute the structural tree shows and React silently consumes as a reserved prop. Refs arrive with the host-lifecycle slice |
 
 ### `:style`
 
@@ -705,7 +718,11 @@ encoding, and the manifest field that carries it are Spec 011's (§Normalization
 
 ## [S1-CONFIRM] roster (collected)
 
-1. SVG camelCase attribute alias table (mirror React's `possibleStandardNames`).
+1. SVG camelCase attribute alias table (mirror React's `possibleStandardNames`) —
+   **DISCHARGED (FH-STRUCT-009 browser probe).** Implemented from react-dom 19.2.0's
+   vocabulary and mounted in Chromium, directly under `<svg>` and beneath a declared
+   view; the non-canonical spelling was observed to warn and be *omitted*, so this row
+   was a behaviour gap rather than a warning-noise question.
 2. Namespace context rules: svg inheritance, `foreignObject` reversion, MathML,
    `annotation-xml` HTML island.
 3. `xlink:`/`xml:` attribute mapping.
@@ -720,14 +737,18 @@ encoding, and the manifest field that carries it are Spec 011's (§Normalization
 8. Form-control special forms (`textarea` value→child; `select` value→`selected`;
    `default-value`/`default-checked`→`value`/`checked`).
 9. Style unitless-set copy + custom-property (`--*`) rows.
-10. Integral-double text/attr values (JS `ToString`, no `.0`).
+10. Integral-double text/attr values (JS `ToString`, no `.0`) — **DISCHARGED
+    (FH-STRUCT-008).** Widened while discharging: the rule is the full
+    `Number::toString(10)` for *every* finite double, and the draft's separate
+    integral branch was itself the defect above 2^53.
 11. Duplicate-key detection under React string coercion.
 12. Void-element set + children-rejection parity with React's throw list —
     **DISCHARGED (S1b probe):** 15-tag void set (`param` + `keygen` added to the draft's
     13); `menuitem` rejects children but is not self-closing, so it is children-rejected
     only.
 13. Adjacent-text hydration separators (011-owned fixture).
-14. `:for` → `for`/`htmlFor` alias.
+14. `:for` → `for`/`htmlFor` alias — **DISCHARGED (FH-STRUCT-009 browser probe):**
+    `htmlFor` mounts as the `for` attribute.
 15. Custom-element event-type registration (kebab tail verbatim) vs React 19.
 
 ## Coverage — the implementer questions this contract answers
