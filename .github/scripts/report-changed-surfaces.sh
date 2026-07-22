@@ -527,6 +527,18 @@ else
         bundle_isolation=true
         ui_smoke=true
         ;;
+      implementation/freehand/*.md)
+        # rf2-drpa3.70 — prose under the artefact root. The two host suites
+        # still fire (a README documents contracts those suites assert, and
+        # they are cheap), but Markdown cannot change what React puts on a
+        # page, so it does not pay for a Chromium run. This arm exists only to
+        # keep the browser widening below off documentation-only PRs, and it
+        # MUST stay above the artefact-root arm: a POSIX `case` takes the
+        # first match, and its `*` spans `/`, so this covers prose at any
+        # depth under the artefact.
+        implementation_jvm=true
+        cljs_node_test=true
+        ;;
       implementation/freehand/*)
         # rf2-drpa3.58 — the Freehand view substrate artefact (EP-0036).
         # Its JVM lane shipped as a standalone workflow with its own
@@ -546,15 +558,29 @@ else
         # `cljs` is surface-gated on cljs_node_test, so before this case
         # the CLJS arm skipped on a freehand-only PR too.
         #
-        # Deliberately NOT the full per-feature fan-out (cljs_browser /
-        # cljs_prod / bundle_isolation): Freehand ships no public surface,
-        # no browser-test namespace and no production-bundle requirer yet
-        # (shadow-cljs.edn puts it on `:node-test` only). Widen this case
-        # the moment it gains a `*-dom-cljs-test` namespace or a bundle
-        # requirer — the `implementation/ui/*` case above is the worked
-        # precedent for what that widening looks like.
+        # rf2-drpa3.70 — cljs_browser, the widening rf2-drpa3.58 said to make
+        # "the moment it gains a `*-dom-cljs-test` namespace". F1c shipped the
+        # interpreted React emitter and with it two such namespaces
+        # (react_mount_dom_cljs_test.cljs, route_link_native_dom_cljs_test.cljs)
+        # that mount through `react-dom/client` and read assertions back off
+        # `document`. They already RIDE the `:browser-test` build — freehand/src
+        # and freehand/test are on :source-paths and that build's
+        # `-dom-cljs-test$` ns-regexp selects them — but the `cljs-browser` job
+        # is surface-gated on this output, so a Freehand-only PR skipped the
+        # only lane where they can execute.
+        #
+        # A green `cljs` job is not a substitute: the `:node-test` regex
+        # matches the same two files, where they find no DOM and say so rather
+        # than mounting. That is the same false-green shape rf2-drpa3.58/.61
+        # closed for the host suites, one tier up.
+        #
+        # Still NOT cljs_prod / bundle_isolation / ui_gates / ui_smoke:
+        # Freehand ships no production-bundle requirer and no testbed those
+        # smokes mount. Widen each the moment it gains one — the
+        # `implementation/ui/*` case above is the worked precedent.
         implementation_jvm=true
         cljs_node_test=true
+        cljs_browser=true
         ;;
       implementation/scripts/run-ui-bench.cjs)
         # rf2-vxgfnd.6 — false-green fix, mirroring the launcher cases
@@ -726,12 +752,22 @@ else
         # hosts once actually run. Arming the two host outputs is what makes it
         # run.
         #
-        # Scoped exactly like the implementation/freehand/* case: NOT the
-        # browser/prod/isolation tier. Freehand ships no production-bundle
-        # requirer, so those gates would be pure cost — widen both cases
-        # together when it gains one.
+        # Scoped exactly like the implementation/freehand/* case, which is why
+        # rf2-drpa3.70's browser widening lands on both together. This corpus
+        # is a live input to the MOUNTED tests too: FH-STRUCT-007 is the DOM
+        # table react_mount_dom_cljs_test.cljs reads back off `document`, and
+        # FH-ROUTELINK-001..003 drive route_link_native_dom_cljs_test.cljs. A
+        # fixture edit can therefore change mounted output, so it must schedule
+        # the browser lane. The arm stays the whole fixtures root rather than a
+        # family prefix: two unrelated families already feed browser tests, and
+        # a prefix list would rot silently on the third.
+        #
+        # Still NOT cljs_prod / bundle_isolation — Freehand ships no
+        # production-bundle requirer. Widen both cases together when it gains
+        # one.
         implementation_jvm=true
         cljs_node_test=true
+        cljs_browser=true
         ;;
       implementation/scripts/serve-and-run-reagent-slim-smoke.cjs|implementation/scripts/_reagent-slim-smoke-policy.test.cjs)
         # rf2-5v0dg7 — false-green fix, mirroring the xray-feature-gate

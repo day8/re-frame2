@@ -2118,13 +2118,83 @@ test('the freehand arm is ARTEFACT-ROOT matching, not an enumeration (rf2-drpa3.
 });
 
 test('implementation/freehand/** stays OFF the heavy per-feature gates (rf2-drpa3.58)', () => {
-  // Scope guard, not an aspiration: Freehand ships no public surface, no
-  // *-dom-cljs-test namespace and no production-bundle requirer yet, so the
-  // browser/prod/isolation tier would be pure cost. Widen the classifier case
-  // (and this test) when it gains one — implementation/ui/* is the precedent.
+  // Scope guard, not an aspiration: Freehand ships no production-bundle
+  // requirer and no testbed the smokes mount, so those tiers would be pure
+  // cost. Widen the classifier case (and this test) when it gains one —
+  // implementation/ui/* is the precedent. cljs_browser LEFT this list under
+  // rf2-drpa3.70: the artefact now has mounted-DOM tests, so that gate stopped
+  // being cost and became the only place they can run.
   const result = classify('implementation/freehand/src/re_frame/freehand.cljc');
-  for (const key of ['cljs_browser', 'cljs_prod', 'bundle_isolation', 'ui_gates', 'ui_smoke']) {
+  for (const key of ['cljs_prod', 'bundle_isolation', 'ui_gates', 'ui_smoke']) {
     assert.equal(result[key], 'false', `freehand must not arm ${key} yet`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// rf2-drpa3.70 — the React surfaces and the browser lane.
+//
+// F1c shipped an interpreted React emitter whose real claim is what a BROWSER
+// does with its output, and two `*-dom-cljs-test` namespaces that mount
+// through `react-dom/client` to prove it. Those files already ride the
+// `:browser-test` build (freehand/src + freehand/test are on :source-paths;
+// the build's `-dom-cljs-test$` regex selects them) — but `cljs-browser` is
+// surface-gated, so a Freehand-only PR skipped the only lane that can execute
+// them.
+//
+// The `cljs` job is not a substitute. The `:node-test` regex matches the very
+// same files, where they find no DOM and self-skip. Green, and worth nothing.
+// ---------------------------------------------------------------------------
+
+test('the Freehand React surfaces arm cljs_browser (rf2-drpa3.70)', () => {
+  // Source, mounted-DOM test, the shared view declarations both emitters
+  // render, and a fixture the mounted assertions read — one representative of
+  // each transitive semantic input to mounted output.
+  for (const file of [
+    'implementation/freehand/src/re_frame/freehand/react.cljs',
+    'implementation/freehand/test/re_frame/freehand/react_mount_dom_cljs_test.cljs',
+    'implementation/freehand/test/re_frame/freehand/route_link_native_dom_cljs_test.cljs',
+    'implementation/freehand/test/re_frame/freehand/tree_views.cljc',
+    'implementation/freehand/src/re_frame/freehand/conversion.cljc',
+    'spec/conformance/freehand/fixtures/fh-struct-007.edn',
+    'spec/conformance/freehand/fixtures/fh-routelink-001.edn',
+  ]) {
+    assert.equal(
+      classify(file).cljs_browser,
+      'true',
+      `${file} can change mounted output — it must schedule the cljs-browser job`,
+    );
+  }
+});
+
+test('the Freehand browser-test namespaces actually exist (rf2-drpa3.70)', () => {
+  // The classifier never stats a path, so the row above would stay green if
+  // the mounted tests were renamed or deleted — routing a lane at nothing.
+  // These two ARE the browser proof; pin their existence with the routing.
+  for (const file of [
+    'implementation/freehand/test/re_frame/freehand/react_mount_dom_cljs_test.cljs',
+    'implementation/freehand/test/re_frame/freehand/route_link_native_dom_cljs_test.cljs',
+  ]) {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, file)),
+      `${file} must exist — it is the mounted proof this routing exists to run`,
+    );
+    // ...and carry the suffix the :browser-test ns-regexp selects on.
+    assert.match(path.basename(file), /_dom_cljs_test\.cljs$/);
+  }
+});
+
+test('Freehand PROSE does not pay for a Chromium run (rf2-drpa3.70)', () => {
+  // The widening is about mounted output. Markdown cannot change it, and the
+  // browser lane is the expensive one — so the prose arm keeps its two host
+  // suites and stops there.
+  for (const file of [
+    'implementation/freehand/README.md',
+    'implementation/freehand/doc/design/emitters.md',
+  ]) {
+    const result = classify(file);
+    assert.equal(result.cljs_browser, 'false', `${file} must not arm cljs_browser`);
+    assert.equal(result.implementation_jvm, 'true', `${file} still arms implementation_jvm`);
+    assert.equal(result.cljs_node_test, 'true', `${file} still arms cljs_node_test`);
   }
 });
 
@@ -2189,13 +2259,31 @@ test('the freehand fixture arm is ROOT matching, not an enumeration (rf2-drpa3.6
 });
 
 test('freehand fixtures stay OFF the heavy gates, like the artefact (rf2-drpa3.66)', () => {
-  // Scope guard. The fixtures feed exactly the two suites the artefact case
-  // arms and nothing else, so this arm must not drift wider than
-  // implementation/freehand/* — widen both together or neither.
+  // Scope guard. The fixtures feed exactly the suites the artefact case arms
+  // and nothing else, so this arm must not drift wider than
+  // implementation/freehand/* — widen both together or neither. cljs_browser
+  // left this list under rf2-drpa3.70, on both cases at once: FH-STRUCT-007
+  // and FH-ROUTELINK-001..003 are read by the mounted-DOM tests.
   const result = classify('spec/conformance/freehand/fixtures/fh-call-001.edn');
-  for (const key of ['cljs_browser', 'cljs_prod', 'bundle_isolation', 'ui_gates', 'ui_smoke']) {
+  for (const key of ['cljs_prod', 'bundle_isolation', 'ui_gates', 'ui_smoke']) {
     assert.equal(result[key], 'false', `freehand fixtures must not arm ${key}`);
   }
+});
+
+test('cljs-browser is job-gated on cljs_browser and is REQUIRED (rf2-drpa3.70)', () => {
+  // Arming the output only helps if the lane it arms is still surface-gated on
+  // that output and still reachable from the single required context. Both
+  // halves, pinned together: rf2-drpa3.58 learned the hard way that a lane
+  // outside the aggregator is advisory however green it looks.
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, 'cljs-browser');
+  assert.match(block, /if: needs\.detect_changed_surfaces\.outputs\.cljs_browser == 'true'/);
+  assert.match(block, /run: npm run test:browser/);
+  assert.match(
+    jobBlock(workflow, 'all-required-passed'),
+    /- cljs-browser\r?\n/,
+    'aggregator must list cljs-browser in needs: — otherwise the browser lane is advisory',
+  );
 });
 
 test('freehand conformance PROSE is not a fixture — no over-broadening (rf2-drpa3.66)', () => {
