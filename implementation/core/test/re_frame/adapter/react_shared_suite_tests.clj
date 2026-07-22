@@ -1,18 +1,16 @@
 (ns re-frame.adapter.react-shared-suite-tests
   "Compile-time deftest generator for the per-adapter React-shared entry
-  files (UIx, Helix) — rf2-6hphn.
+  files (UIx) — rf2-6hphn.
 
   WHY THIS EXISTS. The parameterised shared suite
   (`re-frame.adapter.react-shared-suite`, rf2-sx77q + rf2-p4736) made
   every spine-shared assertion live ONCE as an `assert-*` defn — but the
-  per-adapter ENTRY files
-  (`uix_react_shared_cljs_test.cljs`,
-  `helix_react_shared_cljs_test.cljs`) still hand-paired ~50 `(deftest
+  per-adapter ENTRY files still hand-paired ~50 `(deftest
   name (suite/assert-name cfg))` lines each. Any new shared assertion
   required two hand-copied edits; the failure mode was silent
   single-adapter coverage if one entry file was forgotten. This macro
   closes the residual drift surface: the test list lives ONCE here and
-  both entry files reduce to a single `(define-react-shared-suite-tests!
+  each entry file reduces to a single `(define-react-shared-suite-tests!
   cfg)` call.
 
   WHY A .clj MACRO. The CLJS test files consume this via
@@ -39,7 +37,7 @@
     1. Add `assert-foo` to `react_shared_suite.cljs`.
     2. Append `[foo assert-foo]` (or with a section-comment line) to
        `test-specs` below.
-    3. Both UIx and Helix pick the new test up automatically on next
+    3. Every entry file picks the new test up automatically on next
        compile — no entry-file edits, structurally no drift."
   (:refer-clojure :exclude [test-specs]))
 

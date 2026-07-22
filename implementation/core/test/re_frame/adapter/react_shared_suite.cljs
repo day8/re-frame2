@@ -1,25 +1,26 @@
 (ns re-frame.adapter.react-shared-suite
   "Parameterised, substrate-agnostic test suite for the React-shaped
-  adapters (UIx, Helix) — rf2-sx77q.
+  adapters (UIx) — rf2-sx77q.
 
-  WHY THIS EXISTS. UIx and Helix both wire their entire public surface
-  out of the SAME `re-frame.substrate.spine/make-react-spine` factory
-  (see `uix.cljs:25-33` / `helix.cljs:26-34`); the only differences are
+  WHY THIS EXISTS. The React-hook adapters (UIx, and Helix until its
+  removal at S7/W13, rf2-d6epb) wire their entire public surface
+  out of the SAME `re-frame.substrate.spine/make-react-spine` factory;
+  the only differences are
   the substrate name string, the gensym prefixes, and which host's
   `use-memo` / `use-callback` / `use-context` are passed in. Their tests
   were, accordingly, ~20 near-byte-identical file PAIRS (~40 files)
-  differing only by `uix`↔`helix` and the id keyword (rf2-sx77q audit
-  D1). A change to one was routinely hand-copied to the other; the
+  differing only by the substrate prefix and the id keyword (rf2-sx77q
+  audit D1). A change to one was routinely hand-copied to the other; the
   docstrings literally cross-referenced their siblings.
 
   WHAT THIS DOES. Every spine-shared behaviour is asserted ONCE here, as
   a plain `defn` that takes the per-adapter config map and runs
   `cljs.test/is` / `testing` against the *installed* adapter. The
-  per-adapter test files (`uix_react_shared_cljs_test.cljs`,
-  `helix_react_shared_cljs_test.cljs`) are thin: a fixture installing the
+  per-adapter entry file (`uix_react_shared_cljs_test.cljs`) is thin: a
+  fixture installing the
   adapter, plus one `deftest` per shared fn that forwards the config. The
-  suite cannot drift between substrates by construction — a gap on one is
-  a gap on both, and closing it here closes it everywhere.
+  suite cannot drift between substrates by construction — any future
+  React-hook adapter picks up the whole surface by adding one entry file.
 
   THIS NS IS NOT A TEST FILE. Its name does NOT end in `cljs-test`, so
   the `:node-test` build's `:ns-regexp \"cljs-test$\"` does NOT discover
@@ -32,7 +33,7 @@
 
     {:adapter      the adapter map (e.g. uix-adapter/adapter)
      :substrate-kw a keyword namespace fragment unique to the substrate
-                   (e.g. :uix / :helix) used to mint per-adapter ids so
+                   (e.g. :uix) used to mint per-adapter ids so
                    two adapters' suites never collide in the same process
      :wrap-view    the adapter's wrap-view fn
      :clear-warn!  the adapter's clear-warned-non-dom-roots! fn
@@ -40,7 +41,7 @@
      :render-to-string the adapter's render-to-string fn
      :name         human substrate name for assertion messages}
 
-  COVERAGE (closes rf2-sx77q gaps G2/G3/G4/G5 for BOTH React adapters):
+  COVERAGE (closes rf2-sx77q gaps G2/G3/G4/G5 for the React-hook adapters):
     - dispose MUST (1) sub-cache walk + best-effort poison tolerance (G3)
     - dispose MUST (2) idempotent root drain
     - dispose MUST (3) clears the hiccup-emitter cell
@@ -55,7 +56,7 @@
 
   DOM/BROWSER TWINS (rf2-5or96 — the DOM-split remainder of rf2-p4736).
   Two twin clusters defined substrate-specific component vars (UIx
-  `defui`/`$`/uix-hooks; Helix `defnc`/`$`/helix.dom/helix.hooks) that
+  `defui`/`$`/uix-hooks) that
   the suite cannot mint at runtime. Approach A — the substrate-specific
   components are built in each entry file and handed in via the cfg map
   (`:render-element`, the probe vars, observation atoms, frame keywords),
@@ -157,7 +158,7 @@
         (set! (.-error js/console) orig-error)))))
 
 (defn- mint-kw
-  "Mint a substrate-scoped keyword so the UIx and Helix suites never
+  "Mint a substrate-scoped keyword so two adapters' suites never
   collide on a process-wide `defonce` (warn-once set, etc.)."
   [substrate-kw nm]
   (keyword (str "rf.react-shared." (name substrate-kw)) nm))
@@ -461,7 +462,7 @@
 ;; preservation note) — rf2-pt0u2, follow-up to rf2-1anbp
 ;;
 ;; rf2-1anbp pinned the Reagent path: a call-site ^{:key} propagates to
-;; React. The React-hook substrates (UIx / Helix) take a different route —
+;; React. The React-hook substrates (UIx) take a different route —
 ;; the React `:key` rides the substrate's own `createElement` / `$` at the
 ;; call site, NOT Reagent's hiccup-metadata extraction. The hazard that
 ;; remains is the wrap-view pass itself: `inject-source-coord-attr` and
@@ -472,7 +473,7 @@
 ;; preservation by test rather than by argument: a seq of registered views,
 ;; each whose root element carries a distinct per-item key, must emerge from
 ;; the wrap-view passes with each key intact and all keys distinct (no
-;; collision). Parameterised ⇒ a gap on UIx is a gap on Helix.
+;; collision). Parameterised ⇒ a gap on one substrate is a gap on all.
 ;; ===========================================================================
 
 (defn assert-reg-view-react-key-preserved
@@ -512,7 +513,7 @@
 ;; child to a void DOM root (input / img / br / …). React rejects children on
 ;; void elements and would raise a void-element error / break hydration; the
 ;; sentinel must ride as a Fragment SIBLING instead. Headless structural
-;; assertion (runs under node-test for BOTH UIx + Helix via the macro); the
+;; assertion (runs under node-test for BOTH UIx via the macro); the
 ;; DOM-mount counterpart (no warning + exactly-one :rf.view/unmounted) lives
 ;; in `assert-void-root-view-unmount-no-warning` (browser gate).
 ;; ===========================================================================
@@ -525,7 +526,7 @@
   the void element. Headless `((rf/view id))` runs the full wrap-view path
   under goog.DEBUG=true, so this pins the structure the DOM-mount test then
   proves renders without a React void-element error. Parameterised ⇒ a gap
-  on UIx is a gap on Helix."
+  on one substrate is a gap on all."
   [{:keys [substrate-kw name]}]
   (testing (str name " — void root: sentinel is a Fragment sibling, not a child of the void element")
     (doseq [void-tag ["input" "img" "br"]]
@@ -627,7 +628,7 @@
           (let [errs (corruption-traces traces)]
             ;; EP-0002 (rf2-9o48ih): the public `current-frame-id` resolves
             ;; through the `:adapter/current-frame` routed-hook chain. In the
-            ;; multi-adapter node-test build (Reagent + UIx + Helix all loaded)
+            ;; multi-adapter node-test build (Reagent + UIx all loaded)
             ;; that ambient resolution can read `_currentValue` more than once,
             ;; so a corrupted boundary fires the structured diagnostic at least
             ;; once (not exactly once — that exact-count contract holds only
@@ -1067,7 +1068,8 @@
   "Every late-bind hook the React adapters publish at ns-load. Routed
   `:adapter/*` hooks first, then chained hooks. Per rf2-jicu2 the
   reactive-atom hooks are excluded; per rf2-334d9 :adapter/after-render
-  IS published. Identical set for UIx (rf2-rrwwy) and Helix (rf2-jz15y)."
+  IS published. The UIx set (rf2-rrwwy; Helix's identical twin set,
+  rf2-jz15y, left with the adapter at S7/W13)."
   #{:adapter/add-on-dispose!
     :adapter/after-render
     :adapter/current-frame
@@ -1110,7 +1112,7 @@
 ;; user (or the already-tested adapter-swap pattern) that copies / wraps a
 ;; canonical adapter map for instrumentation or local overrides STILL drives
 ;; the live routed hooks. The original identity guard served stale (inert)
-;; hooks for a copied map: `(rf/view id)` under a copied UIx/Helix map would
+;; hooks for a copied map: `(rf/view id)` under a copied UIx map would
 ;; lose its `:adapter/wrap-view` source-coord/view-id stamping (the hook fell
 ;; through to the `(constantly nil)` chain bottom, and the inline hiccup walk
 ;; cannot annotate a React element). This pins the substrate-observable fix.
@@ -1512,7 +1514,7 @@
   :rf.view/render-args (rf2-rpgq8). Substrate-agnostic — the args are
   captured by the views.cljs frame-aware-view wrapper that every adapter
   composes, so a direct `((rf/view id) arg…)` invocation surfaces them
-  identically across Reagent / UIx / Helix. A no-arg render omits the slot
+  identically across Reagent / UIx. A no-arg render omits the slot
   (additive — existing :rf.view/rendered consumers are unaffected)."
   [{:keys [substrate-kw name]}]
   (testing (str name " — :rf.view/rendered carries :rf.view/render-args")
@@ -1747,7 +1749,7 @@
 ;; projection}`. On plain-atom `make-derived-value` RECOMPUTES on every
 ;; deref with NO substrate memoisation, so the projection-equality
 ;; short-circuit there rides ENTIRELY on the core sub-cache's memoised
-;; body. Under the React-hook adapters (UIx / Helix) `make-derived-value`
+;; body. Under the React-hook adapters (UIx) `make-derived-value`
 ;; IS a memoised Reaction — a DIFFERENT propagation path: the app-db /
 ;; runtime-db projections are themselves memoised reactions over the ONE
 ;; physical frame-state container, and the layer-1 sub body is a memoised
@@ -2448,7 +2450,7 @@
 ;; from the byte-identical uix_public_surface / helix_public_surface twins
 ;; (rf2-6j09b).
 ;;
-;; WHAT THESE PIN. The UIx and Helix adapters re-export the SAME seven
+;; WHAT THESE PIN. The React-hook adapters re-export the SAME seven
 ;; public Vars out of `make-react-spine` plus the `adapter` map. Every
 ;; BEHAVIOUR is asserted elsewhere in this suite + the DOM twins, but two
 ;; re-exports — `use-current-frame` and `flush-views!` — are referenced by
@@ -2723,8 +2725,8 @@
 ;; ===========================================================================
 ;; DOM / browser twins (rf2-5or96 — DOM-split remainder of rf2-p4736)
 ;;
-;; UIx and Helix both define substrate-specific component vars via
-;; `defui`/`defnc` + `$` (and, for use-subscribe, the substrate's hooks).
+;; React-hook adapters define substrate-specific component vars via
+;; `defui` + `$` (and, for use-subscribe, the substrate's hooks).
 ;; The suite cannot mint those at runtime, so each entry file builds the
 ;; probe components + their observation atoms + a `:render-element` thunk
 ;; (the substrate's `$`) and hands them in. The orchestration (make-frame,
@@ -2858,13 +2860,13 @@
 (defn assert-after-render-fires-on-native-mount
   "rf2-t0x90: `(interop/after-render f)` fires post-commit even when the
   app was mounted via the SUBSTRATE-NATIVE renderer (the documented boot
-  idiom: `uix-dom/render-root` / Helix's `(.render root …)`) rather than
+  idiom: `uix-dom/render-root`) rather than
   through the adapter's `:render` slot.
 
   The defect this pins: the Fragment-wrap after-render sentinel only
   enters the tree on the `:render`-slot path. The documented idiom mounts
   natively (createRoot + .render), bypassing `make-render`, so a natively-
-  mounted UIx/Helix app had NO sentinel — `(rf/after-render f)` degraded
+  mounted UIx app had NO sentinel — `(rf/after-render f)` degraded
   to a bare microtask FOREVER, defeating the post-commit-timing contract
   Reagent's global `r/after-render` honours regardless of mount path. The
   fix arms a per-adapter SINGLETON DRIVER ROOT the first time after-render
@@ -2887,7 +2889,7 @@
             mount-node (make-mount-node!)
             ;; NATIVE mount — raw createRoot + .render, NOT
             ;; substrate-adapter/render. This is the documented boot idiom
-            ;; (uix-dom/render-root / Helix .render). The spine's
+            ;; (uix-dom/render-root). The spine's
             ;; Fragment-wrap sentinel is therefore NOT in this tree — the
             ;; exact gap rf2-t0x90 names.
             root       (react-dom-client/createRoot mount-node)]
@@ -3002,7 +3004,7 @@
   "rf2-ee38b.13 / rf2-ee38b.14: the spine `make-render` `:hydrate? true`
   branch (`react-dom/client/hydrateRoot`) was untested for the React-hook
   substrates while Reagent/reagent-slim both exercise it. This closes the
-  gap once for BOTH UIx and Helix.
+  gap once for every React-hook adapter.
 
   The probe ELEMENT is pre-rendered to matching SSR markup with React's own
   `react-dom/server/renderToString` (a test-only require — the same element
@@ -3044,7 +3046,7 @@
 
 ;; ---- native-root hydration-mismatch adoption reporter (rf2-qfz65) --------
 ;;
-;; A native UIx/Helix root is a React-ELEMENT root: neither the hiccup
+;; A native UIx root is a React-ELEMENT root: neither the hiccup
 ;; :render-tree-fn hash channel nor the compiled-tier ui/hydrate-root adoption
 ;; reporter covers it, so before rf2-qfz65 the spine's make-render hydrate branch
 ;; called hydrateRoot with NO options and a hydration MISMATCH was SILENT (React
@@ -3067,7 +3069,7 @@
       (step))))
 
 (defn assert-native-hydration-mismatch-surfaces-diagnostic
-  "rf2-qfz65: a hydrating native UIx/Helix root that adopts DIVERGENT server
+  "rf2-qfz65: a hydrating native UIx root that adopts DIVERGENT server
   markup surfaces the framework :rf.ssr/hydration-mismatch diagnostic (via the
   spine's composed onRecoverableError), AND a host-supplied :on-recoverable-error
   still fires (compose, never clobber); a CLEAN native adoption stays silent.
@@ -3296,7 +3298,7 @@
 
   HOW THE PROOF IS RIGOROUS. After the initial mount (done under `act` so
   the test env is happy), we TURN OFF `IS_REACT_ACT_ENVIRONMENT` and run the
-  dispatch + flush-render! entirely OUTSIDE `act`. flushSync (UIx/Helix) /
+  dispatch + flush-render! entirely OUTSIDE `act`. flushSync (UIx) /
   reagent.core/flush (ratom family) commit synchronously regardless of the
   act env, so the assertion `(= \"n=2\" textContent)` reads TRUE on the line
   immediately after `flush-render!` returns — a deferred (rAF/microtask)
@@ -4144,7 +4146,7 @@
         ;; Patch React.useMemo to ALWAYS re-run the factory and ignore the
         ;; deps cache — the worst case React's docs sanction ("you may rely
         ;; on useMemo as a performance optimization, not as a semantic
-        ;; guarantee"). uix/helix's use-memo wrappers delegate to this, so the
+        ;; guarantee"). uix's use-memo wrappers delegate to this, so the
         ;; spine's memo factory re-subscribes on every render under the patch.
         (set! (.-useMemo React)
               (fn patched-use-memo [factory _deps] (factory)))
@@ -4475,7 +4477,7 @@
 
 ;; ---- key-change serves the NEW target (rf2-naz09e) ------------------------
 ;;
-;; THE BUG (UIx + Helix shared spine only — Reagent recomputes in-render and
+;; THE BUG (UIx shared spine only — Reagent recomputes in-render and
 ;; never tears; a cross-substrate correctness divergence). When query-v (or the
 ;; resolved frame) changes to a DIFFERENT subscription target on a MOUNTED
 ;; use-subscribe component, the pre-fix spine served the PREVIOUS target's value
@@ -4726,7 +4728,7 @@
 ;;
 ;; Phase-A (rf2-9hoos) emits :rf.view/unmounted on the Reagent family via
 ;; a per-render-instance reaction-dispose hook; the React-hook substrates
-;; (UIx / Helix) had no tracked render reaction to ride, so the views-side
+;; (UIx) had no tracked render reaction to ride, so the views-side
 ;; arm no-oped there. rf2-te71r adds a React.useEffect empty-deps cleanup
 ;; in the shared spine's wrap-view that fires the emit on unmount. Real
 ;; mount/unmount needs a DOM (jsdom is NOT in the node runner), so this is
@@ -4736,12 +4738,12 @@
 ;; `React/createElement` as a function component so the spine wrap-view's
 ;; useEffect belongs to a real React instance whose teardown fires the
 ;; cleanup. The probe is built in the suite (raw `React/createElement`, no
-;; substrate `defui`/`$` needed) so both UIx and Helix forward it
-;; unchanged — a gap on one is a gap on both.
+;; substrate `defui`/`$` needed) so every React-hook adapter forwards it
+;; unchanged — a gap on one is a gap on all.
 
 (defn assert-view-unmount-emits-on-react-hook-teardown
   "rf2-te71r: mounting then unmounting a registered view under a
-  React-hook substrate (UIx / Helix) emits exactly one :rf.view/unmounted
+  React-hook substrate (UIx) emits exactly one :rf.view/unmounted
   carrying the required :rf.view/id + :frame tags (plus the :rf.view/render-key
   instance tuple). The emit rides the spine wrap-view's React.useEffect
   empty-deps cleanup — the React-hook parity for the phase-A Reagent

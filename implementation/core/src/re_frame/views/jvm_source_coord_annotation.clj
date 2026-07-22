@@ -87,7 +87,7 @@
   inject-source-coord-attr`'s hiccup-walk contract:
 
     - Form-2 (`out` is a fn): return a fn that annotates the inner
-      output when the emitter invokes it (Reagent/UIx/Helix Form-2
+      output when the emitter invokes it (Reagent/UIx Form-2
       semantics; the JVM SSR emitter's `resolve-component-head` unwraps
       the inner fn with the same args).
     - DOM-tag-rooted hiccup: annotate the existing root element,

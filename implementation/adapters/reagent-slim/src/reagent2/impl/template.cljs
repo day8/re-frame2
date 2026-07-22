@@ -1004,7 +1004,7 @@
   Function components source reactive state through `useSyncExternalStore`-
   shaped subscription hooks — `:f>` is the escape hatch TO React hooks, so
   use a subscription hook for reactivity inside it. This mirrors how the
-  UIx / Helix substrates consume subscriptions."
+  UIx substrates consume subscriptions."
   [f]
   (or (.-cljsFnComponent ^js f)
       (let [wrapper (fn [^js props]

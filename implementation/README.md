@@ -27,7 +27,7 @@ Two top-level groupings:
 
 - **`adapters/`** — substrate adapters (rf2-zha9 directory introduction;
   rf2-0imy canonical naming, "adapters" not "substrates"). One directory
-  per adapter (`reagent`, `uix`, `helix`, `reagent-slim`).
+  per adapter (`reagent`, `uix`, `reagent-slim`).
 - **Per-feature artefacts** — one flat directory per feature
   (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`),
   each plugged into core via the `re-frame.late-bind` hook table per
@@ -81,7 +81,7 @@ implementation/
 
   adapters/                  Substrate adapters live here per rf2-zha9 (renamed from
                              substrates/ per rf2-0imy) — one directory per adapter
-                             (reagent, uix, helix, reagent-slim). Per-feature artefacts
+                             (reagent, uix, reagent-slim). Per-feature artefacts
                              (schemas, machines, ...) stay flat under implementation/.
     reagent/                 day8/re-frame2-reagent — the Reagent adapter artefact.
       deps.edn               :local/root dep on ../../core.
@@ -95,10 +95,6 @@ implementation/
       deps.edn               :local/root dep on ../../core; pulls com.pitch/uix.{core,dom}.
       src/re_frame/adapter/uix.cljs
                              The UIx adapter (use-subscribe, flush-views!, etc.).
-    helix/                   day8/re-frame2-helix — the Helix adapter artefact (rf2-2qit).
-      deps.edn               :local/root dep on ../../core; pulls lilactown/helix.
-      src/re_frame/adapter/helix.cljs
-                             The Helix adapter.
     reagent-slim/            day8/reagent-slim — Reagent rewrite for React 19
                              (rf2-5djt; Stage 4 rf2-6hyy). Stage 4 landed: the full
                              reagent2.* rewrite on disk — reactive primitives
@@ -226,7 +222,7 @@ implementation/
 | 003 — | Reserved (no `003-*.md`; held open per [`spec/README.md`](../spec/README.md) for future cross-frame composition work) | — |
 | 004 Views | Done (JVM-runnable + CLJS via Reagent) | covered via reg-view in SSR fixtures |
 | 005 State Machines | Done | machine/transition, hierarchical-{compound,cross-level,parent-fallthrough}, always-{single-microstep,depth-exceeded}, after-{single-delay,stale-detection,hierarchy}, spawn-on-entry-destroy-on-exit |
-| 006 Reactive Substrate | Done (Reagent + plain-atom; UIx + Helix smoke-tested) | sub/chain |
+| 006 Reactive Substrate | Done (Reagent + plain-atom; UIx smoke-tested) | sub/chain |
 | 007 Stories | Out of scope for the CLJS reference (no canonical implementation; the spec defines the Story / Variant / Workspace contract for tooling consumers) | — |
 | 008 Testing | Done | dispatch-sync, conformance harness |
 | 009 Instrumentation | Done | error/{handler-exception,fx-handler-exception,sub-exception,no-such-handler,override-fallthrough} |
@@ -239,7 +235,7 @@ implementation/
 The Reagent adapter is the canonical adapter — every test target (every
 `clojure -M:test` run, every `node-test` build, every `:browser-test`
 run, every `examples` run, every conformance fixture) executes against
-it. UIx and Helix adapters are smoke-tested via the counter + login
+it. The UIx adapter is smoke-tested via the counter + login
 pair per [Conventions §Adapter test matrix policy](../spec/Conventions.md#adapter-test-matrix-policy).
 The `reagent-slim` adapter has landed Stage 4 (the full `reagent2.*`
 rewrite) and carries its own CLJS test suite — the `reagent2.*` internals
@@ -394,7 +390,7 @@ disambiguate names that look interchangeable at a glance.
   fx fn, flow def). (The dedicated `rf/handler-ids` projection was
   removed — rf2-i4hk4b.)
 - **adapter vs substrate vs artefact** — *substrate* is the
-  reactive runtime (Reagent, UIx, Helix). *Adapter* is the
+  reactive runtime (Reagent, UIx). *Adapter* is the
   `re-frame.adapter.*` ns that bridges core to that substrate
   (canonical naming per rf2-0imy; not "substrate adapter" or
   "renderer"). *Artefact* is a Maven coordinate the adapter ships

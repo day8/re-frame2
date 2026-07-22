@@ -242,7 +242,7 @@
             silently strip the error message.
 
             We use the in-enum but possibly-unregistered :uix substrate
-            (per the :substrates enum #{:reagent :uix :helix}). At
+            (per the :substrates enum #{:reagent :uix}). At
             CLJS test boot the Reagent adapter installs :reagent but
             not :uix (the UIx adapter ships as a separate npm
             package). Sanity-check the precondition then drive the

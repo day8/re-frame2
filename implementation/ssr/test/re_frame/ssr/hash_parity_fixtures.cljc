@@ -32,7 +32,7 @@
 
 (defn fn-head-component
   "A raw-fn hiccup head — the deref'd `defn` VALUE idiomatic to Reagent /
-  UIx / Helix SSR (`[fn-head-component props]`). Referenced by the
+  UIx SSR (`[fn-head-component props]`). Referenced by the
   `fn-head-child` parity fixture (rf2-jsa2ml): `(.toString ...)` on a raw
   fn is class-name + identity-hashcode on the JVM but the JS source on
   CLJS — never equal. Before the fix the canonical EDN carried divergent
@@ -205,7 +205,7 @@
    :input    [:div [fn-head-component {:label "hi"}]]
    :expected "c105e684"
    :rationale "rf2-jsa2ml — a raw-fn hiccup head (`[fn-head-component
-              props]`, the idiomatic Reagent/UIx/Helix SSR shape where the
+              props]`, the idiomatic Reagent/UIx SSR shape where the
               head is the deref'd defn value). `(.toString fn)` is class +
               identity-hashcode on the JVM but the JS source on CLJS —
               never equal — so the pre-fix `#fn[<toString>]` serialisation

@@ -2,7 +2,7 @@
   "Multi-substrate side-by-side rendering. Per `002-Runtime.md` §Substrate hooks
   + `005-SOTA-Features.md` §Multi-substrate side-by-side rendering.
 
-  When a variant declares `:substrates #{:reagent :uix :helix}` the
+  When a variant declares `:substrates #{:reagent :uix}` the
   canvas renders the variant against each substrate side-by-side. Per
   `002-Runtime.md` §Substrate hooks — substrate-portability gaps are the point — failures
   surface **inline** as a red overlay on the offending cell with the
@@ -12,7 +12,7 @@
 
   Story doesn't add a new framework registry — substrate-rendering hooks
   are looked up in `substrate->render-fn` here. Story installs `:reagent`;
-  hosts that load UIx, Helix, or another adapter register its renderer with
+  hosts that load UIx or another adapter register its renderer with
   `register-substrate!`.
 
   ## Grid layout
@@ -28,7 +28,7 @@
   off. Adapter `:require`s are NOT hard-required from this ns — the
   substrate registry is a runtime atom and the host app populates it
   via `register-substrate!`. Story core consequently does not pull
-  UIx / Helix into the classpath."
+  UIx into the classpath."
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.core :as rf]
@@ -96,7 +96,7 @@
          the named substrate, threading `args` into the component.
 
          Pre-populated with `:reagent` which uses `re-frame.core/view`
-         + plain reagent. UIx / Helix entries plug in via
+         + plain reagent. UIx entries plug in via
          `register-substrate!` from the host app."}
   substrate->render-fn
   (atom {}))
@@ -109,7 +109,7 @@
 
   `render-fn` takes `(variant-id view-id args)` and returns a hiccup
   vector (Reagent) or a `react/createElement`-style React element
-  (UIx / Helix). Story's grid renders the result inside a `:div` cell."
+  (UIx). Story's grid renders the result inside a `:div` cell."
   [substrate-id render-fn]
   (swap! substrate->render-fn assoc substrate-id render-fn)
   nil)

@@ -2,7 +2,7 @@
   "Framework-tree regression for the login feature's SUCCESS-TOKEN privacy — the
    `:auth.login/succeeded` reply event and the `:auth.session/store` persistence
    fx owned by examples/core/login/model.cljs, the substrate-free model shared
-   across the Reagent/UIx/Helix login examples (rf2-ppbvav / rf2-j538f7.30).
+   across the Reagent/UIx login examples (rf2-ppbvav / rf2-j538f7.30).
 
    These belong in the framework test tree, NOT under examples/ (examples stay
    test-free per rf2-8cevm). The ns requires the login model owner

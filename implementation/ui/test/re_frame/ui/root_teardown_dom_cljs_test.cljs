@@ -39,7 +39,7 @@
 ;; get-act / enable-react-act-env! shape as core's shared React suite
 ;; (react_shared_suite.cljs `with-browser-act`) and the frame-scope keystone
 ;; fixture (frame_scope_resolve_dom_cljs_test.cljs). It uses React's OWN
-;; `act()`, NOT UIx/Helix/Reagent machinery, so this fixture stays native
+;; `act()`, NOT UIx/Reagent machinery, so this fixture stays native
 ;; re-frame.ui + the substrate adapter under test.
 ;;
 ;; `flushSync` is NOT an act substitute: React's test contract treats any

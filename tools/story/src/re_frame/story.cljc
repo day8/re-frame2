@@ -217,7 +217,7 @@
       :argtypes   {<arg-key> {...}}
       :tags       #{...}
       :modes      #{...}
-      :substrates #{:reagent :uix :helix}
+      :substrates #{:reagent :uix}
       :platforms  #{:server :client}
       :variants   {<variant-name> <variant-body>}}   ;; Form-B sugar
      ```
@@ -1801,12 +1801,13 @@
      "Per `002-Runtime.md` §Substrate hooks + `005-SOTA-Features.md`
      §Multi-substrate side-by-side rendering — register a substrate render fn under
      `substrate-id`. The host app calls this once at boot for each
-     substrate it wants Story to render against (UIx, Helix, etc.). The
+     substrate it wants Story to render against (UIx, a custom React
+     substrate, etc.). The
      Reagent substrate is registered automatically by
      `install-canonical-vocabulary!`.
 
      `render-fn` takes `(variant-id view-id args)` and returns a hiccup
-     vector (Reagent) or a React element (UIx / Helix)."
+     vector (Reagent) or a React element (UIx)."
      [substrate-id render-fn]
      (ui-multi-substrate/register-substrate! substrate-id render-fn)))
 

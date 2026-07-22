@@ -857,7 +857,7 @@
 ;; ui/->react — the OUTWARD interop bridge (rf2-u53yy.2)
 ;;
 ;; `(ui/->react view)` exports a compiled re-frame.ui view as a React component a
-;; FOREIGN React/UIx/Helix tree can render — the OUTWARD half of the foreign
+;; FOREIGN React/UIx tree can render — the OUTWARD half of the foreign
 ;; boundary (Spec 004 §The React interop tier; the compat-boundary contract §3).
 ;; The inward half is `ui/raw`. Both traffic in plain React values and neither
 ;; couples `day8/re-frame2-ui` to any compat adapter. `re-frame.ui/->react` is

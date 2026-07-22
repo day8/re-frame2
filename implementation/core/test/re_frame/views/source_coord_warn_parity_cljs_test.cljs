@@ -4,14 +4,14 @@
 
     * Reagent hiccup walk:
       `re-frame.views.source-coord-annotation/inject-source-coord-attr`
-    * React-hook walk (UIx / Helix):
+    * React-hook walk (UIx):
       `re-frame.substrate.spine/inject-source-coord-attr`
 
   THE BUG: the React-hook walk warned whenever its output was non-element
   AND non-nil (so a registered view returning a STRING or NUMBER warned);
   the Reagent hiccup walk warned ONLY when the output was a vector. A
   string-returning view therefore emitted a one-shot non-DOM-root console
-  warning under UIx/Helix but was SILENT under Reagent — an observable
+  warning under UIx but was SILENT under Reagent — an observable
   cross-adapter inconsistency on a pair-tool warning surface. The message
   TEXT was already shared (adapter/context) so it could not drift; the
   TRIGGER condition had drifted. The fix unifies both walks on the honest
@@ -81,7 +81,7 @@
 (deftest string-returning-view-warns-on-both-walks
   (testing "a reg-view'd component returning a STRING root warns on BOTH
             walks (rf2-9ex1i9 — formerly silent under Reagent, warned under
-            UIx/Helix)"
+            UIx)"
     (is (= 1 (reagent-warned? "just a string"))
         "Reagent hiccup walk warns on a string root")
     (is (= 1 (spine-warned? "just a string"))

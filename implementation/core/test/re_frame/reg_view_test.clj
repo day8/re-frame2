@@ -257,7 +257,7 @@
 ;; lands in the registry slot meta) lives in
 ;; implementation/adapters/reagent-slim/test/. This file exercises the
 ;; absence-graceful path: when the helper is NOT on the classpath, the
-;; macro emits an unstamped expansion (UIx- or Helix-only builds).
+;; macro emits an unstamped expansion (UIx-only builds).
 ;;
 ;; Per the rf2-yfbx decision: NO separate `defview` macro. The fold is
 ;; in `reg-view`'s expansion — that is the canonical view-registration
@@ -297,8 +297,8 @@
         (is (some? (:reagent2/form slot-meta))
             "form tag stamped when reagent2.impl.component is resolvable"))
       (testing "reagent-slim ABSENT — expand-reg-view emits a form-tag-free
-                expansion (core / UIx / Helix-only build path)"
+                expansion (core / UIx-only build path)"
         ;; expand-reg-view's requiring-resolve returns nil, so the
         ;; expansion stamps no :reagent2/form meta.
         (is (nil? (:reagent2/form slot-meta))
-            "no form tag stamped — UIx/Helix-only build path")))))
+            "no form tag stamped — UIx-only build path")))))

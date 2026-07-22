@@ -482,7 +482,7 @@
 ;; every deref). Under the Reagent reactive substrate the projections are
 ;; REAL Reagent Reactions and the layer-1 sub body is a Reaction over the
 ;; projection — the SAME contract, a DIFFERENT propagation path. These pin
-;; it under Reagent. UIx / Helix carry the parameterised twin in
+;; it under Reagent. UIx carry the parameterised twin in
 ;; `re-frame.adapter.react-shared-suite`.
 ;;
 ;; A framework-authority handler (the `:rf/machine? true` marker the dev

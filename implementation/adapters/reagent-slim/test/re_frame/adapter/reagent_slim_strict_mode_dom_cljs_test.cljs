@@ -18,7 +18,7 @@
   (`install-lifecycle!`), and the render method lazily RECREATES it on the next
   render (`make-render-method`). React.StrictMode's development simulated
   unmount→remount stresses exactly that dispose/recreate + subscription re-wire.
-  Stock reagent / uix / helix all carry a StrictMode DOM scenario; slim did not
+  Stock reagent / uix all carry a StrictMode DOM scenario; slim did not
   (Finding 1 of the rf2-x76af2.37 clarity-nit review, deferred here). The
   sibling `reagent2/dom/client_cljs_test` proves the dispose by CALLING the
   prototype `componentWillUnmount` directly — but that never drives React's real

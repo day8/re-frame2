@@ -5,7 +5,7 @@
   substrates.
 
   Before this convergence the test-flush surface diverged THREE ways:
-    - UIx / Helix surfaced `flush-views!` in the ADAPTER ns, (act f),
+    - UIx surfaced `flush-views!` in the ADAPTER ns, (act f),
       returns nil (canonical);
     - reagent-slim surfaced `flush-views!` only in the SUBSTRATE ns
       `reagent2.dom.client`, returning a PROMISE;

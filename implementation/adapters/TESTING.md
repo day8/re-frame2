@@ -1,9 +1,9 @@
 # Testing the adapters
 
 > Reference for the adapter-smoke browser harness — the three substrate
-> smokes (Reagent / UIx / Helix) and the runner that drives them.
+> smokes (Reagent / UIx) and the runner that drives them.
 
-Each adapter (Reagent / UIx / Helix) ships a single browser smoke that mounts a
+Each adapter (Reagent / UIx) ships a single browser smoke that mounts a
 testbed app, dispatches an event, and asserts the resulting render — the minimal
 "this substrate bridge actually mounts and reacts" check. The smokes and their
 runner live **with the adapters they test**: the specs at
@@ -28,7 +28,7 @@ again in the scheduled/manual expensive workflow.
 
 | Command                       | What it runs                                                                                                                                                  | Where the orchestrator lives                                                       |
 |-------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
-| `npm run test:adapter-smokes` | The three adapter-level smokes at `implementation/adapters/{reagent,uix,helix}/testbed/spec.cjs` — mount + dispatch + assert per substrate.                    | [`scripts/serve-and-run-adapter-smokes.cjs`](scripts/serve-and-run-adapter-smokes.cjs) |
+| `npm run test:adapter-smokes` | The two adapter-level smokes at `implementation/adapters/{reagent,uix}/testbed/spec.cjs` — mount + dispatch + assert per substrate.                    | [`scripts/serve-and-run-adapter-smokes.cjs`](scripts/serve-and-run-adapter-smokes.cjs) |
 
 `test:adapter-smokes` is **N bundles, N pages, N specs** — one per adapter
 testbed. Each adapter owns its own runtime, so cross-adapter interaction is

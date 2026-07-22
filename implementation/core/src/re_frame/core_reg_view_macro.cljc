@@ -63,7 +63,7 @@
      macro (no separate `defview`); the runtime detection in `reagent2.
      impl.component/wrap-render` is the load-bearing correctness path,
      this tag is an additive perf hint. `requiring-resolve` keeps core
-     free of a static reagent-slim dep — UIx/Helix builds resolve nil."
+     free of a static reagent-slim dep — UIx builds resolve nil."
      [body]
      (when-let [classifier (try (requiring-resolve
                                    'reagent2.impl.component/classify-form-body)

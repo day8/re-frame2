@@ -57,7 +57,7 @@
   tracked separately and deliberately out of scope here.)
 
   Every variant declares `:substrates #{:reagent}` per `001-Authoring.md`
-  §Substrates (Reagent is the v1 lock; UIx / Helix variants ship post-v1).
+  §Substrates (Reagent is the v1 lock; UIx variants ship post-v1).
 
   The exemplary `:script` bodies exercise the documented authoring
   surface end-to-end: the `:assert-db` checkpoint sugar plus the

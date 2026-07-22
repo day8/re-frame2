@@ -38,8 +38,8 @@
 
 (deftest public-register-substrate-on-story
   (testing "story/register-substrate! is the public form"
-    (story/register-substrate! :helix (fn [_ _ _] [:div "helix-stub"]))
-    (is (contains? (story/registered-substrates) :helix))))
+    (story/register-substrate! :custom (fn [_ _ _] [:div "custom-stub"]))
+    (is (contains? (story/registered-substrates) :custom))))
 
 ;; ---- substrate-set resolution -------------------------------------------
 
@@ -53,10 +53,10 @@
 
 (deftest substrate-set-from-story
   (testing "falls back to story body's :substrates"
-    (is (= #{:reagent :helix}
+    (is (= #{:reagent :uix}
            (multi/resolve-substrate-set
              {}
-             {:substrates #{:reagent :helix}}
+             {:substrates #{:reagent :uix}}
              :reagent)))))
 
 (deftest substrate-set-defaults-host

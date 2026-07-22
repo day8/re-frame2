@@ -19,7 +19,7 @@
   shows the NEW value on the very next line: the only thing that could have
   committed it synchronously is the flush. (`reagent.core/flush` drains the
   render queue immediately and, on React 19, commits via `react-dom/flushSync`
-  — neither is rAF-scheduled.) The UIx / Helix twins of this proof live in the
+  — neither is rAF-scheduled.) The UIx twins of this proof live in the
   shared React suite (`assert-flush-render-synchronously-commits`).
 
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` discovers it;

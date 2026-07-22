@@ -23,7 +23,6 @@
                                   the impl pin lives in the test/testbed
                                   classpath; the template's :app needs it
                                   for its DOM mount)
-    - lilactown/helix          ↔ `implementation/adapters/helix/deps.edn` :deps
     - org.clojure/clojure      ↔ `implementation/core/deps.edn` :deps
     - org.clojure/clojurescript ↔ `implementation/core/deps.edn` :deps
 
@@ -287,7 +286,7 @@
     ;; Reagent adapter artefact only (the sole artefact that requires
     ;; reagent.core/ratom/dom.client); core stays Reagent-free because
     ;; re-frame.views late-binds via the `:adapter/current-component`
-    ;; hook. So the pin rides the adapter, alongside uix/helix below.
+    ;; hook. So the pin rides the adapter, alongside uix below.
     (let [impl-reagent (read-impl-deps-pin "implementation/adapters/reagent/deps.edn"
                                            'reagent/reagent)
           tmp          (tmp-dir "rf2-template-lockstep-reagent-")]
@@ -325,19 +324,6 @@
                    "match implementation/adapters/uix/deps.edn :test alias ("
                    impl-uix-dom ") — P5 lockstep. Bump uix.dom in the "
                    "_uix/deps.edn template resource.")))
-        (finally (delete-recursively tmp))))
-
-    ;; lilactown/helix — impl source of truth is adapters/helix/deps.edn :deps.
-    (let [impl-helix (read-impl-deps-pin "implementation/adapters/helix/deps.edn"
-                                         'lilactown/helix)
-          tmp        (tmp-dir "rf2-template-lockstep-helix-")]
-      (try
-        (let [tpl-helix (emit-deps-pin tmp :helix 'lilactown/helix)]
-          (is (= impl-helix tpl-helix)
-              (str "Template lilactown/helix pin (" tpl-helix ") must match "
-                   "implementation/adapters/helix/deps.edn (" impl-helix ") — "
-                   "P5 lockstep. Bump helix in the _helix/deps.edn template "
-                   "resource.")))
         (finally (delete-recursively tmp))))))
 
 (deftest clojure-version-lockstep

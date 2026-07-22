@@ -285,7 +285,7 @@
   same trigger that gates Story's own UI-shell migration (see
   spec/Principles.md §Reagent for the v1 UI shell). Not yet on the
   canonical substrate enum. See spec/000-Vision."
-  [:set [:enum :reagent :uix :helix]])
+  [:set [:enum :reagent :uix]])
 
 (def PlatformSet
   "Subset of `#{:server :client}` per /spec/007-Stories.md `:platforms`."

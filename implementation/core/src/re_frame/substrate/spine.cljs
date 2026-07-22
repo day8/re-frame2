@@ -1,6 +1,6 @@
 (ns re-frame.substrate.spine
   "Shared substrate-spine helpers for React-shaped adapters that lack a
-  native reactive-atom primitive (UIx, Helix, and any future minimal-
+  native reactive-atom primitive (UIx and any future minimal-
   React-wrapper substrate). UIx and Helix duplicated this body byte-
   for-byte modulo gensym prefixes, hook ns, and substrate-name strings;
   per-adapter wiring goes through `make-react-spine`.
@@ -429,7 +429,7 @@
 ;;
 ;; Per Spec 006 §revertibility-constraints the container holds the
 ;; frame's app-db value and *only* the frame's app-db value. React-only
-;; substrates (UIx, Helix) don't ship a reactive atom primitive (their
+;; substrates (UIx) don't ship a reactive atom primitive (their
 ;; hook substrate is React state) so we lean on a plain
 ;; `clojure.core/atom` and broadcast changes via `add-watch` — observably
 ;; equivalent to the Reagent adapter's r/atom for the substrate contract
@@ -564,8 +564,8 @@
   closure pays no per-tick `count`.
 
   Single source of truth: the first-party re-frame.ui, Reagent,
-  reagent-slim, UIx, and Helix adapters all build their recompute
-  closure through this fn — one implementation, five adapters, zero
+  reagent-slim, and UIx adapters all build their recompute
+  closure through this fn — one implementation, four adapters, zero
   drift. The arity-spec lifted
   into the spine matches the `make-dispose-adapter!` shape
   (rf2-jcjul); sourced from the rf2-fzrav perf-sweep findings."
@@ -819,7 +819,7 @@
         ;; hooks (per Spec 006 §subscription-cache). The spine
         ;; deliberately uses `re-frame.disposable/IDisposable` (re-
         ;; frame-owned, no Reagent dependency) rather than
-        ;; `reagent.ratom/IDisposable` so UIx/Helix bundles don't pay
+        ;; `reagent.ratom/IDisposable` so UIx bundles don't pay
         ;; ~9KB optimised / 2-3KB gzipped of `reagent.ratom` +
         ;; `reagent.impl.batching` for one protocol.
         rf-disposable/IDisposable
@@ -885,7 +885,7 @@
 
 ;; ---- native-root hydration-mismatch adoption reporter (rf2-qfz65) ----------
 ;;
-;; A native UIx/Helix root is a React-ELEMENT root: it has no hashable client
+;; A native UIx root is a React-ELEMENT root: it has no hashable client
 ;; render-tree (ruling out the hiccup `:render-tree-fn` / `verify-hydration!`
 ;; channel — that is for substrates whose view returns a hiccup data tree), and
 ;; it is not a compiled `re-frame.ui` root (ruling out that tier's
@@ -922,7 +922,7 @@
 ;; (hydration) commit instead.
 ;;
 ;; CANONICAL ENTRY. This shared React-hook render path is the ONLY native mount
-;; route that installs the reporter, so it is the canonical native UIx / Helix
+;; route that installs the reporter, so it is the canonical native UIx
 ;; hydration entry: hydrate through `(re-frame.substrate.adapter/render tree
 ;; mount {:hydrate? true})` (the Spec 006 client mount entry / adapter `:render`
 ;; slot) to get framework mismatch detection. Hydrating via the substrate-native
@@ -1051,7 +1051,7 @@
   plain (non-hydrating) mount installs neither reporter nor closer and pays zero
   cost.
 
-  This render path IS the canonical native UIx / Helix hydration entry — the ONLY
+  This render path IS the canonical native UIx hydration entry — the ONLY
   native mount route that installs the framework reporter. Hydrate through
   `(re-frame.substrate.adapter/render tree mount {:hydrate? true})` (the Spec 006
   client mount entry / adapter `:render` slot); hydrating via the substrate-native
@@ -1095,7 +1095,7 @@
 
 ;; ---- after-render --------------------------------------------------------
 ;;
-;; `:adapter/after-render` for React-only substrates (UIx, Helix) per
+;; `:adapter/after-render` for React-only substrates (UIx) per
 ;; rf2-334d9 (Mike decision rf2-neiqf 2026-05-19: publish via
 ;; useLayoutEffect) — without this `(rf/after-render f)` under those
 ;; adapters would be a silent no-op.
@@ -1113,11 +1113,11 @@
 ;; slot. But the documented boot idiom (and all three adapter testbeds)
 ;; mounts via the substrate-native renderer directly (`uix-dom/render-
 ;; root`, Helix's `(.render root …)`), which bypasses `make-render` —
-;; so a natively-mounted UIx/Helix app NEVER has a sentinel in its tree.
+;; so a natively-mounted UIx app NEVER has a sentinel in its tree.
 ;; Reagent's `r/after-render` is a global post-flush hook that works
 ;; regardless of mount path; without parity, the SAME `(rf/after-render
 ;; f)` call has correct post-commit timing on Reagent but degraded
-;; microtask timing on natively-mounted UIx/Helix — a silent substrate
+;; microtask timing on natively-mounted UIx — a silent substrate
 ;; divergence in a public primitive.
 ;;
 ;; The fix: a per-adapter SINGLETON DRIVER ROOT, mounted lazily the
@@ -1195,7 +1195,7 @@
 
   The sentinel uses raw React hooks (`React/useState`,
   `React/useLayoutEffect`) rather than the substrate's hook ns so the
-  same impl works for UIx, Helix, and any future React-shaped substrate
+  same impl works for UIx and any future React-shaped substrate
   using this spine.
 
   Returned value is the bare function component, suitable for
@@ -1334,7 +1334,7 @@
 
   Used by every React-shaped adapter's `dispose-adapter!` — wired into
   the `make-dispose-adapter!` factory for the first-party re-frame.ui
-  adapter plus UIx / Helix, and called directly from the Reagent /
+  adapter plus UIx, and called directly from the Reagent /
   reagent-slim adapters' dispose paths. Centralising the walk here is
   the rf2-jcjul lockstep: one implementation, five adapters, zero drift.
 
@@ -1505,7 +1505,7 @@
   Frame-resolution: `frame-kw` is REQUIRED (EP-0002 carried invariant).
   There is NO `(or frame-kw :rf/default)` floor — per Spec 002 §Frame
   target resolution the runtime never synthesises a frame from absence.
-  A native frame-provider shell (UIx `defui` / Helix `defnc`) that
+  A native frame-provider shell (UIx `defui`) that
   delegates here with a missing or `nil` `:frame` is a CONFIGURATION
   ERROR: this fn emits `:rf.error/no-frame-context` through the always-on
   error axis and throws, so a tooling-generated or hand-authored tree
@@ -1516,8 +1516,8 @@
   Children-normalisation: the native trailing-`$`-children idiom
   (rf2-7kii2) hands this core whatever shape each substrate's element
   macro stashes on `:children` — a JS ARRAY for multiple trailing
-  children (UIx's `(cljs.core/array …)`, Helix's `(into-array …)`), a
-  SINGLE element for one trailing child (Helix), a CLJS vector/seq, or
+  children (UIx's `(cljs.core/array …)`), a
+  SINGLE element for one trailing child, a CLJS vector/seq, or
   `nil` (no children). All four collapse to a flat positional arg list
   for `provider-element`: a JS array is spread via `array-seq`, an
   existing CLJS sequential is passed through, `nil` becomes no children,
@@ -1537,7 +1537,7 @@
   ;; nor a live frame value BEFORE it reaches React Context. A nil routes to
   ;; `:rf.error/no-frame-context` (absence); any other such value routes to
   ;; the distinct `:rf.error/bad-frame-provider-arg`.
-  ;; The native UIx/Helix shells read their props in the substrate idiom and
+  ;; The native UIx shells read their props in the substrate idiom and
   ;; delegate the clean frame-kw here, so this is the single validating seam
   ;; for both function-component substrates (mirrors the Reagent-side
   ;; `re-frame.views.provider/frame-provider` contract).
@@ -1601,7 +1601,7 @@
 ;; epoch. The 0-arity form flushes already-pending work with an empty
 ;; callback.
 ;;
-;; This is the React-hook (UIx / Helix) spine impl; the Reagent / reagent-
+;; This is the React-hook (UIx) spine impl; the Reagent / reagent-
 ;; slim family realises the same contract through `reagent.core/flush` (its
 ;; render-queue drain forces the component re-renders synchronously and, on
 ;; React 19, commits them via `flushSync`), wired in the ratom adapter.
@@ -1738,7 +1738,7 @@
 ;; instance reaction-dispose hook armed in `re-frame.views`. That path
 ;; rides the Reagent family's tracked render reaction
 ;; (`componentWillUnmount` disposes the instance's tracked deps). The
-;; React-hook substrates (UIx / Helix) run the same `views.cljs`
+;; React-hook substrates (UIx) run the same `views.cljs`
 ;; frame-aware-view wrapper inside a function component with NO tracked
 ;; render reaction (they intentionally don't publish
 ;; `:adapter/make-reaction`, so `interop/make-reaction` returns nil and
@@ -1751,7 +1751,7 @@
 ;; (`[view-id instance-token]`) is stable across re-renders. The React-
 ;; hook spine has no such per-instance object the views-side token-mint
 ;; can latch onto (`provider/reagent-component-token` mints a FRESH token
-;; every render under UIx/Helix because no `:adapter/current-component` is
+;; every render under UIx because no `:adapter/current-component` is
 ;; published), so this seam mints its OWN stable per-instance token into a
 ;; `useRef` — `[view-id <stable-token>]` is a well-formed render-key tuple
 ;; whose token survives re-renders and matches the render whose teardown
@@ -2024,11 +2024,11 @@
 ;;      (per Spec 006 §reference-counting-and-disposal, rf2-cmfln).
 ;;
 ;; Hook fns (`use-memo`, `use-callback`, `use-context`) differ between
-;; substrates by their deps-array convention — UIx accepts CLJS vectors,
-;; Helix wants JS arrays via `helix-hooks/use-memo*`. The factory below
+;; substrates by their deps-array convention — UIx accepts CLJS vectors;
+;; some React wrappers want JS arrays. The factory below
 ;; takes the hook fns as args so each adapter can supply the right pair.
 ;; The hook fns supplied MUST already be the "wants-JS-array" variants
-;; for substrates that need them (e.g. `helix-hooks/use-memo*`); the
+;; for substrates that need them; the
 ;; spine passes the deps as a JS array always.
 
 (defn make-react-spine
@@ -2036,7 +2036,7 @@
   config:
 
       :substrate-name  — string used in warn-non-dom-root text (\"UIx\",
-                         \"Helix\", …)
+                         …)
       :gensym-prefix-sub
       :gensym-prefix-derived
       :gensym-prefix-use-sub
@@ -2379,7 +2379,7 @@
                       ;; UNIQUE watch key per `subscribe-fn` INVOCATION,
                       ;; closed over by the returned cleanup. The key MUST
                       ;; NOT derive from `(hash reaction)`: subscriptions are
-                      ;; cached/deduped by query, so sibling UIx/Helix
+                      ;; cached/deduped by query, so sibling UIx
                       ;; components reading the SAME query share the SAME
                       ;; cached reaction. A hash-of-reaction key would be
                       ;; IDENTICAL across those siblings, and `add-watch`
@@ -2514,7 +2514,7 @@
      ;; this via substrate-adapter/route-hook!.
      :after-render-hook           after-render-hook}))
 
-;; ---- React-hook adapter assembly (re-frame.ui + UIx + Helix) --------------
+;; ---- React-hook adapter assembly (re-frame.ui + UIx) --------------
 ;;
 ;; rf2-ee38b.1 / rf2-ee38b.13 / rf2-ee38b.14. `make-react-spine` already
 ;; eliminated the substrate LOGIC drift (one factory, N adapters). The
@@ -2564,13 +2564,13 @@
 ;;     elided via `interop/debug-enabled?` per Spec 009 §Production builds.
 
 (defn make-react-adapter
-  "Assemble a React-hook adapter (the first-party re-frame.ui substrate,
-  UIx, or Helix) from a `make-react-spine` result map plus the
+  "Assemble a React-hook adapter (the first-party re-frame.ui substrate
+  or UIx) from a `make-react-spine` result map plus the
   substrate's config:
 
       :kind           — the adapter's `:kind` discriminator keyword
       :frame-provider — the substrate's NATIVE frame-provider component
-                        (`defui` for UIx, `defnc` for Helix), defined in
+                        (`defui` for UIx), defined in
                         the adapter ns ABOVE where that substrate's `$`
                         marshals props (rf2-z7hfp — the moved seam). The
                         component reads its props in the substrate's
@@ -2593,11 +2593,11 @@
   :frame-provider …})` at load), exactly as the hand-written wiring did.
 
   Single source of truth (rf2-ee38b.1): the first-party re-frame.ui
-  substrate, UIx, and Helix all call this with the same shape — the
+  substrate and UIx both call this with the same shape — the
   only inputs are their already-substrate-specific
   `spine-fns` map, `:kind`, and native `:frame-provider`. The former
   hand-copied route-hook block + chained installs (byte-identical across
-  the UIx/Helix twins) now live once."
+  the UIx twins) now live once."
   [spine-fns {:keys [kind frame-provider]}]
   (let [adapter {:kind                      kind
                  :make-state-container      (:make-state-container      spine-fns)
@@ -2663,7 +2663,7 @@
 ;; different reactive-atom impl (stock `reagent.*` vs the `reagent2.*`
 ;; rewrite). `make-ratom-spine` factors the shared container quartet,
 ;; React-root renderer, and dispose body exactly as `make-react-spine`
-;; factors the React-hook family (re-frame.ui / UIx / Helix) — one
+;; factors the React-hook family (re-frame.ui / UIx) — one
 ;; implementation, two adapters, zero drift.
 ;;
 ;; CRITICAL — slim bundle isolation (IMPL-SPEC §1.8 / the

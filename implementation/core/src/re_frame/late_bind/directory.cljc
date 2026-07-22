@@ -66,7 +66,7 @@
        that could be missing. See the per-key notes on those rows.
 
     3. ADAPTER-INJECTION — substrate adapters (Reagent / reagent-slim /
-       UIx / Helix / test-react) publish CLJS-side primitives the core
+       UIx / test-react) publish CLJS-side primitives the core
        runtime consumes (`:adapter/current-frame`, `:adapter/ratom`,
        `:adapter/after-render`, …) and React-shaped view machinery
        (`:reagent/set-hiccup-emitter!`, `:views/*`). Routed via
@@ -896,7 +896,7 @@
    ;; ===========================================================================
    ;; GROUP 3 — ADAPTER-INJECTION
    ;;
-   ;; Substrate adapters (Reagent / reagent-slim / UIx / Helix / test-
+   ;; Substrate adapters (Reagent / reagent-slim / UIx / test-
    ;; react) publish CLJS-side primitives the core runtime consumes
    ;; (`:adapter/current-frame`, `:adapter/ratom`, `:adapter/after-
    ;; render`, …) and React-shaped view machinery
@@ -911,7 +911,6 @@
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
-                   re-frame.adapter.helix
                    re-frame.adapter.test-react]
     :chained?    true
     :design-bead "rf2-4z7bp"
@@ -929,22 +928,20 @@
    {:key         :views/emit-view-unmounted!
     :producer-ns 're-frame.views
     :design-bead "rf2-te71r"
-    :description "Emit :rf.view/unmounted for a view instance's teardown. Consumed by the shared React-hook spine (make-wrap-view) so UIx/Helix views emit on unmount via a React.useEffect cleanup, restoring parity with the Reagent family's phase-A (rf2-9hoos) reaction-dispose unmount hook. Reaching the emit through late-bind keeps the spine free of a static require on the CLJS-only views ns; both sides gate on interop/debug-enabled?."}
+    :description "Emit :rf.view/unmounted for a view instance's teardown. Consumed by the shared React-hook spine (make-wrap-view) so UIx views emit on unmount via a React.useEffect cleanup, restoring parity with the Reagent family's phase-A (rf2-9hoos) reaction-dispose unmount hook. Reaching the emit through late-bind keeps the spine free of a static require on the CLJS-only views ns; both sides gate on interop/debug-enabled?."}
 
    ;; ---- :adapter/* — chained / routed across every CLJS adapter -------------
    {:key         :adapter/clear-warn-once-caches!
     :producer-ns '[re-frame.views.warn-once
                    re-frame.views
-                   re-frame.adapter.helix
                    re-frame.adapter.uix]
     :chained?    true
     :design-bead "rf2-4edk"
-    :description "Chained reset of EVERY adapter/views warn-once defonce cache the standard make-reset-runtime-fixture must wipe between tests. Per rf2-z79p8 every contributor enrols through the single governance chokepoint re-frame.late-bind/register-warn-once-clear-fn! (which chains the clear-fn here AND records it in the warn-once-clear governance registry). Members: re-frame.views.warn-once's warned-non-dom-roots, re-frame.views's rf2-9hoos seen-render-keys (:mount? discriminator), the React-hook spine's per-adapter source-coord cache (re-frame.substrate.spine, used by helix/uix), and the slim hiccup interpreter's warned-keyword-prop (re-frame.adapter.reagent-slim, rf2-qy6cl). The warn-once-clear governance assertion enumerates the registry and proves each member is wiped by this chain so a future cache cannot silently escape the fixture. (A 5th member, warned-plain-fn-frame-pairs, was removed in rf2-k4xous once its warning was retired per EP-0002.)"}
+    :description "Chained reset of EVERY adapter/views warn-once defonce cache the standard make-reset-runtime-fixture must wipe between tests. Per rf2-z79p8 every contributor enrols through the single governance chokepoint re-frame.late-bind/register-warn-once-clear-fn! (which chains the clear-fn here AND records it in the warn-once-clear governance registry). Members: re-frame.views.warn-once's warned-non-dom-roots, re-frame.views's rf2-9hoos seen-render-keys (:mount? discriminator), the React-hook spine's per-adapter source-coord cache (re-frame.substrate.spine, used by uix), and the slim hiccup interpreter's warned-keyword-prop (re-frame.adapter.reagent-slim, rf2-qy6cl). The warn-once-clear governance assertion enumerates the registry and proves each member is wiped by this chain so a future cache cannot silently escape the fixture. (A 5th member, warned-plain-fn-frame-pairs, was removed in rf2-k4xous once its warning was retired per EP-0002.)"}
    {:key         :adapter/current-frame
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
-                   re-frame.adapter.helix
                    re-frame.adapter.test-react
                    re-frame.ui.substrate]
     :chained?    true
@@ -961,58 +958,54 @@
                    re-frame.adapter.reagent-slim]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific ratom constructor (re-frame.interop/ratom). Per rf2-jicu2 not published by UIx/Helix — those substrates ship no reactive-atom primitive and re-frame.interop's reactive surfaces have zero production call sites under them."}
+    :description "Substrate-specific ratom constructor (re-frame.interop/ratom). Per rf2-jicu2 not published by UIx — that substrate ships no reactive-atom primitive and re-frame.interop's reactive surfaces have zero production call sites under them."}
    {:key         :adapter/ratom?
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific ratom predicate (re-frame.interop/ratom?). Per rf2-jicu2 not published by UIx/Helix; absent-hook fallback returns false."}
+    :description "Substrate-specific ratom predicate (re-frame.interop/ratom?). Per rf2-jicu2 not published by UIx; absent-hook fallback returns false."}
    {:key         :adapter/make-reaction
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific make-reaction (re-frame.interop/make-reaction). Per rf2-jicu2 not published by UIx/Helix; absent-hook returns nil."}
+    :description "Substrate-specific make-reaction (re-frame.interop/make-reaction). Per rf2-jicu2 not published by UIx; absent-hook returns nil."}
    {:key         :adapter/add-on-dispose!
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
-                   re-frame.adapter.uix
-                   re-frame.adapter.helix]
+                   re-frame.adapter.uix]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific add-on-dispose! (re-frame.interop/add-on-dispose!). Per rf2-jicu2 UIx/Helix route to the re-frame-owned re-frame.disposable/IDisposable protocol; Reagent/reagent-slim dispatch both that protocol and their substrate's own IDisposable."}
+    :description "Substrate-specific add-on-dispose! (re-frame.interop/add-on-dispose!). Per rf2-jicu2 UIx routes to the re-frame-owned re-frame.disposable/IDisposable protocol; Reagent/reagent-slim dispatch both that protocol and their substrate's own IDisposable."}
    {:key         :adapter/dispose!
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
-                   re-frame.adapter.uix
-                   re-frame.adapter.helix]
+                   re-frame.adapter.uix]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific dispose! (re-frame.interop/dispose!). Per rf2-jicu2 UIx/Helix route to the re-frame-owned re-frame.disposable/IDisposable protocol; Reagent/reagent-slim dispatch both that protocol and their substrate's own IDisposable."}
+    :description "Substrate-specific dispose! (re-frame.interop/dispose!). Per rf2-jicu2 UIx routes to the re-frame-owned re-frame.disposable/IDisposable protocol; Reagent/reagent-slim dispatch both that protocol and their substrate's own IDisposable."}
    {:key         :adapter/reactive?
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific reactive? predicate (re-frame.interop/reactive?). Per rf2-jicu2 not published by UIx/Helix; absent-hook fallback returns false."}
+    :description "Substrate-specific reactive? predicate (re-frame.interop/reactive?). Per rf2-jicu2 not published by UIx; absent-hook fallback returns false."}
    {:key         :adapter/derived-container?
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
     :chained?    true
     :design-bead "rf2-8wrzz.3"
-    :description "Container-class hook the core's replace-container! choke point consults to reject writes to a make-derived-value result (Spec 006 §make-derived-value). Tri-valued (rf2-oitw37): truthy = DERIVED (reject), false = BASE (the installed adapter classifies it as one of ITS writable base containers — delegate, and the choke point skips its atom-marker heuristic so a custom non-atom base container is not misclassified), and the re-frame.substrate.adapter/container-class-unknown sentinel = NO opinion (the choke point falls back to the host atom-marker heuristic). Published by the ratom family (Reagent / reagent-slim): their Reaction reifies IAtom exactly like a base r/atom, so the atom-marker fall-back cannot tell them apart — the hook keys on the substrate disposal protocol (a Reaction is disposable, a base r/atom is not) and answers truthy/false exhaustively. Custom adapters whose base container is NOT atom-shaped publish their own routed hook the same way. Not published by plain-atom / test-react / UIx / Helix, whose derived values are NOT atom-shaped (the atom-marker fall-back classifies them correctly); the routed chain-bottom fallback returns the container-class-unknown sentinel."}
+    :description "Container-class hook the core's replace-container! choke point consults to reject writes to a make-derived-value result (Spec 006 §make-derived-value). Tri-valued (rf2-oitw37): truthy = DERIVED (reject), false = BASE (the installed adapter classifies it as one of ITS writable base containers — delegate, and the choke point skips its atom-marker heuristic so a custom non-atom base container is not misclassified), and the re-frame.substrate.adapter/container-class-unknown sentinel = NO opinion (the choke point falls back to the host atom-marker heuristic). Published by the ratom family (Reagent / reagent-slim): their Reaction reifies IAtom exactly like a base r/atom, so the atom-marker fall-back cannot tell them apart — the hook keys on the substrate disposal protocol (a Reaction is disposable, a base r/atom is not) and answers truthy/false exhaustively. Custom adapters whose base container is NOT atom-shaped publish their own routed hook the same way. Not published by plain-atom / test-react / UIx, whose derived values are NOT atom-shaped (the atom-marker fall-back classifies them correctly); the routed chain-bottom fallback returns the container-class-unknown sentinel."}
    {:key         :adapter/after-render
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
-                   re-frame.adapter.uix
-                   re-frame.adapter.helix]
+                   re-frame.adapter.uix]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific after-render hook (re-frame.interop/after-render). Per rf2-334d9 the UIx + Helix adapters publish a `React.useLayoutEffect`-backed impl via the spine's after-render machinery (Mike decision rf2-neiqf). Reagent + reagent-slim route through their substrate's native render scheduler."}
+    :description "Substrate-specific after-render hook (re-frame.interop/after-render). Per rf2-334d9 the UIx adapter publishes a `React.useLayoutEffect`-backed impl via the spine's after-render machinery (Mike decision rf2-neiqf). Reagent + reagent-slim route through their substrate's native render scheduler."}
    {:key         :adapter/wrap-view
-    :producer-ns '[re-frame.adapter.uix
-                   re-frame.adapter.helix]
+    :producer-ns '[re-frame.adapter.uix]
     :chained?    true
     :design-bead "rf2-00li"
     :description "Substrate-side source-coord injection on rendered React elements."}
@@ -1020,7 +1013,6 @@
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
-                   re-frame.adapter.helix
                    re-frame.ui.substrate]
     :chained?    true
     :design-bead "rf2-h9szm"

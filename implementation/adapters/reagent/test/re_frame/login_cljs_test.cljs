@@ -8,7 +8,7 @@
    examples/core/login/ — the example source stays test-free per the
    locked test-free-examples policy (rf2-8cevm). The ns requires the login
    feature's substrate-free model owner (`login.model`, the ONE owner of the
-   `auth.login` registrations shared across the Reagent/UIx/Helix login
+   `auth.login` registrations shared across the Reagent/UIx login
    examples — rf2-ppbvav) so its machine / events / schemas register at ns-load,
    then exercises the MACHINE directly.
 

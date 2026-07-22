@@ -215,8 +215,8 @@
     (do (append-sorted-set! sb x) sb)
 
     (fn? x)
-    ;; A raw fn head — `[my-component props]`, the idiomatic Reagent/UIx/
-    ;; Helix SSR shape where `my-component` is the deref'd defn VALUE (a raw
+    ;; A raw fn head — `[my-component props]`, the idiomatic Reagent/UIx
+    ;; SSR shape where `my-component` is the deref'd defn VALUE (a raw
     ;; fn, not a Var). `(.toString fn)` is NOT cross-runtime stable: JVM =
     ;; class-name + identity-hashcode, CLJS = the JS source — never equal.
     ;; The server hashes the raw render tree and the client re-hashes the

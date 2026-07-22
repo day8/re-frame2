@@ -1,6 +1,6 @@
 (ns re-frame.disposable
   "Re-frame-owned disposable protocol for substrate-side derived values
-  that have no native reactive-atom primitive (UIx, Helix, and any
+  that have no native reactive-atom primitive (UIx and any
   future minimal-React-wrapper substrate).
 
   Background. Before rf2-jicu2 the substrate spine's `make-derived-value`
@@ -36,7 +36,7 @@
   cache-wiring contract per Spec 006 §subscription-cache: re-frame's
   per-slot evict logic calls `re-frame.interop/add-on-dispose!` which
   dispatches via the adapter's hook; substrates without a reactive-atom
-  primitive (UIx, Helix) satisfy this protocol on their derived-value
+  primitive (UIx) satisfy this protocol on their derived-value
   reifies. Substrates with their own IDisposable (Reagent,
   reagent-slim) leave their reaction objects alone and route through
   their existing protocol — see each adapter's `:adapter/add-on-dispose!`

@@ -44,7 +44,7 @@
 ;; Enrol the `warned-non-dom-roots` cache into the chained
 ;; `:adapter/clear-warn-once-caches!` hook, via the canonical governance
 ;; chokepoint `late-bind/register-warn-once-clear-fn!`. Each
-;; adapter (helix, uix), the slim hiccup interpreter, re-frame.views, and
+;; adapter (uix), the slim hiccup interpreter, re-frame.views, and
 ;; this ns contribute a clear-step; `make-reset-runtime-fixture` invokes
 ;; the top of the chain and every contributor's reset runs. The chokepoint
 ;; also records the cache in the warn-once-clear governance registry so the

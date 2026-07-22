@@ -83,8 +83,8 @@
   CLJS-only (in core, like `re-frame.adapter.context`): it reaches React-shaped
   lifecycle through ONE shared React function component (`frame-root-fc`) so the
   commit-owned two-pass handling lives ONCE, not per substrate. The per-adapter
-  shells (Reagent's `:r>` embed in `re-frame.views.provider`, UIx's `defui`,
-  Helix's `defnc`) only read their props in the native idiom, DISPATCH on
+  shells (Reagent's `:r>` embed in `re-frame.views.provider`, UIx's
+  `defui`) only read their props in the native idiom, DISPATCH on
   `:frame` vs `:id`, and hand a clean opts map + children to these cores — zero
   per-substrate lifecycle drift, mirroring how
   `re-frame.substrate.spine/build-frame-provider-element` factors the scope-only
@@ -278,7 +278,7 @@
 ;; ---- the shared React lifecycle component (frame-root, TWO-PASS) ----------
 ;;
 ;; ONE React function component backs `rf/frame-root` on every React-shaped
-;; substrate (Reagent via `:r>`, UIx/Helix via `createElement`). The commit-owned
+;; substrate (Reagent via `:r>`, UIx via `createElement`). The commit-owned
 ;; two-pass ENSURE lives here, not per adapter (rf2-nyea0r):
 ;;
 ;;   PASS 1 (render, pre-ready): return nil. No frame exists yet, so there is
@@ -310,7 +310,7 @@
                     — the keyword-mangling seam never sees it).
     - `children`  — React's STANDARD children prop (the scoped subtree). Each
                     shell hands its subtree as trailing `createElement` args
-                    (Reagent's `:r>` translates trailing hiccup; UIx/Helix pass
+                    (Reagent's `:r>` translates trailing hiccup; UIx pass
                     native React children), so they arrive here as ordinary React
                     children.
 
@@ -369,7 +369,7 @@
 
 (defn ^:no-doc frame-root-react-element
   "Build the raw React element for `rf/frame-root`, for the React-hook substrates
-  (UIx / Helix). The substrate-agnostic CORE those adapters' native `frame-root`
+  (UIx). The substrate-agnostic CORE those adapters' native `frame-root`
   shells delegate to, parallel to
   `re-frame.substrate.spine/build-frame-provider-element` for the scope-only
   `frame-provider`. Given the frame-root's already-native-read prop map `props`

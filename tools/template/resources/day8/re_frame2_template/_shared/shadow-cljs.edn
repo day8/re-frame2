@@ -1,6 +1,6 @@
 ;; {{name}} — shadow-cljs build config ({{substrate-label}} substrate).
 ;;
-;; Substrate-invariant: every substrate (Reagent / UIx / Helix) ships
+;; Substrate-invariant: every substrate (Reagent / UIx) ships
 ;; the same two builds — the React substrate is chosen in deps.edn +
 ;; core.cljs, not here.
 ;;

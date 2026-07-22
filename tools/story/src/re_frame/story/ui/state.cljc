@@ -55,7 +55,7 @@
   - `:active-modes`      — vector of mode ids active for the rendered variant.
   - `:cell-overrides`    — {variant-id → {arg-key → value}} — runtime
                            overrides emitted by the controls panel.
-  - `:substrate`         — `:reagent` at v1; v2 may add UIx / Helix.
+  - `:substrate`         — `:reagent` at v1; v2 may add UIx.
   - `:hot-reload-tick`   — integer that increments when the shell detects
                            a registrar mutation; variant components watch
                            this slot to know they must re-mount.

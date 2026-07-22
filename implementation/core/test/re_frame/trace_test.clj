@@ -566,8 +566,8 @@
 ;; pins the prod absence).
 
 ;; NOTE on sub timing: `:rf.sub/run` is driven by the reactive memo
-;; wrapper, which only fires under a reactive adapter (Reagent / UIx /
-;; Helix) — the plain-atom JVM substrate does not recompute through the
+;; wrapper, which only fires under a reactive adapter (Reagent / UIx)
+;; — the plain-atom JVM substrate does not recompute through the
 ;; memo wrapper. So `:rf.sub/elapsed-ms` is asserted in the adapter CLJS
 ;; test (`view_rendered_op_cljs_test.cljs`, alongside the existing
 ;; `:rf.sub/run` + `:rf.view/elapsed-ms` coverage). fx / flows / handler-

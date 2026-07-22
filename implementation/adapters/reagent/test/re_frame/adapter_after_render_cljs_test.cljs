@@ -15,7 +15,7 @@
       listed in the directory with this adapter as a producer. That is a
       wiring/publication pin — it never CALLS the hook.
 
-    - The React-hook adapters (UIx / Helix) get the BEHAVIOURAL contract
+    - The React-hook adapters (UIx) get the BEHAVIOURAL contract
       from the shared react-suite
       (`react-shared-suite/assert-after-render-runs-after-commit`), but
       that assertion is React-hook-spine specific: it relies on the

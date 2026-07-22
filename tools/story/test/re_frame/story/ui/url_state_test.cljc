@@ -250,7 +250,7 @@
 ;; The build side omits `substrate=` to encode the `:reagent` default
 ;; (`share/build-params` emits it only for a non-default substrate). So
 ;; an omitted/nil parsed substrate MUST hydrate as `:reagent`, not preserve
-;; the recipient's stale in-memory `:uix`/`:helix`. This mirrors the
+;; the recipient's stale in-memory `:uix`. This mirrors the
 ;; authoritative-clear discipline the other URL-owned chrome slots already
 ;; get (rf2-fkmnh). The same single fn drives mount-time hydration AND
 ;; no-query popstate (via `parse-current-url-or-empty`), so both paths heal.
@@ -270,18 +270,18 @@
 
 (deftest apply-parsed-default-share-link-clears-stale-substrate
   (testing "rf2-dxz4sg — the bead's concrete scenario: a recipient with stale
-            in-memory `:substrate :helix` opens a DEFAULT share link
+            in-memory `:substrate :uix` opens a DEFAULT share link
             `?variant=story.counter/loaded` that carries NO substrate= (the
             sender omitted it precisely to mean `:reagent`). The recipient
-            must render the default `:reagent`, not their stale `:helix`."
-    (let [recipient-local {:substrate :helix}
+            must render the default `:reagent`, not their stale `:uix`."
+    (let [recipient-local {:substrate :uix}
           ;; share/parse-params of just ?variant=story.counter/loaded —
           ;; substrate parses absent as nil.
           shared          {:variant-id :story.counter/loaded :substrate nil}
           out             (us/apply-parsed-to-state recipient-local shared {})]
       (is (= :story.counter/loaded (:selected-variant out)))
       (is (= :reagent (:substrate out))
-          "recipient's stale :helix is cleared to the :reagent default"))))
+          "recipient's stale :uix is cleared to the :reagent default"))))
 
 (deftest apply-parsed-explicit-non-default-substrate-round-trips
   (testing "rf2-dxz4sg — an explicit non-default substrate still hydrates to
@@ -290,12 +290,12 @@
             no validator any present id is accepted (registry unreachable)."
     (let [with-validator (us/apply-parsed-to-state
                            {:substrate :reagent} {:substrate :uix}
-                           {:substrate? #{:reagent :uix :helix}})
+                           {:substrate? #{:reagent :uix}})
           no-validator   (us/apply-parsed-to-state
-                           {:substrate :reagent} {:substrate :helix} {})]
+                           {:substrate :reagent} {:substrate :custom} {})]
       (is (= :uix (:substrate with-validator))
           "registered non-default substrate is kept")
-      (is (= :helix (:substrate no-validator))
+      (is (= :custom (:substrate no-validator))
           "with no validator a present substrate is accepted as-is"))))
 
 (deftest apply-parsed-invalid-substrate-degrades-to-reagent
@@ -306,7 +306,7 @@
     (let [stale {:substrate :uix}
           out   (us/apply-parsed-to-state
                   stale {:substrate :ghost-substrate}
-                  {:substrate? #{:reagent :uix :helix}})]
+                  {:substrate? #{:reagent :uix}})]
       (is (= :reagent (:substrate out))
           "unregistered substrate= clears to :reagent, not the stale :uix"))))
 
@@ -595,7 +595,7 @@
                            :viewport     :phone
                            :background   :light
                            :tag-filter   #{:tag/legacy}
-                           :substrate    :helix}
+                           :substrate    :uix}
           ;; share/parse-params of just ?variant=story.counter/loaded
           shared {:variant-id :story.counter/loaded}
           out    (us/apply-parsed-to-state recipient-local shared {})]
@@ -605,7 +605,7 @@
       (is (nil? (:background out))   "recipient's local background cleared")
       (is (= #{} (:tag-filter out))  "recipient's local tag-filter cleared")
       ;; rf2-dxz4sg — the omitted substrate= means :reagent, so the
-      ;; recipient's stale :helix is cleared to the default.
+      ;; recipient's stale :uix is cleared to the default.
       (is (= :reagent (:substrate out)) "recipient's local substrate cleared"))))
 
 (deftest apply-parsed-full-round-trip-through-state

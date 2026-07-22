@@ -15,7 +15,7 @@
    wiring would ship green from those checks — caught only post-publish
    by users running `npm test` in the scaffolded app.
 
-   This test closes the gap: for each substrate (Reagent / UIx / Helix)
+   This test closes the gap: for each substrate (Reagent / UIx)
    it generates a tmp app, swaps the alpha-channel `day8/re-frame2*`
    coords in the emitted `deps.edn` for `:local/root` paths into the
    in-repo source tree, runs `clojure -M:shadow compile test`, and
@@ -33,7 +33,7 @@
         static-parse companion catches the most likely regressions
         cheaply.
      2. *Host requirements*. The emitted bundle imports React via the
-        reagent / uix / helix substrate; running the bundle therefore
+        reagent / uix substrate; running the bundle therefore
         requires a populated `node_modules/` tree. We satisfy that by
         symlinking `<repo>/implementation/node_modules/` into the
         emitted project at run time (avoids `npm install` per
@@ -59,12 +59,12 @@
    compiles — only a real materialise + compile can.
 
    `setup-skill-scaffold-compiles-test` (below) closes that gap for EACH
-   documented manual route — Reagent, UIx, and Helix — because all three
+   documented manual route — Reagent and UIx — because both
    are executable manual scaffolds the skill ships copyable source for:
 
      * Reagent — the one-file counter (`references/first-counter.md` →
        `src/your_app/core.cljs`).
-     * UIx / Helix — the substrate-neutral dataflow
+     * UIx — the substrate-neutral dataflow
        (`references/shared-dataflow.md` → `events.cljs` + `subs.cljs` +
        `schema.cljs`) plus the substrate entry ns + views
        (`references/entry-namespace.md` → `core.cljs` + `views.cljs`).
@@ -388,7 +388,7 @@
   (`create-root` / `render-root` / `.render`), the adapter require, and
   the `defui` / `defnc` views. `events_test.cljs` requires only events +
   subs, so the `:test` build alone never pulls `core.cljs` onto the
-  compile classpath; a broken UIx or Helix `core.cljs` (a wrong
+  compile classpath; a broken UIx `core.cljs` (a wrong
   react-dom interop call, an adapter API rename, a view that won't
   compile) would otherwise ship green from shape + static-parse alone
   and surface only when a user runs `npx shadow-cljs watch app`.
@@ -685,7 +685,7 @@
   ;; shape is substrate-invariant, so the default Reagent variant is the
   ;; canonical place to assert the release path compiles green and the
   ;; dev-only Xray preload is cut from the optimised bundle, without
-  ;; paying the :advanced cost on UIx + Helix too.
+  ;; paying the :advanced cost on UIx too.
   (testing "the emitted Reagent app's events_test.cljs compiles + runs green
             and the :advanced release build is clean"
     (if-not @enabled?
@@ -707,17 +707,6 @@
               "`node` must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
           (when (and @clojure-cli-available? @node-available?)
             (compile-and-run-emitted-test! :uix))))))
-
-(deftest helix-emitted-tests-run-test
-  (testing "the emitted Helix app's events_test.cljs compiles + runs green"
-    (if-not @enabled?
-      (skip-if-disabled! :helix)
-      (do (is @clojure-cli-available?
-              "`clojure` CLI must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
-          (is @node-available?
-              "`node` must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
-          (when (and @clojure-cli-available? @node-available?)
-            (compile-and-run-emitted-test! :helix))))))
 
 (deftest ui-emitted-tests-run-test
   ;; The EXPERIMENTAL :ui scaffold's behavioural proof: the `:app`
@@ -825,7 +814,7 @@
 ;;
 ;; A second materialise+compile fixture that proves the `re-frame2-setup`
 ;; SKILL's hand-written greenfield scaffold compiles against the in-repo
-;; source tree — for EACH documented manual route (Reagent / UIx / Helix),
+;; source tree — for EACH documented manual route (Reagent / UIx),
 ;; each with exactly its documented direct day-one dependencies. The skill
 ;; ships its recipe as copyable fenced blocks with the current
 ;; schema-bearing boot ceremony (`:rf/default` + `make-frame` +
@@ -882,13 +871,12 @@
   deps beyond the four re-frame2 coords — the JS-substrate libraries each
   route's copied source requires. Reagent: `reagent/reagent`
   (`references/deps-versions.md`). UIx: `com.pitch/uix.core` +
-  `com.pitch/uix.dom`; Helix: `lilactown/helix`
-  (`references/entry-namespace.md` §UIx / Helix greenfield). Versions are
+  `com.pitch/uix.dom`
+  (`references/entry-namespace.md` §UIx greenfield). Versions are
   harvested from the generator template (source of truth); this map only
   names the coordinates each route must carry directly."
   {:reagent ['reagent/reagent]
-   :uix     ['com.pitch/uix.core 'com.pitch/uix.dom]
-   :helix   ['lilactown/helix]})
+   :uix     ['com.pitch/uix.core 'com.pitch/uix.dom]})
 
 (defn- harvest-skill-deps-inputs
   "Emit the generator template for `substrate` once and read back
@@ -921,7 +909,7 @@
   shape: core + the selected substrate adapter + schemas + Xray (the FOUR
   re-frame2 day-one coords the skill documents for every substrate) + the
   substrate's own Maven deps (reagent/reagent for Reagent;
-  com.pitch/uix.{core,dom} for UIx; lilactown/helix for Helix) + the
+  com.pitch/uix.{core,dom} for UIx) + the
   required `:shadow` alias.
 
   `day8/re-frame2-schemas` is a DIRECT day-one coordinate — the counter
@@ -1013,7 +1001,7 @@
   Reagent route (from `references/first-counter.md`):
     src/your_app/core.cljs          (the one-file counter block)
 
-  UIx / Helix route (shared-dataflow.md + entry-namespace.md):
+  UIx route (shared-dataflow.md + entry-namespace.md):
     src/your_app/events.cljs        (shared-dataflow.md events block)
     src/your_app/subs.cljs          (shared-dataflow.md subs block)
     src/your_app/schema.cljs        (shared-dataflow.md schema block)
@@ -1050,7 +1038,7 @@
             core-cljs     (single-fenced-block first-counter "clojure"
                                                "in first-counter.md")]
         (spit (io/file proj-dir "src/your_app/core.cljs") core-cljs))
-      ;; UIx / Helix: the substrate-neutral dataflow (events/subs/schema
+      ;; UIx: the substrate-neutral dataflow (events/subs/schema
       ;; from shared-dataflow.md) + the substrate entry ns + views (from
       ;; entry-namespace.md). This is the COMPLETE emitted project for a
       ;; non-Reagent greenfield — nothing from first-counter.md.
@@ -1066,12 +1054,12 @@
             schema      (single-fenced-block
                           shared "clojure" "(schema.cljs) in shared-dataflow.md"
                           #(string/includes? % "(ns your-app.schema"))
-            ;; Distinguish the UIx vs Helix core/views blocks by a
-            ;; substrate-unique token: UIx core requires `uix.dom`, Helix
-            ;; core requires `react-dom/client`; UIx views use `defui`,
-            ;; Helix views use `defnc`.
-            core-token  (case substrate :uix "uix.dom" :helix "react-dom/client")
-            views-token (case substrate :uix "defui"   :helix "defnc")
+            ;; Select the substrate core/views blocks by a
+            ;; substrate-unique token: UIx core requires `uix.dom`,
+            ;; UIx views use `defui`. (One-arm `case` — a future
+            ;; substrate route fails loudly here.)
+            core-token  (case substrate :uix "uix.dom")
+            views-token (case substrate :uix "defui")
             core-cljs   (single-fenced-block
                           entry "clojure"
                           (str "(" sub-name " core.cljs) in entry-namespace.md")
@@ -1172,7 +1160,7 @@
 
 (deftest setup-skill-scaffold-compiles-test
   ;; The interim real-compile cover for the MANUAL setup-skill scaffold,
-  ;; for EACH documented substrate route (Reagent / UIx / Helix) — each
+  ;; for EACH documented substrate route (Reagent / UIx) — each
   ;; materialised solely from shipped skills/re-frame2-setup references and
   ;; compiled with exactly its documented direct day-one dependencies. The
   ;; per-PR published-coordinate buildability gate stays deferred to
@@ -1184,13 +1172,13 @@
   ;; day-one block ships a single `:app` build, no `:test` build).
   (testing "the re-frame2-setup skill's hand-written greenfield scaffold
             compiles against the in-repo source for EACH documented
-            substrate (Reagent / UIx / Helix), each with exactly its
+            substrate (Reagent / UIx), each with exactly its
             documented direct day-one dependencies"
     (if-not @enabled?
       (skip-if-disabled! "setup-skill-scaffold")
       (do (is @clojure-cli-available?
               "`clojure` CLI must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
           (when @clojure-cli-available?
-            (doseq [substrate [:reagent :uix :helix]]
+            (doseq [substrate [:reagent :uix]]
               (testing (str "— " (name substrate) " route")
                 (compile-skill-scaffold! substrate))))))))

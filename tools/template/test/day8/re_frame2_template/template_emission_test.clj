@@ -169,7 +169,7 @@
        coord ships everything under `re-frame.*` except adapters and
        downstream tool coords.
     2. `implementation/adapters/<flavour>/src/re_frame/adapter/<name>.cljs`
-       — `re-frame.adapter.helix`, `re-frame.adapter.uix`, etc. live in
+       — `re-frame.adapter.uix`, `re-frame.adapter.reagent`, etc. live in
        their own per-substrate coords.
     3. `tools/story/src/re_frame/story.cljc` (+ `re-frame.story.*`
        sub-namespaces) — Story ships as its own downstream tool coord
@@ -195,12 +195,12 @@
                     (string/replace "." "/"))
             adapter-flavour
             (when (string/starts-with? name- "re-frame.adapter.")
-              ;; "re-frame.adapter.helix" → "helix"; "re-frame.adapter.uix" → "uix";
+              ;; "re-frame.adapter.uix" → "uix"; "re-frame.adapter.reagent" → "reagent";
               ;; "re-frame.adapter.context" stays in core (caught by candidates below).
               (let [leaf (subs name- (count "re-frame.adapter."))]
                 ;; Only treat per-substrate adapter coords as out-of-core;
                 ;; `re-frame.adapter.context` ships from core.
-                (when (#{"helix" "uix" "reagent" "reagent-slim"} leaf)
+                (when (#{"uix" "reagent" "reagent-slim"} leaf)
                   leaf)))
             candidates (cond-> [(io/file root "implementation/core/src/re_frame" (str rel ".cljc"))
                                 (io/file root "implementation/core/src/re_frame" (str rel ".cljs"))
@@ -950,10 +950,6 @@
 (deftest uix-emission-static-parse-test
   (testing "UIx-substrate emission has well-formed ns requires and no surface drift"
     (run-for-substrate! :uix)))
-
-(deftest helix-emission-static-parse-test
-  (testing "Helix-substrate emission has well-formed ns requires and no surface drift"
-    (run-for-substrate! :helix)))
 
 (deftest ui-emission-static-parse-test
   ;; The EXPERIMENTAL :ui variant rides the same audits as the adapter

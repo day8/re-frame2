@@ -114,9 +114,9 @@
  ;; reconciles the LIVE public vars of each covered namespace against these
  ;; rows — the CLJS equivalent of the JVM `ns-publics` existence-check. A
  ;; row whose namespace the probe covers is `:runtime-verified? true`:
- ;;   - the three adapter namespaces (Reagent / UIx / Helix) are
+ ;;   - the two adapter namespaces (Reagent / UIx) are
  ;;     fully-rowed (their public surface IS the documented adapter API per
- ;;     spec/API.md §UIx/Helix adapter), so a var added / removed / renamed
+ ;;     spec/API.md §UIx adapter), so a var added / removed / renamed
  ;;     there turns the probe RED;
  ;;   - the Xray `mounted?` read is a curated row off the `internal-public`
  ;;     mount surface (the host-embed machinery is "otherwise unrowed-
@@ -162,7 +162,7 @@
   {:namespace "re-frame.adapter.uix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "use-subscribe"       :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   ;; rf2-y6dz8t — capture-frame in hook position: returns EXACTLY the
-  ;; capture-frame ops map for the ambient provider frame. UIx/Helix only
+  ;; capture-frame ops map for the ambient provider frame. UIx only
   ;; (Reagent's spelling of the same hold primitive is reg-view injection).
   {:namespace "re-frame.adapter.uix" :var "use-frame"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "use-current-frame"   :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
@@ -171,18 +171,6 @@
   {:namespace "re-frame.adapter.uix" :var "wrap-view"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  ;; --- Helix adapter (day8/re-frame2-helix) — probe fully-rowed ---
-  {:namespace "re-frame.adapter.helix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.adapter.helix" :var "use-subscribe"       :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  ;; rf2-y6dz8t — same shared `use-frame` hook as the UIx adapter (one core
-  ;; impl, re-exported; capture-frame in hook position).
-  {:namespace "re-frame.adapter.helix" :var "use-frame"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.adapter.helix" :var "use-current-frame"   :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.adapter.helix" :var "frame-provider"      :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.adapter.helix" :var "frame-root"          :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.adapter.helix" :var "wrap-view"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.adapter.helix" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.adapter.helix" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   ;; --- Xray (day8/re-frame2-xray) — the live public surface (rf2-jhn46).
   ;;     Migrated off the `:xray-spec-known-unmanifested` allowlist into real
   ;;     :cljs-only rows so the gkp0t Xray-spec projection check resolves them
@@ -308,7 +296,7 @@
   ;;     BOTH directions — direction-1 (a row removed / renamed in source → RED)
   ;;     AND direction-2 completeness (a NEW public Var added without a row → RED,
   ;;     so an accidental future public export cannot accumulate silently). It
-  ;;     joins the three adapter namespaces in the probe's `:fully-rowed` set.
+  ;;     joins the adapter namespaces in the probe's `:fully-rowed` set.
   ;;     Hence :runtime-verified? true. The later-stage verbs named here when
   ;;     this note was written have since SHIPPED and are rowed below —
   ;;     local / effect / dispatch-fn (S3), error-boundary / client-only (S3),
@@ -433,7 +421,7 @@
   {:namespace "re-frame.ui" :var "render-static"  :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S5" :runtime-verified? true}
   ;; ->react (rf2-u53yy.2 — the ratified UIx-review outward bridge, shipped ahead
   ;; of its nominal S6 migration wave) — export a compiled view as a React
-  ;; component a FOREIGN React/UIx/Helix tree can render (the inward half is
+  ;; component a FOREIGN React/UIx tree can render (the inward half is
   ;; `ui/raw`). A resolution `defn`: CLJS delegates to
   ;; `re-frame.ui.runtime/->react-component` (an internal, un-manifested runtime
   ;; ns, kin to spread->props / client-only), a JVM call raises

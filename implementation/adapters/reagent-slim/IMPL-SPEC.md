@@ -90,7 +90,7 @@ Note: the `:lib` is `day8/reagent-slim` (no `re-frame2-` prefix) per DECISION-1;
 
 ### §1.3 Top-level `implementation/deps.edn` updates
 
-Add the new artefact alongside the existing reagent / uix / helix adapter entries:
+Add the new artefact alongside the existing reagent / uix adapter entries:
 
 ```clojure
 {:paths []
@@ -123,7 +123,7 @@ The slim substrate's coverage is layered across four gates, NONE of which lives 
 1. **Compile gate** — `implementation/scripts/check-examples-compile.cjs` (`npm run test:examples-compile`) proves the `examples/counter-slim-and-fast` build compiles.
 2. **Bundle-isolation grep** — `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` (`npm run test:reagent-slim:bundle-isolation`, CI job `cljs-reagent-slim-bundle-isolation`) is the release-bundle sentinel grep enforcing the S3-008 stock-Reagent-impl-free + S3-005 `react-dom/server`-free contract. See §1.8 / §12.3.
 3. **Headless substrate tests** — the slim adapter's own CLJS node-tests under `implementation/adapters/reagent-slim/test/` (run by `npm run test:cljs`), including `reagent2.dom.server-subscribe-ssr-cljs-test`, which mirrors the example's value-5 `:counter/initialise → inc` dataflow through the pure-CLJS SSR path (no DOM).
-4. **Client-runtime smoke** (rf2-xsgu8a) — `implementation/adapters/reagent-slim/testbed/` is the day8/reagent-slim adapter testbed: a standalone counter mounted through `reagent2.dom.client` + `rf/frame-provider` with injected `dispatch`/`subscribe`, initial value 5, click-driven inc/dec. Driven in headless Chromium by the adapter-owned runner `implementation/scripts/serve-and-run-reagent-slim-smoke.cjs` (`npm run test:reagent-slim:smoke`), which fails on any uncaught browser pageerror. This is a DEDICATED slim gate, NOT an entry in the shared adapter-smoke manifest (`implementation/adapters/scripts/adapter-smoke-filter.cjs`, which stays Reagent/UIx/Helix-only) — mirroring how the bundle-isolation contract ships its own script rather than folding into the shared `check-bundle-isolation.cjs`. The wiring is pinned against silent drift by `implementation/scripts/_reagent-slim-smoke-policy.test.cjs` (run under `npm run test:script-policy`).
+4. **Client-runtime smoke** (rf2-xsgu8a) — `implementation/adapters/reagent-slim/testbed/` is the day8/reagent-slim adapter testbed: a standalone counter mounted through `reagent2.dom.client` + `rf/frame-provider` with injected `dispatch`/`subscribe`, initial value 5, click-driven inc/dec. Driven in headless Chromium by the adapter-owned runner `implementation/scripts/serve-and-run-reagent-slim-smoke.cjs` (`npm run test:reagent-slim:smoke`), which fails on any uncaught browser pageerror. This is a DEDICATED slim gate, NOT an entry in the shared adapter-smoke manifest (`implementation/adapters/scripts/adapter-smoke-filter.cjs`, which stays Reagent/UIx-only) — mirroring how the bundle-isolation contract ships its own script rather than folding into the shared `check-bundle-isolation.cjs`. The wiring is pinned against silent drift by `implementation/scripts/_reagent-slim-smoke-policy.test.cjs` (run under `npm run test:script-policy`).
 
 The bundle-isolation/compile gates and the headless substrate tests were delivered per beads **rf2-5lbx** (rehomed per **rf2-2ppcv**); the client-runtime smoke was added per **rf2-xsgu8a**.
 
@@ -705,7 +705,7 @@ as-element
 
 The dispatch is small and concrete. Stage 4 references `reagent.impl.template:vec-to-elem` for the canonical shape and re-implements without the compiler-customisation indirection (Stage 1 §2.4 + Stage 2 §2.2).
 
-`:f>` deliberately renders a **real React function component** (rf2-bf4uw2): the head's defining purpose is to let React hooks (`useState`, `useEffect`, …) run inside the fn, which requires a function component — calling a hook during a class render throws `Invalid hook call`. The wrapper is cached on the fn (`.-cljsFnComponent`) so repeated renders reuse one component type (stable reconciliation). Reactivity boundary: a function component does NOT get the class path's bare-RAtom-deref capture; it sources reactive state through `useSyncExternalStore`-shaped subscription hooks (§4.7), the same as the UIx / Helix substrates — `:f>` is the escape hatch to React hooks.
+`:f>` deliberately renders a **real React function component** (rf2-bf4uw2): the head's defining purpose is to let React hooks (`useState`, `useEffect`, …) run inside the fn, which requires a function component — calling a hook during a class render throws `Invalid hook call`. The wrapper is cached on the fn (`.-cljsFnComponent`) so repeated renders reuse one component type (stable reconciliation). Reactivity boundary: a function component does NOT get the class path's bare-RAtom-deref capture; it sources reactive state through `useSyncExternalStore`-shaped subscription hooks (§4.7), the same as the UIx substrates — `:f>` is the escape hatch to React hooks.
 
 ### §7.2 Target-aware `convert-prop-value`
 
@@ -963,7 +963,7 @@ The trace late-bind hook (`:trace/emit!`) is unchanged. The render-key binding (
 
 The `:rf.warning/plain-fn-under-non-default-frame-once` warning and its detection helper were RETIRED (EP-0002; rf2-7yqn39 deleted the dead emit). Under EP-0002 there is no `:rf/default` floor: a plain (non-`reg-view`) Reagent fn that cannot read the surrounding Provider's frame resolves to nil and its ambient `subscribe`/`dispatch` raises the always-on `:rf.error/no-frame-context` — the loud error superseded the soft warning. There is no longer a plain-fn detection path for the rewrite to preserve.
 
-Reg-view-wrapped components still carry `:contextType frame-context` (read into `(.-context cmp)`) so they pick up the surrounding frame; this is the one place the rewrite keeps Reagent's class-component context-read shape (`(.-context cmp)`) — UIx / Helix function components route through `_currentValue` per `re-frame.adapter.context/function-component-current-frame`.
+Reg-view-wrapped components still carry `:contextType frame-context` (read into `(.-context cmp)`) so they pick up the surrounding frame; this is the one place the rewrite keeps Reagent's class-component context-read shape (`(.-context cmp)`) — UIx function components route through `_currentValue` per `re-frame.adapter.context/function-component-current-frame`.
 
 ---
 
@@ -1023,7 +1023,7 @@ As shipped, these comments were **tightened** (not removed) to reflect the revis
 - **`dom-tag?` — RETAINED, extracted.** Moved into `re-frame.views.source-coord-annotation` (`source_coord_annotation.cljs:102`) alongside the walker it serves.
 - **`warn-non-dom-root!` — RETAINED, extracted.** Moved into `re-frame.views.warn-once` (`warn_once.cljs:45`); the source-coord-annotation walk calls it at `source_coord_annotation.cljs:169`. A parameterised cross-substrate variant (`make-warn-non-dom-root-fn`) lives in `spine.cljs:995`.
 - **`warned-non-dom-roots` defonce — RETAINED.** Lives in `re-frame.views.warn-once` (`warn_once.cljs:31`), with `clear-warned-non-dom-roots!` (`warn_once.cljs:33`, re-exported as `re-frame.views/clear-warned-non-dom-roots!` at `views.cljs:186`). It is enrolled in the rf2-z79p8 warn-once-clear governance chain (`warn_once.cljs:244-257`) so the test-reset fixture wipes it — it was *not* removed, and the warning was kept (not dropped).
-- **`reg-view*` does NOT bind `reagent2.impl.template/*source-coord*`.** The slim adapter's own vendored renderer *does* have a `*source-coord*` dynamic var (`reagent2/impl/template.cljs:563`, merged at `template.cljs:715-722`) — but that is the **slim adapter's internal hiccup interpreter** stamping its own output, not a replacement for the shared `re-frame.views` walker. The two coexist: the slim renderer stamps via `*source-coord*` for slim-mounted views; the `re-frame.views` walk (via `apply-adapter-wrap-view`, `views.cljs:426`) serves the classic Reagent adapter's inline-hiccup path, while UIx/Helix publish a `:adapter/wrap-view` hook that stamps via `React.cloneElement`.
+- **`reg-view*` does NOT bind `reagent2.impl.template/*source-coord*`.** The slim adapter's own vendored renderer *does* have a `*source-coord*` dynamic var (`reagent2/impl/template.cljs:563`, merged at `template.cljs:715-722`) — but that is the **slim adapter's internal hiccup interpreter** stamping its own output, not a replacement for the shared `re-frame.views` walker. The two coexist: the slim renderer stamps via `*source-coord*` for slim-mounted views; the `re-frame.views` walk (via `apply-adapter-wrap-view`, `views.cljs:426`) serves the classic Reagent adapter's inline-hiccup path, while UIx publish a `:adapter/wrap-view` hook that stamps via `React.cloneElement`.
 
 **Net**: zero deletions; one ns-extraction (rf2-lh7p) of an otherwise-retained walker + warn-once pair. The original "walker becomes unreachable" claim and its §5.4/§9.4 premise describe an abandoned design.
 

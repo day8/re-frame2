@@ -159,7 +159,7 @@ committed frame.
   **bare fn** on a foreign prop is `:rf.ui.compile/bare-fn-prop`, so wrap it in
   `(ui/handler …)` or `(ui/raw-fn …)`.
 - **Export a view (outward):** `(ui/->react view)` turns a compiled `defview`
-  into a **React component** a foreign React/UIx/Helix tree can render
+  into a **React component** a foreign React/UIx tree can render
   (`(def CartRow (ui/->react cart-row))` → `<CartRow …/>` anywhere) — the reverse
   of `ui/raw` and the incremental-adoption bridge. It is **stable/memoised per
   view identity**, creates **no root** and runs no preflight (it renders inside
@@ -221,7 +221,7 @@ below carries the exact id + fix:
 ## Build contract
 
 - **Require** `[re-frame.ui :as ui]` and install its adapter at boot; nothing
-  pulls it in for you. It is **opt-in and additional** — the Reagent/UIx/Helix
+  pulls it in for you. It is **opt-in and additional** — the Reagent/UIx
   adapters remain first-class.
 - **Closed grammar, no runtime walker.** What ships is React construction the
   compiler wrote; there is no hiccup interpreter in the production bundle, so

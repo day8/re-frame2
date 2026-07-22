@@ -215,7 +215,7 @@
 
   Substrate-agnostic — every adapter composes `views.cljs`'s
   frame-aware-view wrapper around its user render-fn, so this emit rides
-  Reagent / UIx / Helix renders. `frame-id` is resolved once by the
+  Reagent / UIx renders. `frame-id` is resolved once by the
   caller and threaded into both this and the post-render
   `:rf.view/rendered` emit, so there is one `provider/current-frame`
   resolution per render."
@@ -252,7 +252,7 @@
                       (rf2-rpgq8 — the prerequisite for the Xray VIEWS
                       render-args diff column). Captured by the
                       substrate-agnostic `build-frame-aware-view` wrapper
-                      (so it rides Reagent / UIx / Helix renders alike) and
+                      (so it rides Reagent / UIx renders alike) and
                       threaded in here. Absent on a no-arg render. PRIVACY:
                       render args are arbitrary user data, so the value is
                       routed through the SAME emit-time elision chokepoint
@@ -426,7 +426,7 @@
   "Consult the `:adapter/wrap-view` late-bind hook (rf2-00li) for a
   substrate-side wrap. Returns `[render-fn wrap-applied?]`.
 
-  UIx / Helix register a substrate wrap-view because their render-fn
+  UIx register a substrate wrap-view because their render-fn
   output is a React element — neither a hiccup vector nor a fn — so
   the inline `inject-source-coord-attr` walk would mis-classify the
   root and skip annotation. Those adapters supply a wrap-view that
@@ -434,7 +434,7 @@
   Reagent adapter does NOT publish the hook; the inline hiccup walk
   in `build-frame-aware-view` continues to serve it.
 
-  The hook may be registered (e.g. test bundle loaded UIx + Helix
+  The hook may be registered (e.g. test bundle loaded UIx
   adapter ns's) yet return nil — each adapter's routing closure
   returns nil when its own adapter is NOT the installed one (per
   rf2-0d35), so the chain bottoms out at nil when the Reagent adapter
@@ -560,7 +560,7 @@
                         ;; args/props — substrate-agnostic capture (this wrapper
                         ;; is the OUTERMOST fn every adapter composes, so `args`
                         ;; are the same values reaching the user render-fn on
-                        ;; Reagent / UIx / Helix alike). Gated on
+                        ;; Reagent / UIx alike). Gated on
                         ;; `interop/debug-enabled?` so production passes nil and
                         ;; DCEs the capture with the rest of the emit; the marks
                         ;; chokepoint elides the slot before delivery.
@@ -652,7 +652,7 @@
 
 ;; ---- late-bind publication (rf2-te71r) -----------------------------------
 ;;
-;; React-hook substrates (UIx / Helix) run this ns's frame-aware-view
+;; React-hook substrates (UIx) run this ns's frame-aware-view
 ;; wrapper inside a function component with no tracked render reaction, so
 ;; the phase-A (rf2-9hoos) reaction-dispose unmount hook no-ops there
 ;; (`interop/make-reaction` returns nil). The shared React-hook spine

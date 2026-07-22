@@ -37,12 +37,12 @@
   primitive, which routes through the `:adapter/after-render` late-bind
   hook (Spec 006 §Substrate adapter contract). Each adapter publishes
   its substrate-native impl: Reagent maps it to `r/after-render`
-  (post-commit), the UIx / Helix spine to a `React.useLayoutEffect`-
+  (post-commit), the UIx spine to a `React.useLayoutEffect`-
   backed queue drain (post-commit / pre-paint), plain-atom /
   SSR to `next-tick`. `after-render` fires once the DOM reflects the new
   state; the form then chains ONE `requestAnimationFrame` so resolution
   lands at the paint boundary. The MCP server therefore stays
-  substrate-agnostic — it never names Reagent, UIx, or Helix.
+  substrate-agnostic — it never names Reagent or UIx.
 
   ### Wire shape
 

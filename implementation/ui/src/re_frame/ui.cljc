@@ -91,7 +91,7 @@
 
   CLJS installs the retained watchable React substrate (`IDeref` +
   `IWatchable` derived values), so observation-port movements drive ViewCells
-  without Reagent, UIx, or Helix. JVM uses the headless atom realization of
+  without Reagent or UIx. JVM uses the headless atom realization of
   the same closed adapter contract. Both report the canonical discriminator
   `:rf.adapter/ui`. Destroying it first tears down every public compiled Root
   and then the generic React spine, so no DOM/ViewCell/observation ownership
@@ -829,7 +829,7 @@
   "(ui/->react view) => a React component
 
   Export a compiled re-frame.ui `view` (a `defview` value) as a React component
-  a FOREIGN React/UIx/Helix tree can render — the OUTWARD half of the foreign
+  a FOREIGN React/UIx tree can render — the OUTWARD half of the foreign
   boundary. `ui/raw` is the inward half (a foreign React element inside a
   compiled view); this is the reverse (a compiled view subtree inside a
   legacy/foreign React parent), the incremental-adoption bridge:

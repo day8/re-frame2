@@ -12,7 +12,7 @@
  *
  * Deliberately a DEDICATED slim smoke, NOT an entry in the shared
  * adapter-smoke manifest (implementation/adapters/scripts/adapter-smoke-filter.cjs,
- * whose Reagent/UIx/Helix set + reconcile guard are a separate surface).
+ * whose Reagent/UIx set + reconcile guard are a separate surface).
  * It is named `smoke.cjs` (not `spec.cjs` / `*.spec.cjs`) so the shared
  * adapter-smoke spec-walker never discovers it, and it is driven by the
  * adapter-owned runner implementation/scripts/serve-and-run-reagent-slim-

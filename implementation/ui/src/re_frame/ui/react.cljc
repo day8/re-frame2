@@ -40,7 +40,7 @@
   loudly. The compiler rewrites the authored form to the lowered runtime call.
 
   The OUTWARD bridge `ui/->react` (rf2-u53yy.2) — a compiled view exported as a
-  React component for a foreign React/UIx/Helix parent — is the outward
+  React component for a foreign React/UIx parent — is the outward
   counterpart to `ui/raw`. Its public authoring name is `re-frame.ui/->react`
   and its CLJS runtime lives in `re-frame.ui.runtime/->react-component` (kin to
   the other facade/emitter runtime helpers); it is not part of this resolution

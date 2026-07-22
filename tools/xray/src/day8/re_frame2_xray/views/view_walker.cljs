@@ -8,7 +8,7 @@
   (rf2-mxkq7) — see [View-Hierarchy-Capture.md](../../../../../spec/View-Hierarchy-Capture.md).
   This namespace ships the **data-attribute fallback**:
 
-      - Each re-frame2 adapter (Reagent / UIx / Helix) tags the rendered
+      - Each re-frame2 adapter (Reagent / UIx) tags the rendered
         root DOM element of every registered view with
         `data-rf-view=\"<id>\"`. The tagging is wired in at adapter
         ns-load via the source-coord wrapper (Spec 006 §View tagging
@@ -21,7 +21,7 @@
 
       1. A future React-version regression breaks the Fiber-walker.
       2. A non-React substrate is ever wired in (none today — Reagent,
-         UIx, and Helix all mount through React, so the data-attribute
+         and UIx all mount through React, so the data-attribute
          path is dormant under the canonical install).
 
   ## Fidelity gaps (documented edge cases)

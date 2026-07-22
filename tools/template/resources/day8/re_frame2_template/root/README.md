@@ -137,7 +137,7 @@ possible internal-state exposure). To elide Story from release, add a
 Leave it out (keep `enabled?` true in release) only when you want a
 release-flavoured Story build for visual regression.
 
-Story is Reagent-only in this template release; UIx + Helix variants
+Story is Reagent-only in this template release; UIx variants
 follow once Story's adapter coverage matches Reagent's. If you did
 **not** opt in, none of the above is present and you can ignore this
 section.

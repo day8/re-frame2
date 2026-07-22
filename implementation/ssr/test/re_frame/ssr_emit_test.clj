@@ -862,7 +862,7 @@
 (deftest emit-renders-form-2-component
   (testing "rf2-dtza9a — a Form-2 component renders its inner hiccup, not the
             inner fn's .toString, through BOTH the sync emit and streaming paths"
-    ;; The idiomatic Reagent/UIx/Helix Form-2 shapes: a 0-arity inner closing
+    ;; The idiomatic Reagent/UIx Form-2 shapes: a 0-arity inner closing
     ;; over the outer's args, AND a same-arity inner taking the args.
     (let [form2-closed (fn [x] (fn [] [:div x]))
           form2-arg    (fn [x] (fn [x] [:p (str "v=" x)]))]

@@ -100,7 +100,7 @@
 ;;
 ;; The shared sub-cache walk lifted out of the Reagent adapter into the
 ;; spine so all three React-shaped adapters (Reagent / reagent-slim /
-;; UIx / Helix) drive the same implementation of Spec 006 §Adapter
+;; UIx) drive the same implementation of Spec 006 §Adapter
 ;; disposal lifecycle MUST (1): cancel all in-flight reactive
 ;; subscriptions.
 ;;
@@ -224,9 +224,9 @@
   (testing "the spine's `make-dispose-adapter!` factory drives the
   sub-cache walk as part of its build of MUST-1 + MUST-2 + MUST-3.
   Pinning this through the factory protects the rf2-jcjul lockstep:
-  the UIx and Helix adapters wire their dispose-adapter! slot through
+  the UIx adapter wires its dispose-adapter! slot through
   this factory only — if the factory ever stopped invoking the walk,
-  those adapters' dispose path would silently regress."
+  that adapter's dispose path would silently regress."
     (let [r          (fake-reaction)
           frm        (fake-frame {[:sub :x] (select-keys r [:reaction])})
           _          (reset! frame/frames {:walk/a frm})

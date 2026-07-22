@@ -51,7 +51,7 @@
   ## Pure hiccup
 
   Same contract as every Xray view — pure hiccup, no Reagent / UIx /
-  Helix references."
+  references."
   (:require [clojure.string :as str]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale mono-stack sans-stack]]))
@@ -103,7 +103,7 @@
   / …); the plural appends `\"s\"` — the same convention `count-text`
   uses (every Static noun pluralises regularly). `testid-prefix` is the
   tab's `data-testid` stem (e.g. `\"rf-xray-static-flows\"`); the surface
-  suffixes `-empty`. Pure hiccup — no Reagent / UIx / Helix refs."
+  suffixes `-empty`. Pure hiccup — no Reagent / UIx refs."
   [testid-prefix noun]
   [:div {:data-testid (str testid-prefix "-empty")
          :style       empty-state-style}
@@ -113,7 +113,7 @@
   "The no-match surface for a flat-catalogue tab when a query filters
   every row out: `\"No flows match \\\"foo\\\".\"`. `noun` / `testid-
   prefix` as in `empty-state` (the surface suffixes `-empty-filtered`).
-  Pure hiccup — no Reagent / UIx / Helix refs."
+  Pure hiccup — no Reagent / UIx refs."
   [testid-prefix noun query]
   [:div {:data-testid (str testid-prefix "-empty-filtered")
          :style       empty-state-style}

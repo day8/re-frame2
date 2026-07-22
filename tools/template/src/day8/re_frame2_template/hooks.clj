@@ -7,7 +7,7 @@
      2. `template-fn` selects the files for the requested variant.
      3. `post-process-fn` prints the generated project's next steps.
 
-   The supported matrix is Reagent, UIx, and Helix, plus the EXPERIMENTAL
+   The supported matrix is Reagent and UIx, plus the EXPERIMENTAL
    `:ui` variant (the first-party re-frame.ui compiled-view substrate —
    2026-07-19 template-menu ruling); Story and SSR are mutually exclusive
    Reagent-only options; Tailwind is available on every substrate. Unknown
@@ -29,8 +29,6 @@
              :badge-url "https://img.shields.io/badge/substrate-Reagent-1abc9c.svg"}
    :uix     {:label "UIx"
              :badge-url "https://img.shields.io/badge/substrate-UIx-3498db.svg"}
-   :helix   {:label "Helix"
-             :badge-url "https://img.shields.io/badge/substrate-Helix-9b59b6.svg"}
    ;; EXPERIMENTAL — the first-party re-frame.ui compiled-view substrate
    ;; (2026-07-19 template-menu ruling). Emits the minimal consumer-shaped
    ;; app from docs/core/how-to/install-re-frame-ui.md: `defview` views,
@@ -284,7 +282,7 @@
                 :recovery  :fix-registration
                 :reason    (str ":include-story? is Reagent-only in v1 "
                                 "(got :substrate " substrate
-                                "). UIx + Helix variants follow once "
+                                "). UIx variants follow once "
                                 "Story's adapter coverage matches "
                                 "Reagent's.")
                 :substrate substrate
@@ -298,7 +296,7 @@
                 :recovery  :fix-registration
                 :reason    (str ":include-ssr? is Reagent-only in v1 "
                                 "(got :substrate " substrate
-                                "). UIx + Helix SSR variants follow once "
+                                "). UIx SSR variants follow once "
                                 "the per-substrate adapters demonstrate "
                                 "parity.")
                 :substrate substrate
@@ -442,13 +440,6 @@
 
           "uix"
           [["_uix" "."
-            {"deps.edn"        "deps.edn"
-             "core.cljs"       (str "src/" nested "/core.cljs")
-             "views.cljs"      (str "src/" nested "/views.cljs")}
-            :only]]
-
-          "helix"
-          [["_helix" "."
             {"deps.edn"        "deps.edn"
              "core.cljs"       (str "src/" nested "/core.cljs")
              "views.cljs"      (str "src/" nested "/views.cljs")}

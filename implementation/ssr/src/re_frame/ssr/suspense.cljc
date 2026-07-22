@@ -42,7 +42,7 @@
   corpus-wide), so a marker left in a client render tree paints a phantom
   `<suspense-boundary>` element. And the marker could not be *given*
   client semantics either: stock Reagent is an external dependency whose
-  element dispatch is not ours to extend, and UIx / Helix views are
+  element dispatch is not ours to extend, and UIx views are
   `defui` / `$` forms where a hiccup keyword head cannot occur at all.
 
   A callable component head is the ONE form expressible on every

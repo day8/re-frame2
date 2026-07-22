@@ -14,7 +14,7 @@
   emitter used to probe `(registrar/lookup :view head)` first and resolve
   a registered view, which made `[:dashboard/card 7]` mean \"registered
   view\" here and `<card>` on every client substrate (Reagent's
-  `parse-tag` runs `(name tag)`; UIx and Helix are not hiccup at all).
+  `parse-tag` runs `(name tag)`; UIx is not hiccup at all).
   A `.cljc` app sharing views across both — the point of the SSR story —
   therefore could not write a keyword head that meant one thing, and
   because the SERVER rendered it correctly the mistake survived every
@@ -364,7 +364,7 @@
 (defn- invoke-form-2-render-fn
   "Invoke a Form-2 inner render fn with `args`, tolerating an inner that
   declares FEWER params than the component was passed. The idiomatic
-  Reagent/UIx/Helix Form-2 inner either takes the SAME args as the outer
+  Reagent/UIx Form-2 inner either takes the SAME args as the outer
   (`(fn [x] …)`) or ignores them and closes over the outer's (`(fn [] …)`).
   On CLJS these are equivalent — JS arity leniency drops extra args — so
   `(apply inner args)` renders both. The JVM is strict: `(apply inner args)`
@@ -379,11 +379,11 @@
 
 (defn resolve-component-head
   "Resolve a callable-head hiccup component (`[component & args]`, where
-  `component` is a fn or a Var — the idiomatic Reagent/UIx/Helix SSR shape,
+  `component` is a fn or a Var — the idiomatic Reagent/UIx SSR shape,
   the same shape the render-tree hash walker supports) to renderable hiccup.
 
   A Form-1 component returns hiccup directly. A Form-2 component returns an
-  INNER render fn; per Reagent/UIx/Helix Form-2 semantics it is invoked once
+  INNER render fn; per Reagent/UIx Form-2 semantics it is invoked once
   more with the SAME args (arity-tolerantly — see
   `invoke-form-2-render-fn`) to obtain the hiccup. Resolving Form-2 here
   does NOT perturb the structural hash — the hash walks the RAW tree
@@ -566,7 +566,7 @@
          ;; resolve a registered view, which made `[:dashboard/card 7]`
          ;; mean "registered view" here and "an HTML `<card>` element" on
          ;; every client substrate (Reagent's `parse-tag` runs `(name
-         ;; tag)`; UIx/Helix are not hiccup at all). A `.cljc` app sharing
+         ;; tag)`; UIx are not hiccup at all). A `.cljc` app sharing
          ;; views across both — the whole point of the SSR story — could
          ;; not write a keyword head that meant one thing, and the server
          ;; rendered it CORRECTLY while the client painted a phantom, so
@@ -730,7 +730,7 @@
 ;; rf2-vxgfnd.204 — retain the current SSR emitter durably so a substrate
 ;; adapter can RE-ARM its render-to-string slot at EVERY install, not only the
 ;; one-time ns-load publications above. The React-shaped adapters (re-frame.ui,
-;; UIx, Helix) clear their per-generation `emitter-cell` on `dispose-adapter!`
+;; UIx) clear their per-generation `emitter-cell` on `dispose-adapter!`
 ;; (spine `dispose-active-roots-and-caches!`), so a public destroy → re-init
 ;; cycle — or an SSR-loaded-before-adapter load order, where the chain lookup
 ;; above finds no adapter yet — would otherwise leave `render-to-string`
