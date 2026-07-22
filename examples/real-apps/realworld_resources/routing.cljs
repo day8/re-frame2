@@ -299,15 +299,35 @@
 ;; ROUTER WIRING  (base-path-aware)
 ;; ============================================================================
 ;;
-;; The dev orchestrator serves this example under `/realworld-resources/`, but
-;; the routes above are written as if it owned `/`. `with-base-path` wraps the
-;; default history strategy so that prefix is
+;; Each entry is served from its OWN deployment sub-path (a host mounting the
+;; demos side by side), but the routes above are written as if the app owned
+;; `/`. `with-base-path` wraps the default history strategy so that prefix is
 ;; stripped/re-added automatically at the framework's four egress/ingress
-;; consult points (Spec 012 §URL strategies). Declared as this app's
-;; `:url-strategy` on the URL-owning frame in core.cljs; the frame's
-;; `:url-bound? true` creation installs the base-path-aware popstate listener
-;; AND does the first URL→route sync itself — which is the trick that fires
-;; the route's `:resources` ensures on entry, with zero hand-rolled listener
-;; or explicit install call.
+;; consult points (Spec 012 §URL strategies). The frame's `:url-bound? true`
+;; creation installs the base-path-aware popstate listener AND does the first
+;; URL→route sync itself — which is the trick that fires the route's
+;; `:resources` ensures on entry, with zero hand-rolled listener or explicit
+;; install call.
+;;
+;; DEPLOYMENT BASE IS ENTRY-SPECIFIC. The route table + all the dataflow above
+;; are shared verbatim between the two arms; only where each is MOUNTED differs,
+;; so each entry names its own base-path strategy:
+;;   - the Reagent arm (core.cljs, build `:examples/realworld-resources`) mounts
+;;     under `/realworld-resources`  → `url-strategy` below;
+;;   - the re-frame.ui arm (ui_core.cljs, build `:examples/realworld-resources-ui`)
+;;     mounts under `/realworld-resources-ui`, the deploy sub-path that MATCHES
+;;     its `out/examples/realworld-resources-ui` output  → `url-strategy-ui` below.
+;; The ui arm must NOT reuse the Reagent `/realworld-resources` base: that prefix
+;; fails to strip off a `/realworld-resources-ui/…` URL (it is a prefix-sharing
+;; SIBLING, not a path-segment ancestor), so the shell would boot into a
+;; not-found route and generated links would target the Reagent mount
+;; (rf2-nn5s8 audit rider). `strip-base-path` fails safe on `/`, so either
+;; strategy also boots correctly when the build is served at the server root.
 (def url-strategy
   (routing/with-base-path routing/history-url-strategy "/realworld-resources"))
+
+;; The re-frame.ui arm's entry-specific twin (see the note above): SAME shared
+;; route table + dataflow, mounted under its own `/realworld-resources-ui` base.
+;; The Reagent `url-strategy` above is left exactly as it was.
+(def url-strategy-ui
+  (routing/with-base-path routing/history-url-strategy "/realworld-resources-ui"))

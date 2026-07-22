@@ -122,6 +122,24 @@ const EXAMPLE_ASSET_MANIFEST = [
       { from: 'src', src: 'default-avatar.svg', dest: 'default-avatar.svg', htmlLinked: false },
     ],
   },
+  {
+    build: 'examples/realworld-resources-ui',
+    page: 'examples/real-apps/realworld_resources/index.html',
+    reason:
+      'The RealWorld resources re-frame.ui variant (ui_core / ui_views) falls ' +
+      'a nil/blank avatar back to default-avatar.svg exactly like the Reagent ' +
+      'arm — ui_views calls realworld_shared.avatar/avatar-src throughout and ' +
+      'the canned corpus has blank :image values. The build resolves to the ' +
+      'SAME colocated source folder as the Reagent arm, so the asset is the ' +
+      'same colocated default-avatar.svg. Without this entry the enumerator ' +
+      'discovers the ui build but stages no avatar, so clean staging serves ' +
+      'broken avatars. Referenced from app code, not linked in the HTML — no ' +
+      'scanner exemption, staging-only.',
+    assetExemptions: [],
+    assets: [
+      { from: 'src', src: 'default-avatar.svg', dest: 'default-avatar.svg', htmlLinked: false },
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------

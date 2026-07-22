@@ -539,6 +539,7 @@ it('the LIVE staging PER_EXAMPLE_ASSETS IS the real manifest projection, non-vac
     'examples/managed-http-counter',
     'examples/realworld',
     'examples/realworld-resources',
+    'examples/realworld-resources-ui',
   ]) {
     assert.ok(
       Array.isArray(PER_EXAMPLE_ASSETS[build]) && PER_EXAMPLE_ASSETS[build].length > 0,
