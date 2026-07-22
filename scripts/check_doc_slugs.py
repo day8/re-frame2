@@ -135,8 +135,10 @@ _HTML_ANCHOR_RE = re.compile(
 # `[§Compiled\nviews](Doc.md#anchor)` is one rendered link.  The negated
 # character classes match `\n` already — what mattered was that `_extract_links`
 # fed this regex one line at a time, so a wrapped link never matched and was
-# never validated (rf2-vpc4c).  It is now run over a joined block (see
-# `_iter_inline_links`).  The DESTINATION deliberately still forbids whitespace
+# never validated (rf2-vpc4c).  It is now run over one joined INLINE BLOCK (see
+# `_iter_inline_links` / `_inline_blocks`), which is the largest span the
+# renderer parses as a single run of inline text — and therefore the largest
+# span over which a link may legitimately wrap.  The DESTINATION still forbids whitespace
 # (`[^)\s]+`): CommonMark does not permit a bare destination to wrap, so a
 # newline there is not a link the renderer would produce either.
 _LINK_RE = re.compile(r"\[(?:[^\]\\]|\\.)*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
@@ -157,13 +159,96 @@ _FENCE_RE = re.compile(r"^(```|~~~)")
 # (often) flag it as BROKEN TARGET.
 #
 # Scope:
-# * Single-line only.  Multi-line inline code is rare in this corpus and
-#   the validator already processes line-by-line after `_strip_fences`.
+# * Single-line only — this is the ANCHOR-recognition variant, applied by
+#   `_strip_inline_code` to one line at a time (see `_scan_rendered_ids`).
+#   Link extraction uses `_INLINE_CODE_SPAN_RE` below, which spans the whole
+#   joined scan unit because a code span may legally cross a line ending.
 # * Backslash escaping of backticks (`\``) is NOT honoured — CommonMark
 #   itself does not honour it; backticks are always literal markup.
 # * `_strip_fences` has already blanked fenced-block lines, so this regex
 #   never sees the language tag of a fence as a stray backtick run.
 _INLINE_CODE_RE = re.compile(r"(`+)(?:.+?)\1(?!`)")
+
+# The same span rule, applied over a JOINED scan unit (rf2-8wcbe).  Identical
+# to `_INLINE_CODE_RE` but for `re.DOTALL`: CommonMark §6.1 explicitly permits
+# a code span to contain a line ending, so
+#
+#     `[literal
+#     link](missing.md)`
+#
+# is ONE `<code>` element and contains no link at all.  Masking per line could
+# not see that — neither backtick has a partner on its own line, so neither was
+# masked, the lines were joined, and `_LINK_RE` invented a link the renderer
+# never produces.  Masking over the same unit the link regex scans is what makes
+# the two agree.  A backtick run with no matching partner anywhere in the unit
+# still opens no span (the regex simply does not match), which is also what
+# CommonMark does — an unpaired backtick is literal text.
+_INLINE_CODE_SPAN_RE = re.compile(r"(`+)(?:.+?)\1(?!`)", re.DOTALL)
+
+# Non-blank block boundaries (rf2-8wcbe).  A blank line is a block boundary in
+# every markdown flavour, but it is NOT the only one: these leaf blocks all
+# INTERRUPT an open paragraph, so the text either side of one is never a single
+# run of inline content and no inline construct — link, emphasis, code span —
+# can bridge them.  Recognising them is what stops the join from stitching
+#
+#     A stray [opening
+#     # Separate heading
+#     ](missing.md)
+#
+# (a paragraph, an H1 and a second paragraph — three rendered blocks) into a
+# link to `missing.md` that python-markdown never produces.
+#
+# Deliberately bounded: this is boundary recognition for a CI guard, not a
+# markdown parser.  Only the interrupting starters this corpus actually uses are
+# listed, each matched at the ≤3-space indent CommonMark allows (4+ spaces is an
+# indented code block, which cannot interrupt a paragraph and so is a
+# continuation line here, exactly as it is for the renderer).  They split in two
+# by whether the block can be CONTINUED by the following line:
+#
+# `_LEAF_LINE_BLOCK_RE` — blocks that are complete on their own line, so they
+# bound the unit on BOTH sides (nothing after them continues them either):
+#   * ATX heading — `#` .. `######`.
+#   * Thematic break / setext underline — `---`, `***`, `___`, `===`.  A setext
+#     underline ENDS the paragraph above it (turning it into a heading), so it
+#     bounds the unit either way and the two readings need not be told apart.
+#   * Table row — a leading `|`.  A table's rows render as separate cells; no
+#     inline construct spans two of them.
+#
+# `_LIST_ITEM_START_RE` — a container that DOES continue, so it opens a unit but
+# does not close one:
+#   * `-`/`+`/`*` or `1.`/`1)`.  Each item is its own container, so the corpus's
+#     very common one-link-per-bullet lists cannot bleed a stray bracket into the
+#     next bullet — while a continuation line of an item carries no marker, so a
+#     link wrapping inside one item still joins.
+#
+# Blockquote entry is handled separately in `_inline_blocks` because it is
+# relative, not absolute: entering (or nesting deeper into) a quote interrupts
+# the paragraph above, while a following unprefixed line is CommonMark lazy
+# continuation of the quoted paragraph and must NOT bound the unit.
+_LEAF_LINE_BLOCK_RE = re.compile(
+    r"""^[ ]{0,3}(?:
+          \#{1,6}(?:[ \t]|$)              # ATX heading
+        | (?:\*[ \t]*){3,}$               # thematic break ***
+        | (?:-[ \t]*){3,}$                # thematic break --- / setext H2
+        | (?:_[ \t]*){3,}$                # thematic break ___
+        | =+[ \t]*$                       # setext H1 underline
+        | \|                              # table row
+    )""",
+    re.VERBOSE,
+)
+
+_LIST_ITEM_START_RE = re.compile(
+    r"""^[ ]{0,3}(?:
+          [-+*](?:[ \t]|$)                # bullet list item
+        | \d{1,9}[.)](?:[ \t]|$)          # ordered list item
+    )""",
+    re.VERBOSE,
+)
+
+# Leading blockquote markers, e.g. `> ` or `> > `.  The count of `>` is the
+# quote depth; the remainder is the quoted line's own content, which is what
+# `_BLOCK_START_RE` must be tested against (a `> # Heading` is still a heading).
+_QUOTE_PREFIX_RE = re.compile(r"^(?:[ ]{0,3}>[ \t]?)+")
 
 
 # rf2-t0ituo / rf2-57k74 — cross-handbook compatibility-anchor manifest +
@@ -624,32 +709,87 @@ def _strip_inline_code(line: str) -> str:
     return _INLINE_CODE_RE.sub(lambda m: " " * (m.end() - m.start()), line)
 
 
-def _blank_line_blocks(
+def _quote_depth_and_body(content: str) -> tuple[int, str]:
+    """Split a line into its blockquote depth and the quoted line's own content."""
+    m = _QUOTE_PREFIX_RE.match(content)
+    if not m:
+        return 0, content
+    return m.group(0).count(">"), content[m.end():]
+
+
+def _inline_blocks(
     pairs: Iterable[tuple[int, str]],
 ) -> Iterable[list[tuple[int, str]]]:
-    """Group (line_no, content) pairs into blank-line-separated blocks.
+    """Group (line_no, content) pairs into single INLINE blocks.
 
-    A blank line ends a block.  This is the unit over which a markdown inline
-    construct may wrap: a paragraph (or table, or list) is parsed as one run of
-    inline text, and NO inline construct survives a blank line — a blank line is
-    a block boundary in every markdown flavour.  Scanning per block rather than
-    per line is what lets `_iter_inline_links` see a wrapped link; bounding the
-    join at the blank line is what stops it from stitching two unrelated
-    paragraphs into a link that no renderer would produce (rf2-vpc4c).
+    A scan unit is a maximal run of lines the renderer parses as ONE run of
+    inline content, so it is exactly the span over which a markdown inline
+    construct may wrap.  Scanning per unit rather than per line is what lets
+    `_iter_inline_links` see a wrapped link (rf2-vpc4c); bounding the unit at
+    every real block boundary is what stops it from stitching unrelated blocks
+    into a link no renderer would produce (rf2-8wcbe).
 
-    Fence lines and fenced-block bodies arrive already blanked by
-    `_strip_fences`, so a code block is a block boundary here too, for free.
+    Four kinds of boundary end a unit:
+
+    1. A blank line — the universal block boundary.  Fence lines and
+       fenced-block bodies arrive already blanked by `_strip_fences`, so a code
+       block bounds a unit here too, for free.
+    2. A paragraph-interrupting block start — `_LEAF_LINE_BLOCK_RE` (ATX
+       heading, thematic break / setext underline, table row) or
+       `_LIST_ITEM_START_RE`.  The line STARTS the next unit rather than being
+       dropped, so a link that lives on it is still extracted.
+    3. The END of a single-line leaf block: nothing continues an ATX heading, a
+       thematic break or a table row, so the following line opens a fresh unit
+       and a stray `[` in a heading cannot reach into the paragraph under it.
+       A list item is a container that DOES continue, so it only opens a unit.
+    4. Entering a blockquote (or nesting one level deeper).  A quote interrupts
+       the paragraph above it.  The converse is not a boundary: an unprefixed
+       line after a quoted one is CommonMark lazy continuation of the SAME
+       quoted paragraph, and a `>`-prefixed continuation line inside one quote
+       keeps the depth unchanged — which is why the corpus's blockquoted
+       wrapped links still join.
+
+    The block tests run against the line's content with any blockquote markers
+    removed, so `> ## Heading` bounds a unit just as `## Heading` does.
     """
     block: list[tuple[int, str]] = []
+    prev_depth = 0
+    ended = False
     for line_no, content in pairs:
         if not content.strip():
             if block:
                 yield block
                 block = []
+            prev_depth = 0
+            ended = False
             continue
+        depth, body = _quote_depth_and_body(content)
+        leaf = bool(_LEAF_LINE_BLOCK_RE.match(body))
+        if block and (
+            ended or leaf or depth > prev_depth or _LIST_ITEM_START_RE.match(body)
+        ):
+            yield block
+            block = []
         block.append((line_no, content))
+        prev_depth = depth
+        ended = leaf
     if block:
         yield block
+
+
+def _mask_code_spans(text: str) -> str:
+    """Mask inline-code spans across a joined scan unit (rf2-8wcbe).
+
+    Length- and newline-preserving, so a match position in the masked text still
+    maps back to its source line.  Unlike the per-line `_strip_inline_code`, this
+    honours CommonMark §6.1's allowance for a code span to contain a line ending
+    — the reason a backticked, line-wrapped link PLACEHOLDER must not be
+    extracted as a link.
+    """
+    def _blank(m: re.Match[str]) -> str:
+        return "".join("\n" if ch == "\n" else " " for ch in m.group(0))
+
+    return _INLINE_CODE_SPAN_RE.sub(_blank, text)
 
 
 def _iter_inline_links(
@@ -658,14 +798,20 @@ def _iter_inline_links(
     """Yield (line-number, destination) for every inline link in the given lines.
 
     `pairs` are (line_no, content) pairs the CALLER has already reduced to
-    scannable source — fence-stripped and inline-code-masked.
+    scannable source — fence-stripped.  Inline code is masked HERE, over the
+    joined unit, not by the caller (rf2-8wcbe).
 
-    Each blank-line-delimited block is joined with `\\n` and scanned as ONE
+    Each inline block (`_inline_blocks`) is joined with `\\n` and scanned as ONE
     string, so a link whose text wraps across a newline is seen.  The
     predecessor scanned line by line, so `](target#anchor)` landing on the
     following line never matched `_LINK_RE` and the link was therefore never
     validated — silently unguarded, since `mkdocs build --strict` reports a
     broken anchor as INFO and still exits 0 (rf2-vpc4c).
+
+    Masking runs over the same joined unit `_LINK_RE` scans, so the two agree on
+    what the text is: a code span that crosses a line ending is masked whole and
+    yields no link, where per-line masking saw two unpaired backticks, masked
+    neither, and invented one (rf2-8wcbe).
 
     The reported line is the one carrying the DESTINATION (`m.start(1)`), not
     the one carrying the opening `[`.  For an unwrapped link the two are the
@@ -674,10 +820,10 @@ def _iter_inline_links(
     the more robust of the two — an unclosed stray `[` earlier in the block can
     drag the match start backwards, but never the destination.
     """
-    for block in _blank_line_blocks(pairs):
-        joined = "\n".join(content for _, content in block)
+    for block in _inline_blocks(pairs):
+        joined = _mask_code_spans("\n".join(content for _, content in block))
         # Offset of each line's first character within `joined`, for mapping a
-        # match position back to a line number.  `_strip_inline_code` masks
+        # match position back to a line number.  `_mask_code_spans` masks
         # length-preservingly, so these offsets are exact.
         line_starts: list[int] = []
         offset = 0
@@ -695,18 +841,15 @@ def _extract_links(path: Path) -> Iterable[tuple[int, str]]:
     Links inside fenced code blocks AND inside inline-code spans are
     skipped — both are "code", not real cross-references (rf2-mqv8s).
     Links that wrap across a newline ARE seen (rf2-vpc4c) — see
-    `_iter_inline_links`.
+    `_iter_inline_links`, which is also where inline code is masked and where
+    the join is bounded to one rendered inline block (rf2-8wcbe).
 
-    Inline code is masked per LINE, before the block join: a CommonMark code
-    span closes on the line it opens, so masking the joined text would let a
-    stray backtick swallow everything up to a backtick on some later line —
-    and with it any real link in between.
+    This function's only job is reducing the file to fence-stripped
+    (line_no, content) pairs.  `check_readme_links.py` imports it so both gates
+    share one extractor and cannot drift apart (rf2-vpc4c).
     """
     text = path.read_text(encoding="utf-8", errors="replace")
-    yield from _iter_inline_links(
-        (line_no, _strip_inline_code(content))
-        for line_no, content in _strip_fences(text.splitlines())
-    )
+    yield from _iter_inline_links(_strip_fences(text.splitlines()))
 
 
 def _resolve_target(
