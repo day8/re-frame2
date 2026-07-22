@@ -1,0 +1,22 @@
+;; FH-PROPS-001 — one props map, no positional arguments.
+;;
+;; `:args` is the boundary call's argument tail — everything after the
+;; head in `[the-view & args]`. `:props` is the normalized props map the
+;; view body receives.
+{:fh/id "FH-PROPS-001"
+ :fh/law
+ "An internal boundary call carries exactly one props map; a missing or non-map props slot raises :rf.error/view-bad-props."
+
+ :accepted
+ [{:args [{}]                          :props {}}
+  {:args [{:title "Details"}]          :props {:title "Details"}}
+  {:args [{:title "Details" :open? false}] :props {:title "Details" :open? false}}]
+
+ :rejected
+ [{:args []          :error-id :rf.error/view-bad-props}
+  {:args [nil]       :error-id :rf.error/view-bad-props}
+  {:args ["Details"] :error-id :rf.error/view-bad-props}
+  {:args [[:span]]   :error-id :rf.error/view-bad-props}
+  {:args [42]        :error-id :rf.error/view-bad-props}]
+
+ :recovery :supply-one-props-map}

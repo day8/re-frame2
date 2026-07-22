@@ -1,0 +1,36 @@
+;; FH-CALL-002 — vector-head classification is total.
+;;
+;; Three legal heads and one error arm, in this order, with no fourth case.
+;; `:head` names a value the harness constructs (EDN cannot carry a live
+;; descriptor or a function); `:expect` is the classification, or `:error`
+;; plus the exact diagnostic id.
+;;
+;; The illegal rows are chosen to close the ways an implementation drifts
+;; back to a heuristic: a plain function (the permissive bare-function
+;; model), a plain map (IFn on both hosts, and the shape a descriptor
+;; would take if it were data), and the scalar heads a hiccup walker is
+;; tempted to stringify.
+{:fh/id "FH-CALL-002"
+ :fh/law
+ "A Freehand descriptor is an internal boundary, a keyword is a DOM/custom element, a declared host descriptor is a foreign boundary, and anything else raises :rf.error/view-bad-head naming those three legal forms."
+
+ :cases
+ [{:head :fixture/declared-view    :expect :view}
+  {:head :fixture/element-keyword  :expect :element}
+  {:head :fixture/custom-element   :expect :element}
+  {:head :fixture/host-descriptor  :expect :host}
+
+  {:head :fixture/plain-function   :expect :error :error-id :rf.error/view-bad-head}
+  {:head :fixture/string           :expect :error :error-id :rf.error/view-bad-head}
+  {:head :fixture/nil              :expect :error :error-id :rf.error/view-bad-head}
+  {:head :fixture/number           :expect :error :error-id :rf.error/view-bad-head}
+  {:head :fixture/vector           :expect :error :error-id :rf.error/view-bad-head}
+  {:head :fixture/plain-map        :expect :error :error-id :rf.error/view-bad-head}
+  {:head :fixture/symbol           :expect :error :error-id :rf.error/view-bad-head}]
+
+ ;; The message is stable in MEANING, not bytes. What it must always name:
+ ;; all three legal forms, and — for a callable head — the helper recovery.
+ :message-must-name        ["v/defview" "keyword" "host descriptor"]
+ :callable-message-must-name ["parentheses"]
+
+ :ex-data-keys [:rf.error/id :legal-heads :head :recovery]}
