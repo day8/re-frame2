@@ -13,12 +13,19 @@
 
   ## Why we use the substrate adapter's render fn
 
-  Xray is substrate-agnostic: the host may be running Reagent, UIx, or
-  Helix. The substrate adapter's `:render` slot is
-  the canonical mount path (`rf/render render-tree mount-point opts`);
-  every adapter's impl produces an unmount fn on first call. Xray
-  calls that path so the shell mounts via the adapter the host
-  installed via `(rf/init! ...)`.
+  The substrate adapter's `:render` slot is the canonical mount path
+  (`rf/render render-tree mount-point opts`); every adapter's impl
+  produces an unmount fn on first call. Xray calls that path so the
+  shell mounts via the adapter the host installed via `(rf/init! ...)`.
+
+  That only works on hosts whose `:render` accepts HICCUP render-trees
+  — the ratom family (stock Reagent / reagent-slim). The React-hook
+  substrates (UIx, Helix, re-frame.ui) share an ELEMENT-shaped `render`
+  that hands the tree to React untouched, so Xray's hiccup shell cannot
+  mount there; the mount verbs refuse with the `:unsupported-substrate`
+  diagnostic instead of letting raw CLJS data reach React children
+  (rf2-qgfo4 — fn-as-child console.error + uncaught MapEntry pageerror
+  on every UIx template boot). See the substrate gate section below.
 
   ## Production posture
 
@@ -170,6 +177,57 @@
 (defn- note-auto-open-disabled! []
   (reset! diagnostic-state {:ok? true :reason :auto-open-disabled})
   nil)
+
+;; ---- substrate render-shape gate (rf2-qgfo4) ------------------------------
+;;
+;; Xray's shell is authored in hiccup (reg-view'd Reagent components), so it
+;; can only mount through a `:render` slot that accepts hiccup render-trees —
+;; the ratom family (stock Reagent / reagent-slim). The React-hook substrates
+;; (UIx, Helix, the first-party re-frame.ui) share the spine's ELEMENT-shaped
+;; `render` (`re-frame.substrate.spine/make-render`): it hands the tree to
+;; React untouched, so the hiccup vector reaches React as an iterable of raw
+;; CLJS values — the component fn becomes a Fragment child ("Functions are
+;; not valid as a React child … frame_provider") and the props map's
+;; MapEntries throw UNCAUGHT ("Objects are not valid as a React child
+;; (found: object with keys {key, val, …})") on every boot. The host app is
+;; unaffected (separate React root) but the boot is noisy and the shell never
+;; renders. Until Xray carries a hiccup-capable mount for those hosts, the
+;; mount verbs refuse loudly-but-cleanly there: one `console.warn` plus the
+;; inspectable status diagnostic — no mount, no uncaught error. DENYLIST
+;; shape on purpose: unknown / `:custom` / test adapters keep today's
+;; permissive behaviour (the mount tests ride `plain-atom` with a stubbed
+;; render), and only the kinds KNOWN to take React elements refuse.
+
+(def ^:private react-element-render-kinds
+  "Adapter `:kind`s whose `:render` slot takes substrate-native React
+  ELEMENTS (the shared React-hook spine), not hiccup — Xray's hiccup shell
+  cannot mount through them (rf2-qgfo4)."
+  #{:rf.adapter/ui :rf.adapter/uix :rf.adapter/helix})
+
+(defn- unsupported-substrate-diagnostic [kind]
+  {:ok?     false
+   :reason  :unsupported-substrate
+   :adapter kind
+   :message (str "Xray cannot mount on the installed substrate adapter ("
+                 kind "): its :render slot takes substrate-native React "
+                 "elements, and Xray's shell is hiccup rendered through the "
+                 "ratom-family adapters (Reagent / reagent-slim). Skipping "
+                 "the Xray mount — the host app is unaffected (rf2-qgfo4).")})
+
+(defn- refuse-unsupported-substrate!
+  "When the installed adapter's `:render` is element-shaped (a React-hook
+  substrate — see `react-element-render-kinds`), publish the
+  `:unsupported-substrate` diagnostic (status API + one `console.warn`; the
+  host app is healthy, so this is not an error) and return it. Returns nil
+  when the installed substrate can host the hiccup shell."
+  []
+  (let [kind (substrate-adapter/current-adapter)]
+    (when (contains? react-element-render-kinds kind)
+      (let [diagnostic (unsupported-substrate-diagnostic kind)]
+        (reset! diagnostic-state diagnostic)
+        (when (and (exists? js/console) (.-warn js/console))
+          (.warn js/console (:message diagnostic)))
+        diagnostic))))
 
 ;; ---- layout-host display snapshot ---------------------------------------
 ;;
@@ -782,8 +840,12 @@
   for the rationale.
 
   If the substrate adapter is absent, returns nil so preload retry can
-  wait. If the layout host is missing, returns an inspectable
-  diagnostic map and logs `console.error` without blocking startup."
+  wait. If the installed adapter is a React-element substrate (UIx /
+  Helix / re-frame.ui — kinds whose `:render` cannot take the hiccup
+  shell, rf2-qgfo4), returns the `:unsupported-substrate` diagnostic and
+  logs one `console.warn` without mounting. If the layout host is
+  missing, returns an inspectable diagnostic map and logs
+  `console.error` without blocking startup."
   []
   (if-let [state @mount-state]
     (if (= :inline (:mode state))
@@ -792,9 +854,10 @@
           @mount-state)
       (switch-surface! :inline))
     (when (substrate-adapter/current-adapter)
-      (if-let [node (create-inline-mount-node!)]
-        (mount-shell-into! node :inline)
-        @diagnostic-state))))
+      (or (refuse-unsupported-substrate!)
+          (if-let [node (create-inline-mount-node!)]
+            (mount-shell-into! node :inline)
+            @diagnostic-state)))))
 
 (defn open-overlay!
   "Debug/fallback launch path: mount Xray as the fixed overlay under
@@ -806,7 +869,10 @@
   mounted as the INLINE surface: realize the requested overlay surface
   — re-parent the shell to `document.body` and re-render fixed
   (rf2-j538f7.23) so the public `open-overlay!` verb honours its
-  distinct-surface contract instead of only flipping attributes."
+  distinct-surface contract instead of only flipping attributes.
+
+  Refuses with the `:unsupported-substrate` diagnostic on a
+  React-element substrate host (rf2-qgfo4), same as `open!`."
   []
   (if-let [state @mount-state]
     (if (= :overlay (:mode state))
@@ -815,7 +881,8 @@
           @mount-state)
       (switch-surface! :overlay))
     (when (substrate-adapter/current-adapter)
-      (mount-shell-into! (create-overlay-mount-node!) :overlay))))
+      (or (refuse-unsupported-substrate!)
+          (mount-shell-into! (create-overlay-mount-node!) :overlay)))))
 
 (defn close!
   "Hide the shell — make the container display:none. The DOM tree and
@@ -1244,7 +1311,9 @@
   "Open a same-origin Xray pop-out window and render the shell into it.
   The pop-out shares the opener runtime and Xray frame; no
   serialisation layer is introduced. Returns a state map, or
-  `{:ok? false :reason :popup-blocked}` when `window.open` fails.
+  `{:ok? false :reason :popup-blocked}` when `window.open` fails, or
+  the `:unsupported-substrate` diagnostic on a React-element substrate
+  host (rf2-qgfo4).
 
   Per rf2-yudol the popout window registers a `pagehide`/`unload`
   listener that clears `popout-state` when the user closes the
@@ -1264,48 +1333,49 @@
     state
     (if-not (substrate-adapter/current-adapter)
       {:ok? false :reason :no-substrate-adapter}
-      (let [win (when (exists? js/window)
-                  (.open js/window "" "rf-xray-popout"
-                         "popup,width=960,height=720"))]
-        (if-not win
-          {:ok? false :reason :popup-blocked}
-          (do
-            (ensure-xray-frame!)
-            (let [doc  (.-document win)
-                  body (.-body doc)
-                  node (.createElement doc "div")]
-              (set! (.-title doc) "Xray")
-              ;; rf2-czcg5 — inject Xray's stylesheet set + the `:root`
-              ;; `--rf-xray-*` custom properties into the pop-out's own
-              ;; document and mirror the persisted theme, so the shell
-              ;; renders fully styled (visually identical to the inline
-              ;; panel) rather than unstyled against the bare window.
-              (style-popout-document! doc)
-              (set! (.-id node) "rf-xray-popout-root")
-              (.setAttribute node "data-rf-xray-mode" "popout")
-              (.appendChild body node)
-              (let [unmount      (substrate-adapter/render
-                                    ;; rf2-tqlmq — same mount-wrap as
-                                    ;; `mount-shell-into!`: wrap the popout
-                                    ;; shell in the shell's frame-provider so
-                                    ;; its own `:rf.view/rendered` trace
-                                    ;; resolves to the trace-disabled Xray
-                                    ;; frame instead of falling through to
-                                    ;; `:rf/default` and leaking into the
-                                    ;; inspected app frame's epoch `:renders`.
-                                    [rf/frame-provider {:frame shell/default-frame-id}
-                                     [shell/shell-view {:mode :popout}]]
-                                    node nil)
-                    overlay-node (install-opener-gone-overlay! doc)
-                    watchdog-id  (start-opener-gone-watchdog! win overlay-node)
-                    state        {:ok?          true
-                                  :window       win
-                                  :node         node
-                                  :unmount      unmount
-                                  :mode         :popout
-                                  :overlay-node overlay-node
-                                  :watchdog-id  watchdog-id}]
-                (reset! popout-state state)
-                (register-popout-unload-cleanup! win)
-                state))))))))
+      (or (refuse-unsupported-substrate!)
+          (let [win (when (exists? js/window)
+                      (.open js/window "" "rf-xray-popout"
+                             "popup,width=960,height=720"))]
+            (if-not win
+              {:ok? false :reason :popup-blocked}
+              (do
+                (ensure-xray-frame!)
+                (let [doc  (.-document win)
+                      body (.-body doc)
+                      node (.createElement doc "div")]
+                  (set! (.-title doc) "Xray")
+                  ;; rf2-czcg5 — inject Xray's stylesheet set + the `:root`
+                  ;; `--rf-xray-*` custom properties into the pop-out's own
+                  ;; document and mirror the persisted theme, so the shell
+                  ;; renders fully styled (visually identical to the inline
+                  ;; panel) rather than unstyled against the bare window.
+                  (style-popout-document! doc)
+                  (set! (.-id node) "rf-xray-popout-root")
+                  (.setAttribute node "data-rf-xray-mode" "popout")
+                  (.appendChild body node)
+                  (let [unmount      (substrate-adapter/render
+                                       ;; rf2-tqlmq — same mount-wrap as
+                                       ;; `mount-shell-into!`: wrap the popout
+                                       ;; shell in the shell's frame-provider so
+                                       ;; its own `:rf.view/rendered` trace
+                                       ;; resolves to the trace-disabled Xray
+                                       ;; frame instead of falling through to
+                                       ;; `:rf/default` and leaking into the
+                                       ;; inspected app frame's epoch `:renders`.
+                                       [rf/frame-provider {:frame shell/default-frame-id}
+                                        [shell/shell-view {:mode :popout}]]
+                                       node nil)
+                        overlay-node (install-opener-gone-overlay! doc)
+                        watchdog-id  (start-opener-gone-watchdog! win overlay-node)
+                        state        {:ok?          true
+                                      :window       win
+                                      :node         node
+                                      :unmount      unmount
+                                      :mode         :popout
+                                      :overlay-node overlay-node
+                                      :watchdog-id  watchdog-id}]
+                    (reset! popout-state state)
+                    (register-popout-unload-cleanup! win)
+                    state)))))))))
 
