@@ -12,7 +12,7 @@
 ;; changing what it IS.
 {:fh/id "FH-EVENT-004"
  :fh/law
- "Each event site owns one stable committed proxy: identity survives re-render, equal values at two sites stay independent, an abandoned render publishes nothing, a later commit retargets the committed body, and a retired proxy is inert."
+ "Each event site owns one stable committed proxy bound to the site incarnation that minted it: identity survives re-render, equal values at two sites stay independent, an abandoned render publishes nothing, a later commit retargets the committed body, and a retired proxy is inert even when its key is re-used."
 
  :site-a :on-click-a
  :site-b :on-click-b
@@ -69,4 +69,32 @@
 
  ;; Two sites carrying an EQUAL value get two DISTINCT proxies, so their
  ;; lifetimes and diagnostics never merge.
- :equal-values-are-independent true}
+ :equal-values-are-independent true
+
+ ;; A proxy is bound to the site INCARNATION that minted it, not to
+ ;; `(owner, site-key)`. Both rows below are lifetimes the `:script`
+ ;; above cannot reach: it never starts a key from nothing twice, and it
+ ;; never re-adds a key it dropped. A key-only lookup passes every row of
+ ;; that script and still lets a callback that was never selected — or
+ ;; one that was retired — dispatch into whatever owns the key now.
+ :incarnation
+ {:site-key :on-click
+
+  ;; A never-selected candidate mints its own provisional proxy. It is
+  ;; not a doorway: committing a DIFFERENT candidate for the same key
+  ;; leaves the abandoned proxy inert, because the abandoned render
+  ;; publishes nothing — its callback included.
+  :never-selected
+  {:note       "an abandoned candidate's proxy stays inert after another candidate commits its key"
+   :abandoned  [:from/abandoned]
+   :selected   [:from/selected]
+   :dispatched [[:from/selected]]}
+
+  ;; Removal retires an incarnation permanently. Re-adding the key mints
+  ;; a NEW incarnation; the retired proxy a foreign listener still holds
+  ;; does not come back to life pointed at the successor's body.
+  :retired-key-reuse
+  {:note       "a removed site's proxy stays inert when the same key is later re-added"
+   :first      [:from/first]
+   :readded    [:from/readded]
+   :dispatched [[:from/first] [:from/readded]]}}}

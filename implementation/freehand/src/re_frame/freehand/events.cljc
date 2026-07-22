@@ -30,6 +30,14 @@
        stops a re-render from churning callback identity through React —
        and retirement makes the exact proxy inert.
 
+       A proxy is bound to the site INCARNATION that minted it, never to
+       `(owner, site-key)` alone: it dispatches only while it is the
+       proxy the committed descriptor carries. So a candidate that is
+       never selected publishes nothing even after a DIFFERENT candidate
+       commits its key, and a removed site's proxy stays inert when that
+       key is later re-used — the two lifetime transitions a key-only
+       lookup would silently allow.
+
   Everything here is **common**: the same values, the same laws, and the
   same diagnostics on the JVM and in ClojureScript. Exactly two things
   are host-shaped, and both are named seams rather than hidden branches
@@ -434,10 +442,18 @@
   [owner site-key]
   ;; Variadic: a DOM `:on-*` invoker passes one native event, a foreign
   ;; invoker passes whatever its protocol says. The proxy closes over the
-  ;; OWNER and the site key only — never over a body — which is precisely
-  ;; why a later commit changes what it does without changing what it is.
+  ;; OWNER, the site key and ITSELF — never over a body — which is
+  ;; precisely why a later commit changes what it does without changing
+  ;; what it is, while a DIFFERENT incarnation of the same key cannot
+  ;; borrow its doorway.
+  ;;
+  ;; The proxy IS its own incarnation token: minting is the only way to
+  ;; make one, `site` hands the committed incarnation back across an
+  ;; uninterrupted re-render, and `invoke!` proceeds only when the proxy
+  ;; being called is the proxy the committed descriptor carries. No
+  ;; second identity vocabulary, and nothing public to hold.
   (fn freehand-event-proxy [& args]
-    (invoke! owner site-key args)))
+    (invoke! owner site-key freehand-event-proxy args)))
 
 (defn site
   "RENDER time: record `value` as `site-key`'s intent in `candidate`, and
@@ -448,6 +464,13 @@
   consumer — React reconciliation included — sees no churn. Two sites
   carrying EQUAL values get two distinct proxies, so their lifetimes,
   `:once` state and diagnostics stay independent.
+
+  The proxy returned here is a CANDIDATE-local incarnation until this
+  candidate is the one committed. An uninterrupted site is handed back
+  the incarnation already committed for its key, which is exactly why
+  identity survives re-render; a key with no committed incarnation — a
+  first render, or a key a later render re-adds — is minted fresh, and
+  the previous incarnation is retired for good.
 
   `payload-fn` is the site's payload extractor, [[default-payload]] when
   unnamed. Returns `nil` for an empty position, and for `v/render-fn` /
@@ -543,9 +566,10 @@
       {:view-id  (.-id owner)
        :site-id  site-key
        :state    state
-       :reason   (str "a Freehand callback fired after its site was retired — the view "
-                      "unmounted, the node was replaced, or the render that published it "
-                      "was never selected; the callback is inert and dispatches nothing")
+       :reason   (str "a Freehand callback fired after its site incarnation was retired — "
+                      "the view unmounted, the node was replaced, the render that published "
+                      "it was never selected, or the site was removed and its key re-used by "
+                      "a later render; the callback is inert and dispatches nothing")
        :recovery :warned-and-continued}))
   nil)
 
@@ -573,9 +597,15 @@
   nil)
 
 (defn- invoke!
-  [^EventOwner owner site-key args]
-  (let [{:keys [sites dispatch] :as state} @(.-state owner)]
-    (if-some [plan (get sites site-key)]
+  [^EventOwner owner site-key proxy args]
+  ;; The site key alone does not authorize a dispatch: `proxy` must be the
+  ;; exact incarnation the COMMITTED descriptor carries. Resolving by
+  ;; `(owner, site-key)` alone would let a never-selected candidate's
+  ;; proxy fire the body a different candidate committed, and would let a
+  ;; retired proxy come back to life the moment its key was re-used.
+  (let [{:keys [sites dispatch] :as state} @(.-state owner)
+        plan (get sites site-key)]
+    (if (and (some? plan) (identical? proxy (:proxy plan)))
       (when-not (and (:once plan) (contains? (:fired state) site-key))
         (when (:once plan)
           (vswap! (.-state owner) update :fired conj site-key))

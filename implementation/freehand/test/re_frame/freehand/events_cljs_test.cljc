@@ -458,6 +458,62 @@
         (kept {})
         (is (= [[:row/pick 2]] @seen)))))
 
+(deftest fh-event-004-a-never-selected-candidates-proxy-is-not-a-doorway
+  (testing "Per FH-EVENT-004: a candidate that is never selected
+            publishes nothing — its CALLBACK included. Two candidates
+            for a fresh owner mint two provisional proxies for one key;
+            committing the second must not turn the first into an
+            active doorway onto the selected body. Resolving an
+            invocation by owner plus site key alone is exactly what
+            would."
+    (let [{:keys [site-key never-selected]} (:incarnation event-004)
+          {:keys [abandoned selected dispatched]} never-selected
+          {:keys [dispatch seen]} (recorder)
+          owner (events/owner :app/cart)
+          c1    (events/candidate owner)
+          p1    (events/site c1 site-key abandoned events/payload-map)
+          c2    (events/candidate owner)
+          p2    (events/site c2 site-key selected events/payload-map)]
+      (is (not (identical? p1 p2))
+          "two candidates for an uncommitted key mint two distinct incarnations")
+      (events/commit! c2 dispatch)
+      (p1 {})
+      (is (= [] @seen) "the abandoned candidate's proxy dispatches nothing")
+      (p2 {})
+      (is (= dispatched @seen)
+          "and only the selected candidate's own proxy is live"))))
+
+(deftest fh-event-004-a-retired-proxy-does-not-fire-into-a-successor
+  (testing "Per FH-EVENT-004: retirement is permanent for the exact
+            proxy. A committed site removed by a later render is inert;
+            re-adding the same key mints a NEW incarnation, and the
+            retired proxy a foreign listener still holds must stay
+            inert rather than fire into whatever owns the key now."
+    (let [{:keys [site-key retired-key-reuse]} (:incarnation event-004)
+          {first-value   :first
+           readded-value :readded
+           dispatched    :dispatched} retired-key-reuse
+          {:keys [dispatch seen]} (recorder)
+          owner   (events/owner :app/list)
+          c1      (events/candidate owner)
+          retired (events/site c1 site-key first-value events/payload-map)]
+      (events/commit! c1 dispatch)
+      (retired {})
+      (events/commit! (events/candidate owner) dispatch)
+      (retired {})
+      (is (= 1 (count @seen)) "the dropped site's proxy is inert while the key is absent")
+      (let [c3        (events/candidate owner)
+            successor (events/site c3 site-key readded-value events/payload-map)]
+        (events/commit! c3 dispatch)
+        (is (not (identical? retired successor))
+            "re-adding a retired key mints a new incarnation")
+        (retired {})
+        (is (= 1 (count @seen))
+            "and the retired proxy stays inert rather than firing into its successor")
+        (successor {})
+        (is (= dispatched @seen)
+            "while the newly committed proxy dispatches normally")))))
+
 ;; ---------------------------------------------------------------------------
 ;; The one host-shaped seam — reading a live native event
 ;; ---------------------------------------------------------------------------
