@@ -169,7 +169,30 @@ is exercised end-to-end across the layers:
 4. **Behavioural.** `emitted_test_run_test.clj` — compiles and runs
    the emitted `events_test.cljs` end-to-end via shadow-cljs + Node.
    Gated behind `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` (CI sets it; off
-   locally for fast loop).
+   locally for fast loop). Two teeth in this tier exist specifically
+   to keep the in-repo run honest about what an EXTERNAL consumer
+   would see, because the tier's own conveniences would otherwise
+   hide two whole classes of defect:
+   - **Emitted-`package.json` completeness.** The tier junctions
+     `implementation/node_modules` into every emitted project rather
+     than paying an `npm install` per variant — so the emitted
+     `package.json` is never consulted and a scaffold that fails to
+     declare a compile-required npm package still compiles green.
+     After `shadow compile app`, the assert reads the `:browser`
+     build's own `manifest.edn` and requires every npm package the
+     build resolved to be one `npm install` would have produced from
+     the emitted `package.json` (declared directly, or pulled in
+     transitively by something declared).
+   - **Dev-page boot proof.** Every other check compiles through the
+     pure-JVM route, and the SSR browser proof drives a synthetic
+     server-painted page that carries no `<meta>` CSP — so nothing
+     loaded the page a newcomer actually opens. A Chromium cell
+     serves the emitted `resources/public`, loads the real
+     `index.html` plus the dev bundle, and requires `#app` to paint
+     the counter, the click to move it 0 → 1, and Chromium to report
+     zero uncaught `pageerror`s. Where Chromium is not launchable
+     the cell records a documented skip, printed as a loud
+     NOT PROVEN banner so it cannot read as a pass.
 
 CI sets `RF2_TEMPLATE_RUN_EMITTED_TESTS=1`; a change that breaks
 file-tree shape, drifts the framework surface, breaks the pin
