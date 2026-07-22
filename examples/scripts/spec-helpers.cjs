@@ -3,7 +3,7 @@
  *
  * `examples/` is test-free, so there are no example specs anymore; the
  * consumers are the per-adapter testbed smokes
- * (`implementation/adapters/{reagent,uix,helix}/testbed/spec.cjs`) plus the
+ * (`implementation/adapters/{reagent,uix}/testbed/spec.cjs`) plus the
  * Story browser scenarios (`tools/story/test/`) and the Xray feature-matrix
  * scenarios (`tools/xray/testbeds/feature_matrix/scenarios.cjs`). They keep
  * requiring this module across-tree because the helpers are substrate- and

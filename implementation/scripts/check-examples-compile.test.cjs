@@ -69,12 +69,12 @@ it('enumeration over the real shadow-cljs.edn is non-vacuous', () => {
   );
 });
 
-it('the four previously-UNCOVERED standalone builds are swept (the gap)', () => {
+it('the previously-UNCOVERED standalone builds are swept (the gap)', () => {
+  // login-helix / process-monitor-helix were also gap builds until the
+  // Helix adapter (and its examples) left at S7/W13 (rf2-d6epb).
   for (const b of [
     'examples/login-uix',
     'examples/dashboard-uix',
-    'examples/login-helix',
-    'examples/process-monitor-helix',
   ]) {
     assert.ok(
       realBuilds.includes(b),
@@ -85,11 +85,10 @@ it('the four previously-UNCOVERED standalone builds are swept (the gap)', () => 
   }
 });
 
-it('the already-covered counter trio is also swept (no exclusions)', () => {
+it('the already-covered counter pair is also swept (no exclusions)', () => {
   for (const b of [
     'examples/counter',
     'examples/counter-uix',
-    'examples/counter-helix',
   ]) {
     assert.ok(realBuilds.includes(b), `${b} missing from the example set`);
   }

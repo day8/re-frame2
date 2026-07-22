@@ -3,7 +3,7 @@
  * Tests for `lib/read-release-bundle.cjs` (rf2-ynjts.15 coverage pass).
  *
  * This module is the shared release-bundle reader + grep primitives for
- * the six check-* scanners (bundle-isolation, reagent-slim, uix-helix,
+ * the six check-* scanners (bundle-isolation, reagent-slim, uix-reagent-free,
  * schemas-bundle, perf-bundle, elision). It had no dedicated unit test;
  * its contracts are subtle and load-bearing, and a regression in any of
  * them produces a SILENT false-GREEN in a production-elision / bundle-

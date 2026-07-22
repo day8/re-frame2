@@ -1327,9 +1327,9 @@ function sharedContrastContract(tokens) {
     // Normal text / link / muted / skeleton foregrounds on every paper surface.
     { fg: '--ex-accent-deep', bgs: surfaces, min: WCAG_AA_NORMAL_TEXT, role: 'link / value text' },
     // Warning TEXT foreground. --ex-warn (#C49419) is decorative-fill only
-    // (≤2.76:1 as text); the AA-safe text/border token is --ex-warn-deep, and
-    // the process_monitor_helix example consumes it directly for
-    // warn tile-value / log-level / active-chip text. The decorative --ex-warn
+    // (≤2.76:1 as text); the AA-safe text/border token is --ex-warn-deep
+    // (shipped by the shared palette for warn tile-value / log-level /
+    // active-chip text). The decorative --ex-warn
     // is intentionally NOT listed (it ships only as borders / meter / dot fill).
     { fg: '--ex-warn-deep', bgs: surfaces, min: WCAG_AA_NORMAL_TEXT, role: 'warning text' },
     // --ex-warn-deep also carries the active warn-chip UI-component border on a

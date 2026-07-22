@@ -9,7 +9,6 @@
 #                                         ├── deploy-reagent
 #                                         ├── deploy-reagent-slim
 #                                         ├── deploy-uix
-#                                         ├── deploy-helix
 #                                         ├── deploy-ui
 #                                         ├── deploy-machines
 #                                         ├── deploy-routing
@@ -32,8 +31,9 @@
 # Per rf2-lt4e (the seventh and final per-feature split per rf2-5vjj
 # Strategy B) deploy-epoch slots in as a leaf alongside the existing
 # six per-feature leaves (schemas, machines, routing, flows, http, ssr)
-# plus the substrate-adapter leaves (reagent, uix per rf2-3yij, helix
-# per rf2-2qit). The per-feature split set is now closed; further
+# plus the substrate-adapter leaves (reagent, uix per rf2-3yij;
+# the helix leaf was removed at S7/W13, rf2-d6epb). The per-feature
+# split set is now closed; further
 # additions require a new Spec-ulation increment.
 #
 # # The re-frame.ui substrate is a REQUIRED artefact (rf2-vxgfnd.99.2)
@@ -190,7 +190,7 @@ jobs:
         working-directory: implementation/core
         run: clojure -M:test
 
-      # The Reagent/UIx/Helix adapter :test aliases have no JVM-runnable
+      # The Reagent/UIx adapter :test aliases have no JVM-runnable
       # tests of their own (the adapter ns is :cljs-only). These steps are
       # classpath/deps probes — the empty case needs no `|| echo`
       # fallback because the cognitect test-runner returns 0 when there
@@ -215,10 +215,6 @@ jobs:
 
       - name: JVM tests (uix artefact, classpath probe)
         working-directory: implementation/adapters/uix
-        run: clojure -M:test
-
-      - name: JVM tests (helix artefact, classpath probe)
-        working-directory: implementation/adapters/helix
         run: clojure -M:test
 
       # rf2-vxgfnd.99.2 — day8/re-frame2-ui is a published, REQUIRED artefact
@@ -391,10 +387,6 @@ jobs:
           - leaf: uix
             artefact: day8/re-frame2-uix
             directory: implementation/adapters/uix
-            local-root: ../../core
-          - leaf: helix
-            artefact: day8/re-frame2-helix
-            directory: implementation/adapters/helix
             local-root: ../../core
           # rf2-vxgfnd.99.2 — the compiled-view substrate. A per-feature-tier
           # artefact (implementation/ui/, one level deep), so local-root ../core
@@ -632,7 +624,6 @@ jobs:
             - `day8/re-frame2-reagent` ${{ needs.deploy-core.outputs.version }}
             - `day8/reagent-slim` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-uix` ${{ needs.deploy-core.outputs.version }}
-            - `day8/re-frame2-helix` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-ui` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-schemas` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-machines` ${{ needs.deploy-core.outputs.version }}

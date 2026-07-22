@@ -3,8 +3,8 @@
   follow-on to the rf2-3nbl5.2 keystone).
 
   The JVM manifest generator (`re-frame.api-manifest.gen`) runtime-verifies
-  every JVM-loadable public namespace via `ns-publics`. The Reagent / UIx /
-  Helix adapter namespaces and the Xray `mount` host-embed surface are
+  every JVM-loadable public namespace via `ns-publics`. The Reagent / UIx
+  adapter namespaces and the Xray `mount` host-embed surface are
   ClojureScript-ONLY — they cannot be `require`d on the JVM — so their rows
   live in `spec/api-manifest-metadata.edn` under `:cljs-only`. This probe is
   their runtime verifier: it enumerates each namespace's LIVE public vars at
@@ -15,9 +15,9 @@
 
   ## Coverage
 
-  - `re-frame.adapter.reagent` / `.uix` / `.helix` — fully-rowed: their
+  - `re-frame.adapter.reagent` / `.uix` — fully-rowed: their
     entire public surface IS the documented adapter API (spec/API.md
-    §UIx/Helix adapter), so BOTH directions are checked (a var added
+    §UIx adapter), so BOTH directions are checked (a var added
     without a row, or a row with no live var, → RED).
   - The Xray public surface (rf2-jhn46) — curated subsets (direction 1
     only). spec/API.md tiers the Xray surfaces `internal-public` (the
@@ -76,7 +76,6 @@
             ;; requires are load-bearing.
             [re-frame.adapter.reagent]
             [re-frame.adapter.uix]
-            [re-frame.adapter.helix]
             [day8.re-frame2-xray.mount]
             [day8.re-frame2-xray.panels]
             [day8.re-frame2-xray.panels.epoch-panel]
@@ -118,7 +117,6 @@
    namespace, enumerated off the analyzer at compile time."
   {"re-frame.adapter.reagent"  (emit-ns-publics re-frame.adapter.reagent)
    "re-frame.adapter.uix"      (emit-ns-publics re-frame.adapter.uix)
-   "re-frame.adapter.helix"    (emit-ns-publics re-frame.adapter.helix)
    "day8.re-frame2-xray.mount" (emit-ns-publics day8.re-frame2-xray.mount)
    ;; The Xray public surface (rf2-jhn46) — curated subsets (direction 1).
    "day8.re-frame2-xray.panels"                      (emit-ns-publics day8.re-frame2-xray.panels)
@@ -151,7 +149,7 @@
 
 (def fully-rowed
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).
-   The three adapter namespaces — their public surface IS the documented
+   The two adapter namespaces — their public surface IS the documented
    adapter API — and `re-frame.ui`, the Spec-004 compiled-view substrate,
    whose entire blessed export set is rowed (that set is enumerated ONCE, in
    `export-surface-is-exactly-the-blessed-set` — see the ns docstring), so a
@@ -160,7 +158,6 @@
    subset (direction 1 only), so it is deliberately absent here."
   #{"re-frame.adapter.reagent"
     "re-frame.adapter.uix"
-    "re-frame.adapter.helix"
     "re-frame.ui"
     ;; rf2-vxgfnd.200 — direction-2 completeness on the CLJS side: a NEW
     ;; public var added to re-frame.ui.test's CLJS surface without a manifest

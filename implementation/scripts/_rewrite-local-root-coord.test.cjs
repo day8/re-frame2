@@ -281,11 +281,12 @@ test('every deploy-leaf rewrites its real deps.edn to exactly one published coor
   // Guard against a silent parse failure reading as green (the false-green
   // trap): if release.yml's matrix shape changes, fail loudly here. Bumped
   // 13 -> 14 for the day8/re-frame2-ui deploy leaf (rf2-vxgfnd.99.2 — the
-  // compiled-view substrate joins the lockstep release train).
+  // compiled-view substrate joins the lockstep release train), then
+  // 14 -> 13 when the helix deploy leaf left the train (S7/W13, rf2-d6epb).
   assert.equal(
     leaves.length,
-    14,
-    `expected 14 deploy-leaf matrix values parsed from release.yml, got ${leaves.length}`,
+    13,
+    `expected 13 deploy-leaf matrix values parsed from release.yml, got ${leaves.length}`,
   );
 
   for (const { leaf, directory, localRoot, extraLocalRoot } of leaves) {

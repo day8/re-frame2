@@ -7,7 +7,6 @@
 ;;   - reagent/       (day8/re-frame2-reagent)
 ;;   - reagent-slim/  (day8/reagent-slim,        rf2-5djt Stage 4)
 ;;   - uix/           (day8/re-frame2-uix,      rf2-3yij)
-;;   - helix/         (day8/re-frame2-helix,    rf2-2qit)
 ;;   - schemas/       (day8/re-frame2-schemas,  rf2-p7va)
 ;;   - machines/ (day8/re-frame2-machines, rf2-xbtj)
 ;;   - routing/  (day8/re-frame2-routing,  rf2-k682)
@@ -19,7 +18,6 @@
 ;; see implementation/core/deps.edn,
 ;; implementation/adapters/reagent/deps.edn,
 ;; implementation/adapters/uix/deps.edn,
-;; implementation/adapters/helix/deps.edn,
 ;; implementation/schemas/deps.edn, implementation/machines/deps.edn,
 ;; implementation/routing/deps.edn, implementation/flows/deps.edn,
 ;; implementation/http/deps.edn, implementation/ssr/deps.edn, and
@@ -38,7 +36,6 @@
          day8/re-frame2-reagent  {:local/root "adapters/reagent"}
          day8/reagent-slim        {:local/root "adapters/reagent-slim"}
          day8/re-frame2-uix      {:local/root "adapters/uix"}
-         day8/re-frame2-helix    {:local/root "adapters/helix"}
          day8/re-frame2-schemas  {:local/root "schemas"}
          day8/re-frame2-machines {:local/root "machines"}
          day8/re-frame2-routing  {:local/root "routing"}
@@ -67,7 +64,6 @@
                  "adapters/reagent/test"
                  "adapters/reagent-slim/test"
                  "adapters/uix/test"
-                 "adapters/helix/test"
                  ;; rf2-ee38b.16 — test-react adapter test tree (REPL
                  ;; parity; the canonical JVM gate is the artefact's own
                  ;; :test alias, run per-artefact by

@@ -548,7 +548,7 @@ const ARTEFACTS = [
   // tools/machines-viz/ (the chart engine under
   // tools/machines-viz/src/day8/re_frame2_machines_viz/chart/);
   // Xray's Machines panel reaches xyflow through machines-viz.
-  // Counter (and the UIx + Helix counter variants) MUST NOT pull
+  // Counter (and the UIx counter variant) MUST NOT pull
   // xyflow into their production bundles — Xray + machines-viz are
   // dev-only (gated by `:devtools/preloads` in shadow-cljs), and a
   // host that doesn't install Xray should never pay for the
@@ -993,20 +993,15 @@ const NON_BROWSER_OPTIONAL = new Set(['core', 'ssr-ring']);
 // invoked gate script that declares (in COVERS_RUNTIMES) it isolates that path.
 const DEDICATED_ISOLATION_GATES = {
   'adapters/reagent': {
-    checkers: ['check-uix-helix-reagent-free.cjs', 'check-login-bundle-isolation.cjs'],
+    checkers: ['check-uix-reagent-free.cjs', 'check-login-bundle-isolation.cjs'],
     command: 'test:bundle-isolation',
     note: 'reagent is the counter/login reference substrate; its fingerprints are ' +
-      'the positive control both gates assert present, and absent from uix/helix',
+      'the positive control both gates assert present, and absent from uix',
   },
   'adapters/uix': {
-    checkers: ['check-uix-helix-reagent-free.cjs', 'check-login-bundle-isolation.cjs'],
+    checkers: ['check-uix-reagent-free.cjs', 'check-login-bundle-isolation.cjs'],
     command: 'test:bundle-isolation',
-    note: 'uix bundles must be reagent- and helix-free',
-  },
-  'adapters/helix': {
-    checkers: ['check-uix-helix-reagent-free.cjs', 'check-login-bundle-isolation.cjs'],
-    command: 'test:bundle-isolation',
-    note: 'helix bundles must be reagent- and uix-free',
+    note: 'uix bundles must be reagent-free',
   },
   'adapters/reagent-slim': {
     checkers: ['check-reagent-slim-bundle-isolation.cjs'],

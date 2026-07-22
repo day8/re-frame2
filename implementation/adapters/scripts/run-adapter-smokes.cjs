@@ -19,8 +19,8 @@
  * Test surface inventory (the `examples/` tree is TEST-FREE; framework-
  * testbed assertions live as CLJS/JVM unit tests):
  *
- *   - 3 adapter smokes   (implementation/adapters/<name>/testbed/spec.cjs)
- *     Reagent / UIx / Helix mount + dispatch + render.
+ *   - 2 adapter smokes   (implementation/adapters/<name>/testbed/spec.cjs)
+ *     Reagent / UIx mount + dispatch + render.
  *   - 1 substrate smoke  (implementation/ui/testbed/spec.cjs)
  *     re-frame.ui mount + dispatch + render (the four-suites rule,
  *     rf2-nojiwy).
@@ -120,7 +120,7 @@ const VERBOSE_TESTS = isVerboseTests();
 // module — the one that already owns the ADAPTER_SMOKES manifest — so this
 // runner and the fast-tier _adapter-smoke-filter.test.cjs exercise the SAME
 // real code instead of two copies that could drift (rf2-qf45gu). Specs live
-// alongside the testbed they exercise: each adapter (Reagent / UIx / Helix)
+// alongside the testbed they exercise: each adapter (Reagent / UIx)
 // ships `implementation/adapters/<name>/testbed/spec.cjs`, and the
 // re-frame.ui substrate ships `implementation/ui/testbed/spec.cjs`
 // (rf2-nojiwy).

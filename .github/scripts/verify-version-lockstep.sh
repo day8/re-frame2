@@ -10,7 +10,7 @@
 # coordinates (which the release workflow rewrites to the matching
 # :mvn/version at deploy time).
 #
-# Per rf2-zha9 the adapters (reagent, uix, helix) live at
+# Per rf2-zha9 the adapters (reagent, uix) live at
 # implementation/adapters/<name>/ (renamed from substrates/ per
 # rf2-0imy) — one level deeper than the per-feature artefacts
 # (schemas, machines, routing, flows, http, ssr, epoch) which stay at
@@ -85,7 +85,6 @@ declare -A ARTEFACT_PATHS=(
   [reagent]="adapters/reagent"
   [reagent-slim]="adapters/reagent-slim"
   [uix]="adapters/uix"
-  [helix]="adapters/helix"
   [ui]="ui"
   [machines]="machines"
   [routing]="routing"
@@ -111,15 +110,15 @@ declare -A ARTEFACT_PATHS=(
 # §R-6, core and ui ship together). It sits with the view-layer adapters in the
 # inventory; the REQUIRED_PUBLISHABLE assertion further down makes dropping its
 # :clein/build fail the release rather than silently revert it to pre-publication.
-ARTEFACTS=(core schemas reagent reagent-slim uix helix ui machines routing flows http ssr ssr-ring resources epoch)
+ARTEFACTS=(core schemas reagent reagent-slim uix ui machines routing flows http ssr ssr-ring resources epoch)
 
 # core is the lockstep root: it does not depend on any other re-frame2
 # artefact, so the :local/root core-reference check below skips it.
-NON_CORE=(schemas reagent reagent-slim uix helix ui machines routing flows http ssr ssr-ring resources epoch)
+NON_CORE=(schemas reagent reagent-slim uix ui machines routing flows http ssr ssr-ring resources epoch)
 
 # Adapters (substrate adapters) are one directory deeper than per-feature
 # artefacts.
-ADAPTERS=(reagent reagent-slim uix helix)
+ADAPTERS=(reagent reagent-slim uix)
 
 is_adapter() {
   local needle="$1"
