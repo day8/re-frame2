@@ -432,7 +432,7 @@ def check_consumers(rows: list[Row],
     return problems
 
 
-# --- Check 3: established rows are never deleted ------------------------------
+# --- Check 3: the ledger and the roster cover each other ----------------------
 def check_roster(rows: list[Row],
                  roster: tuple[str, ...] | None = None) -> list[str]:
     """The ledger and the retention roster name exactly the same identities.
@@ -931,8 +931,9 @@ def main(argv: list[str]) -> int:
         description=(
             "Prove the Freehand donor-inventory ledger covers every tracked "
             "re-frame.ui file and every live donor consumer with an explicit "
-            "MOVE/REPLACE/DELETE disposition, that no established row has been "
-            "deleted, and report how many rows are not yet disposed."
+            "MOVE/REPLACE/DELETE disposition, that the ledger and its retention "
+            "roster cover each other exactly so no row can be deleted, and "
+            "report how many rows are not yet disposed."
         ),
     )
     parser.add_argument(
