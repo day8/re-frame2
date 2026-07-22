@@ -27,8 +27,17 @@
   What is deliberately ABSENT is the serialisation half — final markup
   names, boolean emission classes, escaping, the form-control special
   forms. That half belongs to the JVM serialiser and lands with its own
-  slice; a copy here would be a second, unexercised owner."
-  (:require [clojure.string :as str]))
+  slice; a copy here would be a second, unexercised owner.
+
+  Where this table and the compiled tier's [[re-frame.freehand.rules]]
+  state the SAME rule — the number grammar, the React prop vocabulary,
+  the rejected spellings — this namespace DELEGATES rather than restates.
+  Two tables that must agree and are written twice do not agree for long,
+  and they part company in the places hardest to notice: the last digit
+  of a number that looks right, the casing of a prop React quietly
+  declines."
+  (:require [clojure.string :as str]
+            [re-frame.freehand.rules :as rules]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -43,69 +52,19 @@
 ;; "0.0001". A `.cljc` walk that used the host's `str` would produce two
 ;; different trees for one declaration and the cross-host corpus would be
 ;; asserting nothing.
+;;
+;; The rule is [[re-frame.freehand.rules/js-number-str]], not a copy of it.
+;; A number grammar reimplemented per emitter is a grammar that drifts per
+;; emitter, and the two would drift where it is hardest to notice — in the
+;; last digit of a value that looks right.
 
-#?(:clj
-   (defn- js-double-str
-     "ECMA-262 `Number::toString(10)` for a FINITE, NON-INTEGRAL double.
-
-     Java's `Double/toString` already selects the shortest round-tripping
-     decimal digits — the same digit selection JS engines make — but lays
-     them out by its own rules (`1.0E-4`, `1.0E21`). So: recover the
-     digits and the decimal exponent, then re-lay them out per ECMA's
-     step 5 — plain notation while the decimal exponent `n` sits in
-     `(-6, 21]`, exponential outside it."
-     [^double d]
-     (let [neg?    (neg? d)
-           s       (Double/toString (Math/abs d))
-           ;; -> [digits n], where the value is 0.<digits> * 10^n
-           [ds n]  (if-let [e (str/index-of s "E")]
-                     [(str/replace (subs s 0 e) "." "")
-                      (inc (Long/parseLong (subs s (inc e))))]
-                     (let [dot  (str/index-of s ".")
-                           whole (subs s 0 dot)
-                           frac  (subs s (inc dot))]
-                       (if (= "0" whole)
-                         (let [zeros (count (take-while #(= \0 %) frac))]
-                           [(subs frac zeros) (- zeros)])
-                         [(str whole frac) (count whole)])))
-           ds      (let [trimmed (str/replace ds #"0+$" "")]
-                     (if (= "" trimmed) "0" trimmed))
-           k       (count ds)
-           body    (cond
-                     (and (<= k n) (<= n 21))
-                     (str ds (apply str (repeat (- n k) "0")))
-
-                     (and (< 0 n) (<= n 21))
-                     (str (subs ds 0 n) "." (subs ds n))
-
-                     (and (< -6 n) (<= n 0))
-                     (str "0." (apply str (repeat (- n) "0")) ds)
-
-                     :else
-                     (str (subs ds 0 1)
-                          (when (> k 1) (str "." (subs ds 1)))
-                          "e" (when (pos? (dec n)) "+") (dec n)))]
-       (str (when neg? "-") body))))
-
-(defn js-number-str
+(def js-number-str
   "`x` rendered with JavaScript `ToString` semantics, identically on both
-  hosts. Integral doubles lose the trailing `.0` (`1.0` is `\"1\"`, never
-  `\"1.0\"`), and the exponential window follows ECMA rather than Java."
-  [x]
-  #?(:cljs (str x)
-     :clj  (cond
-             (integer? x) (str x)
-             (ratio? x)   (js-number-str (double x))
-             (or (double? x) (float? x))
-             (let [d (double x)]
-               (cond
-                 (Double/isNaN d)               "NaN"
-                 (= d Double/POSITIVE_INFINITY) "Infinity"
-                 (= d Double/NEGATIVE_INFINITY) "-Infinity"
-                 (and (== d (Math/rint d)) (< (Math/abs d) 1.0E21))
-                 (str (.toBigInteger (java.math.BigDecimal. d)))
-                 :else (js-double-str d)))
-             :else (str x))))
+  hosts — the ONE owned conversion, shared with the compiled tier rather
+  than reimplemented beside it. See
+  [[re-frame.freehand.rules/js-number-str]] for the rule and for the JVM
+  integer domain beyond JavaScript's exactly representable range."
+  rules/js-number-str)
 
 ;; ---------------------------------------------------------------------------
 ;; `.class#id` sugar

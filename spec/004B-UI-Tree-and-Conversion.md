@@ -195,6 +195,24 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
   the plain/exponential switch follows ECMA's `(-6, 21]` decimal-exponent window rather
   than the JVM's own layout. This is the row cross-host equality (§Cross-host equality)
   turns on most often, because a number reaches a view body more or less constantly.
+  The rule is ECMA `Number::toString(10)` **in full**, for **every** finite double: the
+  **shortest** decimal that round-trips to the value, and among decimals of that length
+  the one closest to it, **ties broken to even**. Two near-misses are worth naming
+  because both are reachable from ordinary application data and both survive a
+  three-example test: the double's *exact* decimal is not always the shortest one (the
+  double nearest `1.3990134524153749e17` is exactly `139901345241537488`, where
+  JavaScript prints `139901345241537490`), and the JVM's own `Double/toString` is not
+  always the shortest one either (it answers `4.9E-324` for `Double.MIN_VALUE`, where
+  JavaScript answers `5e-324`). `-0.0` renders `"0"`; `NaN` and the infinities take
+  their JavaScript spellings.
+- **JVM integers are a wider domain than JavaScript's, deliberately.** A JVM integral
+  type (`Long`, `BigInt`) renders its **exact** decimal at any magnitude — printing an
+  approximation of a value the host holds exactly would be a lie. Inside JavaScript's
+  exactly representable integer range (|n| ≤ 2^53−1) that spelling is also the double's,
+  so the hosts agree; outside it they do not, and that is not a defect to repair. The
+  ClojureScript reader turns such a literal into a **double** — a different number, not
+  the same number spelled differently — so cross-host equality is a claim about one
+  value rendered on two hosts, and it holds for every double.
 - booleans stay **booleans** in the tree — the boolean/booleanish/overloaded emission
   decision is the serialisation row's job, and tests get the semantic truth
   (`{:disabled false}` is present-false, distinguishable from absent).

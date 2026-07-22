@@ -1,7 +1,8 @@
 (ns re-frame.freehand.tree-cljs-test
-  "FH-STRUCT-001 … FH-STRUCT-005 — the versioned node schema, the element
-  node's pinned fields, attribute values in semantic space, child
-  normalization, and namespace context.
+  "FH-STRUCT-001 … FH-STRUCT-005 and FH-STRUCT-008 — the versioned node
+  schema, the element node's pinned fields, attribute values in semantic
+  space, child normalization, namespace context, and the JavaScript
+  number grammar over the double value space.
 
   Every row is table-driven from its fixture, and every fixture runs on
   the JVM and in ClojureScript from the same bytes. That is not a
@@ -12,6 +13,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
             [re-frame.freehand.conformance :as conf]
+            [re-frame.freehand.conversion :as conv]
             [re-frame.freehand.tree :as tree]))
 
 (defn- realize
@@ -140,3 +142,61 @@
             will be mounted, so the context comes from the position the
             node actually occupies."
     (check-cases struct-005)))
+
+;; ---------------------------------------------------------------------------
+;; FH-STRUCT-008 — JavaScript `Number::toString(10)` over the double space
+;; ---------------------------------------------------------------------------
+;;
+;; The expected column is JavaScript's OWN output. In ClojureScript the
+;; conversion IS `String(d)` — a number there is a JavaScript number — so
+;; the ClojureScript run of these rows is what makes the column
+;; trustworthy, and the JVM run is what makes it a contract. Proving this
+;; on one host would leave the JVM implementation grading its own
+;; homework against expectations it wrote.
+
+(def struct-008 (conf/fixture :FH-STRUCT-008))
+
+(deftest fh-struct-008-numbers-render-with-javascript-tostring
+  (testing "Per FH-STRUCT-008: every admitted double takes ECMA
+            `Number::toString(10)` — the shortest decimal that
+            round-trips, ties broken to even, plain notation inside the
+            (-6, 21] decimal-exponent window and `e`-notation outside.
+            The classes with teeth are a large integral double, whose
+            EXACT decimal is longer than the shortest round-tripping one;
+            the smallest subnormals, where the JVM's own
+            `Double/toString` is not the shortest decimal it is
+            documented to be; and a tie at the shortest length, where
+            ECMA rounds to even."
+    (is (seq (:numbers struct-008)) "the fixture's number table loaded")
+    (doseq [{:keys [note value js]} (:numbers struct-008)]
+      (is (= js (conv/js-number-str value)) note))))
+
+(deftest fh-struct-008-the-rule-reaches-every-numeric-position
+  (testing "Per FH-STRUCT-008: one conversion, every numeric position — a
+            text child, an attribute value and a CSS value all read the
+            same rule, so a converter cannot be right where a unit test
+            looks and wrong where a view actually puts a number."
+    (is (seq (:through struct-008)) "the fixture's position table loaded")
+    (doseq [{:keys [note form tree]} (:through struct-008)]
+      (is (= tree (tree/render form)) note))))
+
+#?(:clj
+   (deftest fh-struct-008-the-jvm-integer-domain-is-wider-and-explicit
+     (testing "Per FH-STRUCT-008: a JVM integral type renders its EXACT
+               decimal at any magnitude, because it IS an exact integer
+               and printing an approximation of one would be a lie.
+               Inside JavaScript's safe-integer range that spelling is
+               also the double's, so the hosts agree; outside it the
+               exact integer keeps a spelling no JavaScript number can
+               produce, and the cross-host claim deliberately does not
+               reach it — the ClojureScript reader makes a double there,
+               which is a different number rather than the same number
+               spelled differently."
+       (is (seq (:jvm-integers struct-008)) "the fixture's integer table loaded")
+       (doseq [{:keys [note value string js-safe]} (:jvm-integers struct-008)]
+         (is (= string (conv/js-number-str value)) note)
+         (if js-safe
+           (is (= (conv/js-number-str value) (conv/js-number-str (double value)))
+               (str note " — inside the safe range the integer and its double spell alike"))
+           (is (not= (conv/js-number-str value) (conv/js-number-str (double value)))
+               (str note " — outside it the exact integer is not the double's spelling")))))))
