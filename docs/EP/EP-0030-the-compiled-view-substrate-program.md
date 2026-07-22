@@ -149,8 +149,10 @@ any production code.
 
 S1–S4 are complete and declared conforming, and S5's surfaces are shipped and
 proven (the S3, S4, and S5 conformance profiles live under `spec/conformance/`;
-the S5 profile's formal conforming declaration is pending); S6 is the live
-stage. For a stage in flight the program's tracker is the state, not this page. Trigger-gated spikes (`ui/tpl`,
+the S5 profile's formal conforming declaration is pending); S6 is closed
+administratively, and S7 — entered 2026-07-21 on the narrowed proof recorded in
+the dated addendum under §Resolved Decisions — is the live stage. For a stage in
+flight the program's tracker is the state, not this page. Trigger-gated spikes (`ui/tpl`,
 registered `ui/view`, `ui/portal`, `defview-alias`, reset-key `local`) sit
 outside stage scope until their named triggers fire; EP-0035 records the
 rulings. The re-com native port is a separate directed program — deliberately
@@ -422,6 +424,81 @@ baseline is a recorded comparison, not a standing gate.
   projection — and spec/004-Views.md, spec/004C §2/§2.1, and spec/004B are
   reconciled to that truth. The install/cache contract and its tax lines are
   unchanged here; they are the subject of the later programme slices (S1–S6).
+- **ADDENDUM — the 2026-07-21 S7-entry/alpha ruling (recorded 2026-07-22,
+  rf2-ae6n9).** The source of record is the DECISION note on the S7 stage epic
+  (`rf2-vxgfnd.99`, 2026-07-21 17:20 AUSEST — Fable, delegated by Mike), as
+  amended by the ENDORSEMENT disposition on the same note (2026-07-21 19:35
+  AUSEST). This addendum records that ruling; it does not re-decide it. Per the
+  EP-0009 convention the prior clauses — the §Stages S6/S7 rows and this EP's
+  other "soak gates", "every gate green", and W11-timing phrases — are
+  preserved verbatim and now read through five dispositions. **(1) The S6
+  proof / S7 entry is narrowed.** Quoting the ruling: "This epic's ENTRY-line
+  term 'S6 proof (RealWorld+Story+Xray green on re-frame.ui)' is REDEFINED as
+  the S7-ENTRY PROOF, exactly: (P-1, kill-gate)
+  examples/real-apps/realworld_resources ships a COMPLETE re-frame.ui full-app
+  variant: the app boots a re-frame.ui root end-to-end (not the existing
+  Reagent root in core.cljs/views.cljs), covering routing and meaningful
+  edit/write paths. […] Bead: rf2-nn5s8. (P-2) Story and Xray green AGAINST
+  that app as CONSUMERS (not tool-UI rewrites): re-frame.ui in Story's
+  substrate roster with a realworld-ui deck playing through the existing shell
+  (presence bridge […] exercised end-to-end), and Xray attached to the running
+  ui app rendering true ViewCell evidence […]. Bead: rf2-vvdzx." The S6 row's
+  "RealWorld-resources + Story + Xray green is the proof" is therefore
+  satisfied by the complete `realworld_resources` `re-frame.ui` full-app
+  variant (`rf2-nn5s8`) plus Story and Xray green against that app as
+  consumers — the substrate-roster entry and the presence-bridge and
+  ViewCell-evidence seams exercised end-to-end (`rf2-vvdzx`) — not by
+  rewriting the tools' own UIs. **(2) W7b and the rest of the W4 roster move
+  post-alpha, demand-driven.** The 2026-07-19 "curated five" bullet above
+  narrows: `realworld_resources` is the only example gating the stage;
+  `login`, `todomvc`, the routing capability example, and the trailing
+  `realworld_http` fall under the standing demand rule (a named consumer earns
+  the variant; repo-authored examples never count). W7b tool-shell migration
+  is likewise demand-driven post-alpha, and the 2026-07-19 W7b architecture of
+  record above (`rf2-4rwtd` — `ui`-compiled subtrees exported through
+  `ui/->react` under host-owned adapter roots, no guest-root machinery) stands
+  unchanged for whenever it runs. **(3) The alpha tag condition is an explicit
+  exception contract.** Not the S7 row's "every gate green", and deliberately
+  not the dynamic "every CI-wired gate green" — a wording under which an
+  accidentally-unwired required check silently becomes optional and wiring
+  changes silently rewrite the release contract. The contract: **G-2**
+  (AOT-peer performance parity), **G-9** (keyed 1k-row list performance), and
+  **G-10** (bundle-size budgets against the checked-in baseline EDN) — the
+  [EP-0034 §4 roster](EP-0034-re-frame-ui-production-ssr-testing.md#4-the-gate-roster-one-line-per-gate)
+  rows — are **deferred** until a future default/optimized claim returns; they
+  are that claim's evidence bar (the claim itself was withdrawn by the
+  2026-07-17 reframing above). W11's one-time trio comparison folds into
+  G-2/G-10 whenever they run — no standalone benchmark harness now; the
+  "before Helix removal" timing in §Adoption workstreams and §Backwards
+  Compatibility lapses with it. **G-14**'s guide-fixtures arm is retired with
+  its superseded subject (the wholesale guide-fixture programme gave way to
+  the additive, demand-driven guide); its two wired arms — `defview` expansion
+  p95 and the watch-rebuild delta — stand. **Every other alpha obligation
+  named by the post-addendum contract must be green at tag time.** Stated
+  plainly: the alpha carries **no absolute bundle-size (G-10) claim**, and
+  `test:perf-bundle` is not size protection — it is a Performance-API sentinel
+  elision/presence check invoked by no workflow; the workflow-wired bundle
+  gates are `test:elision` and `test:bundle-isolation` (expensive-tests). This
+  addendum is effectively pre-tag: EP-0030 tells the narrowed-entry truth
+  before the tag ships. **(4) The soak-gate interpretation was pinned — and
+  then waived.** As pinned: Leg A (objective) = two consecutive green
+  **scheduled** runs of the expensive-tests workflow, both postdating the
+  merge of the last of {P-1, P-2, rf2-u53yy.1} — soak the shape you ship; Leg
+  B (judgment) = seven consecutive calendar days of ordinary repo work during
+  which no merged PR reverts, disables, or migrates off a `re-frame.ui`
+  programme surface and nothing reintroduces a Helix dependency, starting no
+  earlier than the first green scheduled nightly after the nightly repair; the
+  legs may run concurrently (with each other and with rf2-u53yy.1), and an
+  unrelated red nightly does not reset Leg B. Subsequently **waived** (Mike,
+  2026-07-21 21:23 AUSEST): "We don't need a soak clock." S7 entry therefore
+  reduced to the two proofs merged; the tag remains Mike's one reserved manual
+  act. **(5) Stage truth.** **Prior text:** §Stages read "S6 is the live
+  stage." **Current disposition:** quoting the ruling, "rf2-vxgfnd.98 stays
+  closed as an administrative fact […]; the operative gate moves" to the
+  narrowed S7 entry above — and both entry proofs have since merged, P-1
+  `rf2-nn5s8` (#6648) and P-2 `rf2-vvdzx` (#6651, 2026-07-21) — so S7 is the
+  live stage. The §Stages sentence is corrected in place alongside this
+  addendum.
 
 ## Open Issues
 
