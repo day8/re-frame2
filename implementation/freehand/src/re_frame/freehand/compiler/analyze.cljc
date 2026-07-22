@@ -1560,23 +1560,37 @@
 ;; ---------------------------------------------------------------------------
 
 (defn analyze-class
-  "-> {:base-str str :flags [[name expr]...] :dyn form|nil :static? bool}
+  "-> {:base-str str :flags [[name expr]...] :dyn form|nil :static? bool
+       :sugar [str…] :runtime form|nil}
   Sugar classes first (source order), then the explicit :class form;
-  flag-map entries in lexicographic name order; no de-duplication."
+  flag-map entries in lexicographic name order; no de-duplication.
+
+  `:base-str` / `:flags` / `:dyn` are the SPLIT plan — literal names folded
+  at compile time, the rest joined at render — which the React emitter
+  lowers. `:sugar` / `:runtime` are the WHOLE plan: the sugar names, and
+  one form evaluating to the authored `:class` value with its expressions
+  rewritten. The structural emitter takes the whole plan because the
+  structural tier's class rule (`node/class-string`) is the same rule the
+  interpreted walk applies, so a promoted declaration composes classes
+  through one implementation rather than two agreeing ones. It matters for
+  exactly the shape the split plan orders differently: a flag map mixing
+  literal and computed entries sorts ALL its truthy names together, not
+  literals-then-computed. `:runtime` is nil when the value is wholly
+  static, where the two plans cannot differ."
   [e sugar form]
   (let [base (vec sugar)]
     (cond
       (nil? form)
       {:base-str (str/join " " base) :flags [] :dyn nil
-       :static? true}
+       :sugar base :runtime nil :static? true}
 
       (or (string? form) (keyword? form))
       {:base-str (str/join " " (conj base (if (keyword? form) (name form) form)))
-       :flags [] :dyn nil :static? true}
+       :flags [] :dyn nil :sugar base :runtime nil :static? true}
 
       (and (vector? form) (every? #(or (string? %) (keyword? %) (nil? %)) form))
       {:base-str (str/join " " (into base (keep #(when % (if (keyword? %) (name %) %))) form))
-       :flags [] :dyn nil :static? true}
+       :flags [] :dyn nil :sugar base :runtime nil :static? true}
 
       (map? form)
       (do
@@ -1584,20 +1598,29 @@
           (env/fail! e :rf.ui.compile/bad-class
                      ":class flag-map keys must be literal names (string/keyword)"
                      {:form form}))
-        (let [{consts true exprs false}
-              (group-by (fn [[_ v]] (literal-scalar? v)) form)
+        ;; Every non-literal entry is walked EXACTLY ONCE — the walk records
+        ;; lexical reactive sites, so a second pass over the same expression
+        ;; would double-count them. Both plans are built from that one result.
+        (let [walked (into {} (map (fn [[k v]]
+                                     [k (if (literal-scalar? v)
+                                          v
+                                          (walk-expr e [:class :flag k] v))]))
+                           form)
+              {consts true exprs false}
+              (group-by (fn [[k _]] (literal-scalar? (get form k))) walked)
               const-names (into base
                                 (->> consts
                                      (keep (fn [[k v]] (when v (if (keyword? k) (name k) k))))
                                      sort))
                flags (->> exprs
-                          (map (fn [[k v]]
-                                 [(if (keyword? k) (name k) k)
-                                  (walk-expr e [:class :flag k] v)]))
+                          (map (fn [[k v]] [(if (keyword? k) (name k) k) v]))
                           (sort-by first)
-                          vec)]
+                          vec)
+               static? (empty? flags)]
           {:base-str (str/join " " const-names) :flags flags :dyn nil
-           :static? (empty? flags)}))
+           :sugar base
+           :runtime (when-not static? walked)
+           :static? static?}))
 
       (vector? form) ; mixed literal/expr vector — runtime join in vector order
       (let [form* (with-meta
@@ -1607,11 +1630,13 @@
                               (walk-expr e [:class :vector i] x)))
                           (range) form)
                     (meta form))]
-        {:base-str (str/join " " base) :flags [] :dyn form* :static? false})
+        {:base-str (str/join " " base) :flags [] :dyn form*
+         :sugar base :runtime form* :static? false})
 
       :else
-      {:base-str (str/join " " base) :flags []
-       :dyn (walk-expr e [:class :dynamic] form) :static? false})))
+      (let [dyn (walk-expr e [:class :dynamic] form)]
+        {:base-str (str/join " " base) :flags [] :dyn dyn
+         :sugar base :runtime dyn :static? false}))))
 
 (defn analyze-style
   "-> {:entries [{:css-name str :value form :literal? bool}] :static? bool}
@@ -2400,7 +2425,7 @@
             self?      (and (:self e) (= head (:self e)))
             children-ok? (if self?
                            (:self-children? e)
-                           (:rf.ui/children? meta*))]
+                           (env/accepts-children? meta*))]
         (when-not children-ok?
           (env/fail! e :rf.ui.compile/children-not-accepted
                      (str "view " (:view-id info) " does not accept children — "

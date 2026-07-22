@@ -1,16 +1,40 @@
 (ns re-frame.freehand.compiler.emit-jvm
-  "AST -> JVM forms building the versioned public structural tree
-  (node schema v1) via `re-frame.freehand.tree`. The same normalized AST the
-  CLJS emitter consumes — no emitter consumes raw source or another
-  emitter's output (the portability law).
+  "AST -> forms building the versioned public structural tree (node schema
+  v1). The same normalized AST the React emitter consumes — no emitter
+  consumes raw source or another emitter's output (the portability law).
 
-  Event vectors are retained AS DATA (placeholders stay keywords);
-  fn-carried sites become the opaque marker; foreign heads and `v/raw`
-  children raise :rf.error/jvm-host-op lazily (only when their branch
-  renders); `v/raw`/`v/raw-fn` PROP values become opaque markers
-  WITHOUT evaluating their expressions (they may be host-only)."
+  ## What this emitter targets
+
+  The `:re-frame.freehand/v1` arms below emit calls into
+  [[re-frame.freehand.node]] — the ONE canonicalizer, which the
+  interpreted walk also builds through. That is deliberate and it is the
+  whole promotion argument: a compiled body and an interpreted body do
+  not agree about canonical form, they *share* it. Only the front end
+  differs — one resolved the structure at compile time, the other
+  discovers it at render — so adding `{:compiled true}` to a declaration
+  cannot change the value it produces.
+
+  The emitter has no unknown-node arm. Every node kind outside
+  [[re-frame.freehand.compiler.grammar/admitted-ops]] is refused before
+  emission, so escaping is structural rather than defensive, and there is
+  nowhere for an interpreted fallback to hide.
+
+  The arms below for node kinds v1 does not yet admit — trusted HTML,
+  render slots, presence, client-only subtrees, error boundaries, frame
+  scoping, host effects, foreign heads — are the donor's, unreached, and
+  waiting for the slices that widen the grammar and land their runtime.
+  They are kept rather than deleted because each one is the work that
+  slice starts from.
+
+  Event vectors are retained AS DATA (placeholders stay keywords) and
+  fn-carried sites classify to the opaque marker at build time, by the
+  value present — the same rule, in the same function, that the
+  interpreted walk applies."
   (:require [re-frame.source-coords :as source-coord]
             [re-frame.freehand.compiler.analyze :as ana]
+            [re-frame.freehand.compiler.env :as env]
+            [re-frame.freehand.conversion :as conv]
+            [re-frame.freehand.node :as node]
             [re-frame.freehand.rules :as rules]))
 
 (def ^:private props-sym 'rf-ui-props)
@@ -29,276 +53,148 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- static-attr-entries
-  "Compile-time semantic normalization of literal attr values."
+  "Compile-time semantic normalization of literal attr values — the
+  emitter's real work, and the reason a wholly-literal element costs
+  nothing at render: its `:attrs` map is a constant.
+
+  The normalization is [[re-frame.freehand.conversion/attr-value]], the
+  rule the interpreted walk applies to the same value at render. A
+  literal outside the value grammar is refused HERE, at build time,
+  rather than surviving to the first render that reaches it."
+  [e attrs]
+  (into {}
+        (keep (fn [{:keys [k value literal?]}]
+                (when (and literal? (some? value))
+                  (let [v (conv/attr-value value)]
+                    (when (= ::conv/reject v)
+                      (env/fail! e :rf.ui.compile/collection-attr-value
+                                 (str "the " k " attribute carries " (pr-str value)
+                                      ", which has no attribute spelling — an attribute "
+                                      "value is a string, keyword, symbol, number or "
+                                      "boolean; :class and :style have their own grammars")
+                                 {:attr k}))
+                    [k v]))))
+        attrs))
+
+(defn- dyn-attr-entries
+  "Per-prop attribute values only known at render, in author space. They
+  fold through `node/element`'s `:dyn` slot, which applies exactly the
+  normalization `static-attr-entries` applied at build time."
   [attrs]
   (into {}
-        (keep (fn [{:keys [k kind value literal?]}]
-                (when literal?
-                  (let [v (if (= :property kind)
-                            value                       ; properties pass raw
-                            (rules/attr-val-semantic k value))]
-                    (when (some? v) [k v])))))
+        (keep (fn [{:keys [k value literal?]}]
+                (when-not literal? [k value])))
         attrs))
 
-(defn- dyn-attr-entries [attrs]
-  (into {}
-        (keep (fn [{:keys [k kind value literal?]}]
-                (when-not literal?
-                  ;; properties pass raw; plain attrs are normalized by
-                  ;; tree/element's :dyn path — mark properties via :norm
-                  (when (not= :property kind)
-                    [k value]))))
-        attrs))
+(defn- class-slots
+  "The `:class` plan for `node/element`.
 
-(defn- dyn-property-entries [attrs]
-  (into {}
-        (keep (fn [{:keys [k kind value literal?]}]
-                (when (and (not literal?) (= :property kind))
-                  [k value])))
-        attrs))
+  A wholly-static class composition folds into the constant `:attrs` map
+  and costs nothing at render. Anything else hands `node/element` the
+  sugar names and ONE form evaluating to the authored `:class` value, and
+  lets the shared class rule compose them — which is what keeps a flag
+  map mixing literal and computed entries in the single lexicographic
+  order the interpreted walk produces, rather than literals-then-computed."
+  [cls]
+  (if (:static? cls)
+    (when (seq (:base-str cls)) {:static-class (:base-str cls)})
+    {:sugar (:sugar cls) :class (:runtime cls)}))
 
-(defn- class-entry
-  "Semantic :class value: constant string when static, else a runtime
-  classes-str form (sugar-first + lexicographic flags, pre-sorted by the
-  analyzer)."
-  [c]
-  (when c
-    (let [{:keys [base-str flags dyn]} c]
-      (if (and (empty? flags) (nil? dyn))
-        (when (seq base-str) base-str)
-        `(rules/classes-str
-          [~@(when (seq base-str) [base-str])
-           ~@(map (fn [[n f]] `(when ~f ~n)) flags)
-           ~@(when dyn [`(rules/class-val ~dyn)])])))))
+(defn- style-slots
+  "The `:style` plan. A wholly-literal map normalizes to its semantic form
+  at build time and rides the constant `:attrs`; any dynamic entry hands
+  the whole author-space map over for render-time normalization, so the
+  literal and computed entries in one map cannot normalize by two rules."
+  [sty]
+  (cond
+    (nil? sty)   nil
+    (:dyn sty)   {:style (:dyn sty)}
+    (:static? sty)
+    (let [m (into {}
+                  (keep (fn [{:keys [css-name value]}]
+                          (when (some? value)
+                            [(keyword css-name) (conv/css-value css-name value)])))
+                  (:entries sty))]
+      (when (seq m) {:static-style m}))
+    :else
+    {:style (into {} (map (fn [{:keys [css-name value]}] [(keyword css-name) value]))
+                  (:entries sty))}))
 
-(defn- style-entry
-  "Semantic :style map form: {kw css-string}; literal values normalized
-  at compile time, dynamic ones via css-val->str at render. A wholly-
-  dynamic :style expression routes through tree/element's :dyn path
-  (which applies the same normalization) — returns [:norm form] or
-  [:dyn form]."
-  [s]
-  (when s
-    (if-let [dyn (:dyn s)]
-      [:dyn dyn]
-      (let [m (into {}
-                    (map (fn [{:keys [css-name value literal?]}]
-                           [(keyword css-name)
-                            (if literal?
-                              (rules/css-val->str css-name value)
-                              `(rules/css-val->str ~css-name ~value))]))
-                    (:entries s))]
-        (when (seq m) [:norm m])))))
-
-(defn- event-entries
-  "-> [static-events-map dyn-events-map-form]. Literal vectors/options
-  maps stay data forms (args evaluate at render — locals capture);
-  fn sites become the opaque marker (form NOT evaluated on the JVM);
-  dynamic sites classify at render."
+(defn- event-slots
+  "Handler sites, as the forms that produce their values. Classification
+  is `node/classify-event`, at render, by the value present — the same
+  function on the same value the interpreted walk classifies, so a
+  literal event vector stays data and a callback becomes the opaque
+  marker identically in both modes."
   [events]
-  (reduce (fn [[stat dyn] {:keys [k classification form]}]
-            (case classification
-              :vector   [(assoc stat k form) dyn]
-              :options  [(assoc stat k form) dyn]
-              ;; v/event and v/handler, like a bare fn, are opaque committed
-              ;; callbacks whose body the JVM tree never evaluates (non-
-              ;; serialisable sites).
-              :ui-event [(assoc stat k `re-frame.freehand.tree/opaque-fn) dyn]
-              :handler  [(assoc stat k `re-frame.freehand.tree/opaque-fn) dyn]
-              :fn       [(assoc stat k `re-frame.freehand.tree/opaque-fn) dyn]
-              :dynamic  [stat (assoc dyn k `(re-frame.freehand.tree/classify-event ~form))]))
-          [{} {}]
-          events))
+  (into {} (map (fn [{:keys [k form]}] [k form])) events))
 
-(defn- static-form
-  "The `:static` slot value form for a `tree/element` call. `static` is the
-  compile-time-normalized literal attr map (or nil). When `annotate` is present
-  — this element is the view's compiler-owned host root, marked by
-  `mark-host-root-annotation` — the DEV view-evidence annotation
-  (`data-rf2-source-coord` + `data-rf-view`, today's attribute vocabulary per
-  Spec 004 §View identity / Spec 006 §Source-coord annotation + §View tagging
-  contract) merges onto the static attrs behind `re-frame.interop/debug-enabled?`
-  (the JVM counterpart to the CLJS `goog.DEBUG` stamp — true by default, off under
-  `-Dre-frame.debug=false`). So a dev JVM/SSR render carries the SAME host-root
-  evidence the CLJS emit stamps (byte-identical values via the one cross-host
-  `re-frame.source-coords` projection), and a production SSR build drops it —
-  symmetric with the CLJS `:advanced` + goog.DEBUG=false DCE.
-
-  AUTHORED OWN VALUE WINS (rf2-x1nbv): the annotation only fills an attribute the
-  view author did NOT already supply as a LITERAL host-root attr — an authored
-  own value in `:static` is preserved, never overwritten. A DYNAMIC / `v/spread`
-  / `v/spread-safe`-caller authored value is layered OVER `:static` at runtime by
-  `tree/element` (dyn over static; caller under owned), so it already wins there;
-  this compile-time guard closes the remaining static path so the JVM law matches
-  the CLJS `annotate-host-root-props` set-if-absent law across the whole collision
-  matrix (static / dynamic / ui.spread / spread-safe)."
-  [static annotate]
-  (if annotate
-    (let [{:keys [source-coord view-tag]} annotate
-          base (or static {})
-          ann  (cond-> {}
-                 (not (contains? base :data-rf2-source-coord))
-                 (assoc :data-rf2-source-coord source-coord)
-                 (not (contains? base :data-rf-view))
-                 (assoc :data-rf-view view-tag))]
-      (if (seq ann)
-        `(cond-> ~base re-frame.interop/debug-enabled? (merge ~ann))
-        (when (seq base) base)))
-    (when (seq static) static)))
-
-(defn- with-host-root-provenance
-  "Attach DEV, debug-gated PROVENANCE metadata to a host-root element node,
-  recording the compiler's canonical view-evidence values
-  (`:data-rf2-source-coord` / `:data-rf-view`) so `render-static`'s strip
-  (`strip-host-root-annotation`) removes ONLY the generated markers — a key
-  whose runtime value still equals the canonical value — and PRESERVES an
-  authored own value of the same spelling under the rf2-x1nbv collision law
-  (rf2-zgezz #3: the recursive strip otherwise deleted programmer-authored
-  nested attributes too).
-
-  Metadata is out-of-band: it is invisible to structural `=` (goldens),
-  normalization N (parity/fingerprint), and every HTML serialiser — only the
-  JVM render-static strip reads it. Gated on `interop/debug-enabled?`, matching
-  the `static-form` stamp, so a production JVM/SSR build attaches nothing."
-  [element-form annotate]
-  (if annotate
-    (let [{:keys [source-coord view-tag]} annotate]
-      `(cond-> ~element-form
-         re-frame.interop/debug-enabled?
-         (vary-meta assoc :rf.ui/host-root-annotation
-                    {:data-rf2-source-coord ~source-coord
-                     :data-rf-view ~view-tag})))
-    element-form))
-
-(defn- emit-element [node]
-  (let [{:keys [props]} node
-        annotate  (:rf.ui/annotate node)
-        tag       (:tag node)
-        key-info  (:key props)
-        child-forms (if (:html node)
-                      [`(re-frame.freehand.tree/html ~(:form (:html node)))]
-                      (into [] (keep emit-node) (:children node)))
-        child-thunk (when (seq child-forms)
-                      `(fn [] (re-frame.freehand.tree/children ~@child-forms)))]
-    (with-host-root-provenance
-     (cond
-      (:spread props)
-      (let [spread (:spread props)
-            sugar (get-in props [:class :base-str])]
-        `(re-frame.freehand.tree/element
-          ~tag
-          {:static ~(static-form (when (seq sugar) {:class sugar}) annotate)
-           :dyn    (merge ~(:base spread) ~(:overrides spread))
-           :key?   ~(:present? key-info)
-           :key-val ~(:expr key-info)
-           :children ~child-thunk}))
-
-      ;; v/spread-safe: the OWNED props emit exactly as a normal element's do
-      ;; (from the same analysed props); the CALLER map rides a `:spread-safe`
-      ;; opt that `tree/element` guards (owned-key deny in EVERY build) and
-      ;; folds UNDER the owned attrs (owned wins, :class composes).
-      ;;
-      ;; EVALUATION ORDER (rf2-m5h0f) is LOAD-BEARING: the opts-map literal below
-      ;; lists the owned `:norm`/`:dyn`/`:dyn-events` slots BEFORE the
-      ;; `:spread-safe :caller` slot, so — a Clojure map literal evaluating its
-      ;; value expressions left-to-right, once each — the owned prop expressions
-      ;; run BEFORE the caller's, matching the authored `(spread-safe owned
-      ;; caller)` order. The CLJS emitter forces the same owned-then-caller order
-      ;; with `let` temporaries. Do NOT reorder these keys.
-      (:safe-spread props)
-      (let [ss      (:safe-spread props)
-            [stat-ev dyn-ev] (event-entries (:events props))
-            cls     (class-entry (:class props))
-            [style-slot style-form] (style-entry (:style props))
-            static  (cond-> (static-attr-entries (:attrs props))
-                      (string? cls) (assoc :class cls))
-            norm    (cond-> (dyn-property-entries (:attrs props))
-                      (and cls (not (string? cls))) (assoc :class cls)
-                      (= :norm style-slot)          (assoc :style style-form))
-            dyn     (cond-> (dyn-attr-entries (:attrs props))
-                      (= :dyn style-slot) (assoc :style style-form))
-            pp      (into #{}
-                          (comp (filter #(= :property (:kind %))) (map :k))
-                          (:attrs props))]
-        `(re-frame.freehand.tree/element
-          ~tag
-          {:static ~(static-form static annotate)
-           :norm   ~(when (seq norm) norm)
-           :dyn    ~(when (seq dyn) dyn)
-           :events ~(when (seq stat-ev) stat-ev)
-           :dyn-events ~(when (seq dyn-ev) dyn-ev)
-           :key?   ~(:present? key-info)
-           :key-val ~(:expr key-info)
-           :props  ~(when (seq pp) pp)
-           :spread-safe {:caller ~(:base ss)
-                         :owned-handler-keys ~(:owned-handler-keys ss)}
-           :children ~child-thunk}))
-
-      :else
-      (let [[stat-ev dyn-ev] (event-entries (:events props))
-            cls     (class-entry (:class props))
-            [style-slot style-form] (style-entry (:style props))
-            static  (cond-> (static-attr-entries (:attrs props))
-                      (string? cls) (assoc :class cls))
-            norm    (cond-> (dyn-property-entries (:attrs props))
-                      (and cls (not (string? cls))) (assoc :class cls)
-                      (= :norm style-slot)          (assoc :style style-form))
-            dyn     (cond-> (dyn-attr-entries (:attrs props))
-                      (= :dyn style-slot) (assoc :style style-form))
-            pp      (into #{}
-                          (comp (filter #(= :property (:kind %))) (map :k))
-                          (:attrs props))]
-        `(re-frame.freehand.tree/element
-          ~tag
-          {:static ~(static-form static annotate)
-           :norm   ~(when (seq norm) norm)
-           :dyn    ~(when (seq dyn) dyn)
-           :events ~(when (seq stat-ev) stat-ev)
-           :dyn-events ~(when (seq dyn-ev) dyn-ev)
-           :key?   ~(:present? key-info)
-           :key-val ~(:expr key-info)
-           :props  ~(when (seq pp) pp)
-           :children ~child-thunk}))) annotate)))
+(defn- emit-element [e node]
+  (let [{:keys [props tag]} node
+        key-info    (:key props)
+        cls         (class-slots (:class props))
+        sty         (style-slots (:style props))
+        static      (cond-> (static-attr-entries e (:attrs props))
+                      (:static-class cls) (assoc :class (:static-class cls))
+                      (:static-style sty) (assoc :style (:static-style sty)))
+        dyn         (dyn-attr-entries (:attrs props))
+        events      (event-slots (:events props))
+        child-forms (mapv #(emit-node e %) (:children node))]
+    `(node/element
+      ~(cond-> {:tag tag}
+         (seq static)     (assoc :attrs static)
+         (seq dyn)        (assoc :dyn dyn)
+         (contains? cls :class)  (assoc :class (:class cls) :sugar (:sugar cls))
+         (contains? sty :style)  (assoc :style (:style sty))
+         (seq events)     (assoc :events events)
+         (:present? key-info) (assoc :key? true :key-val (:expr key-info))
+         (seq child-forms) (assoc :children
+                                  `(fn [] (node/children ~@child-forms)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Components
 ;; ---------------------------------------------------------------------------
 
-(defn- prop-value-form [{:keys [value marker render-fn]}]
+(defn- prop-value-form [e {:keys [value marker render-fn]}]
   (case marker
     :foreign    `re-frame.freehand.tree/opaque-foreign
     :v/raw-fn  {:rf.ui/opaque :v/raw-fn}
-    ;; v/event and v/handler at a component prop are non-serialisable committed
-    ;; callbacks — opaque on the JVM structural tree (the body never evaluates,
-    ;; the foreign invocation phase never happens server-side).
-    :ui-event   `re-frame.freehand.tree/opaque-fn
-    :handler    `re-frame.freehand.tree/opaque-fn
+    ;; v/event and v/handler at a component prop are committed callbacks whose
+    ;; body the structural tree never evaluates. Emitting the FORM and letting
+    ;; the boundary record it is deliberate: the same value the interpreted walk
+    ;; sanitizes reaches the same sanitizer, so neither mode has its own opinion
+    ;; about what a non-data prop records as.
+    :ui-event   value
+    :handler    value
     ;; A compiled render slot: the lexically-visible pure body compiles to a
     ;; carrier the seam invokes via v/slot. On the JVM its rendered output is
     ;; a structural tree node.
     :render-fn  `(re-frame.freehand.tree/render-fn
-                  (fn [~@(:params render-fn)] ~(emit-node (:body render-fn)))
+                  (fn [~@(:params render-fn)] ~(emit-node e (:body render-fn)))
                   ~(count (:params render-fn)))
     value))
 
-(defn- emit-view [node]
+(defn- emit-view
+  "An internal boundary: ONE call, whatever mode the child was declared in.
+
+  The compiler settled the head, the prop keys and the child structure;
+  what it deliberately does NOT settle is the call normalization —
+  `node/mount` runs `v/normalize-call`, the same function on the same
+  props map the interpreted walk runs, so `:key` stripping, the reserved
+  `:children` slot and the declared children policy cannot mean one thing
+  in a compiled parent and another in an interpreted one."
+  [e node]
   (let [entries   (get-in node [:props :entries])
         key-info  (get-in node [:props :key])
-        child-forms (into [] (keep emit-node) (:children node))
+        child-forms (mapv #(emit-node e %) (:children node))
         props-map (into {}
-                        (map (fn [{:keys [k] :as en}] [k (prop-value-form en)]))
+                        (map (fn [{:keys [k] :as en}] [k (prop-value-form e en)]))
                         entries)
-        props-form (if (seq child-forms)
-                     `(assoc ~props-map :children
-                             (some-> (re-frame.freehand.tree/children ~@child-forms)
-                                     re-frame.freehand.tree/child-vec))
-                     props-map)
+        props-map (cond-> props-map
+                    (:present? key-info) (assoc :key (:expr key-info)))
         self?     (and (some? *self-fqn*) (= (:fqn node) *self-fqn*))
-        head-sym  (if self? (:fqn node) (:sym node))
-        call      `(~head-sym ~props-form)]
-    (if (:present? key-info)
-      `(assoc ~call :key ~(:expr key-info))
-      call)))
+        head-sym  (if self? (:fqn node) (:sym node))]
+    `(node/mount ~head-sym [~props-map ~@child-forms])))
 
 (defn- emit-foreign [node]
   (if (:lazy? node)
@@ -313,9 +209,12 @@
             "foreign components never appear in the JVM tree; wrap the "
             "subtree in v/client-only (S3)"))))
 
-(defn- emit-for [node]
-  `(re-frame.freehand.tree/keyed-run
-    (into [] (for [~@(:seq-exprs node)] ~(emit-node (:body node))))))
+(defn- emit-for
+  "A keyed list site. `node/keyed-run` proves the keys before the run is
+  spliced, so a duplicate key fails at the list site rather than in React."
+  [e node]
+  `(node/keyed-run
+    (into [] (for [~@(:seq-exprs node)] ~(emit-node e (:body node))))))
 
 (defn- emit-slot
   "A `v/slot` invocation: gate the render-fn value (nil renders nothing; a
@@ -323,10 +222,10 @@
   carrier's compiled body with the runtime args — a fixed-arity call whose
   args evaluate only when the slot renders. The rendered output is an
   ordinary tree child."
-  [node]
+  [e node]
   (let [rf      (gensym "rf-ui-slot")
         slotval (if-let [{:keys [params body]} (:render-fn node)]
-                  `(re-frame.freehand.tree/render-fn (fn [~@params] ~(emit-node body))
+                  `(re-frame.freehand.tree/render-fn (fn [~@params] ~(emit-node e body))
                                                ~(count params))
                   (:slot-value node))]
     `(let [~rf ~slotval]
@@ -335,20 +234,40 @@
          ((:f ~rf) ~@(:args node))))))
 
 (defn emit-node
-  "AST node -> JVM form (nil for a statically-absent child)."
-  [node]
+  "AST node -> the form that builds it (nil for a statically-absent child).
+
+  The `:re-frame.freehand/v1` arms emit `node/*` calls. The arms below
+  them are the donor's, for node kinds the grammar does not yet admit:
+  `grammar/check!` refuses those bodies before emission, so they are
+  unreachable today and are kept as the starting point for the slice that
+  widens the grammar to cover them."
+  [e node]
   (case (:op node)
     :nothing  nil
     :text     (:value node)
     :expr     (:form node)
+    :element  (emit-element e node)
+    :fragment (let [k (:key node)]
+                `(node/fragment
+                  ~(:present? k) ~(:expr k)
+                  (node/children ~@(mapv #(emit-node e %) (:children node)))))
+    :view     (emit-view e node)
+    :for      (emit-for e node)
+    :if       `(if ~(:test node)
+                 ~(emit-node e (:then node))
+                 ~(emit-node e (:else node)))
+    :let      `(let ~(:bindings node) ~(emit-node e (:body node)))
+    :letfn    `(letfn ~(:fnspecs node) ~(emit-node e (:body node)))
+    :case     `(case ~(:expr node)
+                 ~@(mapcat (fn [[test branch]] [test (emit-node e branch)])
+                           (:clauses node))
+                 ~@(when (not= ::ana/none (:default node))
+                     [(emit-node e (:default node))]))
+
+    ;; ---- below :re-frame.freehand/v1 --------------------------------------
     :raw      `(re-frame.freehand.tree/jvm-host-op!
                 :v/raw "(v/raw ...) is a host React element")
     :html     nil ; sole-child form carried by the parent element
-    :element  (emit-element node)
-    :fragment (let [k (:key node)]
-                `(re-frame.freehand.tree/fragment
-                  ~(:present? k) ~(:expr k)
-                  ~@(keep emit-node (:children node))))
     ;; A top-region frame-root SCOPES its ensured frame (rf2-vxgfnd.25): the
     ;; JVM has no React context, so it BINDS the dynamic-tier ambient frame
     ;; to the frame-root's literal :id around the subtree's construction (the
@@ -360,7 +279,7 @@
                   ~(:frame-id node)
                   (fn []
                     (re-frame.freehand.tree/fragment
-                     false nil ~@(keep emit-node (:children node)))))
+                     false nil ~@(keep #(emit-node e %) (:children node)))))
     ;; S2c: frame-provider scopes by BINDING the dynamic-tier ambient frame
     ;; around the subtree's construction (the JVM has no React context); the
     ;; subtree itself is a transparent fragment in the structural tree
@@ -368,41 +287,46 @@
                       ~(:frame node)
                       (fn []
                         (re-frame.freehand.tree/fragment
-                         false nil ~@(keep emit-node (:children node)))))
-    :view     (emit-view node)
+                         false nil ~@(keep #(emit-node e %) (:children node)))))
     :foreign  (emit-foreign node)
-    :slot     (emit-slot node)
+    :slot     (emit-slot e node)
     ;; error-boundary is a CLIENT recovery mechanism (Spec 004 §The JVM
     ;; structural subset): the JVM/SSR renders the guarded CHILD transparently
     ;; under the server failure policy (per 011); it never renders the fallback
     ;; (that is client recovery). A throw below it is the server's to project.
-    :error-boundary (emit-node (:child node))
+    :error-boundary (emit-node e (:child node))
     ;; presence: the JVM has no lifecycle, so it renders the children :present,
     ;; wrapped in the `:rf.ui/presence {:phase :present :timeout-ms n}` fragment
     ;; (§004B — presence metadata exposed structurally).
     :presence `(re-frame.freehand.tree/presence
                 ~(:timeout-ms node)
-                ~@(keep emit-node (:children node)))
+                ~@(keep #(emit-node e %) (:children node)))
     ;; client-only: the JVM/SSR renders the deterministic capability-free
     ;; FALLBACK, wrapped in the `:rf.ui/boundary :client-only` fragment (§004B);
     ;; the browser-only client subtree never appears on the JVM tree.
     :client-only `(re-frame.freehand.tree/client-only-fallback
-                   ~(emit-node (:fallback node)))
+                   ~(emit-node e (:fallback node)))
     ;; Leading (effect …) statements: a `do` sequences the JVM effect stubs
     ;; (no-ops) then renders the template. `local` mutators / dispatch-fn stay
     ;; unevaluated in their statement bodies until a host test invokes them.
-    :hook-prefix `(do ~@(:statements node) ~(emit-node (:body node)))
-    :if       `(if ~(:test node)
-                 ~(emit-node (:then node))
-                 ~(emit-node (:else node)))
-    :let      `(let ~(:bindings node) ~(emit-node (:body node)))
-    :letfn    `(letfn ~(:fnspecs node) ~(emit-node (:body node)))
-    :case     `(case ~(:expr node)
-                 ~@(mapcat (fn [[test branch]] [test (emit-node branch)])
-                           (:clauses node))
-                 ~@(when (not= ::ana/none (:default node))
-                     [(emit-node (:default node))]))
-    :for      (emit-for node)))
+    :hook-prefix `(do ~@(:statements node) ~(emit-node e (:body node)))))
+
+;; ---------------------------------------------------------------------------
+;; The compiled structural body
+;; ---------------------------------------------------------------------------
+
+(defn emit-structural-body
+  "The compiled realisation a `{:compiled true}` declaration carries: a
+  one-argument fn from the props map to its structural node.
+
+  It binds the declaration's own parameter vector — the SAME
+  destructuring form the interpreted declaration binds, with the host's
+  own semantics — so `:keys`, `:or`, `:as` and namespaced patterns cannot
+  mean one thing before promotion and another after. The compiled prop
+  ABI (direct property reads off a host props object) belongs to the
+  React lowering, where there is a host props object to read."
+  [e params ast]
+  `(fn ~params ~(emit-node e ast)))
 
 ;; ---------------------------------------------------------------------------
 ;; defview
@@ -466,7 +390,7 @@
                                  view-id (:source manifest))
                   :view-tag     (source-coord/format-view-id view-id)}
         rendered (binding [*self-fqn* self-fqn]
-                   (emit-node (mark-host-root-annotation ast annotate)))
+                   (emit-node nil (mark-host-root-annotation ast annotate)))
         bind     (:binding-form header)
         var-meta (cond-> {:rf.ui/view true
                           :rf.ui/view-id view-id

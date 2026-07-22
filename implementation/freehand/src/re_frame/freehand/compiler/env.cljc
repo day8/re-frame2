@@ -159,6 +159,29 @@
   (when-let [{:keys [fqn]} (resolve-sym env sym)]
     (contains? targets fqn)))
 
+(defn declared-view?
+  "Does resolved var metadata `m` mark a DECLARED Freehand view?
+
+  `:re-frame.freehand/view` is the marker `v/defview` stamps.
+  `:rf.ui/view` is the donor-era spelling the transplanted suites still
+  resolve through; it is read here so one classifier serves both while
+  the migration finishes, and it goes when the donor artifact does."
+  [m]
+  (boolean (or (:re-frame.freehand/view m) (:rf.ui/view m))))
+
+(defn accepts-children?
+  "May a declared view whose var metadata is `m` be called WITH children?
+
+  Freehand declares a children POLICY (`:none` / `:optional` /
+  `:required`), so the compiled tier reads the policy and rejects only
+  the view that declared it accepts none — the same law
+  `v/normalize-call` enforces at an interpreted call, from the same
+  declaration."
+  [m]
+  (if-let [policy (:re-frame.freehand/children-policy m)]
+    (not= :none policy)
+    (boolean (:rf.ui/children? m))))
+
 (defn view-id-of
   "The view id a resolved internal view registers under: explicit
   :rf.ui/view-id meta (from an :id override) or the family-rule
@@ -188,7 +211,7 @@
     :else
     (if-let [{:keys [fqn meta]} (resolve-sym env sym)]
       (cond
-        (:rf.ui/view meta)
+        (declared-view? meta)
         {:kind :view :sym sym :fqn fqn :view-id (view-id-of fqn meta)}
         ;; a re-frame.freehand.react/lazy component: a foreign head that IS callable on
         ;; the JVM structural render (it renders its fallback / nothing), so the

@@ -302,15 +302,20 @@
      form)
     @hits))
 
-(defn- call-head-syms
-  "Every seq head symbol whose NAME matches `verb` — on the JVM emit form the
-  only such head is the self component call `(cljs.user/<verb> {…})`."
+(defn- mount-head-syms
+  "Every descriptor a structural emit MOUNTS whose name matches `verb`.
+
+  A Freehand view is a descriptor mounted through one seam, never a
+  callable, so the self reference rides `(node/mount <descriptor> …)`
+  rather than sitting in head position. The claim under test is unchanged:
+  which SYMBOL the emitter reaches for."
   [form verb]
   (let [hits (atom [])]
     (walk/postwalk
      (fn [x]
-       (when (and (seq? x) (symbol? (first x)) (= (name (first x)) (name verb)))
-         (swap! hits conj (first x)))
+       (when (and (seq? x) (= 're-frame.freehand.node/mount (first x))
+                  (symbol? (second x)) (= (name (second x)) (name verb)))
+         (swap! hits conj (second x)))
        x)
      form)
     @hits))
@@ -357,11 +362,11 @@
                     (str "self head " h " munges to the current-namespace Var"))
                 (is (not (str/includes? js (str "re_frame.freehand." (name verb))))
                     "zero authoring-Var reference in the emitted JavaScript"))))
-          (testing (str "JVM: the self call targets the current-namespace fqn (" verb ")")
-            (let [jvm-heads (call-head-syms jvm-form verb)]
-              (is (seq jvm-heads) "a self component call is emitted")
+          (testing (str "structural: the self mount targets the current-namespace fqn (" verb ")")
+            (let [jvm-heads (mount-head-syms jvm-form verb)]
+              (is (seq jvm-heads) "a self boundary mount is emitted")
               (is (every? #(= self-fqn %) jvm-heads)
-                  (str "every JVM self call head is cljs.user/" verb)))))))))
+                  (str "every structural self mount names cljs.user/" verb)))))))))
 
 (deftest a-bare-authored-self-head-would-capture-the-authoring-var
   ;; The counterfactual the fix defeats: were the emitter to keep the raw

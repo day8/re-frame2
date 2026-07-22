@@ -993,6 +993,6 @@
           ;; require on `re-frame.ssr` (the resolve is late, at render time).
           `(~'re-frame.freehand.tree/emit-static-html
             (~'re-frame.freehand.tree/render-root-tree
-             (fn [] ~(emit-jvm/emit-node ast)))))))))
+             (fn [] ~(emit-jvm/emit-node nil ast)))))))))
 
 ))

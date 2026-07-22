@@ -14,6 +14,7 @@
                       [re-frame.freehand.compiler.emit-cljs :as emit-cljs]
                       [re-frame.freehand.compiler.emit-jvm :as emit-jvm]
                       [re-frame.freehand.compiler.env :as env]
+                      [re-frame.freehand.compiler.grammar :as grammar]
                       [re-frame.freehand.compiler.header :as header]
                       [re-frame.freehand.fingerprint :as fingerprint]])))
 
@@ -432,6 +433,97 @@
             #(defview** form menv vname forms)))
 
 ;; ---------------------------------------------------------------------------
+;; `{:compiled true}` — selecting the `:re-frame.freehand/v1` grammar
+;; ---------------------------------------------------------------------------
+;;
+;; The compiled tier is entered from the SAME `v/defview` a declaration already
+;; uses. There is no second declaration form, no second registry, and no second
+;; call spelling: `{:compiled true}` chooses which front end lowers the body,
+;; and the descriptor, the props contract, the boundary and the structural
+;; output are the ones the interpreted mode already owns.
+;;
+;; What the option actually buys is the FINITE grammar. Compilation is explicit
+;; (EP-0036 governing law 6) because a compiler that silently declined would be
+;; worse than one that refuses: an author would have no way to know which of
+;; their views is paying for the analysis and which is not. So a body outside
+;; `:re-frame.freehand/v1` is a build failure naming a recovery — never a quiet
+;; demotion, and never an interpreted walk hidden inside compiled markup.
+
+(defn- with-grammar
+  "Anchor a compile error escaping the compiled pipeline with the grammar
+  that refused the form and the recovery ladder for its id.
+
+  Existing ex-data wins on collision, so a diagnostic that already named
+  its own ladder (the grammar's own op check) keeps it; everything the
+  analyzer raises gains one here, in ONE place, rather than by editing a
+  hundred call sites into carrying a field they cannot choose better
+  than a table can."
+  [view-id thunk]
+  (try
+    (thunk)
+    (catch clojure.lang.ExceptionInfo ex
+      (let [data (ex-data ex)]
+        (throw
+         (if-let [id (:rf.ui.compile/error data)]
+           (ex-info (ex-message ex)
+                    (merge {:re-frame.freehand/grammar grammar/version
+                            :recovery                  (grammar/recovery id)
+                            :view                      view-id}
+                           data)
+                    ex)
+           ex))))))
+
+(defn compile-structural-view
+  "Lower a `{:compiled true}` declaration's body to its STRUCTURAL
+  realisation — the `(fn [props] node)` the descriptor carries — or throw
+  the diagnostic that says why the body is outside
+  `:re-frame.freehand/v1`.
+
+  Answers `{:body form :grammar kw :sites {..}}`. `:sites` is the
+  analyzer's lexical site index: the compiled tier's whole claim to see
+  what a body does rests on those sites being complete, so they travel
+  with the lowering rather than being recomputed by anyone who wants
+  them.
+
+  `form` is the declaration's `&form`, `menv` its `&env`, `params` its
+  one-element parameter vector and `body` the body forms."
+  [{:keys [form menv ns-sym vname view-id params body children-policy]}]
+  (let [cljs?  (some? (:ns menv))
+        coords (source-coords form cljs?)]
+    (anchored
+     coords
+     #(with-grammar
+        view-id
+        (fn []
+          (let [e0  (-> (env/make-env
+                         {:host            (if cljs? :cljs :clj)
+                          :cljs-env        menv
+                          :ns-sym          ns-sym
+                          :self            vname
+                          :self-id         view-id
+                          :source          coords
+                          :template-anchor (fingerprint/digest "sta1-" body)})
+                        (assoc :self-children? (not= :none children-policy)
+                               :self-closed-keys nil))
+                _   (ana/reject-reactive-binding! e0 params)
+                ;; The parameter vector's own bindings are template locals: a
+                ;; head or expression spelling one of them is a LOCAL, never a
+                ;; var, which is what makes `[title …]` a dynamic head rather
+                ;; than a mysteriously-resolving component.
+                e   (-> e0
+                        (env/with-locals (set (env/binding-syms (first params))))
+                        (assoc :hooks-region? true))
+                ast (ana/analyze-view-body e body)]
+            (grammar/check! e view-id ast)
+            (doseq [w @(:warnings e)]
+              (binding [*out* *err*]
+                (println (str "WARNING re-frame.freehand [" view-id "] "
+                              (:id w) ": " (:msg w)))))
+            {:body    (emit-jvm/emit-structural-body e params ast)
+             :grammar grammar/version
+             :sites   @(:sites e)}))))))
+
+;; ---------------------------------------------------------------------------
 ;; re-frame.freehand.react/lazy — the def-level code-splitting constructor
 ;; ---------------------------------------------------------------------------
 
@@ -454,7 +546,7 @@
              e "a re-frame.freehand.react/lazy :fallback" fallback-form)]
     `(fn [] ~(if cljs?
                (emit-cljs/emit-standalone ast)
-               (emit-jvm/emit-node ast)))))
+               (emit-jvm/emit-node nil ast)))))
 
 (defn expand-lazy
   "Expand `(re-frame.freehand.react/lazy load-thunk {:fallback tpl}?)` — a DEF-LEVEL
