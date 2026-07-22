@@ -45,15 +45,16 @@
 
 (defn ^:export init []
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
-  ;; absence — `:rf/default` is this testbed's app frame, registered
-  ;; explicitly here (init! installs only the adapter). The boot dispatch
-  ;; runs under the frame scope and the render is wrapped in the UIx
-  ;; `frame-provider` so the `use-subscribe` / `capture-frame` reads inside
-  ;; `root` resolve to it.
+  ;; absence — `:rf/default` is this testbed's app frame. The mount goes
+  ;; through the UIx `frame-root` ENSURE boundary (rf2-qgfo4): it creates
+  ;; the frame at commit time, runs the `:initial-events` seed once, and
+  ;; scopes the frame to the subtree so the `use-subscribe` /
+  ;; `capture-frame` reads inside `root` resolve to it. This is the
+  ;; documented boot idiom (the template scaffold's exact shape) — the
+  ;; real-DOM path the smoke must cover.
   (rf/init! uix-adapter/adapter)
-  (rf/make-frame {:id :rf/default})
-  (rf/with-frame :rf/default
-    (rf/dispatch-sync [:counter/init]))
   (uix-dom/render-root
-    ($ uix-adapter/frame-provider {:frame :rf/default} ($ root))
+    ($ uix-adapter/frame-root {:id             :rf/default
+                               :initial-events [[:counter/init]]}
+       ($ root))
     app-root))

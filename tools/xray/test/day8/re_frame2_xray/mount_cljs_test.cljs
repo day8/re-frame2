@@ -335,6 +335,103 @@
                   (set! js/console prior-console))))))))))
 
 ;; -------------------------------------------------------------------------
+;; (2b) Substrate render-shape gate (rf2-qgfo4)
+;; -------------------------------------------------------------------------
+;;
+;; Xray's shell is hiccup; the React-hook substrates' `:render` slot takes
+;; substrate-native React ELEMENTS, so mounting there hands raw CLJS data to
+;; React children (fn-as-child console.error + an UNCAUGHT MapEntry
+;; pageerror on every UIx template boot). The mount verbs must refuse those
+;; hosts with the `:unsupported-substrate` diagnostic — one console.warn,
+;; status-API visibility, no mount, no render call — while the ratom family
+;; (and permissive default for custom/test adapters, e.g. the fixture's
+;; plain-atom) mounts exactly as before.
+
+(defn- with-warn-counter*
+  "Run `f` with js/console replaced by a warn-counting stub; restores the
+  prior console in a finally. `f` receives the warn-count atom."
+  [f]
+  (let [warns         (atom 0)
+        prior-console (when (exists? js/console) js/console)]
+    (set! js/console (js-obj "warn" (fn [& _args] (swap! warns inc) nil)
+                             "error" (fn [& _args] nil)))
+    (try
+      (f warns)
+      (finally
+        (set! js/console prior-console)))))
+
+(deftest open!-on-react-element-substrate-refuses-cleanly
+  (testing "open! on a UIx host (element-shaped :render) publishes the
+            :unsupported-substrate diagnostic, warns once, and mounts
+            NOTHING — no DOM node, no substrate render call (rf2-qgfo4)"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render          render-fn
+                        substrate-adapter/current-adapter (fn [] :rf.adapter/uix)]
+            (with-warn-counter*
+              (fn [warns]
+                (let [result     (mount/open!)
+                      diagnostic (:diagnostic (mount/status))]
+                  (is (= :unsupported-substrate (:reason result))
+                      "open! returns the refusal diagnostic")
+                  (is (false? (:ok? result)))
+                  (is (= :rf.adapter/uix (:adapter result))
+                      "the diagnostic names the installed adapter kind")
+                  (is (= :unsupported-substrate (:reason diagnostic))
+                      "the status API exposes the same diagnostic")
+                  (is (= 1 @warns) "exactly one console.warn")
+                  (is (false? (mount/mounted?)) "nothing mounted")
+                  (is (zero? (count @calls))
+                      "substrate-adapter/render never invoked"))))))))))
+
+(deftest open-overlay!-on-react-element-substrate-refuses-cleanly
+  (testing "open-overlay! refuses a React-element substrate host the same
+            way as open! (rf2-qgfo4)"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render          render-fn
+                        substrate-adapter/current-adapter (fn [] :rf.adapter/ui)]
+            (with-warn-counter*
+              (fn [_warns]
+                (let [result (mount/open-overlay!)]
+                  (is (= :unsupported-substrate (:reason result)))
+                  (is (= :rf.adapter/ui (:adapter result)))
+                  (is (false? (mount/mounted?)))
+                  (is (zero? (count @calls))))))))))))
+
+(deftest popout!-on-react-element-substrate-refuses-cleanly
+  (testing "popout! refuses a React-element substrate host BEFORE opening
+            a window (rf2-qgfo4)"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render          render-fn
+                        substrate-adapter/current-adapter (fn [] :rf.adapter/helix)]
+            (with-warn-counter*
+              (fn [_warns]
+                (let [result (mount/popout!)]
+                  (is (= :unsupported-substrate (:reason result)))
+                  (is (nil? @@#'mount/popout-state) "no popout state minted")
+                  (is (zero? (count @calls))))))))))))
+
+(deftest open!-on-ratom-substrate-still-mounts
+  (testing "the gate is a denylist of the element-shaped kinds only — a
+            ratom-family kind mounts exactly as before (polarity guard for
+            react-element-render-kinds)"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render          render-fn
+                        substrate-adapter/current-adapter (fn [] :rf.adapter/reagent-slim)]
+            (let [result (mount/open!)]
+              (is (map? result) "open! returns the mount-state map")
+              (is (true? (mount/mounted?)))
+              (is (= 1 (count @calls))
+                  "substrate-adapter/render invoked exactly once"))))))))
+
+;; -------------------------------------------------------------------------
 ;; (3) Open — second call (already mounted; no re-render)
 ;; -------------------------------------------------------------------------
 

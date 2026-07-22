@@ -445,9 +445,22 @@ namespace docstring (see `tools/xray/src/day8/re_frame2_xray/registry.cljs`).
 
 ### Adapter resolution
 
-Xray renders pure hiccup; all four supported substrates (Reagent,
-Reagent-slim, UIx, Helix) accept the same hiccup shape, so the
-component code itself is substrate-agnostic. Where Xray needs an
+Xray renders pure hiccup, so it can mount only through a host adapter
+whose `:render` slot accepts hiccup render-trees — the **ratom family**
+(stock Reagent, Reagent-slim). The React-hook substrates (UIx, Helix,
+the first-party `re-frame.ui`) share an **element-shaped** `render`
+that hands the tree to React untouched; a hiccup shell mounted there
+reaches React children as raw CLJS data (fn-as-child console.error
+plus an uncaught MapEntry pageerror — rf2-qgfo4). On those hosts the
+mount verbs (`open!`, `open-overlay!`, `popout!`, and therefore the
+preload auto-open) MUST refuse cleanly: publish the
+`:unsupported-substrate` diagnostic through the status API, emit one
+`console.warn` (not an error — the host app is healthy), and mount
+nothing. Rendering Xray on the React-element substrates is future
+work (tracked from rf2-qgfo4); until then the supported render hosts
+are the ratom family.
+
+Where Xray needs an
 imperative escape hatch (canvas refs, mount-lifecycle hooks for large
 list virtualisation, etc.) it resolves the active adapter via
 `re-frame.substrate.adapter/current-adapter` and dispatches on the
