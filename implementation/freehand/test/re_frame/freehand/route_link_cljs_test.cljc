@@ -1,7 +1,8 @@
 (ns re-frame.freehand.route-link-cljs-test
-  "FH-ROUTELINK-001, -004, -005 and -006 — the anchor `v/route-link`
-  renders, the server shell, the absent-routing diagnostic, and the
-  cross-host parity of the one common render.
+  "FH-ROUTELINK-001, -004, -005, -006 and the host-neutral half of -007 —
+  the anchor `v/route-link` renders, the server shell, the absent-routing
+  diagnostic, the cross-host parity of the one common render, and the
+  closed grammar at `:on-click`.
 
   Dual-runtime by construction: one `.cljc` suite, one fixture per law,
   run by this artefact's JVM `:test` alias AND by the ClojureScript node
@@ -29,6 +30,7 @@
    [re-frame.freehand :as v]
    [re-frame.freehand.conformance :as conf]
    [re-frame.freehand.descriptor :as descriptor]
+   [re-frame.freehand.route-link-seam :as route-link-seam]
    [re-frame.late-bind :as late-bind]
    ;; Loading routing publishes :routing/link-model — the seam under test.
    [re-frame.routing :as routing]
@@ -270,6 +272,108 @@
       (is (= view-id (:view-id projection)))
       (is (= lowering (:lowering projection)))
       (is (= children-policy (:children-policy projection))))))
+
+;; ---------------------------------------------------------------------------
+;; FH-ROUTELINK-007 — the accepted grammar at `:on-click` is closed
+;; ---------------------------------------------------------------------------
+
+(def routelink-007 (conf/fixture :FH-ROUTELINK-007))
+
+(defn- on-click-form
+  "Build the fixture's named `:on-click` value. EDN names a form; only
+  code can carry a function or a declared callback, so the table of names
+  is here and the table of cases is in the fixture."
+  [form ran]
+  (case form
+    :bare-fn      (fn [_] (swap! ran inc))
+    :v-handler    (v/handler [_] (swap! ran inc))
+    :event-vector [:fh.analytics/link-clicked]
+    :event-options {:event [:fh.analytics/link-clicked] :prevent-default true}
+    :v-event      (v/event [_] [:fh.analytics/link-clicked])
+    :v-render-fn  (v/render-fn [_] nil)
+    :v-raw-fn     (v/raw-fn (fn [_] nil))
+    :keyword      :fh.analytics/link-clicked))
+
+(defn- render-error
+  "Render `props` and answer the ex-info it raised, or nil."
+  [props]
+  (try (render props) nil
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e)))
+
+(deftest fh-routelink-007-the-accepted-on-click-forms-render
+  (testing "Per FH-ROUTELINK-007: a plain function and a `v/handler` are
+            the two accepted spellings of the pre-navigation seam, so both
+            must render. A contract that only rejected would be half a
+            contract — and `v/handler` is the half that would silently
+            stop working, since a roster callback is deliberately not
+            `IFn` and routing's seam calls what it is handed."
+    (reg-routes! (:routes routelink-007))
+    (with-host-frame!)
+    (doseq [{:keys [why form]} (:accepted routelink-007)]
+      (let [ran      (atom 0)
+            callback (on-click-form form ran)
+            rendered (render (assoc (:props routelink-007) :on-click callback))]
+        (is (= :a (first rendered)) (str why " — renders the anchor"))
+        (is (not= callback (:on-click (attrs-of rendered)))
+            (str why " — the caller's value never reaches the element; the framework's "
+                 "activation closure does, with the veto inside it"))
+        (is (zero? @ran)
+            (str why " — and rendering does not INVOKE it; it runs at the click"))))
+    (testing "the veto reaching routing is a plain function on either
+              spelling — the v/handler is unwrapped at the boundary, so
+              routing's compatibility signature can call it"
+      (doseq [{:keys [why form]} (:accepted routelink-007)]
+        (let [ran (atom 0)
+              f   (route-link-seam/veto (on-click-form form ran))]
+          (is (fn? f) (str why " — normalizes to a plain fn"))
+          (f nil)
+          (is (= 1 @ran) (str why " — and it is the caller's own body")))))
+    (testing "an absent :on-click stays absent — the ordinary link is
+              untouched by this contract"
+      (is (nil? (route-link-seam/veto nil)))
+      (is (= :a (first (render (:props routelink-007))))))))
+
+(deftest fh-routelink-007-intent-forms-are-rejected-at-render
+  (testing "Per FH-ROUTELINK-007: an event vector, an options map and a
+            `v/event` at this prop are refused AT RENDER, on whichever
+            host is running. Left to reach routing they would be invoked —
+            an `IFn` collection lookup keyed by a MouseEvent, or a
+            non-callable `deftype` — and the application event the author
+            wrote would simply never be dispatched, after which routing
+            proceeds and the page looks fine."
+    (reg-routes! (:routes routelink-007))
+    (with-host-frame!)
+    (let [{:keys [id where recovery legal-forms]} (:error routelink-007)]
+      (is (seq (:rejected routelink-007)) "the fixture's rejection table loaded")
+      (doseq [{:keys [why form tag]} (:rejected routelink-007)]
+        (let [e    (render-error (assoc (:props routelink-007)
+                                        :on-click (on-click-form form (atom 0))))
+              data (ex-data e)]
+          (is (some? e) (str why " — rejected rather than rendered"))
+          (is (= id (:rf.error/id data)) (str why " — the canonical discriminator"))
+          (is (= where (:where data)) (str why " — the diagnostic names the view"))
+          (is (= recovery (:recovery data)) (str why " — and the named recovery"))
+          (is (= legal-forms (:legal-forms data))
+              (str why " — the closed roster rides the ex-data"))
+          (let [message (ex-message e)]
+            (is (str/includes? message tag)
+                (str why " — the sentence names what was passed: " tag))
+            (doseq [mention (:message-mentions routelink-007)]
+              (is (str/includes? message mention)
+                  (str why " — the sentence says how to fix it: " mention)))
+            (is (str/includes? message (:message-token routelink-007))
+                (str why " — and carries the greppable trailing id token"))))))))
+
+(deftest fh-routelink-007-the-rejection-is-not-a-blanket-refusal
+  (testing "Per FH-ROUTELINK-007, the control that makes the table above
+            mean something: a check that refused every value would pass
+            every rejection row while making the view useless. The two
+            accepted forms are asserted to normalize, in the same run, off
+            the same fixture."
+    (is (= 2 (count (:accepted routelink-007)))
+        "the fixture names both accepted spellings")
+    (doseq [{:keys [form]} (:accepted routelink-007)]
+      (is (fn? (route-link-seam/veto (on-click-form form (atom 0))))))))
 
 (deftest route-link-classifies-as-an-internal-boundary
   (testing "`[v/route-link {…}]` is an ordinary internal boundary call:

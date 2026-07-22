@@ -1,0 +1,96 @@
+;; FH-ROUTELINK-007 — the accepted grammar at :on-click is closed.
+;;
+;; Everywhere else in Freehand, `:on-click [:app/event …]` is ordinary
+;; intent data. On this one view it cannot be, and the reason has to be
+;; STATED rather than discovered: a route click already produces the ONE
+;; routing intent, so a second intent site on the same click would be one
+;; user action yielding two semantic events.
+;;
+;; The failure this closes is silent, which is why it is a law and not a
+;; docstring. The routing seam's compatibility signature takes an optional
+;; user fn and invokes it, so an event vector arriving there is called as
+;; an IFn collection lookup keyed by a MouseEvent, a `v/event` is a
+;; deliberately non-IFn `deftype` that cannot be called at all, and in
+;; every case the application event the author wrote is simply never
+;; dispatched — after which routing proceeds and the page looks fine.
+;;
+;; So the boundary TRANSLATES what it accepts and REFUSES what it does
+;; not, at render, on both hosts. Translation matters as much as refusal:
+;; `v/handler` is the declared imperative form, and fencing without
+;; unwrapping it would have left the one right answer as the one thing
+;; that did not work.
+;;
+;; The error id and the recovery are pinned; the message is prose and is
+;; matched by substring only.
+{:fh/id "FH-ROUTELINK-007"
+ :fh/law
+ "v/route-link's :on-click is the imperative pre-navigation seam: a plain function or a v/handler is accepted and invoked exactly once before the navigation decision; an event vector, an event options map or a v/event is rejected at render, on both hosts, naming the recovery."
+
+ :routes {:fh.route/cart "/cart"}
+
+ :props {:to :fh.route/cart}
+
+ ;; The two accepted spellings. Both must RUN, both must be able to veto
+ ;; with .preventDefault, and — for a v/handler — the function reaching
+ ;; routing must be the one the callback carries, not the callback.
+ :accepted
+ [{:why "a plain function — the unceremonious spelling"
+   :form :bare-fn}
+  {:why "a v/handler — the declared imperative form, unwrapped at the boundary"
+   :form :v-handler}]
+
+ ;; One veto arm and one non-veto arm, run for EACH accepted form. The
+ ;; non-veto arm is the positive control: a contract that only proved
+ ;; vetoing would pass a view that intercepted nothing at all.
+ :veto-cases
+ [{:why "the caller runs and does not veto — the framework still intercepts"
+   :veto?       false
+   :caller-runs 1
+   :dispatched? true}
+  {:why "the caller calls preventDefault — the framework stands down"
+   :veto?       true
+   :caller-runs 1
+   :dispatched? false}]
+
+ ;; A caller that does not supply :on-click at all is unaffected: the
+ ;; ordinary link, unchanged by this contract.
+ :absent
+ {:why "no :on-click — plain navigation, untouched"
+  :dispatched? true}
+
+ ;; Everything refused, and the description the diagnostic must give of
+ ;; it. `:tag` is the phrase naming WHAT was passed, so the sentence
+ ;; points at the value's shape rather than only at the rule.
+ :rejected
+ [{:why "an event vector — Freehand's ordinary intent spelling, and the mistake this law closes"
+   :form :event-vector
+   :tag  "an event vector"}
+  {:why "an event options map — intent plus listener options, still intent"
+   :form :event-options
+   :tag  "an event options map"}
+  {:why "a v/event — the declared conversion seam, which is still a second intent site"
+   :form :v-event
+   :tag  "a v/event"}
+  {:why "a v/render-fn — a pure render callback has no role at a click"
+   :form :v-render-fn
+   :tag  "a v/render-fn"}
+  {:why "a v/raw-fn — identity-preserving, but this seam promises no identity to preserve"
+   :form :v-raw-fn
+   :tag  "a v/raw-fn"}
+  {:why "a keyword — not a callback in any Freehand grammar"
+   :form :keyword
+   :tag  "a keyword"}]
+
+ :error
+ {:id          :rf.error/view-bad-event
+  :where       v/route-link
+  :recovery    :use-a-plain-fn-or-v-handler
+  :legal-forms [:bare-fn :v-handler :nil]}
+
+ ;; Substrings the human sentence must carry: the form that IS accepted,
+ ;; the imperative work it is for, and the one intent the click already
+ ;; produces. Substring, not equality — the sentence is prose.
+ :message-mentions ["v/handler" ".preventDefault" ":rf.route/url-requested"]
+
+ ;; The greppable trailing token every thrown re-frame2 error carries.
+ :message-token "[:rf.error/view-bad-event]"}
