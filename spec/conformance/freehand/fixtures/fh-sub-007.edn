@@ -1,0 +1,10 @@
+{:fh/id  "FH-SUB-007"
+ :fh/law "Capture is same-render-thread only: a read with no active render is refused, and on a host that can convey a binding into a child thread a forked read is refused BEFORE it probes, so a fork records nothing."
+
+ :query [:shell/v]
+
+ :outside-render-error-id :rf.error/view-read-outside-render
+ :forked-error-id         :rf.error/view-forked-capture
+
+ ;; The render thread's own read is the only site in the capture.
+ :recorded-sites 1}

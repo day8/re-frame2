@@ -1,0 +1,23 @@
+{:fh/id  "FH-SUB-003"
+ :fh/law "A candidate rendered against a body revision the cell has since replaced is stale and publishes nothing — checked both at commit entry and again at the narrowest publication boundary, after the callback-capable staging work."
+
+ :query [:shell/v]
+
+ ;; Point 1: the reload lands in the render→commit gap. The live cell
+ ;; keeps exactly the dependency set its own body earned.
+ :entry-fence {:result           :abandoned
+               :generation       1
+               :lifecycle        :connected
+               :dependency-count 1
+               :ref-count        1}
+
+ ;; Point 2: the reload lands INSIDE the commit. A cold site's body runs
+ ;; twice — once for the render's pure probe, once for the node the
+ ;; commit installs — so reloading on the second run is a reload that
+ ;; lands after currency was first checked.
+ :publication-fence {:reload-on-computation 2
+                     :result                :abandoned
+                     :generation            1
+                     :lifecycle             :new
+                     :dependency-count      0
+                     :ref-count             nil}}

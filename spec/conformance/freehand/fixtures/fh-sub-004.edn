@@ -1,0 +1,25 @@
+{:fh/id  "FH-SUB-004"
+ :fh/law "A provider retarget from frame A to frame B rebinds the whole bundle — dependencies acquired against B before A's are released, the committed event destination moved to B, and no callback identity changed; a render whose exact frame incarnation is gone publishes nothing."
+
+ :frames {:a :shell/frame-a
+          :b :shell/frame-b}
+ :db     {:a {:v :from-a}
+          :b {:v :from-b}}
+ :query  [:shell/v]
+ :intent [:panel/clicked]
+
+ :under-a {:value           :from-a
+           :committed-frame :shell/frame-a
+           :frame-id        :shell/frame-a
+           :dispatch-frame  :shell/frame-a}
+ :under-b {:value           :from-b
+           :committed-frame :shell/frame-b
+           :frame-id        :shell/frame-b
+           :dispatch-frame  :shell/frame-b}
+
+ :released-ref-count nil
+ :acquired-ref-count 1
+
+ ;; A same-id destroy and recreate is a different incarnation, not the
+ ;; same frame under a reused name.
+ :reincarnation-result :abandoned}

@@ -1,0 +1,26 @@
+{:fh/id  "FH-SUB-001"
+ :fh/law "The SELECTED commit publishes the boundary's frame, dependencies, event site table and evidence as ONE bundle; a render itself owns nothing, an unchanged site is retained untouched, and every newly-observed or retargeted target is acquired before anything is released."
+
+ ;; Two ordinary subscription sites over one frame's app-db.
+ :queries {:a [:shell/a]
+           :b [:shell/b]}
+ :db      {:a 1 :b 2}
+
+ ;; What a render that has NOT been selected owns: nothing. No cache node
+ ;; exists, so the sub-cache entry is absent and its ref-count is nil.
+ :before-commit {:lifecycle        :new
+                 :dependency-count 0
+                 :events           :new
+                 :ref-count        nil}
+
+ ;; What the SELECTED commit publishes, together.
+ :after-commit  {:lifecycle        :connected
+                 :dependency-count 2
+                 :events           :connected
+                 :ref-count        1}
+
+ ;; The narrowing reconcile: two sites on one shared node drop to one.
+ ;; The shared node keeps an owner throughout, so it is never disposed
+ ;; and rebuilt.
+ :narrowed      {:dependency-count 1
+                 :ref-count        1}}

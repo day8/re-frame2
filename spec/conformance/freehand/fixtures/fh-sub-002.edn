@@ -1,0 +1,22 @@
+{:fh/id  "FH-SUB-002"
+ :fh/law "A render the host never selects publishes nothing at all, and a candidate whose reconcile FAILS releases everything its staging acquired and leaves the prior committed set installed."
+
+ :query        [:shell/v]
+ :other-query  [:shell/w]
+ :doomed-frame :shell/doomed
+
+ ;; Speculative renders, none of them selected.
+ :abandoned-renders 100
+
+ ;; What those hundred renders left behind.
+ :retained {:dependency-count  0
+            :ref-count         nil
+            :events            :new
+            :dispatched-events []}
+
+ ;; The failure half: staging acquires the first site, the second site's
+ ;; frame is destroyed in the gap, and the reconcile unwinds.
+ :rollback {:error-id               :rf.error/frame-destroyed
+            :prior-dependency-count 1
+            :prior-ref-count        1
+            :rolled-back-ref-count  nil}}
