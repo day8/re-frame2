@@ -237,7 +237,7 @@
         kid-forms  (if attrs? (rest args) args)
         [attrs es] (split-attrs tag classes id (or authored {}))
         k          (:key authored)
-        kids       (children (conv/child-ns (conv/enter-ns ctx tag) tag attrs) kid-forms)]
+        kids       (children (conv/child-ns (conv/enter-ns ctx tag) tag authored) kid-forms)]
     (when (and (seq kids) (contains? conv/children-rejected-tags tag))
       (malformed!
         're-frame.freehand.tree/render
