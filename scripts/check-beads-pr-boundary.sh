@@ -44,6 +44,21 @@
 #   cause is a shallow clone that does not contain the branch point; on GitHub
 #   Actions use `actions/checkout` with `fetch-depth: 0`.
 #
+# WHY `--no-renames` (rf2-ajbgq)
+#
+#   Git detects renames by default and `--name-only` then reports the
+#   DESTINATION alone. An exact rename out of the protected tree —
+#   `.beads/issues.jsonl` -> `tracker-snapshot.jsonl` — would therefore reach
+#   the classifier as `tracker-snapshot.jsonl` only: outside `.beads/**`,
+#   permitted, exit 0, while merging the PR deletes the tracker database from
+#   its canonical location.
+#
+#   `--no-renames` presents both endpoints (a deletion plus an addition), so
+#   the shared classifier refuses the protected OLD path with no new rules.
+#   The same Git behaviour bit changed-surface discovery (rf2-vxgfnd.137) and
+#   has the same one-flag fix. A rename endpoint is pinned in layer 5 of
+#   scripts/git-hooks/test-pre-commit.sh; restoring plain `--name-only` reds it.
+#
 # Usage:
 #   sh scripts/check-beads-pr-boundary.sh [BASE_REF]
 #
@@ -100,7 +115,7 @@ if [ -z "$BRANCH_POINT" ]; then
   exit 1
 fi
 
-changed=$(git diff --name-only "$BRANCH_POINT" HEAD)
+changed=$(git diff --no-renames --name-only "$BRANCH_POINT" HEAD)
 
 if printf '%s\n' "$changed" | check_beads_boundary ci; then
   printf 'No beads-database paths in this PR diff.\n'
