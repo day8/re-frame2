@@ -43,6 +43,7 @@ on the Python stdlib.
 from __future__ import annotations
 
 import argparse
+import bisect
 import re
 import subprocess
 import sys
@@ -129,6 +130,15 @@ _HTML_ANCHOR_RE = re.compile(
 # Markdown inline link.  Captures destination only.  Reference-style links
 # ([text][ref]) are ignored — none in this corpus per spot-check, and a full
 # parser is out of scope for a CI guard.
+#
+# The link TEXT may contain newlines: markdown wraps a paragraph freely, so
+# `[§Compiled\nviews](Doc.md#anchor)` is one rendered link.  The negated
+# character classes match `\n` already — what mattered was that `_extract_links`
+# fed this regex one line at a time, so a wrapped link never matched and was
+# never validated (rf2-vpc4c).  It is now run over a joined block (see
+# `_iter_inline_links`).  The DESTINATION deliberately still forbids whitespace
+# (`[^)\s]+`): CommonMark does not permit a bare destination to wrap, so a
+# newline there is not a link the renderer would produce either.
 _LINK_RE = re.compile(r"\[(?:[^\]\\]|\\.)*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 
 # Fenced code block delimiter (``` or ~~~ optionally followed by language).
@@ -614,18 +624,89 @@ def _strip_inline_code(line: str) -> str:
     return _INLINE_CODE_RE.sub(lambda m: " " * (m.end() - m.start()), line)
 
 
+def _blank_line_blocks(
+    pairs: Iterable[tuple[int, str]],
+) -> Iterable[list[tuple[int, str]]]:
+    """Group (line_no, content) pairs into blank-line-separated blocks.
+
+    A blank line ends a block.  This is the unit over which a markdown inline
+    construct may wrap: a paragraph (or table, or list) is parsed as one run of
+    inline text, and NO inline construct survives a blank line — a blank line is
+    a block boundary in every markdown flavour.  Scanning per block rather than
+    per line is what lets `_iter_inline_links` see a wrapped link; bounding the
+    join at the blank line is what stops it from stitching two unrelated
+    paragraphs into a link that no renderer would produce (rf2-vpc4c).
+
+    Fence lines and fenced-block bodies arrive already blanked by
+    `_strip_fences`, so a code block is a block boundary here too, for free.
+    """
+    block: list[tuple[int, str]] = []
+    for line_no, content in pairs:
+        if not content.strip():
+            if block:
+                yield block
+                block = []
+            continue
+        block.append((line_no, content))
+    if block:
+        yield block
+
+
+def _iter_inline_links(
+    pairs: Iterable[tuple[int, str]],
+) -> Iterable[tuple[int, str]]:
+    """Yield (line-number, destination) for every inline link in the given lines.
+
+    `pairs` are (line_no, content) pairs the CALLER has already reduced to
+    scannable source — fence-stripped and inline-code-masked.
+
+    Each blank-line-delimited block is joined with `\\n` and scanned as ONE
+    string, so a link whose text wraps across a newline is seen.  The
+    predecessor scanned line by line, so `](target#anchor)` landing on the
+    following line never matched `_LINK_RE` and the link was therefore never
+    validated — silently unguarded, since `mkdocs build --strict` reports a
+    broken anchor as INFO and still exits 0 (rf2-vpc4c).
+
+    The reported line is the one carrying the DESTINATION (`m.start(1)`), not
+    the one carrying the opening `[`.  For an unwrapped link the two are the
+    same line, so single-line diagnostics are unchanged; for a wrapped one the
+    destination's line is the line an author edits to fix the anchor, and it is
+    the more robust of the two — an unclosed stray `[` earlier in the block can
+    drag the match start backwards, but never the destination.
+    """
+    for block in _blank_line_blocks(pairs):
+        joined = "\n".join(content for _, content in block)
+        # Offset of each line's first character within `joined`, for mapping a
+        # match position back to a line number.  `_strip_inline_code` masks
+        # length-preservingly, so these offsets are exact.
+        line_starts: list[int] = []
+        offset = 0
+        for _, content in block:
+            line_starts.append(offset)
+            offset += len(content) + 1  # +1 for the joining newline
+        for m in _LINK_RE.finditer(joined):
+            i = bisect.bisect_right(line_starts, m.start(1)) - 1
+            yield block[i][0], m.group(1)
+
+
 def _extract_links(path: Path) -> Iterable[tuple[int, str]]:
     """Yield (line-number, destination) for every inline markdown link.
 
     Links inside fenced code blocks AND inside inline-code spans are
     skipped — both are "code", not real cross-references (rf2-mqv8s).
+    Links that wrap across a newline ARE seen (rf2-vpc4c) — see
+    `_iter_inline_links`.
+
+    Inline code is masked per LINE, before the block join: a CommonMark code
+    span closes on the line it opens, so masking the joined text would let a
+    stray backtick swallow everything up to a backtick on some later line —
+    and with it any real link in between.
     """
     text = path.read_text(encoding="utf-8", errors="replace")
-    for line_no, content in _strip_fences(text.splitlines()):
-        if not content:
-            continue
-        for m in _LINK_RE.finditer(_strip_inline_code(content)):
-            yield line_no, m.group(1)
+    yield from _iter_inline_links(
+        (line_no, _strip_inline_code(content))
+        for line_no, content in _strip_fences(text.splitlines())
+    )
 
 
 def _resolve_target(

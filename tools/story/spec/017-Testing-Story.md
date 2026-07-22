@@ -746,7 +746,7 @@ on the whole vector — no prefix / sub-id fuzzing, so an override never
 leaks into a sibling query the author did not name; a `nil`-valued
 override is a genuine hit), short-circuits build-and-cache with a constant
 reaction holding the pinned value. See [006 §The sub-override subscribe
-seam](../../spec/006-ReactiveSubstrate.md#the-sub-override-subscribe-seam-debug-gated)
+seam](../../../spec/006-ReactiveSubstrate.md#the-sub-override-subscribe-seam-debug-gated)
 for the core-side contract.
 
 The override never writes app-db and never calls `compute-sub`. That
