@@ -252,17 +252,21 @@
 
 (deftest fh-routelink-006-the-descriptor-is-an-ordinary-declared-view
   (testing "Per FH-ROUTELINK-006: a framework-supplied view is not a
-            privileged one. `route-link` holds the same non-`IFn`
-            descriptor an application view holds, with the same public
-            ABI — so there is no route-link intrinsic to teach, and
-            nothing for the emitters or the analyzer to special-case."
+            privileged one. `route-link` holds the same descriptor an
+            application view holds, with the same public ABI and the same
+            answers to the same predicates — so there is no route-link
+            intrinsic to teach, and nothing for the emitters or the
+            analyzer to special-case."
     (let [{:keys [view-id lowering children-policy]
            declared-view?     :view?
            declared-callable? :ifn?} (:descriptor routelink-006)
           projection (v/describe v/route-link)]
       (is (= declared-view? (v/view? v/route-link)))
       (is (= declared-callable? (ifn? v/route-link))
-          "not callable — `(route-link {…})` cannot silently succeed")
+          "`ifn?` answers the same for a framework view as for any other")
+      (is (= :rf.error/view-called-directly
+             (conf/caught-id #(apply v/route-link [{:to :fh.route/cart}])))
+          "and calling it is the same didactic error, not a silent success")
       (is (= view-id (:view-id projection)))
       (is (= lowering (:lowering projection)))
       (is (= children-policy (:children-policy projection))))))

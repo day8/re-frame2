@@ -21,7 +21,7 @@
   [:hr])
 
 ;; ---------------------------------------------------------------------------
-;; FH-CALL-001 — the non-IFn descriptor value
+;; FH-CALL-001 — a declared view cannot be successfully called
 ;; ---------------------------------------------------------------------------
 
 (def call-001 (conf/fixture :FH-CALL-001))
@@ -34,34 +34,67 @@
    :coll? coll?})
 
 (defn- invoke-as-fn
-  "Invoke `f` as a function — the `(the-view props)` mistake. The head is
-  bound as a local so neither compiler can fold the call site into a
-  compile-time diagnostic; the emitted call, and therefore the runtime
-  behaviour, is the one a literal direct call produces."
-  [f props]
-  (f props))
+  "Invoke `f` as a function with `args` — the `(the-view props)` mistake.
+  The head is bound as a local so neither compiler can fold the call site
+  into a compile-time diagnostic; the emitted call, and therefore the
+  runtime behaviour, is the one a literal direct call produces."
+  [f & args]
+  (apply f args))
 
-(deftest fh-call-001-declared-view-is-a-non-ifn-descriptor
-  (testing "Per FH-CALL-001: the var holds a descriptor value, not a
-            callable function — and, decisively, not a map. A map-shaped
-            descriptor is IFn on both hosts, so `(the-view props)` would
-            answer as a LOOKUP: nil, rendered as nothing, silently. The
-            ruling exists to make that outcome unreachable."
+(deftest fh-call-001-declared-view-answers-the-predicates
+  (testing "Per FH-CALL-001: the var holds a descriptor value, and
+            decisively NOT a map. A map-shaped descriptor would answer
+            `(the-view props)` as a LOOKUP: nil, rendered as nothing,
+            silently. `ifn?` is TRUE and says nothing about mountability —
+            the descriptor implements the call protocol only in order to
+            throw, so head classification and tooling ask `view?`."
     (doseq [[pred expected] (:predicates call-001)]
       (let [f (get predicate-fns pred)]
         (is (some? f) (str "fixture names a predicate this suite knows: " pred))
         (is (= expected (boolean (f subject)))
             (str "(" (name pred) " subject) is " expected))))))
 
-(deftest fh-call-001-a-direct-call-raises-on-both-hosts
-  (testing "Per FH-CALL-001: invoking a declared view raises. The host
-            refuses the call before any framework code runs, so the
-            exception is the host's own (a cast failure on the JVM, a
-            type error in ClojureScript) — what the law fixes is that the
-            call can never SUCCEED."
-    (is (true? (:raises (:direct-call call-001))))
-    (is (thrown? #?(:clj Throwable :cljs js/Error)
-                 (invoke-as-fn subject {})))))
+(deftest fh-call-001-a-direct-call-is-didactic-on-both-hosts
+  (testing "Per FH-CALL-001: invoking a declared view raises the typed
+            diagnostic — not the host's own cast failure. `(my-view {…})`
+            is idiomatic Reagent and trained muscle memory in every v1
+            codebase being migrated, so it is the mistake most likely to
+            be a programmer's FIRST encounter with the substrate."
+    (let [expected (:direct-call call-001)]
+      (is (true? (:raises expected)))
+      (is (= (:error-id expected)
+             (conf/caught-id #(invoke-as-fn subject {})))
+          "the same typed id on the JVM and in ClojureScript"))))
+
+(deftest fh-call-001-the-message-names-the-three-recoveries
+  (testing "Per FH-CALL-001: the diagnostic names the view and all THREE
+            legal recoveries. A message is stable in meaning rather than
+            in bytes, so what is pinned is that each recovery is
+            individually findable — mount it, inline it, or extract a
+            helper."
+    (let [message (conf/caught-message #(invoke-as-fn subject {}))]
+      (is (str/includes? message "subject")
+          "the message names the offending view")
+      (doseq [anchor (:recovery-anchors (:direct-call call-001))]
+        (is (str/includes? message anchor)
+            (str "the message names the " anchor " recovery"))))))
+
+(deftest fh-call-001-no-arity-escapes-the-diagnostic
+  (testing "Per FH-CALL-001: the call protocol implements the host's WHOLE
+            roster, not the one or two arities a realistic mistake uses.
+            A skipped arity would not fall through to nothing — it would
+            fall through to the host's own `AbstractMethodError` /
+            `Invalid arity`, which is the poor first-encounter message
+            this law exists to remove, reintroduced at a different arity."
+    (doseq [n (:didactic-arities (:direct-call call-001))]
+      (is (= (:error-id (:direct-call call-001))
+             (conf/caught-id #(apply invoke-as-fn subject (repeat n :x))))
+          (str "arity " n " raises the didactic diagnostic")))
+    (is (not= conf/no-throw
+              (conf/caught-id #(apply invoke-as-fn subject (repeat 40 :x))))
+        "past the host's own call-protocol ceiling the call still cannot
+         SUCCEED — ClojureScript's IFn declares no variadic arity, so
+         beyond twenty arguments the host answers with its own error")))
 
 ;; ---------------------------------------------------------------------------
 ;; FH-CALL-003 — the inspection projection

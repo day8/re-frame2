@@ -1,6 +1,6 @@
 # D002 — View boundaries and call semantics
 
-Status: **Ruled**
+Status: **Ruled** (amended 2026-07-22 — see §Amendment, 2026-07-22)
 Ruling: **Every mounted boundary uses `v/defview` and vector-call syntax;
 ordinary helpers are direct-called functions and are never vector heads.**
 
@@ -212,13 +212,52 @@ If Option A is accepted, the normative contract should state:
    typed production errors, with richer source guidance in development.
 
 Clojure maps themselves implement `IFn`, so the documented descriptor map should
-be the descriptor’s inspection/registry projection, not necessarily the literal
-runtime value held by the public var. Prefer a small non-`IFn` descriptor type so
-the direct-call error remains true at runtime as well as in analyzer diagnostics.
+be the descriptor’s inspection/registry projection, not the literal runtime value
+held by the public var — a map-shaped view value answers a direct call as a
+*lookup*, which is the one outcome this decision forbids.
 
 Absorption therefore changes the donor JVM emitter's callable view value into the
 shared descriptor form; preserving the old callable output would reintroduce the
 cross-host call mismatch this decision closes.
+
+## Amendment, 2026-07-22 — the rule is the property, not the mechanism
+
+**Ruled by Mike.** The direct-call rule is restated as the PROPERTY it always
+meant, because the earlier wording stated a mechanism and derived the property
+from it — the shape that invites a future reader to “correct” a still-true
+conclusion once its stated reason stops holding.
+
+> **A declared view cannot be successfully called.** A direct call raises a
+> didactic error naming the three legal recoveries: MOUNT it as
+> `[the-view {…}]`; INLINE it by declaring it with a plain `defn` and keeping the
+> parentheses; or EXTRACT the shared work into a plain `defn` helper the view
+> mounts and the caller calls.
+
+Whether a host achieves that by non-`IFn`-ness, or by implementing the call
+protocol *solely in order to throw*, is a host-level implementation detail and is
+NOT part of the ruling. The reference implementation takes the second route, so
+`(ifn? the-view)` is **true**; `fn?`, `map?` and `coll?` remain false.
+
+**Why the mechanism changed.** The two cannot be had together on the JVM: `(x arg)`
+compiles to a cast to `IFn` *before* any framework code runs, so a genuinely
+non-`IFn` descriptor leaves no interception point and the programmer meets a raw
+`ClassCastException`. `(my-view {…})` is normal, legal, idiomatic Reagent and is
+trained muscle memory in exactly the population Freehand courts, so that raw cast
+failure was the likely FIRST thing a migrating user saw. What non-`IFn`-ness
+protected turned out to be worth very little: nothing depends on `ifn?` being
+false — vector-head classification uses `view?`, and tooling has `view?` /
+`describe`, which are strictly more precise. The change is better in a real
+interop case too: a Freehand descriptor reaching Reagent's `ifn?` component test
+now raises *our* message rather than a cast failure.
+
+**What binds.** An implementation MUST cover every arity its host's call protocol
+declares — a partially implemented protocol reintroduces the poor first-encounter
+message one arity along. Where a host's protocol has a ceiling of its own
+(ClojureScript's `IFn` declares twenty-one `-invoke` arities and admits no
+variadic one), a call beyond it still cannot succeed; only the message is the
+host's. Nothing may treat `ifn?` as a proxy for “is this a view?”.
+
+Normative home: [`spec/004-Views.md` §A declared view cannot be called](../../../../spec/004-Views.md).
 
 ## Dependencies and what this unlocks
 

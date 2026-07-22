@@ -29,7 +29,8 @@
   emitters and the compiled analyzer consume exactly these values.
 
   Normative owner: [`spec/004-Views.md`](../../../../../spec/004-Views.md)."
-  (:require [re-frame.error :as error]))
+  (:require [re-frame.error :as error])
+  #?(:cljs (:require-macros [re-frame.freehand.descriptor :refer [def-view-descriptor]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -37,27 +38,102 @@
 ;; The descriptor value
 ;; ---------------------------------------------------------------------------
 ;;
-;; Spec 004 §The descriptor and `v/defview`. `deftype`, deliberately, and
-;; deliberately NOT `defrecord` or a plain map:
+;; Spec 004 §A declared view cannot be called. `deftype`, deliberately,
+;; and deliberately NOT `defrecord` or a plain map:
 ;;
-;;   - a plain map is `IFn`, so `(the-view props)` would answer as a
-;;     lookup — returning `nil` and rendering nothing, silently. The whole
-;;     point of the ruling (D002) is that a direct call cannot succeed;
-;;   - a `defrecord` is `IFn` in ClojureScript (records emit `-invoke`
-;;     arities) but NOT on the JVM. That asymmetry is exactly the
-;;     cross-host divergence Freehand exists to avoid;
-;;   - a `deftype` implements neither `IFn` nor `Fn` on either host, so
-;;     `(ifn? d)` is `false` and `(fn? d)` is `false` in both runtimes and
-;;     a direct call raises at the host call site.
+;;   - a plain map answers `(the-view props)` as a LOOKUP — returning
+;;     `nil` and rendering nothing, silently. The law is that a direct
+;;     call cannot SUCCEED, and a lookup succeeds;
+;;   - a `defrecord` would answer some arities as lookups too, and its
+;;     `IFn`-ness differs across hosts;
+;;   - a `deftype` implements exactly the protocols it names, so the
+;;     throwing call protocol below is the ONLY thing a direct call can
+;;     reach, on either host.
 ;;
 ;; One field, `entry`, holding the private declaration map. Later slices
 ;; add private entries (the host mount entry, the structural tree entry)
 ;; without changing the type, and `describe` keeps projecting only the
 ;; public ABI slots.
 
-(deftype ViewDescriptor [entry]
-  Object
-  (toString [_] (str "#re-frame.freehand/view " (:view-id entry))))
+(defn- direct-call!
+  "The one didactic throw a direct call reaches. Takes the declaration
+  `entry` directly — the call protocol below has the field in hand, so
+  no accessor and no type hint are involved on the failure path."
+  [entry]
+  (let [view-id (:view-id entry)
+        sym     (if view-id (name view-id) "the-view")]
+    (error/throw-error!
+      :rf.error/view-called-directly
+      'v/defview
+      (str "Declared view " view-id " was called as a function. A declared view is "
+           "mounted, never invoked, so the call cannot succeed. Three recoveries: "
+           "MOUNT it — write [" sym " {…}], because square brackets mount a declared "
+           "boundary; INLINE it — if the body should run inside the caller with no "
+           "boundary of its own, declare it with plain defn and keep the parentheses; "
+           "or EXTRACT the shared work into a plain defn helper that the view mounts "
+           "and the caller calls.")
+      {:recovery :mount-it-inline-it-or-extract-a-helper
+       :extra    {:view-id view-id}})))
+
+#?(:clj
+   (defmacro ^:no-doc def-view-descriptor
+     "Define `ViewDescriptor` and its COMPLETE host call protocol, every
+     arity routed to [[direct-call!]].
+
+     RULED (Mike, 2026-07-22, rf2-llxsw — Option B). The descriptor
+     implements the call protocol for exactly one reason: so that calling
+     a declared view explains itself. `(my-view {…})` is normal, legal,
+     idiomatic Reagent and is trained muscle memory in every v1 codebase
+     being migrated; without an interception point the JVM answers it
+     with a raw `ClassCastException`, because `(x arg)` compiles to a
+     checkcast to `IFn` before any framework code runs. So the type
+     implements `IFn` and throws. `(ifn? a-view)` is therefore TRUE, and
+     nothing depends on it being false: head classification uses
+     [[view?]], and tooling has [[view?]] / [[describe]], which are
+     strictly more precise.
+
+     The roster is the host call protocol's OWN roster, not the two or
+     three arities a realistic mistake uses. A skipped arity would not
+     fall through to nothing — it would fall through to the host's
+     `AbstractMethodError` (JVM) or `Invalid arity` (CLJS), which is the
+     poor first-encounter message this ruling exists to remove,
+     reintroduced at a different arity. Generating the roster keeps that
+     completeness from costing forty lines of noise.
+
+     The remaining ceiling is the HOST's, not a Freehand asymmetry. The
+     JVM's `IFn` declares a trailing `Object[]` arity plus `applyTo`, so
+     every JVM call is didactic. ClojureScript's `IFn` declares
+     twenty-one `-invoke` arities and REFUSES a variadic one (`Bad method
+     signature in protocol implementation`), so a CLJS call carrying more
+     than twenty arguments answers with the host's own `Invalid arity` —
+     exactly as `cljs.core`'s own `IFn` types do. The law that could have
+     been threatened is that a call must never SUCCEED, and it is not: at
+     every arity, on both hosts, the call raises."
+     []
+     (let [cljs?  (some? (:ns &env))
+           invoke (if cljs? '-invoke 'invoke)
+           this   '_this
+           body   (list `direct-call! 'entry)
+           args   (fn [n] (map #(symbol (str "_a" %)) (range n)))
+           meth   (fn [as] (list invoke (vec (cons this as)) body))]
+       (concat
+         (list 'deftype 'ViewDescriptor '[entry]
+               'Object
+               (list 'toString [this]
+                     (list 'str "#re-frame.freehand/view " (list :view-id 'entry)))
+               (if cljs? 'IFn 'clojure.lang.IFn))
+         (map (comp meth args) (range 0 21))
+         ;; Both hosts close the roster with the twenty-fixed-plus-rest
+         ;; arity their call protocol declares last; on the JVM that
+         ;; trailing slot is an `Object[]`.
+         [(meth (concat (args 20)
+                        [(if cljs? '_rest (with-meta '_rest {:tag 'objects}))]))]
+         ;; The JVM's `IFn` additionally declares `applyTo`, which is what
+         ;; `apply` reaches — and how a Reagent tree calls a component.
+         (when-not cljs?
+           [(list 'applyTo [this '_args] body)])))))
+
+(def-view-descriptor)
 
 #?(:clj
    (defmethod print-method ViewDescriptor [d ^java.io.Writer w]
@@ -131,11 +207,12 @@
   "The declared view's PRIVATE render body — the one-argument fn
   `v/defview` built from the declaration's parameter vector and body.
 
-  Deliberately NOT projected by [[describe]]: an emitter runs a declared
-  view by calling this, and nothing else does. A view is mounted, and
-  mounting is what an emitter performs; an application that reached the
-  body directly would be calling a view, which is the one thing the
-  non-`IFn` descriptor exists to prevent."
+  Deliberately NOT projected by [[describe]], and deliberately not on the
+  public surface: an emitter runs a declared view by calling this, and
+  nothing else does. A view is mounted, and mounting is what an emitter
+  performs; an application that reached the body directly would be
+  calling a view, which is the one thing the declaration boundary exists
+  to prevent."
   [view]
   (:render (.-entry ^ViewDescriptor view)))
 

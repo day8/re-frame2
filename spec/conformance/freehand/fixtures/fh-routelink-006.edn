@@ -43,12 +43,14 @@
    :vector   [:a {:target "_blank" :href "/cart"}]}]
 
  ;; The descriptor itself is host-neutral: same id, same lowering, same
- ;; children policy, and a non-IFn value on both hosts. A framework view
- ;; is an ordinary declared view, and this is where that stops being a
- ;; claim about intent.
+ ;; children policy, and the same answers to the same predicates on both
+ ;; hosts. A framework view is an ordinary declared view, and this is
+ ;; where that stops being a claim about intent — including `ifn?`, which
+ ;; is true for EVERY declared view because the descriptor implements the
+ ;; host call protocol solely in order to throw (FH-CALL-001).
  :descriptor
  {:view-id         :re-frame.freehand/route-link
   :lowering        :interpreted
   :children-policy :optional
   :view?           true
-  :ifn?            false}}
+  :ifn?            true}}

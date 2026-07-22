@@ -989,9 +989,10 @@ The view exposes three behavioural seams: passthrough attributes (`:class`, `:ti
 #### The Freehand route-link descriptor
 
 `v/route-link` is the view-substrate spelling of the law above. It is **ordinary
-framework view code** — a `v/defview` holding the same non-`IFn` descriptor an
-application view holds, taking the same one props map, lowered by the same
-emitters. There is no route-link intrinsic, and there is no second routing
+framework view code** — a `v/defview` holding the same descriptor an application
+view holds (uncallable in the same way, per
+[004 §A declared view cannot be called](004-Views.md#a-declared-view-cannot-be-called)),
+taking the same one props map, lowered by the same emitters. There is no route-link intrinsic, and there is no second routing
 contract: this section is the whole of what the view adds, and everything it
 does with a URL or a click is the routing law already stated above.
 
