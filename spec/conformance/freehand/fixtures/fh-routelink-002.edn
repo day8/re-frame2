@@ -1,0 +1,85 @@
+;; FH-ROUTELINK-002 — native browser behaviour is not intercepted.
+;;
+;; This is the failure mode every hand-rolled link has, and it is
+;; invisible in a structural test: the anchor renders, the plain click
+;; works, and the bug only shows when a user cmd-clicks to open a page in
+;; a background tab and gets a same-tab navigation instead. So the matrix
+;; below is asserted with REAL MouseEvents dispatched at a REAL anchor in
+;; a REAL browser — one case per way a click can be non-plain.
+;;
+;; The observable is `defaultPrevented` immediately after the framework's
+;; own handler has run. The framework intercepts by calling
+;; `preventDefault` and dispatching; so `:intercepted? false` means the
+;; browser's default action was left intact, which is exactly "native
+;; behaviour survives". The paired `:dispatched?` pins the other half —
+;; a non-intercepted click also produces NO routing dispatch.
+{:fh/id "FH-ROUTELINK-002"
+ :fh/law
+ "A modifier click, an auxiliary-button click, a :download anchor and a non-_self :target are NOT intercepted: the framework leaves the default action intact and dispatches nothing, so the browser's native anchor behaviour stands."
+
+ :routes {:fh.route/cart "/cart"}
+
+ ;; Each case: the anchor's props, the real MouseEvent's init, and the
+ ;; two-part verdict. `:event` keys are passed straight to the MouseEvent
+ ;; constructor.
+ :cases
+ [{:why          "the positive control — a plain primary-button click IS the framework's to intercept"
+   :props        {:to :fh.route/cart}
+   :event        {:button 0}
+   :intercepted? true
+   :dispatched?  true}
+
+  {:why          "cmd-click (macOS open-in-new-tab)"
+   :props        {:to :fh.route/cart}
+   :event        {:button 0 :metaKey true}
+   :intercepted? false
+   :dispatched?  false}
+
+  {:why          "ctrl-click (Windows/Linux open-in-new-tab)"
+   :props        {:to :fh.route/cart}
+   :event        {:button 0 :ctrlKey true}
+   :intercepted? false
+   :dispatched?  false}
+
+  {:why          "shift-click (open in a new window)"
+   :props        {:to :fh.route/cart}
+   :event        {:button 0 :shiftKey true}
+   :intercepted? false
+   :dispatched?  false}
+
+  {:why          "alt-click (download the target in most browsers)"
+   :props        {:to :fh.route/cart}
+   :event        {:button 0 :altKey true}
+   :intercepted? false
+   :dispatched?  false}
+
+  {:why          "middle-click (open in a background tab)"
+   :props        {:to :fh.route/cart}
+   :event        {:button 1}
+   :intercepted? false
+   :dispatched?  false}
+
+  {:why          "a download anchor — the browser must save the resource"
+   :props        {:to :fh.route/cart :download "cart.csv"}
+   :event        {:button 0}
+   :intercepted? false
+   :dispatched?  false}
+
+  {:why          "target=_blank — the user expects a new tab"
+   :props        {:to :fh.route/cart :target "_blank"}
+   :event        {:button 0}
+   :intercepted? false
+   :dispatched?  false}
+
+  {:why          "target=_self is the default same-document target and stays interceptable"
+   :props        {:to :fh.route/cart :target "_self"}
+   :event        {:button 0}
+   :intercepted? true
+   :dispatched?  true}]
+
+ ;; The native-handling attributes reach the DOM verbatim, so the browser
+ ;; can act on them — an anchor the framework declines to intercept but
+ ;; whose attribute never rendered would be dead, not native.
+ :native-attrs
+ [{:props {:to :fh.route/cart :target "_blank"}   :attr "target"   :value "_blank"}
+  {:props {:to :fh.route/cart :download "cart.csv"} :attr "download" :value "cart.csv"}]}

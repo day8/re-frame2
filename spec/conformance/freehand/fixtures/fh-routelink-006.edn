@@ -1,0 +1,54 @@
+;; FH-ROUTELINK-006 — one render, the same anchor everywhere.
+;;
+;; Parity here is not a promise kept by discipline; it is a property of
+;; the shape. There is ONE render, written once as common code, and its
+;; only host-conditional line attaches the click closure the JVM has
+;; nothing to attach it to. So the anchor a declaration produces is
+;; identical on the JVM and in ClojureScript once that one key is set
+;; aside — and this fixture is asserted from both hosts, against these
+;; same bytes, so "identical" is measured rather than asserted.
+;;
+;; SCOPE, stated honestly: this pins the HOST axis. The MODE axis —
+;; interpreted versus compiled — cannot be executed until the compiled
+;; tier exists; the row's applicability claims `common` on the same
+;; grounds every other Freehand row does, namely that the declaration
+;; carries no mode-specific code for a compiler to diverge on.
+{:fh/id "FH-ROUTELINK-006"
+ :fh/law
+ "One common render produces the identical anchor on the JVM and in ClojureScript; the only host divergence is the click closure, which the JVM shell omits."
+
+ :routes
+ {:fh.route/cart    "/cart"
+  :fh.route/article "/articles/:slug"}
+
+ ;; Each case is rendered on whichever host is running the suite; the
+ ;; expected value below is the host-neutral projection (the attrs map
+ ;; minus the one host-conditional key) and is therefore the SAME
+ ;; expectation on both hosts. Two hosts agreeing with one written
+ ;; expectation is the parity claim.
+ :host-conditional-keys [:on-click]
+
+ :cases
+ [{:why      "a plain route with passthrough attributes"
+   :props    {:to :fh.route/cart :class "nav" :aria-label "Cart"}
+   :children []
+   :vector   [:a {:class "nav" :aria-label "Cart" :href "/cart"}]}
+  {:why      "params, query and children"
+   :props    {:to :fh.route/article :params {:slug "the-intro"} :query {:tab "notes"}}
+   :children ["Read the intro"]
+   :vector   [:a {:href "/articles/the-intro?tab=notes"} "Read the intro"]}
+  {:why      "a native anchor renders its native attribute on both hosts"
+   :props    {:to :fh.route/cart :target "_blank"}
+   :children []
+   :vector   [:a {:target "_blank" :href "/cart"}]}]
+
+ ;; The descriptor itself is host-neutral: same id, same lowering, same
+ ;; children policy, and a non-IFn value on both hosts. A framework view
+ ;; is an ordinary declared view, and this is where that stops being a
+ ;; claim about intent.
+ :descriptor
+ {:view-id         :re-frame.freehand/route-link
+  :lowering        :interpreted
+  :children-policy :optional
+  :view?           true
+  :ifn?            false}}
