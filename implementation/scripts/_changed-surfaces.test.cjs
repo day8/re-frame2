@@ -2148,6 +2148,111 @@ test('the standalone freehand-artefact workflow is gone (one owner, not two) (rf
   );
 });
 
+// ---------------------------------------------------------------------------
+// rf2-3mh2f — the .beads PR-boundary guard's CI arm.
+//
+// The classifier, the pre-commit hook and scripts/check-beads-pr-boundary.sh
+// all shipped together, but `.github/workflows/**` was fenced, so enforcement
+// was LOCAL-HOOK-ONLY: bypassable with `--no-verify`, inert wherever hooks
+// were never installed. These tests hold the wiring in place.
+//
+// The guard's own behaviour — classification, remedy text, branch-point
+// selection on diverged history, the mayor no-op — lives in
+// scripts/git-hooks/test-pre-commit.sh, which this job self-tests before it
+// enforces. Not duplicated here.
+// ---------------------------------------------------------------------------
+
+test('beads-pr-boundary self-tests the guard, then enforces it (rf2-3mh2f)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'beads-pr-boundary');
+  assert.match(
+    block,
+    /sh scripts\/git-hooks\/test-pre-commit\.sh/,
+    'the guard must be self-tested in CI — its harness runs nowhere else',
+  );
+  assert.match(block, /sh scripts\/check-beads-pr-boundary\.sh/);
+  // rf2-5z20y — the guard diffs from the branch point; a shallow clone
+  // frequently lacks the fork commit, and the guard then fails closed.
+  assert.match(block, /fetch-depth: 0/);
+});
+
+test('beads-pr-boundary is UNCONDITIONAL — no surface gate, no path filter (rf2-3mh2f)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'beads-pr-boundary');
+  assert.doesNotMatch(
+    block,
+    /^\s+needs:/m,
+    'the tracker database has no business in ANY PR — this job must not be surface-gated',
+  );
+  assert.doesNotMatch(
+    block,
+    /^\s{4}if:/m,
+    'a job-level `if:` would let a PR class opt out of the guard',
+  );
+});
+
+test('beads-pr-boundary passes the BASE BRANCH, not a precomputed base (rf2-3mh2f)', () => {
+  // rf2-5z20y put branch-point resolution inside the script so the local
+  // pre-flight gets the same correction. This asserts the caller does not
+  // undo that by precomputing a base here — and never reaches for
+  // `base.sha`, which goes stale as soon as main advances under an open PR.
+  // The mayor checkpoints the tracker to main constantly, so either mistake
+  // reds branches for a file they never edited.
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'beads-pr-boundary');
+  assert.match(
+    block,
+    /check-beads-pr-boundary\.sh "origin\/\$\{GITHUB_BASE_REF\}"/,
+  );
+  // The comment in the job explains why base.sha is wrong, so assert on the
+  // EXPRESSION form — using it, not naming it, is what would break.
+  assert.doesNotMatch(block, /\$\{\{[^}]*base\.sha/);
+  assert.doesNotMatch(
+    block,
+    /^\s*base="\$\(git merge-base/m,
+    'the script owns branch-point resolution (rf2-5z20y) — one home for the rule',
+  );
+});
+
+test('beads-pr-boundary leaves the MAYOR checkpoint flow alone (rf2-3mh2f)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+
+  // Belt: a beads-only push to main runs no job in this workflow at all.
+  const onBlock = workflow.slice(0, workflow.indexOf('\njobs:'));
+  assert.match(
+    onBlock,
+    /paths-ignore:[\s\S]*?- '\.beads\/\*\*'/,
+    "test.yml's push trigger must keep ignoring .beads/** — that IS the mayor checkpoint",
+  );
+
+  // Braces: on any push that DOES reach the job, enforcement is skipped by
+  // the script's event branch, not by anything this workflow decides.
+  const block = jobBlock(workflow, 'beads-pr-boundary');
+  assert.match(block, /GITHUB_EVENT_NAME.*!=.*"pull_request"/);
+});
+
+test('all-required-passed aggregator needs beads-pr-boundary (rf2-3mh2f)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
+  assert.match(
+    block,
+    /- beads-pr-boundary\r?\n/,
+    'aggregator must list beads-pr-boundary in needs: — otherwise the guard is advisory',
+  );
+});
+
+test('check-beads-pr-boundary.sh is committed executable (rf2-3mh2f)', () => {
+  // Same failure mode as install-clojure-cli.sh above: Windows git hides the
+  // mode, the ubuntu runner invokes it and exits 126. It is invoked via
+  // `sh <path>` today, but the mode is the contract — keep it asserted.
+  const mode = execFileSync(
+    'git',
+    ['ls-files', '-s', '--', 'scripts/check-beads-pr-boundary.sh'],
+    { cwd: REPO_ROOT, encoding: 'utf8' },
+  ).trim();
+  assert.match(
+    mode,
+    /^100755\s/,
+    `check-beads-pr-boundary.sh must be committed 100755, got: ${mode}`,
+  );
+});
+
 let failed = 0;
 for (const { name, fn } of tests) {
   try {
