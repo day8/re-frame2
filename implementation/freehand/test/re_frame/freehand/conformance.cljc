@@ -80,6 +80,27 @@
            (recur (.getParentFile dir)))))))
 
 #?(:clj
+   (def ^:private slurp-resource
+     "shadow-cljs's recording classpath reader, resolved ONCE.
+
+     Resolved rather than required: shadow-cljs is on the classpath of the
+     ClojureScript lane and of no other, so naming it in this namespace's
+     `:require` would make the JVM suite — which needs none of it —
+     unloadable without it.
+
+     Resolved once because resolving it per call races. `requiring-resolve`
+     tries `resolve` BEFORE it takes the require lock, and Clojure interns
+     a Var when it ANALYSES a `def` and binds its root only when it
+     EVALUATES it, so there is a window in which `shadow.resource` exists
+     and `slurp-resource` is interned but has no value. shadow-cljs
+     macroexpands namespaces in PARALLEL, and nine suites reach [[fixture]]
+     in the same wave: the second one into that window resolves the
+     unbound var and calls it, failing the compile on thread scheduling
+     rather than on anything in the tree. A `delay` closes the window —
+     one thread performs the resolution, every other waits on its result."
+     (delay (requiring-resolve 'shadow.resource/slurp-resource))))
+
+#?(:clj
    (defn ^:private slurp-fixture
      "Return the text of the fixture at `path`.
 
@@ -90,7 +111,7 @@
      invalidate, and the file is read from the tree directly."
      [env path]
      (if (:ns env)
-       ((requiring-resolve 'shadow.resource/slurp-resource) env path)
+       (@slurp-resource env path)
        (slurp (fixture-file path)))))
 
 #?(:clj
