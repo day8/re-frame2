@@ -510,18 +510,26 @@
       [v/route-link {:to :article :params {:slug slug} :class \"title\"}
        title]
 
-  `:to` is required (a registered route id). `:params` / `:query` /
-  `:fragment` feed both the href and the dispatch payload. Every OTHER
-  key — `:class`, `:title`, `:id`, `:aria-label`, `:target`, `:download`,
-  `:on-click`, and any further HTML attribute — passes through to the
-  `<a>`.
+  The control keys are `:to` / `:params` / `:query` / `:fragment` and
+  `:on-click`. `:to` is required (a registered route id); `:params` /
+  `:query` / `:fragment` feed both the href and the dispatch payload.
+  Every OTHER key — `:class`, `:title`, `:id`, `:aria-label`, `:target`,
+  `:download`, and any further HTML attribute — passes through to the
+  `<a>` untouched.
 
-  A caller `:on-click` runs FIRST and may veto. If it prevents the
-  default — or the anchor is native (`:target` other than `_self`, or
-  `:download`), or the click is a modifier / middle / auxiliary-button
-  click — the framework does NOT intercept and the browser's own `href`
-  behaviour stands. That deferral is the whole reason to use this view
-  rather than hand-rolling one.
+  `:on-click` is the imperative PRE-NAVIGATION seam, not a second intent
+  site: it takes a plain function or a [[handler]], runs FIRST, exactly
+  once, and may veto. If it prevents the default — or the anchor is
+  native (`:target` other than `_self`, or `:download`), or the click is a
+  modifier / middle / auxiliary-button click — the framework does NOT
+  intercept and the browser's own `href` behaviour stands. That deferral
+  is the whole reason to use this view rather than hand-rolling one.
+
+  An event vector, an event options map or a [[event]] at `:on-click` is
+  REJECTED at render, naming the recovery. The click already produces the
+  one routing intent, so an application reaction belongs behind that
+  routing event or its transition; `.preventDefault`, a confirm dialog or
+  an analytics ping is what [[handler]] is for.
 
   Rendering it without `day8/re-frame2-routing` on the classpath fails
   loud with `:rf.error/routing-artefact-missing` rather than emitting a

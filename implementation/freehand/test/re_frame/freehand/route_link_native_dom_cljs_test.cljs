@@ -1,6 +1,6 @@
 (ns re-frame.freehand.route-link-native-dom-cljs-test
-  "FH-ROUTELINK-001 (browser half), -002 and -003 — the real-browser
-  contract of `v/route-link`.
+  "FH-ROUTELINK-001 (browser half), -002, -003 and the browser half of
+  -007 — the real-browser contract of `v/route-link`.
 
   This file exists because the failure it guards against is INVISIBLE to
   a structural test. A hand-rolled link renders, and its plain click
@@ -255,3 +255,71 @@
                 (is (= dispatched? (:dispatched? verdict))
                     (str why " — routing dispatch "
                          (if dispatched? "made" "not made")))))))))))
+
+;; ---------------------------------------------------------------------------
+;; FH-ROUTELINK-007 — both accepted forms run once, and both can veto
+;; ---------------------------------------------------------------------------
+
+(def routelink-007 (conf/fixture :FH-ROUTELINK-007))
+
+(defn- accepted-on-click
+  "Build the fixture's named accepted `:on-click` form over one body.
+  EDN names a form; only code can carry a function or a declared
+  callback."
+  [form body]
+  (case form
+    :bare-fn   (fn [e] (body e))
+    :v-handler (v/handler [e] (body e))))
+
+(deftest fh-routelink-007-both-accepted-forms-veto-in-a-real-browser
+  (testing "Per FH-ROUTELINK-007, against real MouseEvents: the two
+            accepted spellings of the pre-navigation seam behave
+            identically. Each runs EXACTLY ONCE, before the framework has
+            decided anything, and each can stop the navigation with
+            `.preventDefault`. The `v/handler` arm is the one that would
+            silently break: a roster callback is deliberately not `IFn`,
+            so nothing could have called it unless the boundary unwrapped
+            it first."
+    (if-not (browser?)
+      (is true "no DOM under the node builds — the :browser-test runner exercises this")
+      (do
+        (setup! (:routes routelink-007))
+        (with-anchor-host
+          (fn [host]
+            (doseq [{form :form accepted-why :why} (:accepted routelink-007)
+                    {:keys [why veto? caller-runs dispatched?]} (:veto-cases routelink-007)]
+              (let [runs      (atom 0)
+                    prevented (atom nil)
+                    on-click  (accepted-on-click
+                                form
+                                (fn [e]
+                                  (swap! runs inc)
+                                  (reset! prevented (.-defaultPrevented e))
+                                  (when veto? (.preventDefault e))))
+                    a         (mount-anchor! host (render (assoc (:props routelink-007)
+                                                                 :on-click on-click)))
+                    verdict   (click! a {:button 0})
+                    label     (str accepted-why " / " why)]
+                (is (= caller-runs @runs) (str label " — the caller ran exactly once"))
+                (is (false? @prevented)
+                    (str label " — and ran BEFORE the framework's decision"))
+                (is (= dispatched? (:dispatched? verdict))
+                    (str label " — routing dispatch "
+                         (if dispatched? "made" "not made")))))))))))
+
+(deftest fh-routelink-007-a-non-vetoing-caller-is-unaffected
+  (testing "Per FH-ROUTELINK-007: the control. A link with NO `:on-click`
+            navigates exactly as it did before this contract existed —
+            the narrowing applies to a prop, not to the view."
+    (if-not (browser?)
+      (is true "no DOM under the node builds — the :browser-test runner exercises this")
+      (do
+        (setup! (:routes routelink-007))
+        (with-anchor-host
+          (fn [host]
+            (let [{:keys [why dispatched?]} (:absent routelink-007)
+                  a       (mount-anchor! host (render (:props routelink-007)))
+                  verdict (click! a {:button 0})]
+              (is (= dispatched? (:dispatched? verdict)) why)
+              (is (true? (:intercepted? verdict))
+                  (str why " — and the framework still intercepts")))))))))

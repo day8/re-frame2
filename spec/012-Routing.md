@@ -1001,11 +1001,13 @@ does with a URL or a click is the routing law already stated above.
  title]
 ```
 
-**`:to` is required**; `:params` / `:query` / `:fragment` feed both the href and
-the dispatch payload. Every other key is an HTML attribute and reaches the `<a>`
-untouched, so `:class`, `:title`, `:aria-label`, `:target` and `:download` work
-without the view enumerating the attribute space. The framework-owned `:href`
-wins over a caller-supplied one; no route key ever leaks onto the element.
+The view's control keys are `:to` / `:params` / `:query` / `:fragment` and
+`:on-click`. **`:to` is required**; `:params` / `:query` / `:fragment` feed both
+the href and the dispatch payload. Every other key is an HTML attribute and
+reaches the `<a>` untouched, so `:class`, `:title`, `:aria-label`, `:target` and
+`:download` work without the view enumerating the attribute space. The
+framework-owned `:href` wins over a caller-supplied one; no route key ever leaks
+onto the element.
 
 **The anchor is real.** The rendered element is an `<a>` carrying the route's
 strategy-encoded href, because everything a link is expected to do outside a
@@ -1028,8 +1030,28 @@ whether a link feels native, and it is not one an application should have to
 re-derive per link — which is the reason the framework supplies this view at all.
 
 **A caller `:on-click` runs first and may veto.** It is invoked before the
-navigation decision, sees an event nothing has prevented yet, and if it prevents
-the default the framework stands down and the caller owns the outcome.
+navigation decision, exactly once, sees an event nothing has prevented yet, and
+if it prevents the default the framework stands down and the caller owns the
+outcome.
+
+**`:on-click` is the imperative pre-navigation seam, and its accepted grammar is
+closed.** A plain function, a `v/handler`, or nothing — and anything else is
+rejected AT RENDER with `:rf.error/view-bad-event` and the recovery
+`:use-a-plain-fn-or-v-handler`. The narrowing is the contract, not an omission.
+Freehand teaches `:on-click [:app/event …]` as ordinary intent data everywhere
+else, so the reason it cannot mean that here has to be stated rather than
+discovered: a route click already produces the ONE routing intent
+(`:rf.route/url-requested`) and everything that follows from it, so a second
+intent site on the same click would be one user action yielding two semantic
+events. An application reaction belongs behind the routing event or its
+transition. What is genuinely needed here is the other thing — imperative work
+that runs before the decision and can stop it (`.preventDefault`, a confirm
+dialog, an analytics ping) — which is exactly `v/handler`'s declared role, and a
+bare function is its unceremonious spelling. A `v/handler` is unwrapped to the
+function it carries before routing sees it: a roster callback is deliberately
+not `IFn`, so fencing without translating would have left the declared
+imperative form as the one thing that did not work here. The check runs on both
+hosts, so a form the browser would misuse is refused by the server render too.
 
 **The server shell is the same anchor without the handler.** The JVM render
 emits the path-form href and no click handler — a serialized document has no
