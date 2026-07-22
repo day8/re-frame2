@@ -27,10 +27,14 @@
 > **Where the compile tier lives.** The analyzer, the React emitter, the JVM
 > emitter and the host-neutral normalizers they share are **owned by Freehand**
 > and live in the Freehand artifact: `re-frame.freehand.compiler` and its
-> `analyze` / `emit-cljs` / `emit-jvm` / `env` / `header` / `binding-plan` /
-> `a11y` / `build` / `build-hook` / `harvest` / `root` namespaces, over
-> `re-frame.freehand.rules`, `re-frame.freehand.fingerprint` and
-> `re-frame.freehand.eq`. The two emitters remain **separate implementations**
+> `analyze` / `emit-cljs` / `emit-jvm` / `env` / `grammar` / `header` /
+> `binding-plan` / `a11y` / `build` / `build-hook` / `harvest` / `root`
+> namespaces, over `re-frame.freehand.rules`, `re-frame.freehand.fingerprint`
+> and `re-frame.freehand.eq`. `grammar` owns the version keyword, the admitted
+> node-kind roster and the recovery roster; `re-frame.freehand.node` — which
+> sits below the public door, not inside the compiler — owns the canonical
+> structural builders BOTH modes construct nodes through.
+> The two emitters remain **separate implementations**
 > over one normalized AST: sharing a normalizer is not sharing an emitter, and
 > neither consumes the other's output. The donor artifact keeps its own frozen
 > copy of that code only so it still builds while the two coexist — that copy is
@@ -73,6 +77,129 @@ The CLJS reference realisation is `re-frame.ui`; its forms (`defview`, `sub`, `f
 `local`, `effect`, and the `ui/*` interop surface) are ordinary namespace vars —
 `(:require [re-frame.ui :as ui :refer [defview sub]])` — referred bare in examples below
 for readability.
+
+## Selecting the compiled tier — `{:compiled true}`
+
+A declaration enters the compiled tier by adding one option to the `v/defview`
+it already uses:
+
+```clojure
+(v/defview todo-row
+  {:compiled true}
+  [{:keys [text done?]}]
+  [:li.row {:class {:done done?}} text])
+```
+
+There is no second declaration form, no second registry, and no second call
+spelling. The marker selects the **versioned grammar** `:re-frame.freehand/v1`
+for that declaration and nothing else; the descriptor, the view id, the source
+coordinates, the children policy, the props contract and the structural node a
+boundary produces are the ones [004](004-Views.md) already owns, and the
+compiled tier reuses them rather than restating them.
+
+### The promotion law
+
+**Promotion is a one-line change to the declaration. It changes no call site,
+no test, and no structural output.**
+
+Mounting is `[todo-row {…}]` before and after. A caller cannot tell which mode a
+view it mounts was declared in, and must not be able to: a compiled view mounts
+interpreted children and an interpreted view mounts compiled ones, both through
+the ordinary named-descriptor boundary, because promotion is **per declaration
+and not transitive**. Demotion is the same change in reverse — deleting the
+marker is always available, and is the last rung of every rejection's recovery
+ladder.
+
+That the structural output is unchanged is a property of construction rather
+than of agreement. The two modes do not each own a canonical form and agree
+about it; they **share** one. The interpreted walk decides what a FORM denotes
+and hands the resulting values to the canonical builders; a compiled body
+resolves its structure at build time and hands its values to the same builders.
+Only the front end differs, so there is no second normalization to drift.
+
+What promotion DOES change is the language the body is written in. Compilation
+is **explicit** (EP-0036 governing law 6): the compiler never silently declines
+a body it cannot lower, because an author would then have no way to know which
+of their views is paying for the analysis and which is quietly not.
+
+### The finite grammar and its rejections
+
+`:re-frame.freehand/v1` admits a **closed roster** of lowered node kinds. A
+version keyword is not decoration — it is the promise that the roster does not
+grow under a running codebase. It grows by ruling, in a new version.
+
+A body outside the roster is a **build failure**, never a demotion, carrying:
+
+| Field | Contract |
+|---|---|
+| the diagnostic id | stable, and the sole machine discriminator |
+| the grammar | the version keyword that refused the form |
+| the recovery ladder | a non-empty ordered vector of names from a **closed** recovery roster, most specific first |
+| the message | a human sentence naming the form, the reason, and the escape |
+
+The recovery roster is closed so a diagnostic cannot invent advice, and every
+ladder ends in **`:keep-interpreted`**. That rung is always present and always
+correct: the interpreted mode has no finite grammar, so every body the compiler
+refuses is a body the interpreter accepts. The ladder's earlier rungs are the
+ones worth taking — make the structure lexically visible, pass a computed value
+into visible structure, extract a declared child view (which may itself stay
+interpreted) — and the last rung is what stops a refusal from being a dead end.
+
+### No interpreted fallback inside compiled markup
+
+Per [D010](../docs/design/freehand/decisions/D010-compiled-dynamic-markup-crossing.md),
+there is no dynamic-markup valve in v1, no `v/interp`, and no automatic fallback
+for a child expression whose value turns out to be markup. A compiled template
+that could hand an unrecognised value to an interpreter would make everything
+the compiled tier claims about a view — its manifest, its subscription
+ownership, its capability elision, its static diagnostics — conditional on
+values the analyzer never saw.
+
+The rule is enforced structurally rather than defensively, at three levels:
+
+1. **The value.** A compiled declaration carries no interpreted body at all.
+   The two lowerings are exclusive: there is nothing to fall back *to*.
+2. **The emitted lowering.** Every node kind outside the roster is refused
+   before emission, so the emitter has no unknown-node arm — there is nowhere
+   for a fallback to live.
+3. **The runtime.** The canonical children builder takes its markup walker as a
+   parameter, and compiled code passes none. A runtime value that IS a hiccup
+   vector is therefore refused inside compiled markup, by name, naming the same
+   recovery ladder. The claim is not that an interpreter is absent from the
+   build; it is that a compiled template cannot **reach** one.
+
+### Evidence for the absence
+
+An absence is only as good as the instrument that looked for it, so the
+instrument is named and its discrimination is proven before it is trusted.
+
+A production-bundle text search is **not** an acceptable oracle for this claim
+and must not be used as one. Two failures have been measured in this repository:
+identifier text survives into release builds inside docstrings, and the Closure
+compiler inlines small functions, so a symbol can be absent while its code is
+present. Either mistake turns a zero count into a false negative that reads like
+evidence.
+
+The oracle is instead the **emitted lowering as data**, walked symbol by symbol
+at build time — where nothing has been inlined, minified or renamed — plus the
+runtime refusal above. A suite asserting the absence MUST first demonstrate, in
+the same configuration, that the same walk finds a known-present symbol, reports
+a known-absent one as absent, and flags a counterfactual lowering that does name
+an interpretation entry point.
+
+### The lowerings a compiled declaration carries
+
+The compiled tier has the same two emitters the substrate has, over one analyzed
+template: a **structural** lowering, which builds the versioned structural tree
+and is host-neutral, and a **React** lowering, which generates direct
+`jsx`/`jsxs` calls for the browser. They are separate implementations over one
+normalized AST; neither consumes the other's output.
+
+Cross-host parity of a compiled view is asserted the way the interpreted
+corpus's is: one conformance fixture value, the same declaration, both hosts.
+Because the structural lowering is host-neutral, a compiled declaration answers
+the same structural tree on the JVM and in ClojureScript, and that tree is the
+one its interpreted twin is pinned to.
 
 ## The portability law and the template AST
 
