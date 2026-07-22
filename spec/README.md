@@ -65,7 +65,7 @@ External canonical homes (per §[Canonical homes outside `/spec`](#canonical-hom
 
 | # | Title | One-liner |
 |---|---|---|
-| 004 | [Views](004-Views.md) | Pattern view contract: pure `(state, props) → render-tree`. CLJS reference: `reg-view` with frame-bound `dispatch`/`subscribe`; Form-1 canonical; Form-2/3 escape hatches. SSR-renderable per [011](011-SSR.md). |
+| 004 | [Views](004-Views.md) | The common **Freehand** view contract — declaration, authoring, semantics, and the host boundary, shared by the interpreted and compiled execution modes. Companion documents: [004B](004B-UI-Tree-and-Conversion.md) (the semantic tree ABI + DOM conversion table), [004C](004C-Roots-and-Mount.md) (root identity and mount), [004D](004D-Freehand-Compiled-Grammar.md) (the compiled-tier grammar). SSR-renderable per [011](011-SSR.md). |
 | 005 | [State Machines](005-StateMachines.md) | Transition-table grammar layered on 002's machines-as-event-handlers hooks. |
 | 006 | [Reactive Substrate](006-ReactiveSubstrate.md) | Substrate-agnostic core + adapter contract. Reagent default; plain-atom for JVM/SSR/headless. |
 | 007 | [Stories, Variants, and Workspaces](007-Stories.md) | Storybook/Histoire/devcards-class tooling. Story / Variant / Workspace split. Builds on 008. |

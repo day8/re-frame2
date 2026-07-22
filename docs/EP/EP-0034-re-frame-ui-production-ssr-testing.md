@@ -353,7 +353,7 @@ promise. Spec 008's adapter-era testing surface (`flush-views!`,
 ## Resolved Decisions
 
 - **Head ownership
-  ([004 §The document head is host-owned](../../spec/004-Views.md#the-document-head-is-host-owned)).**
+  ([004D §The document head is host-owned](../../spec/004D-Freehand-Compiled-Grammar.md#the-document-head-is-host-owned)).**
   re-frame2's existing head model is the one owner of document-head output;
   substrate views never hoist metadata through React's head/resource
   mechanisms, and a foreign head is an explicit interop boundary. S4 hardened

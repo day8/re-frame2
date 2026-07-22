@@ -230,8 +230,8 @@ The discipline: **the body of an `:on-click`-style closure is a single dispatch 
 
 #### Reagent Form-2 outer-fn setup — *discouraged*
 
-Discouraged because it violates "low hidden context": the outer-fn fires once per mount with no indication at the call site that mounting has a side-effect. Use Form-1 + an explicit setup event instead. See [004-Views.md §Form-1, Form-2, Form-3 components](004-Views.md#removed-forms--normative-absences).
+Discouraged because it violates "low hidden context": the outer-fn fires once per mount with no indication at the call site that mounting has a side-effect. Use Form-1 + an explicit setup event instead. See [004D-Freehand-Compiled-Grammar.md §Form-1, Form-2, Form-3 components](004D-Freehand-Compiled-Grammar.md#removed-forms--normative-absences).
 
 #### Hiccup positional-args convention — *retained, formalised in 004*
 
-The convention is positional: tag first, optional attrs map second, children after. Formalised at the pattern level by [004-Views.md §The render-tree shape](004-Views.md#template-grammar). The shape is `[tag attrs? & children]` for any host's render-tree.
+The convention is positional: tag first, optional attrs map second, children after. Formalised at the pattern level by [004D-Freehand-Compiled-Grammar.md §The render-tree shape](004D-Freehand-Compiled-Grammar.md#template-grammar). The shape is `[tag attrs? & children]` for any host's render-tree.

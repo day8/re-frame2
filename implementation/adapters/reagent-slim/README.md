@@ -22,7 +22,7 @@ Most views are Form-1 / Form-2; the canonical surface is `reg-view`. A small fra
 - **Error boundaries** — `componentDidCatch` is React's class-component-only contract; the slim adapter's 7-key cap permits it precisely because no Form-1 substitute exists.
 - **Pre-commit DOM measurement** — scroll-position restoration via `:get-snapshot-before-update`.
 
-The escape hatch is **Form-3 via `reagent2.core/create-class`** (the slim equivalent of full Reagent's `reagent.core/create-class`), registered through `re-frame.core/reg-view*` per [Spec 004 §Form-3](../../../spec/004-Views.md#removed-forms--normative-absences).
+The escape hatch is **Form-3 via `reagent2.core/create-class`** (the slim equivalent of full Reagent's `reagent.core/create-class`), registered through `re-frame.core/reg-view*` per [Spec 004D §Form-3](../../../spec/004D-Freehand-Compiled-Grammar.md#removed-forms--normative-absences).
 
 ### Spelling
 
@@ -81,7 +81,7 @@ Four things matter (same as full Reagent — the slim adapter's lifecycle semant
 - [`FORM-3.md`](FORM-3.md) — the 7-key cap, all worked examples (library bridge, error boundary, scroll restoration), and migration recipes for out-of-cap keys.
 - [`DESIGN-RATIONALE.md` §4 The 7-key Form-3 cap](DESIGN-RATIONALE.md) — why the cap is what it is (empirical, not aspirational).
 - [`IMPL-SPEC.md` §6](IMPL-SPEC.md) — the implementation contract: validation throw shape, React-class wrapper, lifecycle key → method mapping.
-- [Spec 004 §Form-3 (class — out of scope for the macro)](../../../spec/004-Views.md#removed-forms--normative-absences) — why Form-3 ships through `reg-view*` rather than the macro.
-- [Spec 004 §Views MUST NOT attach native DOM event listeners from render bodies](../../../spec/004-Views.md#effects--the-view-side-surface) and [§Views MUST NOT own imperative library lifecycles directly](../../../spec/004-Views.md#effects--the-view-side-surface) — bare `addEventListener` in a render body leaks listeners, and any dispatch the listener later fires escapes the render's frame scope: under EP-0002 that raises `:rf.error/no-frame-context` — a loud error, not a silent route to `:rf/default`. Repair it by carrying the frame into the listener via `(:dispatch (rf/capture-frame))` captured at render, or by wrapping the fire in `(rf/with-frame …)`; either way the imperative lifecycle belongs in Form-3.
+- [Spec 004D §Form-3 (class — out of scope for the macro)](../../../spec/004D-Freehand-Compiled-Grammar.md#removed-forms--normative-absences) — why Form-3 ships through `reg-view*` rather than the macro.
+- [Spec 004D §Views MUST NOT attach native DOM event listeners from render bodies](../../../spec/004D-Freehand-Compiled-Grammar.md#effects--the-view-side-surface) and [§Views MUST NOT own imperative library lifecycles directly](../../../spec/004D-Freehand-Compiled-Grammar.md#effects--the-view-side-surface) — bare `addEventListener` in a render body leaks listeners, and any dispatch the listener later fires escapes the render's frame scope: under EP-0002 that raises `:rf.error/no-frame-context` — a loud error, not a silent route to `:rf/default`. Repair it by carrying the frame into the listener via `(:dispatch (rf/capture-frame))` captured at render, or by wrapping the fire in `(rf/with-frame …)`; either way the imperative lifecycle belongs in Form-3.
 - [Spec 002 §Dispatches issued from inside a handler body](../../../spec/002-Frames.md#dispatches-issued-from-inside-a-handler-body) — async callbacks escape the dynamic frame binding; capture `(:dispatch (rf/capture-frame))` at render-time to carry the frame.
 - **Outer/inner Pattern (Pattern-OuterInner)** — the canonical home for wrapping stateful JS components (D3, Mapbox, animation libraries).

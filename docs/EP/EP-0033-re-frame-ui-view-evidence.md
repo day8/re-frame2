@@ -15,7 +15,7 @@ reconstructed** — no Fiber walking, no DOM scraping, no cloneElement tagging.
 One versioned evidence schema is shared by Xray, Story, Pair, compiler
 diagnostics, and tests; production builds contain none of it, provably.
 
-The primary normative home is [`spec/004-Views.md`](../../spec/004-Views.md)
+The primary normative home is [`spec/004D-Freehand-Compiled-Grammar.md`](../../spec/004D-Freehand-Compiled-Grammar.md)
 §View identity and the instrumentation surface; per EP-0009, where this EP and
 the spec differ, **the spec governs**. Every runtime-tier evidence schema, trace
 op, and error/warning id this design names gets a catalogue row in
@@ -366,7 +366,7 @@ errata.
 
 ## References
 
-- Primary normative home: [`spec/004-Views.md`](../../spec/004-Views.md) §View
+- Primary normative home: [`spec/004D-Freehand-Compiled-Grammar.md`](../../spec/004D-Freehand-Compiled-Grammar.md) §View
   identity and the instrumentation surface;
   [`spec/009-Instrumentation.md`](../../spec/009-Instrumentation.md) (the
   runtime-tier catalogue); [`spec/011-SSR.md`](../../spec/011-SSR.md) (root-id

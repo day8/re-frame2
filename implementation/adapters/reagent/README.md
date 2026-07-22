@@ -27,7 +27,7 @@ Most views are pure render functions — Form-1 with `reg-view` covers the canon
 - **Error boundaries** — `componentDidCatch` is React's class-component-only contract.
 - **Pre-commit DOM measurement** — scroll-position restoration via `getSnapshotBeforeUpdate`.
 
-The escape hatch is **Form-3** via [`reagent.core/create-class`](https://reagent-project.github.io/), registered through `re-frame.core/reg-view*` (the plain-fn surface — the `reg-view` macro rejects Form-3 bodies at compile time per [Spec 004 §Form-3](../../../spec/004-Views.md#removed-forms--normative-absences)).
+The escape hatch is **Form-3** via [`reagent.core/create-class`](https://reagent-project.github.io/), registered through `re-frame.core/reg-view*` (the plain-fn surface — the `reg-view` macro rejects Form-3 bodies at compile time per [Spec 004D §Form-3](../../../spec/004D-Freehand-Compiled-Grammar.md#removed-forms--normative-absences)).
 
 ### Spelling
 
@@ -100,7 +100,7 @@ Six things matter:
 
 ### Cross-references
 
-- [Spec 004 §Form-3 (class — out of scope for the macro)](../../../spec/004-Views.md#removed-forms--normative-absences) — why Form-3 ships through `reg-view*` rather than the macro.
-- [Spec 004 §Views MUST NOT attach native DOM event listeners from render bodies](../../../spec/004-Views.md#effects--the-view-side-surface) and [§Views MUST NOT own imperative library lifecycles directly](../../../spec/004-Views.md#effects--the-view-side-surface) — bare `addEventListener` in a render body leaks listeners, and a later ambient dispatch with no carried frame raises `:rf.error/no-frame-context`; library lifecycles belong in Form-3.
+- [Spec 004D §Form-3 (class — out of scope for the macro)](../../../spec/004D-Freehand-Compiled-Grammar.md#removed-forms--normative-absences) — why Form-3 ships through `reg-view*` rather than the macro.
+- [Spec 004D §Views MUST NOT attach native DOM event listeners from render bodies](../../../spec/004D-Freehand-Compiled-Grammar.md#effects--the-view-side-surface) and [§Views MUST NOT own imperative library lifecycles directly](../../../spec/004D-Freehand-Compiled-Grammar.md#effects--the-view-side-surface) — bare `addEventListener` in a render body leaks listeners, and a later ambient dispatch with no carried frame raises `:rf.error/no-frame-context`; library lifecycles belong in Form-3.
 - [Spec 002 §Dispatches issued from inside a handler body](../../../spec/002-Frames.md#dispatches-issued-from-inside-a-handler-body) — async callbacks escape the dynamic frame binding; capture the frame handle once in the registered outer callable to carry it into the class lifecycle.
 - **Outer/inner Pattern (Pattern-OuterInner)** — the canonical home for wrapping stateful JS components (D3, Mapbox, animation libraries); the worked example above is one instance.

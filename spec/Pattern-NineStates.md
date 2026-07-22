@@ -423,7 +423,7 @@ The point is not numerology. The point is to make the **important** UI states ex
 - [014-HTTPRequests.md](014-HTTPRequests.md) — the canonical managed-HTTP fx that feeds the `:data` region; see [§Working with managed HTTP](#working-with-managed-http) for the integration.
 - [Pattern-StaleDetection.md](Pattern-StaleDetection.md) — the epoch idiom for suppressing stale HTTP replies.
 - [CP-5-MachineGuide.md §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) — the N-machines-per-region pattern, the right answer when axes are independent features.
-- [004-Views.md §Loading state is explicit](004-Views.md#loading-state-is-explicit) — the explicit-state view philosophy this pattern exemplifies.
+- [004D-Freehand-Compiled-Grammar.md §Loading state is explicit](004D-Freehand-Compiled-Grammar.md#loading-state-is-explicit) — the explicit-state view philosophy this pattern exemplifies.
 - [examples/patterns/nine_states/README.md](../examples/patterns/nine_states/README.md) — worked example.
 
 ## Conformance checklist

@@ -18,7 +18,7 @@ forms (`local`, `effect`, `frame`); every escape to the host world is a
 **named interop boundary** with a stated cost. Everything else — Form-1/2/3,
 `reg-view`, positional args, ratoms, `:on-mount` — is a normative absence.
 
-The normative home is [`spec/004-Views.md`](../../spec/004-Views.md), with
+The normative home is [`spec/004D-Freehand-Compiled-Grammar.md`](../../spec/004D-Freehand-Compiled-Grammar.md), with
 companions [004B](../../spec/004B-UI-Tree-and-Conversion.md) and
 [004C](../../spec/004C-Roots-and-Mount.md); per EP-0009, where this EP and the
 spec differ, **the spec governs**. This EP is the durable design record behind
@@ -107,7 +107,7 @@ a ViewCell that was not actually sub-free. The set grows only by ruling.
 > position, `condp`, `doto`, and other conveniences stay **deferred** under the
 > "demonstrated demand at a real call site" trigger. The set still grows only by
 > ruling, each addition carrying its lexical-scope + hidden-reactive-injection
-> counterfixtures. Normative home: [spec/004-Views.md §Template grammar](../../spec/004-Views.md).
+> counterfixtures. Normative home: [spec/004D-Freehand-Compiled-Grammar.md §Template grammar](../../spec/004D-Freehand-Compiled-Grammar.md).
 >
 > **Erratum — 2026-07-21 (rf2-u53yy.4 chronological audit repair).** Two internal
 > corrections to the addendum above; the admitted set and every invariant are
@@ -216,7 +216,7 @@ dispatch `(conj prefix payload…)`.
 > literal wins (`false`/`0` retained), and `__proto__` stays a verbatim own prop
 > rather than mutating the output object's prototype. There is no deny law (a
 > foreign boundary defends no owned/structural key). Normative home:
-> [spec/004-Views.md §`ui/spread` at a foreign component call site](../../spec/004-Views.md);
+> [spec/004D-Freehand-Compiled-Grammar.md §`ui/spread` at a foreign component call site](../../spec/004D-Freehand-Compiled-Grammar.md);
 > the completed merge helper is `re-frame.ui.runtime/foreign-spread-props`.
 
 The foreign-React hook tier (`re-frame.ui.react`, seven wrappers) belongs to
@@ -319,7 +319,7 @@ None on the decision surface.
 
 ## References
 
-- Normative homes: [`spec/004-Views.md`](../../spec/004-Views.md) with
+- Normative homes: [`spec/004D-Freehand-Compiled-Grammar.md`](../../spec/004D-Freehand-Compiled-Grammar.md) with
   [004B](../../spec/004B-UI-Tree-and-Conversion.md) (tree/conversion),
   [004C](../../spec/004C-Roots-and-Mount.md) (roots/mount).
 - [EP-0030](EP-0030-the-compiled-view-substrate-program.md) — the program

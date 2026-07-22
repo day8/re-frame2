@@ -68,7 +68,7 @@ v1 of 10x answered #1–#4 partially and #5 not really. The bar in 2026 is **all
 
 - **"Why did this event fire?" requires reading the source.** Causal-ancestor walk is the single largest UX win in v2.
 - **"Why is this sub returning stale?"** v1 shows the value but not the input chain. v2: click a sub, see its layer-1/2/3 inputs and their values, walk upward.
-- **"Why is this view re-rendering?"** v1 shows `:view/render` events. v2 attributes via `:render-key` ([Spec 004 §Render-tree primitives](../spec/004-Views.md#view-identity-and-the-instrumentation-surface)) and shows the subscription invalidation that triggered the re-render.
+- **"Why is this view re-rendering?"** v1 shows `:view/render` events. v2 attributes via `:render-key` ([Spec 004D §Render-tree primitives](../spec/004D-Freehand-Compiled-Grammar.md#view-identity-and-the-instrumentation-surface)) and shows the subscription invalidation that triggered the re-render.
 - **Hot-reload churn.** Every save re-registers handlers; v1's event log fills with `:registry/handler-replaced` noise. v2 has a "hide registry churn" toggle (default on during dev sessions).
 - **`dispatch-sync` inside a handler errors are confusing.** v2 surfaces them as a first-class **issue card** with a fix-it suggestion ("convert to `:fx [[:dispatch [...]]]`").
 

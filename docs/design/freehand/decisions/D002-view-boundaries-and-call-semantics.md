@@ -244,5 +244,5 @@ It unlocks:
 - [fable-design.md §7.1 — “Anonymous-view identity”](../fable-design.md#71-standing-wounds-and-tensions)
   prices bare-function identity, and [§8 Q2(a)](../fable-design.md#8-for-the-operator)
   records the disagreement.
-- [`spec/004-Views.md` — `ui/defview`](../../../../spec/004-Views.md#uidefview--the-one-component-form)
+- [`spec/004D-Freehand-Compiled-Grammar.md` — `ui/defview`](../../../../spec/004D-Freehand-Compiled-Grammar.md#uidefview--the-one-component-form)
   documents the donor compiler’s current declared-view form and props ABI.

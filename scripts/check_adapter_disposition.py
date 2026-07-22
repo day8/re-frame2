@@ -81,6 +81,10 @@ from pathlib import Path
 ACTIVE_AUTHORITIES = (
     "docs/EP/EP-0030-the-compiled-view-substrate-program.md",
     "spec/004-Views.md",
+    # The donor-era compiled-view contract moved here by EP-0036's ownership cut;
+    # it is where the adapter-disposition prose actually lives now, so BOTH the
+    # common Freehand Spec 004 and the compiled-tier 004D stay on the roster.
+    "spec/004D-Freehand-Compiled-Grammar.md",
     "skills/re-frame2-implementor/references/phase-2-impl-order.md",
     "implementation/README.md",
     "implementation/adapters/reagent/README.md",

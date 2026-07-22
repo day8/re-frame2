@@ -266,7 +266,7 @@ Per [002-Frames §The public registrar query API](002-Frames.md#the-public-regis
 (rf/view :nope)                      ;; → nil
 ```
 
-`view` is the canonical lookup handle because the registry is **id-keyed** while render trees consume **Vars** (see [Spec 004 §Calling a registered view](004-Views.md#template-grammar) and [Conventions §Render-tree shape vs runtime lookup](Conventions.md#render-tree-shape-vs-runtime-lookup--vars-and-ids)). The lookup is the bridge for callers that hold an id but no Var — typically `reg-view*` registrations (where there is no auto-defed Var) and tools/devtools that walk the registry by id. Returning `nil` for an unregistered id is a normal lookup miss (no error trace).
+`view` is the canonical lookup handle because the registry is **id-keyed** while render trees consume **Vars** (see [Spec 004D §Calling a registered view](004D-Freehand-Compiled-Grammar.md#template-grammar) and [Conventions §Render-tree shape vs runtime lookup](Conventions.md#render-tree-shape-vs-runtime-lookup--vars-and-ids)). The lookup is the bridge for callers that hold an id but no Var — typically `reg-view*` registrations (where there is no auto-defed Var) and tools/devtools that walk the registry by id. Returning `nil` for an unregistered id is a normal lookup miss (no error trace).
 
 ## Hot-reload semantics
 
@@ -356,7 +356,7 @@ A pointer-only summary of the registration functions and the per-Spec docs that 
 | Effect | `reg-fx` | [002-Frames.md](002-Frames.md), [011-SSR.md](011-SSR.md) (for `:platforms`) |
 | Cofx | `reg-cofx` | [001 §Coeffects](#coeffects--reg-cofx-value-returning-graded) (registrar contract + grades + `:rf.cofx/requires`); [002 §Recordable coeffects](002-Frames.md#recordable-coeffects) (envelope + delivery) |
 | Interceptor | `reg-interceptor` (macro on JVM; also a plain-fn value on CLJS, Convention A) | [001 §Interceptors](#interceptors--reg-interceptor-the-interceptor-registrar) (registrar kind + descriptor + metadata); [002 §Registered interceptors and the chain grammar](002-Frames.md#registered-interceptors-and-the-chain-grammar) (by-reference chains + overrides + standard path) |
-| View | `reg-view` (defn-shape macro) / `reg-view*` (plain fn) | [004-Views.md](004-Views.md) |
+| View | `reg-view` (defn-shape macro) / `reg-view*` (plain fn) | [004D-Freehand-Compiled-Grammar.md](004D-Freehand-Compiled-Grammar.md) |
 | Frame | `make-frame` (a constructor, not a `reg-*` member) | [002-Frames.md](002-Frames.md) |
 | App-db schema (not a registrar kind — schemas live in the schemas artefact's per-frame side-table) | `reg-app-schema` | [010-Schemas.md](010-Schemas.md) |
 | Route | `reg-route` | [012-Routing.md](012-Routing.md) |

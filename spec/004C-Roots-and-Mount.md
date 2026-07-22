@@ -2,7 +2,7 @@
 
 > Status: v1-required. The Stage-1 mount grammar, root identity, Root
 > Descriptor v1, and the three-layer fail-loud duplicate/conflict detection
-> that [004-Views.md](004-Views.md) §Roots and mounting references and never
+> that [004D-Freehand-Compiled-Grammar.md](004D-Freehand-Compiled-Grammar.md) §Roots and mounting references and never
 > restates. Owns the descriptor/manifest schema family (`:rf.root/*`); the
 > Stage-5 Root Manifest is its additive extension (co-owned with
 > [011](011-SSR.md)). The ratified identity model is preserved exactly — a
@@ -15,7 +15,7 @@
 ## 1. Root identity — required, host-authored, derivable
 
 **Every root has a `root-id`. It is REQUIRED identity** — the root descriptor, the root
-manifest, instance records ([004 §View identity and the instrumentation surface](004-Views.md#view-identity-and-the-instrumentation-surface)),
+manifest, instance records ([004D §View identity and the instrumentation surface](004D-Freehand-Compiled-Grammar.md#view-identity-and-the-instrumentation-surface)),
 and duplicate detection all key on it. It is
 **host-authored** (`:root-id` in the root opts map, §3), with a **derivation default**
 so the single-root common case stays one-liner clean:
@@ -208,7 +208,7 @@ id" gap is closed here:
 | `:root-id` | identity | authored root-id (§1.1); immutable for the root's lifetime |
 | `:disambiguator` | identity | scalar; only meaningful when `:root-id` is absent (§1.2) |
 | `:identifier-prefix` | rendering | string fed to React's `identifierPrefix` (`use-id`). Default: `"rf2-" + root-id-slug + "-"` (§1) — `:page/shop` → `"rf2-page_Sshop-"`. A shorter prefix such as `"rf2-shop-"` is only ever an **authored** value — the derivation never elides the namespace segment. |
-| `:on-uncaught-error` `:on-caught-error` `:on-recoverable-error` | host | plain CLJS fns passed to the React root options. Host-tier option maps are **not** template positions — the [004 §Handlers are data — the callback law](004-Views.md#handlers-are-data--the-callback-law) boundary law does not apply here. Invoked by React outside the re-frame2 commit path; to dispatch they must go through a live frame handle. |
+| `:on-uncaught-error` `:on-caught-error` `:on-recoverable-error` | host | plain CLJS fns passed to the React root options. Host-tier option maps are **not** template positions — the [004D §Handlers are data — the callback law](004D-Freehand-Compiled-Grammar.md#handlers-are-data--the-callback-law) boundary law does not apply here. Invoked by React outside the re-frame2 commit path; to dispatch they must go through a live frame handle. |
 
 Identity opts must be **compile-time literals** at `mount`/`create-root` sites — they feed
 the descriptor and build-time duplicate detection; host-behaviour opts may be runtime
@@ -333,7 +333,7 @@ top-region wrappers, in document order.)
   legal); the `:config-fingerprint` hashes the plan's **static source form** (id +
   config forms), which is what conflict detection compares (§7). A `frame-root`
   anywhere outside a root form's top region is already a compile error
-  ([004 §Roots and mounting](004-Views.md#roots-and-mounting)); this Spec adds nothing
+  ([004D §Roots and mounting](004D-Freehand-Compiled-Grammar.md#roots-and-mounting)); this Spec adds nothing
   there.
 - **`frame-provider` references are dynamic:** `frame-provider` scopes a live frame
   *handle* (per the rf2-nyea0r split) — handles are runtime values, so provider-scoped
@@ -464,7 +464,7 @@ overwrite. A **same-root** re-declaration whose fingerprint differs is a surgica
 not replayed), **not** a conflict; a **matching** fingerprint is the ratified idempotent
 no-op (no re-seed). Layer 1 additionally rejects at build time two *plans* for one
 frame-id with differing config fingerprints inside one entry closure (compile error —
-the didactic message points at boot/event infrastructure, per [004 §Roots and mounting](004-Views.md#roots-and-mounting)). (The S5 hydrate
+the didactic message points at boot/event infrastructure, per [004D §Roots and mounting](004D-Freehand-Compiled-Grammar.md#roots-and-mounting)). (The S5 hydrate
 arm — a referenced payload id already installed with a different **content** digest —
 carries its own content-`:digest` slot when server rendering lands: the same error id,
 a distinct conflict trigger.)
@@ -563,7 +563,7 @@ server in sight (guide 01):
 | manifest / digests / fingerprint validation | none — nothing to validate against; hydration errors cannot occur by construction |
 | frame plans | extracted and preflighted identically to the SSR path (§6) — ENSURE semantics do not fork on mount kind |
 | duplicate detection | Layers 1 and 3 (§7); Layer 2 does not exist without a server |
-| phase | no `:phase` anywhere — phase is a manifest key; the `client-only` root phase flip ([004 §Interop and boundaries](004-Views.md#interop-and-boundaries)) does not apply (there is no fallback pass) |
+| phase | no `:phase` anywhere — phase is a manifest key; the `client-only` root phase flip ([004D §Interop and boundaries](004D-Freehand-Compiled-Grammar.md#interop-and-boundaries)) does not apply (there is no fallback pass) |
 
 ## 9. `ui.test/render` — accepted root-or-view forms
 

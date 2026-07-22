@@ -260,5 +260,5 @@ It unlocks:
   specifies the explicit, capture-masked interpreter valve.
 - [fable-design.md §7.1 — “The value-vs-syntax cliff”](../fable-design.md#71-standing-wounds-and-tensions)
   explains the ergonomic cost.
-- [`spec/004-Views.md` — “Template grammar”](../../../../spec/004-Views.md#template-grammar)
+- [`spec/004D-Freehand-Compiled-Grammar.md` — “Template grammar”](../../../../spec/004D-Freehand-Compiled-Grammar.md#template-grammar)
   documents the donor compiler’s closed node set and current rejections.

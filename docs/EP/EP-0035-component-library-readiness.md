@@ -324,7 +324,7 @@ moves.
 - [EP-0029](EP-0029-xstate-v6-machine-parity.md) — the ISO-8601 precedent: the
   port register's date/time ruling (R-8) deliberately matches the XState-v6
   duration ruling.
-- Specs: [`spec/004-Views.md`](../../spec/004-Views.md),
+- Specs: [`spec/004D-Freehand-Compiled-Grammar.md`](../../spec/004D-Freehand-Compiled-Grammar.md),
   [`spec/004B-UI-Tree-and-Conversion.md`](../../spec/004B-UI-Tree-and-Conversion.md),
   [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md),
   [`spec/008-Testing.md`](../../spec/008-Testing.md),

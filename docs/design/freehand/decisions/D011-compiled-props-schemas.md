@@ -252,7 +252,7 @@ It unlocks:
   makes a generative props corpus a promotion precondition.
 - [fable-design.md §5.4 — component-library test](../fable-design.md#54-the-component-library-test)
   requires schema-driven validation and self-documentation for library controls.
-- [`spec/004-Views.md` — `ui/defview`](../../../../spec/004-Views.md#uidefview--the-one-component-form)
+- [`spec/004D-Freehand-Compiled-Grammar.md` — `ui/defview`](../../../../spec/004D-Freehand-Compiled-Grammar.md#uidefview--the-one-component-form)
   describes the donor’s optional Malli metadata and validation behavior.
 - [`spec/010-Schemas.md`](../../../../spec/010-Schemas.md) defines the repository’s
   validator seam, CLJS Malli reference, production elision, and bundle constraints.

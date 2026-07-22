@@ -609,7 +609,7 @@ This complements the JVM-runnable list in [§Normative surface §JVM-runnable bo
 ## The `ui.test` contract — headless testing for compiled views
 
 `re-frame.ui.test` (alias `ui.test`) is the test surface for the compiled-view
-substrate `re-frame.ui` ([004-Views.md](004-Views.md)). It is the compiled-view
+substrate `re-frame.ui` ([004D-Freehand-Compiled-Grammar.md](004D-Freehand-Compiled-Grammar.md)). It is the compiled-view
 counterpart of the legacy hiccup-walk `re-frame.test-helpers` above (which serves the
 Reagent compatibility tier); the two do not mix. The hiccup-walk `test-helpers`
 are [TRANSITION] — they belong to the stock-Reagent compatibility tier, which lives on
@@ -669,12 +669,12 @@ sleeps) lands with S4 presence. Flushing inside an open event drain throws
 events and subs the view under test touches **must be `.cljc`** (reader-conditional
 where they must be); host-bearing behaviour (state transitions, effects, refs, focus,
 portals, presence timing, error recovery) requires a Tier-3 mounted test. This is the
-same JVM-structural-subset boundary [004-Views.md §The JVM structural subset](004-Views.md#the-jvm-structural-subset)
+same JVM-structural-subset boundary [004D-Freehand-Compiled-Grammar.md §The JVM structural subset](004D-Freehand-Compiled-Grammar.md#the-jvm-structural-subset)
 draws — Tier-1 is that subset's test surface.
 
 ## Compiled-view gates
 
-The compiled-view substrate ships the CI gates that [004-Views.md](004-Views.md)
+The compiled-view substrate ships the CI gates that [004D-Freehand-Compiled-Grammar.md](004D-Freehand-Compiled-Grammar.md)
 references — portability-law parity and expansion budget among them; they are
 catalogued here as the owning testing surface, every row below owned by this
 document.
@@ -684,14 +684,14 @@ document.
 | **Parity corpus v0** | the generative corpus of template cases (statics, class forms, text edges, branches, keyed lists + escaping, fragments, booleans, form controls, SVG/MathML, custom elements, spread, trusted-HTML, handlers, `:as`, children-flow) each renders to a **versioned canonical JVM tree** and to browser output that is **normalized-structurally-equivalent** — the portability law's contract. Canonical-form + normalization-`N` invariants are asserted on the JVM tree ([004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md) §Semantic normalization). | the `jvm-ui` job (JVM tree + normalization) and the `cljs-ui-g1` job (browser half) |
 | **G-1 — direct-render parity** | compiled views (`:advanced` build) produce React output structurally equivalent to hand-written React over the corpus, with an **emitted-JS golden** so a codegen regression is visible. Byte-identical HTML is **not** the contract; normalized structural equivalence is. | `cljs-ui-g1` job (`npm run test:ui-g1`) |
 | **G-14 — compile budget** | `defview` **expansion p95** on the JVM (the shared analyzer + grammar + manifest + fingerprint + JVM-emitter pipeline that every REPL re-evaluation and watch-loop rebuild pays) stays within a generous absolute headroom (catches a pathological — e.g. accidentally quadratic — analyzer regression, not microseconds). The **watch-loop rebuild delta** — what one file save costs — is wired (#6388): a **runaway namespace-rebuild tripwire** over an 11-view dashboard roster against a derived K × 50ms bar, with a distinct-fingerprint witness forced in-span before any duration is compared. It bounds total rebuild cost; it does **not** separate quadratic from linear cross-view scaling (that needs K > ~64). The CLJS-emitter half rides later stages. | the `jvm-ui` job (G-14 compile-budget fixture) |
-| **G-17 — safe-spread ownership** (S3, rf2-isdqjv) | `(ui/spread-safe owned caller)` (§[The safe-spread policy](004-Views.md#the-safe-spread-policy--spread-safe)) enforces the owned-key deny law: a denied caller key (`:key`/`:ref`/`:value`/`:checked` or an owned `:on-*`) is rejected in **dev AND advanced builds** (a LITERAL offender at compile time, a RUNTIME offender through the un-`goog.DEBUG`-gated guard proven under `:advanced`); `aria-*`/`data-*`/`title`/`:class`/`:style` pass through per the 004B table; allowed `:on-*` classify through the handler table; and the controlled split — the policy form **retains** the sync door while general `ui/spread` **forfeits** it — is asserted on both arms. | the `jvm-ui` job (analyzer accept/reject + JVM tree fold), the `cljs-ui` node job (react-dom/server passthrough + owned-wins + deny goldens), and the browser-prod-elision job (advanced-build deny reachability) |
-| **G-18 — library façade isolation** (S3, rf2-kxork) | an advanced build importing **exactly one** view from a multi-view library namespace retains **no unused sibling views** — the isolation is measured as each sibling `defview`'s render-sentinel literal, over a roster **derived from the proof-pack library source** so a new library view either arms the gate or fails it. Fixture-first: a substrate packaging change is justified only if this fails structurally. This gate proves sibling reachability, not behaviour, and it does **not** assert production absence of the library's schemas, docs projections, or dev registration — that roster is owned by **G-11** (§[Stage conformance profiles](004-Views.md#stage-conformance-profiles)); the six library views are separately rendered and exercised for behaviour by the mounted DOM suite (`re-frame.ui.proof-pack.library-dom-cljs-test`). | the `cljs-ui-facade-isolation` required CI job (`npm run test:ui-facade-isolation` — checker self-test + derived-roster advanced-build scan) |
+| **G-17 — safe-spread ownership** (S3, rf2-isdqjv) | `(ui/spread-safe owned caller)` (§[The safe-spread policy](004D-Freehand-Compiled-Grammar.md#the-safe-spread-policy--spread-safe)) enforces the owned-key deny law: a denied caller key (`:key`/`:ref`/`:value`/`:checked` or an owned `:on-*`) is rejected in **dev AND advanced builds** (a LITERAL offender at compile time, a RUNTIME offender through the un-`goog.DEBUG`-gated guard proven under `:advanced`); `aria-*`/`data-*`/`title`/`:class`/`:style` pass through per the 004B table; allowed `:on-*` classify through the handler table; and the controlled split — the policy form **retains** the sync door while general `ui/spread` **forfeits** it — is asserted on both arms. | the `jvm-ui` job (analyzer accept/reject + JVM tree fold), the `cljs-ui` node job (react-dom/server passthrough + owned-wins + deny goldens), and the browser-prod-elision job (advanced-build deny reachability) |
+| **G-18 — library façade isolation** (S3, rf2-kxork) | an advanced build importing **exactly one** view from a multi-view library namespace retains **no unused sibling views** — the isolation is measured as each sibling `defview`'s render-sentinel literal, over a roster **derived from the proof-pack library source** so a new library view either arms the gate or fails it. Fixture-first: a substrate packaging change is justified only if this fails structurally. This gate proves sibling reachability, not behaviour, and it does **not** assert production absence of the library's schemas, docs projections, or dev registration — that roster is owned by **G-11** (§[Stage conformance profiles](004D-Freehand-Compiled-Grammar.md#stage-conformance-profiles)); the six library views are separately rendered and exercised for behaviour by the mounted DOM suite (`re-frame.ui.proof-pack.library-dom-cljs-test`). | the `cljs-ui-facade-isolation` required CI job (`npm run test:ui-facade-isolation` — checker self-test + derived-roster advanced-build scan) |
 
 Both `jvm-ui` and `cljs-ui-g1` are required jobs in the PR-gate aggregate; the parity
 corpus, node-schema, and conversion-table rows they exercise are owned by
 [004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md). Production-erasure
 gates (G-7/G-11) and the real-browser controlled-input matrix (G-8) land with their
-stages per [004-Views.md §Stage conformance profiles](004-Views.md#stage-conformance-profiles).
+stages per [004D-Freehand-Compiled-Grammar.md §Stage conformance profiles](004D-Freehand-Compiled-Grammar.md#stage-conformance-profiles).
 
 ## Judgement — AI-first test-authoring guidance
 
