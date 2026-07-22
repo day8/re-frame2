@@ -45,8 +45,11 @@
  *   label      — optional variant name, echoed in diagnostics
  *
  * Exit 0 = all three teeth pass. Exit 1 = the proof FAILED. Exit 2 = Chromium
- * is not launchable here, so the proof was SKIPPED (the caller prints a loud
- * banner — a silent skip is how this whole class of defect stayed invisible).
+ * is not launchable here. Exit 2 is a REPORT, not a verdict: the caller
+ * decides. Under CI it fails the run (every job enabling this tier provisions
+ * a browser, so a missing one is a broken job); locally it is a skip under a
+ * loud NOT PROVEN banner. A silent skip is how this class of defect stayed
+ * invisible.
  */
 
 'use strict';
@@ -150,11 +153,13 @@ function diagnose(lines) {
   let browser;
   let failure = null;
 
-  // Launch is a SKIP boundary, not a failure: the PR-time template job runs
-  // `npm ci` in implementation/ (which installs the playwright PACKAGE) but
-  // never `npx playwright install`, so no browser binary is present there.
-  // Exit 2 = "browser unavailable, skipped"; the caller prints a loud banner so
-  // the skip cannot read as a pass.
+  // Launch failure is REPORTED, not judged, here: exit 2 means "no launchable
+  // browser on this machine" and the caller decides what that is worth. Under
+  // CI it is a hard failure — every job that enables this tier runs
+  // `npx playwright install --with-deps chromium`, so a job with no browser is
+  // broken. Locally it is a skip under a loud NOT PROVEN banner. Keeping the
+  // judgement in the caller is what let the CI half be tightened without
+  // making a browser-less local checkout unrunnable.
   try {
     browser = await chromium.launch({ headless: true });
   } catch (launchErr) {

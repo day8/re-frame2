@@ -189,6 +189,20 @@ jobs:
         working-directory: implementation
         run: npm ci
 
+      # rf2-qa5ty — the emitted-app tier's two Chromium proofs (SSR
+      # DOM-adoption, emitted dev-page boot) need a browser BINARY; `npm ci`
+      # only installs the playwright package. Without this step a
+      # `template-v…` tag could cut a Release whose gate never loaded the
+      # emitted `index.html` in any browser — precisely the page a consumer
+      # of that Release opens first. Skipping is not acceptable in the
+      # RELEASE gate, and with the browser provisioned an unlaunchable
+      # Chromium now fails the job (`browser-proofs-required?` in
+      # `emitted_test_run_test.clj`). `--with-deps` because the runner has
+      # none of Chromium's shared libraries.
+      - name: Install Playwright chromium (for the emitted browser proofs)
+        working-directory: implementation
+        run: npx playwright install --with-deps chromium
+
       # rf2-ek857f F1 — RF2_TEMPLATE_RUN_EMITTED_TESTS=1 flips the
       # behavioural emitted-app tier ON (default-off for the local fast
       # loop). The release gate MUST run it, or a tag could publish a

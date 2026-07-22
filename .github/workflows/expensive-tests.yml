@@ -182,6 +182,18 @@ jobs:
         working-directory: implementation
         run: npm ci
 
+      # rf2-qa5ty — `npm ci` installs the playwright PACKAGE but no browser
+      # BINARY, so both Chromium proofs in this tier (the SSR DOM-adoption
+      # proof and the emitted dev-page boot proof) used to exit 2 = skipped
+      # and this job reported green having loaded no page in any browser.
+      # With a browser provisioned, that skip is now a HARD FAILURE under CI
+      # (`browser-proofs-required?` in `emitted_test_run_test.clj`).
+      # `--with-deps` because the runner carries none of Chromium's shared
+      # libraries and nothing earlier in this job installs them.
+      - name: Install Playwright chromium (for the emitted browser proofs)
+        working-directory: implementation
+        run: npx playwright install --with-deps chromium
+
       - name: Run template emitted-app smoke
         env:
           RF2_TEMPLATE_RUN_EMITTED_TESTS: "1"

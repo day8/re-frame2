@@ -458,25 +458,88 @@
                    "\n  resolved by the build: " (pr-str (sort resolved))
                    "\n  declared by the scaffold: " (pr-str (sort declared)))))))))
 
-;; --- loud skips ------------------------------------------------------------
+;; --- browser-proof verdicts ------------------------------------------------
+;;
+;; Both browser proofs in this tier exit 2 when Chromium is not launchable.
+;; What that exit code MEANS depends on where we are running:
+;;
+;;   CI    — a hard FAILURE. Every job that turns this tier on also installs
+;;           a browser, so a job that cannot launch one is broken, not
+;;           excused.
+;;   local — a documented skip, under an unmissable banner.
+;;
+;; The asymmetry is the point. A skip that reads as a pass is the exact
+;; mechanism that let BOTH proofs go unexecuted in CI for months while the
+;; tier reported green.
+
+(def ^:private browser-proofs-required?
+  "Is a launchable Chromium MANDATORY here?
+
+  Yes under CI, no locally. Every workflow job that sets
+  `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` also runs
+  `npx playwright install --with-deps chromium`, so a CI run that cannot
+  launch a browser is a BROKEN JOB — the provisioning regressed, or the
+  install failed — and reporting that as a green skip is how this tier ran
+  for months with zero browser coverage. Locally the skip stays a skip: a
+  contributor without a browser binary should still get the compile/run
+  tiers rather than a red suite they cannot fix.
+
+  `CI` is the de-facto standard flag (GitHub Actions and every other major
+  CI set it). Export `CI=1` to opt a local run into the strict behaviour."
+  (delay (not (string/blank? (System/getenv "CI")))))
 
 (defn- announce-browser-skip!
-  "Print an unmissable banner when a browser proof does NOT run. Both
-  browser proofs in this tier exit 2 when Chromium isn't launchable and
-  keep the tier green — and a quiet, documented skip is precisely how the
-  missing dev-page boot proof stayed invisible while three defects shipped.
-  A skip that reads like a pass in the run output is a mask; this one
-  shouts."
+  "Print an unmissable banner when a browser proof does NOT run — the
+  local-only branch of `check-browser-proof!`. A quiet, documented skip is
+  precisely how the missing dev-page boot proof stayed invisible while
+  three defects shipped; this one shouts."
   [what out]
   (println)
   (println "!!! ================================================================")
   (println (str "!!! NOT PROVEN -- SKIPPED: " what))
   (println "!!! Chromium is not launchable here, so this browser proof did NOT run.")
-  (println "!!! The tier stays green, but NOTHING about the emitted page is proven.")
+  (println "!!! This run stays green, but NOTHING about the emitted page is proven.")
+  (println "!!! (Under CI this is a hard failure — see browser-proofs-required?.)")
   (when-let [line (first (remove string/blank? (string/split-lines (str out))))]
     (println (str "!!! driver: " (string/trim line))))
   (println "!!! ================================================================")
   (println))
+
+(defn- check-browser-proof!
+  "Turn a browser-proof driver's exit code into the right verdict — one
+  place for both proofs in this tier.
+
+    0  PASS. Echo the driver's own verdict line: a proof that speaks only
+       when it fails is indistinguishable in the run output from one that
+       never ran at all.
+    2  Chromium was not launchable. Locally a documented skip under the
+       NOT PROVEN banner; under CI a hard failure (`browser-proofs-required?`).
+    _  the proof FAILED — `failure-msg` says what that means for this proof.
+
+  `what` labels the proof in the skip banner and the CI failure; `echo-tag`
+  prefixes the green verdict line."
+  [what echo-tag exit out failure-msg]
+  (cond
+    (and (= 2 exit) (not @browser-proofs-required?))
+    (do (announce-browser-skip! what out)
+        (is true
+            (str "Chromium unavailable — " what " did not run. Output:\n" out)))
+
+    (= 2 exit)
+    (is false
+        (str what " did NOT run: Chromium was not launchable, and `CI` is set. "
+             "Every job that sets RF2_TEMPLATE_RUN_EMITTED_TESTS=1 also runs "
+             "`npx playwright install --with-deps chromium`, so a CI job that "
+             "finds no browser is BROKEN, not excused — this tier reported "
+             "green for months on exactly that skip. Fix the job's browser "
+             "provisioning (or stop setting RF2_TEMPLATE_RUN_EMITTED_TESTS "
+             "there if the tier genuinely should not run). Output:\n" out))
+
+    :else
+    (do (when (zero? exit)
+          (when-let [line (last (remove string/blank? (string/split-lines (str out))))]
+            (println (str "  [" echo-tag "] " (string/trim line)))))
+        (is (zero? exit) failure-msg))))
 
 ;; --- emitted dev-page boot proof ------------------------------------------
 ;;
@@ -514,30 +577,18 @@
             {:keys [exit out]}
             (run-process! ["node" driver pub-root impl-root label]
                           proj {"NODE_PATH" node-path})]
-        ;; Exit 2 = Chromium not launchable (the PR-time template job installs
-        ;; the playwright PACKAGE but no browser binary). Documented skip, but
-        ;; a LOUD one. Exit 0 = booted clean; anything else = the proof FAILED.
-        (if (= 2 exit)
-          (do (announce-browser-skip! (str "dev-page boot proof -- " label) out)
-              (is true
-                  (str "Chromium unavailable — the emitted dev-page boot proof "
-                       "did not run for " label ". Output:\n" out)))
-          (do
-            ;; Echo the driver's verdict line on a green run too — a browser
-            ;; proof that only speaks when it fails is indistinguishable in
-            ;; the run output from one that silently skipped.
-            (when (zero? exit)
-              (when-let [line (last (remove string/blank? (string/split-lines (str out))))]
-                (println (str "  [dev-page boot] " (string/trim line)))))
-            (is (zero? exit)
-                (str "the emitted dev-page boot proof exited " exit " for " label
-                     " — the page a newcomer opens after `npx shadow-cljs watch "
-                     "app` did not boot cleanly. Either #app never painted (a "
-                     "BLANK first page: the emitted index.html's <meta> CSP "
-                     "blocks the dev bundle's goog.globalEval, a broken "
-                     ":init-fn, or a namespace that throws on load), the counter "
-                     "did not move 0 -> 1, or Chromium raised an uncaught "
-                     "pageerror. Output:\n" out))))))))
+        (check-browser-proof!
+          (str "dev-page boot proof -- " label)
+          "dev-page boot"
+          exit out
+          (str "the emitted dev-page boot proof exited " exit " for " label
+               " — the page a newcomer opens after `npx shadow-cljs watch "
+               "app` did not boot cleanly. Either #app never painted (a "
+               "BLANK first page: the emitted index.html's <meta> CSP "
+               "blocks the dev bundle's goog.globalEval, a broken "
+               ":init-fn, or a namespace that throws on load), the counter "
+               "did not move 0 -> 1, or Chromium raised an uncaught "
+               "pageerror. Output:\n" out))))))
 
 ;; --- SSR DOM-adoption browser proof ---------------------------------------
 ;;
@@ -598,22 +649,15 @@
               {:keys [exit out]}
               (run-process! ["node" driver pub-root impl-root]
                             proj {"NODE_PATH" node-path})]
-          ;; Exit 2 = the driver could not launch Chromium (a tier that enables
-          ;; this proof without `npx playwright install --with-deps`); record a
-          ;; documented skip so the tier stays green. Exit 0 = adopted; any
-          ;; other exit = the proof FAILED (fresh mount / dead handler).
-          (if (= 2 exit)
-            (do (announce-browser-skip! "SSR DOM-adoption browser proof" out)
-                (is true
-                    (str "Chromium unavailable — skipping the SSR DOM-adoption "
-                         "browser proof (the real tooth runs where a browser is "
-                         "provisioned). Output:\n" out)))
-            (is (zero? exit)
-                (str "the SSR DOM-adoption browser proof exited " exit
-                     " — the generated scaffold did not adopt the server-painted "
-                     "DOM (hydrate-root) on a payload-backed boot: the live #app "
-                     "node was not the server node, or its handler was dead. "
-                     "Output:\n" out))))))))
+          (check-browser-proof!
+            "SSR DOM-adoption browser proof"
+            "ssr dom-adoption"
+            exit out
+            (str "the SSR DOM-adoption browser proof exited " exit
+                 " — the generated scaffold did not adopt the server-painted "
+                 "DOM (hydrate-root) on a payload-backed boot: the live #app "
+                 "node was not the server node, or its handler was dead. "
+                 "Output:\n" out)))))))
 
 ;; --- The orchestration -----------------------------------------------------
 
