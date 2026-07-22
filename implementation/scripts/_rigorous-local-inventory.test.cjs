@@ -34,10 +34,11 @@
  * night could only ever reveal ONE broken gate — which is why the
  * 2026-07-08..07-21 nightly outage took two repair rounds and fourteen red
  * nights: `test:story-static` broke on 07-13 but stayed invisible behind
- * `test:story-feature-load` until 07-21. Being unnamed also made
- * `gh run view --log-failed` label the whole blob `UNKNOWN STEP`. One command
- * per named step is therefore load-bearing, not cosmetic, and is pinned here
- * so a later tidy-up cannot silently reintroduce the masking shape.
+ * `test:story-feature-load` until 07-21. The blob was also a single step-level
+ * result, so neither the Actions UI nor the jobs API recorded WHICH gate had
+ * failed. One command per named step is therefore load-bearing, not cosmetic,
+ * and is pinned here so a later tidy-up cannot silently reintroduce the
+ * masking shape.
  *
  * Comment lines are stripped before any parse, so prose mentioning a command
  * can neither satisfy lockstep nor trip the one-command-per-step rule.
