@@ -16,13 +16,7 @@
            ship one static bundle and do NOT eval — the production
            response header drops `'unsafe-eval'` (README "Production
            hardening").
-         - `style-src 'self' 'unsafe-inline'` — the generated views use
-           inline `:style` props, and the default-on Xray devtools surface
-           injects `<style>` blocks and inline styles. Without
-           `'unsafe-inline'` the first page would emit CSP violations and
-           Xray's styling would be blocked. (To run with a strict
-           `style-src 'self'`, move all inline styles to external CSS /
-           a nonce and drop Xray — see README "Production hardening".)
+         {{csp-style-src-note}}
          - `connect-src` admits the same origin plus ws:/wss: so
            shadow-cljs's hot-reload websocket connects in dev (it can
            route to a different port than the page, which 'self' alone
@@ -47,8 +41,7 @@
   </head>
   <body>
     <div class="rf2-app-shell">
-      <main id="app"></main>
-      <aside class="rf2-xray-host" data-rf-xray-host></aside>
+      <main id="app"></main>{{xray-host-aside}}
     </div>
     <script src="/js/main.js"></script>
   </body>

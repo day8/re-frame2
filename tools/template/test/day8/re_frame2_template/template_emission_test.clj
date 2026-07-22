@@ -801,6 +801,40 @@
                  "collapse so release builds (no Xray preload) don't ship "
                  "a blank gutter."))))))
 
+;; --- :uix Xray-free counterpart audit (rf2-p6f6u) ---------------------------
+;;
+;; The :uix scaffold ships NO Xray pieces (Mike-ruled 2026-07-22, rf2-p6f6u
+;; (b)): Xray's panel shell mounts through the ratom-family substrates, so
+;; an element-substrate scaffold that shipped the preload + host + coord
+;; promised a panel that could never open (post-rf2-qgfo4: a clean refusal
+;; instead of a broken mount — still no panel). This audit is the honest
+;; counterpart of `assert-xray-host-contract!`: the emitted :uix tree must
+;; carry no host div, no host CSS, no preload, no Xray coord, and no Xray
+;; npm deps — across the plain AND Tailwind css variants.
+
+(defn- assert-no-xray-host!
+  [substrate ^java.io.File root]
+  (let [checks [["resources/public/index.html" "data-rf-xray-host"
+                 "index.html must ship NO [data-rf-xray-host] host"]
+                ["resources/public/css/app.css" "rf2-xray-host"
+                 "app.css must ship NO .rf2-xray-host rules"]
+                ["shadow-cljs.edn" "day8.re-frame2-xray.preload"
+                 "shadow-cljs.edn must wire NO Xray preload"]
+                ["deps.edn" "day8/re-frame2-xray"
+                 "deps.edn must carry NO Xray coord"]
+                ["package.json" "@xyflow/react"
+                 "package.json must carry NO @xyflow/react (Xray machine-canvas dep)"]
+                ["package.json" "\"elkjs\""
+                 "package.json must carry NO elkjs (Xray machine-canvas dep)"]]]
+    (doseq [[rel needle msg] checks]
+      (let [f (io/file root rel)]
+        (is (.isFile f) (str rel " emitted for " substrate))
+        (when (.isFile f)
+          (is (not (.contains (slurp f) needle))
+              (str rel " (" substrate ") — " msg
+                   " (rf2-p6f6u: the scaffold must not promise a panel it "
+                   "cannot mount)")))))))
+
 ;; --- Stale Xray-layout-wording scan ----------------------------------------
 ;;
 ;; `assert-xray-host-contract!` above pins the RUNTIME shape (DOM order +
@@ -848,7 +882,11 @@
         (assert-events-test-strict-mint-policy! substrate proj)
         (assert-scratch-with-frame-shape! substrate proj)
         (assert-scratch-frame-context! substrate proj)
-        (assert-xray-host-contract! substrate proj)
+        ;; rf2-p6f6u: Reagent (and the :ui variant's inert host) keep the
+        ;; layout-host contract; the :uix scaffold must be Xray-free.
+        (if (= :uix substrate)
+          (assert-no-xray-host! substrate proj)
+          (assert-xray-host-contract! substrate proj))
         (assert-no-stale-xray-wording! substrate proj)
         (doseq [rel ["test/acme/my_app/events_test.cljs"
                      "src/acme/my_app/events.cljs"
@@ -1125,5 +1163,32 @@
               "tailwind app.css is ordinary native CSS — no bare
                @import \"tailwindcss\" in the externally-linked stylesheet the
                compiler never reads (no phantom /css/tailwindcss request)"))
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest css-tailwind-uix-emission-xray-free-test
+  ;; rf2-p6f6u: the Tailwind overlay replaces index.html + app.css AFTER
+  ;; the per-substrate transform, so the {:substrate :uix :css :tailwind}
+  ;; cell must stay Xray-free through the SWAPPED files too (the
+  ;; {{xray-host-aside}} / {{xray-host-css}} substitution keys ride both
+  ;; css variants — this pins that the overlay cannot reintroduce the
+  ;; host).
+  (testing ":css :tailwind on :substrate :uix keeps the scaffold Xray-free
+            while the Tailwind compiler-input shape survives"
+    (let [tmp (tmp-dir "rf2-emission-tailwind-uix-")]
+      (try
+        (let [proj  (run-template-opts! tmp "acme/my-app"
+                                        {:substrate :uix :css :tailwind})
+              index (slurp (io/file proj "resources/public/index.html"))]
+          (assert-no-xray-host! :uix-tailwind proj)
+          (assert-no-stale-xray-wording! :uix-tailwind proj)
+          ;; The Tailwind cell's own markers still land.
+          (is (re-find #"@tailwindcss/browser@4" index)
+              ":uix tailwind index.html loads the @tailwindcss/browser@4 dev CDN")
+          (is (re-find
+                #"(?s)<style type=\"text/tailwindcss\">.*?@import\s+\"tailwindcss\";.*?@theme\b.*?</style>"
+                index)
+              ":uix tailwind index.html routes the CSS-first source through the
+               inline <style type=\"text/tailwindcss\"> compiler-input block"))
         (finally
           (delete-recursively tmp))))))

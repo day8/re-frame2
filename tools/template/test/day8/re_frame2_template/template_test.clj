@@ -108,10 +108,17 @@
               "shadow-cljs.edn :source-paths includes \"test\" so the emitted test file is discoverable")
           (is (= :node-test (:target tst))
               "shadow-cljs :test build targets :node-test")
-          ;; Xray preload.
-          (is (some #{'day8.re-frame2-xray.preload}
-                    (get-in app [:devtools :preloads]))
-              "shadow-cljs :app :devtools/preloads wires Xray")
+          ;; Xray preload — REAGENT-ONLY (rf2-p6f6u): Xray's panel shell
+          ;; mounts through the ratom-family substrates, so the :uix
+          ;; scaffold wires no preload (an honest scaffold does not
+          ;; promise a panel it cannot mount).
+          (case substrate
+            :reagent (is (some #{'day8.re-frame2-xray.preload}
+                               (get-in app [:devtools :preloads]))
+                         "shadow-cljs :app :devtools/preloads wires Xray on Reagent")
+            :uix     (is (nil? (get-in app [:devtools :preloads]))
+                         ":uix shadow-cljs :app build wires NO preloads —
+                          no Xray on the element substrates (rf2-p6f6u)"))
           ;; re-frame.ui build-hook — the ONE re-frame.ui build setting,
           ;; REQUIRED for any browser build to boot. re-frame.ui compiles the
           ;; views and the hook harvests its whole-build registries from
@@ -127,13 +134,19 @@
               "shadow-cljs.edn wires the re-frame.ui compiler build-hook into
                every build (else a browser build throws on namespace load)"))
 
-        ;; -- Xray coord in deps.edn --
+        ;; -- Xray coord in deps.edn — REAGENT-ONLY (rf2-p6f6u) --
         (let [deps (read-edn (io/file root "deps.edn"))]
-          (is (contains? (:deps deps) 'day8/re-frame2-xray)
-              "deps.edn references day8/re-frame2-xray")
-          ;; Pin value owned by version_lockstep_test.clj.
-          (is (some? (get-in deps [:deps 'day8/re-frame2-xray :mvn/version]))
-              "Xray coord carries an :mvn/version pin"))
+          (case substrate
+            :reagent
+            (do (is (contains? (:deps deps) 'day8/re-frame2-xray)
+                    "deps.edn references day8/re-frame2-xray on Reagent")
+                ;; Pin value owned by version_lockstep_test.clj.
+                (is (some? (get-in deps [:deps 'day8/re-frame2-xray :mvn/version]))
+                    "Xray coord carries an :mvn/version pin"))
+            :uix
+            (is (not (contains? (:deps deps) 'day8/re-frame2-xray))
+                ":uix deps.edn does NOT reference day8/re-frame2-xray —
+                 the scaffold ships no panel it cannot mount (rf2-p6f6u)")))
 
         ;; -- Schemas coord in deps.edn --
         (let [deps (read-edn (io/file root "deps.edn"))]
@@ -274,13 +287,50 @@
           (is (.contains pj-text "\"react\"")
               "package.json declares react")
           ;; The Xray preload compiles day8/re-frame2-machines-viz's
-          ;; machine canvas, which requires these npm packages. Without
-          ;; them the scaffold's first `shadow-cljs watch app` fails with
-          ;; a missing JS dependency (rf2-b16va).
-          (is (.contains pj-text "\"@xyflow/react\"")
-              "package.json declares @xyflow/react (Xray machine-canvas npm dep)")
-          (is (.contains pj-text "\"elkjs\"")
-              "package.json declares elkjs (Xray machine-canvas npm dep)"))
+          ;; machine canvas, which requires these npm packages on the
+          ;; REAGENT scaffold. Without them Reagent's first
+          ;; `shadow-cljs watch app` fails with a missing JS dependency
+          ;; (rf2-b16va). The :uix scaffold ships no Xray pieces, so the
+          ;; deps must NOT leak into it (rf2-p6f6u).
+          (case substrate
+            :reagent
+            (do (is (.contains pj-text "\"@xyflow/react\"")
+                    "package.json declares @xyflow/react (Xray machine-canvas npm dep)")
+                (is (.contains pj-text "\"elkjs\"")
+                    "package.json declares elkjs (Xray machine-canvas npm dep)"))
+            :uix
+            (do (is (not (.contains pj-text "@xyflow/react"))
+                    ":uix package.json does NOT carry @xyflow/react (no Xray — rf2-p6f6u)")
+                (is (not (.contains pj-text "\"elkjs\""))
+                    ":uix package.json does NOT carry elkjs (no Xray — rf2-p6f6u)"))))
+
+        ;; -- Xray layout host + honest README (rf2-p6f6u) --
+        ;; Reagent ships the [data-rf-xray-host] right-side host + its
+        ;; sizing CSS; the :uix scaffold must ship NEITHER, and its README
+        ;; must note the devtools story honestly instead of inheriting the
+        ;; ships-Xray claim.
+        (let [index-text  (slurp (io/file root "resources/public/index.html"))
+              css-text    (slurp (io/file root "resources/public/css/app.css"))
+              readme-text (slurp (io/file root "README.md"))]
+          (case substrate
+            :reagent
+            (do (is (.contains index-text "data-rf-xray-host")
+                    "Reagent index.html ships the Xray layout host")
+                (is (.contains css-text ".rf2-xray-host")
+                    "Reagent app.css ships the Xray host sizing rules")
+                (is (.contains readme-text "the scaffold ships Xray")
+                    "Reagent README documents the shipped Xray panel"))
+            :uix
+            (do (is (not (.contains index-text "data-rf-xray-host"))
+                    ":uix index.html ships NO [data-rf-xray-host] host —
+                     nothing can mount into it (rf2-p6f6u)")
+                (is (not (.contains css-text "rf2-xray-host"))
+                    ":uix app.css ships NO .rf2-xray-host rules (rf2-p6f6u)")
+                (is (not (.contains readme-text "the scaffold ships Xray"))
+                    ":uix README does not inherit the ships-Xray claim (rf2-p6f6u)")
+                (is (.contains readme-text "does not wire Xray")
+                    ":uix README notes the devtools story honestly —
+                     Xray rides the ratom-family substrates today (rf2-p6f6u)"))))
 
         ;; -- views.cljs picks up the substrate-specific shape --
         (let [views-text (slurp (io/file root "src/acme/my_app/views.cljs"))]

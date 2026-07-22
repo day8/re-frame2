@@ -8,17 +8,7 @@
          to the RUNTIME the scaffold actually produces, not an aspirational
          strict baseline.
 
-         - `style-src 'self' 'unsafe-inline'` — the generated views use
-           inline `:style` props, the default-on Xray devtools surface
-           injects `<style>` blocks and inline styles, the inline
-           `<style type="text/tailwindcss">` Tailwind SOURCE block below is
-           an inline stylesheet, AND the @tailwindcss/browser CDN compiler
-           injects a runtime `<style>` block of compiled utilities. Without
-           `'unsafe-inline'` the first page would emit CSP violations and
-           both Xray's styling and Tailwind's utilities would be blocked.
-           (To run with a strict `style-src 'self'`, move to the
-           `@tailwindcss/cli` compiled build + external CSS / a nonce and
-           drop Xray — see README "Production hardening".)
+         {{csp-style-src-note-tailwind}}
          - `script-src 'self' https://cdn.jsdelivr.net` — the dev Tailwind
            compiler loads from the jsdelivr CDN. Production drops the CDN
            for a compiled stylesheet, so `script-src 'self'` alone
@@ -82,15 +72,14 @@
         --color-brand: #6d28d9;
       }
     </style>
-    <!-- Ordinary, native CSS: the app shell + Xray-host layout. Parsed by
+    <!-- Ordinary, native CSS: the app-shell layout. Parsed by
          the browser directly (NOT by Tailwind) — keep only plain CSS
          here. -->
     <link rel="stylesheet" href="/css/app.css">
   </head>
   <body>
     <div class="rf2-app-shell">
-      <main id="app"></main>
-      <aside class="rf2-xray-host" data-rf-xray-host></aside>
+      <main id="app"></main>{{xray-host-aside}}
     </div>
     <script src="/js/main.js"></script>
   </body>

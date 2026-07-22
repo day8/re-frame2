@@ -1,8 +1,8 @@
 ;; {{name}} — shadow-cljs build config ({{substrate-label}} substrate).
 ;;
-;; Substrate-invariant: every substrate (Reagent / UIx) ships
-;; the same two builds — the React substrate is chosen in deps.edn +
-;; core.cljs, not here.
+;; Shared by the adapter substrates (Reagent / UIx): the same two
+;; builds — the React substrate is chosen in deps.edn + core.cljs, not
+;; here.
 ;;
 ;; Two builds:
 ;;   :app  — watch / release. Compiles to resources/public/js/main.js.
@@ -28,14 +28,9 @@
   {:target     :browser
    :output-dir "resources/public/js"
    :asset-path "/js"
-   :modules    {:main {:init-fn {{namespace}}.core/init}}
    ;; shadow's :browser target re-runs the module :init-fn after each
    ;; hot reload by default — no :after-load hook needed.
-   ;; :devtools/preloads loads Xray in dev watch/compile builds.
-   ;; Once rf/init! installs the adapter, Xray auto-mounts into
-   ;; resources/public/index.html's [data-rf-xray-host] right-side host.
-   ;; Cut from release builds automatically.
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   :modules    {:main {:init-fn {{namespace}}.core/init}}{{xray-preload}}}
 
   :test
   {:target    :node-test
