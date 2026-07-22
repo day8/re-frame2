@@ -1,0 +1,119 @@
+name: freehand bench
+
+# The B-spine's scheduled/release lane (D021).
+#
+# WHY THIS IS NOT A PULL-REQUEST WORKFLOW
+#
+# D021 splits the harness's own work in two, and the split maps onto two
+# different CI shapes:
+#
+#   - the DETERMINISTIC part — the harness's two-way falsifiability proof —
+#     is stable, sub-second, needs no browser and no pinned hardware. It is
+#     the "small smoke subset on pull requests if stable" the decision
+#     allows, and it is already required on every PR WITHOUT a job here:
+#     it ships as ordinary tests in implementation/freehand/test, which the
+#     required `JVM freehand (clojure -M:test)` job and the required `cljs`
+#     node-test job both run. A second workflow asserting the same thing
+#     would be a duplicate that can only ever be advisory — `needs:` cannot
+#     span workflow files, so a job here is unreachable from
+#     `all-required-passed`. That is the exact trap the standalone
+#     freehand-artefact.yml fell into and was deleted for.
+#
+#   - the NOISY part — running workloads and publishing their wall-clock and
+#     byte distributions — is what this workflow owns. D021: "Run noisy full
+#     B1–B5 timing on a pinned scheduled/release worker." Nothing here gates
+#     a merge, because nothing here is allowed to: timing and byte
+#     distributions are published evidence with no automatic numeric
+#     pass/fail.
+#
+# THE PIN. `runs-on` names an explicit runner image rather than
+# `ubuntu-latest`, and `RF2_HARDWARE_CLASS` names the class the numbers may
+# be compared within. Successive results are only comparable because both
+# are held still; a floating image would silently re-baseline the evidence
+# under the same name. The class is CONFIGURED here and DETECTED otherwise
+# (re-frame.freehand.bench.provenance/detect-hardware-class) — a result
+# record never carries a literal naming one machine.
+#
+# WHAT RUNS TODAY. The evidence suite is empty: B1–B5 are separate slices
+# and each registers its workload when the implementation that can run it
+# lands. An empty suite prints an empty report and exits 0, which is the
+# honest answer. The falsifiability proof runs here too — not as a duplicate
+# of the PR gate but because a harness whose gate direction has rotted would
+# otherwise publish evidence nobody should trust.
+
+on:
+  schedule:
+    # 05:41 UTC, comfortably clear of the 15:17 expensive-tests cron so the
+    # two never contend for the same shared-runner capacity.
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: freehand-bench-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    name: Freehand B-spine evidence (pinned worker)
+    # PINNED, deliberately. See THE PIN above.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: implementation/freehand
+    env:
+      # The class these numbers may be compared within — configured, not
+      # detected, because this runner is the pinned one.
+      RF2_HARDWARE_CLASS: release-worker
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-freehand-${{ hashFiles('implementation/freehand/deps.edn', 'implementation/core/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-freehand-
+            ${{ runner.os }}-clj-
+
+      # The harness's own gate, and the ONLY thing in this workflow that may
+      # fail it. Both directions of D021's asymmetry, asserted about exit
+      # codes rather than about milliseconds.
+      - name: Prove the gate/evidence asymmetry both ways
+        run: clojure -M:bench --prove
+
+      # Evidence. Stdout is valid EDN (the human summary rides as `;;`
+      # comments), so the artefact and the thing a reviewer reads are the
+      # same bytes. A violated DETERMINISTIC property still reds this step —
+      # that is what a gate is — but no distribution can, however far it
+      # moves.
+      - name: Run the evidence suite and publish the result records
+        run: |
+          mkdir -p out
+          clojure -M:bench > out/freehand-bench.edn
+          cat out/freehand-bench.edn
+
+      - name: Upload the result records
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: freehand-bench-${{ github.sha }}
+          path: implementation/freehand/out/freehand-bench.edn
+          if-no-files-found: error
+          retention-days: 90
