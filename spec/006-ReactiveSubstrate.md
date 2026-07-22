@@ -1936,6 +1936,94 @@ nothing would ever release it. Non-reactive callers use the frame-explicit one-s
 ([§`subscribe-once`](#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value)),
 which resolves, probes, returns, and releases without installing a dependency.
 
+## The subscription law
+
+> **Status: normative.** `v/sub` is the paved path's reactive read. Its value, resolution,
+> invalidation and commit-safety are stated once here and hold in **both** execution modes; the
+> [atomic shell](#the-freehand-atomic-shell) owns the commit those semantics ride on, and
+> [Spec 004](004-Views.md) owns the surrounding authoring surface.
+
+`v/sub` takes a subscription **query vector** and returns that subscription's current **value**
+— not a reactive reference, not a deref-able container. It reads through the adapter-internal
+observation port and resolves against the frame the render is bound to, so a subscription read
+in a view is the same value the rest of re-frame2 computes for that query
+([§Subscription cache](#subscription-cache--contract-and-operational-semantics)). Freehand adds
+no second reactive system and no second value model.
+
+The one-shot, non-reactive read keeps its own name —
+[`subscribe-once`](#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value), a
+`re-frame.core` verb, never a Freehand one. The two are deliberately not one form under two
+meanings (D005): `v/sub` always means *a reactive read owned by this render*, and the ownerless
+read says what it does.
+
+### A render-owned value
+
+A `v/sub` inside a render resolves and probes and **acquires nothing** — no ref-count, no
+watch, no cache node — and records the read on the render's own candidate, in document order.
+The SELECTED commit is the one place those records become owned dependencies: the published
+bundle's dependency set is exactly the queries the committed render read, in render order, and
+a render the host never selects owns none of them. So `v/sub` is safe in a render the host may
+restart or abandon — that is what lets it be the paved read rather than a resource a
+speculative render could leak.
+
+The value is **stabilized**: a recompute whose result is `rf=`-equal to the site's prior
+committed value returns the exact prior value object, and an `rf=`-equal query keeps the prior
+query object, so an equal value is not movement and does not churn identity downstream.
+
+Subscription **handle counts are internal.** `v/sub` returns a value; the ref-count, the
+derived container and the disposal edge belong to the port and the shell, and are never part of
+what an author reads or what a return conveys.
+
+### The render-only rule
+
+`v/sub` is legal **only during an active declared render**. A read with no render to belong to
+has no owner — nothing would ever release it — so it is refused loudly with
+`:rf.error/view-read-outside-render` rather than probed and dropped to a silent `nil`. The
+diagnostic is raised **before** the target is resolved, so the refused read performs no
+observation work. A REPL probe, a timer, a `v/event` / `v/handler` callback, a promise
+continuation, or any foreign callback that reaches for `v/sub` gets the same diagnostic at the
+call site, and the recovery is the frame-explicit one-shot read.
+
+This is the authoring name for the capture law the shell states for its port
+([§Same-render-thread capture](#same-render-thread-capture)); `v/sub` inherits the same
+same-thread rule below.
+
+### Capture through helper functions
+
+The render owns a `v/sub` wherever the call **lexically sits**, including inside an ordinary
+`defn` helper the body calls:
+
+```clojure
+(defn- money [q] (format-currency (v/sub q)))   ;; a plain defn, not a view
+
+(v/defview receipt [_]
+  [:dl [:dd (money [:cart/subtotal])]           ;; captured by receipt's render
+       [:dd (money [:cart/tax])]])
+```
+
+`money` is a helper, not a boundary: it owns no occurrence and no subscriptions of its own, and
+its `v/sub` is recorded on the *calling* render's candidate exactly as an inline read would be.
+The capture rides the active render, not the call depth, so refactoring an inline read into a
+helper — or back — changes neither ownership nor evidence. It is **same-thread** capture, so a
+read conveyed to a child thread (`future`, `pmap`, `bound-fn`) is refused with
+`:rf.error/view-forked-capture` before it probes
+([§Same-render-thread capture](#same-render-thread-capture)).
+
+### Invalidation and atomic recommit
+
+When an input a committed `v/sub` depends on changes value (by `rf=`), the occurrence is marked
+and the host re-renders it. The new render reads whatever queries its body now reaches, and its
+commit republishes the **whole bundle** — dependencies, event targets and evidence — in one
+step ([§The selected render bundle](#the-selected-render-bundle)). Invalidation therefore
+recomputes and recommits **atomically**: there is no window in which the occurrence's
+dependencies came from one render and its committed values from another, and an `rf=`-equal
+recompute republishes an identical bundle rather than churning it.
+
+Neither mode changes these semantics. The interpreted tier records the reads a committed render
+actually made — exact for that generation, not a static upper bound for the program; the
+compiled tier additionally proves a finite set of possible read sites (Spec 004D). What `v/sub`
+*means* — a render-owned, stabilized, same-thread reactive read — is one sentence in both.
+
 ## What happens when a sub references an unknown sub
 
 A sub registered via `:<-` referencing an undefined input is an error:
