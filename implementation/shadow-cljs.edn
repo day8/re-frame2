@@ -153,8 +153,9 @@
                 ;; `shadow.resource/slurp-resource` records the fixture's
                 ;; last-modified against the namespace that inlines it, so
                 ;; the fixture participates in that namespace's cache key.
-                ;; The JVM counterpart is the `../../spec/conformance`
-                ;; entry in implementation/freehand/deps.edn `:test`.
+                ;; The JVM lane needs no such edge (`clojure -M:test` has
+                ;; no persistent analyzer cache) and does not carry this
+                ;; root: it walks up from the compile CWD instead.
                 "../spec/conformance"
                 ;; rf2-nojiwy — re-frame.ui testbed (the four-suites rule's
                 ;; new-UI smoke). Standalone counter app under ui/testbed/
