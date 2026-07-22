@@ -266,5 +266,5 @@ It unlocks:
   ties promotion to measured work rather than a quota.
 - [fable-design.md §7.3–§7.4](../fable-design.md#73-uncertain-assumptions--constraints-now)
   labels uncertain constants and makes B1–B5 a day-one obligation.
-- [fable-design.md Appendix B.5](../fable-design.md#b5-the-day-one-benchmark-matrix)
+- [fable-design.md Appendix B.5](../fable-design.md#appendix-b--matrices-and-budgets)
   provides the concrete benchmark shapes and metrics.

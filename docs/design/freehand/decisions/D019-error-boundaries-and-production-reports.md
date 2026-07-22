@@ -330,7 +330,7 @@ Unlocks:
 - [Fable design §2.7](../fable-design.md#27-errors-and-diagnostics) proposes
   `v/error-boundary`, post-commit `:on-error`, reset behavior, and production
   context.
-- [Fable design Appendix A.7](../fable-design.md#a7-thrown-error-mid-render)
+- [Fable design Appendix A.7](../fable-design.md#appendix-a--semantic-traces)
   traces abandoned capture, fallback commit, and teardown.
 - [Fable design §7](../fable-design.md#7-risks-wounds-obligations) supplies the
   privacy, identity, HMR, and evidence risks this contract must fence.

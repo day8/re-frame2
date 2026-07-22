@@ -198,5 +198,5 @@ browser conformance, and eventual deletion of the donor artifact.
   requires controlled editing to survive unrelated dirty work.
 - [Fable design, §2.3 “The event grammar”](../fable-design.md#23-the-event-grammar)
   specifies the narrow door and proof conditions.
-- [Fable design, Appendix A.2b](../fable-design.md#a2b-the-door-under-a-pending-batched-window)
+- [Fable design, Appendix A.2b](../fable-design.md#appendix-a--semantic-traces)
   makes the frame-wide latency coupling explicit.
