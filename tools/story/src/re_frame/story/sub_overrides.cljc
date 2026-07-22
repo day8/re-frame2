@@ -86,6 +86,7 @@
   `:schema`, matching Spec 010 §`:sub-return`."
   (:refer-clojure :exclude [resolve read])
   #?(:cljs (:require [re-frame.adapter.sub-override-context :as ovr-ctx]
+                     [re-frame.interop :as interop]
                      [re-frame.late-bind :as late-bind])))
 
 ;; ============================================================================
@@ -235,9 +236,18 @@
      keys. Mirrors `re-frame.views.provider/frame-provider-component`'s
      `:r>` Provider mount. When `overrides` is nil/empty this is render-
      transparent (the descendant consult misses and the view reads its
-     real subscription)."
+     real subscription).
+
+     Dev/tool builds only: under `goog.DEBUG=false` (e.g. the `:advanced`
+     static-export release) `ovr-ctx/override-context` is nil — the whole
+     sub-override seam is compiled out, including the `subscribe` consult
+     — so this fn returns `child` unchanged instead of mounting a
+     Provider on a nil context. Mirrors
+     `re-frame.ui.sub-overrides/provider-element`'s gate."
      [overrides child]
-     [:r> (.-Provider ovr-ctx/override-context) #js {:value overrides} child]))
+     (if interop/debug-enabled?
+       [:r> (.-Provider ovr-ctx/override-context) #js {:value overrides} child]
+       child)))
 
 ;; Publish the hook at ns-load time (CLJS only). Core consults it lazily
 ;; via `late-bind/get-fn` inside the dev gate; an unpublished hook (JVM,

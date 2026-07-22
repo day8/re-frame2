@@ -13,7 +13,7 @@
     `variant-test-status` lookup; `test-summary` aggregation across a
     fixture of variants in mixed states; `testable-variant-ids`
     filter (must be both `:test`-tagged AND `:play-script`-bearing); the
-    `status->dot-style-key` projection and `dot-aria-label`.
+    `dot-style` descriptor projection and `dot-aria-label`.
   - **CLJS-only**: the rendered hiccup for the chrome widget carries
     the expected counts + headline; the sidebar's variant-row hiccup
     includes the status dot when the variant is testable; the
@@ -23,7 +23,7 @@
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.state :as state]
             #?@(:cljs [[re-frame.story.ui.sidebar :as sidebar]
-                       [re-frame.story.ui.sidebar-styles :refer [styles]]])))
+                       [re-frame.story.theme.status :as status]])))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -152,33 +152,49 @@
   (testing "no :test variants → empty seq, widget renders 'no :test variants'"
     (is (empty? (state/testable-variant-ids {})))))
 
-;; ---- pure: status → dot style key + aria label --------------------------
+;; ---- pure: status → dot style + aria label -------------------------------
 
 #?(:cljs
-   (deftest status-dot-style-mapping
-     (testing "each canonical status maps to a distinct style key"
-       (is (= :dot-pass    (sidebar/status->dot-style-key :pass)))
-       (is (= :dot-fail    (sidebar/status->dot-style-key :fail)))
-       (is (= :dot-running (sidebar/status->dot-style-key :running)))
-       (is (= :dot-pending (sidebar/status->dot-style-key :pending)))
-       ;; `:error` (a run outcome the chrome widget CAN produce, e.g. a
-       ;; handler that throws) shares the danger tint with `:fail`.
-       (is (= :dot-fail    (sidebar/status->dot-style-key :error)))
-       ;; Chip-axis statuses that don't carry a bespoke dot style return
-       ;; nil — `status-dot` degrades them to the neutral pending ring
-       ;; rather than dereferencing nil as a fn (the sidebar-render crash).
-       (is (nil? (sidebar/status->dot-style-key :cannot-run))))))
+   (deftest status-dot-style-derives-from-descriptor
+     (testing "dot-style projects each run status's paint from the ONE
+               canonical theme.status descriptor source (rf2-wh5to) —
+               settled solid statuses fill with the descriptor fg,
+               running fills translucent, the hollow shapes ring in the
+               descriptor border colour"
+       (is (= {:background (status/fg :pass)} (sidebar/dot-style :pass)))
+       (is (= {:background (status/fg :fail)} (sidebar/dot-style :fail)))
+       (is (= {:background (status/fg :running) :opacity "0.7"}
+              (sidebar/dot-style :running)))
+       (is (= {:background "transparent"
+               :border     (str "1px solid " (:border (status/descriptor :pending)))}
+              (sidebar/dot-style :pending)))
+       (is (= {:background "transparent"
+               :border     (str "1px solid " (:border (status/descriptor :cannot-run)))}
+              (sidebar/dot-style :cannot-run))))
+     (testing ":cannot-run (the canonical third run status,
+               state.tests/test-run-statuses) is visibly DISTINCT from
+               :pending — a warning-hued ring, never the neutral
+               reserved-slot ring"
+       (is (not= (sidebar/dot-style :pending) (sidebar/dot-style :cannot-run))))
+     (testing "pending is reserved for the genuinely unknown/nil slot —
+               unknown statuses degrade through the descriptor fallback"
+       (is (= (sidebar/dot-style :pending) (sidebar/dot-style :unknown)))
+       (is (= (sidebar/dot-style :pending) (sidebar/dot-style nil))))))
 
 #?(:cljs
    (deftest status-dot-aria-labels
-     (testing "every status produces a distinct accessible label"
-       (is (= "tests passing"     (sidebar/dot-aria-label :pass)))
-       (is (= "tests failing"     (sidebar/dot-aria-label :fail)))
-       (is (= "tests errored"     (sidebar/dot-aria-label :error)))
-       (is (= "tests running"     (sidebar/dot-aria-label :running)))
-       (is (= "tests not yet run" (sidebar/dot-aria-label :pending)))
-       ;; Unrecognised → safe fallback.
-       (is (= "tests not yet run" (sidebar/dot-aria-label :unknown))))))
+     (testing "the accessible label voices the canonical descriptor label
+               — every run status distinct, :cannot-run ≠ :pending"
+       (is (= "tests: Pass"      (sidebar/dot-aria-label :pass)))
+       (is (= "tests: Fail"      (sidebar/dot-aria-label :fail)))
+       (is (= "tests: Running"   (sidebar/dot-aria-label :running)))
+       (is (= "tests: Pending"   (sidebar/dot-aria-label :pending)))
+       (is (= "tests: Can't run" (sidebar/dot-aria-label :cannot-run)))
+       (is (not= (sidebar/dot-aria-label :pending)
+                 (sidebar/dot-aria-label :cannot-run)))
+       ;; Unrecognised / nil → the descriptor's pending fallback.
+       (is (= "tests: Pending" (sidebar/dot-aria-label :unknown)))
+       (is (= "tests: Pending" (sidebar/dot-aria-label nil))))))
 
 ;; ---- CLJS-only: rendered hiccup contains the widget ---------------------
 
@@ -265,17 +281,36 @@
          (is (= "pass"    (get (second dot-pass) :data-status)))
          (is (= "running" (get (second dot-running) :data-status)))
          ;; aria-label round-trips for screen-reader users.
-         (is (= "tests failing" (get (second dot-fail) :aria-label)))
-         ;; A status with no bespoke dot style (a chip-axis value that
-         ;; reaches the dot) must render — never crash — falling back to
-         ;; the neutral pending ring (regression guard for the sidebar
-         ;; null-deref that reddened the nightly for 13 nights).
-         (let [dot-unmapped (sidebar/status-dot :cannot-run)]
-           (is (= "cannot-run" (get (second dot-unmapped) :data-status)))
-           (is (= (:dot-pending styles)
-                  (select-keys (get (second dot-unmapped) :style)
-                               (keys (:dot-pending styles))))
-               "unmapped status degrades to the pending ring, not a crash"))))))
+         (is (= "tests: Fail" (get (second dot-fail) :aria-label)))))))
+
+;; ---- rf2-wh5to — :cannot-run ≠ :pending THROUGH the dot -------------------
+
+#?(:cljs
+   (deftest sidebar-dot-cannot-run-distinct-from-pending
+     (testing ":cannot-run — the distinct third run status
+               (state.tests/test-run-statuses, spec/017 §:cannot-run) —
+               renders visibly AND accessibly distinct from :pending
+               through the dot component itself: different paint
+               (warning ring vs neutral ring), different accessible
+               name, different data-status. Pending stays reserved for
+               the genuinely unknown slot; a refusal never wears it."
+       (let [dot-cannot  (sidebar/status-dot :cannot-run)
+             dot-pending (sidebar/status-dot :pending)
+             props       (fn [dot] (second dot))]
+         (is (= "cannot-run" (:data-status (props dot-cannot))))
+         (is (= "pending"    (:data-status (props dot-pending))))
+         ;; Visible channel — the rendered inline style differs.
+         (is (not= (:style (props dot-cannot)) (:style (props dot-pending)))
+             ":cannot-run must not wear the pending ring")
+         ;; The paint comes from the canonical descriptor source.
+         (is (= (str "1px solid " (:border (status/descriptor :cannot-run)))
+                (:border (:style (props dot-cannot)))))
+         ;; Accessible channel — label + title both voice the refusal.
+         (is (= "tests: Can't run" (:aria-label (props dot-cannot))))
+         (is (= "tests: Pending"   (:aria-label (props dot-pending))))
+         (is (not= (:aria-label (props dot-cannot))
+                   (:aria-label (props dot-pending))))
+         (is (= "tests: Can't run" (:title (props dot-cannot))))))))
 
 ;; ---- rf2-k3y92 — status-dot is decorative img (not a live region) -------
 

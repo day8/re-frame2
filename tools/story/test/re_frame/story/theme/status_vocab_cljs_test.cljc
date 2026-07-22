@@ -189,11 +189,18 @@
 
 #?(:cljs
    (deftest sidebar-status-dots-derive-from-fg
-     (testing "the per-variant status dots tint from status/fg — the same
-               single source the chips read"
-       (is (= {:background (status/fg :pass)}    (:dot-pass styles)))
-       (is (= {:background (status/fg :fail)}    (:dot-fail styles)))
-       (is (= (status/fg :running) (:background (:dot-running styles)))))))
+     (testing "the per-variant status dots project from the descriptor
+               source (`sidebar/dot-style`) — the same single source the
+               chips read; there are no duplicate per-status style-map
+               entries left to drift (rf2-wh5to)"
+       (is (= {:background (status/fg :pass)} (sidebar/dot-style :pass)))
+       (is (= {:background (status/fg :fail)} (sidebar/dot-style :fail)))
+       (is (= (status/fg :running) (:background (sidebar/dot-style :running))))
+       ;; :cannot-run rings in its own descriptor border colour — the
+       ;; canonical third run status never wears :pending's neutral ring.
+       (is (= (str "1px solid " (:border (status/descriptor :cannot-run)))
+              (:border (sidebar/dot-style :cannot-run))))
+       (is (not= (sidebar/dot-style :pending) (sidebar/dot-style :cannot-run))))))
 
 ;; ---- glyph channel rendered in the sidebar chip (rf2-gsqbp) -------------
 

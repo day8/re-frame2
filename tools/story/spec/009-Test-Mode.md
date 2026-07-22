@@ -261,9 +261,9 @@ the sidebar plus the **status dots** that render next to each
 testable variant row.
 
 Both surfaces read from one slot in the shell state —
-`[:tests :runs]`, a `{variant-id → {:status :pass|:fail|:running|
-:pending, :passed, :failed, :skipped, :total, :ran-at-ms, :elapsed-
-ms}}` map. The `:test` mode pane and the chrome widget both write
+`[:tests :runs]`, a `{variant-id → {:status :pass|:fail|:cannot-run|
+:running|:pending, :passed, :failed, :cannot-run, :skipped, :total,
+:ran-at-ms, :elapsed-ms}}` map. The `:test` mode pane and the chrome widget both write
 into it; the sidebar's per-variant row reads its dot's colour from
 it.
 
@@ -281,10 +281,11 @@ hashes]` (the watch-mode detector's drift baseline).
                                               ; aggregate-summary shape
                                               ; from this spec.
 (clear-test-run      state variant-id)       ; → state'
-(variant-test-status state variant-id)       ; → :pass|:fail|:running|:pending
+(variant-test-status state variant-id)       ; → :pass|:fail|:cannot-run
+                                              ;   |:running|:pending
 (test-summary        state variant-ids)      ; → {:total :passed :failed
-                                              ;    :running :pending
-                                              ;    :all-green?}
+                                              ;    :cannot-run :running
+                                              ;    :pending :all-green?}
 (testable-variant-ids id->body)              ; → vector of variant-ids
                                               ; whose :tags contains :test
                                               ; AND :play-script is non-empty.
@@ -307,11 +308,20 @@ variant renders no dot.
 ### Status semantics
 
 - `:pass` — every assertion in the last run passed (and at least one assertion).
-- `:fail` — at least one assertion failed.
+- `:fail` — at least one assertion failed. (A run-level `:error`
+  verdict — a thrown handler / fx / step — lowers to `:fail` at
+  `record-test-run` write time; the per-assertion `:error` detail
+  stays distinct in the `:test` pane's result rows.)
+- `:cannot-run` — the distinct THIRD status ([017 §`:cannot-run`](017-Testing-Story.md)):
+  the only unmet expectations were ones the runner could not even
+  attempt. A refusal is NOT a pass and NOT `:pending` — the dot wears
+  the `:warning`-hued ring from the `theme.status` descriptor, never
+  the neutral pending ring.
 - `:running` — `run-variant` is currently in flight.
 - `:pending` — no run recorded yet, **or** the last run produced zero
   assertions (the variant ran but produced no signal — the dot stays
-  grey rather than green).
+  grey rather than green). Reserved for the genuinely unknown slot;
+  unknown / nil statuses degrade here, real terminal statuses never do.
 
 `:all-green?` on the chrome widget's summary is true only when every
 testable variant has a recorded green run — a sea of `:pending`
@@ -336,7 +346,7 @@ slot, so the chrome widget and the pane stay in sync.
 | `[data-test="story-test-widget-run-all"]`             | The Run all button.                   |
 | `[data-test="story-test-widget-watch-toggle"]`        | The watch-mode eye-icon chip; `aria-pressed` reflects the on/off state, `data-state` reads "on" / "off". |
 | `[data-test="story-test-widget-empty"]`               | "no :test variants" empty state.      |
-| `[data-test="story-sidebar-dot"]`                     | One per testable variant row; `data-status="pass\|fail\|running\|pending"`. |
+| `[data-test="story-sidebar-dot"]`                     | One per testable variant row; `data-status="pass\|fail\|cannot-run\|running\|pending"`. |
 
 ### Watch mode (rf2-z1h0f)
 

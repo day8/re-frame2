@@ -91,38 +91,45 @@
 
 ;; ---- pure: per-variant status dot (rf2-q0irb) ---------------------------
 
-(def status->dot-style-key
-  "Pure data → data: map a `[:tests :runs]` status keyword to the
-  styles map key that renders its dot colour. The render-only mapping
-  lives next to the canonical statuses so both surfaces (sidebar dot,
-  chrome widget) can JVM-test the projection without booting Reagent.
+(defn dot-style
+  "Pure data → data: project a run status's compact dot paint from the
+  canonical `theme.status` descriptor (spec/018 §12.6) — the SAME single
+  source the signal chips and result pills read, so the dot can never
+  drift from the vocabulary. Two descriptor channels survive at 8px dot
+  scale:
 
-  Covers the run-outcome statuses a testable variant's dot can carry
-  (`theme.status` vocab). `:error` shares `:fail`'s danger tint — both
-  demand attention and resolve to the same `:danger` colour. Any status
-  without a bespoke dot style (`:cannot-run`/`:blocked`/`:dirty`/
-  `:redacted` — chip-axis values that don't normally reach the dot)
-  returns `nil`; the `status-dot` call site falls back to the neutral
-  `:pending` ring for those rather than dereferencing `nil` as a fn
-  (which crashed the whole sidebar render on any `:error`-status run)."
-  {:pass    :dot-pass
-   :fail    :dot-fail
-   :error   :dot-fail
-   :running :dot-running
-   :pending :dot-pending})
+  - colour — the descriptor's `:fg` / `:border` tints the fill or ring;
+  - shape  — settled `:solid` statuses fill; `:half` (running) fills
+    translucent (the in-flight partial treatment); the hollow shapes
+    (`:ring` pending, `:outline` cannot-run / error, `:dashed` redacted)
+    render a transparent ground with a 1px ring in the descriptor's
+    border colour — so `:cannot-run` (warning-hued ring) reads 'could
+    not observe', visibly distinct from `:pending`'s neutral grey ring.
+
+  The dot's run-status domain is `state.tests/test-run-statuses` —
+  `record-test-run` normalizes a run-level `:error` to `:fail` at write
+  time, so `:cannot-run` is the canonical third terminal status here.
+  Unknown / nil statuses degrade through `status/descriptor`'s
+  `:pending` fallback — pending is reserved for the genuinely unknown
+  slot, never a mask over a real terminal status."
+  [status]
+  (let [{:keys [fg border shape]} (status/descriptor status)]
+    (case shape
+      :solid  {:background fg}
+      :half   {:background fg :opacity "0.7"}
+      :dashed {:background "transparent" :border (str "1px dashed " border)}
+      ;; :ring / :outline — a hollow 1px ring in the status's border colour.
+      {:background "transparent" :border (str "1px solid " border)})))
 
 (defn dot-aria-label
-  "Pure data → data: render the status keyword as an accessible label
-  for the per-variant sidebar dot. Used both by the sidebar dot and
-  (for parity) by the JVM test corpus."
+  "Pure data → data: the accessible name for the per-variant sidebar
+  dot — `\"tests: <label>\"` with `<label>` the canonical `theme.status`
+  descriptor label, so the dot voices the SAME vocabulary the chips
+  render (`:cannot-run` → \"tests: Can't run\", accessibly distinct
+  from `:pending` → \"tests: Pending\"). Unknown / nil statuses degrade
+  through `status/descriptor`'s `:pending` fallback."
   [status]
-  (case status
-    :pass    "tests passing"
-    :fail    "tests failing"
-    :error   "tests errored"
-    :running "tests running"
-    :pending "tests not yet run"
-    "tests not yet run"))
+  (str "tests: " (status/label status)))
 
 ;; ---- pure: per-tag badge styling (rf2-nwiwr) ----------------------------
 
@@ -281,9 +288,8 @@
   registry the noise is real. `role=\"img\"` keeps the `aria-label`
   exposed as the accessible name without the live-region behaviour."
   [status]
-  (let [k     (status->dot-style-key status)
-        label (dot-aria-label status)]
-    [:span {:style       (merge (:dot styles) (get styles k (:dot-pending styles)))
+  (let [label (dot-aria-label status)]
+    [:span {:style       (merge (:dot styles) (dot-style status))
             :data-test   "story-sidebar-dot"
             :data-status (name (or status :pending))
             :role        "img"
