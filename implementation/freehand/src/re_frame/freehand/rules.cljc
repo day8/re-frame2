@@ -480,58 +480,90 @@
     :else (camelize n)))
 
 #?(:clj
+   (defn- shortest-decimal
+     "The decimal ECMA's `Number::toString` step 5 selects for a POSITIVE
+  FINITE double: the FEWEST significant digits that still round-trip to
+  `d`, and among decimals of that length the one closest to `d` — ties to
+  even, which is the tie-break ECMA names and the one V8 implements.
+
+  Derived from the double's EXACT value (`BigDecimal.` is exact for a
+  double), not from a host rendering of it, because the host renderings
+  disagree with JavaScript in both directions:
+
+    - `Double/toString` is documented as shortest but is not, for the
+      smallest subnormals — it answers `4.9E-324` for `Double/MIN_VALUE`
+      where JavaScript answers `5e-324`;
+    - the exact decimal is not shortest either — the double nearest
+      `1.3990134524153749e17` has the exact value `139901345241537488`,
+      where JavaScript answers `139901345241537490`.
+
+  Ascending precision is what makes 'as small as possible' a fact rather
+  than an assumption: the first `p` whose `p`-digit rounding parses back
+  to the same double IS the minimal `k`, and 17 digits always round-trip,
+  so the loop is bounded."
+     ^java.math.BigDecimal [^double d]
+     (let [exact (java.math.BigDecimal. d)]
+       (loop [p 1]
+         (if (>= p 17)
+           (.round exact (java.math.MathContext. 17 java.math.RoundingMode/HALF_EVEN))
+           (let [r (.round exact (java.math.MathContext. p java.math.RoundingMode/HALF_EVEN))]
+             (if (== d (.doubleValue r)) r (recur (inc p)))))))))
+
+#?(:clj
    (defn- js-double-str
-     "ECMA-262 `Number::toString(10)` for a FINITE, NON-INTEGRAL double.
-  Built from the JVM's shortest round-trip decimal (`Double/toString` —
-  Ryu shortest digits, the same digit selection JS engines use), then
-  re-laid-out per the ECMA rules: plain notation while the decimal
-  exponent n is in (-6, 21], exponential (`1e+21`, `1.23e-7`) outside.
-  Fixes the previous host-format fallback, which leaked Java notation
-  (`0.0001` -> \"1.0E-4\", `1e21` -> \"1.0E21\") — parity-corpus row 10
-  residual, discharged at S1f."
+     "ECMA-262 `Number::toString(10)` for a FINITE, NON-ZERO double: the
+  shortest round-tripping digits from [[shortest-decimal]], laid out per
+  the ECMA rules — plain notation while the decimal exponent n is in
+  (-6, 21], exponential (`1e+21`, `1.23e-7`) outside."
      [^double d]
-     (let [neg?   (neg? d)
-           s      (Double/toString (Math/abs d))
-           ;; -> [digits n] with value = 0.d1d2... * 10^n
-           [ds n] (if-let [ei (str/index-of s "E")]
-                    (let [mant   (subs s 0 ei)
-                          ex     (Long/parseLong (subs s (inc ei)))
-                          digits (str/replace mant "." "")]
-                      ;; Java E-notation mantissa is d.ddd (one leading digit)
-                      [digits (inc ex)])
-                    (let [di   (str/index-of s ".")
-                          i    (subs s 0 di)
-                          f    (subs s (inc di))]
-                      (if (= i "0")
-                        (let [z (count (take-while #(= \0 %) f))]
-                          [(subs f z) (- z)])
-                        [(str i f) (count i)])))
-           ds     (let [t (str/replace ds #"0+$" "")]
-                    (if (= t "") "0" t))
-           k      (count ds)
-           body   (cond
-                    ;; 0 handled by the integral path upstream
-                    (and (<= k n) (<= n 21))
-                    (str ds (apply str (repeat (- n k) "0")))
+     (let [neg? (neg? d)
+           bd   (.stripTrailingZeros (shortest-decimal (Math/abs d)))
+           ;; value = 0.<ds> * 10^n
+           ds   (.toString (.unscaledValue bd))
+           k    (count ds)
+           n    (- k (.scale bd))
+           body (cond
+                  (and (<= k n) (<= n 21))
+                  (str ds (apply str (repeat (- n k) "0")))
 
-                    (and (< 0 n) (<= n 21))
-                    (str (subs ds 0 n) "." (subs ds n))
+                  (and (< 0 n) (<= n 21))
+                  (str (subs ds 0 n) "." (subs ds n))
 
-                    (and (< -6 n) (<= n 0))
-                    (str "0." (apply str (repeat (- n) "0")) ds)
+                  (and (< -6 n) (<= n 0))
+                  (str "0." (apply str (repeat (- n) "0")) ds)
 
-                    :else
-                    (str (subs ds 0 1)
-                         (when (> k 1) (str "." (subs ds 1)))
-                         "e" (when (pos? (dec n)) "+") (dec n)))]
+                  :else
+                  (str (subs ds 0 1)
+                       (when (> k 1) (str "." (subs ds 1)))
+                       "e" (when (pos? (dec n)) "+") (dec n)))]
        (str (when neg? "-") body))))
 
 (defn js-number-str
-  "JS `ToString` semantics for numbers, on both hosts. The pinned case is
-  integral doubles rendering WITHOUT a trailing `.0` ([S1-CONFIRM] row
-  10); non-integral doubles follow the full ECMA layout via
-  `js-double-str` (plain notation in the (-6, 21] decimal-exponent
-  window, `e`-notation outside — the parity corpus pins both)."
+  "JS `ToString` semantics for numbers, on both hosts.
+
+  In ClojureScript every number IS a JavaScript number, so `str` is the
+  rule. On the JVM it is implemented: EVERY finite double takes the full
+  ECMA `Number::toString(10)` — shortest round-tripping digits, ties to
+  even, plain notation in the (-6, 21] decimal-exponent window and
+  `e`-notation outside. There is no separate integral branch, because a
+  large integral double is exactly where the exact decimal and the
+  decimal JavaScript prints part company (`139901345241537488` against
+  `139901345241537490`).
+
+  `-0.0` renders `\"0\"`, matching `String(-0)`; NaN and the infinities
+  take their JavaScript spellings.
+
+  **The JVM integer domain is wider than JavaScript's, deliberately.** A
+  JVM integral type (`Long`, `BigInt`, `BigInteger`) renders its EXACT
+  decimal at any magnitude — `9007199254740993` stays
+  `\"9007199254740993\"` — because it is an exact integer and printing an
+  approximation of an exact value would be a lie. Beyond 2^53 that value
+  has no ClojureScript counterpart to agree with: the reader there makes
+  it a double, and the double is a different number. Cross-host equality
+  is a claim about one VALUE rendered on two hosts, and it holds for
+  every double; a JVM integer outside JavaScript's exactly representable
+  range is a value the other host cannot hold, not a spelling the two
+  hosts disagree about (Spec 004B §Attr value normalization)."
   [x]
   #?(:cljs (str x)
      :clj  (cond
@@ -539,13 +571,11 @@
              (or (double? x) (float? x))
              (let [d (double x)]
                (cond
-                 (Double/isNaN d)                     "NaN"
-                 (= d Double/POSITIVE_INFINITY)       "Infinity"
-                 (= d Double/NEGATIVE_INFINITY)       "-Infinity"
-                 (and (== d (Math/rint d))
-                      (< (Math/abs d) 1.0E21))
-                 (str (.toBigInteger (java.math.BigDecimal. d)))
-                 :else (js-double-str d)))
+                 (Double/isNaN d)               "NaN"
+                 (= d Double/POSITIVE_INFINITY) "Infinity"
+                 (= d Double/NEGATIVE_INFINITY) "-Infinity"
+                 (zero? d)                      "0"
+                 :else                          (js-double-str d)))
              (ratio? x) (js-number-str (double x))
              :else (str x))))
 

@@ -1,0 +1,128 @@
+;; FH-STRUCT-008 — JavaScript `Number::toString(10)`, for every admitted
+;; double, on both hosts.
+;;
+;; FH-STRUCT-003 pins that numbers take JS `ToString`. This row pins the
+;; CONVERSION ITSELF over the double value space, because "JS ToString"
+;; is a claim about 2^64 values and three well-chosen examples prove
+;; almost none of it.
+;;
+;; Every `:js` string below is JavaScript's own answer, and the row is
+;; asserted on BOTH hosts. In ClojureScript the conversion IS `String(d)`
+;; — a number there is a JavaScript number — so the ClojureScript run
+;; proves the expected column really is what JavaScript says, and the JVM
+;; run proves the JVM agrees with it. Neither host is grading its own
+;; homework.
+;;
+;; The rows are the classes, not a sample. The two that were WRONG before
+;; this fixture existed are marked; both come from real divergences a
+;; 200,000-value differential probe found, and both are class
+;; representatives rather than curiosities:
+;;
+;;   * a large integral double, where the double's EXACT decimal has more
+;;     digits than the shortest decimal that round-trips to it. Rendering
+;;     the exact value is not what JavaScript does;
+;;   * the smallest subnormals, where the JVM's own `Double/toString` is
+;;     not the shortest round-tripping decimal it is documented to be.
+;;
+;; The tie row is the third teeth: at the shortest length two decimals
+;; can both round-trip, and ECMA breaks the tie to EVEN. Rounding half-up
+;; there passes every other row in this file and still disagrees with
+;; JavaScript on 59 values in 200,000.
+{:fh/id "FH-STRUCT-008"
+ :fh/law
+ "Numbers render with JavaScript `Number::toString(10)` semantics on both hosts — shortest round-tripping digits, ties to even, ECMA's plain/exponential window — through text children, attribute values and CSS values alike; a JVM integer beyond JavaScript's exactly representable range renders exactly and is outside the cross-host claim."
+
+ :numbers
+ [{:note "zero, and negative zero — String(-0) is \"0\"" :value 0.0  :js "0"}
+  {:note "negative zero carries no sign into the tree"   :value -0.0 :js "0"}
+
+  {:note "an integral double loses its trailing .0"      :value 1.0  :js "1"}
+  {:note "and so does a larger one"                      :value 42.0 :js "42"}
+  {:note "negatives keep their sign"                     :value -7.0 :js "-7"}
+
+  {:note "ordinary fractions are shortest-round-trip"    :value 0.5   :js "0.5"}
+  {:note "0.1 is not its exact binary value"             :value 0.1   :js "0.1"}
+  {:note "a negative fraction"                           :value -0.25 :js "-0.25"}
+  {:note "seventeen significant digits"                  :value 0.3333333333333333 :js "0.3333333333333333"}
+
+  {:note "the plain-notation window reaches down to 1e-6" :value 1.0E-4 :js "0.0001"}
+  {:note "its lower edge is 1e-6 itself"                  :value 1.0E-6 :js "0.000001"}
+  {:note "and 1e-7 is the first exponential below it"     :value 1.0E-7 :js "1e-7"}
+  {:note "its upper edge is 1e21; 1e20 is still plain"    :value 1.0E20 :js "100000000000000000000"}
+  {:note "1e21 is the first exponential above it"         :value 1.0E21 :js "1e+21"}
+  {:note "and the exponent keeps its + sign"              :value 1.0E22 :js "1e+22"}
+
+  {:note "2^53 — the largest exactly representable integer, spelled in full"
+   :value 9007199254740992.0 :js "9007199254740992"}
+  {:note "2^54 — above the frontier, and still exactly its own value"
+   :value 1.8014398509481984E16 :js "18014398509481984"}
+  {:note "WAS WRONG: a large integral double whose EXACT decimal is 139901345241537488 — JavaScript prints the shortest decimal that round-trips, not the exact one"
+   :value 1.3990134524153749E17 :js "139901345241537490"}
+  {:note "and the same value negated"
+   :value -1.3990134524153749E17 :js "-139901345241537490"}
+
+  {:note "WAS WRONG: ties at the shortest length break to EVEN — this double is exactly 801801305245.78125, and rounding half-up answers ...7813"
+   :value 801801305245.78125 :js "801801305245.7812"}
+
+  {:note "WAS WRONG: Double/MIN_VALUE — the JVM's own Double/toString answers 4.9E-324, which is not the shortest decimal that round-trips"
+   :value 4.9E-324 :js "5e-324"}
+  {:note "a subnormal one ulp band up"     :value 1.0E-323 :js "1e-323"}
+  {:note "the largest subnormal"           :value 2.225073858507201E-308  :js "2.225073858507201e-308"}
+  {:note "and the smallest normal"         :value 2.2250738585072014E-308 :js "2.2250738585072014e-308"}
+  {:note "a negative subnormal"            :value -1.0E-320 :js "-1e-320"}
+
+  {:note "Double/MAX_VALUE"                :value 1.7976931348623157E308  :js "1.7976931348623157e+308"}
+  {:note "and its negation"                :value -1.7976931348623157E308 :js "-1.7976931348623157e+308"}
+  {:note "a large magnitude in between"    :value 1.0E300 :js "1e+300"}
+
+  {:note "the non-finite three take their JavaScript spellings" :value ##NaN  :js "NaN"}
+  {:note "positive infinity"                                    :value ##Inf  :js "Infinity"}
+  {:note "negative infinity"                                    :value ##-Inf :js "-Infinity"}]
+
+ ;; One rule, every numeric position. A converter fixed only where a unit
+ ;; test happens to look is a converter that is still wrong everywhere
+ ;; else, so the classes above are re-asserted through the three places a
+ ;; number actually reaches the tree.
+ :through
+ [{:note "a numeric text child"
+   :form [:p 1.3990134524153749E17]
+   :tree {:tag :p :children ["139901345241537490"] :rf.ui/tree-version 1}}
+
+  {:note "a numeric attribute value"
+   :form [:div {:data-n 4.9E-324}]
+   :tree {:tag :div :attrs {:data-n "5e-324"} :rf.ui/tree-version 1}}
+
+  {:note "a numeric CSS value under the px rule, and a unitless one beside it"
+   :form [:div {:style {:width 1.3990134524153749E17 :opacity 4.9E-324}}]
+   :tree {:tag :div
+          :attrs {:style {:width "139901345241537490px" :opacity "5e-324"}}
+          :rf.ui/tree-version 1}}
+
+  {:note "the tie row through a text child, where a half-up converter would print ...7813"
+   :form [:p 801801305245.78125]
+   :tree {:tag :p :children ["801801305245.7812"] :rf.ui/tree-version 1}}]
+
+ ;; The JVM integer domain is WIDER than JavaScript's, deliberately. A JVM
+ ;; integral type renders its exact decimal at any magnitude, because it
+ ;; IS an exact integer, and printing an approximation of an exact value
+ ;; would be a lie.
+ ;;
+ ;; `:js-safe` is |n| <= 2^53 - 1, JavaScript's exactly representable
+ ;; integer range. Inside it the exact decimal is also the double's
+ ;; shortest round-tripping decimal, so the two hosts spell the value
+ ;; identically. Outside it they do not, and the difference is not a
+ ;; disagreement to be fixed: the ClojureScript reader turns the literal
+ ;; into a double, which is a DIFFERENT NUMBER rather than the same number
+ ;; spelled differently. The last row makes that explicit — its value IS
+ ;; exactly representable as a double, and the two still spell
+ ;; differently, because an exact integer and a JavaScript number are not
+ ;; the same kind of thing.
+ :jvm-integers
+ [{:note "an ordinary integer — both hosts hold it and spell it alike"
+   :value 42 :string "42" :js-safe true}
+  {:note "2^53 - 1, JavaScript's largest exactly representable integer"
+   :value 9007199254740991 :string "9007199254740991" :js-safe true}
+  {:note "2^53 + 1 — a JVM long renders exactly; the ClojureScript reader cannot hold this value at all"
+   :value 9007199254740993 :string "9007199254740993" :js-safe false}
+  {:note "exactly representable as a double, and still not the double's spelling: JavaScript prints the shortest decimal that round-trips, which is 139901345241537490"
+   :value 139901345241537488 :string "139901345241537488" :js-safe false}]}
