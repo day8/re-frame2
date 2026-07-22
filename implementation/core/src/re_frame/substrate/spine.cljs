@@ -1,9 +1,10 @@
 (ns re-frame.substrate.spine
   "Shared substrate-spine helpers for React-shaped adapters that lack a
   native reactive-atom primitive (UIx and any future minimal-
-  React-wrapper substrate). UIx and Helix duplicated this body byte-
-  for-byte modulo gensym prefixes, hook ns, and substrate-name strings;
-  per-adapter wiring goes through `make-react-spine`.
+  React-wrapper substrate). UIx and Helix (removed at S7/W13,
+  rf2-d6epb) once duplicated this body byte-for-byte modulo gensym
+  prefixes, hook ns, and substrate-name strings; per-adapter wiring
+  goes through `make-react-spine`.
 
   Scope. This ns provides:
 
@@ -1029,10 +1030,41 @@
 (when ^boolean js/goog.DEBUG
   (set! (.-displayName adoption-window-closer) "rf.substrate/adoption-window-closer"))
 
+(defn cljs-data-render-tree?
+  "True when `render-tree` is CLJS DATA — a hiccup vector, a seq, or a
+  map — none of which an ELEMENT-shaped render slot can mount
+  (rf2-p6f6u (c)). React treats a CLJS persistent collection as an
+  opaque object and sprays one cryptic \"Objects are not valid as a
+  React child\" error per child; the guard in `make-render` raises ONE
+  structured diagnostic instead. Legal React nodes pass untouched:
+  elements (`React/createElement` output), strings, numbers, `nil`, and
+  JS arrays are none of these three CLJS shapes."
+  [render-tree]
+  (or (vector? render-tree)
+      (seq? render-tree)
+      (map? render-tree)))
+
 (defn make-render
   "Build a `render` fn that registers every mounted React root in
   `active-roots-cell` and returns an unmount thunk that removes the
   root from the cell before calling `.unmount`.
+
+  FAIL-LOUD ELEMENT-SLOT GUARD (rf2-p6f6u (c)). The returned `render`'s
+  `render-tree` slot is ELEMENT-shaped (Spec 006 §`render` — this spine
+  serves the React-hook substrates, whose trees are built with the
+  substrate's element macro, e.g. UIx `$`). Hiccup handed here — a CLJS
+  vector / seq / map — is a programmer error that React otherwise
+  surfaces as a spray of per-child \"Objects are not valid as a React
+  child\" errors. The guard throws ONE structured
+  `:rf.error/hiccup-on-element-render-slot` BEFORE any root is created,
+  carrying an EP-0015-safe SHAPE summary (never the raw tree). Like the
+  construction unwind above (rf2-vxgfnd.292) this is ordinary control
+  flow, not a development assertion — present and enforcing on EVERY
+  build (no `goog.DEBUG` gate): the misuse breaks production mounts
+  identically, and the check is three predicate calls at mount time,
+  nowhere near a hot path. This also covers every internal hiccup
+  aggregator that funnels through the adapter `:render` slot (e.g.
+  Xray's `panels.cljs` mount-<panel>! fns) by construction.
 
   The user's `render-tree` is wrapped in a Fragment alongside an
   `after-render-sentinel` element (rf2-334d9). The sentinel is a bare
@@ -1059,6 +1091,19 @@
   and gets React's default (silent) mismatch handling."
   [active-roots-cell after-render-sentinel-cmp]
   (fn render [render-tree mount-point opts]
+    ;; Fail-loud element-slot guard (rf2-p6f6u (c)) — see the docstring.
+    ;; EP-0015: the ex-data carries a SHAPE summary of the tree, never
+    ;; the raw tree (hiccup can carry app-owned sensitive/large values;
+    ;; mirrors `make-render-to-string`'s rf2-uwqale treatment).
+    (when (cljs-data-render-tree? render-tree)
+      (rf-error/throw-error!
+        :rf.error/hiccup-on-element-render-slot
+        'rf/render
+        (str "this substrate's render slot takes a React ELEMENT, but "
+             "received CLJS data (a hiccup vector / seq / map); build the "
+             "tree with this substrate's element macro (e.g. uix.core/$) — "
+             "hiccup mounts only on the ratom-family (Reagent) substrates")
+        {:extra {:render-tree/summary (rf-error/diag-value-summary render-tree)}}))
     ;; Spec 006 §`render` types `:hydrate?` as a boolean; non-bool
     ;; truthy values are undefined-behaviour (no defensive coercion).
     (let [hydrate?     (:hydrate? opts)
