@@ -21,13 +21,15 @@ proves five things:
      it covers still requires the donor.
 
   3. **No row can be deleted.** `ESTABLISHED_ROWS` below is the roster of row
-     identities the ledger has established. Every one of them must still be
-     present. Disposing a row means flipping its status to `done` — the row
-     stays as the audit record — so the pending count can only fall by
-     disposition, never by deletion. This is the tooth the ledger was missing:
-     before it existed, deleting a row lowered the pending count and reported
-     zero defects, which is exactly the confident wrong answer a deletion gate
-     must never produce.
+     identities the ledger has established, and it covers the ledger EXACTLY:
+     every roster identity must still be in the ledger, and every ledger row
+     must be in the roster. Disposing a row means flipping its status to `done`
+     — the row stays as the audit record — so the pending count can only fall
+     by disposition, never by deletion. Exactness is what extends that promise
+     to rows written after the roster was: a row admitted without a roster
+     identity could be added, disposed, and then deleted again with the gate
+     reporting nothing, which is exactly the confident wrong answer a deletion
+     gate must never produce.
 
   4. **No row goes stale.** A still-pending row whose pattern matches no tracked
      file fails. So does a still-pending row whose matched files exist but carry
@@ -79,13 +81,16 @@ audit record.
 
 ## Maintaining the roster
 
-`ESTABLISHED_ROWS` is a floor, not a partition: every identity in it must be in
-the ledger, but a newly added row does not have to be added to it — new donor
-files are already held by the partition check and new consumers by the census.
-The roster exists so that removing an ESTABLISHED row is impossible to do
-quietly. Renaming a row's path is the one legitimate reason to edit an existing
-entry, and it is then a deliberate, reviewable edit in the same change as the
-rename.
+`ESTABLISHED_ROWS` covers the ledger exactly: every identity in it must be in
+the ledger, and every ledger row must be in it. Adding a row is therefore two
+edits in one change — the row and its roster identity — and the failure prints
+the exact line to paste. A row outside the roster is a row that can be removed
+again silently, so a roster that only held the rows present when it was written
+would be load-bearing for those rows alone.
+
+Renaming a row's path edits the row and its roster identity together. That
+remains the one legitimate reason to change an existing entry, and it is then a
+deliberate, reviewable edit in the same change as the rename.
 
 Exit code:
     0  the ledger covers the donor tree and its live consumers, and every row is
@@ -428,18 +433,48 @@ def check_consumers(rows: list[Row],
 
 
 # --- Check 3: established rows are never deleted ------------------------------
-def check_roster(rows: list[Row]) -> list[str]:
-    """Every established row identity is still in the ledger."""
+def check_roster(rows: list[Row],
+                 roster: tuple[str, ...] | None = None) -> list[str]:
+    """The ledger and the retention roster name exactly the same identities.
+
+    Two directions, and both are load-bearing. A roster identity missing from
+    the ledger is a deleted row. A ledger row missing from the roster is a row
+    that could be deleted later without the first check noticing — which is how
+    a roster written once stops covering everything written after it. `roster`
+    is injectable so the self-tests exercise this function itself rather than a
+    restatement of it.
+    """
+    if roster is None:
+        roster = ESTABLISHED_ROWS
+
     present = {row.key for row in rows}
-    return [
+    problems = [
         f"DONOR-LEDGER-ROW-REMOVED: `{key}` is an established ledger row and it "
         f"is no longer in {LEDGER_REL}. Rows are never deleted — deleting one "
         "lowers the undisposed count without disposing of anything, which is "
         "the one failure a deletion gate must not have. Flip the row's status "
         "to `done` instead; if the row was renamed, update its identity in "
         "ESTABLISHED_ROWS in the same change."
-        for key in ESTABLISHED_ROWS if key not in present
+        for key in roster if key not in present
     ]
+
+    established = set(roster)
+    seen: set[str] = set()
+    for row in rows:
+        if row.key in established or row.key in seen:
+            continue
+        seen.add(row.key)
+        problems.append(
+            f"DONOR-LEDGER-ROW-UNROSTERED: {LEDGER_REL}:{row.lineno} "
+            f"({row.cell}) is a ledger row whose identity is not in "
+            "ESTABLISHED_ROWS. Add the line  "
+            f'"{row.key}",  to ESTABLISHED_ROWS in '
+            "scripts/check_donor_inventory.py in the same change that adds the "
+            "row. Until it is there this row can be deleted again without the "
+            "gate noticing, which lowers historical coverage silently."
+        )
+
+    return problems
 
 
 # --- Check 4: pending rows still point at donor material ----------------------
@@ -762,21 +797,31 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         "`local` and its placement machinery",
     )
 
-    def roster_defects(text: str) -> list[str]:
+    # The real function under the real invariant — `roster` is injected so the
+    # fixtures cannot drift into testing a restatement of the check.
+    def roster_defects(text: str, roster_=roster) -> list[str]:
         parsed, _ = parse_ledger(text)
-        present = {row.key for row in parsed}
-        return [key for key in roster if key not in present]
+        return check_roster(parsed, roster_)
+
+    def classes(problems: list[str]) -> list[str]:
+        return [problem.split(":", 1)[0] for problem in problems]
 
     expect("I1 pristine roster is satisfied", roster_defects(roster_ledger), [])
 
     deleted = roster_ledger.replace(
         "| `spec/004-Views.md` | spec obligation | MOVE | F0 | pending |\n", "")
-    expect("I2 deleted row is caught", roster_defects(deleted), ["spec/004-Views.md"])
+    problems = roster_defects(deleted)
+    expect("I2 deleted row is caught", classes(problems),
+           ["DONOR-LEDGER-ROW-REMOVED"])
+    expect("I3 deleted row is named", "spec/004-Views.md" in problems[0], True)
 
     label_deleted = roster_ledger.replace(
         "| `local` and its placement machinery | donor form | DELETE | F1 | pending |\n", "")
-    expect("I3 deleted label row is caught",
-           roster_defects(label_deleted), ["`local` and its placement machinery"])
+    problems = roster_defects(label_deleted)
+    expect("I4 deleted label row is caught", classes(problems),
+           ["DONOR-LEDGER-ROW-REMOVED"])
+    expect("I5 deleted label row is named",
+           "`local` and its placement machinery" in problems[0], True)
 
     # The composed sequence. A guard that only ever sees a pristine baseline can
     # pass every single-step test and still be inert once the ledger has moved.
@@ -790,10 +835,59 @@ def _run_self_tests(*, verbose: bool = False) -> int:
     then_deleted = progressed.replace(
         "| `spec/004-Views.md` | spec obligation | MOVE | F0 | done |\n", "")
     expect("J3 deletion AFTER disposition still fails",
-           roster_defects(then_deleted), ["spec/004-Views.md"])
+           classes(roster_defects(then_deleted)), ["DONOR-LEDGER-ROW-REMOVED"])
 
-    # The real roster is wired to the real check: an empty ledger loses every
-    # established row, so `check_roster` cannot be inert.
+    # --- The same sequence, for a row added AFTER the roster was written -------
+    # This is the case a floor-shaped roster could not see: the row was never
+    # established, so deleting it looked like nothing had happened. Each step
+    # starts from the state the previous one left, not from the baseline.
+    added = roster_ledger + (
+        "| `tools/newcomer/deps.edn` | a consumer discovered later | MOVE | F6 | pending |\n"
+    )
+    problems = roster_defects(added)
+    expect("L1 a new row must enter the roster", classes(problems),
+           ["DONOR-LEDGER-ROW-UNROSTERED"])
+    expect("L2 the diagnostic names the row's line",
+           f"{LEDGER_REL}:7" in problems[0], True)
+    expect("L3 the diagnostic prints the line to paste",
+           '"tools/newcomer/deps.edn",' in problems[0], True)
+    expect("L4 the diagnostic names the file to paste it into",
+           "ESTABLISHED_ROWS in scripts/check_donor_inventory.py" in problems[0],
+           True)
+
+    # Step 1 — the row and its roster identity land together.
+    grown = roster + ("tools/newcomer/deps.edn",)
+    expect("L5 row + roster identity together is clean",
+           roster_defects(added, grown), [])
+
+    # Step 2 — the consumer goes, the row is disposed. The row stays.
+    added_done = added.replace(
+        "| `tools/newcomer/deps.edn` | a consumer discovered later | MOVE | F6 | pending |",
+        "| `tools/newcomer/deps.edn` | a consumer discovered later | MOVE | F6 | done |")
+    expect("L6 disposing the new row keeps it", roster_defects(added_done, grown), [])
+
+    # Step 3 — deleting the disposed row is the failure the gate exists for.
+    added_gone = added_done.replace(
+        "| `tools/newcomer/deps.edn` | a consumer discovered later | MOVE | F6 | done |\n", "")
+    problems = roster_defects(added_gone, grown)
+    expect("L7 deleting the disposed new row fails", classes(problems),
+           ["DONOR-LEDGER-ROW-REMOVED"])
+    expect("L8 the deletion names the new row",
+           "tools/newcomer/deps.edn" in problems[0], True)
+
+    # A label row added later is held the same way.
+    label_added = roster_ledger + (
+        "| ambient `dev-only` diagnostics | a contract obligation | DELETE | F2 | pending |\n"
+    )
+    expect("L9 a new label row must enter the roster too",
+           classes(roster_defects(label_added)), ["DONOR-LEDGER-ROW-UNROSTERED"])
+    expect("L10 the label identity is its whole cell",
+           '"ambient `dev-only` diagnostics",' in roster_defects(label_added)[0],
+           True)
+
+    # The real roster is wired to the real check in both directions: an empty
+    # ledger loses every established row, and the shipped ledger must cover the
+    # shipped roster exactly, so `check_roster` cannot be inert.
     expect("J4 check_roster reads ESTABLISHED_ROWS",
            len(check_roster([])), len(ESTABLISHED_ROWS))
     expect("J5 the real roster is populated", len(ESTABLISHED_ROWS) > 100, True)
