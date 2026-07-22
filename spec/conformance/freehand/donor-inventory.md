@@ -106,8 +106,15 @@ The gate fails when:
   never removed. Disposing a row means flipping its status to `done`; the row
   stays as the audit record. The roster of established identities in
   `scripts/check_donor_inventory.py` is what makes a deletion loud instead of
-  looking like progress. Renaming a row's path is a deliberate act that updates
-  that roster in the same change;
+  looking like progress;
+* a **row is not in that roster**. The roster covers this ledger exactly, in
+  both directions: adding a row is two edits in one change — the row here and
+  its identity there — and the failure prints the line to paste. Without that,
+  the retention rule above would hold only for the rows that existed when the
+  roster was written, and every row added afterwards could be added, disposed,
+  and then quietly deleted again. Renaming a row's path edits the row and its
+  roster identity together, which stays the one deliberate reason to change an
+  existing entry;
 * any row is missing a disposition, an owning slice, or a status.
 
 So a new donor file cannot appear undisposed, a donor file cannot quietly vanish
