@@ -42,8 +42,8 @@
   (:require ["react" :as react]
             [goog.object :as gobj]
             [re-frame.error :as error]
-            [re-frame.freehand :as v]
             [re-frame.freehand.conversion :as conv]
+            [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.tree :as tree]))
 
 (defn- malformed!
@@ -148,8 +148,8 @@
 (defn- component-for
   [view]
   (or (get @components view)
-      (let [view-id (:view-id (v/describe view))
-            _       (when (v/structural-body view)
+      (let [view-id (:view-id (descriptor/describe view))
+            _       (when (descriptor/structural-body view)
                       ;; A compiled declaration has no interpreted body to walk.
                       ;; Its React lowering — direct jsx calls over the same
                       ;; analyzed template — is the compiled tier's other
@@ -168,7 +168,7 @@
                              "interpreted; the declaration is the only thing that changes.")
                         {:recovery :render-structurally-or-drop-the-compiled-marker
                          :extra    {:view-id view-id}}))
-            body    (v/render-body view)
+            body    (descriptor/render-body view)
             c       (fn freehand-view [js-props]
                       (emit nil (body (conv/forward-children
                                         (gobj/get js-props "props")))))]
@@ -216,7 +216,7 @@
 
 (defn- boundary-node
   [view args]
-  (let [{:keys [key props]} (v/normalize-call view args)
+  (let [{:keys [key props]} (descriptor/normalize-call view args)
         js-props (js-obj "props" props)]
     (when (some? key)
       (gobj/set js-props "key" key))
@@ -227,7 +227,7 @@
   (let [head (first form)]
     (if (= tree/fragment-tag head)
       (fragment-node ns-ctx (rest form))
-      (case (v/classify-head head)
+      (case (descriptor/classify-head head)
         :element (element-node ns-ctx head (rest form))
         :view    (boundary-node head (rest form))
         :host    (malformed!

@@ -53,8 +53,8 @@
   Normative owner:
   [`spec/004B-UI-Tree-and-Conversion.md`](../../../../../spec/004B-UI-Tree-and-Conversion.md)."
   (:require [re-frame.error :as error]
-            [re-frame.freehand :as v]
             [re-frame.freehand.conversion :as conv]
+            [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.node :as node]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -159,7 +159,7 @@
             attrs? (map? (first args))
             k      (when attrs? (:key (first args)))]
         (node/fragment (some? k) k (children (if attrs? (rest args) args))))
-      (case (v/classify-head head)
+      (case (descriptor/classify-head head)
         :element (element-node head (rest form))
         ;; Trailing children are the CALLER's markup and are lowered HERE,
         ;; before the boundary is mounted — not left as forms for the callee
@@ -190,15 +190,15 @@
 ;; call. Only the middle step differs — run the body and walk what it returned,
 ;; or invoke the compiled body, which returns the node directly.
 
-(extend-type #?(:clj re_frame.freehand.ViewDescriptor :cljs v/ViewDescriptor)
+(extend-type #?(:clj re_frame.freehand.descriptor.ViewDescriptor :cljs descriptor/ViewDescriptor)
   node/IMount
   (-mount [view args]
-    (let [{:keys [key props]} (v/normalize-call view args)
+    (let [{:keys [key props]} (descriptor/normalize-call view args)
           props* (conv/forward-children props)
-          kids   (if-let [structural (v/structural-body view)]
+          kids   (if-let [structural (descriptor/structural-body view)]
                    (node/children (structural props*))
-                   (children [((v/render-body view) props*)]))]
-      (node/boundary (:view-id (v/describe view)) props key kids))))
+                   (children [((descriptor/render-body view) props*)]))]
+      (node/boundary (:view-id (descriptor/describe view)) props key kids))))
 
 ;; ---------------------------------------------------------------------------
 ;; Render entry

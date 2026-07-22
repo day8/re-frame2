@@ -28,6 +28,7 @@
    [re-frame.core :as rf]
    [re-frame.freehand :as v]
    [re-frame.freehand.conformance :as conf]
+   [re-frame.freehand.descriptor :as descriptor]
    [re-frame.late-bind :as late-bind]
    ;; Loading routing publishes :routing/link-model — the seam under test.
    [re-frame.routing :as routing]
@@ -67,7 +68,7 @@
   [props & children]
   (rf/with-frame host-frame
     ((body-of v/route-link)
-     (:props (v/normalize-call v/route-link (into [props] children))))))
+     (:props (descriptor/normalize-call v/route-link (into [props] children))))))
 
 (defn- attrs-of [[_ attrs & _]] attrs)
 
@@ -271,4 +272,4 @@
             head classification answers `:view`, exactly as it does for an
             application view. Nothing about a framework view reaches the
             classifier."
-    (is (= :view (v/classify-head v/route-link)))))
+    (is (= :view (descriptor/classify-head v/route-link)))))

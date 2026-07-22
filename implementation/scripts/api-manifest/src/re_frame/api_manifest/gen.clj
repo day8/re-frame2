@@ -101,6 +101,13 @@
     ;; day8/re-frame2-ui rides the generator's BUILD-ONLY classpath (deps.edn).
     ;; The reader-conditional CLJS surface is reconciled by the 2mtte probe.
     re-frame.ui.test
+    ;; The Freehand view substrate's ONE public door (EP-0036, rf2-drpa3.63).
+    ;; `.cljc` and host-neutral, so `ns-publics` is authoritative here; the
+    ;; descriptor type, its constructor and the emitter helpers live in the
+    ;; internal `re-frame.freehand.descriptor` and are deliberately NOT a
+    ;; supported surface, so they are absent by construction rather than by
+    ;; carve-out.
+    re-frame.freehand
     ;; Optional feature artefacts (public home namespaces).
     re-frame.schemas
     re-frame.machines

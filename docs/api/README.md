@@ -17,6 +17,7 @@ chose it.
 |---|---|
 | Day-to-day app API | [`re-frame.core`](re-frame.core.md) (the facade) |
 | Compiled views (`defview`, `mount`, `sub`) | [`re-frame.ui`](re-frame.ui.md) |
+| Freehand views (`defview`, callbacks, event intent) | [`re-frame.freehand`](re-frame.freehand.md) |
 | Optional capabilities | machines, routing, resources, flows, schemas, HTTP, SSR |
 | Substrate adapters | `re-frame.adapter.{reagent,uix}` — or `re-frame.ui/adapter` |
 | Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md), [`re-frame.ui.test`](re-frame.ui.test.md) (compiled-view substrate) |
@@ -51,6 +52,7 @@ red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 |---|---|
 | [re-frame.core](re-frame.core.md) | Registration, dispatch, subscribe, views (`reg-view`), frames, boot, interceptors, feature re-exports |
 | [re-frame.ui](re-frame.ui.md) | Compiled-view substrate: `defview`, `sub`, `mount`, `frame-root`, interop forms |
+| [re-frame.freehand](re-frame.freehand.md) | Freehand view substrate (EP-0036): `defview`, descriptor inspection, callback and event-intent forms |
 
 ### Optional capabilities
 
