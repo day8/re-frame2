@@ -4,8 +4,7 @@ Each subdirectory is a self-contained mini-repo the validator script
 treats as a real corpus when invoked with `--repo-root <fixture-dir>`.
 Required minimum: a top-level `mkdocs.yml` (so the repo-root guard
 accepts the directory) and at least one `.md` file under the scope the
-fixture exercises (`docs/` by default, or the exact synthesis guide/drafts
-roots for `--synthesis-only`).
+fixture exercises (`docs/`).
 
 Run all fixtures via:
 
@@ -31,6 +30,10 @@ Fixtures:
 | `ai_findings_dir_link_flagged`     | 1               | Link into the bare `ai/findings/` directory is flagged (rf2-l7yj8)                 |
 | `blockquoted_heading_ok`           | 0               | Link into a blockquoted heading (`> #### Foo`, incl. nested) resolves (rf2-869k9m) |
 | `indented_heading_not_indexed`     | 1               | Negative control: an *indented bare* `#` line still mints no anchor (rf2-869k9m)   |
-| `synthesis_broken_target`          | default 0 / synthesis 1 | The unchanged default corpus excludes the guide; opt-in catches a missing target (rf2-vxgfnd.135) |
-| `synthesis_broken_anchor`          | default 0 / synthesis 1 | The unchanged default corpus excludes the guide; opt-in catches a missing anchor (rf2-vxgfnd.135) |
-| `synthesis_valid_narrow_scope`     | 0               | Exactly guide + drafts are enumerated; unrelated broken `ai/` scratch remains excluded |
+| `explicit_id_full_title_ok`        | 0               | `attr_list` is off, so `## One {#dup}` mints `one-dup` — the full visible title (rf2-ru0wg) |
+| `explicit_id_brace_not_a_target`   | 1               | Negative control: the brace suffix `#dup` is NOT a fragment target (rf2-ru0wg)     |
+| `explicit_id_duplicate`            | 0               | Two `{#dup}` headings disambiguate as `one-dup` / `one-dup_1` (rf2-ru0wg)          |
+| `wrapped_link_broken_anchor`       | 2               | A link whose TEXT wraps across a newline is still validated (rf2-vpc4c)            |
+| `wrapped_link_ok`                  | 0               | Correct wrapped links — plain, multi-line, same-file, blockquoted — are not flagged (rf2-vpc4c) |
+| `wrapped_link_block_bound`         | 0               | False-positive control: the join stops at a block boundary, so `[text` … blank … `](x.md)` is not a link (rf2-vpc4c) |
+| `compat_anchor_teeth`              | driven directly | The compat-anchor manifest, placement, and source-comment teeth — invoked with explicit fixture inputs, not from this table (rf2-57k74 / rf2-zq5i6 / rf2-k30r7) |

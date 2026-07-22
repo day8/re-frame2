@@ -1271,6 +1271,10 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("absolute_path_ok",                 0),
         ("relative_dotdot_ok",               0),
         ("inline_code_placeholder_ignored",  0),  # rf2-mqv8s
+        # POSITIVE CONTROL for the wrapped-link fix (rf2-vpc4c): the
+        # single-line broken link this gate always caught must keep reding.
+        # `broken_anchor` / `broken_target` above pin the unwrapped cases;
+        # this one pins a broken link sharing a line with a masked placeholder.
         ("inline_code_negative_control",     1),  # rf2-mqv8s
         ("ai_findings_link_flagged",         1),  # rf2-l7yj8
         ("ai_findings_dir_link_flagged",     1),  # rf2-l7yj8
@@ -1283,6 +1287,14 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("explicit_id_full_title_ok",        0),  # `{#dup}` -> id `one-dup`
         ("explicit_id_brace_not_a_target",   1),  # `#dup` is NOT a target
         ("explicit_id_duplicate",            0),  # -> `one-dup`, `one-dup_1`
+        # rf2-vpc4c — line-wrap blindness. A link whose text wraps across a
+        # newline is a real rendered link and must be validated (the gate was
+        # blind to it, and mkdocs strict does not cover the gap); a correct
+        # wrapped link must NOT be flagged; and the join that makes wrapped
+        # links visible must stop at a block boundary.
+        ("wrapped_link_broken_anchor",       2),  # negative control
+        ("wrapped_link_ok",                  0),  # no false positives
+        ("wrapped_link_block_bound",         0),  # join stops at a blank line
     ]
 
     failures = 0
@@ -1595,12 +1607,71 @@ def _run_self_tests(verbose: bool = False) -> int:
             "rejects the drifted mutation\n"
         )
 
+    # rf2-vpc4c — link extraction driven directly with explicit line lists, so
+    # the wrap contract is pinned at the mechanism rather than only through a
+    # fixture's aggregate count. Each case states the (line_no, destination)
+    # pairs `_iter_inline_links` must yield from fence-stripped, inline-code-
+    # masked input. `_extract_links` reduces a file to exactly this shape.
+    extraction_cases: list[tuple[str, list[tuple[int, str]], list[tuple[int, str]]]] = [
+        # POSITIVE CONTROL — the unwrapped case that always worked. The reported
+        # line is the link's own line, exactly as before the fix.
+        ("single-line link still extracted",
+         [(1, "See [the doc](target.md#anchor) for detail.")],
+         [(1, "target.md#anchor")]),
+        # THE FIX — text wraps, so `](dest)` lands on the next line. The
+        # predecessor yielded nothing here.
+        ("wrapped link extracted, reported at the destination's line",
+         [(1, "See [the"), (2, "doc](target.md#anchor) for detail.")],
+         [(2, "target.md#anchor")]),
+        # Blockquote continuation markers ride along in the link TEXT; only the
+        # destination is captured, so the `>` prefix is harmless.
+        ("wrapped link inside a blockquote",
+         [(7, "> Per the note, [§Compiled"),
+          (8, "> views](API.md#compiled-views) is live.")],
+         [(8, "API.md#compiled-views")]),
+        # BLOCK BOUND — a blank line ends the block, so these are never one link.
+        ("blank line is not bridged",
+         [(1, "A stray bracket [here"), (2, ""), (3, "](missing.md) after.")],
+         []),
+        # A fenced block arrives already blanked by `_strip_fences`, so it acts
+        # as a block boundary for free.
+        ("blanked fence lines are not bridged",
+         [(1, "A stray bracket [here"), (2, ""), (3, ""), (4, ""),
+          (5, "](missing.md) after.")],
+         []),
+        # A destination may not itself wrap: CommonMark forbids whitespace in a
+        # bare destination, so this is not a link the renderer would produce.
+        ("wrapped DESTINATION is not a link",
+         [(1, "See [the doc](target.md#an"), (2, "chor) for detail.")],
+         []),
+        # An unclosed stray `[` earlier in the same block drags the match START
+        # backwards, which is why the DESTINATION's line is what gets reported.
+        # The destination itself is still correct and still found.
+        ("stray bracket does not lose the destination",
+         [(1, "An unclosed [ bracket opens here,"),
+          (2, "and [the real link](target.md#anchor) follows.")],
+         [(2, "target.md#anchor")]),
+    ]
+    for label, lines, expected_links in extraction_cases:
+        got_links = list(_iter_inline_links(lines))
+        if got_links == expected_links:
+            if verbose:
+                sys.stderr.write(
+                    f"self-test PASS: extraction [{label}]\n"
+                )
+        else:
+            sys.stderr.write(
+                f"self-test FAIL: extraction [{label}] expected "
+                f"{expected_links}, got {got_links}\n"
+            )
+            failures += 1
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
         sys.stderr.write(
-            f"all {len(cases) + len(teeth_cases) + 4} "
+            f"all {len(cases) + len(teeth_cases) + len(extraction_cases) + 4} "
             "self-tests passed.\n"
         )
     return 0

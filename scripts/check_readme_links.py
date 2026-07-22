@@ -96,15 +96,19 @@ from typing import Iterable
 # scope until a real README heading exercises it.
 #
 # What is NOT shared is the duplicate-heading suffix — see `_slug_index`.
+#
+# `_extract_links` is imported rather than reimplemented (rf2-vpc4c). It used
+# to be a verbatim copy here, which meant this gate inherited the same
+# line-wrap blindness — a link whose `](target#anchor)` fell on the following
+# line was never validated in EITHER corpus. One extractor, one fix.
 try:
     from check_doc_slugs import (
         SLUGIFY,
         SLUG_SEP,
         _HEADING_RE,
         _HTML_ANCHOR_RE,
-        _LINK_RE,
+        _extract_links,
         _strip_fences,
-        _strip_inline_code,
     )
 except ImportError as exc:  # pragma: no cover - dev-env path
     # Make `python scripts/check_readme_links.py` work from repo root
@@ -116,9 +120,8 @@ except ImportError as exc:  # pragma: no cover - dev-env path
             SLUG_SEP,
             _HEADING_RE,
             _HTML_ANCHOR_RE,
-            _LINK_RE,
+            _extract_links,
             _strip_fences,
-            _strip_inline_code,
         )
     except ImportError:
         sys.stderr.write(
@@ -280,20 +283,6 @@ def _slug_index(path: Path) -> set[str]:
             continue
         slugs.add(_github_dedupe(slug, occurrences))
     return slugs
-
-
-def _extract_links(path: Path) -> Iterable[tuple[int, str]]:
-    """Yield (line-number, destination) for every inline markdown link.
-
-    Links inside fenced code blocks AND inside inline-code spans are
-    skipped (matches check_doc_slugs.py behaviour).
-    """
-    text = path.read_text(encoding="utf-8", errors="replace")
-    for line_no, content in _strip_fences(text.splitlines()):
-        if not content:
-            continue
-        for m in _LINK_RE.finditer(_strip_inline_code(content)):
-            yield line_no, m.group(1)
 
 
 def _resolve_target(linker: Path, dest_path: str, repo_root: Path) -> Path | None:
