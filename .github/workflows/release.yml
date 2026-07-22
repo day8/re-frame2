@@ -39,9 +39,11 @@
 # # The re-frame.ui substrate is a REQUIRED artefact (rf2-vxgfnd.99.2)
 #
 # implementation/ui/ (`day8/re-frame2-ui`; epic rf2-vxgfnd — the
-# compiled-view substrate that replaces the adapter trio) ships on the
-# lockstep release train: it carries a jvm-ui pre-deploy test in the
-# `test` job, a `ui` deploy leaf in the matrix below (after deploy-core,
+# compiled-view substrate, a new EXPERIMENTAL view layer offered alongside
+# the first-class Reagent / reagent-slim / UIx adapters per EP-0030
+# §Resolved Decisions) ships on the lockstep release train: it carries a
+# jvm-ui pre-deploy test in the `test` job, a `ui` deploy leaf in the
+# matrix below (after deploy-core,
 # local-root ../core), a verify-version-lockstep.sh inventory entry, and a
 # release-notes line — all landed together per the ratified packaging
 # decision (spec/006 §R-6: core and ui ship together).

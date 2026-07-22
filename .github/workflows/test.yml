@@ -1708,7 +1708,8 @@ jobs:
 
       # The consolidated build above intentionally loads every adapter's own
       # tests, so it cannot prove the first-party UI artefact is isolated from
-      # the retiring adapter trio. Compile only the focused re-frame.ui closure
+      # the adapter artefacts (all first-class; re-frame.ui ships alongside
+      # them per EP-0030). Compile only the focused re-frame.ui closure
       # and inspect Shadow's exact import manifest instead.
       - name: re-frame.ui focused adapter-artifact isolation
         if: needs.detect_changed_surfaces.outputs.ui_gates == 'true'

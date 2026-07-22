@@ -57,10 +57,10 @@ POSITIVE ASSERTION — EP-0030, as the source of record, must actually STATE the
 current ruling. Deleting the ruling from EP-0030 while leaving every other file
 merely silent would otherwise pass; `EP0030_REQUIRED` prevents that.
 
-NOT YET IN THE ROSTER (pending, deliberate):
-  * `.github/workflows/release.yml` — one stale comment phrase ("the compiled-
-    view substrate that will replace the adapter trio"). CI surfaces are owned by
-    rf2-nojiwy; add the file here when that owner corrects the phrase.
+`.github/workflows/release.yml` joined the roster with rf2-nojiwy's W9 pass, which
+corrected its stale header phrase ("the compiled-view substrate that replaces the
+adapter trio") to the experimental/alongside framing. Workflow comments are
+dispatchable authority for the release surface, so the file stays scanned.
 
 Exit code:
     0  no superseded adapter status on an active authority
@@ -84,6 +84,7 @@ ACTIVE_AUTHORITIES = (
     "skills/re-frame2-implementor/references/phase-2-impl-order.md",
     "implementation/README.md",
     "implementation/adapters/reagent/README.md",
+    ".github/workflows/release.yml",
 )
 
 EP0030_REL = "docs/EP/EP-0030-the-compiled-view-substrate-program.md"
