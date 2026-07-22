@@ -81,6 +81,18 @@ run_lib() {
   # stderr: lib stderr (the refusal block on refused)
   # echoes the exit code on stdout's last line for easy capture.
   (
+    # `set +e` is LOAD-BEARING, and it is a portability fix, not a style
+    # choice. This helper exists to CAPTURE a non-zero return, so errexit
+    # would kill the subshell before `echo "EXIT=$?"` ever ran. Callers wrap
+    # the capture in `|| true`, and bash extends that "errexit suspended"
+    # state into the command substitution — which is why every refusal case
+    # passed under Git Bash for as long as this harness only ever ran locally
+    # on Windows. dash does not extend it, so on the ubuntu runner (`sh` is
+    # dash) the subshell died at the refusal and `$out` came back EMPTY: ten
+    # silent failures, all of them the exit-1 cases. Suspending errexit here
+    # makes both shells agree (rf2-3mh2f wired this harness into CI, which is
+    # how a Linux-only break in the guard's own tests finally surfaced).
+    set +e
     . "$LIB"
     check_mayor_commit_boundary
     echo "EXIT=$?"
@@ -338,6 +350,9 @@ printf '\n[3] check-beads-boundary.sh library tests\n'
 run_beads_lib() {
   # $1: context (commit|ci). stdin: newline-separated paths.
   (
+    # `set +e` for the same portability reason as run_lib above — without it
+    # every refusal case is silently unobservable under dash.
+    set +e
     . "$BEADS_LIB"
     check_beads_boundary "${1:-commit}"
     echo "EXIT=$?"
