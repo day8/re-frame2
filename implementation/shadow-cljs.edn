@@ -130,6 +130,18 @@
                 ;; holds: no production build :requires re-frame.ui.*.
                 "ui/src"
                 "ui/test"
+                ;; rf2-drpa3.15 — the Freehand view substrate (EP-0036),
+                ;; F1a skeleton. src carries the empty-but-loadable
+                ;; `.cljc` entry namespace (no public surface yet); test
+                ;; carries the classpath probe
+                ;; (re-frame.freehand.skeleton-cljs-test), which rides the
+                ;; always-on :node-test gate (`cljs-test$` matches) AND
+                ;; the focused :node-test-freehand build below.
+                ;; Bundle-isolation holds: no production build :requires
+                ;; re-frame.freehand.*. Freehand does NOT depend on the
+                ;; `ui/` donor above.
+                "freehand/src"
+                "freehand/test"
                 ;; rf2-nojiwy — re-frame.ui testbed (the four-suites rule's
                 ;; new-UI smoke). Standalone counter app under ui/testbed/
                 ;; that proves the compiled-view substrate wires up
@@ -740,6 +752,28 @@
    ;; The load-bearing watch hook is inherited from :build-defaults.
    :compiler-options {:warnings      {:redef false}
                        :infer-externs false}}
+
+  ;; rf2-drpa3.15 — FOCUSED node-test build for the Freehand view
+  ;; substrate artefact (EP-0036).
+  ;;
+  ;; Same shape and same reasoning as :node-test-ui above: the ns-regexp
+  ;; selects only this artefact's own suites (every `re-frame.freehand.*`
+  ;; test namespace — nothing else in the repo lives under that prefix),
+  ;; giving the Freehand programme a named, cheap gate
+  ;; (`npm run test:freehand`) so the long-lived F1+ slice workers don't
+  ;; compile + run the full node suite on every iteration. Those same
+  ;; namespaces also match the always-on `:node-test` build's broader
+  ;; `cljs-test$` regex, so the artefact is covered on every PR whether
+  ;; or not this focused build is invoked — this is the *named* surface,
+  ;; not an additional required gate.
+  :node-test-freehand
+  {:target    :node-test
+   :output-to "out/node-test-freehand.js"
+   :ns-regexp "^re-frame\\.freehand\\..+-cljs-test$"
+   :main      re-frame.test-quiet.shadow-node/main
+   ;; The load-bearing watch hook is inherited from :build-defaults.
+   :compiler-options {:warnings      {:redef false}
+                      :infer-externs false}}
 
   ;; rf2-vxgfnd.6 — the G-1 direct-render parity gate (07 §5) for the
   ;; re-frame.ui compiled-view substrate. A :node-script RELEASE build

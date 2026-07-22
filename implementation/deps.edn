@@ -53,7 +53,14 @@
          ;; rf2-vxgfnd). Pre-publication: S1a skeleton only
          ;; (empty-but-loadable compiler .cljc + client-kernel .cljs
          ;; stubs); the S1b compiler slice lands the real surface.
-         day8/re-frame2-ui        {:local/root "ui"}}
+         day8/re-frame2-ui        {:local/root "ui"}
+         ;; rf2-drpa3.15 — the Freehand view substrate (EP-0036). F1a
+         ;; skeleton only: an empty-but-loadable `.cljc` entry namespace
+         ;; with NO public surface, wired here so the cross-artefact
+         ;; classpath carries it from day one. Freehand declares no
+         ;; dependency on the `ui` donor above and never will — absorbed
+         ;; code arrives by MOVE, slice by slice.
+         day8/re-frame2-freehand  {:local/root "freehand"}}
 
  :aliases
  {;; Combined CLJS-test path: convenient for ad-hoc REPL work that wants
@@ -82,6 +89,8 @@
                  "resources/test"
                  ;; rf2-vxgfnd.1 — re-frame.ui artefact test tree.
                  "ui/test"
+                 ;; rf2-drpa3.15 — Freehand artefact test tree (EP-0036).
+                 "freehand/test"
                  ;; examples are organised by concept; each bucket is a
                  ;; classpath root so JVM tests can `require` the example
                  ;; source namespaces like `ssr.core` (under
