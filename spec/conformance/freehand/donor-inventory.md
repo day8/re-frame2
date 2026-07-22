@@ -1,0 +1,333 @@
+# Freehand donor inventory
+
+`re-frame.ui` is in donor mode. Its useful machinery becomes the compiled tier of
+Freehand, and the standalone `day8/re-frame2-ui` artifact is deleted once every
+row below has been disposed. "Absorption completeness" is one of the release
+gates, and this ledger is the artifact that gate reads.
+
+The ledger enumerates every donor row — source file, test family, fixture,
+build-wiring hook, spec obligation, and downstream consumer — and gives each one
+an explicit disposition. It does not perform any move: each programme slice
+disposes its own rows and flips their status in the same change that does the
+work.
+
+## How to read a row
+
+Every row carries a disposition from a closed set of three:
+
+| Disposition | Meaning |
+|---|---|
+| **MOVE** | the code, test, or obligation is absorbed under Freehand ownership — by rename, by relocation, or by generalization from donor names to both execution modes |
+| **REPLACE** | the job is real but Freehand does it differently on purpose; the donor realization is not carried across |
+| **DELETE** | the row does not cross at all; nothing in Freehand takes its place |
+
+Every row also names the **owning slice** — the programme slice (F0–F6) whose
+work disposes it — and a **status**:
+
+| Status | Meaning |
+|---|---|
+| `pending` | the row is still undisposed; it counts toward the absorption-completeness baseline |
+| `done` | the disposition has been carried out; the row stays as the audit record |
+
+Reuse of donor code confers no API status. A `MOVE` row means the
+implementation is worth keeping, never that the donor's public spelling
+survives.
+
+## Granularity rules
+
+Three rules fix what gets a row, so coverage can be checked mechanically rather
+than argued:
+
+1. **One row per source file.** Every tracked file under
+   `implementation/ui/src/` gets its own row. These are the rows whose
+   disposition is most consequential, so none of them hides inside a group.
+2. **One row per test family.** The donor test tree is flat and large, so tests
+   are grouped by filename-prefix family — the same convention the tree already
+   uses to name its subjects (`reactive_*`, `custom_element_*`, `presence_*`).
+   A family is a glob; every tracked test file must fall inside exactly one.
+   This is finer than directory granularity, which would collapse the entire
+   suite into a single row.
+3. **One row per fixture, probe, or wiring hook.** Benches, evidence fixtures,
+   proof packs, probes, testbeds, and the artifact's own build wiring each get
+   a row at the directory or file level, whichever is the unit that moves.
+
+Rows outside the donor tree — spec obligations, `tools/` consumers, examples,
+docs — are an open roster rather than a closed partition. The ledger claims to
+name every donor *file*; for the consuming trees it claims to name every
+*obligation*, and the paths it lists must continue to exist while the row is
+pending.
+
+## How coverage is enforced
+
+```
+python scripts/check_donor_inventory.py              # the gate
+python scripts/check_donor_inventory.py --report     # undisposed-row report
+python scripts/check_donor_inventory.py --self-test  # the gate's own fixtures
+```
+
+The gate fails when a tracked file under `implementation/ui/` is claimed by no
+row, when two rows claim the same file, when a still-pending row points at a
+path that no longer exists, or when any row is missing a disposition, an owning
+slice, or a status. So a new donor file cannot appear undisposed, and a donor
+file cannot quietly vanish without its row being settled first.
+
+`--report` prints the count of rows not yet disposed, broken down by slice,
+disposition, and section. That count is the number the programme drives to zero.
+
+## Ruled contract dispositions
+
+These are settled product decisions, not open questions. They are recorded here
+because several of them cut across many files and would otherwise be invisible
+in a per-file table. The file rows below inherit them.
+
+| Donor row | What it is | Disposition | Slice | Status |
+|---|---|---|---|---|
+| `local` and its placement machinery | component-local state and the anchors that place it | DELETE | F1 | pending |
+| instance state and generic storage verbs | `local`-adjacent generic component storage and derived writable anchors | DELETE | F1 | pending |
+| refs, effects, and the React hook tier | the neutral imperative forms; one-node behaviors own bounded DOM lifecycle and wrappers own React protocols | DELETE | F4 | pending |
+| callable JVM view values | a declared view that is invocable as a function | REPLACE | F1 | pending |
+| placeholder provenance | donor event-payload placeholder spellings and general dispatch payload arity | REPLACE | F2 | pending |
+| compiled parent to interpreted child crossing | the one emitted descriptor boundary that lets a single declaration be promoted | REPLACE | F3 | pending |
+| controlled scheduling | the final-normalized native input predicate and one frame-scoped synchronous scheduler shared by both modes | MOVE | F2 | pending |
+| key-condition event maps | the closed exact-key `:on-key-down`/`:on-key-up` form with existing event values and pre-dispatch mechanics | MOVE | F2 | pending |
+| `spread-safe`/`spread` and `render-fn`/`slot` | forwarding and parameterized-content grammar, absorbed without the donor hook tier | MOVE | F5 | pending |
+| presence runtime | keyed enter/exit retention, made common to both modes | MOVE | F4 | pending |
+| `route-link` | the ordinary routing-aware view over the late-bound routing seam, crossing by rename | MOVE | F5 | pending |
+| analyzer, both emitters, ViewCell reactor, manifest/elision, diagnostic taxonomy, structural test surface | the useful donor machinery named by the programme as absorbed | MOVE | F3 | pending |
+
+## Donor sources
+
+Every tracked file under `implementation/ui/src/`.
+
+| Donor row | What it is | Disposition | Slice | Status |
+|---|---|---|---|---|
+| `implementation/ui/src/re_frame/ui.cljc` | the donor public facade — `defview`, `custom-element`, `sub`, interop forms, `local`, `effect`, `ref`, `presence`, `route-link`, mount | REPLACE | F1 | pending |
+| `implementation/ui/src/re_frame/ui/client.cljs` | Root handle, live-root claim registry, mount / render! / hydrate-root / unmount! | MOVE | F1 | pending |
+| `implementation/ui/src/re_frame/ui/compiler.cljc` | the declaration expansion pipeline: arity and options parsing, header analysis, manifest and fingerprint assembly, per-host emission | MOVE | F3 | pending |
+| `implementation/ui/src/re_frame/ui/compiler/a11y.cljc` | compile-tier accessibility diagnostics minted from literal template facts | MOVE | F3 | pending |
+| `implementation/ui/src/re_frame/ui/compiler/analyze.cljc` | the template-grammar analyzer and its closed normalized AST | MOVE | F3 | pending |
+| `implementation/ui/src/re_frame/ui/compiler/binding_plan.cljc` | the one host-faithful associative-destructuring binding plan | MOVE | F3 | pending |
+| `implementation/ui/src/re_frame/ui/compiler/build.cljc` | build-scoped compiler registries and the acceptance transaction | MOVE | F3 | pending |
+| `implementation/ui/src/re_frame/ui/compiler/build_hook.clj` | the shadow-cljs build-lifecycle adapter that harvests whole-build registries | MOVE | F3 | pending |
+| `implementation/ui/src/re_frame/ui/compiler/emit_cljs.cljc` | the React emitter — direct jsx-runtime lowering, static hoisting, per-slot comparators | MOVE | F3 | pending |
+| `implementation/ui/src/re_frame/ui/compiler/emit_jvm.cljc` | the JVM emitter — the versioned structural tree, event vectors retained as data | MOVE | F3 | pending |
+| `implementation/ui/src/re_frame/ui/compiler/env.cljc` | compile-time environment and internal-versus-foreign head resolution | MOVE | F3 | pending |
+| `implementation/ui/src/re_frame/ui/compiler/harvest.clj` | deterministic pre-seed of compile-time custom-element declarations | MOVE | F3 | pending |
+| `implementation/ui/src/re_frame/ui/compiler/header.cljc` | props-binding analysis: destructuring lowering, `:as` materialization, `:or` defaults | MOVE | F3 | pending |
+| `implementation/ui/src/re_frame/ui/compiler/root.cljc` | root-id grammar, deterministic slug, and the static top-region scan | MOVE | F3 | pending |
+| `implementation/ui/src/re_frame/ui/eq.cljc` | `rf=`, the ruled per-slot equality behind memo-by-default | MOVE | F1 | pending |
+| `implementation/ui/src/re_frame/ui/events.cljs` | commit-owned native event callbacks; the candidate table an abandoned render cannot retarget | MOVE | F2 | pending |
+| `implementation/ui/src/re_frame/ui/fingerprint.cljc` | template fingerprint and hook-signature digests; the hook-signature arm goes with the hook tier | MOVE | F1 | pending |
+| `implementation/ui/src/re_frame/ui/frames.cljc` | preflight ENSURE executor, plan-install registry, frame-scope elements, ambient frame resolution | MOVE | F2 | pending |
+| `implementation/ui/src/re_frame/ui/hooks.cljc` | the host-hook lowering targets `local` / `effect` / `dispatch-fn` / `use-ref` lower to | DELETE | F1 | pending |
+| `implementation/ui/src/re_frame/ui/presence_runtime.cljc` | the three-phase keyed retention machine and its terminal timeout bound | MOVE | F4 | pending |
+| `implementation/ui/src/re_frame/ui/react.cljc` | the six-wrapper neutral React tier: effect, layout-effect, effect-event, context, id, lazy | DELETE | F5 | pending |
+| `implementation/ui/src/re_frame/ui/reactive.cljc` | the ViewCell, the render-side probe/record protocol, the layout-commit reconciler, the lifecycle | MOVE | F2 | pending |
+| `implementation/ui/src/re_frame/ui/route_link_seam.cljc` | runtime helpers consuming the late-bound routing link-model and activate hooks | MOVE | F5 | pending |
+| `implementation/ui/src/re_frame/ui/rules.cljc` | the one DOM prop-conversion rule table shared by analyzers, emitters, and the JVM tree | MOVE | F1 | pending |
+| `implementation/ui/src/re_frame/ui/runtime.cljs` | the small client vocabulary emitted code calls, including the one sanctioned runtime conversion | MOVE | F3 | pending |
+| `implementation/ui/src/re_frame/ui/semantic.cljc` | semantic normalization — the parity and fingerprint input | MOVE | F1 | pending |
+| `implementation/ui/src/re_frame/ui/sub_overrides.cljs` | the React carriage for story-supplied subscription overrides | MOVE | F2 | pending |
+| `implementation/ui/src/re_frame/ui/substrate.cljs` | the first-party React adapter machinery, frame-context reader, and root-scoped adapter disposal | MOVE | F2 | pending |
+| `implementation/ui/src/re_frame/ui/test.cljc` | the structural and mounted test surface across the JVM and browser hosts | MOVE | F1 | pending |
+| `implementation/ui/src/re_frame/ui/tool.cljc` | the dev-only read-only projections a debugging consumer reads | MOVE | F4 | pending |
+| `implementation/ui/src/re_frame/ui/tool/evidence.cljc` | the bounded per-cell accumulator over the invalidation-evidence plane | MOVE | F4 | pending |
+| `implementation/ui/src/re_frame/ui/tree.cljc` | builders for the versioned public structural tree in canonical form | MOVE | F1 | pending |
+| `implementation/ui/src/re_frame/ui/viewcell.cljs` | the React glue driving the reactor: ref, external-store subscription, layout effect | MOVE | F2 | pending |
+
+## Donor tests
+
+Grouped by filename-prefix family under `implementation/ui/test/`, per granularity
+rule 2. A test family's disposition follows its subject: a family whose subject
+is DELETEd is deleted with it, and a family whose subject is REPLACEd is
+re-proved against the Freehand contract rather than ported line by line.
+
+| Donor row | What it is | Disposition | Slice | Status |
+|---|---|---|---|---|
+| `implementation/ui/test/re_frame/ui/a11y_*` | compile-tier accessibility diagnostics | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/adapter_*` | substrate adapter installation, conformance, generation fence, public root disposal | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/analyze_*` | analyzer accept and reject corpora | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/authored_collision_*` | authored view-id collision detection | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/binding_plan_*` | host-faithful destructuring plan, including advanced-build elision | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/build_*` | build probe and REPL/HMR build convergence | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/callbacks_*` | callback boundary ownership across hosts | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/committed_events_*` | the committed-events publication law | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/compiler_*` | build hook, build state, harvest, and macro resolution | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/conditional_root_annotation_*` | root annotation under conditional markup | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/conditional_sub_*` | subscriptions inside conditional branches | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/custom_element_*` | custom-element classification, ordering, conflict, spread parity, warm staleness, elision | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/defview_grammar_*` | the declaration grammar itself | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/digest_probe/*` | the warm-watch digest probe project used by the recompile gate | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/emit_cljs_*` | React-emitter lowering and view-evidence annotation | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/eq_*` | the per-slot equality law | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/error_roster_*` | the diagnostic-id roster | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/event_*` | event warning scope and event-wrapper shapes | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/exact_render_capture_*` | exact render capture in the browser | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/fast_refresh_shell_*` | fast-refresh shell identity | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/fingerprint_*` | identity digests | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/frame_*` | frame ops, plans, scope resolution, preflight races, publication linearization, context | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/g13/*` | the mass-mount evidence fixture's own measurement test | MOVE | F6 | pending |
+| `implementation/ui/test/re_frame/ui/g14_*` | the compile-budget gate | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/hidden_sub_macros.clj` | test-only macro fixture for hidden subscription sites | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/hooks_*` | local-state cause and commit behaviour of the hook tier | DELETE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/local_effect_*` | `local` / `effect` / `dispatch-fn` behaviour | DELETE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/mounted_*` | mounted browser gates: cardinality, stage gates, story override schema | MOVE | F4 | pending |
+| `implementation/ui/test/re_frame/ui/parity_*` | the cross-emitter parity corpus, its fixtures, HTML projection, and embedding | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/passive_events_*` | passive event registration | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/preflight_*` | preflight authority, frame wiring, generation fence, supersession | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/presence_*` | presence reconciliation, retention, and hosts | MOVE | F4 | pending |
+| `implementation/ui/test/re_frame/ui/raw_foreign_boundary_*` | the qualified foreign-host boundary | MOVE | F5 | pending |
+| `implementation/ui/test/re_frame/ui/react_export_bridge_*` | the outward React bridge | MOVE | F5 | pending |
+| `implementation/ui/test/re_frame/ui/react_interop_*` | the neutral React interop tier; only the outward-bridge arms are re-proved | REPLACE | F5 | pending |
+| `implementation/ui/test/re_frame/ui/react_render_*` | React render behaviour of a declared view | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/reactive_*` | the reactor: commit causes and records, epochs, HMR matrix, incarnation, teardown, races, slice memoization | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/render_batch_*` | render-batch host checkpointing | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/render_capture_*` | render-capture thread ownership | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/render_key_dom_stamp_*` | key stamping in the DOM and its production elision | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/render_static_strip_*` | static-subtree stripping | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/reserved_head_reject_*` | rejection of reserved template heads | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/root_*` | root analysis, registry, incarnation, mount, teardown, wiring | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/route_link_*` | anchor semantics and the click law over the routing seam | MOVE | F5 | pending |
+| `implementation/ui/test/re_frame/ui/rules_*` | the DOM conversion table and its custom-element conflict rule | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/s3_*` | the donor stage-3 conformance profile and ergonomic proof | DELETE | F6 | pending |
+| `implementation/ui/test/re_frame/ui/s4_*` | the donor stage-4 conformance profile | DELETE | F6 | pending |
+| `implementation/ui/test/re_frame/ui/s5_*` | the donor stage-5 conformance profile | DELETE | F6 | pending |
+| `implementation/ui/test/re_frame/ui/semantic_normalize_*` | semantic normalization | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/serialiser_rules_*` | serialization rules for the structural tree | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/shadow_config_*` | the build-tool configuration contract | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/skeleton_*` | the adapter-isolation skeleton that rides the node test build | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/slice_memo_*` | slice-memo lifetime census | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/slot_*` | slot render-fn arity and keyed reorder | MOVE | F5 | pending |
+| `implementation/ui/test/re_frame/ui/spread_*` | spread and spread-safe grammar, rejected props, elision | MOVE | F5 | pending |
+| `implementation/ui/test/re_frame/ui/ssr_reinit_*` | server-render reinitialization lifecycle | MOVE | F5 | pending |
+| `implementation/ui/test/re_frame/ui/sub_overrides_*` | production elision of the subscription-override carriage | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/substrate_flush_*` | flush-to-render convergence | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/ui/teardown_falsy_*` | teardown under a falsy render failure | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/test_*` | the test surface itself: render, projections, outcomes, sub-override schema, guide fixtures | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/tool_*` | the tool projections: view manifests, evidence, generation, elision | MOVE | F4 | pending |
+| `implementation/ui/test/re_frame/ui/tree_*` | structural-tree builders | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/viewcell_*` | ambient frame binding and server frame context | MOVE | F2 | pending |
+| `implementation/ui/test/re_frame/realworld_*` | the donor stage-3 ergonomic proof mounted over the realworld example | DELETE | F6 | pending |
+
+## Donor fixtures, probes, and testbeds
+
+| Donor row | What it is | Disposition | Slice | Status |
+|---|---|---|---|---|
+| `implementation/ui/bench/*` | the direct-render parity bench and its hand-written comparison arm | MOVE | F3 | pending |
+| `implementation/ui/cache-carrier-probe/*` | the standalone probe pinning build-cache carrier behaviour for the build hook | MOVE | F3 | pending |
+| `implementation/ui/dev/*` | the React behaviour probe that version-pins the DOM conversion table | MOVE | F1 | pending |
+| `implementation/ui/g8/*` | the input-latency evidence fixture | MOVE | F6 | pending |
+| `implementation/ui/g13/*` | the mass-mount evidence fixture, dev and production arms | MOVE | F6 | pending |
+| `implementation/ui/proof-pack/*` | the elision proof pack: a library, a single-view consumer, and the all-views positive control | MOVE | F3 | pending |
+| `implementation/ui/scaffold-smoke/*` | the compile-and-omission smoke over the minimal scaffold example | MOVE | F6 | pending |
+| `implementation/ui/testbed/*` | the browser smoke testbed: host page, spec, and counter app | MOVE | F1 | pending |
+
+## Donor artifact and build wiring
+
+The donor artifact's own descriptor is DELETEd rather than moved: Freehand ships
+from its own artifact with its own coordinate, created by its first slice, and
+never depends on the donor. The wiring that names the donor in shared build files
+is REPLACEd — the hook still has to exist, but it points at Freehand.
+
+| Donor row | What it is | Disposition | Slice | Status |
+|---|---|---|---|---|
+| `implementation/ui/deps.edn` | the donor artifact descriptor: paths, core dependency, test alias, and publication coordinate | DELETE | F6 | pending |
+| `implementation/deps.edn` | the cross-artifact classpath: the donor local-root dependency and its test path | REPLACE | F6 | pending |
+| `implementation/shadow-cljs.edn` | donor source paths, the default build hook, and the node-test, bench, evidence, proof-pack, and testbed build ids | REPLACE | F6 | pending |
+| `implementation/package.json` | the donor npm entry points: node suite, adapter isolation, warm watch, benches, evidence, facade isolation | REPLACE | F6 | pending |
+| `implementation/scripts/check-ui-adapter-isolation.cjs` | proof that the donor node test build pulls in no adapter | MOVE | F6 | pending |
+| `implementation/scripts/check-ui-facade-isolation.cjs` | proof that a single-view consumer elides the rest of a view library | MOVE | F6 | pending |
+| `implementation/scripts/check-ui-warm-watch.cjs` | the warm-watch recompile probe runner | MOVE | F6 | pending |
+| `implementation/scripts/check-ui-mounted-prod-elision.cjs` | proof that mounted-view debug machinery elides in production | MOVE | F6 | pending |
+| `implementation/scripts/run-ui-bench.cjs` | the parity-bench runner | MOVE | F6 | pending |
+| `implementation/scripts/run-ui-g13.cjs` | the mass-mount evidence runner | MOVE | F6 | pending |
+| `implementation/scripts/lib/g13-timing-evidence.cjs` | the mass-mount timing-evidence library | MOVE | F6 | pending |
+| `implementation/scripts/lib/g8-latency-evidence.cjs` | the input-latency evidence library | MOVE | F6 | pending |
+| `implementation/scripts/bundle-isolation-positive-control/*` | the positive control proving the donor client sentinel is emitted | MOVE | F6 | pending |
+| `implementation/scripts/_release-ui-required-gate.test.cjs` | the guard asserting the donor is a required artifact of the release train | REPLACE | F6 | pending |
+| `implementation/scripts/_ui-deps-edn-boundary.test.cjs` | the guard scoping optional artifacts out of the donor's production dependencies | REPLACE | F6 | pending |
+| `.github/scripts/verify-version-lockstep.sh` | the release inventory that asserts the donor artifact is publishable | REPLACE | F6 | pending |
+| `.github/scripts/report-changed-surfaces.sh` | the changed-surface router that maps donor paths to gates | REPLACE | F6 | pending |
+| `.github/workflows/test.yml` | the donor-suite jobs on the pull-request train | REPLACE | F6 | pending |
+| `.github/workflows/release.yml` | the donor deploy leaf, pre-deploy JVM test, and release-body row | REPLACE | F6 | pending |
+| `.github/workflows/lint.yml` | donor paths in the lint surface | REPLACE | F6 | pending |
+| `.github/workflows/portability.yml` | donor paths in the portability matrix | REPLACE | F6 | pending |
+| `TESTING.md` | the donor rows of the canonical test matrix | REPLACE | F6 | pending |
+
+## Donor obligations in the spec tree
+
+The programme migrates existing canonical owners rather than creating a parallel
+spec family, so these rows are obligations on documents that stay, not documents
+that move wholesale. Each row is disposed by the slice that migrates the
+surface it names.
+
+| Donor row | What it is | Disposition | Slice | Status |
+|---|---|---|---|---|
+| `spec/004-Views.md` | the donor-era compiled view language; its content moves by rename to the compiled-grammar owner, and 004 becomes the common contract | MOVE | F0 | pending |
+| `spec/004B-UI-Tree-and-Conversion.md` | the semantic tree and conversion tables, generalized from donor names to both modes | MOVE | F1 | pending |
+| `spec/004C-Roots-and-Mount.md` | Root Descriptor, identity, mount, hydration, and teardown, re-spelled for the paved path | MOVE | F1 | pending |
+| `spec/006-ReactiveSubstrate.md` | the observation-port contract plus its packaging and sole-consumer text, which names the donor today | MOVE | F2 | pending |
+| `spec/008-Testing.md` | structural and mounted testing, the host and mode matrix, and the cross-mode conformance contract | MOVE | F1 | pending |
+| `spec/009-Instrumentation.md` | diagnostic ids, evidence and retention fields, lifecycle facts, and error egress | MOVE | F4 | pending |
+| `spec/011-SSR.md` | server rendering, hydration, fallback, and server-error projection over the donor tree today | MOVE | F5 | pending |
+| `spec/012-Routing.md` | route-link href and click semantics; the donor view is replaced by the Freehand descriptor over the same seam | MOVE | F5 | pending |
+| `spec/API.md` | the public-name inventory carrying the donor's exported surface | REPLACE | F6 | pending |
+| `spec/Ownership.md` | the contract-surface ownership map naming the donor as an owner | REPLACE | F6 | pending |
+| `spec/Conventions.md` | reserved namespaces and packaging conventions minted under donor names | REPLACE | F6 | pending |
+| `spec/conformance/S3-view-conformance-profile.md` | the donor stage-3 conformance profile — evidence during migration, never a second Freehand authority | DELETE | F6 | pending |
+| `spec/conformance/S4-view-conformance-profile.md` | the donor stage-4 conformance profile | DELETE | F6 | pending |
+| `spec/conformance/S5-view-conformance-profile.md` | the donor stage-5 conformance profile | DELETE | F6 | pending |
+| `spec/Pattern-StatefulComponents.md` | the stateful-component pattern, written around donor component-local state | REPLACE | F4 | pending |
+| `spec/api-manifest.edn` | the generated public-API manifest, which inventories donor namespaces | REPLACE | F6 | pending |
+| `spec/api-manifest-metadata.edn` | the manifest's hand-maintained metadata for donor namespaces | REPLACE | F6 | pending |
+
+## Donor consumers in tools
+
+Nothing under `tools/` may keep a donor dependency at the gate. These rows are
+disposed when the consumer moves to Freehand names.
+
+| Donor row | What it is | Disposition | Slice | Status |
+|---|---|---|---|---|
+| `tools/story/deps.edn` | the donor artifact coordinate on the story classpath | REPLACE | F6 | pending |
+| `tools/story/src/re_frame/story/late_bind.cljc` | the late-bound seam story publishes for donor views | MOVE | F6 | pending |
+| `tools/story/src/re_frame/story/sub_overrides.cljc` | the author surface behind the donor subscription-override carriage | MOVE | F6 | pending |
+| `tools/story/src/re_frame/story/play/*` | presence, presence host, runner, and runner events reaching into the donor presence runtime | MOVE | F6 | pending |
+| `tools/story/test/re_frame/story/view_tool*` | story's view-tool tests over donor projections | MOVE | F6 | pending |
+| `tools/story/test/re_frame/story/realworld_ui_consumer_cljs_test.cljs` | story's end-to-end consumer test over a donor example | MOVE | F6 | pending |
+| `tools/story/spec/017-Testing-Story.md` | story's testing contract where it names the donor | REPLACE | F6 | pending |
+| `tools/xray/deps.edn` | the donor artifact coordinate on the xray classpath | REPLACE | F6 | pending |
+| `tools/xray/src/day8/re_frame2_xray/viewcell_evidence.cljs` | xray's reader over the reactor evidence plane | MOVE | F6 | pending |
+| `tools/xray/src/day8/re_frame2_xray/panels/reactive_panel_*` | the xray panel projecting donor view records | MOVE | F6 | pending |
+| `tools/xray/spec/*` | xray's own spec pages naming the donor substrate | REPLACE | F6 | pending |
+| `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/view_tool.cljs` | the pair server's view tool over donor projections | MOVE | F6 | pending |
+| `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_data.cljs` | tool descriptors naming donor view vocabulary | REPLACE | F6 | pending |
+| `tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md` | the pair tool catalogue where it names the donor | REPLACE | F6 | pending |
+| `tools/template/resources/day8/re_frame2_template/_ui/*` | the generated donor scaffold variant: deps, build config, entry namespace, views, readme | MOVE | F6 | pending |
+| `tools/template/resources/day8/re_frame2_template/template.edn` | the variant menu entry that offers the donor scaffold | REPLACE | F6 | pending |
+| `tools/template/spec/001-Substrate-Variants.md` | the template's substrate-variant contract | REPLACE | F6 | pending |
+| `tools/mcp-conformance/test/end-to-end-re-frame2-pair.cjs` | the cross-server conformance run that mounts a donor app | MOVE | F6 | pending |
+
+## Donor consumers in examples and testbeds
+
+| Donor row | What it is | Disposition | Slice | Status |
+|---|---|---|---|---|
+| `examples/ui/minimal-counter/*` | the minimal runnable donor scaffold example | MOVE | F6 | pending |
+| `examples/real-apps/realworld_resources/ui_*` | the donor-authored views of the realworld example, including its compiled editor and counter | MOVE | F6 | pending |
+| `tools/xray/testbeds/feature_matrix/scenarios.cjs` | the xray feature-matrix scenarios that mount donor views | MOVE | F6 | pending |
+
+## Donor material in docs and skills
+
+Migration completeness covers guides and authoring aids, so they carry rows too.
+They are grouped at directory level: none of them is load-bearing for a semantic
+decision, and each moves as one editorial pass.
+
+| Donor row | What it is | Disposition | Slice | Status |
+|---|---|---|---|---|
+| `docs/core/re-frame.ui/*` | the donor guide chapters: mental model, building a view, state, events, presence, reactivity, interop, SSR, testing, custom elements | MOVE | F6 | pending |
+| `docs/core/how-to/install-re-frame-ui.md` | the donor install how-to | MOVE | F6 | pending |
+| `docs/core/how-to/measure-before-paint.md` | the before-paint measurement how-to, written against donor forms | MOVE | F6 | pending |
+| `docs/core/views.md` | the view-layer overview that routes readers to the donor | REPLACE | F6 | pending |
+| `docs/api/re-frame.ui*.md` | the generated donor API pages | REPLACE | F6 | pending |
+| `skills/re-frame2-ui/*` | the donor authoring skill, its references, and its packaging | MOVE | F6 | pending |
+| `skills/reagent-migration/*` | the migration skill's donor target vocabulary | REPLACE | F6 | pending |
+| `mkdocs.yml` | navigation entries for the donor guide and API pages | REPLACE | F6 | pending |
