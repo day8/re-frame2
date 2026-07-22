@@ -350,6 +350,20 @@
          {:docstring a :opts b :params c :body (nthnext more 3)}
          :else nil))))
 
+(def ^:private defview-option-keys
+  "The CLOSED roster of `defview` option keys — every option whose
+  semantics have LANDED, and nothing else.
+
+  A key outside it is rejected at macro expansion, and that includes a
+  RESERVED option a later slice owns: the props-schema options are not
+  accepted until the schema surface exists. A reserved option
+  accepted-and-ignored is the worst of the outcomes available — the
+  declaration reads as one thing and reports itself as another, and a
+  one-character typo produces valid code with different semantics. The
+  slice that implements an option adds it here, in the same change, as
+  `:compiled` did when the compiled tier landed."
+  #{:children-policy :compiled})
+
 #?(:clj
    (defn ^:no-doc expand-defview
      "Build the expansion form for a `defview` call. `form-meta` is
@@ -378,7 +392,19 @@
                                                       {:recovery :fix-the-declaration
                                                        :extra    {:view sym}}))
            policy    (get opts :children-policy :optional)
-           compiled? (get opts :compiled false)]
+           compiled? (get opts :compiled false)
+           unknown   (vec (sort (remove defview-option-keys (keys opts))))]
+       (when (seq unknown)
+         (error/throw-error!
+           :rf.error/defview-bad-args
+           'v/defview
+           (str "v/defview options are the closed roster " (pr-str (vec (sort defview-option-keys)))
+                "; " sym " declares " (pr-str unknown) ". An option key is never discarded — "
+                "a reserved option whose owning slice has not landed (the props-schema "
+                "options) is rejected until it does, because an accepted-and-ignored option "
+                "is a declaration that quietly means something other than it says.")
+           {:recovery :fix-the-declaration
+            :extra    {:view sym :unknown-options unknown}}))
        (when-not (contains? #{true false} compiled?)
          (error/throw-error!
            :rf.error/defview-bad-args
@@ -396,6 +422,16 @@
                 "destructure the props map instead.")
            {:recovery :fix-the-declaration
             :extra    {:view sym :params (count params)}}))
+       (when-not (seq body)
+         (error/throw-error!
+           :rf.error/defview-bad-args
+           'v/defview
+           (str "A Freehand view declaration needs a body: " sym " carries a parameter "
+                "vector and nothing after it, so it would render nothing at all. Write "
+                "the semantic tree the view renders, or an explicit nil body for a view "
+                "that deliberately renders nothing.")
+           {:recovery :fix-the-declaration
+            :extra    {:view sym}}))
        (when-not (contains? children-policies policy)
          (error/throw-error!
            :rf.error/defview-bad-args
@@ -467,7 +503,7 @@
      and no error containment of their own. Changing brackets to
      parentheses changes runtime ownership, not spelling.
 
-     Options (all optional):
+     Options — the roster is CLOSED, and every key is optional:
 
        `:children-policy`  `:optional` (default), `:none`, or `:required`
        `:compiled`         `false` (default), or `true` to select the
@@ -498,6 +534,21 @@
      body that will not compile is to extract the awkward part into its
      own declared child — or to drop the marker again, which is the same
      one-line change in reverse.
+
+     ## What the declaration refuses
+
+     The option roster above is CLOSED. An unknown key raises
+     `:rf.error/defview-bad-args` at macro expansion, NAMING it — an
+     option is never discarded, because a one-character typo would
+     otherwise produce valid code with different semantics. That holds
+     for a RESERVED option whose owning slice has not landed: the
+     props-schema options are refused until the schema surface exists,
+     the way `:compiled` was refused until the compiled tier landed.
+
+     A declaration also needs a BODY. A parameter vector with nothing
+     after it would expand into a view that renders nothing and says
+     nothing; a view that deliberately renders nothing writes an
+     explicit `nil` body.
 
      Per [Spec 004 §The descriptor and `v/defview`](../../../../spec/004-Views.md)."
      [sym & more]

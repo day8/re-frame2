@@ -121,6 +121,26 @@ selects the compiled lowering ([§Selecting the compiled mode](#selecting-the-co
 it changes the lowering, never the view model, so promotion edits **one
 definition site and no call site**.
 
+A declaration is rejected at **macro-expansion time**, with
+`:rf.error/defview-bad-args`, when it is silently malformed rather than
+obviously wrong:
+
+- **the option roster is closed.** An unknown key is never discarded — it is
+  named. That holds for a **reserved option whose owning slice has not landed**:
+  the props-schema options raise until the schema surface exists, the way
+  `{:compiled true}` raised until the compiled tier landed. A silently-ignored
+  option turns a one-character typo into valid code with different semantics, and
+  a reserved one accepted-and-ignored makes a declaration report itself as
+  something other than it says — the failure mode a declaration form must not
+  have.
+- **a declaration needs a body.** A parameter vector with nothing after it would
+  expand into a view that renders nothing and says nothing. A view that
+  deliberately renders nothing writes an explicit `nil` body.
+
+An implementation MUST reject at the declaration, not at the call: a malformed
+declaration that expands cleanly becomes a boundary whose defect surfaces
+somewhere else entirely.
+
 Declared view identity is the **qualified name** — `:app.cart/cart-badge` —
 stable across recompilation, hot reload, and promotion between modes. Runtime
 generations and compiler signatures are internal facts and MUST NOT appear in any

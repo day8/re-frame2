@@ -5,7 +5,8 @@
   Dual-runtime by construction: one `.cljc` suite, one fixture, run by
   this artefact's JVM `:test` alias AND by the ClojureScript node builds.
   A claim green on only one host is a gap, not a pass."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]))
 
@@ -171,3 +172,95 @@
        (is (= {:docstring nil :opts nil :params '[p] :body '([:div])}
               (v/parse-defview-args '([p] [:div])))
            "the minimal spelling parses"))))
+
+#?(:clj
+   (deftest defview-requires-a-body
+     (testing "A declaration with a parameter vector and nothing after it
+               expands today into a view that quietly returns nil — the
+               omission produces working code with no output and no
+               complaint. It is rejected at expansion instead; a view that
+               deliberately renders nothing says so with an explicit nil."
+       (is (= :rf.error/defview-bad-args
+              (conf/caught-id
+                #(v/expand-defview nil "t.cljc" 'app.t 'bodyless '([p]))))
+           "no body at all")
+       (is (= :rf.error/defview-bad-args
+              (conf/caught-id
+                #(v/expand-defview nil "t.cljc" 'app.t 'bodyless
+                                   '({:children-policy :none} [p]))))
+           "options, a parameter vector, and no body")
+       (is (str/includes? (conf/caught-message
+                            #(v/expand-defview nil "t.cljc" 'app.t 'bodyless '([p])))
+                          "bodyless")
+           "the diagnostic names the offending declaration")
+       (is (map? (v/parse-defview-args '([p])))
+           "the SHAPE still parses — the rejection is the body law, not the spelling")
+       (is (some? (v/expand-defview nil "t.cljc" 'app.t 'renders-nothing '([p] nil)))
+           "an explicit nil body remains a legal no-output view"))))
+
+#?(:clj
+   (deftest defview-rejects-an-unknown-option-key
+     (testing "An option key outside the closed roster is discarded today,
+               so a one-character typo produces valid code with different
+               semantics. Every unknown key is rejected at expansion and
+               NAMED, so the declaration cannot silently mean something
+               other than it says."
+       (is (= :rf.error/defview-bad-args
+              (conf/caught-id
+                #(v/expand-defview nil "t.cljc" 'app.t 'misspelled
+                                   '({:chilren-policy :none} [p] [:div]))))
+           "a misspelled option key")
+       (let [message (conf/caught-message
+                       #(v/expand-defview nil "t.cljc" 'app.t 'misspelled
+                                          '({:chilren-policy :none} [p] [:div])))]
+         (is (str/includes? message ":chilren-policy")
+             "the diagnostic names the OFFENDING key")
+         (is (str/includes? message ":children-policy")
+             "and the roster it should have been"))
+       (is (= [:chilren-policy]
+              (:unknown-options
+                (try (v/expand-defview nil "t.cljc" 'app.t 'misspelled
+                                       '({:chilren-policy :none} [p] [:div]))
+                     nil
+                     (catch Throwable e (ex-data e)))))
+           "the offending keys ride the ex-data, so a tool renders them unparsed"))))
+
+#?(:clj
+   (deftest defview-rejects-a-reserved-but-unimplemented-option
+     (testing "A design-documented option whose owning slice has NOT landed
+               is rejected, not ignored. Accepted-and-ignored, the
+               declaration reads as one thing and reports itself as
+               another — the failure mode that would have quietly
+               undermined the compiled-selection slice had `{:compiled
+               true}` been discarded before F3b implemented it. The props
+               schema options are the standing case: F3f owns them."
+       (is (= :rf.error/defview-bad-args
+              (conf/caught-id
+                #(v/expand-defview nil "t.cljc" 'app.t 'schematised
+                                   '({:props-schema [:map]} [p] [:div]))))
+           "a reserved future option is never silently ignored")
+       (is (str/includes? (conf/caught-message
+                            #(v/expand-defview nil "t.cljc" 'app.t 'schematised
+                                               '({:props-schema [:map]} [p] [:div])))
+                          ":props-schema")
+           "and the diagnostic names it")
+       (is (some? (v/expand-defview nil "t.cljc" 'app.t 'promoted
+                                    '({:compiled false} [p] [:div])))
+           "an option the roster CARRIES is accepted — `:compiled` joined it
+            when the compiled tier landed, which is how the roster grows"))))
+
+#?(:clj
+   (deftest defview-accepts-every-legal-declaration
+     (testing "The rejections above must not over-tighten: all four
+               documented spellings, every children policy, destructuring,
+               and a docstring still expand."
+       (doseq [[label more]
+               [["minimal"                 '([p] [:div])]
+                ["docstring"               '("doc" [p] [:div])]
+                ["options"                 '({:children-policy :none} [p] [:div])]
+                ["docstring and options"   '("doc" {:children-policy :required} [{:keys [children]}] [:div children])]
+                ["policy :optional"        '({:children-policy :optional} [p] [:div])]
+                ["explicit :compiled false" '({:compiled false} [p] [:div])]
+                ["multi-form body"         '([p] (println p) [:div])]
+                ["empty options map"       '({} [p] [:div])]]]
+         (is (some? (v/expand-defview nil "t.cljc" 'app.t 'ok more)) label)))))
