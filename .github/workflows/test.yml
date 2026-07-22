@@ -525,6 +525,71 @@ jobs:
       - name: Guard the current adapter disposition
         run: python scripts/check_adapter_disposition.py --verbose --ci
 
+  # rf2-3mh2f — CI arm of the STALE WORKER-SNAPSHOT guard (rf2-ia8o7).
+  #
+  # `bd` auto-stages the full-database JSONL export in EVERY checkout, so a
+  # worker worktree carries a snapshot of the tracker as it stood when that
+  # worktree was created. Committing it TIME-TRAVELS the tracker: beads closed
+  # since the snapshot reopen, beads filed since it vanish. PR #6677 landed
+  # exactly that. The classifier, the pre-commit hook and this script all
+  # shipped together, but `.github/workflows/**` was fenced at the time, so
+  # enforcement has been LOCAL-HOOK-ONLY — bypassable with `--no-verify` and
+  # inert in any checkout where hooks were never installed. This is the wiring
+  # that was missing.
+  #
+  # UNCONDITIONAL, by design. No `needs:`, no surface gate, no path filter:
+  # the tracker database has no business in ANY pull request, and a
+  # branch-name filter would be trivially sidestepped. It is also seconds of
+  # runner time, so there is nothing to gate for.
+  #
+  # THE MAYOR'S CHECKPOINT FLOW IS UNAFFECTED, twice over. The mayor commits
+  # `.beads/issues.jsonl` straight to main on every heartbeat and breaking
+  # that would be worse than the bug this guards. (1) test.yml's push trigger
+  # already carries `paths-ignore: .beads/**`, so a beads-only checkpoint
+  # push runs no job here at all. (2) On any push that DOES reach this job,
+  # the script's own event branch sees GITHUB_EVENT_NAME != pull_request and
+  # exits 0 with an explanatory line. Enforcement is pull_request only.
+  beads-pr-boundary:
+    name: Beads PR boundary (no tracker database in a PR)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          # rf2-5z20y — the guard diffs from the BRANCH POINT, so the fork
+          # commit and both branch tips must be present. A shallow clone
+          # frequently lacks the fork; the guard then fails CLOSED rather than
+          # passing vacuously, which would turn a missing fetch into a red
+          # gate on unrelated PRs. Full history is the cheap, correct answer.
+          fetch-depth: 0
+
+      # Self-test before enforce — the shape verify-readme-links already uses
+      # for its Python guards. Layer 5 of this harness is the diverged-history
+      # regression net for the branch-point selection this job depends on
+      # (rf2-5z20y), and it also covers the pre-commit hook's two marker
+      # blocks. Sandboxed under $TMPDIR; seconds, no build.
+      - name: Self-test the beads + mayor commit guards (rf2-5z20y)
+        run: sh scripts/git-hooks/test-pre-commit.sh
+
+      - name: Enforce the beads PR boundary (rf2-3mh2f)
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" != "pull_request" ]; then
+            # Let the script print its own "not enforced here" line, so the
+            # event policy has exactly one home (the script, not this YAML).
+            sh scripts/check-beads-pr-boundary.sh
+            exit 0
+          fi
+          # Pass the BASE BRANCH. The script resolves the branch point itself
+          # (rf2-5z20y) — do NOT precompute one here, and never substitute
+          # `github.event.pull_request.base.sha`, which goes stale the moment
+          # main advances under an open PR. Both mistakes have the same
+          # consequence in this repo: the mayor checkpoints the tracker to
+          # main constantly, so a base newer than the fork makes
+          # `.beads/issues.jsonl` appear in the comparison as though this PR
+          # had touched it, reddening branches for a file they never edited.
+          sh scripts/check-beads-pr-boundary.sh "origin/${GITHUB_BASE_REF}"
+
   jvm-core:
     name: JVM core (clojure -M:test)
     # rf2-f79t8 — job-level gating (NOT a workflow-trigger path filter:
@@ -3816,6 +3881,9 @@ jobs:
       - verify-version-lockstep
       - verify-skill-mcp-drift
       - verify-readme-links
+      # rf2-3mh2f — the .beads guard's CI arm. Required, so the tracker
+      # database cannot ride a PR past a `--no-verify` or an uninstalled hook.
+      - beads-pr-boundary
       - jvm-core
       - jvm-ui
       - cljs-ui-g1
