@@ -1,0 +1,72 @@
+;; FH-EVENT-004 — per-site committed slots and stable proxy identity.
+;;
+;; A scripted lifetime for one owner carrying two sites that hold the
+;; SAME authored value. Each step names what fires and what the injected
+;; dispatcher should have received by then, so the table proves the law
+;; by behaviour rather than by restating it.
+;;
+;; The identity claim is the load-bearing one: an unchanged site keeps
+;; the exact callback across every re-render, which is what stops a
+;; re-render from churning callback identity through React
+;; reconciliation. A later commit changes what the proxy DOES without
+;; changing what it IS.
+{:fh/id "FH-EVENT-004"
+ :fh/law
+ "Each event site owns one stable committed proxy: identity survives re-render, equal values at two sites stay independent, an abandoned render publishes nothing, a later commit retargets the committed body, and a retired proxy is inert."
+
+ :site-a :on-click-a
+ :site-b :on-click-b
+
+ :script
+ [{:step :first-render
+   :value [:cart/add 7]
+   :commit true
+   :fire [:site-a]
+   :dispatched [[:cart/add 7]]}
+
+  {:step :re-render-same-value
+   :value [:cart/add 7]
+   :commit true
+   :fire [:site-a]
+   :dispatched [[:cart/add 7] [:cart/add 7]]
+   :proxy-identity :unchanged}
+
+  {:step :re-render-new-body
+   :value [:cart/add 9]
+   :commit true
+   :fire [:site-a]
+   :dispatched [[:cart/add 7] [:cart/add 7] [:cart/add 9]]
+   :proxy-identity :unchanged}
+
+  ;; An abandoned render builds a candidate and never commits it. The
+  ;; live proxy keeps dispatching the last SELECTED body.
+  {:step :abandoned-render
+   :value [:cart/add 99]
+   :commit false
+   :fire [:site-a]
+   :dispatched [[:cart/add 7] [:cart/add 7] [:cart/add 9] [:cart/add 9]]
+   :proxy-identity :unchanged}
+
+  ;; Retargeting is a re-commit with a different dispatcher; the sites
+  ;; and their identities are untouched, so this step's dispatch lands in
+  ;; the NEW target and the old one records nothing further.
+  {:step :retarget
+   :value [:cart/add 9]
+   :commit true
+   :retarget true
+   :fire [:site-a]
+   :dispatched [[:cart/add 7] [:cart/add 7] [:cart/add 9] [:cart/add 9]]
+   :retargeted [[:cart/add 9]]
+   :proxy-identity :unchanged}
+
+  ;; Retirement makes the exact proxy inert — it stays callable, because
+  ;; a foreign listener may still hold it, and dispatches nothing.
+  {:step :retire
+   :retire true
+   :fire [:site-a :site-b]
+   :retargeted [[:cart/add 9]]
+   :lifecycle :retired}]
+
+ ;; Two sites carrying an EQUAL value get two DISTINCT proxies, so their
+ ;; lifetimes and diagnostics never merge.
+ :equal-values-are-independent true}

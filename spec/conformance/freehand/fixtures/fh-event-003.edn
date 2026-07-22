@@ -1,0 +1,48 @@
+;; FH-EVENT-003 — the callback roster is closed, and classification is total.
+;;
+;; Every value in an event position resolves to exactly one role, and a
+;; value outside the roster is rejected naming the legal forms. The
+;; roster's shape is the contract: four DECLARED forms, the two data
+;; forms, and the bare function that stays legal at a native `:on-*`
+;; site because the site's own committed adapter owns its lifetime.
+;;
+;; There is no `v/dispatcher`. Appending a raw callback argument to an
+;; intent vector is exactly how host objects get into event data, and
+;; `v/event` is the explicit conversion seam that does not.
+{:fh/id "FH-EVENT-003"
+ :fh/law
+ "The callback roster is closed and classification over an event position is total: each legal form resolves to exactly one role, anything else is rejected naming the roster, and v/render-fn and v/raw-fn are outside the committed-proxy scheme."
+
+ ;; The declared authoring forms — the closed roster `v/*` publishes.
+ :declared-roles #{:event :handler :render-fn :raw-fn}
+
+ ;; Every role classification is total over.
+ :roles #{:event-vector :event-options :event :handler :render-fn :raw-fn :bare-fn}
+
+ ;; Roles that get a site-owned committed proxy, and those that do not.
+ :committed-slot-roles #{:event-vector :event-options :event :handler :bare-fn}
+ :no-slot-roles        #{:render-fn :raw-fn}
+
+ :classified
+ [{:form :event-vector  :role :event-vector}
+  {:form :event-options :role :event-options}
+  {:form :v-event       :role :event}
+  {:form :v-handler     :role :handler}
+  {:form :v-render-fn   :role :render-fn}
+  {:form :v-raw-fn      :role :raw-fn}
+  {:form :bare-fn       :role :bare-fn}
+  {:form :nil           :role nil}]
+
+ :rejected
+ [{:form :string  :error-id :rf.error/view-bad-event}
+  {:form :number  :error-id :rf.error/view-bad-event}
+  {:form :keyword :error-id :rf.error/view-bad-event}
+  {:form :set     :error-id :rf.error/view-bad-event}]
+
+ ;; What each fn-carrying role does when its site fires.
+ :invocations
+ [{:form :v-event   :dispatched [[:roster/converted 1]] :called 1}
+  {:form :v-handler :dispatched []                      :called 1}
+  {:form :bare-fn   :dispatched []                      :called 1}]
+
+ :recovery :use-one-of-the-declared-event-forms}

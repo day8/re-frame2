@@ -1,0 +1,79 @@
+;; FH-EVENT-001 — the closed projection trio and the one pure materializer.
+;;
+;; A site's markers are filled from the LIVE payload at firing time, in
+;; top-level argument positions only, every occurrence, never from a
+;; render-captured value. Position zero is an event id and may not be a
+;; marker; a nested marker is ordinary application data; a requested but
+;; unavailable payload is a typed error and nothing is dispatched.
+;;
+;; The last table is the other half of the same law: general re-frame
+;; dispatch gains NO payload arity, so a projection keyword travelling in
+;; an ordinary domain event is never secretly interpreted.
+{:fh/id "FH-EVENT-001"
+ :fh/law
+ "The Freehand event site materializes the closed projection trio from the live callback payload into top-level argument positions only, and general re-frame dispatch gains no payload arity."
+
+ ;; The live payload one firing callback offers.
+ :payload {:re-frame.freehand/value   "mike@example.com"
+           :re-frame.freehand/checked true
+           :re-frame.freehand/key     "Enter"}
+
+ :materialized
+ [;; Each of the three projections, at the argument position it fills.
+  {:event [:account/email-edited :re-frame.freehand/value]
+   :expect [:account/email-edited "mike@example.com"]}
+  {:event [:prefs/set-dark :re-frame.freehand/checked]
+   :expect [:prefs/set-dark true]}
+  {:event [:picker/key-pressed :re-frame.freehand/key]
+   :expect [:picker/key-pressed "Enter"]}
+
+  ;; A forwarded prefix — the shape `(conj on-change ::v/value)` produces.
+  {:event [:form/edit :email :re-frame.freehand/value]
+   :expect [:form/edit :email "mike@example.com"]}
+
+  ;; EVERY occurrence, not merely the first.
+  {:event [:pair/set :re-frame.freehand/value :re-frame.freehand/value]
+   :expect [:pair/set "mike@example.com" "mike@example.com"]}
+
+  ;; Shallow and by value: a marker NESTED in another value is ordinary
+  ;; application data and survives untouched.
+  {:event [:article/save {:field :re-frame.freehand/value}]
+   :expect [:article/save {:field :re-frame.freehand/value}]}
+  {:event [:article/save [:re-frame.freehand/value]]
+   :expect [:article/save [:re-frame.freehand/value]]}
+  {:event [:article/save #{:re-frame.freehand/checked}]
+   :expect [:article/save #{:re-frame.freehand/checked}]}
+
+  ;; No marker at all — the authored vector is what dispatches.
+  {:event [:cart/add 42] :expect [:cart/add 42]}
+  {:event [:cart/clear]  :expect [:cart/clear]}]
+
+ ;; Rejected at materialization, with nothing dispatched.
+ :rejected
+ [{:event [:re-frame.freehand/value :account/email]  :error-id :rf.error/view-bad-event}
+  {:event [:re-frame.freehand/checked]               :error-id :rf.error/view-bad-event}
+  {:event [[:picker/accept] [:picker/close]]         :error-id :rf.error/view-bad-event}
+  {:event {:event [:cart/add 1]}                     :error-id :rf.error/view-bad-event}
+  {:event "cart/add"                                 :error-id :rf.error/view-bad-event}]
+
+ ;; A requested payload the firing callback does not carry.
+ :unavailable
+ [{:event [:account/email-edited :re-frame.freehand/value]
+   :payload {}
+   :error-id :rf.error/view-missing-payload}
+  {:event [:picker/key-pressed :re-frame.freehand/key]
+   :payload {:re-frame.freehand/value "typed"}
+   :error-id :rf.error/view-missing-payload}]
+
+ ;; The other half: no payload arity anywhere in general dispatch. Both
+ ;; runtime entry points take an event vector and an optional opts map,
+ ;; and the two published macros declare exactly those two arglists.
+ :general-dispatch-arities
+ {"re-frame.router/dispatch!"      #{1 2}
+  "re-frame.router/dispatch-sync!" #{1 2}}
+
+ :general-dispatch-arglists
+ {"re-frame.core/dispatch"      [[event-vec] [event-vec opts]]
+  "re-frame.core/dispatch-sync" [[event-vec] [event-vec opts]]}
+
+ :recovery :ask-for-a-projection-the-callback-supplies}
