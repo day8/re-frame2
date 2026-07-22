@@ -1,0 +1,11 @@
+{:fh/id  "FH-SUB-011"
+ :fh/law "When an input a committed v/sub depends on changes value, a re-render recomputes it and the commit republishes the whole bundle atomically: the committed bundle is unchanged until the next commit, and the recommitted dependency then carries the NEW value against the SAME retained handle — the bundle flips as a unit, never a mix of one render's dependency and another's value."
+
+ :query     [:sub/v]
+ :db-before {:v 1}
+ :db-after  {:v 2}
+
+ :value-before 1
+ :value-after  2
+
+ :dependency-queries [[:sub/v]]}
