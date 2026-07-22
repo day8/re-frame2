@@ -24,6 +24,7 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   [clojure.string :as str]
    [re-frame.core :as rf]
    [re-frame.freehand :as v]
    [re-frame.freehand.conformance :as conf]
@@ -207,10 +208,9 @@
             "and names the link's :to, so it points at a site and not just at the framework")
         (let [message (ex-message e)]
           (doseq [mention (:message-mentions routelink-005)]
-            (is (some? (re-find (re-pattern (str "\\Q" mention "\\E")) message))
+            (is (str/includes? message mention)
                 (str "the sentence says how to fix it: " mention)))
-          (is (some? (re-find (re-pattern (str "\\Q" (:message-token routelink-005) "\\E"))
-                              message))
+          (is (str/includes? message (:message-token routelink-005))
               "and carries the greppable trailing id token"))))))
 
 ;; ---------------------------------------------------------------------------
