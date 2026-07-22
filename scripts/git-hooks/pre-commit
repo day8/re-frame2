@@ -1,5 +1,15 @@
 #!/usr/bin/env sh
-# .git/hooks/pre-commit (re-frame2-managed segment)
+# .git/hooks/pre-commit (re-frame2-managed segments)
+#
+# TWO marker blocks, one per direction of the mayor/worker boundary:
+#
+#   rf2-ydl2p — refuses commits in the MAYOR checkout that touch
+#               worker-tracked surfaces (source, spec, docs, scripts).
+#   rf2-ia8o7 — refuses commits in a WORKER worktree that touch the beads
+#               DATABASE (the stale-worker-snapshot failure mode).
+#
+# Together they say: source flows mayor -> worker, tracker state flows
+# worker -> mayor, and neither crosses back.
 #
 # Refuses commits in the MAYOR checkout that touch worker-tracked surfaces
 # (rf2-ydl2p). Mayor commits are allowed only for `.beads/issues.jsonl` and
@@ -67,3 +77,33 @@
   unset _rf2_git_dir _rf2_marker _rf2_top _rf2_repo_root _rf2_lib _rf2_staged
 } || true
 # --- END re-frame2 mayor commit boundary (rf2-ydl2p) ---
+
+# --- BEGIN re-frame2 worker beads boundary (rf2-ia8o7) ---
+# Managed by scripts/install-git-hooks.sh. Do not edit between markers.
+{
+  # The mirror image of the block above: that one keeps the MAYOR out of
+  # worker-tracked source; this one keeps WORKERS out of the beads database.
+  # It activates in every NON-PRIMARY (linked) worktree and no-ops in the
+  # mayor checkout, where committing tracker state is the intended flow.
+  # Primary-worktree derivation lives in the library — no marker file, so a
+  # fresh clone that has never run the installer is correctly treated as
+  # primary rather than being locked out of its own tracker.
+  _rf2b_top=$(git rev-parse --show-toplevel 2>/dev/null) || _rf2b_top=""
+  if [ -n "$_rf2b_top" ]; then
+    _rf2b_lib="$_rf2b_top/scripts/git-hooks/lib/check-beads-boundary.sh"
+    if [ -f "$_rf2b_lib" ]; then
+      # shellcheck source=lib/check-beads-boundary.sh
+      . "$_rf2b_lib"
+      if ! rf2_beads_in_primary_worktree; then
+        _rf2b_staged=$(git diff --cached --name-only 2>/dev/null)
+        if ! printf '%s\n' "$_rf2b_staged" | check_beads_boundary commit; then
+          unset _rf2b_top _rf2b_lib _rf2b_staged
+          exit 1
+        fi
+      fi
+    fi
+  fi
+
+  unset _rf2b_top _rf2b_lib _rf2b_staged
+} || true
+# --- END re-frame2 worker beads boundary (rf2-ia8o7) ---

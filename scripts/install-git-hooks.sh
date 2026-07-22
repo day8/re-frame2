@@ -6,7 +6,7 @@
 # markers; this script's segments use BEGIN/END re-frame2 markers and
 # never touch beads segments).
 #
-# Installs:
+# Installs (one marker BLOCK each; a hook may carry several):
 #   - post-merge  (rf2-6jj3r) MCP-staleness advisory warning.
 #   - pre-commit  (rf2-ydl2p) refuses commits in the MAYOR checkout that
 #                 touch worker-tracked surfaces. Activation gated by a
@@ -14,6 +14,10 @@
 #                 this installer also drops (it lives in the mayor's git
 #                 dir, so worker worktrees — which share hooks but not
 #                 their per-worktree git dir — see a no-op hook).
+#   - pre-commit  (rf2-ia8o7) refuses commits in a WORKER worktree that
+#                 touch the beads DATABASE. The mirror image of the block
+#                 above; it derives the primary worktree from
+#                 `git worktree list` rather than a marker file.
 #
 # Usage:
 #   scripts/install-git-hooks.sh           # install/refresh
@@ -36,18 +40,22 @@ COMMON_DIR=$(git -C "$REPO_ROOT" rev-parse --git-common-dir)
 HOOKS_DIR="$COMMON_DIR/hooks"
 mkdir -p "$HOOKS_DIR"
 
-# Marker pair per hook (must match what the hook source files carry).
-# `hook_markers <hook_name>` echoes `BEGIN<TAB>END`; consumers split on TAB.
-hook_markers() {
+# Block registry. The unit of installation is a marker BLOCK, not a hook —
+# `pre-commit` carries two of them (rf2-ia8o7). `block_spec <block-id>`
+# echoes `HOOK<TAB>BEGIN<TAB>END`; consumers split on TAB.
+block_spec() {
   case "$1" in
-    post-merge)
-      printf '# --- BEGIN re-frame2 MCP-staleness check (rf2-6jj3r) ---\t# --- END re-frame2 MCP-staleness check (rf2-6jj3r) ---\n'
+    mcp-staleness)
+      printf 'post-merge\t# --- BEGIN re-frame2 MCP-staleness check (rf2-6jj3r) ---\t# --- END re-frame2 MCP-staleness check (rf2-6jj3r) ---\n'
       ;;
-    pre-commit)
-      printf '# --- BEGIN re-frame2 mayor commit boundary (rf2-ydl2p) ---\t# --- END re-frame2 mayor commit boundary (rf2-ydl2p) ---\n'
+    mayor-commit-boundary)
+      printf 'pre-commit\t# --- BEGIN re-frame2 mayor commit boundary (rf2-ydl2p) ---\t# --- END re-frame2 mayor commit boundary (rf2-ydl2p) ---\n'
+      ;;
+    worker-beads-boundary)
+      printf 'pre-commit\t# --- BEGIN re-frame2 worker beads boundary (rf2-ia8o7) ---\t# --- END re-frame2 worker beads boundary (rf2-ia8o7) ---\n'
       ;;
     *)
-      printf 'install-git-hooks: unknown hook name: %s\n' "$1" >&2
+      printf 'install-git-hooks: unknown block id: %s\n' "$1" >&2
       return 1
       ;;
   esac
@@ -58,15 +66,17 @@ if [ $# -gt 0 ] && [ "$1" = "--check" ]; then
   MODE="check"
 fi
 
-install_hook() {
-  hook_name="$1"
+install_block() {
+  block_id="$1"
+
+  # Resolve the block's hook + markers.
+  spec_line=$(block_spec "$block_id") || return 1
+  hook_name=$(printf '%s' "$spec_line" | awk -F'\t' '{print $1}')
+  BEGIN_MARK=$(printf '%s' "$spec_line" | awk -F'\t' '{print $2}')
+  END_MARK=$(printf '%s' "$spec_line" | awk -F'\t' '{print $3}')
+
   src="$SRC_DIR/$hook_name"
   dst="$HOOKS_DIR/$hook_name"
-
-  # Resolve per-hook markers.
-  marker_line=$(hook_markers "$hook_name") || return 1
-  BEGIN_MARK=$(printf '%s' "$marker_line" | awk -F'\t' '{print $1}')
-  END_MARK=$(printf '%s' "$marker_line" | awk -F'\t' '{print $2}')
 
   if [ ! -f "$src" ]; then
     printf 'install-git-hooks: missing source %s\n' "$src" >&2
@@ -199,8 +209,9 @@ this checkout behaves like a worker worktree from the hook'\''s POV).
 }
 
 rc=0
-install_hook post-merge || rc=$?
-install_hook pre-commit || rc=$?
+install_block mcp-staleness || rc=$?
+install_block mayor-commit-boundary || rc=$?
+install_block worker-beads-boundary || rc=$?
 install_mayor_marker || rc=$?
 
 if [ "$MODE" = "check" ] && [ "$rc" -ne 0 ]; then

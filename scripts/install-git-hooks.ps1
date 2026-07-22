@@ -12,10 +12,14 @@
 # (Git on Windows ships a `sh.exe` from the Git Bash bundle that runs
 # hooks); this installer just stages them into <gitdir>/hooks.
 #
-# Installs:
+# Installs (one marker BLOCK each; a hook may carry several):
 #   - post-merge       (rf2-6jj3r) MCP-staleness advisory warning.
 #   - pre-commit       (rf2-ydl2p) refuses commits in the MAYOR checkout
 #                       that touch worker-tracked surfaces.
+#   - pre-commit       (rf2-ia8o7) refuses commits in a WORKER worktree
+#                       that touch the beads DATABASE. Mirror image of the
+#                       block above; derives the primary worktree from
+#                       `git worktree list` rather than a marker file.
 #   - mayor-marker     (rf2-ydl2p) sentinel at <common-dir>/mayor-marker;
 #                       hook activation gate. Worker worktrees have a
 #                       distinct per-worktree git dir, so they never see
@@ -42,15 +46,24 @@ if (-not [System.IO.Path]::IsPathRooted($commonDir)) {
 $hooksDir = Join-Path $commonDir 'hooks'
 New-Item -ItemType Directory -Force -Path $hooksDir | Out-Null
 
-# Per-hook marker pairs. Keys are hook names; values are @(BEGIN, END).
-$hookMarkers = @{
-    'post-merge' = @(
+# Block registry. The unit of installation is a marker BLOCK, not a hook -
+# 'pre-commit' carries two of them (rf2-ia8o7). Keys are block ids; values
+# are @(HOOK, BEGIN, END).
+$hookBlocks = @{
+    'mcp-staleness' = @(
+        'post-merge',
         '# --- BEGIN re-frame2 MCP-staleness check (rf2-6jj3r) ---',
         '# --- END re-frame2 MCP-staleness check (rf2-6jj3r) ---'
     )
-    'pre-commit' = @(
+    'mayor-commit-boundary' = @(
+        'pre-commit',
         '# --- BEGIN re-frame2 mayor commit boundary (rf2-ydl2p) ---',
         '# --- END re-frame2 mayor commit boundary (rf2-ydl2p) ---'
+    )
+    'worker-beads-boundary' = @(
+        'pre-commit',
+        '# --- BEGIN re-frame2 worker beads boundary (rf2-ia8o7) ---',
+        '# --- END re-frame2 worker beads boundary (rf2-ia8o7) ---'
     )
 }
 
@@ -81,15 +94,16 @@ function Get-MarkerBlock {
     return ($out -join "`n")
 }
 
-function Install-Hook {
-    param([string]$HookName)
+function Install-Block {
+    param([string]$BlockId)
 
-    $marks     = $hookMarkers[$HookName]
-    if (-not $marks) {
-        Write-Error "install-git-hooks: unknown hook name: $HookName"
+    $spec = $hookBlocks[$BlockId]
+    if (-not $spec) {
+        Write-Error "install-git-hooks: unknown block id: $BlockId"
     }
-    $beginMark = $marks[0]
-    $endMark   = $marks[1]
+    $HookName  = $spec[0]
+    $beginMark = $spec[1]
+    $endMark   = $spec[2]
 
     $src = Join-Path $srcDir $HookName
     $dst = Join-Path $hooksDir $HookName
@@ -196,8 +210,9 @@ this checkout behaves like a worker worktree from the hook's POV).
 }
 
 try {
-    Install-Hook -HookName 'post-merge'
-    Install-Hook -HookName 'pre-commit'
+    Install-Block -BlockId 'mcp-staleness'
+    Install-Block -BlockId 'mayor-commit-boundary'
+    Install-Block -BlockId 'worker-beads-boundary'
     Install-MayorMarker
 }
 catch {
