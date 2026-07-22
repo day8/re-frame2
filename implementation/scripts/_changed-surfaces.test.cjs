@@ -2038,6 +2038,86 @@ test('DISCOVERY: ordinary docs-only modify does NOT arm UI gates (scope, unchang
   }
 });
 
+// ---------------------------------------------------------------------------
+// rf2-drpa3.58 — the Freehand JVM lane folded into the REQUIRED matrix.
+//
+// F1a shipped it as .github/workflows/freehand-artefact.yml because the
+// workflow file was hot-zone. `needs:` cannot span workflow files, so that
+// job could never reach `all-required-passed` — the branch ruleset's single
+// required context — and a red freehand suite did not block a merge.
+//
+// Three things have to hold together, and each has a test below: the
+// classifier must ARM the surface (a standalone workflow had its own `paths:`
+// trigger and needed no classifier case; a surface-gated job does), the job
+// must be gated on that output and actually run the suite + the donor law,
+// and the aggregator must depend on it. Break any one and the lane silently
+// reverts to advisory.
+// ---------------------------------------------------------------------------
+
+test('implementation/freehand/** arms the freehand JVM + node-test surfaces (rf2-drpa3.58)', () => {
+  for (const file of [
+    'implementation/freehand/src/re_frame/freehand.cljc',
+    'implementation/freehand/test/re_frame/freehand/skeleton_cljs_test.cljc',
+    'implementation/freehand/deps.edn',
+  ]) {
+    const result = classify(file);
+    assert.equal(
+      result.implementation_jvm,
+      'true',
+      `${file} must arm implementation_jvm or the required jvm-freehand job SKIPS`,
+    );
+    assert.equal(
+      result.cljs_node_test,
+      'true',
+      `${file} must arm cljs_node_test — freehand/src + freehand/test are on the :node-test classpath`,
+    );
+  }
+});
+
+test('implementation/freehand/** stays OFF the heavy per-feature gates (rf2-drpa3.58)', () => {
+  // Scope guard, not an aspiration: Freehand ships no public surface, no
+  // *-dom-cljs-test namespace and no production-bundle requirer yet, so the
+  // browser/prod/isolation tier would be pure cost. Widen the classifier case
+  // (and this test) when it gains one — implementation/ui/* is the precedent.
+  const result = classify('implementation/freehand/src/re_frame/freehand.cljc');
+  for (const key of ['cljs_browser', 'cljs_prod', 'bundle_isolation', 'ui_gates', 'ui_smoke']) {
+    assert.equal(result[key], 'false', `freehand must not arm ${key} yet`);
+  }
+});
+
+test('jvm-freehand is job-level gated and runs the suite + the donor law (rf2-drpa3.58)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'jvm-freehand');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
+  );
+  assert.match(block, /working-directory: implementation\/freehand/);
+  assert.match(block, /Run JVM tests \(freehand artefact\)/);
+  // The EP-0036 donor boundary is a LAW, gated not reviewed. It moved here
+  // from the deleted standalone workflow; this job is now its only home.
+  assert.match(block, /git grep -n -e 're-frame\\\.ui'/);
+  assert.match(block, /-- implementation\/freehand/);
+});
+
+test('all-required-passed aggregator needs jvm-freehand (rf2-drpa3.58)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
+  assert.match(
+    block,
+    /- jvm-freehand\r?\n/,
+    'aggregator must list jvm-freehand in needs: — otherwise the lane is advisory',
+  );
+});
+
+test('the standalone freehand-artefact workflow is gone (one owner, not two) (rf2-drpa3.58)', () => {
+  assert.equal(
+    fs.existsSync(path.join(WORKFLOW_DIR, 'freehand-artefact.yml')),
+    false,
+    'freehand-artefact.yml must not coexist with the folded-in jvm-freehand job: ' +
+      'two half-owners of one lane drift, and the standalone copy can never be required',
+  );
+});
+
 let failed = 0;
 for (const { name, fn } of tests) {
   try {
