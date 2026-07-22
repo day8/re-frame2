@@ -1,0 +1,158 @@
+# Freehand Executable Laws
+
+> **Type:** Reference
+> This directory owns **how a Freehand law is named, cited, and indexed** — the
+> `FH-<AREA>-<NNN>` addressing scheme and the index that binds each id to its
+> canonical spec paragraph, its host/mode applicability, its fixture, and its
+> status. It does not own how a fixture runs, and it never restates a law
+> normatively.
+
+Freehand is one view substrate with two modes — interpreted and compiled — and
+one semantic model shared between them. Parity between the modes, and across the
+React, JVM, and SSR hosts, is not asserted in prose: it is proven row by row. A
+**law** is one such provable statement. Every law has a permanent id, and every
+id resolves to exactly one paragraph of normative spec.
+
+- [`conformance-index.md`](conformance-index.md) — the index: one row per law.
+- `fixtures/` — the fixture values laws are proven by, added as laws land.
+
+## The id scheme
+
+```
+FH-<AREA>-<NNN>
+```
+
+- `FH` — fixed prefix. It marks a Freehand view-substrate law and nothing else.
+- `<AREA>` — one uppercase token from the roster below. The roster is closed.
+- `<NNN>` — a three-digit zero-padded ordinal, unique within its area.
+
+`FH-PROPS-007` is a **citation**, not a description: spec prose, fixture files,
+test names, tool output, review conversation, and release evidence all name the
+law by id. Ids are therefore permanent — they are never renumbered, never
+reassigned, and never recycled. A law that is withdrawn keeps its id at status
+`retired` so an old citation resolves to an honest answer instead of dangling.
+
+### Area roster
+
+The roster is fixed by the Freehand programme EP and is not extended by
+implementation work. A law is filed under the area whose **canonical paragraph**
+owns it; when two areas could plausibly hold it, the owning spec decides.
+
+| Token | Area | Scope |
+|---|---|---|
+| `CALL` | Calls | The declared boundary: vector-called descriptors, plain-helper direct calls, statically named children crossing the boundary, `:key`, occurrence identity and hot reload, and the rejected local/effect/ref declaration forms. |
+| `PROPS` | Props | One props map: reserved `:children`, stripped `:key`, shared equality and conversion, and the optional schema's metadata and validation semantics. |
+| `EVENT` | Events | The projection materializer, the options and key-map grammar, site and proxy lifetime, the atomic selected bundle, and the route-link descriptor's href/click behaviour over the routing-owned law. |
+| `INPUT` | Controlled input | The one exact door predicate, the frame-scoped synchronous flush, and the real-browser contention matrix. |
+| `SUB` | Subscriptions | Render-only subscription reads: value, resolution, invalidation, and commit safety; separately named one-shot reads; frame-context observation and the proof a compiled elision demands. |
+| `CTRL` | Controllers | Props-only by default; ordinary frame data keyed by kind plus an explicit address; semantic transitions and owner cleanup. |
+| `PRESENCE` | Presence | One keyed retention, override, timeout, accessibility, and test contract. |
+| `TOPLAYER` | Top layer | The popover/modal desired-state pair, the commit and generation law, structural metadata, and the browser matrix. |
+| `BEHAVIOR` | Behaviors | The id/config/timing/optional-command protocol, commit-only connection, explicit command target, private memory, and the JVM marker and fallback. |
+| `REACT` | React bridges | The descriptor-only outward bridge, common frame and props semantics, the explicit mapper, the SSR policy, and the qualified host boundaries the three host shapes rest on. |
+| `ERROR` | Errors | The boundary, reset, fallback, and safe-intent contract; private frame error egress; and the rule that a failed candidate publishes nothing. |
+| `ROOT` | Roots and SSR | One Root Descriptor: preflight, identity, teardown, multi-root isolation, SSR emission, and hydration. |
+| `STRUCT` | Structure | The versioned semantic tree, the conversion table, and the explicit host policy. |
+| `DIAG` | Diagnostics | The versioned occurrence schema (scope, basis, completeness, loss), stable ids, source and recovery, bounded retention, and provable-only static findings. |
+
+### Allocation rule
+
+1. Choose the area whose canonical paragraph owns the law.
+2. Take the next number after the highest already allocated **in that area** —
+   including retired ones. Numbers within an area are dense and ascending;
+   gaps are only ever created by a mistake, never by a deletion.
+3. Append the row to that area's section in the index. One section per area
+   keeps concurrent slices out of each other's diffs.
+4. Land the row in the same change as the spec paragraph it cites. A row whose
+   anchor does not yet exist fails the validator, which is the point: an id is
+   an address, and an address to nowhere is not one.
+
+## The index
+
+Every row has six columns, and the validator enforces all six.
+
+| Column | Contract |
+|---|---|
+| Id | `FH-<AREA>-<NNN>`, unique, ascending within its section, area matching its section. |
+| Law | One line, stating what is proven — enough to recognise the row, never enough to replace the spec. |
+| Canonical paragraph | A markdown link into `spec/`, **with an anchor**. This is the normative owner; the row is its address, not a second copy of it. |
+| Applicability | Which modes and hosts the law binds (grammar below). |
+| Fixture | The fixture path when the row is `active`; `—` otherwise. |
+| Status | `planned`, `active`, or `retired`. |
+
+### Applicability grammar
+
+Two axes, space-separated in one cell — for example `common jvm browser ssr`,
+`compiled browser`, or `common host:vega`.
+
+- **Mode axis — exactly one token.** `common` (the law binds identically in both
+  modes), `interpreted`, or `compiled`.
+- **Host axis — one or more tokens.** `jvm`, `browser`, `ssr`, or
+  `host:<name>` for a law that binds only at a named qualified host boundary
+  (`host:vega`, `host:ag-grid`, …).
+
+A law is proven for every mode/host combination its cell names, and for no
+others. Narrowing the cell narrows the claim, so a narrow cell needs a reason.
+
+### Status vocabulary
+
+| Status | Meaning | Fixture cell |
+|---|---|---|
+| `planned` | The law is fixed and addressed; its fixture is not written yet. | `—` |
+| `active` | The fixture exists and the law is in force. | the fixture path |
+| `retired` | The id is burned so citations stay honest. The law no longer binds. | `—` |
+
+Rows do not carry a pass/fail column. Whether an `active` law is currently green
+is a fact about a run, not about the index; the harness reports it.
+
+### Fixture convention
+
+A fixture path is written repo-relative in backticks, and the filename mirrors
+the id in lower case:
+
+```
+spec/conformance/freehand/fixtures/fh-props-007.edn
+```
+
+The validator only requires that the named file exists. What the file contains,
+which hosts load it, and how results are reported are the testing spec's
+concern (`008-Testing.md`) and the harness's — this directory owns addressing,
+not execution.
+
+## The validator
+
+```bash
+python scripts/check_freehand_conformance_index.py            # validate the index
+python scripts/check_freehand_conformance_index.py --self-test  # prove the gate has teeth
+```
+
+It fails on a duplicate or ill-formed id, a row filed under the wrong area, an
+out-of-order id, a citation whose spec file or anchor does not exist, a citation
+that points outside `spec/`, a missing or misplaced fixture, an unknown
+applicability token or a broken axis, an unknown status, and a section roster
+that no longer matches the area roster above. Each defect names the offending
+row and line. It runs on every pull request.
+
+## What this is not
+
+**Not the donor stage profiles.** The stage profiles at
+[`S3-view-conformance-profile.md`](../S3-view-conformance-profile.md),
+[`S4-view-conformance-profile.md`](../S4-view-conformance-profile.md), and
+[`S5-view-conformance-profile.md`](../S5-view-conformance-profile.md) catalogue
+the frozen surface of the donor compiled-view substrate. They remain useful
+**migration evidence** — they record what the donor froze and which gate proved
+it, which is exactly what an absorption audit needs. They are **not a second
+Freehand conformance authority**: no `FH-*` row is discharged by citing one, no
+Freehand claim rests on one, and nothing in this directory defers to one. When a
+donor obligation crosses into Freehand it arrives as an `FH-*` row citing a
+Freehand-owned spec paragraph, or it does not cross at all.
+
+**Not the cross-host conformance corpus.** The corpus indexed by
+[`../README.md`](../README.md) proves that an implementation of the whole
+framework, in any host language, is a faithful port. Its fixtures carry
+`:fixture/id` keywords and answer a different question. Freehand ids address one
+substrate's two-mode, multi-host parity contract, and the two schemes never
+share an id space.
+
+**Not a fixture runner.** Nothing here executes. Adding a row makes a law
+addressable and citable; making it *run* is the harness's job.
