@@ -16,8 +16,12 @@ two required execution modes over one semantic model:
 - the compiled mode is the hot tier; `{:compiled true}` on the same `v/defview`
   declaration selects the finite, versioned `:re-frame.freehand/v1` grammar.
 
-A declared view var is a non-`IFn` descriptor in both modes. Promotion changes
-one declaration and no call site or structural test.
+A declared view var holds a descriptor that **cannot be successfully called** in
+either mode: a direct call raises a didactic error naming the three legal
+recoveries (D002, amended 2026-07-22 — the rule is that property, and how a host
+achieves it is an implementation detail; the reference implementation implements
+the host call protocol solely in order to throw, so `(ifn? the-view)` is true).
+Promotion changes one declaration and no call site or structural test.
 
 The compiled mode is built by **absorption**, not reinvention. The useful
 `re-frame.ui` code—the analyzer, React and JVM emitters, ViewCell reactor,
@@ -157,7 +161,7 @@ implementation, tests, conformance rows, relevant evidence, and donor dispositio
 | Slice | Outcome | Depends on |
 |---|---|---|
 | **F0 — ownership cut** | rename donor Spec 004 to 004D; establish common 004, conformance index/id scheme, ownership/API/index updates, and explicit donor inventory | accepted EP |
-| **F1 — paved-path spine** | non-`IFn` descriptor, `v/defview`, props/children/key, minimal interpreted React and JVM tree, simple `v/mount`, HMR identity, structural render | F0 |
+| **F1 — paved-path spine** | the uncallable descriptor, `v/defview`, props/children/key, minimal interpreted React and JVM tree, simple `v/mount`, HMR identity, structural render | F0 |
 | **F2 — reactive intent** | shared ViewCell/atomic shell, frame binding, render-only `v/sub`, event materializer/options/key maps, controlled-input door, failure-safe capture | F1 |
 | **F3 — compiled absorption** | analyzer and both emitters under Freehand, `{:compiled true}`, common descriptor calls, static manifests/elision, checker, interpreted↔compiled crossings | F1; joins F2 for reactive/event parity |
 | **F4 — data and host lifecycle** | semantic controllers, buffered/revision control, presence, top layer, error boundary, behaviors with timing/commands, evidence and teardown | F2; F3 only where compiled parity is claimed |

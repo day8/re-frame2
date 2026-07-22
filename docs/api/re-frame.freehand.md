@@ -42,8 +42,12 @@ the compiled tier are declared vacancies that land with their own EP-0036 slices
   mounted boundary. The parameter vector takes **exactly one argument, the props
   map** — there are no positional view arguments, so destructure the map instead.
   The var holds a descriptor value: `panel` is mounted as `[panel {…}]`, and
-  `(panel {})` raises rather than quietly returning `nil` the way a map-shaped
-  descriptor would.
+  `(panel {})` raises `:rf.error/view-called-directly` naming the three legal
+  recoveries — mount it, inline it as a plain `defn`, or extract a shared `defn`
+  helper — rather than quietly returning `nil` the way a map-shaped descriptor
+  would, or answering with a raw host cast failure. The descriptor implements the
+  host call protocol for exactly that reason, so `(ifn? panel)` is **true**; ask
+  `v/view?` when the question is "is this a view?".
 
   A plain `defn` is the other half of the convention: helpers are direct-called with
   parentheses and run inside the boundary that called them, owning no subscriptions,
@@ -76,7 +80,8 @@ the compiled tier are declared vacancies that land with their own EP-0036 slices
 - **Description**: true when `x` is a view declared with `v/defview` — the ONE value
   a Freehand runtime classifies as an internal view boundary. Total and
   host-neutral: the same value answers the same way on the JVM and in
-  ClojureScript.
+  ClojureScript. `ifn?` is **not** a proxy for it — a declared view *is* `IFn`,
+  purely so that calling one can explain itself.
 
 ### `describe`
 

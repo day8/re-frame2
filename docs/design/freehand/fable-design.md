@@ -128,9 +128,12 @@ A `:cart/count` change re-renders the badge alone. Helpers are ordinary `defn`s
 called with parens — `(price-line {...})` runs inside the enclosing boundary,
 owns nothing (a `sub` reached through a helper records against the enclosing
 view), and is never a vector head. A declared view, conversely, interns a
-descriptor — a small non-`IFn` type, not a callable — so `(cart-badge {})` is a
-didactic error naming the two recoveries: mount it with `[cart-badge props]`,
-or extract a plain `defn` helper to inline it. One total classification rule
+descriptor that cannot be successfully CALLED, so `(cart-badge {})` is a
+didactic error naming the three recoveries: mount it with `[cart-badge props]`,
+declare it with a plain `defn` and keep the parentheses to inline it, or extract
+a plain `defn` helper both can share. The descriptor implements the host call
+protocol solely in order to throw (D002, amended 2026-07-22), so `ifn?` answers
+true and says nothing about mountability — ask `v/view?`. One total classification rule
 everywhere (interpreter, compiled analyzer, JVM structural host): a vector head
 is a Freehand descriptor, a keyword element, or a declared host boundary —
 anything else is an error naming those three legal forms. The ownership move
@@ -1255,9 +1258,9 @@ and Freehand's laws diverge, each with its ruled disposition:
    retention/override/timeout/a11y/test contract; remaining work is
    conformance.
 9. **The JVM callable-view switch (D002)** — the donor JVM emitter's callable
-   view value becomes the shared non-`IFn` descriptor form; preserving the old
-   callable output would reintroduce the cross-host call mismatch the sharp
-   declaration boundary closes.
+   view value becomes the shared descriptor form, which cannot be successfully
+   called; preserving the old callable output would reintroduce the cross-host
+   call mismatch the sharp declaration boundary closes.
 
 Under absorption every row is internal work, not cross-product negotiation —
 the coordination tax the two-frontends framing carried (coupling a hot tier to
@@ -2177,7 +2180,8 @@ What this design will not build, stated once so absence reads as decision:
   never carry boundary identity at all. The shared descriptor shape —
   `{::v/view true :view-id … :source … :profile … :parts … :mount <host-entry>
   :tree <structural-entry>}` (its inspection projection; the runtime value is
-  a small non-`IFn` descriptor type, D002; `:parts` per D011/D018; `:props`
+  a descriptor type that cannot be successfully called, D002; `:parts` per
+  D011/D018; `:props`
   optional, `:schema-status :absent` when missing) — is what vector heads
   resolve through and what makes cross-mode children descriptor dispatch
   rather than special cases. What was a wound is now one macro of ceremony per

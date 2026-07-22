@@ -1410,7 +1410,7 @@ ownership. Donor-contract differences have explicit dispositions:
 | refs, effects, and the React hook tier | delete as neutral forms; one-node behavior owns bounded DOM/imperative lifecycle and optional explicit-target commands, while UIx/Helix wrappers own React protocols. Absorb `spread-safe`/`spread` and `render-fn`/`slot` as common grammar without the donor hook tier |
 | key-condition event maps | admit the closed exact-key `:on-key-down`/`:on-key-up` form with existing event values and pre-dispatch mechanics; composition, modifiers, predicates, and richer chords remain `v/event`/wrapper work |
 | presence | absorb the runtime and make the interpreted mode join the same keyed retention/override/timeout/accessibility/test contract |
-| callable JVM view values | replace with the shared non-`IFn` descriptor; direct invocation remains a helper-only operation and no callable compatibility layer survives |
+| callable JVM view values | replace with the shared descriptor, which cannot be successfully called; direct invocation remains a helper-only operation and no callable compatibility layer survives |
 
 The donor's ordinary route-link implementation crosses by rename as
 `v/route-link` over Spec 012's late-bound semantics; it is common framework view

@@ -27,9 +27,9 @@
 ## Abstract
 
 A **view** is a declared, vector-called boundary: `v/defview` binds a var to a
-non-`IFn` **descriptor**, and a call site writes `[the-view props]`. Rendering that
-boundary is a pure computation from the ambient frame and one props map to a
-semantic tree. The pattern-level commitments:
+**descriptor** that cannot be successfully called, and a call site writes
+`[the-view props]`. Rendering that boundary is a pure computation from the ambient
+frame and one props map to a semantic tree. The pattern-level commitments:
 
 1. **One declaration, two modes.** The same `v/defview` form declares an interpreted
    view and a compiled one; `{:compiled true}` changes the lowering, not the public
@@ -146,29 +146,58 @@ stable across recompilation, hot reload, and promotion between modes. Runtime
 generations and compiler signatures are internal facts and MUST NOT appear in any
 surface a caller can depend on.
 
-#### The descriptor is a value, not a callable
+#### A declared view cannot be called
 
-`v/defview` interns a small **non-`IFn` descriptor value** and binds the var to
-it. A declared view is *mounted*, never *invoked*:
+`v/defview` interns a small **descriptor value** and binds the var to it. A
+declared view is *mounted*, never *invoked*, and the law is a **property**:
 
-- `(ifn? the-view)` and `(fn? the-view)` are **false**, on every host and in both
-  modes;
-- a direct call `(the-view props)` therefore raises at the host call site.
+> **A declared view cannot be successfully called.** A direct call
+> `(the-view props)` raises `:rf.error/view-called-directly`, naming the three
+> legal recoveries — mount it, inline it as a plain `defn` helper, or extract
+> the shared work into one.
 
-The prohibition is load-bearing rather than stylistic. A descriptor shaped as a
-plain map would be `IFn` on both hosts, so `(the-view props)` would answer as a
-**lookup** — returning `nil`, rendering nothing, reporting no error. A
-`defrecord` would be worse: `IFn` in ClojureScript and not on the JVM, which is
-precisely the cross-host divergence one semantic model exists to remove. What the
-rule guarantees is that a direct call can never **succeed**.
+That property is normative, on every host and in both modes. HOW a host achieves
+it is an implementation detail and MUST NOT be read as part of the contract: a
+value that implements no call protocol satisfies it, and so does one that
+implements the call protocol solely in order to throw.
 
-The host refuses that call before any framework code runs, so the raised
-exception is the host's own and the runtime cannot decorate it. The **didactic**
-direct-call diagnostic — naming the mount form and the helper recovery — is
-therefore owned by the compiled checker and by development tooling, not by the
-call site. The runtime owns the didactic diagnostic for every mistake it *can*
-observe: those are [§Vector-head classification](#vector-head-classification) and
-[§Props, children, and `:key`](#props-children-and-key).
+The property is load-bearing rather than stylistic, and the failure it forecloses
+is *silent success*, not calling as such. A descriptor shaped as a plain map
+would answer `(the-view props)` as a **lookup** — returning `nil`, rendering
+nothing, reporting no error. A `defrecord` would answer some arities the same way
+and would differ across hosts besides, which is precisely the cross-host
+divergence one semantic model exists to remove.
+
+##### `(ifn? the-view)` is true, and says nothing about mountability
+
+Stated plainly, because it is the kind of fact a reader would otherwise meet as a
+surprise. `(my-view {…})` is normal, legal, idiomatic Reagent, so it is trained
+muscle memory in exactly the population migrating to this substrate — and on the
+JVM `(x arg)` compiles to a cast to the call protocol *before* any framework code
+runs, leaving no interception point. A reference implementation therefore MAY
+implement the host call protocol on the descriptor **solely in order to throw**,
+and the CLJS reference does; the consequence is that `(ifn? the-view)` is
+**true**. `(fn? the-view)`, `(map? the-view)` and `(coll? the-view)` remain
+**false**.
+
+Nothing may treat `ifn?` as a proxy for "is this a view?". Vector-head
+classification asks `v/view?`, and tooling has `v/view?` and `v/describe`, which
+are strictly more precise. The one thing `ifn?` buys is that a Freehand
+descriptor reaching a foreign callable-component test — Reagent's, for
+instance — is answered by *our* message rather than a host cast failure.
+
+An implementation MUST cover every arity its host's call protocol declares.
+A partially-implemented protocol does not fall through to nothing; it falls
+through to the host's own arity error, which is the poor first encounter this law
+exists to remove, reintroduced one arity along. Where a host's protocol has a
+ceiling of its own — ClojureScript's `IFn` declares twenty-one `-invoke` arities
+and admits no variadic one — a call beyond it still cannot **succeed**, and only
+the message is the host's.
+
+The runtime owns the didactic diagnostic for every other mistake it can observe
+too: those are [§Vector-head classification](#vector-head-classification) and
+[§Props, children, and `:key`](#props-children-and-key). The compiled checker and
+development tooling still report a direct call *statically*, before it runs.
 
 #### Views and helpers — the call convention
 
@@ -646,12 +675,12 @@ each, so the absence is a stated contract rather than an omission.
 
 A Freehand implementation MUST NOT provide:
 
-- **callable view values.** The donor's JVM emitter produced view values that were
-  invocable as functions; they are replaced by the one shared non-`IFn`
-  descriptor. No callable compatibility layer survives, on either host, in either
-  mode. Preserving one would reintroduce the cross-host call mismatch
-  [§The descriptor is a value, not a callable](#the-descriptor-is-a-value-not-a-callable)
-  closes.
+- **callable view values.** The donor's JVM emitter produced view values that
+  were invocable as functions and *worked*; they are replaced by the one shared
+  descriptor, which cannot be successfully called on either host, in either mode.
+  No callable compatibility layer survives. Preserving one would reintroduce the
+  cross-host call mismatch
+  [§A declared view cannot be called](#a-declared-view-cannot-be-called) closes.
 - **bare-function boundaries.** A plain `defn` vector-called as a tracked
   boundary. Every internal boundary is declared; the replacement is `v/defview`.
 - **dual-entry descriptors.** A declared view that is both a vector head and

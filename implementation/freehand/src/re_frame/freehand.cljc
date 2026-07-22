@@ -214,11 +214,15 @@
            [{:keys [title children]}]         ; exactly one param — the props map
            [:section.panel [:h2 title] children])
 
-     The var holds a small **non-`IFn` descriptor value**, not a callable
+     The var holds a small **descriptor value**, not an ordinary
      function: `panel` is mounted as `[panel {…}]` and is never invoked.
-     `(panel {})` raises at the host call site — the descriptor implements
-     no call protocol on either host, so the mistake cannot quietly return
-     `nil` the way a map-shaped descriptor would.
+     `(panel {})` raises `:rf.error/view-called-directly` naming the three
+     legal recoveries — mount it, inline it as a plain `defn`, or extract
+     a shared `defn` helper — so the mistake can neither quietly return
+     `nil` the way a map-shaped descriptor would, nor answer with a raw
+     host cast failure. The descriptor implements the host call protocol
+     for exactly that reason, which is why `(ifn? panel)` is **true**;
+     ask [[view?]] when the question is whether a value is a view.
 
      A plain `defn` is the other half of the convention: helpers are
      direct-called with parentheses and run inside the boundary that
@@ -293,9 +297,11 @@
 
   Total and host-neutral: the same value answers the same way on the JVM
   and in ClojureScript, in both execution modes. This is the predicate
-  head classification and tooling ask.
+  head classification and tooling ask; `ifn?` is not a proxy for it (a
+  declared view IS `IFn`, purely so a direct call can explain itself —
+  see [[defview]]).
 
-  Per [Spec 004 §The descriptor and `v/defview`](../../../../spec/004-Views.md)."
+  Per [Spec 004 §A declared view cannot be called](../../../../spec/004-Views.md)."
        :arglists '([x])}
   view? descriptor/view?)
 
@@ -453,7 +459,7 @@
 ;;
 ;; A framework-supplied view is not a privileged one. `route-link` is
 ;; declared with the same `defview` an application uses, holds the same
-;; non-`IFn` descriptor, takes the same one props map, and will be lowered
+;; descriptor, takes the same one props map, and will be lowered
 ;; by the same emitters — there is no route-link intrinsic to teach, to
 ;; special-case in the analyzer, or to keep in step with the paved path.
 ;;

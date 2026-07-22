@@ -3,8 +3,8 @@
 ;; single public door, conventionally aliased `v`).
 ;;
 ;; F1a (rf2-drpa3.15): artefact shape + cross-artefact classpath wiring
-;; only — pure build plumbing, no contract content. The non-IFn
-;; descriptor and `v/defview` land with F1b; the interpreted React and
+;; only — pure build plumbing, no contract content. The descriptor
+;; and `v/defview` land with F1b; the interpreted React and
 ;; JVM trees, `v/mount` and HMR identity with the rest of the F1 spine;
 ;; the absorbed analyzer and both emitters with F3.
 ;;

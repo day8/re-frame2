@@ -1,23 +1,43 @@
-;; FH-CALL-001 — a declared view var holds a non-IFn descriptor value.
+;; FH-CALL-001 — a declared view cannot be successfully called.
 ;;
-;; The law has two halves, and the second is the one that earns the first:
-;; a declared view is not callable, AND it is not a map. A map-shaped
-;; descriptor would answer `(the-view props)` as a lookup — returning nil
-;; and rendering nothing, silently. The predicates below are asserted
-;; against a view declared with `v/defview`, on the JVM and in
-;; ClojureScript, from this one fixture.
+;; The law is a PROPERTY, not a mechanism (D002, amended 2026-07-22): a
+;; direct call can never succeed, and it explains itself. HOW that is
+;; achieved is a host-level implementation detail — the descriptor
+;; implements the host call protocol SOLELY in order to throw, so
+;; `(ifn? the-view)` is TRUE and the didactic message reaches the
+;; programmer on both hosts rather than a raw cast failure on the JVM.
+;;
+;; `fn?` stays false: the descriptor is a `deftype`, not a function, and
+;; `map?` / `coll?` stay false because a map-shaped descriptor would
+;; answer `(the-view props)` as a LOOKUP — nil, rendered as nothing,
+;; silently. The predicates below are asserted against a view declared
+;; with `v/defview`, on the JVM and in ClojureScript, from this fixture.
 {:fh/id "FH-CALL-001"
  :fh/law
- "v/defview binds its var to a small non-IFn descriptor value; a direct call raises and can never silently succeed."
+ "A declared view cannot be successfully called: a direct call raises :rf.error/view-called-directly naming the three legal recoveries, on every host and at every arity."
 
  ;; predicate -> expected answer for a declared view
  :predicates {:view? true
-              :ifn?  false
+              :ifn?  true
               :fn?   false
               :map?  false
               :coll? false}
 
- ;; Invoking the descriptor as a function raises on both hosts. The host
- ;; refuses the call before any framework code runs, so the exception is
- ;; the host's own — what the law fixes is that the call cannot SUCCEED.
- :direct-call {:raises true}}
+ ;; Invoking the descriptor as a function raises the SAME typed
+ ;; diagnostic on both hosts. `:recovery-anchors` are the words that make
+ ;; each of the three recoveries individually findable in the sentence —
+ ;; a message is stable in meaning rather than in bytes, and what the law
+ ;; fixes is that all three recoveries are named, not their phrasing.
+ ;;
+ ;; `:didactic-arities` is the argument-count roster the diagnostic
+ ;; covers on BOTH hosts — the whole of ClojureScript's `IFn`, which is
+ ;; the narrower of the two protocols (it declares twenty-one `-invoke`
+ ;; arities and refuses a variadic one, so past twenty arguments a CLJS
+ ;; call answers with the host's own `Invalid arity`, exactly as
+ ;; `cljs.core`'s own IFn types do). Beyond the ceiling the call still
+ ;; cannot SUCCEED, which is the law; only the message is the host's.
+ :direct-call {:raises           true
+               :error-id         :rf.error/view-called-directly
+               :recovery         :mount-it-inline-it-or-extract-a-helper
+               :recovery-anchors ["MOUNT" "INLINE" "EXTRACT"]
+               :didactic-arities [0 1 2 3 5 10 20]}}
