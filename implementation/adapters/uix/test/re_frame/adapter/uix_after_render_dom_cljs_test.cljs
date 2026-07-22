@@ -71,7 +71,7 @@
   (suite/assert-flush-views-canonical-shape cfg))
 
 ;; rf2-ee38b.1 — the spine `make-render` :hydrate? true branch
-;; (hydrateRoot) had no React-hook coverage; close it for UIx + Helix.
+;; (hydrateRoot) had no React-hook coverage; this closes it.
 (deftest render-hydrate-branch-mounts-without-remount-uix
   (suite/assert-render-hydrate-branch-mounts-without-remount cfg))
 

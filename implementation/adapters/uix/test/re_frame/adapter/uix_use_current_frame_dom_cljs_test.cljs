@@ -14,10 +14,9 @@
   beneath a `frame-root` with no `frame-provider` the correct result is the
   frame id, and this test pins it.
 
-  Twin of the Helix `use-current-frame` DOM test. The frame-root case needs a
-  real client commit — its ENSURE runs in `useLayoutEffect` — so this is a
-  react-dom/client + act DOM test, not an SSR/renderToString one (effects do
-  not fire under renderToString).
+  The frame-root case needs a real client commit — its ENSURE runs in
+  `useLayoutEffect` — so this is a react-dom/client + act DOM test, not an
+  SSR/renderToString one (effects do not fire under renderToString).
 
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` (ns-regexp
   `-dom-cljs-test$`) discovers it for the real DOM assertions; `:node-test`'s

@@ -10,8 +10,6 @@
   registrar mid-flight. The shared-suite assertion bodies are the single
   source of truth; this file binds the UIx adapter + the special fixture.
 
-  Parity sibling: `helix_dispatch_frame_capture_cljs_test.cljs`.
-
   ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up."
   (:require [cljs.test :refer-macros [deftest async use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]

@@ -1,7 +1,8 @@
 (ns re-frame.adapter.uix
   "UIx 2.x adapter for the substrate contract in Spec 006.
 
-  UIx and Helix share the React machinery in `re-frame.substrate.spine`.
+  The React machinery lives in `re-frame.substrate.spine`, shared with the
+  compiled-view substrate and any future React-wrapper adapter.
   This namespace supplies UIx's hooks and native `defui` `frame-provider`
   (SCOPE) + `frame-root` (ENSURE) components; keeping them native preserves
   UIx's CLJS prop and trailing-child marshalling."
@@ -39,7 +40,7 @@
   when NEITHER `frame-provider` (SCOPE) nor `frame-root` (ENSURE) installs
   the shared frame-context above. Both boundaries write that one context —
   explicitly not `:rf/default` — and every React-shaped adapter reads it, so
-  mixed Reagent, UIx, and Helix provider trees compose.
+  mixed Reagent and UIx provider trees compose.
 
   This is the narrow raw `useContext` read: it does not map the sentinel to
   nil, nor consult the dynamic-var tier. Use `(rf/current-frame-id)` for the
@@ -168,7 +169,7 @@
       (rf/init! uix/adapter)
 
   Adapter installation is explicit; there is no default-adapter registry.
-  `spine/make-react-adapter` owns the shared UIx/Helix hook routing and
+  `spine/make-react-adapter` owns the shared React-hook routing and
   lifecycle wiring. The native provider stays in this namespace so the spine
   has no dependency on UIx's element macro."
   (spine/make-react-adapter spine-fns

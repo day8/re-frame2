@@ -1,8 +1,7 @@
 (ns re-frame.adapter.uix-frame-provider-ensure-dom-cljs-test
   "UIx DOM/browser regression coverage for the NATIVE `frame-root` `defui`'s
   ENSURE (`{:id …}`) config through UIx's `$` → `glue-args` marshalling seam
-  (rf2-0bhnwm; rf2-nyea0r split). Exact twin of the Helix `extract-cljs-props`
-  seam (helix_frame_provider_ensure_dom_cljs_test, rf2-ipqu8p).
+  (rf2-0bhnwm; rf2-nyea0r split).
 
   WHY THIS EXISTS. `re-frame.adapter.uix/frame-root` is a native UIx `defui`
   (the ENSURE component; rf2-nyea0r split `frame-provider` into SCOPE-only
