@@ -10,7 +10,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [re-frame.freehand :as v]
-            [re-frame.freehand.conformance :as conf]))
+            [re-frame.freehand.conformance :as conf]
+            [re-frame.freehand.descriptor :as descriptor]))
 
 (v/defview declared [_] [:div])
 
@@ -49,9 +50,9 @@
     (doseq [{:keys [head expect error-id]} (:cases call-002)]
       (let [value (get heads head)]
         (if (= :error expect)
-          (is (= error-id (conf/caught-id #(v/classify-head value)))
+          (is (= error-id (conf/caught-id #(descriptor/classify-head value)))
               (str head " is not a legal head"))
-          (is (= expect (v/classify-head value))
+          (is (= expect (descriptor/classify-head value))
               (str head " classifies as " expect)))))))
 
 (deftest fh-call-002-the-error-names-the-three-legal-forms
@@ -59,7 +60,7 @@
             so the recovery is in the message rather than in the docs.
             The message is stable in MEANING, not bytes — this asserts
             the concepts it must carry, never its exact text."
-    (let [message (conf/caught-message #(v/classify-head "cart-badge"))]
+    (let [message (conf/caught-message #(descriptor/classify-head "cart-badge"))]
       (is (string? message))
       (doseq [phrase (:message-must-name call-002)]
         (is (str/includes? message phrase)
@@ -70,7 +71,7 @@
             catches in the field is a plain `defn` used as a vector head.
             That head gets the extra recovery the sharp convention owes
             it — declare it, or call it with parentheses."
-    (let [message (conf/caught-message #(v/classify-head (fn [_] [:div])))]
+    (let [message (conf/caught-message #(descriptor/classify-head (fn [_] [:div])))]
       (doseq [phrase (:callable-message-must-name call-002)]
         (is (str/includes? message phrase)
             (str "a callable head's diagnostic names " (pr-str phrase)))))))
@@ -79,7 +80,7 @@
   (testing "Per FH-CALL-002: tools branch on ex-data, never on the
             message. The offending head rides as a SHAPE summary, never
             as the value itself (Spec 015 §Data-Classification)."
-    (let [data (try (v/classify-head "cart-badge")
+    (let [data (try (descriptor/classify-head "cart-badge")
                     nil
                     (catch #?(:clj Throwable :cljs :default) e (ex-data e)))]
       (doseq [k (:ex-data-keys call-002)]
@@ -93,8 +94,8 @@
             A plain map — the shape a descriptor would take if it were
             data — is NOT a host boundary; it is an error, which is what
             keeps the classification total rather than duck-typed."
-    (is (v/host-descriptor? {:re-frame.freehand/host true}))
-    (is (not (v/host-descriptor? {:re-frame.freehand/host false})))
-    (is (not (v/host-descriptor? {:host true})))
-    (is (not (v/host-descriptor? {})))
-    (is (not (v/host-descriptor? declared)))))
+    (is (descriptor/host-descriptor? {:re-frame.freehand/host true}))
+    (is (not (descriptor/host-descriptor? {:re-frame.freehand/host false})))
+    (is (not (descriptor/host-descriptor? {:host true})))
+    (is (not (descriptor/host-descriptor? {})))
+    (is (not (descriptor/host-descriptor? declared)))))

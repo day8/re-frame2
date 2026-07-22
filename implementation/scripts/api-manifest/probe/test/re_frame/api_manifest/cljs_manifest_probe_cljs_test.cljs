@@ -55,6 +55,15 @@
     compiler grammar without a row → RED (direction 2), so an accidental
     public export cannot accumulate silently.
 
+  - `re-frame.freehand` (rf2-drpa3.63) — the Spec-004 Freehand view
+    substrate's ONE public door. Like `re-frame.ui.test` it is `.cljc` and
+    JVM-introspected for its manifest rows (the generator owns tier/kind);
+    this probe reconciles its live CLJS surface against those rows so
+    neither host can silently expose an extra public. FULLY-ROWED, both
+    directions — the descriptor type, its constructor and the emitter
+    helpers live in the internal `re-frame.freehand.descriptor`, so a var
+    that reappeared on the door would fail direction-2 completeness here.
+
   The pair-MCP server (`re-frame2-pair-mcp.server`) is the third
   CLJS-only surface the keystone names. It compiles under the pair-MCP
   artefact's OWN shadow-cljs build (`tools/re-frame2-pair-mcp`,
@@ -106,7 +115,13 @@
             ;; reconciles its reader-conditional CLJS surface against those rows
             ;; (via `emit-classification-rows` below) so the CLJS host cannot
             ;; silently expose an extra public. Fully-rowed, BOTH directions.
-            [re-frame.ui.test]))
+            [re-frame.ui.test]
+            ;; rf2-drpa3.63 — the Freehand view substrate's public door. A
+            ;; `.cljc` namespace already on the consolidated :node-test
+            ;; classpath (freehand/src); JVM-introspected for its manifest
+            ;; rows, its CLJS surface reconciled here. Fully-rowed, BOTH
+            ;; directions.
+            [re-frame.freehand]))
 
 ;; ---------------------------------------------------------------------------
 ;; The live CLJS public surface, captured at compile time.
@@ -145,7 +160,11 @@
    ;; rf2-vxgfnd.200 — re-frame.ui.test testing surface. JVM-introspected for
    ;; its manifest rows (the generator owns tier/kind); the probe reconciles
    ;; the live CLJS surface so a CLJS-only public addition reddens too.
-   "re-frame.ui.test"                                (emit-ns-publics re-frame.ui.test)})
+   "re-frame.ui.test"                                (emit-ns-publics re-frame.ui.test)
+   ;; rf2-drpa3.63 — the Freehand public door. JVM-introspected for its
+   ;; manifest rows; the probe reconciles the live CLJS surface so a
+   ;; CLJS-only public addition reddens too.
+   "re-frame.freehand"                               (emit-ns-publics re-frame.freehand)})
 
 (def fully-rowed
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).
@@ -163,7 +182,11 @@
     ;; public var added to re-frame.ui.test's CLJS surface without a manifest
     ;; row → RED. Its rows come from :classification (JVM lane), fed in via
     ;; `ui-test-rows` below, not :cljs-only.
-    "re-frame.ui.test"})
+    "re-frame.ui.test"
+    ;; rf2-drpa3.63 — direction-2 completeness for the Freehand door: a NEW
+    ;; public var added on either host without a manifest row → RED. Its rows
+    ;; come from :classification (JVM lane), fed in via `freehand-rows` below.
+    "re-frame.freehand"})
 
 (def cljs-only-rows
   "The `:cljs-only` rows from spec/api-manifest-metadata.edn, embedded at
@@ -179,10 +202,19 @@
    silently expose an extra public."
   (emit-classification-rows "re-frame.ui.test"))
 
+(def freehand-rows
+  "The `re-frame.freehand` `:classification` rows (rf2-drpa3.63), projected
+   exactly as `ui-test-rows` is. The Freehand door is JVM-introspected for
+   its manifest rows, but its CLJS surface must still be reconciled here so
+   neither host can silently expose an extra public — in particular the
+   descriptor constructor, which lives in the internal
+   `re-frame.freehand.descriptor` and must never reappear on the door."
+  (emit-classification-rows "re-frame.freehand"))
+
 (def reconcile-rows
   "Every row the probe reconciles: the `:cljs-only` surfaces plus the
-   JVM-owned `re-frame.ui.test` rows."
-  (into cljs-only-rows ui-test-rows))
+   JVM-owned `re-frame.ui.test` and `re-frame.freehand` rows."
+  (-> cljs-only-rows (into ui-test-rows) (into freehand-rows)))
 
 ;; ---------------------------------------------------------------------------
 ;; The probe.

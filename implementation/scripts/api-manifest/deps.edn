@@ -34,6 +34,13 @@
          day8/re-frame2-ssr      {:local/root "../../ssr"}
          day8/re-frame2-ssr-ring {:local/root "../../ssr-ring"}
          day8/re-frame2-epoch    {:local/root "../../epoch"}
+         ;; The Freehand view substrate (EP-0036). `re-frame.freehand` is the
+         ;; ONE public door and it is `.cljc` — host-neutral by construction —
+         ;; so `ns-publics` existence-verifies it on the JVM exactly as it does
+         ;; re-frame.core. The CLJS half of the same surface is reconciled by
+         ;; the probe (fully-rowed, both directions), so neither host can
+         ;; silently expose an extra public. Build/governance read only.
+         day8/re-frame2-freehand {:local/root "../../freehand"}
          ;; The compiled-view substrate artefact — BUILD-ONLY here (rf2-vxgfnd.200).
          ;; Brings `re-frame.ui.test`'s JVM-loadable Tier-1 headless surface onto
          ;; the generator classpath so `ns-publics` can existence-verify it, the

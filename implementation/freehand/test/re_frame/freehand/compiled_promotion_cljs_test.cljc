@@ -27,6 +27,7 @@
             [re-frame.freehand :as v]
             [re-frame.freehand.compiled-views :as compiled]
             [re-frame.freehand.conformance :as conf]
+            [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.tree :as tree]
             [re-frame.freehand.tree-views :as views]))
 
@@ -86,14 +87,14 @@
             makes 'no hidden interpreted fallback' a property of the
             value rather than a promise about the code."
     (doseq [[view-name promoted] compiled/by-name]
-      (is (nil? (v/render-body promoted))
+      (is (nil? (descriptor/render-body promoted))
           (str view-name " has no interpreted body"))
-      (is (some? (v/structural-body promoted))
+      (is (some? (descriptor/structural-body promoted))
           (str view-name " carries its compiled structural body")))
     (doseq [[view-name interpreted] views/by-name]
-      (is (some? (v/render-body interpreted))
+      (is (some? (descriptor/render-body interpreted))
           (str view-name " keeps its interpreted body"))
-      (is (nil? (v/structural-body interpreted))
+      (is (nil? (descriptor/structural-body interpreted))
           (str view-name " carries no compiled body")))))
 
 (deftest the-descriptor-is-the-same-shape-either-way

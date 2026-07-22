@@ -8,7 +8,8 @@
   fixture apiece."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.freehand :as v]
-            [re-frame.freehand.conformance :as conf]))
+            [re-frame.freehand.conformance :as conf]
+            [re-frame.freehand.descriptor :as descriptor]))
 
 (v/defview panel [{:keys [title children]}] [:section.panel title children])
 (v/defview leaf     {:children-policy :none}     [_] [:hr])
@@ -31,7 +32,7 @@
             call site without a special case."
     (is (seq (:accepted props-001)) "the fixture's accepted table loaded")
     (doseq [{:keys [args props]} (:accepted props-001)]
-      (is (= props (:props (v/normalize-call panel args)))
+      (is (= props (:props (descriptor/normalize-call panel args)))
           (str "props for " (pr-str args))))))
 
 (deftest fh-props-001-a-non-map-props-slot-is-rejected
@@ -40,7 +41,7 @@
             far downstream, as a confusing failure inside a render."
     (is (seq (:rejected props-001)) "the fixture's rejected table loaded")
     (doseq [{:keys [args error-id]} (:rejected props-001)]
-      (is (= error-id (conf/caught-id #(v/normalize-call panel args)))
+      (is (= error-id (conf/caught-id #(descriptor/normalize-call panel args)))
           (str "rejects " (pr-str args))))))
 
 ;; ---------------------------------------------------------------------------
@@ -56,7 +57,7 @@
             map that can compare equal."
     (is (seq (:accepted props-002)))
     (doseq [{:keys [args children]} (:accepted props-002)]
-      (let [props (:props (v/normalize-call flexible args))]
+      (let [props (:props (descriptor/normalize-call flexible args))]
         (if (= :absent children)
           (is (not (contains? props :children))
               (str ":children absent for " (pr-str args)))
@@ -69,7 +70,7 @@
             second, silently-shadowing path."
     (is (seq (:rejected props-002)))
     (doseq [{:keys [args error-id]} (:rejected props-002)]
-      (is (= error-id (conf/caught-id #(v/normalize-call flexible args)))
+      (is (= error-id (conf/caught-id #(descriptor/normalize-call flexible args)))
           (str "rejects " (pr-str args))))))
 
 (deftest fh-props-002-the-declared-children-policy-holds
@@ -81,10 +82,10 @@
       (let [view (get by-policy policy)]
         (is (some? view) (str "the suite declares a " policy " view"))
         (if error-id
-          (is (= error-id (conf/caught-id #(v/normalize-call view args)))
+          (is (= error-id (conf/caught-id #(descriptor/normalize-call view args)))
               (str policy " rejects " (pr-str args)))
           (is (= [:accepted conf/no-throw]
-                 [expect (conf/caught-id #(v/normalize-call view args))])
+                 [expect (conf/caught-id #(descriptor/normalize-call view args))])
               (str policy " accepts " (pr-str args))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -98,7 +99,7 @@
             reconciliation and the view body never sees it."
     (is (seq (:cases props-003)))
     (doseq [{:keys [args] :as case-row} (:cases props-003)]
-      (let [{:keys [key props]} (v/normalize-call flexible args)]
+      (let [{:keys [key props]} (descriptor/normalize-call flexible args)]
         (is (= (:key case-row) key) (str "key for " (pr-str args)))
         (is (= (:props case-row) props) (str "props for " (pr-str args)))
         (is (not (contains? props :key))
@@ -111,7 +112,7 @@
             on — and it is the reason the key is returned beside the map
             rather than left inside it."
     (let [{:keys [a b props-equal keys-differ]} (:equality props-003)
-          call-a (v/normalize-call flexible a)
-          call-b (v/normalize-call flexible b)]
+          call-a (descriptor/normalize-call flexible a)
+          call-b (descriptor/normalize-call flexible b)]
       (is (= props-equal (= (:props call-a) (:props call-b))))
       (is (= keys-differ (not= (:key call-a) (:key call-b)))))))

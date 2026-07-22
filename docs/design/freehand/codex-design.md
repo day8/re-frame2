@@ -1096,19 +1096,21 @@ Both execution modes register one public descriptor shape:
  :source                   {...}
  :lowering                 :interpreted ; or :compiled
  :props-schema             <schema-or-absent>
- :children-policy          :none ; :optional or :required
- :mount                    <host-owned-entry>
- :tree                     <structural-host-entry>}
+ :children-policy          :none} ; :optional or :required
 ```
 
-The map above is the descriptor's inspection/registry projection. The public var
-holds a small non-`IFn` descriptor value, not a callable function, so direct calls
-fail didactically at runtime as well as in checker output. Vector-head
-classification is total: a Freehand descriptor is an internal boundary, a keyword
-is a DOM/custom element, a declared host descriptor is a foreign boundary, and
-anything else is an error naming those three legal recoveries. Browser heads
-resolve through the private mount entry and structural heads through the tree entry;
-signature and body generations remain internal.
+The map above is the descriptor's inspection/registry projection, and its key roster
+is closed in both directions — an extra key is as much a defect as a missing one.
+The host `mount` entry and the structural `tree` entry are descriptor entries but are
+deliberately **not** projected: browser heads resolve through the mount entry and
+structural heads through the tree entry, and neither shape is a contract an
+application may depend on. Signature and body generations stay internal likewise.
+
+The public var holds a descriptor value, not an ordinary function, and a direct call
+raises a didactic error naming the three legal recoveries — at runtime as well as in
+checker output. Vector-head classification is total: a Freehand descriptor is an
+internal boundary, a keyword is a DOM/custom element, a declared host descriptor is a
+foreign boundary, and anything else is an error naming those three legal recoveries.
 
 An interpreted parent can mount a compiled descriptor. A compiled parent can mount
 a statically named interpreted descriptor through one emitted interpreted-child

@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 505,
+ :var-count 515,
  :tier-vocab
  [:front-porch
   :advanced
@@ -192,6 +192,16 @@
   {:namespace "re-frame.flows", :var "reset-flows!", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "reset-last-inputs!", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "run-flows-on-db", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand", :var "defview", :tier :front-porch, :kind :macro, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand", :var "describe", :tier :tooling, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand", :var "event", :tier :advanced, :kind :macro, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand", :var "handler", :tier :advanced, :kind :macro, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand", :var "materialize-event", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand", :var "projections", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand", :var "raw-fn", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand", :var "render-fn", :tier :advanced, :kind :macro, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand", :var "route-link", :tier :advanced, :kind :var, :owner "012", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand", :var "view?", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.http", :var "delete", :tier :advanced, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.http", :var "get", :tier :advanced, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.http", :var "head", :tier :advanced, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}

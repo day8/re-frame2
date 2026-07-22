@@ -44,6 +44,7 @@
             [re-frame.core :as rf]
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
+            [re-frame.freehand.descriptor :as descriptor]
             [re-frame.routing :as routing]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -70,7 +71,7 @@
   [props]
   (rf/with-frame host-frame
     ((:render (.-entry v/route-link))
-     (:props (v/normalize-call v/route-link [props])))))
+     (:props (descriptor/normalize-call v/route-link [props])))))
 
 (defn- with-anchor-host
   "Run `f` with a fresh container element attached to the document, and
