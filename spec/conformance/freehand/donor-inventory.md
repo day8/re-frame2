@@ -129,7 +129,7 @@ in a per-file table. The file rows below inherit them.
 | instance state and generic storage verbs | `local`-adjacent generic component storage and derived writable anchors | DELETE | F1 | pending |
 | refs, effects, and the React hook tier | the neutral imperative forms; one-node behaviors own bounded DOM lifecycle and wrappers own React protocols | DELETE | F4 | pending |
 | callable JVM view values | a declared view that is invocable as a function | REPLACE | F1 | done |
-| placeholder provenance | donor event-payload placeholder spellings and general dispatch payload arity | REPLACE | F2 | pending |
+| placeholder provenance | donor event-payload placeholder spellings and general dispatch payload arity | REPLACE | F2 | done |
 | compiled parent to interpreted child crossing | the one emitted descriptor boundary that lets a single declaration be promoted | REPLACE | F3 | pending |
 | controlled scheduling | the final-normalized native input predicate and one frame-scoped synchronous scheduler shared by both modes | MOVE | F2 | pending |
 | key-condition event maps | the closed exact-key `:on-key-down`/`:on-key-up` form with existing event values and pre-dispatch mechanics | MOVE | F2 | pending |

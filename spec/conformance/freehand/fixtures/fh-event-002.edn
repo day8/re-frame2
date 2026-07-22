@@ -1,0 +1,55 @@
+;; FH-EVENT-002 — one event or nil, and the closed listener options.
+;;
+;; After the shallow listener options are interpreted, an event-producing
+;; site yields exactly ONE event vector or `nil`. `nil` dispatches
+;; nothing; a vector of event vectors is the multi-intent mistake and is
+;; rejected. The options map is closed: `:event` plus five listener
+;; options, so a typo is a loud reject rather than an option that
+;; silently does nothing.
+{:fh/id "FH-EVENT-002"
+ :fh/law
+ "An event-producing site yields exactly one event vector or nil after the closed listener options are interpreted; an unknown option key or a multi-intent vector is rejected."
+
+ ;; `:form` names a value the suite constructs; `:plan` is the normalized
+ ;; site plan both emitters and the structural host read.
+ :plans
+ [{:form :event-vector
+   :plan {:role :event-vector :event [:cart/add 7]}}
+  {:form :options-plain
+   :plan {:role :event-options :event [:article/save 3]}}
+  {:form :options-prevent-default
+   :plan {:role :event-options :event [:article/save 3] :prevent-default true}}
+  {:form :options-every-option
+   :plan {:role :event-options :event [:picker/move 1]
+          :prevent-default true :stop-propagation true
+          :once true :passive true :capture true}}
+  {:form :options-false-options
+   :plan {:role :event-options :event [:article/save 3]}}
+  {:form :nil
+   :plan nil}]
+
+ :rejected-plans
+ [{:form :options-unknown-key   :error-id :rf.error/view-bad-event}
+  {:form :options-no-event      :error-id :rf.error/view-bad-event}
+  {:form :options-event-not-vector :error-id :rf.error/view-bad-event}
+  {:form :string                :error-id :rf.error/view-bad-event}
+  {:form :number                :error-id :rf.error/view-bad-event}
+  {:form :keyword               :error-id :rf.error/view-bad-event}]
+
+ ;; What a committed site actually dispatches when it fires. `:returns`
+ ;; is what a `v/event` body yields.
+ :outcomes
+ [{:returns [:picker/accept]              :dispatched [[:picker/accept]]}
+  {:returns [:picker/move 1]              :dispatched [[:picker/move 1]]}
+  {:returns nil                           :dispatched []}]
+
+ :rejected-outcomes
+ [{:returns :picker/accept                :error-id :rf.error/view-bad-event}
+  {:returns "picker/accept"               :error-id :rf.error/view-bad-event}
+  {:returns [[:picker/accept] [:picker/close]] :error-id :rf.error/view-bad-event}]
+
+ ;; `:once` is site state, retained across commits while the site stays
+ ;; mounted: three firings, one dispatch.
+ :once {:firings 3 :dispatched [[:boot/ready]]}
+
+ :recovery :yield-one-event-vector-or-nil}

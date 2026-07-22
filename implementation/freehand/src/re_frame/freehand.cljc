@@ -29,9 +29,10 @@
 
   Normative owner: [`spec/004-Views.md`](../../../../spec/004-Views.md)."
   (:require [re-frame.error :as error]
+            [re-frame.freehand.events :as events]
             [re-frame.interop :as interop]
             #?(:clj [re-frame.source-coords :as source-coords]))
-  #?(:cljs (:require-macros [re-frame.freehand :refer [defview]])))
+  #?(:cljs (:require-macros [re-frame.freehand :refer [defview event handler render-fn]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -392,3 +393,127 @@
      Per [Spec 004 §The descriptor and `v/defview`](../../../../spec/004-Views.md)."
      [sym & more]
      (expand-defview (meta &form) *file* (ns-name *ns*) sym more)))
+
+;; ---------------------------------------------------------------------------
+;; Event intent and the callback roster
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §Event intent and the payload materializer, §Callback roles
+;; and identity (D006, D008). The mechanics — the site table, the
+;; committed proxy, the host payload seams — are
+;; `re-frame.freehand.events`, an INTERNAL namespace. What crosses to the
+;; public door is the authoring surface plus the one pure materializer
+;; every mode, host and test path shares.
+
+(def ^{:doc "The CLOSED scalar projection roster — `::v/value`,
+  `::v/checked` and `::v/key`.
+
+  These are the only reserved markers a declarative event vector may
+  carry, and the exact keys of the payload map a firing site supplies.
+  A marker in a top-level argument position is replaced at firing time
+  from the live callback payload; a marker nested inside another value
+  is ordinary application data. Adding a fourth projection is a grammar
+  decision — anything richer than a shallow scalar read is [[event]]'s
+  job.
+
+  Per [Spec 004 §Event intent and the payload materializer](../../../../spec/004-Views.md)."}
+  projections events/projections)
+
+(def ^{:doc "The ONE pure event materializer: replace the reserved
+  projection markers in an event vector with the live scalars in a
+  payload map, and return a plain vector ready for ordinary re-frame
+  dispatch.
+
+      (v/materialize-event [:account/email-edited ::v/value]
+                           {::v/value \"mike@example.com\"})
+      ;; => [:account/email-edited \"mike@example.com\"]
+
+  Every path runs through exactly this function — a literal vector, a
+  forwarded `(conj on-change ::v/value)`, an options map's `:event`, an
+  [[event]] body's result, interpreted, compiled, production and test.
+  That is why general `rf/dispatch` needs no payload arity: projection
+  is a Freehand event-site concern, and a projection keyword inside an
+  ordinary domain event is never secretly interpreted.
+
+  It is exposed so a structural test can supply a literal payload and
+  assert the exact dispatched vector without a browser, running the
+  production semantics rather than a test-only convention.
+
+  Per [Spec 004 §Event intent and the payload materializer](../../../../spec/004-Views.md)."
+       :arglists '([event payload])}
+  materialize-event events/materialize-event)
+
+(def ^{:doc "The expert callback seam: hand a foreign API a function with
+  EXACTLY its supplied identity, for the case where that identity is
+  itself protocol data — a listener the library removes by identity, a
+  memo key it compares.
+
+  Every other roster form gets a site-owned stable proxy; this one
+  deliberately does not, so re-render churn is the author's to manage.
+  Reach for it only when a wrapper or [[event]] genuinely cannot express
+  the protocol.
+
+  Per [Spec 004 §Callback roles and identity](../../../../spec/004-Views.md)."
+       :arglists '([f])}
+  raw-fn events/raw-fn)
+
+#?(:clj
+   (defmacro event
+     "Declare a callback that converts an invoker's arguments into ONE
+     event vector or `nil` — the explicit conversion seam at a foreign
+     boundary.
+
+         [date-picker {:on-change (v/event [date]
+                                    [:booking/departure-changed (iso-date date)])}]
+
+     The body runs synchronously with the live callback arguments and
+     NAMES its outcome: an event vector dispatches (through the same
+     materializer every other event form uses, so `::v/value` and
+     friends still fill), `nil` dispatches nothing, and anything else is
+     a loud diagnostic. It may not `v/sub`, use hooks, refs or effects —
+     decisions that depend on changing application state belong in the
+     receiving re-frame event handler, which sees the committed frame.
+
+     Its identity is stable per site: an unchanged site keeps the exact
+     callback across re-renders while body changes publish atomically at
+     commit, so a foreign consumer sees no churn and never a stale body.
+
+     Per [Spec 004 §Callback roles and identity](../../../../spec/004-Views.md)."
+     [params & body]
+     (events/expand-callback :event 'v/event params body)))
+
+#?(:clj
+   (defmacro handler
+     "Declare an explicit IMPERATIVE foreign callback — work that is not
+     application intent and produces no event.
+
+         [canvas-host {:measure (v/handler [node] (measure! node))}]
+
+     The body's return is ignored; it is neither a render nor a place to
+     store state. Like [[event]] it is stable per site and reads the
+     exact committed body when invoked, and it is retired with its site,
+     so a foreign listener that outlives its view is inert rather than
+     firing into a successor.
+
+     Per [Spec 004 §Callback roles and identity](../../../../spec/004-Views.md)."
+     [params & body]
+     (events/expand-callback :handler 'v/handler params body)))
+
+#?(:clj
+   (defmacro render-fn
+     "Declare a PURE callback a foreign owner invokes during ITS render.
+
+         [virtual-list {:render-item (v/render-fn [{:keys [id]}]
+                                       [result-row {:id id}])}]
+
+     It may return Freehand content, and it may NOT `v/sub`, dispatch,
+     use hooks or touch refs — it can run during an uncommitted
+     candidate render, which is exactly why it is excluded from the
+     committed-proxy scheme. Freehand makes no identity promise here: a
+     lowering may reuse it when the descriptor and its captures compare
+     equal, and an API that treats callback identity as protocol data
+     uses [[raw-fn]] or a wrapper instead.
+
+     Per [Spec 004 §Callback roles and identity](../../../../spec/004-Views.md)."
+     [params & body]
+     (events/expand-callback :render-fn 'v/render-fn params body)))

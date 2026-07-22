@@ -349,14 +349,189 @@ one-shot alternative.
 
 ### Event intent and the payload materializer
 
-**Lands in:** F2 — reactive intent. Carries the event-vector form, listener options,
-the reserved scalar projections and the one pure materializer, and the exactly-one-
-event-or-`nil` rule.
+One user action yields **exactly one semantic event vector or `nil`**. Intent is
+ordinary data, written where it happens:
+
+```clojure
+[:button {:on-click [:cart/add product-id]} "Add"]
+
+[:input {:value email
+         :on-input [:form/edit :email ::v/value]}]
+
+[:input {:type    :checkbox
+         :checked dark?
+         :on-change [:prefs/set-dark ::v/checked]}]
+
+[:form {:on-submit {:event [:article/save article-id]
+                    :prevent-default true}}
+ …]
+
+[:canvas {:on-pointer-down (v/event [e]
+                             [:canvas/pressed (point-in-canvas e)])}]
+```
+
+Because the intent is a vector rather than a closure, a reusable control can
+**forward** it. `(conj on-change ::v/value)` turns a caller's
+`[:account/email-edited]` into `[:account/email-edited ::v/value]` without the
+control knowing anything about the caller's domain, and the whole site stays
+inspectable — and structurally testable — before anything mounts.
+
+**The closed scalar projections.** The reserved markers are `::v/value`,
+`::v/checked` and `::v/key`, and that roster is closed. Adding a fourth is a
+grammar decision, not an implementation detail; anything richer than a shallow
+scalar read is `v/event`'s job, and a nested path language is a
+[normative absence](#absent-at-the-event-surface).
+
+**One materializer, at firing time.** At firing time the native or qualified host
+adapter obtains the live scalar payload, and one pure materializer —
+`v/materialize-event` — replaces the markers before the resulting plain vector
+reaches ordinary re-frame dispatch. Its rules are deliberately small:
+
+1. **Position zero may not be a marker.** An event id is a name, not a projection.
+2. **Only top-level argument positions are replaced.** Projection is shallow and
+   by value: a marker nested inside a map, a vector or any other value is
+   ordinary application data and survives untouched.
+3. **Every occurrence is replaced**, not merely the first.
+4. **A requested but unavailable payload is a typed error, and nothing is
+   dispatched.** A malformed event reaching a handler is worse than no event; a
+   silently `nil` argument is worse still.
+5. **The result is a plain vector.** An event carrying no marker is returned
+   unchanged, so an unprojected site allocates nothing.
+
+The marker and the payload key are **the same keyword** — a site asks for
+`::v/value` and the adapter supplies `::v/value` — so "did this callback offer
+what this event asked for?" is one lookup and there is no second vocabulary to
+keep in step. Projection reads the payload the *callback* supplies, never a
+render-captured value, so the same intent vector materializes differently on
+successive keystrokes without being rebuilt.
+
+Every path runs through that one function: a literal vector, a forwarded prefix,
+an options map's `:event`, a `v/event` body's result, interpreted, compiled,
+production and test. Both hosts share it, so a JVM structural test supplies a
+literal payload and asserts the exact dispatched vector without a browser — the
+production mechanism, not a test-only splice convention.
+
+**General dispatch gains no payload arity.** `rf/dispatch` and `rf/dispatch-sync`
+take an event vector and an optional opts map, and nothing else. Projection
+belongs to the layer that understands UI callback payloads: enlarging the general
+event runtime would mean explaining projection semantics for every dispatch
+source, and would make an accidental reserved keyword in a non-UI event
+genuinely hard to reason about. A projection keyword travelling in an ordinary
+domain event is never secretly interpreted.
+
+**No host object enters an intent vector.** Native events supply the three
+normalized scalars; a qualified foreign leaf supplies its own plain payload
+values or converts them with `v/event`. DOM events, React synthetic events and
+third-party instances stay behind the host boundary.
+
+**Listener options.** An event position may state its intent inside a closed
+options map:
+
+| Key | Meaning |
+|---|---|
+| `:event` | the intent vector — required |
+| `:prevent-default` | run the browser mechanic before dispatch |
+| `:stop-propagation` | run the browser mechanic before dispatch |
+| `:once` | the site's intent fires once; the consumed state is the **site's**, retained across re-render |
+| `:passive` | native listener-attachment fact |
+| `:capture` | native listener-attachment fact |
+
+The roster is closed, and an unknown key is rejected — an option that silently
+does nothing is an event site that looks correct and is not. The exact-key
+condition map for `:on-key-down` / `:on-key-up` is a **separate** closed form
+with its own section; it is not a variant of this map, and mixing the two is an
+error. Native attachment for `:passive` or `:once` is internal event-adapter
+lifecycle, not a public effect system. The structural host runs no browser
+mechanics because it fires no native event; the options still normalize and
+still ride the site plan, so both hosts read one shape.
+
+**One event, or none.** After the shallow options are interpreted, a site yields
+exactly one event vector or `nil`. `nil` dispatches nothing — that is how a
+callback declines, without a second control channel. A **vector of event
+vectors** is an error: multi-step work is one semantic event whose re-frame
+handler returns the effects the step needs, which keeps one inspectable causal
+unit instead of a miniature dispatcher inside the view. An intent may carry
+identity, a generation or a candidate value; when acceptance depends on changing
+application state, the receiving handler decides against the exact committed
+frame at dispatch, rather than a render-time callback closing over a stale
+guard.
+
+Mount, unmount and host lifecycle are **tool facts, not domain events**
+(governing law 5). Per-mount work belongs to the frame's `:initial-events` or to
+an ordinary re-frame event.
+
+**Conformance:** [FH-EVENT-001](conformance/freehand/conformance-index.md#fh-event--events),
+FH-EVENT-002.
 
 ### Callback roles and identity
 
-**Lands in:** F2 — reactive intent. Carries the closed roster of callback forms, each
-form's phase and identity contract, and per-site committed proxy ownership.
+Foreign APIs use functions for several unrelated protocols, and a bare function
+says nothing about which one. Freehand's roster is closed, and each form carries
+one phase and one identity contract:
+
+| Form | Role | Identity |
+|---|---|---|
+| event vector / options map | declarative application intent | stable adapter owned by the committed site |
+| `v/event` | convert an invoker's arguments to one event vector or `nil`; no `v/sub`, hooks, refs or effects | stable committed adapter per site; body changes publish atomically |
+| `v/handler` | explicit imperative foreign work; not a disguised render or state store | stable committed adapter per site; retired at disconnect |
+| `v/render-fn` | pure function invoked during the *foreign owner's* render; may return Freehand content, may not `v/sub`, dispatch, use hooks or touch refs | **no stability guarantee** — reuse is an optimization |
+| `v/raw-fn` | expert seam where the authored function's identity is itself protocol data | exactly the supplied identity; no stabilization |
+| a UIx / Helix wrapper | React owns hooks, effects, context, refs, Suspense or compound protocols | the wrapper's React contract |
+
+Classification over an event position is **total**: a vector, an options map, one
+of the four declared forms, a plain function, or `nil` — and anything else is an
+error naming that roster. Bare functions stay legal at native `:on-*` sites,
+because the site's own committed adapter owns their lifetime, and as opaque
+values passed between internal views. They are rejected in a *declared foreign
+callback position*, where the invoker, phase and identity contract are otherwise
+unknown.
+
+There is **no `v/dispatcher`**. A prefix-plus-arguments shorthand would be short
+to write and would invite mutable dates, selections and host events straight into
+intent vectors; `v/event` is the explicit conversion seam, and it is one form to
+teach rather than two.
+
+**Per-site committed slots.** A render builds an ownership-free **candidate**
+site table; only the render *selected for commit* publishes it, as part of the
+same bundle that publishes the frame incarnation and the dependencies. An
+abandoned render publishes nothing — not because a flag stops it, but because
+its candidate is simply dropped.
+
+Each runtime event site is owned by `(committed node identity, callback prop)`,
+and the runtime mints **one proxy** per site. The proxy reads the exact committed
+body and dispatch target when it is invoked:
+
+- **identity survives re-render.** An unchanged site keeps the exact callback
+  across every re-render. This is the load-bearing property: it is what stops a
+  re-render from churning callback identity through React reconciliation, and
+  what lets a memoized foreign child stay memoized.
+- **a later commit replaces the body, not the identity.** Retargeting a site — a
+  new intent, a new frame — is a re-commit; the destination moves and not one
+  callback identity changes. There are no dependency arrays: committed
+  publication is what supplies freshness.
+- **equal values at two sites stay independent.** Two sites holding an equal
+  authored value get two distinct proxies, so their lifetimes, `:once` state and
+  diagnostics never merge. Equality of intent is not identity of site.
+- **retirement makes the exact proxy inert.** Removal, a key change, node
+  replacement, disconnect or an incompatible hot-reload generation retires the
+  site. A retired proxy stays *callable* — a foreign listener may already hold it
+  — and dispatches nothing, emitting development evidence rather than firing into
+  whatever owns the node now.
+
+Node identity is key-aware within its sibling scope and positional only where no
+key exists. Per-site ownership is the public law; the private key representation
+is not — an interpreted runtime may key a site by committed node identity while
+the compiled tier uses an owner plus a lexical site id, and both must keep equal
+values at different sites independent.
+
+`v/render-fn` is deliberately outside this scheme. It can be invoked during an
+uncommitted candidate render, so a mutable "latest body" proxy would be unsafe
+under concurrent rendering; its identity may therefore change on any render. An
+API that treats callback identity as a separate protocol uses `v/raw-fn`, a
+component bridge, or a wrapper, instead of asking Freehand to guess.
+
+**Conformance:** [FH-EVENT-003](conformance/freehand/conformance-index.md#fh-event--events),
+FH-EVENT-004.
 
 ### Controlled inputs
 
@@ -466,6 +641,36 @@ A Freehand implementation MUST NOT provide:
   one.
 - **positional view arguments.** A view takes one props map; there is no
   positional arity to declare or to call.
+
+### Absent at the event surface
+
+A Freehand implementation MUST NOT provide:
+
+- **a payload arity on general dispatch.** `rf/dispatch` takes an event vector
+  and an optional opts map. Projection is a Freehand event-site concern, and the
+  replacement is `v/materialize-event` — the same function production and tests
+  both run.
+- **donor placeholder spellings.** The donor's compiled placeholder provenance —
+  private object sentinels and their `:rf.ui/*` keyword spellings, recognised in
+  literal vectors only — does not cross. The replacement is the
+  `:re-frame.freehand/*` trio, which materializes identically in a literal, a
+  forwarded and a computed vector, so the donor's "placeholder in a dynamic
+  vector" advisory has nothing left to warn about.
+- **a projection path or expression language.** No `[:target :files 0 :name]`,
+  no transforms. The replacement is `v/event`, which converts the uncommon
+  residue honestly instead of growing a miniature expression language with its
+  own validation, missing-value semantics and host coupling.
+- **multi-intent handler vectors.** A site yields one event or none; the
+  replacement for a multi-step reaction is one named semantic event whose
+  re-frame handler returns the effects.
+- **a generic dispatcher form.** No `v/dispatcher` appending raw callback
+  arguments to a prefix. The replacement is `v/event`.
+- **dependency arrays.** No callback declares what it depends on; committed
+  publication supplies freshness, so there is nothing to declare and nothing to
+  get wrong.
+- **mount, unmount and lifecycle events.** They are tool facts. The replacement
+  for per-mount work is the frame's `:initial-events` or an ordinary re-frame
+  event.
 
 ## Resolved decisions
 
