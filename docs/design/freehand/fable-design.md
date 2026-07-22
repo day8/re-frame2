@@ -2585,8 +2585,8 @@ adversarial review (a premise-free correctness sweep plus three lenses under
 the compiled-from-birth axiom: seam architecture, DX/AI authoring, performance
 honesty — all findings adjudicated, load-bearing ones re-verified at source);
 a four-lens PROGRAMMER EVALUATION of the consolidated design (a library author
-porting re-com component-by-component against the checkout at
-C:/Users/miket/code/re-com; an integrator wiring VegaLite, SpreadJS, AG Grid,
+porting re-com component-by-component against a local re-com checkout; an
+integrator wiring VegaLite, SpreadJS, AG Grid,
 CodeMirror, Framer Motion, and dnd-kit; a tester building a real suite; a
 debugger walking ten 5pm scenarios against the shipped Spec 009/Xray surface —
 their confirmed findings produced: the outward `v/->react` bridge, the wrapper

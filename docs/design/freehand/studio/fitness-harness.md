@@ -6,7 +6,7 @@ Scope fence honoured: no sibling studio docs read; no candidate designs proposed
 
 Everything below is verified at source unless marked **[knowledge]** (from training,
 honestly labelled) or **[speculation]**. Paths: `examples/…` = this repo's examples
-tree; `re-com …` = the checkout at `C:/Users/miket/code/re-com` (present, verified).
+tree; `re-com …` = a local re-com checkout, sibling of this repo (present, verified).
 Repo rulings cited: rf2-efxb1h (overlay strategy), rf2-nzst23 (reset-key/buffered
 inputs), rf2-y4mgw (realworld editor lifecycle history), spec/004-Views.md:448-461
 (controlled-input synchrony law).
