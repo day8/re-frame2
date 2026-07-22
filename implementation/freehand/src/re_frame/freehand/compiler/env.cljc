@@ -15,7 +15,9 @@
        boundary (open props; JS values pass through);
     4. an unresolvable symbol -> COMPILE ERROR (didactic).
 
-  Corners (all test-pinned in re-frame.freehand.q5-heads-cljs-test):
+  Corners (test-pinned in re-frame.freehand.analyze-accept-cljs-test and
+  re-frame.freehand.analyze-reject-cljs-test, with the real-CLJS-analyzer
+  counterpart in re-frame.freehand.compiler-macro-resolution-jvm-test):
     - forward/mutual recursion: `(declare ^:rf.ui/view b)` marks the var
       before definition, so mutually-recursive views are expressible with
       zero extra surface; a plain `(declare b)` head classifies FOREIGN
