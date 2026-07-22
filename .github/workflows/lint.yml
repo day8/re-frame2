@@ -358,7 +358,7 @@ jobs:
       # The re-frame.ui AI context sheet (rf2-u53yy.8). Its compile-rejection
       # roster is GENERATED from the compiler's own env/fail! / env/warn!
       # didactic messages in analyze.cljc; this check regenerates the sheet in
-      # memory and reds until skills/re-frame2-ui-context/SKILL.md is
+      # memory and reds until skills/re-frame2-ui/references/ui-context.md is
       # regenerated — so a reworded / added / removed compiler diagnostic can
       # never silently drift the sheet.
       - name: Regenerate re-frame.ui context sheet + assert no drift
