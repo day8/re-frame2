@@ -920,7 +920,7 @@
 ;; directly — that fn covers tier 1 and tier 3 only, so the React-
 ;; context tier was dead code. The fix routes subscribe + dispatch
 ;; through the `:adapter/current-frame` late-bind hook (registered by
-;; the Reagent / UIx / Helix adapter at ns-load time). The hook
+;; the Reagent / UIx adapter at ns-load time). The hook
 ;; consults `_currentValue` on the shared React context object,
 ;; tolerating Reagent's prop-stringified-keyword shape.
 ;;
@@ -1067,9 +1067,9 @@
    `convert-prop-value` rewrites named values (keywords / symbols) to
    strings when they pass as React props, so `[:> Provider {:value :foo}
    ...]` reaches React with `value=\"foo\"`. The function-component
-   path (UIx / Helix) reads `_currentValue` directly off the shared
+   path (UIx) reads `_currentValue` directly off the shared
    context object; that read MUST tolerate the stringified shape so a
-   UIx / Helix subtree embedded under a Reagent `[:> ...]` provider
+   UIx subtree embedded under a Reagent `[:> ...]` provider
    sees the right frame."
   ;; Direct test of the lookup: we can't easily simulate the React-render
   ;; pump without a real Provider, but we can pin the shape-coercion

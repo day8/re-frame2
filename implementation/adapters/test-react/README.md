@@ -133,7 +133,6 @@ normative contract.
 |---|---|---|---|
 | `re-frame.adapter.reagent` | Reagent 2.x + React 19 | Browser, default | Full lifecycle, real DOM |
 | `re-frame.adapter.uix` | UIx 2.x + React 19 | Browser | Hooks-based, real DOM |
-| `re-frame.adapter.helix` | Helix 0.2.x + React 19 | Browser | Minimal React wrapper |
 | `re-frame.substrate.plain-atom` | `clojure.core/atom` | JVM / SSR / headless | No React; render throws |
 | **`re-frame.adapter.test-react`** | **Lifecycle simulator** | **JVM + CLJS unit tests** | **Pure-data class-3 lifecycle** |
 

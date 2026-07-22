@@ -2,7 +2,7 @@
 
 This directory groups re-frame2's **substrate adapters** — implementations of the substrate contract defined in [Spec 006](../../spec/006-ReactiveSubstrate.md).
 
-> **Naming.** Per the corpus convention: *substrate* is the abstract contract; *adapter* is each implementation. "Reagent adapter," "UIx adapter," "Helix adapter."
+> **Naming.** Per the corpus convention: *substrate* is the abstract contract; *adapter* is each implementation. "Reagent adapter," "UIx adapter."
 
 ## Adapters that ship today
 
@@ -10,7 +10,6 @@ This directory groups re-frame2's **substrate adapters** — implementations of 
 |---|---|---|---|
 | [`reagent/`](reagent/) | Reagent adapter | `day8/re-frame2-reagent` | Reagent 2.x — the canonical CLJS reference adapter |
 | [`uix/`](uix/) | UIx adapter | `day8/re-frame2-uix` | UIx 2.x — modern hooks-based React layer |
-| [`helix/`](helix/) | Helix adapter | `day8/re-frame2-helix` | Helix 0.2.x — minimal React wrapper |
 | [`reagent-slim/`](reagent-slim/) | Reagent-slim adapter | `day8/reagent-slim` [^slim-coord] | Reagent-compatible `reagent2.*` implementation for React 19 |
 
 [^slim-coord]: The `re-frame2-` prefix is dropped on this coord (per IMPL-SPEC DECISION-1); it is the lone adapter artefact published as `day8/reagent-slim` rather than `day8/re-frame2-*`.
@@ -40,7 +39,7 @@ Each adapter implements the surface defined in [Spec 006 §The adapter API contr
 
 An adapter is a Clojure map carrying these fns under the matching keys plus a `:kind` discriminator keyword (e.g. `:rf.adapter/reagent-slim`). See [`re-frame.substrate.adapter`](../core/src/re_frame/substrate/adapter.cljc) for the live contract.
 
-Plus per-adapter ergonomics — e.g. `use-subscribe` hook (UIx, Helix), source-coord wrapping, `flush-views!` test helper.
+Plus per-adapter ergonomics — e.g. `use-subscribe` hook (UIx), source-coord wrapping, `flush-views!` test helper.
 
 ## Layout
 
@@ -55,10 +54,6 @@ adapters/
 ├── uix/
 │   ├── deps.edn
 │   ├── src/re_frame/adapter/uix.cljs
-│   └── test/...
-├── helix/
-│   ├── deps.edn
-│   ├── src/re_frame/adapter/helix.cljs
 │   └── test/...
 ├── reagent-slim/
 │   ├── deps.edn              ; declares day8/reagent-slim (no re-frame2- prefix per DECISION-1)
@@ -81,7 +76,7 @@ substrate-specific public helpers because they delegate shared mechanics into
 core artefact. Two factory families:
 
 - **Ratom family** — [`make-ratom-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-ratom-adapter`](../core/src/re_frame/substrate/spine.cljs) (Reagent + reagent-slim).
-- **React-hook family** — [`make-react-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-react-adapter`](../core/src/re_frame/substrate/spine.cljs) (UIx + Helix).
+- **React-hook family** — [`make-react-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-react-adapter`](../core/src/re_frame/substrate/spine.cljs) (UIx).
 
 Each adapter file builds a config map and hands it to the appropriate factory pair. The spine carries the epoch scheduler (glitch-freedom), the container quartet, `useSyncExternalStore` hooks, source-coord wrapping, the after-render sentinel, the unmount sentinel, and the nine-/five-hook routed late-bind tables. Reading the spine ns is the fastest path to understanding how the adapters work end-to-end.
 
@@ -95,4 +90,4 @@ See:
 
 - [Spec 006 — Reactive substrate](../../spec/006-ReactiveSubstrate.md) for the contract.
 - [Conventions §Packaging conventions](../../spec/Conventions.md) for the multi-artefact model.
-- [Guide how-to — Use UIx, Helix, or reagent-slim](../../docs/core/how-to/use-uix-helix-or-slim.md) for the "choose your adapter" walkthrough.
+- [Guide how-to — Use UIx or reagent-slim](../../docs/core/how-to/use-uix-or-slim.md) for the "choose your adapter" walkthrough.

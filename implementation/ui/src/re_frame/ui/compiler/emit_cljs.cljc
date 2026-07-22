@@ -334,7 +334,7 @@
   vocabulary (Spec 004 §View identity — Source ↔ DOM navigation; Spec 006
   §Source-coord annotation + §View tagging contract), reusing the ONE cross-host
   `re-frame.source-coords` value projections so the compiler-owned host root and
-  the Reagent/UIx/Helix adapter walks emit byte-identical attribute values by
+  the Reagent/UIx adapter walks emit byte-identical attribute values by
   construction — existing Xray click-to-source works day one.
 
   The stamp sits behind `^boolean js/goog.DEBUG`, so under :advanced +

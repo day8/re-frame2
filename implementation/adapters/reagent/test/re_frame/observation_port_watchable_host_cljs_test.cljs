@@ -361,7 +361,7 @@
 ;;      whose notify gate is raw `=` (`(= ##NaN ##NaN)` is false). Firing on a
 ;;      NO-move is the whole point: it is what makes the port's `node-value=`
 ;;      suppression (make-watch-handler) LOAD-BEARING. (The first-party
-;;      re-frame.ui / UIx / Helix substrate gates notify on `rf=` —
+;;      re-frame.ui / UIx substrate gates notify on `rf=` —
 ;;      `Object.is(##NaN,##NaN)` is true, `re_frame/substrate/spine.cljs` — so on
 ;;      THOSE hosts the watch never fires for NaN→NaN and make-watch-handler is
 ;;      never reached. A mounted NaN proof on the ui adapter would produce zero

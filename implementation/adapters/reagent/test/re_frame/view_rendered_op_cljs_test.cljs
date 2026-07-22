@@ -4,8 +4,8 @@
   carries the cascade-attribution slots Xray's Reactive panel uses to
   graph cause→effect for re-renders.
 
-  This test exercises the Reagent adapter side of the op; UIx and Helix
-  ship their own mirror tests. The emit site is the substrate-agnostic
+  This test exercises the Reagent adapter side of the op; UIx
+  ships its own mirror test. The emit site is the substrate-agnostic
   `views.cljs` frame-aware-view wrapper, so all three adapter tests pin
   the same shape — drift would surface as one of the three tests
   diverging from the locked tag set.

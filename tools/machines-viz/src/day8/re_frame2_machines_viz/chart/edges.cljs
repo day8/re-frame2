@@ -29,7 +29,7 @@
 
   ## Substrate posture
 
-  Reagent-only Phase 1; UIx + Helix follow-on. xyflow consumes
+  Reagent-only Phase 1; UIx follow-on. xyflow consumes
   these components via the `edgeTypes` prop.
 
   ## Implementation notes

@@ -33,7 +33,7 @@
   ## Pure hiccup + helpers
 
   Same contract as every Xray panel — pure hiccup, no Reagent / UIx /
-  Helix. The pure data → data projection (the image-view shape) lives in
+  The pure data → data projection (the image-view shape) lives in
   `image_view_helpers.cljc` so the algebra runs under the JVM unit-test
   target."
   (:require [clojure.string :as str]

@@ -208,7 +208,7 @@
       to encode the `:reagent` default (`share/build-params` only emits it
       for a non-default substrate), so an omitted param MUST hydrate as
       `:reagent` rather than preserving the recipient's stale in-memory
-      `:uix`/`:helix`. A present-but-unregistered substrate (rejected by the
+      `:uix`. A present-but-unregistered substrate (rejected by the
       `:substrate?` validator) likewise degrades to `:reagent` so a stale URL
       can't pin a substrate the host app never registered.
     - omitted `mode-tab=` (alongside a KEPT variant) clears that variant's

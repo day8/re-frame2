@@ -42,7 +42,7 @@
   ## Pure hiccup
 
   Same contract as every Xray view — pure hiccup, no Reagent / UIx /
-  Helix references."
+  references."
   (:require [day8.re-frame2-xray.static.shared.search-box :as search-box]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale mono-stack sans-stack]]))
@@ -103,7 +103,7 @@
     :testid — the full row `data-testid` (e.g.
               `\"rf-xray-static-flows-row-user/full-name\"`).
 
-  Pure hiccup — no Reagent / UIx / Helix references."
+  Pure hiccup — no Reagent / UIx references."
   [{:keys [testid]} & children]
   (into [:li {:data-testid testid
               :role        "listitem"
@@ -138,7 +138,7 @@
                   identity stays local.
     :gap        — inter-row flex gap (`\"2px\"` default; Schemas `\"4px\"`).
 
-  Pure hiccup — no Reagent / UIx / Helix references."
+  Pure hiccup — no Reagent / UIx references."
   [{:keys [testid noun query silent? rows search row-render gap]
     :or   {gap "2px"}}]
   [:section {:data-testid testid

@@ -449,8 +449,8 @@
                                        post-dispose reset hooks).
     :adapter/clear-warn-once-caches! — clear per-adapter
                                        `warned-non-dom-roots` warn-once
-                                       caches. Chained — re-frame.views,
-                                       and the helix / uix adapters each
+                                       caches. Chained — re-frame.views
+                                       and the uix adapter each
                                        register a clear-step.
 
   Adding a new artefact's reset becomes a one-row addition here."
@@ -633,8 +633,8 @@
     3. Disposes the currently-installed substrate adapter.
     4. Cancels the machines' in-flight `:after` wall-clock timers.
     5. Clears trace listeners and adapter warn-once caches
-       (`warned-non-dom-roots` across re-frame.views and the helix /
-       uix adapters).
+       (`warned-non-dom-roots` across re-frame.views and the
+       uix adapter).
     6. If an `:adapter` was supplied, installs it and ensures the
        `:rf/default` frame. Otherwise leaves adapter installation to
        the test (or to a separate fixture).

@@ -1,22 +1,22 @@
 (ns day8.re-frame2-machines-viz.adapters.react-chart-cljs-test
-  "Smoke tests for the substrate-adapter React bridge + the UIx /
-  Helix shells (rf2-yg9he · xyflow Phase 2).
+  "Smoke tests for the substrate-adapter React bridge + the UIx
+  shell (rf2-yg9he · xyflow Phase 2; the Helix shell left at S7/W13,
+  rf2-d6epb).
 
   These pin the substrate-parity contract WITHOUT a DOM: the bridge
   reactifies the Reagent `MachineChart` to a plain React class once,
   and `chart-element` builds a valid React element from a CLJS props
-  map that any React host (UIx / Helix / raw React) can mount. The
+  map that any React host (UIx / raw React) can mount. The
   full mount-and-assert visual-pin coverage lives in the browser-side
   `*_dom_cljs_test.cljs` suites.
 
-  CLJS-only (`.cljs`) because the bridge requires reagent + the UIx /
-  Helix component macros, none of which load on the JVM. Runs under
+  CLJS-only (`.cljs`) because the bridge requires reagent + the UIx
+  component macros, none of which load on the JVM. Runs under
   `:node-test` (the `cljs-test$` regex matches this file)."
   (:require [cljs.test :refer-macros [deftest is testing]]
             ["react" :as react]
             [day8.re-frame2-machines-viz.adapters.react-chart :as react-chart]
-            [day8.re-frame2-machines-viz.adapters.uix :as mv-uix]
-            [day8.re-frame2-machines-viz.adapters.helix :as mv-helix]))
+            [day8.re-frame2-machines-viz.adapters.uix :as mv-uix]))
 
 (def ^:private sample-machine
   {:initial :idle
@@ -64,7 +64,3 @@
     (is (some? mv-uix/MachineChart)
         "UIx MachineChart shell is present")))
 
-(deftest helix-shell-is-defined
-  (testing "the Helix shell exposes a MachineChart component"
-    (is (some? mv-helix/MachineChart)
-        "Helix MachineChart shell is present")))

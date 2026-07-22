@@ -41,7 +41,8 @@
 
   ## Substrate posture
 
-  Reagent-only. UIx and Helix adapters are follow-on work — xyflow
+  Reagent-only here; the UIx shell (`adapters/uix.cljs`) mounts the
+  same chart through the shared React bridge — xyflow
   is a React lib so the underlying React-class boundary is fine for
   every substrate; only the Reagent `as-element` glue needs a
   substrate-specific shim."

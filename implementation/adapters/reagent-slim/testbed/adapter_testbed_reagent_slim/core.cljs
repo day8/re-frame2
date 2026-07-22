@@ -53,7 +53,7 @@
 ;; frame-provider's frame from React context; the frame-bound `dispatch`
 ;; is captured at RENDER time via `(rf/capture-frame)` so the click
 ;; handlers (which fire outside any render scope) still route to
-;; `:rf/default`. Mirrors the stock Reagent / UIx / Helix testbeds.
+;; `:rf/default`. Mirrors the stock Reagent / UIx testbeds.
 (reg-view root []
   (let [n        @(rf/subscribe [:counter/value])
         dispatch (:dispatch (rf/capture-frame))]

@@ -11,7 +11,7 @@
   synchronous `r/flush` from a trace listener (exactly what a dev tool
   or test harness may do) recomputed and notified with the invalid
   value before the rollback write restored it. This file is the
-  Reagent tooth that keeps that window closed; the UIx/Helix spine leg
+  Reagent tooth that keeps that window closed; the UIx spine leg
   lives in `re-frame.adapter.react-shared-suite/
   assert-schema-rejection-zero-sub-notifications`.
 

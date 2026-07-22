@@ -7,10 +7,10 @@
   Before this convergence the ONLY slim `flush-views!` lived in the
   SUBSTRATE ns `reagent2.dom.client` and RETURNED A PROMISE (the
   goog.DEBUG-gated microtask→act→microtask Suspense-ordering primitive,
-  IMPL-SPEC §4.6) — diverging from UIx/Helix in BOTH location (substrate
+  IMPL-SPEC §4.6) — diverging from UIx in BOTH location (substrate
   ns vs adapter ns) AND return type (Promise vs nil). This file pins the
   converged shape on the adapter ns: a fn whose 0-arity call returns nil,
-  matching stock Reagent, UIx, and Helix.
+  matching stock Reagent and UIx.
 
   The substrate-level `reagent2.dom.client/flush-views!` Promise primitive
   is unchanged (Suspense-deterministic callers keep it); this is the

@@ -690,7 +690,7 @@
             ;; PURE React mount via `react-dom/client createRoot` (NOT Reagent's
             ;; `rdc/create-root`): mounting a NATIVE React element tree —
             ;; `StrictMode > frame-root-react-element` — puts `frame-root-fc`
-            ;; directly under StrictMode, which is exactly the UIx/Helix
+            ;; directly under StrictMode, which is exactly the UIx
             ;; substrate path (they build the frame-root via
             ;; `frame-root-react-element`, raw `createElement`). The shared
             ;; `frame-root-fc` is common to all React-shaped adapters.

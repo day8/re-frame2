@@ -2762,7 +2762,7 @@
 
 (def ^{:doc "Return the discriminator keyword identifying the installed
   adapter, or `nil` if none. One of `:rf.adapter/reagent`,
-  `:rf.adapter/reagent-slim`, `:rf.adapter/ui`, `:rf.adapter/uix`, `:rf.adapter/helix`,
+  `:rf.adapter/reagent-slim`, `:rf.adapter/ui`, `:rf.adapter/uix`,
   `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or `:custom` for
   user-supplied adapters that didn't pick a canonical kind. Per Spec 006
   §Adapter introspection."}

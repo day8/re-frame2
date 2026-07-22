@@ -17,7 +17,7 @@
 
   The chart is a Reagent component; we mount it through the substrate-
   adapter React bridge (`adapters.react-chart/chart-element`) so the
-  mount path is substrate-neutral — the same element a UIx / Helix
+  mount path is substrate-neutral — the same element a UIx
   host would mount. `react-dom/client createRoot` + React `act()`
   drives the render; assertions read the real DOM via querySelector.
 

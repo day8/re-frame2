@@ -20,7 +20,7 @@
   ## Pure hiccup
 
   Same contract as every Xray view — pure hiccup, no Reagent /
-  UIx / Helix references. Subscribes resolve to `:rf/xray` via the
+  UIx references. Subscribes resolve to `:rf/xray` via the
   enclosing frame-provider in `static/shell.cljs`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.static.routes.row-expand :as row-expand]

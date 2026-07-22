@@ -392,7 +392,7 @@
                      "observe the DOM` becomes one deterministic step (no manual requestAnimationFrame dance in "
                      "eval-cljs). The flush is substrate-agnostic: it routes through the framework's "
                      "`re-frame.interop/after-render` (the `:adapter/after-render` adapter hook, Spec 006) — Reagent's "
-                     "post-commit `r/after-render`, the UIx/Helix spine's React.useLayoutEffect drain, etc. "
+                     "post-commit `r/after-render`, the UIx spine's React.useLayoutEffect drain, etc. "
                      "`await-render` forces synchronous dispatch (the cascade must commit before the render can "
                      "settle) and merges `:settled? true` into the result. A settle that doesn't complete within "
                      "`timeout-ms` (default 5000) returns `:reason :rf.error/dispatch-await-render-timeout`. "

@@ -55,7 +55,7 @@
   ## Pure hiccup
 
   Same contract as every Xray view — pure hiccup, no Reagent / UIx
-  / Helix references. Frame isolation comes from the enclosing
+  references. Frame isolation comes from the enclosing
   `[rf/frame-provider {:frame :rf/xray}]` in `static/shell.cljs`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panel-registry :as panel-registry]

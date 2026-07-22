@@ -97,8 +97,8 @@
    [:? :any]])
 
 ;; The login examples' SHIPPED outer-event schema. This is the shape
-;; registered on the :auth.login/flow machine in all three login examples
-;; (examples/core/login, examples/substrates/uix/login, examples/substrates/helix/login).
+;; registered on the :auth.login/flow machine in both login examples
+;; (examples/core/login, examples/substrates/uix/login).
 ;; Kept here as the executable spec of that shape so its malformed-submit
 ;; rejection is a real regression gate (the examples tree is test-free, so the
 ;; schema contract is pinned in the framework suite).
@@ -192,7 +192,7 @@
 
 ;; ---- (3b) the login examples' SHIPPED event schema rejects malformed submit -
 ;;
-;; Regression gate for the login examples (reagent / uix / helix): the shipped
+;; Regression gate for the login examples (reagent / uix): the shipped
 ;; `LoginExampleEvent` has no permissive `[:vector :any]` fallback, so a
 ;; `:submit` whose Credentials fail is rejected at the `:where :event` boundary
 ;; and does NOT transition + does NOT drive the login HTTP effect. This pins the

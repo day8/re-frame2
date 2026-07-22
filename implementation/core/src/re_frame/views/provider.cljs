@@ -20,7 +20,7 @@
      boundary.) Given an `:id` it FAILS LOUD naming `frame-root`
      (`:rf.error/frame-provider-given-id`). The React Context object is owned
      by `re-frame.adapter.context` so adapters across substrates
-     (Reagent / UIx / Helix) read the same context.
+     (Reagent / UIx) read the same context.
 
   2. `frame-root` — the user-facing Reagent component for the ENSURE
      shape (rf2-nyea0r split). `{:id the-id …}`: create the frame if
@@ -140,8 +140,8 @@
   (`:rf.error/frame-provider-given-id`) — providers scope, roots ensure. To
   CREATE the frame if absent, use `rf/frame-root {:id …}`.
 
-  Children are variadic (zero, one, or many). Same surface as the UIx and
-  Helix variants, different rendering substrate. The three adapters share
+  Children are variadic (zero, one, or many). Same surface as the UIx
+  variant, different rendering substrate. The adapters share
   one React Context so a subtree under any frame-provider sees the right
   frame regardless of which substrate rendered the provider.
 

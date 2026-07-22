@@ -15,7 +15,7 @@ This scaffold runs on `re-frame.ui`, re-frame2's first-party
 compiled-view substrate: views are written with `defview`, reads are
 plain values (`(sub [:counter/value])` — nothing to deref), and event
 handlers are event vectors (`{:on-click [:counter/increment]}`). There
-is no Reagent, no UIx, no Helix — React arrives through npm and the
+is no Reagent and no UIx — React arrives through npm and the
 compiler wires the reactivity.
 
 **Experimental means the surface may change between alpha releases.**

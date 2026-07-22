@@ -2,12 +2,11 @@
   "Per rf2-4edk: regression test that `make-reset-runtime-fixture` clears the
   per-adapter `warned-non-dom-roots` warn-once caches.
 
-  Background. Three CLJS namespaces hold a `defonce ^:private
+  Background. Two CLJS namespaces hold a `defonce ^:private
   warned-non-dom-roots` set used to make non-DOM-root warnings fire
   exactly once per id across the JS process:
 
     - re-frame.views               (Reagent path)
-    - re-frame.adapter.helix       (Helix path)
     - re-frame.adapter.uix         (UIx path)
 
   The per-process `defonce` is the right shape for the USER-facing
@@ -21,7 +20,7 @@
 
   Fix. `make-reset-runtime-fixture` invokes the chained
   `:adapter/clear-warn-once-caches!` late-bind hook; each of the
-  three namespaces above contributes a clear-step at ns-load. This
+  namespaces above contributes a clear-step at ns-load. This
   test pins that contract for the Reagent path (re-frame.views): emit
   the same warning twice across a fixture boundary and assert BOTH
   emissions land. Without the fix the second emission is silenced by
@@ -29,9 +28,9 @@
   reset between the two emissions and both fire.
 
   The test exercises the Reagent path because that is the one the
-  node-test runner covers without a real browser; the Helix and UIx
-  paths share the identical clear-step shape and are covered by the
-  same `make-reset-runtime-fixture` step (their adapter ns'es publish the
+  node-test runner covers without a real browser; the UIx
+  path shares the identical clear-step shape and is covered by the
+  same `make-reset-runtime-fixture` step (its adapter ns publishes the
   chain step at load time, exercised by the parity tests).
 
   Production behaviour is unchanged: the warn-once `defonce` remains

@@ -167,7 +167,7 @@
     (require 'ssr.core :reload)
     ;; Boot the runtime (idempotent) — installs the SSR adapter and the
     ;; :rf/default frame. `re-frame.ssr` exports its own `adapter` var
-    ;; (the JVM-side counterpart of reagent/uix/helix adapters); pass it
+    ;; (the JVM-side counterpart of reagent/uix adapters); pass it
     ;; explicitly.
     (rf/init! ssr/adapter)
     ;; Stub `:rf.http/managed` so the test doesn't make real network

@@ -20,7 +20,7 @@
 
   That only works on hosts whose `:render` accepts HICCUP render-trees
   — the ratom family (stock Reagent / reagent-slim). The React-hook
-  substrates (UIx, Helix, re-frame.ui) share an ELEMENT-shaped `render`
+  substrates (UIx, re-frame.ui) share an ELEMENT-shaped `render`
   that hands the tree to React untouched, so Xray's hiccup shell cannot
   mount there; the mount verbs refuse with the `:unsupported-substrate`
   diagnostic instead of letting raw CLJS data reach React children
@@ -183,7 +183,7 @@
 ;; Xray's shell is authored in hiccup (reg-view'd Reagent components), so it
 ;; can only mount through a `:render` slot that accepts hiccup render-trees —
 ;; the ratom family (stock Reagent / reagent-slim). The React-hook substrates
-;; (UIx, Helix, the first-party re-frame.ui) share the spine's ELEMENT-shaped
+;; (UIx, the first-party re-frame.ui) share the spine's ELEMENT-shaped
 ;; `render` (`re-frame.substrate.spine/make-render`): it hands the tree to
 ;; React untouched, so the hiccup vector reaches React as an iterable of raw
 ;; CLJS values — the component fn becomes a Fragment child ("Functions are
@@ -201,7 +201,10 @@
 (def ^:private react-element-render-kinds
   "Adapter `:kind`s whose `:render` slot takes substrate-native React
   ELEMENTS (the shared React-hook spine), not hiccup — Xray's hiccup shell
-  cannot mount through them (rf2-qgfo4)."
+  cannot mount through them (rf2-qgfo4). `:rf.adapter/helix` stays in the
+  refusal set defensively even though the Helix adapter itself was removed
+  at S7/W13 (rf2-d6epb): a stale co-loaded build could still present the
+  kind, and refusing costs nothing."
   #{:rf.adapter/ui :rf.adapter/uix :rf.adapter/helix})
 
 (defn- unsupported-substrate-diagnostic [kind]
@@ -841,7 +844,7 @@
 
   If the substrate adapter is absent, returns nil so preload retry can
   wait. If the installed adapter is a React-element substrate (UIx /
-  Helix / re-frame.ui — kinds whose `:render` cannot take the hiccup
+  re-frame.ui — kinds whose `:render` cannot take the hiccup
   shell, rf2-qgfo4), returns the `:unsupported-substrate` diagnostic and
   logs one `console.warn` without mounting. If the layout host is
   missing, returns an inspectable diagnostic map and logs

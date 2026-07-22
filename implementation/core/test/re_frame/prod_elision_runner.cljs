@@ -1,7 +1,7 @@
 (ns re-frame.prod-elision-runner
   "Custom browser-test runner for the production-mode elision smoke
   builds (rf2-2zdu trace listener elision; rf2-uwg5 source-coord
-  DOM annotation elision; rf2-00li UIx + Helix wrap-view elision;
+  DOM annotation elision; rf2-00li UIx wrap-view elision;
   rf2-hqbeh `:on-error` always-on survival).
 
   Mirrors `re-frame.schemas-boundary-prod-runner` (Spec 010 prod-mode
@@ -23,7 +23,6 @@
             [re-frame.trace-listener-elision-prod-test]
             [re-frame.source-coord-dom-elision-prod-test]
             [re-frame.adapter.uix-source-coord-dom-elision-prod-test]
-            [re-frame.adapter.helix-source-coord-dom-elision-prod-test]
             [re-frame.on-error-elision-prod-test]
             ;; Per rf2-9pxj70 — the three EP-0008-promoted always-on
             ;; teardown / write-race rows

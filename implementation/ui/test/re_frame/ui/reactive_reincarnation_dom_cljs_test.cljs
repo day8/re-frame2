@@ -19,7 +19,7 @@
 
   The timing-sensitive `flushSync` mount/rerender/unmount run inside React's OWN
   `act(...)` — the repository's native `get-act`/`act!` pattern (the same shape as
-  `root-mount-dom-cljs-test` and core's shared React suite), NOT UIx/Helix/Reagent
+  `root-mount-dom-cljs-test` and core's shared React suite), NOT UIx/Reagent
   machinery. `IS_REACT_ACT_ENVIRONMENT` is enabled per test and its prior value
   restored on every exit, so the fixture neither depends on nor leaks the
   shared-page flag. The corrective `flushSync` stays nested inside `act`, and the
@@ -48,7 +48,7 @@
   (and (exists? js/document) (some? (.-createElement js/document))))
 
 ;; --- native React act pattern (rf2-vxgfnd.163; rf2-powx4d sweep template) ----
-;; React's OWN act(), enabled per-test in the fixture. NOT UIx/Helix/Reagent.
+;; React's OWN act(), enabled per-test in the fixture. NOT UIx/Reagent.
 
 (defn- get-act
   "React's act() — React 19 promotes it to the React namespace proper

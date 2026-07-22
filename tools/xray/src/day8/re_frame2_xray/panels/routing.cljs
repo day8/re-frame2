@@ -69,7 +69,7 @@
   ## Pure hiccup (rf2-tijr)
 
   Same contract as every other Xray panel — the view is pure hiccup,
-  no Reagent / UIx / Helix references. Frame isolation comes from the
+  no Reagent / UIx references. Frame isolation comes from the
   enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
 
   ## Helpers

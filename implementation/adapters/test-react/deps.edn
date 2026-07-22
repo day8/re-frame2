@@ -11,7 +11,7 @@
 ;; :clein/build descriptor, and is absent from the lockstep array
 ;; (.github/scripts/verify-version-lockstep.sh), the release deploy
 ;; matrix, and the CI JVM job set. Unlike the four published adapters
-;; (reagent, reagent-slim, uix, helix — each its own Clojars artefact),
+;; (reagent, reagent-slim, uix — each its own Clojars artefact),
 ;; consumers never depend on this; it supplies the
 ;; re-frame.adapter.test-react ns ONLY for the project's own unit tests,
 ;; and depends on the core artefact via :local/root for everything else.

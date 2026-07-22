@@ -48,7 +48,7 @@
   ## Pure hiccup
 
   Same contract as every Xray panel — the view is pure hiccup, no
-  Reagent/UIx/Helix references. Frame isolation comes from the enclosing
+  Reagent/UIx references. Frame isolation comes from the enclosing
   `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`. Projection
   algebra lives in `resources_helpers.cljc` (JVM-portable)."
   (:require [clojure.string :as str]

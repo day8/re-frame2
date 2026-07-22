@@ -5,7 +5,7 @@
    Strategy:
 
      1. Generate a tmp app via `org.corfield.new/create` for each
-        substrate (Reagent / UIx / Helix). Driving the deps-new entry
+        substrate (Reagent / UIx). Driving the deps-new entry
         fn in-process exercises the same `data-fn` / `template-fn` /
         `post-process-fn` pipeline a shell-out `clojure -Tnew create`
         would — without spawning a JVM per substrate.
@@ -66,8 +66,7 @@
 
 (def ^:private substrate-coord
   {:reagent 'day8/re-frame2-reagent
-   :uix     'day8/re-frame2-uix
-   :helix   'day8/re-frame2-helix})
+   :uix     'day8/re-frame2-uix})
 
 ;; --- Tests ---------------------------------------------------------------
 
@@ -289,9 +288,7 @@
             :reagent (is (.contains views-text "reg-view")
                          "Reagent views.cljs uses reg-view")
             :uix     (is (.contains views-text "defui")
-                         "UIx views.cljs uses defui")
-            :helix   (is (.contains views-text "defnc")
-                         "Helix views.cljs uses defnc")))
+                         "UIx views.cljs uses defui")))
 
         ;; -- Per-substrate README badge --
         ;;
@@ -303,8 +300,7 @@
           (is (.contains readme-text
                          (case substrate
                            :reagent "substrate-Reagent"
-                           :uix     "substrate-UIx"
-                           :helix   "substrate-Helix"))
+                           :uix     "substrate-UIx"))
               "README ships the per-substrate badge")))
       (finally
         (delete-recursively tmp)))))
@@ -680,10 +676,6 @@
   (testing ":substrate :uix produces the expected tree"
     (assert-shape! :uix)))
 
-(deftest helix-substrate-test
-  (testing ":substrate :helix produces the expected tree"
-    (assert-shape! :helix)))
-
 ;; --- :ui substrate (EXPERIMENTAL — 2026-07-19 template-menu ruling) --------
 ;;
 ;; The :ui variant is deliberately NOT run through `assert-shape!`: its
@@ -721,8 +713,7 @@
             (is (not (contains? (:deps deps) 'day8/re-frame2-xray))
                 ":ui deps.edn does NOT reference day8/re-frame2-xray — the
                  minimal consumer shape carries no Xray coord")
-            (doseq [adapter '[day8/re-frame2-reagent day8/re-frame2-uix
-                              day8/re-frame2-helix]]
+            (doseq [adapter '[day8/re-frame2-reagent day8/re-frame2-uix]]
               (is (not (contains? (:deps deps) adapter))
                   (str ":ui deps.edn does NOT reference the " adapter
                        " adapter"))))
@@ -1229,7 +1220,7 @@
 
 (deftest include-story-non-reagent-rejected-test
   (testing ":include-story? true is rejected for non-Reagent substrates
-            in v1 — UIx + Helix follow once Story's adapter coverage
+            in v1 — UIx follows once Story's adapter coverage
             matches Reagent's"
     (let [tmp (tmp-dir "rf2-template-story-uix-")]
       (try
@@ -1237,10 +1228,6 @@
                               #":rf\.error/template-include-story-reagent-only"
                               (run-template! tmp "acme/my-app" :uix true))
             ":include-story? + :uix is rejected at the entry-fn")
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-include-story-reagent-only"
-                              (run-template! tmp "acme/my-app" :helix true))
-            ":include-story? + :helix is rejected at the entry-fn")
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
                               #":rf\.error/template-include-story-reagent-only"
                               (run-template! tmp "acme/my-app" :ui true))
@@ -1265,7 +1252,7 @@
 ;; full Spec 011 reference impl; rf2-0m5ea closed), so `:include-ssr?` is a
 ;; LIVE Reagent-only flag mirroring `:include-story?`'s shape. The report's
 ;; §3.3 test plan: a positive Reagent shape check + the three negative
-;; guards (UIx / Helix / story-mutual-exclusion).
+;; guards (UIx / story-mutual-exclusion).
 
 (deftest default-path-emits-no-ssr-files-test
   (testing "default path (no :include-ssr?) does not emit the SSR sources
@@ -1570,7 +1557,7 @@
 
 (deftest include-ssr-non-reagent-rejected-test
   (testing ":include-ssr? true is rejected for non-Reagent substrates in
-            v1 — UIx + Helix SSR follow once the per-substrate adapters
+            v1 — UIx SSR follows once the per-substrate adapters
             demonstrate parity"
     (let [tmp (tmp-dir "rf2-template-ssr-uix-")]
       (try
@@ -1579,11 +1566,6 @@
                               (run-template-opts! tmp "acme/my-app"
                                                   {:substrate :uix :include-ssr? true}))
             ":include-ssr? + :uix is rejected at the entry-fn")
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-include-ssr-reagent-only"
-                              (run-template-opts! tmp "acme/my-app"
-                                                  {:substrate :helix :include-ssr? true}))
-            ":include-ssr? + :helix is rejected at the entry-fn")
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
                               #":rf\.error/template-include-ssr-reagent-only"
                               (run-template-opts! tmp "acme/my-app"

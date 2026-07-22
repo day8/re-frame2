@@ -5,17 +5,16 @@
   ## Why this test exists
 
   The hook `:reagent/set-hiccup-emitter!` is declared `:chained? true`
-  in `re-frame.late-bind.directory` and lists the four React-shaped
+  in `re-frame.late-bind.directory` and lists the three React-shaped
   adapter producer namespaces:
 
       re-frame.adapter.reagent
       re-frame.adapter.reagent-slim
       re-frame.adapter.uix
-      re-frame.adapter.helix
 
   (The headless test-react adapter also chains onto this hook for its
   SSR emitter slot — it is a legitimate additional producer, but not a
-  React-shaped one, so this test pins the four React adapters as a
+  React-shaped one, so this test pins the three React adapters as a
   REQUIRED SUBSET rather than the exact set.)
 
   The contract for chained hooks: every producer publishes via
@@ -28,11 +27,11 @@
   the offender (plus the offender itself).
 
   The pre-rf2-cl1qv bug was exactly that: `re-frame.adapter.reagent`
-  used `set-fn!` for this hook. The current shadow-cljs ns-load
-  ordering happens to load reagent before uix/helix — so uix's and
-  helix's later `chain-fn!` rebuilt a chain on top of reagent and the
+  used `set-fn!` for this hook. The shadow-cljs ns-load
+  ordering happened to load reagent before uix — so uix's later
+  `chain-fn!` rebuilt a chain on top of reagent and the
   hidden bug was invisible. A future ns-load reshuffle that loaded
-  reagent LAST would have silently dropped uix's, helix's, and
+  reagent LAST would have silently dropped uix's and
   reagent-slim's emitter installs.
 
   ## What this test pins
@@ -43,7 +42,7 @@
     2. Calling that fn with a sentinel emitter installs the sentinel
        into EVERY adapter's emitter cell — proving every producer's
        chain step ran. A regression that swaps any producer back to
-       `set-fn!` causes at least one of the four assertions to fail.
+       `set-fn!` causes at least one of the three assertions to fail.
 
   Verification is end-to-end: we don't peek at the chained-fn's
   internal step list. We invoke the hook and observe each adapter's
@@ -62,13 +61,12 @@
   ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.set :as set]
-            ;; Loading every adapter ns here forces all four to publish
+            ;; Loading every adapter ns here forces all three to publish
             ;; their chain steps before this test's deftest runs. Every
             ;; require is load-bearing — do not trim.
             [re-frame.adapter.reagent       :as reagent-adapter]
             [re-frame.adapter.reagent-slim  :as reagent-slim-adapter]
             [re-frame.adapter.uix           :as uix-adapter]
-            [re-frame.adapter.helix         :as helix-adapter]
             [re-frame.late-bind             :as late-bind]
             [re-frame.late-bind.directory   :as directory]))
 
@@ -101,8 +99,7 @@
                            (if (sequential? p) p [p])))
           react-adapters '#{re-frame.adapter.reagent
                             re-frame.adapter.reagent-slim
-                            re-frame.adapter.uix
-                            re-frame.adapter.helix}]
+                            re-frame.adapter.uix}]
       (is (some? entry)
           "directory entry for :reagent/set-hiccup-emitter! must exist")
       (is (true? (:chained? entry))
@@ -128,14 +125,12 @@
     (reagent-adapter/set-hiccup-emitter! nil)
     (reagent-slim-adapter/set-hiccup-emitter! nil)
     (uix-adapter/set-hiccup-emitter! nil)
-    (helix-adapter/set-hiccup-emitter! nil)
     ;; Step 2: confirm the cleared state — render-to-string must throw
     ;; on every adapter. This sanity-check rules out a stale install
     ;; from a prior test masking a fan-out failure below.
     (doseq [[adapter-name adapter-map] [["reagent"      reagent-adapter/adapter]
                                         ["reagent-slim" reagent-slim-adapter/adapter]
-                                        ["uix"          uix-adapter/adapter]
-                                        ["helix"        helix-adapter/adapter]]]
+                                        ["uix"          uix-adapter/adapter]]]
       (is (thrown-with-msg?
             js/Error
             #":rf\.error/no-hiccup-emitter-bound"
@@ -160,15 +155,14 @@
       ;; adapter's chain step did NOT run — the chain was clobbered.
       (doseq [[adapter-name adapter-map] [["reagent"      reagent-adapter/adapter]
                                           ["reagent-slim" reagent-slim-adapter/adapter]
-                                          ["uix"          uix-adapter/adapter]
-                                          ["helix"        helix-adapter/adapter]]]
+                                          ["uix"          uix-adapter/adapter]]]
         (is (= marker (adapter-render-to-string adapter-map))
             (str "fan-out failure: " adapter-name
                  " adapter's render-to-string did NOT route to the "
                  "sentinel installed via the chained hook — its "
                  "chain-fn! step was either never registered or was "
                  "clobbered by a sibling producer that used set-fn! "
-                 "instead of chain-fn!. Verify all four adapter nses "
+                 "instead of chain-fn!. Verify all three adapter nses "
                  "use `(late-bind/chain-fn! :reagent/set-hiccup-emitter! ...)` "
                  "at the bottom of their src file."))))
     ;; Step 5: leave the test bundle's emitter slots in a sane state
@@ -178,5 +172,4 @@
     ;; upon to wire it for ssr-routed tests.
     (reagent-adapter/set-hiccup-emitter! nil)
     (reagent-slim-adapter/set-hiccup-emitter! nil)
-    (uix-adapter/set-hiccup-emitter! nil)
-    (helix-adapter/set-hiccup-emitter! nil)))
+    (uix-adapter/set-hiccup-emitter! nil)))

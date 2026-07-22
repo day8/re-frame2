@@ -4,7 +4,7 @@
 
   Background. Per rf2-jicu2 / rf2-ykqee the `IDisposable` protocol was
   lifted out of `reagent.ratom` into `re-frame.disposable` so the UIx
-  and Helix adapters can satisfy the sub-cache teardown contract
+  adapter can satisfy the sub-cache teardown contract
   without dragging ~9KB of Reagent batching/ratom code into their
   bundles. The spine reifies this protocol on its derived-value
   containers; the substrate-spine integration test

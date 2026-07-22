@@ -8,7 +8,7 @@
 ;; only artefact that requires reagent.core/ratom/dom.client (see
 ;; re-frame.adapter.reagent). Core carries no stock-Reagent dep:
 ;; re-frame.views late-binds via the `:adapter/current-component` hook and
-;; requires nothing, so a UIx, Helix, or reagent-slim consumer gets a
+;; requires nothing, so a UIx or reagent-slim consumer gets a
 ;; Reagent-free core classpath.
 {:paths ["src"]
  :deps  {day8/re-frame2  {:local/root "../../core"}

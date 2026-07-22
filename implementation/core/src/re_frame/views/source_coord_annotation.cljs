@@ -83,7 +83,7 @@
   artefact, whose classpath intentionally contains neither stock Reagent nor
   reagent-slim. Requiring `reagent.impl.component` (or `reagent2.impl.component`)
   here would make a core-only compile fail and would pull a Reagent
-  implementation into UIx/Helix release bundles. So each supported class shape
+  implementation into UIx release bundles. So each supported class shape
   is matched by its own structural marker instead:
 
     - Stock Reagent 2.x marks a `create-class` constructor with

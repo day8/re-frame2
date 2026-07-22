@@ -11,8 +11,8 @@
   3. compose adapter disposal with every public compiled client Root, whose
      registry is intentionally separate from the generic spine registry.
 
-  The watchable half is the production observation path retained when the
-  UIx and Helix adapters are removed. It uses the core's React spine directly
+  The watchable half is the production observation path that stands on its
+  own, independent of the wrapper adapters. It uses the core's React spine directly
   — plain atom state, one coherent-write scheduler, `IDeref` + `IWatchable`
   derived values, and no dependency on either wrapper library. Compiled views
   do not use the spine's legacy subscription hook: their sole read owner is
@@ -65,7 +65,7 @@
 ;; The React-context-tier frame-id reader for the pure compiled-view runtime.
 ;; Routed against plain-atom so `resolve-current-frame` sees the context tier
 ;; when plain-atom is installed (the pure-ui case); the classic-adapter chain
-;; is untouched. Fallback `#(frame/current-frame)` mirrors the UIx/Helix
+;; is untouched. Fallback `#(frame/current-frame)` mirrors the UIx
 ;; routing — the dynamic-var tier when neither this nor a chained handler runs.
 (substrate-adapter/route-hook! plain-atom/adapter :adapter/current-frame
   adapter-context/function-component-current-frame
@@ -90,7 +90,7 @@
 (defn- frame-provider-component
   "The adapter-contract provider component. `ui/frame-provider` normally
   compiles straight to the shared Context Provider; this component serves the
-  lower-level `:register-context-provider` slot without UIx/Helix marshalling."
+  lower-level `:register-context-provider` slot without UIx marshalling."
   [props]
   (let [frame-id (frame/require-frame-provider-target!
                   (.-frame props)

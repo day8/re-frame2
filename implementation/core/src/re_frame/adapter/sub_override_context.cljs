@@ -66,7 +66,7 @@
 (defn current-overrides
   "Read the closest enclosing Provider's override map off the shared
   context object's `_currentValue` (the substrate-portable path that
-  UIx/Helix `use-context` and Reagent's `:contextType` read are both
+  UIx `use-context` and Reagent's `:contextType` read are both
   sugar over). Returns the `{query-vector value}` map, or nil outside
   any Story override-scope Provider.
 

@@ -6,7 +6,7 @@
   `(apply compute-fn (map deref source-containers))` — `apply` cost on
   every recompute and a lazy `map` cons chain that defers derefs. The
   fn now routes through `spine/build-recompute-fn` so reagent-slim
-  shares the arity-spec with Reagent, UIx and Helix. These tests pin
+  shares the arity-spec with Reagent and UIx. These tests pin
   the observable contract so an inadvertent regression to the naive
   shape would break the suite.
 

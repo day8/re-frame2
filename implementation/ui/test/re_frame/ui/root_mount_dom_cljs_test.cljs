@@ -27,7 +27,7 @@
 ;; The repository's established native-React act pattern — the same
 ;; get-act / enable-react-act-env! shape as core's shared React suite
 ;; (react_shared_suite.cljs `with-browser-act`) and the frame-scope keystone
-;; fixture. It uses React's OWN `act()`, NOT UIx/Helix/Reagent machinery.
+;; fixture. It uses React's OWN `act()`, NOT UIx/Reagent machinery.
 ;;
 ;; `flushSync` is NOT an act substitute: React's test contract treats any
 ;; update committed outside an act scope as "not wrapped in act(...)". The

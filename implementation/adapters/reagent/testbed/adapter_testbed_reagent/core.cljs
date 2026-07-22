@@ -43,7 +43,7 @@
   ;; or `with-frame` scope — still routes to `:rf/default`. A bare
   ;; `#(rf/dispatch [:counter/inc])` would resolve no frame at click time and
   ;; raise `:rf.error/no-frame-context` (the runtime never synthesises a frame
-  ;; from absence). Mirrors the UIx / Helix testbeds' `capture-frame` pattern.
+  ;; from absence). Mirrors the UIx testbeds' `capture-frame` pattern.
   (let [n        @(rf/subscribe [:counter/value])
         dispatch (:dispatch (rf/capture-frame))]
     [:div

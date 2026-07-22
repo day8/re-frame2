@@ -22,8 +22,8 @@
        Provider/Consumer pairs do not interact. Putting the createContext
        call in a single shared ns guarantees identity.
 
-  Factored out of re-frame.views so every React-shaped adapter (UIx,
-  Helix) reads the same context object."
+  Factored out of re-frame.views so every React-shaped adapter (UIx)
+  reads the same context object."
   (:require ["react" :as React]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -69,7 +69,7 @@
 (defn provider-element
   "Build a React element for the frame-context Provider with `frame-kw`
   as its value and `children` as its child elements. Substrate-agnostic
-  — the Reagent adapter (via `:>` interop), the UIx/Helix adapters (via
+  — the Reagent adapter (via `:>` interop), the UIx adapters (via
   `$`), and the first-party re-frame.ui substrate's provider component
   all wrap their element idiom around this primitive.
 
@@ -86,8 +86,8 @@
   flat positional arg list (rf2-7kii2). The native trailing-children idiom
   hands a provider core whatever shape each substrate's element macro
   stashes on `:children` — a JS ARRAY for multiple trailing children
-  (UIx's `(cljs.core/array …)`, Helix's `(into-array …)`), a SINGLE element
-  for one trailing child (Helix), a CLJS vector/seq, or `nil` (no
+  (UIx's `(cljs.core/array …)`), a SINGLE element
+  for one trailing child, a CLJS vector/seq, or `nil` (no
   children). All four collapse here: a JS array is spread via `array-seq`,
   an existing CLJS sequential is passed through, `nil` becomes no children,
   and any lone non-collection child is wrapped. React keys multi-child
@@ -148,7 +148,7 @@
   the registry's `:rf/id` (documented exemption per Spec 006 §Source-coord
   annotation). `type-tag` is the offending root's head/type for the
   diagnostic. `substrate-name` is an optional string identifying the host
-  substrate (\"UIx\", \"Helix\", …); it is omitted from the message when
+  substrate (\"UIx\", …); it is omitted from the message when
   nil — the Reagent hiccup-walk path passes nil (no substrate qualifier),
   the React-element spine path passes its substrate name. Shared by
   `re-frame.views.warn-once` and `re-frame.substrate.spine` so the message
@@ -243,9 +243,9 @@
                       :recovery :no-frame-context
                       :reason   "React-context `_currentValue` is not a frame keyword and not the no-provider sentinel; check the closest frame boundary above this subtree — a `frame-provider` (SCOPE) or a `frame-root` (ENSURE) — or whether the subtree was rendered through an unwrapped portal."}))
 
-;; ---- function-component current-frame (UIx / Helix; rf2-d4sf) ------------
+;; ---- function-component current-frame (UIx; rf2-d4sf) ------------
 ;;
-;; UIx and Helix render function components — they have no class-
+;; UIx renders function components — they have no class-
 ;; component-specific `(.-context cmp)` slot. The substrate-portable
 ;; way to observe the active Provider's value is to read
 ;; `_currentValue` directly off the shared context object. React
@@ -254,7 +254,7 @@
 ;; enclosing Provider's value.
 ;;
 ;; Per Spec 006 §Frame-provider via React context, this fn is the
-;; canonical impl that the UIx and Helix adapters publish through the
+;; canonical impl that the UIx adapter publishes through the
 ;; `:adapter/current-frame` late-bind hook. Reagent has its own impl
 ;; in `re-frame.views/current-frame` that uses the class-component
 ;; `(.-context cmp)` path: a plain Reagent fn lacking `:contextType`
@@ -302,8 +302,8 @@
                                    nil)))
 
 (defn function-component-current-frame
-  "Resolution chain (READER) for function-component substrates (UIx,
-  Helix). Returns the scope frame, or **nil** when no scope is
+  "Resolution chain (READER) for function-component substrates (UIx).
+  Returns the scope frame, or **nil** when no scope is
   established — it never synthesises `:rf/default` (per Spec 002 §Frame
   target resolution — the carried invariant, EP-0002). The two tiers it
   observes:
@@ -314,8 +314,8 @@
        `frame-provider` (SCOPE) or a `frame-root` (ENSURE); both install
        the same shared context, so a read resolves identically beneath
        either. Reads `_currentValue` off the shared context object
-       directly (the substrate-portable path; UIx's `use-context` and
-       Helix's `use-context` are both sugar over this read) and classifies
+       directly (the substrate-portable path; UIx's `use-context` is
+       sugar over this read) and classifies
        it through the shared [[context-value->current-frame]] rules.
 
   Returns nil when neither tier names a frame — a component rendered

@@ -25,7 +25,7 @@
   to match the client, NOT the reverse. Giving keyword heads client-side
   view semantics was option (c) and was REJECTED (it would reverse
   rf2-n82bbu, cost a hot-path registry probe per keyword head, and land
-  in every adapter, while UIx/Helix are not hiccup at all so it could not
+  in every adapter, while UIx are not hiccup at all so it could not
   land uniformly anyway).
 
   ## What these tests therefore assert

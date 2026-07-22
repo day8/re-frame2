@@ -18,7 +18,7 @@
   This ns pins the mechanism substrate-agnostically (JVM + the :node-test
   CLJS gate, via .cljc) against the plain-atom adapter, independently of any
   one substrate's hook wiring; the per-substrate observable regressions
-  (copied UIx/Helix/Reagent/reagent-slim maps still drive their live hooks,
+  (copied UIx/Reagent/reagent-slim maps still drive their live hooks,
   copied Test-React map still mounts) live in the adapter suites."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])

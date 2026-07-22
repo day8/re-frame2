@@ -475,7 +475,7 @@
 
 (defn current-flush-hooks
   "Resolve the active flush-hooks map. An adapter-aware caller (the
-  Reagent/UIx/Helix shell, a future `:dom` browser runner) registers a
+  Reagent/UIx shell, a future `:dom` browser runner) registers a
   richer hooks map via `late-bind/set-fn! :settled-boundary-hooks <fn>`,
   where the fn takes the frame-id and returns the hooks for that frame.
   When no adapter has registered, the headless hooks are used so a

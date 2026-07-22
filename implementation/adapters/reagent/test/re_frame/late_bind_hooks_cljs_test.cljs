@@ -28,7 +28,7 @@
   hook → fn entries) and check the expected key-set is a subset of the
   installed keys. Subset rather than equality because other adapter
   ns'es are loaded in the same test bundle (the late-bind set-fn!s for
-  uix / helix / reagent-slim hooks also fire at ns-load time per the
+  uix / reagent-slim hooks also fire at ns-load time per the
   drift-test rules), so the installed keys are a superset of any one
   adapter's contribution.
 

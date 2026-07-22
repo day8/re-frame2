@@ -34,7 +34,7 @@
       `(satisfies? IReactiveAtom x)` — protocol-based, not class-based.
 
     - IDisposable is the cross-substrate cache-wiring contract. UIx
-      and Helix adapters reify this same protocol on their derived-value
+      adapter reifies this same protocol on its derived-value
       objects so `re-frame.interop/add-on-dispose!` dispatches uniformly
       via protocol — no `instance?` branch in core. The shape of
       `dispose!` and `add-on-dispose!` MUST NOT change.
@@ -263,7 +263,7 @@
   "Cross-substrate disposal protocol. The cache-wiring contract per
   IMPL-SPEC §3.4 + Spec 006 §subscription-cache: re-frame's per-slot
   evict logic calls `re-frame.interop/add-on-dispose!` which dispatches
-  via this protocol. UIx and Helix derived-value reifies implement the
+  via this protocol. UIx derived-value reifies implement the
   same shape, so a single protocol-dispatch handles every substrate
   with no instance? branch in core.
 

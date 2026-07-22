@@ -1,6 +1,6 @@
 (ns re-frame.adapter.react-test-support
   "Lightweight, dependency-free test helpers shared across the React-shaped
-  adapter test surfaces (UIx, Helix) — rf2-5g21s.
+  adapter test surfaces (UIx) — rf2-5g21s.
 
   WHY A SEPARATE NS. The parameterised `re-frame.adapter.react-shared-suite`
   is the home for shared *assertions*, but it `:require`s the full
@@ -18,7 +18,7 @@
 (defn react-element-attr
   "Pull `attr` (a string prop name) off a React element's `.-props`, or
   nil. Defensively returns nil on every branch so callers can `nil?`-test
-  the result. The single hoisted home for this accessor: the UIx and Helix
+  the result. The single hoisted home for this accessor: the React-hook
   `*-source-coord-dom-elision-prod-test.cljs` twins (and the shared suite)
   reference it instead of each carrying a byte-identical private copy. Both
   elision attrs (`data-rf2-source-coord` + `data-rf-view`) ride the same

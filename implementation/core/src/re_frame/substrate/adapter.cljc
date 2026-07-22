@@ -3,7 +3,7 @@
 
   The runtime is substrate-agnostic; every host-specific reactivity concern
   goes through these ten functions. The reference ships the first-party
-  re-frame.ui adapter plus the transition Reagent, UIx, and Helix browser
+  re-frame.ui adapter plus the transition Reagent and UIx browser
   adapters, and plain-atom for JVM / SSR / headless use.
 
   Required functions (6):
@@ -19,14 +19,14 @@
   An adapter is a Clojure map with these keys plus a `:kind` discriminator
   keyword. Canonical framework members live under the reserved
   `:rf.adapter/*` namespace (`:rf.adapter/reagent` / `:rf.adapter/reagent-slim`
-  / `:rf.adapter/ui` / `:rf.adapter/uix` / `:rf.adapter/helix` / `:rf.adapter/plain-atom` /
+  / `:rf.adapter/ui` / `:rf.adapter/uix` / `:rf.adapter/plain-atom` /
   `:rf.adapter/ssr`); user-supplied adapters report as `:custom` when they
   don't pick a canonical kind. It is installed into the process via
   install-adapter! and introspected via current-adapter (keyword) and
   current-adapter-spec (the full map).
 
   There is no default-adapter registry and no ns-load side-effect.
-  Each adapter ns (`re-frame.ui`, re-frame.adapter.reagent / .uix / .helix,
+  Each adapter ns (`re-frame.ui`, re-frame.adapter.reagent / .uix,
   re-frame.substrate.plain-atom, re-frame.ssr) exports an `adapter`
   var (the spec map); consumers require the ns and pass the var
   explicitly via `(rf/init! reagent/adapter)`. Explicit > implicit
@@ -79,7 +79,7 @@
   installed adapter generation — ROUTED to that generation ALONE and
   PRECEDENCE-SAFE (rf2-h9szm). `re-frame.ssr.emit` retains the current emitter
   durably under `:ssr/current-hiccup-emitter` at ns-load; the React-shaped
-  adapters (re-frame.ui, UIx, Helix) and the ratom family (Reagent /
+  adapters (re-frame.ui, UIx) and the ratom family (Reagent /
   reagent-slim) clear their per-generation `emitter-cell` on
   `dispose-adapter!`, so a public destroy → re-init cycle — or an
   SSR-before-adapter load order — would otherwise leave `render-to-string`
@@ -176,7 +176,7 @@
   "Return the discriminator keyword identifying the installed adapter, or
   nil if none. Per Spec 006 §Adapter introspection: one of
   `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`, `:rf.adapter/ui`, `:rf.adapter/uix`,
-  `:rf.adapter/helix`, `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or
+  `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or
   `:custom` for user-supplied adapters that didn't pick a canonical kind.
 
   This answers \"what substrate am I on?\" — predicate / branch code.
@@ -410,7 +410,7 @@
   `IAtom` reliably marks a base atom on both hosts.
 
   Sound ONLY for adapters whose base container IS atom-shaped (plain-atom,
-  test-react, UIx, Helix): their base container is a `clojure.core/atom`
+  test-react, UIx): their base container is a `clojure.core/atom`
   (an `IAtom`) and their derived value is an `IDeref`-only reify (plain-atom
   JVM / test-react), an `IDeref`+`IDisposable` reify (plain-atom CLJS), or
   an `IDeref`+`IWatchable`+`IDisposable` reify (the React spine) — none of
@@ -459,11 +459,11 @@
       published the hook (`nil`) → the installed adapter has NO opinion;
       fall back to the host atom-marker heuristic (sound only for adapters
       whose base container IS atom-shaped — plain-atom / test-react / UIx /
-      Helix, whose derived values are NOT atom-shaped).
+      whose derived values are NOT atom-shaped).
 
   For the ratom family the hook is decisive (truthy for a `Reaction`,
   `false` for a base `r/atom`), so the heuristic is never reached for their
-  containers. For plain-atom / test-react / UIx / Helix the routed hook is
+  containers. For plain-atom / test-react / UIx the routed hook is
   absent or returns the sentinel (chain fallback), so the atom-marker arm
   decides — exactly where it is sound.
 
@@ -685,7 +685,7 @@
 ;; `assoc`/`merge`/`update`s a canonical adapter map for instrumentation or
 ;; local overrides installs a value-equal map with a DIFFERENT identity, so
 ;; every routed hook silently falls through to the chain/fallback — boot is
-;; green but UIx/Helix lose `:adapter/current-frame` React-context
+;; green but UIx lose `:adapter/current-frame` React-context
 ;; resolution, view source/view-id wrapping, after-render, and derived-value
 ;; disposal; Reagent/reagent-slim lose the ratom-family hooks including the
 ;; `:adapter/derived-container?` guard; test-react `mount!` throws even
@@ -738,7 +738,7 @@
 
 ;; ---- late-bind hook routing (rf2-0d35) ------------------------------------
 ;;
-;; Each CLJS adapter (ui, reagent, reagent-slim, uix, helix) publishes ~5-9
+;; Each CLJS adapter (ui, reagent, reagent-slim, uix) publishes ~5-9
 ;; late-bind hooks at ns-load time so consumers in core (subs, views,
 ;; interop) reach the installed adapter's substrate-specific impls
 ;; without a static :require. In test bundles that load multiple adapter

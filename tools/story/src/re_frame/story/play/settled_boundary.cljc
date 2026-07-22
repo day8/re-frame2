@@ -55,7 +55,7 @@
   `[:dispatch …]` step settles to fixed point synchronously, named and
   deterministic.
 
-  Adapter-aware callers (the Reagent/UIx/Helix shell, a future `:dom`
+  Adapter-aware callers (the Reagent/UIx shell, a future `:dom`
   browser runner) register richer hooks declaring a higher `:provides`
   and supplying the reactive / DOM flush fns. Story core never reaches
   for React or the DOM directly; the flush fns are the only seam.

@@ -12,13 +12,13 @@
   eval'd dispatch returns; the synchronous flush is — see Spec 006
   §`flush-render!` + Spec Tool-Pair §Driving the render). Mirrors the
   Reagent-bridge twin `re-frame.adapter-flush-render-dom-cljs-test`; the
-  UIx / Helix twins live in the shared React suite
+  UIx twins live in the shared React suite
   (`assert-flush-render-synchronously-commits`).
 
   WHY A reagent-slim-SPECIFIC FILE (not the shared suite helper). The shared
   `assert-flush-render-synchronously-commits` mounts its probe via
   `react-dom/client createRoot` + `.render` of a NATIVE React element (the
-  UIx/Helix `$` shape). The ratom family renders hiccup THROUGH the substrate's
+  UIx `$` shape). The ratom family renders hiccup THROUGH the substrate's
   own root (`reagent2.dom.client/create-root` + `reagent2.impl.template/
   as-element`), so the substrate-native mount path — the path the adapter's
   `:flush-render!` actually services — is exercised here directly, exactly as

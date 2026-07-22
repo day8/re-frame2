@@ -1,9 +1,9 @@
 (ns re-frame.adapter.use-frame
-  "Shared React-hook hold helper for the React-hook adapters (UIx / Helix):
+  "Shared React-hook hold helper for the React-hook adapters (UIx):
   `use-frame` — `capture-frame` in hook position (rf2-y6dz8t).
 
   capture-frame is THE hold primitive; `reg-view` injection (Reagent) and
-  `use-frame` (UIx / Helix) are its two ergonomic spellings. One primitive,
+  `use-frame` (UIx) are its two ergonomic spellings. One primitive,
   three faces. This hook returns EXACTLY what `(rf/capture-frame)` returns —
   the frame-locked ops map `{:frame :dispatch :dispatch-sync :subscribe}` —
   for the ambient provider frame, so a hooks component stops retyping
@@ -17,8 +17,8 @@
 
   The hook body is substrate-agnostic — it uses `React/useContext` /
   `React/useRef` directly (like the spine's `use-subscribe`, the established
-  shared-hook precedent), not any UIx- or Helix-specific
-  hook — so the UIx and Helix `use-frame` surfaces re-export this ONE
+  shared-hook precedent), not any UIx-specific
+  hook — so the UIx `use-frame` surface re-exports this ONE
   implementation with zero drift. It lives in the core artefact because
   core already `:require`s React (via `re-frame.adapter.context`), and both
   adapters depend on core. The Reagent family does NOT ship it: `reg-view`
@@ -48,7 +48,7 @@
             [re-frame.frame :as frame]))
 
 (defn use-frame
-  "React hook (UIx / Helix): return the frame api for the ambient frame —
+  "React hook (UIx): return the frame api for the ambient frame —
   EXACTLY what `(rf/capture-frame)` returns, captured in hook position:
 
       {:frame         <resolved-frame>

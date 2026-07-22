@@ -55,7 +55,7 @@
 ;; get-act / enable-react-act-env! shape as re-frame.adapter's shared React
 ;; suite (core/.../react_shared_suite.cljs `with-browser-act`) and the
 ;; machines-viz `*-dom-cljs-test` namespaces. It uses React's OWN `act()`, NOT
-;; UIx/Helix/Reagent machinery, so this fixture stays native re-frame.ui on the
+;; UIx/Reagent machinery, so this fixture stays native re-frame.ui on the
 ;; reactive adapter.
 ;;
 ;; `flushSync` is NOT an act substitute: React's test contract treats any

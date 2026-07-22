@@ -28,7 +28,7 @@
           the lifecycle log — the render counter is higher than the contract.
 
   C. Harness-contract guards (rf2-ynjts.6) — the documented public-surface
-     invariants the uix/helix browser suites lean on. Each pins a guard /
+     invariants the uix browser suites lean on. Each pins a guard /
      error / two-entry-point behaviour the harness PROMISES in its docstrings
      but the A/B layers above never exercised: trigger-update! / unmount!
      after teardown, mount-child! outside a render body, mount! under the
@@ -972,7 +972,7 @@
 ;; C. Harness-contract guards (rf2-ynjts.6)
 ;; ----------------------------------------------------------------------------
 ;;
-;; The uix/helix browser suites consume this harness's PUBLIC surface
+;; The uix browser suites consume this harness's PUBLIC surface
 ;; (`mount!` / `trigger-update!` / `unmount!` / `mount-child!` / the substrate
 ;; `:render` entry point / `render-to-string`). Each of the following pins a
 ;; guard or two-entry-point behaviour the harness docstrings PROMISE but the
@@ -1117,7 +1117,7 @@
             returns a thunk that, when called, tears the mount down. mount! and
             :render share the internal mount-tree! seam; :render discards the
             record and hands back ONLY the thunk. Pinning this proves the
-            substrate-facing surface the uix/helix adapters route through stays
+            substrate-facing surface the uix adapters route through stays
             a live unmount handle, not just the inspection-friendly mount!."
     (let [thunk (substrate-adapter/render [:div "via-render"] nil nil)]
       (is (fn? thunk)

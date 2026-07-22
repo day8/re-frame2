@@ -196,7 +196,7 @@
 
 (deftest render-tree-hash-drops-raw-fn-identity
   (testing "rf2-jsa2ml — a raw-fn hiccup head (`[my-component props]`, the
-            deref'd defn VALUE idiomatic to Reagent/UIx/Helix SSR) has NO
+            deref'd defn VALUE idiomatic to Reagent/UIx SSR) has NO
             cross-runtime-stable identity: (.toString fn) is class +
             identity-hashcode on the JVM but the JS source on CLJS. The server
             hashes the raw render tree and the client re-hashes the SAME tree,

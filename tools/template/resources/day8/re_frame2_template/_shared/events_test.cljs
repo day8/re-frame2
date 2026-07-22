@@ -4,7 +4,7 @@
    Substrate-agnostic — uses the plain-atom reactive substrate so the
    tests run under shadow-cljs `:node-test` without a DOM. The same
    events / subs handlers are exercised regardless of which view-side
-   substrate (Reagent / UIx / Helix) the app uses for rendering.
+   substrate (Reagent / UIx) the app uses for rendering.
 
    Run:
 

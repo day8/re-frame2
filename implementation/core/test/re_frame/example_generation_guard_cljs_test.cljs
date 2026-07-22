@@ -11,9 +11,8 @@
    leaves exactly ONE live chain.
 
    This test pins the idiom against `seven-guis.timer.core` — the canonical
-   Reagent precedent the substrate `helix.process-monitor.core` example's
-   README cites for its own tick loop (examples/substrates/helix/process_monitor
-   uses the identical guard). timer.core is requireable + node-drivable and its
+   Reagent precedent (formerly also cited by the Helix process-monitor
+   example, removed at S7/W13). timer.core is requireable + node-drivable and its
    `:tick-gen` guard is the pure form of the pattern (a tick either advances +
    reschedules or no-ops), so pinning it protects the shared idiom. It belongs
    in the framework test tree (examples stay test-free, rf2-8cevm) and runs

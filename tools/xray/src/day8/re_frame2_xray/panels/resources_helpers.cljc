@@ -8,7 +8,7 @@
   algebra (registry rows, live-instance rows, work-ledger rows, the
   route/resource graph, the lifecycle timeline, the invalidation graph,
   the cache-growth view, and the two lints) is PURE data — no substrate,
-  no Reagent/UIx/Helix, no DOM. Keeping it here means the algebra runs
+  no Reagent/UIx, no DOM. Keeping it here means the algebra runs
   under the JVM unit-test target and the CLJS view (`resources.cljs`)
   stays a thin hiccup renderer over these projections.
 

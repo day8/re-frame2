@@ -191,7 +191,7 @@
 
   ## Why pure hiccup + no Reagent direct
 
-  Substrate-agnostic — downstream adapters (Reagent, UIx, Helix) all
+  Substrate-agnostic — downstream adapters (Reagent, UIx) all
   see the same hiccup. The mount-id capture uses Reagent form-2
   semantics in `edn-inspector` itself (rf2 substrate is currently
   Reagent in tools); the rest of the renderer is pure data

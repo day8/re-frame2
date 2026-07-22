@@ -188,7 +188,7 @@
                  **The render-tree hash is HICCUP-TIER-ONLY** (Spec 011
                  §Hydration-mismatch detection, the two-tier split). It applies
                  to substrates whose view is a pure fn returning a hashable
-                 render-tree — Reagent / UIx / Helix, where `((rf/view :app/root))`
+                 render-tree — Reagent / UIx, where `((rf/view :app/root))`
                  yields hiccup. The COMPILED-UI substrate (`re-frame.ui`) has NO
                  hashable client render-tree — its views compile to React
                  elements, not the structural tree the server hashes — so it does
@@ -285,7 +285,7 @@
   `verify-hydration!` at the post-mount site with the observed tree.
   `hydrate!` is the convenience that fuses the common (pure-projection)
   ordering for the host whose render-tree is a pure function of app-db
-  (the re-frame2 norm — Reagent / UIx / Helix all qualify)."
+  (the re-frame2 norm — Reagent / UIx all qualify)."
   ;; A nil frame is an absent target, never an implicit `:rf/default`.
   [{:keys [frame payload render-tree-fn element-id manifest container root-id]}]
   ;; `element-id` is consumed only by the CLJS DOM read; discard-bind it so
