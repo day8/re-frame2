@@ -204,6 +204,11 @@
                   leaf)))
             candidates (cond-> [(io/file root "implementation/core/src/re_frame" (str rel ".cljc"))
                                 (io/file root "implementation/core/src/re_frame" (str rel ".cljs"))
+                                ;; implementation/ui/ — re-frame.ui + re-frame.ui.*
+                                ;; (the EXPERIMENTAL :ui scaffold's substrate;
+                                ;; NOT under implementation/adapters/).
+                                (io/file root "implementation/ui/src/re_frame" (str rel ".cljc"))
+                                (io/file root "implementation/ui/src/re_frame" (str rel ".cljs"))
                                 ;; tools/story/ — re-frame.story + re-frame.story.* live here.
                                 (io/file root "tools/story/src/re_frame" (str rel ".cljc"))
                                 (io/file root "tools/story/src/re_frame" (str rel ".cljs"))
@@ -949,6 +954,29 @@
 (deftest helix-emission-static-parse-test
   (testing "Helix-substrate emission has well-formed ns requires and no surface drift"
     (run-for-substrate! :helix)))
+
+(deftest ui-emission-static-parse-test
+  ;; The EXPERIMENTAL :ui variant rides the same audits as the adapter
+  ;; substrates: the shared dataflow slices + the ui views.cljs (whose
+  ;; bare `:refer`-ed `defview` / `sub` resolve against re-frame.ui via
+  ;; framework-ns-file's implementation/ui candidates), plus a separate
+  ;; audit of core.cljs — its `ui/adapter` / `ui/mount` / `ui/frame-root`
+  ;; references are the surface most likely to drift while the substrate
+  ;; is experimental, and `run-for-substrate!`'s fixed file list does not
+  ;; include core.cljs.
+  (testing "EXPERIMENTAL :ui emission has well-formed ns requires and no
+            surface drift (incl. core.cljs's ui/adapter + ui/mount +
+            ui/frame-root references)"
+    (run-for-substrate! :ui)
+    (let [tmp  (tmp-dir "rf2-emission-ui-core-")
+          root (repo-root)]
+      (try
+        (let [proj (run-template! tmp "acme/my-app" :ui)]
+          (audit-framework-surface! :ui
+                                    (io/file proj "src/acme/my_app/core.cljs")
+                                    root))
+        (finally
+          (delete-recursively tmp))))))
 
 ;; --- :include-story? -----------------------------------------------------
 ;;
