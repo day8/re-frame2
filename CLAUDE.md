@@ -49,6 +49,14 @@ bd close <id>         # Complete work
 - If push fails, resolve and retry until it succeeds
 <!-- END BEADS INTEGRATION -->
 
+## Beads durability
+
+`.beads/issues.jsonl` is a full-database export, not an ordinary source file. `bd` rewrites it in **every** checkout, so each worker worktree carries a snapshot of the tracker as it stood when that worktree was created. Committing that snapshot **time-travels the tracker**: beads closed since it reopen, beads filed since it vanish. PR #6677 landed exactly that — 135 insertions / 136 deletions of pure collateral.
+
+- **The tracker database is the mayor's to commit.** Worker branches carry code, spec, docs and tests — never `.beads/issues.jsonl`, `.beads/metadata.json`, or any other database-derived path. The human-authored config (`.beads/README.md`, `.beads/config.yaml`, `.beads/.gitignore`, `.beads/hooks/**`) is fair game from anywhere. A pre-commit hook enforces this in linked worktrees; `scripts/check-beads-pr-boundary.sh` is the CI arm. See `scripts/git-hooks/README.md`.
+- **Never resolve a `.beads` conflict with `--theirs` or `--ours`.** Both sides are whole-database exports, so picking one wholesale discards every bead the other side recorded. Resolve then **regenerate**: take the incoming file (`git checkout --theirs .beads/issues.jsonl`), re-import it, and let `bd` re-export from the merged database.
+- **Clear `.beads` before pulling — do not stash.** An uncommitted `.beads/issues.jsonl` makes `git pull` abort ("local changes would be overwritten"), silently freezing HEAD at a stale base. Run `git checkout HEAD -- .beads` first. **Do not `git stash`**: stashes are repo-global and contaminate every other worktree in flight.
+- **Do not set `git update-index --skip-worktree` on it.** It hides the local edit from `git status` but still blocks `git pull` — the same frozen HEAD, now with nothing on screen to explain it. Stage explicit paths instead of `git add -A`.
 
 ## Git Conventions
 
@@ -70,7 +78,7 @@ Per `docs/the-mayor-method/`, the `ai/` directory at repo root holds all AI work
 - **Minimise merge conflicts when dispatching.** Hot-zone files (`spec/Conventions.md`, `migration/from-re-frame-v1/README.md`, `spec/API.md`, `spec/Tool-Pair.md`, `spec/Spec-Schemas.md`, `spec/009-Instrumentation.md`, `spec/006-ReactiveSubstrate.md`, `spec/005-StateMachines.md`, `spec/004-Views.md`, `spec/002-Frames.md`, top-level `implementation/deps.edn`, `implementation/shadow-cljs.edn`, `.github/workflows/*`) are sequential, never parallel — two beads touching the same hot file = sequence them, second waits for the first's PR to merge. Isolated surfaces (single-artefact `implementation/<feature>/src/`, new-file additions, test-only dirs `implementation/<feature>/test/`, `examples/<substrate>/<example>/`) are safe to parallel.
 - **Do not maintain `ai/dashboard.md`.** The dashboard is retired (Mike, 2026-06-20), as is the `ai/decisions.md` index (Mike, 2026-07-17): don't create or refresh either. Decision gates surface in chat and on the beads; everything else operator-facing goes in chat.
 - **Pull `main` from `origin` immediately after every PR merge.** Run `git pull --ff-only` as the very next step after `gh pr merge ... --rebase --admin --delete-branch`. No exceptions, no batching multiple merges before pulling. Mike glances at his local working tree to track progress; staleness leaves him with a wrong picture and breaks subsequent dispatches that worktree off `origin/main`. Same rule applies whether merge happened seconds ago or while another agent was running.
-- **Stash before pull when needed.** `.beads/issues.jsonl` may carry uncommitted local edits; stash before pulling and pop after if necessary. (The `ai/` tree is local-only and won't show up in `git status`.)
+- **Clear `.beads` before pull, never stash.** `.beads/issues.jsonl` may carry uncommitted local edits that abort the pull; run `git checkout HEAD -- .beads` first. Stashes are repo-global and contaminate every worktree in flight — see [Beads durability](#beads-durability). (The `ai/` tree is local-only and won't show up in `git status`.)
 
 ## Build & Test
 
