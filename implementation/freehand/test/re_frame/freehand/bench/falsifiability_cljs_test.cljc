@@ -16,6 +16,16 @@
             [re-frame.freehand.bench.falsifiability :as falsifiability]
             [re-frame.freehand.bench.runner :as runner]))
 
+(def ^:private provenance
+  "The revision a TEST supplies.
+
+  A ClojureScript test process is not a build pipeline: no environment
+  variable, no git, and nothing it could truthfully detect. That it
+  cannot emit a record without being told is criterion 1 working, and is
+  asserted directly in the provenance suite — so here the revision is
+  simply supplied and the subject stays the gate/evidence asymmetry."
+  {:revision "test-fixture-revision"})
+
 ;; ---------------------------------------------------------------------------
 ;; Criterion 2 — a deterministic property registered as a GATE reds
 ;; ---------------------------------------------------------------------------
@@ -24,7 +34,8 @@
   (testing "the deliberately violating fixture must fail, naming the
             property — a gate failure that cannot say what broke is a
             stack trace, not a release signal."
-    (let [{:keys [exit-code gate-failures results]} (bench/run [falsifiability/violated-gate])
+    (let [{:keys [exit-code gate-failures results]}
+          (bench/run [falsifiability/violated-gate] provenance)
           failure (first gate-failures)]
       (is (= 1 exit-code))
       (is (= 1 (count gate-failures)))
@@ -36,7 +47,7 @@
 (deftest a-property-that-holds-does-not-red
   (testing "non-vacuity for criterion 2: a harness that reds on
             everything would pass the test above and be worthless."
-    (let [{:keys [exit-code gate-failures]} (bench/run [falsifiability/honoured-gate])]
+    (let [{:keys [exit-code gate-failures]} (bench/run [falsifiability/honoured-gate] provenance)]
       (is (= 0 exit-code))
       (is (empty? gate-failures)))))
 
@@ -49,7 +60,7 @@
             moves by that multiple and the run still exits 0. D021 sets
             no numeric threshold on timing — an adverse trend is
             attributed and dispositioned, never failed automatically."
-    (let [{:keys [exit-code gate-failures results]} (bench/run [falsifiability/moved-timing])
+    (let [{:keys [exit-code gate-failures results]} (bench/run [falsifiability/moved-timing] provenance)
           record (first results)]
       (is (= 0 exit-code))
       (is (empty? gate-failures))
@@ -62,7 +73,7 @@
 (deftest the-moved-timing-really-moved
   (testing "criterion 3's non-vacuity. Without this the assertion above
             is satisfied by a timing that did not change."
-    (let [proof (falsifiability/prove)]
+    (let [proof (falsifiability/prove provenance)]
       (is (number? (:move proof)))
       (is (<= 10 (:move proof))
           (str "the moved arm's p50 was only " (:move proof)
@@ -74,7 +85,7 @@
 
 (deftest the-asymmetry-holds-in-both-directions
   (testing "D021's whole point, as one assertion."
-    (let [{:keys [arms proven? defects]} (falsifiability/prove)]
+    (let [{:keys [arms proven? defects]} (falsifiability/prove provenance)]
       (is (empty? defects))
       (is proven?)
       (is (= 0 (get-in arms [:honoured-gate :exit-code])))
@@ -90,22 +101,22 @@
   (testing "`-main` prints and exits; everything else about the CLI is
             this pure function, so the exit-code contract is testable
             without a process."
-    (let [proof (runner/run-cli ["--prove"])]
+    (let [proof (runner/run-cli ["--prove"] provenance)]
       (is (= 0 (:exit-code proof)))
       (is (true? (get-in proof [:report :proven?])))
       (is (some #(re-find #"PROVEN both ways" %) (:summary proof))))
-    (let [suite (runner/run-cli [])]
+    (let [suite (runner/run-cli [] provenance)]
       (is (= 0 (:exit-code suite))
           "an empty evidence suite is honest, not red: B1-B5 arrive with their slices")
       (is (= :suite (get-in suite [:report :command]))))
-    (let [help (runner/run-cli ["--help"])]
+    (let [help (runner/run-cli ["--help"] provenance)]
       (is (= 0 (:exit-code help)))
       (is (some #(re-find #"deterministic property was violated" %) (:summary help))))))
 
 (deftest the-summary-rides-as-edn-comments
   (testing "stdout is both the thing a reviewer reads and the artefact a
             release cites, so the summary must never break the EDN."
-    (let [{:keys [summary]} (runner/run-cli ["--prove"])]
+    (let [{:keys [summary]} (runner/run-cli ["--prove"] provenance)]
       (is (seq summary))
       (is (every? string? summary))
       (is (not-any? #(re-find #"\r?\n" %) summary)

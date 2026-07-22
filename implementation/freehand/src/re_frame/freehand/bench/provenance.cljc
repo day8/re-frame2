@@ -70,13 +70,27 @@
 (defn- blank->nil [s]
   (when (and (string? s) (not (str/blank? s))) s))
 
+#?(:cljs
+   ;; The browser has no environment and no git. A bundle that is going to
+   ;; be measured names the revision it was built from at COMPILE time:
+   ;;
+   ;;   :closure-defines {re-frame.freehand.bench.provenance/build-revision "<sha>"}
+   ;;
+   ;; Left empty, a browser run cannot emit a result record — which is the
+   ;; correct outcome, not an inconvenience: an unattributable bundle
+   ;; measurement is a number about nothing.
+   (goog-define build-revision ""))
+
 (defn detect-revision
   "The source revision the measured code was built from.
 
-  `RF2_REVISION` wins (a build pipeline knows better than a checkout),
-  then `GITHUB_SHA`, then — on the JVM only — `git rev-parse HEAD`. When
-  none of those answer, this answers nil and [[result]] refuses to emit:
-  an unattributable measurement is not evidence of anything."
+  `RF2_REVISION` wins (a build pipeline knows better than the checkout it
+  happens to be standing in), then `GITHUB_SHA`, then the host's own best
+  answer: a compile-time `build-revision` on ClojureScript, `git rev-parse
+  HEAD` on the JVM.
+
+  When none of those answer, this answers nil and [[result]] refuses to
+  emit. That refusal is the policy working, not a gap in it."
   []
   (or (blank->nil (env "RF2_REVISION"))
       (blank->nil (env "GITHUB_SHA"))
@@ -84,7 +98,7 @@
                  (let [{:keys [exit out]} (shell/sh "git" "rev-parse" "HEAD")]
                    (when (zero? exit) (blank->nil (str/trim out))))
                  (catch Exception _ nil))
-         :cljs nil)))
+         :cljs (blank->nil build-revision))))
 
 (defn detect-hardware-class
   "The hardware class this run's numbers may be compared within.
