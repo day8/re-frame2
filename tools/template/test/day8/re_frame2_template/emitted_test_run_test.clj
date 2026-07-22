@@ -424,6 +424,15 @@
               installed (npm-install-closure (io/file root "implementation/node_modules")
                                              declared)
               missing   (sort (remove installed resolved))]
+          ;; Say what was actually checked. A gate whose only output on a
+          ;; green run is silence cannot be told apart from a gate that
+          ;; degraded into a no-op.
+          (println (str "  [package.json completeness] " label ": build resolves "
+                        (count resolved) " npm package(s) "
+                        (pr-str (sort resolved))
+                        (if (seq missing)
+                          (str " -- UNDECLARED: " (pr-str (vec missing)))
+                          " -- all reachable from the emitted package.json")))
           ;; Vacuous-pass guard: an unparsed / empty manifest would make the
           ;; set-difference trivially empty and the tooth would prove nothing.
           ;; Every variant's dev build resolves React at minimum.
@@ -513,15 +522,22 @@
               (is true
                   (str "Chromium unavailable — the emitted dev-page boot proof "
                        "did not run for " label ". Output:\n" out)))
-          (is (zero? exit)
-              (str "the emitted dev-page boot proof exited " exit " for " label
-                   " — the page a newcomer opens after `npx shadow-cljs watch "
-                   "app` did not boot cleanly. Either #app never painted (a "
-                   "BLANK first page: the emitted index.html's <meta> CSP "
-                   "blocks the dev bundle's goog.globalEval, a broken "
-                   ":init-fn, or a namespace that throws on load), the counter "
-                   "did not move 0 -> 1, or Chromium raised an uncaught "
-                   "pageerror. Output:\n" out)))))))
+          (do
+            ;; Echo the driver's verdict line on a green run too — a browser
+            ;; proof that only speaks when it fails is indistinguishable in
+            ;; the run output from one that silently skipped.
+            (when (zero? exit)
+              (when-let [line (last (remove string/blank? (string/split-lines (str out))))]
+                (println (str "  [dev-page boot] " (string/trim line)))))
+            (is (zero? exit)
+                (str "the emitted dev-page boot proof exited " exit " for " label
+                     " — the page a newcomer opens after `npx shadow-cljs watch "
+                     "app` did not boot cleanly. Either #app never painted (a "
+                     "BLANK first page: the emitted index.html's <meta> CSP "
+                     "blocks the dev bundle's goog.globalEval, a broken "
+                     ":init-fn, or a namespace that throws on load), the counter "
+                     "did not move 0 -> 1, or Chromium raised an uncaught "
+                     "pageerror. Output:\n" out))))))))
 
 ;; --- SSR DOM-adoption browser proof ---------------------------------------
 ;;
