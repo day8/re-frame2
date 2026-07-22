@@ -1,0 +1,93 @@
+;; FH-STRUCT-003 — attribute values in semantic space.
+;;
+;; The tree carries AUTHOR-space attribute names and SEMANTIC values: the
+;; class composed into one canonical string, the style map canonicalised
+;; per the px rule, keywords and symbols through `name`, numbers through
+;; JavaScript `ToString`, booleans left as booleans so present-false stays
+;; distinguishable from absent, and nil entries gone.
+;;
+;; The number rows are the cross-host teeth. `(str 1.0)` is "1.0" on the
+;; JVM and "1" in JavaScript, and `(str 1.0E-4)` is "1.0E-4" against
+;; "0.0001" — so a walk that reached for the host's own `str` would
+;; produce two different trees for one declaration and every equality
+;; assertion downstream would be measuring the host rather than the
+;; contract.
+{:fh/id "FH-STRUCT-003"
+ :fh/law
+ "Attribute values are normalized into semantic space: one canonical class string, a canonical style map, `name` for keywords and symbols, JavaScript ToString for numbers, booleans intact, nil entries dropped."
+
+ :cases
+ [{:note "a class string is verbatim"
+   :form [:div {:class "a b"}]
+   :tree {:tag :div :attrs {:class "a b"} :rf.ui/tree-version 1}}
+
+  {:note "a class vector keeps VECTOR order; nils drop"
+   :form [:div {:class ["b" nil :a]}]
+   :tree {:tag :div :attrs {:class "b a"} :rf.ui/tree-version 1}}
+
+  {:note "a flag map renders truthy entries in LEXICOGRAPHIC order — map iteration order is never trusted"
+   :form [:div {:class {:zebra true :alpha true :hidden false}}]
+   :tree {:tag :div :attrs {:class "alpha zebra"} :rf.ui/tree-version 1}}
+
+  {:note "an all-false flag map contributes no class at all"
+   :form [:div {:class {:hidden false}}]
+   :tree {:tag :div :rf.ui/tree-version 1}}
+
+  {:note "the px rule: numbers gain px unless the property is unitless"
+   :form [:div {:style {:padding 16 :opacity 0.5 :z-index 2}}]
+   :tree {:tag :div :attrs {:style {:padding "16px" :opacity "0.5" :z-index "2"}}
+          :rf.ui/tree-version 1}}
+
+  {:note "zero stays 0, and a custom property takes no px rule"
+   :form [:div {:style {:margin 0 :--gutter 16}}]
+   :tree {:tag :div :attrs {:style {:margin "0" :--gutter "16"}} :rf.ui/tree-version 1}}
+
+  {:note "a keyword style value stringifies through name; a nil entry drops"
+   :form [:div {:style {:display :flex :color nil}}]
+   :tree {:tag :div :attrs {:style {:display "flex"}} :rf.ui/tree-version 1}}
+
+  {:note "a keyword attr value stringifies through name"
+   :form [:div {:data-priority :high}]
+   :tree {:tag :div :attrs {:data-priority "high"} :rf.ui/tree-version 1}}
+
+  {:note "a namespaced keyword's namespace is silently ignored — the shipped rule"
+   :form [:div {:data-priority :app.todo/high}]
+   :tree {:tag :div :attrs {:data-priority "high"} :rf.ui/tree-version 1}}
+
+  {:note "an integral double loses its trailing .0 — JS ToString, not the JVM's"
+   :form [:div {:data-n 1.0}]
+   :tree {:tag :div :attrs {:data-n "1"} :rf.ui/tree-version 1}}
+
+  {:note "the plain-notation window reaches down to 1e-6"
+   :form [:div {:data-n 1.0E-4}]
+   :tree {:tag :div :attrs {:data-n "0.0001"} :rf.ui/tree-version 1}}
+
+  {:note "and turns exponential outside it, in ECMA's spelling"
+   :form [:div {:data-n 1.0E-7}]
+   :tree {:tag :div :attrs {:data-n "1e-7"} :rf.ui/tree-version 1}}
+
+  {:note "the upper end of the window is 1e21"
+   :form [:div {:data-n 1.0E21}]
+   :tree {:tag :div :attrs {:data-n "1e+21"} :rf.ui/tree-version 1}}
+
+  {:note "an integer is an integer"
+   :form [:div {:data-n 42}]
+   :tree {:tag :div :attrs {:data-n "42"} :rf.ui/tree-version 1}}
+
+  {:note "booleans stay booleans — present-false is distinguishable from absent"
+   :form [:input {:disabled false :required true}]
+   :tree {:tag :input :attrs {:disabled false :required true} :rf.ui/tree-version 1}}
+
+  {:note "a nil attr entry never appears"
+   :form [:div {:title nil}]
+   :tree {:tag :div :rf.ui/tree-version 1}}]
+
+ :rejected
+ [{:note "a collection outside :class/:style would render [object Object] garbage"
+   :form [:div {:data-foo {:a 1}}] :error-id :rf.error/ui-tree-malformed}
+  {:note ":style is a map, not a CSS string"
+   :form [:div {:style "color:red"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "a class element is a string or a keyword"
+   :form [:div {:class [42]}] :error-id :rf.error/ui-tree-malformed}
+  {:note "and a handler needs a vector, an options map, or a function"
+   :form [:div {:on-click "go"}] :error-id :rf.error/ui-tree-malformed}]}

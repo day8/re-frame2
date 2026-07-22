@@ -1,0 +1,72 @@
+;; FH-STRUCT-004 — child normalization, the canonical form.
+;;
+;; One children vector, document order. `nil`, `false` and `true` drop;
+;; numbers become text; seqs flatten into the parent's single vector;
+;; adjacent text runs coalesce into one string and empty strings drop
+;; after coalescing; `:children` is absent when empty everywhere except a
+;; fragment, whose `:children` is its discriminator.
+;;
+;; Canonical uniqueness is the point of the whole section: one semantic
+;; tree has exactly one representation, which is what makes the tree a
+;; legitimate equality and fingerprint input rather than a shape that
+;; happens to compare equal when two walks agree on incidentals.
+{:fh/id "FH-STRUCT-004"
+ :fh/law
+ "Children canonicalise into one document-order vector: nil/false/true drop, numbers become text, seqs flatten, adjacent text coalesces, empty strings drop, and :children is absent when empty except on a fragment."
+
+ :cases
+ [{:note "nil, false and true are not content"
+   :form [:div nil false true]
+   :tree {:tag :div :rf.ui/tree-version 1}}
+
+  {:note "numbers become text through JavaScript ToString"
+   :form [:p 42 " " 1.0]
+   :tree {:tag :p :children ["42 1"] :rf.ui/tree-version 1}}
+
+  {:note "adjacent text runs coalesce into ONE string"
+   :form [:p "a" "b" "c"]
+   :tree {:tag :p :children ["abc"] :rf.ui/tree-version 1}}
+
+  {:note "empty strings drop AFTER coalescing"
+   :form [:p "a" "" "b"]
+   :tree {:tag :p :children ["ab"] :rf.ui/tree-version 1}}
+
+  {:note "a body of nothing but empties leaves no children at all"
+   :form [:p "" ""]
+   :tree {:tag :p :rf.ui/tree-version 1}}
+
+  {:note "text separated by an element does NOT coalesce across it"
+   :form [:p "a" [:b "!"] "c"]
+   :tree {:tag :p :children ["a" {:tag :b :children ["!"]} "c"] :rf.ui/tree-version 1}}
+
+  {:note "a seq flattens into the parent's single vector, in document order"
+   :form [:ul ([:li "a"] [:li "b"]) [:li "c"]]
+   :tree {:tag :ul :children [{:tag :li :children ["a"]}
+                              {:tag :li :children ["b"]}
+                              {:tag :li :children ["c"]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "nested seqs flatten too, and their nils drop"
+   :form [:ul (([:li "a"]) nil ([:li "b"]))]
+   :tree {:tag :ul :children [{:tag :li :children ["a"]} {:tag :li :children ["b"]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "text spliced out of a seq coalesces with its neighbours"
+   :form [:p "a" ("b" "c") "d"]
+   :tree {:tag :p :children ["abcd"] :rf.ui/tree-version 1}}
+
+  {:note "an element's :children is absent when empty"
+   :form [:div]
+   :tree {:tag :div :rf.ui/tree-version 1}}
+
+  {:note "a fragment's is not — it is the discriminator"
+   :form [:div [:<>]]
+   :tree {:tag :div :children [{:children []}] :rf.ui/tree-version 1}}
+
+  {:note "a keyed fragment keeps its key"
+   :form [:div [:<> {:key 2} [:i]]]
+   :tree {:tag :div :children [{:children [{:tag :i}] :key 2}] :rf.ui/tree-version 1}}]
+
+ :rejected
+ [{:note "a symbol is not renderable content"
+   :form [:p oops] :error-id :rf.error/ui-tree-malformed}]}

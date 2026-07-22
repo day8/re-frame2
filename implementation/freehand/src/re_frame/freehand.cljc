@@ -130,6 +130,18 @@
       (contains? entry :props-schema)
       (assoc :props-schema (:props-schema entry)))))
 
+(defn ^:no-doc render-body
+  "The declared view's PRIVATE render body — the one-argument fn
+  [[defview]] built from the declaration's parameter vector and body.
+
+  Deliberately NOT projected by [[describe]]: an emitter runs a declared
+  view by calling this, and nothing else does. A view is mounted, and
+  mounting is what an emitter performs; an application that reached the
+  body directly would be calling a view, which is the one thing the
+  non-`IFn` descriptor exists to prevent."
+  [view]
+  (:render (.-entry ^ViewDescriptor view)))
+
 ;; ---------------------------------------------------------------------------
 ;; Vector-head classification — total
 ;; ---------------------------------------------------------------------------
