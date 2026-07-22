@@ -1,0 +1,9 @@
+{
+  "name": "re-frame2-ui",
+  "version": "0.1.0-alpha.1",
+  "description": "Authoring skill for re-frame.ui, re-frame2's experimental compiled-view substrate: defview components, the closed template grammar, handlers-as-data, view-local state and effects, frames and roots, presence, interop, and structural tests — with the generated compile-rejection roster as an on-demand reference. Defers everything upstream of the view to the re-frame2 skill.",
+  "skills": [
+    "./SKILL.md"
+  ],
+  "status": "pre-alpha"
+}

@@ -1,0 +1,41 @@
+{
+  "name": "@day8/re-frame2-ui-skill",
+  "version": "0.1.0-alpha.1",
+  "description": "Authoring skill for re-frame.ui — re-frame2's experimental compiled-view substrate. Teaches defview components in the closed template grammar, handlers-as-data, reactive sub reads, view-local state and effects, frames and roots, presence, interop, structural tests via re-frame.ui.test, and the one-setting Shadow build-hook install; carries the generated compile-rejection roster and API disposition as an on-demand reference.",
+  "keywords": [
+    "claude-code",
+    "claude-code-skill",
+    "claude-code-plugin",
+    "re-frame",
+    "re-frame2",
+    "re-frame.ui",
+    "defview",
+    "compiled-views",
+    "clojurescript",
+    "day8"
+  ],
+  "homepage": "https://github.com/day8/re-frame2/tree/main/skills/re-frame2-ui",
+  "bugs": {
+    "url": "https://github.com/day8/re-frame2/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/day8/re-frame2.git",
+    "directory": "skills/re-frame2-ui"
+  },
+  "license": "MIT",
+  "author": "day8 (https://github.com/day8)",
+  "files": [
+    "SKILL.md",
+    "README.md",
+    "LICENSE",
+    "references/",
+    ".claude-plugin/"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,10 +1,10 @@
 # Skills
 
-> Nine Claude Code skills that travel with the re-frame2 repo — for authoring code, critiquing existing code, bootstrapping a project, migrating from v1, migrating Reagent views to the compiled-view substrate, building a new re-frame2 implementation, touring the Xray devtools panel, pair-programming with a running app, and running a retrospective on a pairing session.
+> Ten Claude Code skills that travel with the re-frame2 repo — for authoring code, authoring views on the experimental `re-frame.ui` compiled-view substrate, critiquing existing code, bootstrapping a project, migrating from v1, migrating Reagent views to the compiled-view substrate, building a new re-frame2 implementation, touring the Xray devtools panel, pair-programming with a running app, and running a retrospective on a pairing session.
 
 A **skill** is a small package of agent-shaped instructions plus optional scripts and reference leaves. When you load a skill into Claude Code (or any other Anthropic-skill-compatible agent), the model picks up its system prompt and its operating contract — so the same conversation that was *"help me write a re-frame2 event handler"* becomes a focused interaction that knows the canonical shapes, the cardinal rules, and where the depth lives.
 
-re-frame2 ships nine skills plus a shared protocol layer (`skills/shared/`), colocated under [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) in this repo. Each skill is self-contained: its own `SKILL.md`, its own `references/` leaves, its own packaging metadata.
+re-frame2 ships ten skills plus a shared protocol layer (`skills/shared/`), colocated under [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) in this repo. Each skill is self-contained: its own `SKILL.md`, its own `references/` leaves, its own packaging metadata.
 
 ## How to load a skill
 
@@ -19,11 +19,12 @@ It is idempotent and refuses to clobber a non-link copy without `--force`/`-Forc
 
 The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) is the deep-dive index for the **spec-consuming** skills — they point at it for spec-corpus depth and EP rationale. (Two skills route their deep-dives elsewhere: `re-frame2-xray` cites its own `tools/xray/spec/*` tree, and `re-frame2-improver` routes to `skills/re-frame2/patterns/` + `spec/`.)
 
-## The nine skills
+## The ten skills
 
 | Skill | Pitch |
 |---|---|
 | [**re-frame2** (authoring)](re-frame2.md) | Write re-frame2 ClojureScript code — events, subs, fx, machines, schemas, stories, routes, and the canonical patterns. |
+| [**re-frame2-ui** (compiled views)](re-frame2-ui.md) | Author view code on the **experimental** `re-frame.ui` compiled-view substrate — `defview`, handlers-as-data, frames/roots, presence, interop, `re-frame.ui.test` — with the generated compile-rejection roster as an on-demand reference. View layer only; the adapters remain first-class. |
 | [**re-frame2-improver**](re-frame2-improver.md) | Critique **existing** re-frame2 code against an anti-pattern catalogue. Explicit-pull-only; surfaces findings cross-linked to canonical idioms, may propose inline fixes. |
 | [**re-frame2-setup**](re-frame2-setup.md) | Bootstrap a fresh re-frame2 ClojureScript project from nothing. Walks the author to a working counter under `shadow-cljs watch`. |
 | [**re-frame-migration** (v1→v2)](re-frame-migration.md) | Migrate an existing re-frame v1.x codebase to re-frame2. Applies the mechanical `M-rules` automatically; flags judgment calls. |
@@ -41,6 +42,7 @@ A quick decision flow (human-facing rendering of [`skills/README.md` §Skill rou
 - **Existing v1 codebase?** → `re-frame-migration`. When the migration report is signed off, switch to `re-frame2`.
 - **Already on re-frame2 and want to trial the experimental compiled-view substrate for your Reagent views?** → `reagent-migration` (optional, second step — staying on Reagent is fine).
 - **Writing new code in an existing v2 project?** → `re-frame2`.
+- **Writing, reviewing, or debugging `defview` views on the experimental `re-frame.ui` compiled-view substrate (or decoding a `:rf.ui.compile/*` rejection)?** → `re-frame2-ui`.
 - **Critiquing existing v2 code on explicit pull (anti-pattern audit)?** → `re-frame2-improver`.
 - **Building a NEW re-frame2 implementation in a different host language or substrate?** → `re-frame2-implementor`.
 - **Touring the Xray devtools panel — how to launch it, or which tab / mode shows X?** → `re-frame2-xray`.
@@ -54,6 +56,7 @@ If a question spans more than one skill, pick the one whose **entry trigger** ma
 | Skill | Source tree |
 |---|---|
 | `re-frame2` | [`skills/re-frame2/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) |
+| `re-frame2-ui` | [`skills/re-frame2-ui/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-ui) |
 | `re-frame2-improver` | [`skills/re-frame2-improver/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-improver) |
 | `re-frame2-setup` | [`skills/re-frame2-setup/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup) |
 | `re-frame-migration` | [`skills/re-frame-migration/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) |

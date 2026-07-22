@@ -2,7 +2,8 @@
   "Regression tests for the re-frame.ui AI context-sheet generator
   (rf2-u53yy.8).
 
-  THE CONTRACT. Two slices of `skills/re-frame2-ui-context/SKILL.md` are
+  THE CONTRACT. Two slices of `skills/re-frame2-ui/references/ui-context.md`
+  (the generated reference leaf behind the authored re-frame2-ui skill) are
   GENERATED from live repo data — never a hand-maintained parallel list
   (which would drift):
 
@@ -306,7 +307,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest committed-sheet-in-sync
-  (testing "skills/re-frame2-ui-context/SKILL.md matches a fresh regeneration
-            from the current compiler messages + manifest + authored prose.
+  (testing "skills/re-frame2-ui/references/ui-context.md matches a fresh
+            regeneration from the current compiler messages + manifest +
+            authored prose.
             Regenerate with: clojure -M -m re-frame.api-manifest.ui-context"
     (is (true? (uic/check!)))))
