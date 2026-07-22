@@ -22,6 +22,25 @@
 #   The tracker database is the MAYOR checkout's to commit. Worker PRs carry
 #   code, spec, docs and tests — never the tracker database.
 #
+# WHY NOT `git update-index --skip-worktree`?
+#
+#   rf2-ia8o7 originally proposed setting `--skip-worktree` on
+#   `.beads/issues.jsonl` in every new worker checkout, so the auto-export
+#   could never be staged at all. Measured, that is STRICTLY WORSE than
+#   refusing the commit:
+#
+#     skip-worktree hides the local edit from `git status` (clean tree), but
+#     `git pull --rebase` still refuses to advance over it —
+#       "error: Your local changes to the following files would be
+#        overwritten by merge: .beads/issues.jsonl ... Aborting"
+#     — leaving HEAD frozen with NOTHING in `git status` to explain why. The
+#     worktree then silently rots at a stale base. This repo has already been
+#     bitten by that exact silent-pull-abort shape.
+#
+#   A loud refusal at commit time, naming the file and the remedy, is the
+#   better trade: it fires only when it must, and it says why. The remedy
+#   text below therefore teaches explicit staging, NOT skip-worktree.
+#
 # ALLOW-LIST, NOT DENY-LIST
 #
 #   The permitted set is the small, human-authored beads CONFIG surface;
@@ -180,17 +199,14 @@ check_beads_boundary() {
     printf '  Fix — take the beads paths out of this branch, then force-push:\n' >&2
     printf '    git rebase -i <base>        # drop or edit the offending commit\n' >&2
     printf '    git checkout origin/main -- .beads && git commit --amend\n' >&2
-    printf '\n' >&2
-    printf '  Then stop it recurring in that worktree:\n' >&2
-    printf '    git update-index --skip-worktree .beads/issues.jsonl\n' >&2
   else
     printf '  Fix — drop the stale snapshot, then commit again:\n' >&2
     printf '    git restore --staged .beads\n' >&2
     printf '    git checkout HEAD -- .beads\n' >&2
-    printf '\n' >&2
-    printf '  Then stop it recurring in this worktree (one-off, permanent):\n' >&2
-    printf '    git update-index --skip-worktree .beads/issues.jsonl\n' >&2
   fi
+  printf '\n' >&2
+  printf '  To stop it recurring: stage explicit paths. `git add -A` and\n' >&2
+  printf '  `git commit -a` sweep up the bd auto-export every time.\n' >&2
   printf '\n' >&2
   printf '  Tracker state is the MAYOR checkout to commit. Worker branches carry\n' >&2
   printf '  code, spec, docs and tests — never the tracker database.\n' >&2
