@@ -68,6 +68,58 @@
              (.getTime (js/Date.)))))
 
 ;; ---------------------------------------------------------------------------
+;; The allocation counter
+;; ---------------------------------------------------------------------------
+
+#?(:clj
+   (def ^:private thread-allocation-bean
+     "The JVM's per-thread allocation counter, or nil where this JVM
+     offers none. Resolved once, lazily, so a host without it costs one
+     failed lookup rather than one per reading."
+     (delay
+       (let [bean (java.lang.management.ManagementFactory/getThreadMXBean)]
+         (when (and (instance? com.sun.management.ThreadMXBean bean)
+                    (.isThreadAllocatedMemorySupported ^com.sun.management.ThreadMXBean bean))
+           bean)))))
+
+(defn allocated-bytes
+  "A cumulative allocation reading in bytes, for the caller to difference
+  across a measured region. The allocation half of D021's B1 requirement,
+  and — like [[now-ms]] — meaningful only as a difference.
+
+  What the number IS differs by host, and the difference is real enough
+  that a result record's `:host` field is what tells a reader which one
+  they are looking at:
+
+    - **JVM** — `ThreadMXBean/getThreadAllocatedBytes`, a MONOTONIC
+      per-thread counter of bytes allocated. A difference is therefore
+      exactly the bytes the measured code allocated on this thread,
+      whether or not a collection ran in the middle.
+    - **Node** — `process.memoryUsage().heapUsed`, which is heap
+      OCCUPANCY, not a counter. A collection between two readings makes
+      the difference smaller than the bytes really allocated, and can
+      make it negative. That is a property of the host's instrumentation,
+      not of the measurement.
+    - **Browser** — `performance.memory.usedJSHeapSize` where the engine
+      exposes it, with the same occupancy caveat, quantised.
+
+  Answers `0.0` where the host offers no reading at all. It is published
+  as evidence and has no route to a verdict, so an uninformative host
+  degrades the value of the number and nothing else."
+  []
+  #?(:clj  (if-let [^com.sun.management.ThreadMXBean bean @thread-allocation-bean]
+             (double (.getThreadAllocatedBytes bean (.threadId (Thread/currentThread))))
+             0.0)
+     :cljs (cond
+             (and (exists? js/process) (some? (.-memoryUsage js/process)))
+             (double (.-heapUsed (js/process.memoryUsage)))
+
+             (and (exists? js/performance) (some? (.-memory js/performance)))
+             (double (.-usedJSHeapSize (.-memory js/performance)))
+
+             :else 0.0)))
+
+;; ---------------------------------------------------------------------------
 ;; The observable vocabulary — the whole of D021's split
 ;; ---------------------------------------------------------------------------
 

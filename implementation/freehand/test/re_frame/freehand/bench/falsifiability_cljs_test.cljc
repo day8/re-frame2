@@ -107,7 +107,7 @@
       (is (some #(re-find #"PROVEN both ways" %) (:summary proof))))
     (let [suite (runner/run-cli [] provenance)]
       (is (= 0 (:exit-code suite))
-          "an empty evidence suite is honest, not red: B1-B5 arrive with their slices")
+          "the standing evidence suite is green: its deterministic properties hold")
       (is (= :suite (get-in suite [:report :command]))))
     (let [help (runner/run-cli ["--help"] provenance)]
       (is (= 0 (:exit-code help)))
@@ -128,5 +128,14 @@
 
 (deftest the-proof-arms-stay-out-of-the-standing-suite
   (testing "one of them fails on purpose, and none of them measures
-            anything a release should cite."
-    (is (empty? (bench/registered)))))
+            anything a release should cite. The arms are constructed and
+            handed to `bench/run` explicitly, never registered — so as
+            real workloads join the suite, none of them is an arm."
+    (let [registered (set (keys (bench/registered)))]
+      (is (seq registered) "the standing suite carries the workloads that have landed")
+      (doseq [arm [falsifiability/honoured-gate falsifiability/violated-gate
+                   falsifiability/baseline-timing falsifiability/moved-timing]]
+        (is (not (contains? registered (:id arm)))
+            (str (:id arm) " is a proof arm and stays out of the standing suite")))
+      (is (every? #(not= "falsifiability" (namespace %)) registered)
+          "and nothing else in the suite is one either"))))
