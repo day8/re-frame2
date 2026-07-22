@@ -64,8 +64,12 @@ from check_doc_slugs import _slug_index  # noqa: E402
 
 INDEX_REL = Path("spec/conformance/freehand/conformance-index.md")
 
-# The closed area roster, in index order.  Fixed by the Freehand programme EP;
-# implementation work allocates ids within it and never extends it.
+# The area roster, in index order.  Closed at any given moment — an id or a
+# section naming an area that is not here fails — but the programme EP
+# introduces the roster with "Areas include ...", so it is extended by a
+# recorded ruling in the change that needs it, never by an author reaching for
+# a token mid-allocation.  Keep in step with the table in
+# spec/conformance/freehand/README.md.
 AREAS: tuple[str, ...] = (
     "CALL",
     "PROPS",
@@ -79,6 +83,9 @@ AREAS: tuple[str, ...] = (
     "REACT",
     "ERROR",
     "ROOT",
+    # Routing link.  The programme's own parity tables treat the routing link
+    # as its own surface; it is not an EVENT law wearing a different hat.
+    "ROUTELINK",
     "STRUCT",
     "DIAG",
 )

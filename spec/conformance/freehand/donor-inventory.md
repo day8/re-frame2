@@ -154,7 +154,7 @@ in a per-file table. The file rows below inherit them.
 | key-condition event maps | the closed exact-key `:on-key-down`/`:on-key-up` form with existing event values and pre-dispatch mechanics | MOVE | F2 | pending |
 | `spread-safe`/`spread` and `render-fn`/`slot` | forwarding and parameterized-content grammar, absorbed without the donor hook tier | MOVE | F5 | pending |
 | presence runtime | keyed enter/exit retention, made common to both modes | MOVE | F4 | pending |
-| `route-link` | the ordinary routing-aware view over the late-bound routing seam, crossing by rename | MOVE | F5 | pending |
+| `route-link` | the ordinary routing-aware view over the late-bound routing seam, crossing by rename | MOVE | F5 | done |
 | analyzer, both emitters, ViewCell reactor, manifest/elision, diagnostic taxonomy, structural test surface | the useful donor machinery named by the programme as absorbed | MOVE | F3 | pending |
 
 ## Donor sources

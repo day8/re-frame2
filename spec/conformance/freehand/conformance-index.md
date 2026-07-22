@@ -44,7 +44,7 @@ optional schema semantics.
 ### FH-EVENT — Events
 
 Projection materializer, options and key-map grammar, site and proxy lifetime,
-the atomic selected bundle, route-link href and click behaviour.
+the atomic selected bundle.
 
 | Id | Law | Canonical paragraph | Applicability | Fixture | Status |
 |---|---|---|---|---|---|
@@ -123,6 +123,22 @@ emission, hydration.
 
 | Id | Law | Canonical paragraph | Applicability | Fixture | Status |
 |---|---|---|---|---|---|
+
+### FH-ROUTELINK — Routing link
+
+The framework-supplied navigation anchor: a real element with a real href, the
+native-behaviour deferrals, the caller veto, the server shell, and the
+absent-routing diagnostic. The href and click law itself is routing's, cited
+here rather than restated.
+
+| Id | Law | Canonical paragraph | Applicability | Fixture | Status |
+|---|---|---|---|---|---|
+| `FH-ROUTELINK-001` | `v/route-link` renders a real `<a>` whose href is the route's encoded URL, synthesised from `:to` plus `:params` / `:query` / `:fragment`; passthrough attributes reach the element and no route key leaks onto it | [012-Routing.md#the-freehand-route-link-descriptor](../../012-Routing.md#the-freehand-route-link-descriptor) | common jvm browser | `spec/conformance/freehand/fixtures/fh-routelink-001.edn` | active |
+| `FH-ROUTELINK-002` | A modifier click, an auxiliary-button click, a `:download` anchor and a non-`_self` `:target` are NOT intercepted: the default action is left intact, nothing is dispatched, and the native attributes reach the DOM | [012-Routing.md#the-freehand-route-link-descriptor](../../012-Routing.md#the-freehand-route-link-descriptor) | common browser | `spec/conformance/freehand/fixtures/fh-routelink-002.edn` | active |
+| `FH-ROUTELINK-003` | A caller-supplied `:on-click` runs before the framework's click decision and pre-empts it: if it prevents the default, the framework neither prevents nor dispatches | [012-Routing.md#the-freehand-route-link-descriptor](../../012-Routing.md#the-freehand-route-link-descriptor) | common browser | `spec/conformance/freehand/fixtures/fh-routelink-003.edn` | active |
+| `FH-ROUTELINK-004` | The JVM/SSR render emits the same real anchor with the path-form href and no click handler | [012-Routing.md#the-freehand-route-link-descriptor](../../012-Routing.md#the-freehand-route-link-descriptor) | common jvm ssr | `spec/conformance/freehand/fixtures/fh-routelink-004.edn` | active |
+| `FH-ROUTELINK-005` | Rendering without the routing artefact raises the named `:rf.error/routing-artefact-missing` at render — naming the view and the link's `:to` — rather than emitting a dead anchor | [012-Routing.md#the-freehand-route-link-descriptor](../../012-Routing.md#the-freehand-route-link-descriptor) | common jvm browser | `spec/conformance/freehand/fixtures/fh-routelink-005.edn` | active |
+| `FH-ROUTELINK-006` | One common render produces the identical anchor on the JVM and in ClojureScript, the click closure being the only host divergence; the descriptor itself is an ordinary declared view | [012-Routing.md#the-freehand-route-link-descriptor](../../012-Routing.md#the-freehand-route-link-descriptor) | common jvm browser | `spec/conformance/freehand/fixtures/fh-routelink-006.edn` | active |
 
 ### FH-STRUCT — Structure
 
