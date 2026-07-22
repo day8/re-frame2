@@ -26,6 +26,7 @@ Fixtures:
 | `dup_suffix_out_of_range_broken`     | 1        | Negative control: `#errors-2` with only two duplicates — the counter is bounded, not a wildcard.     |
 | `github_dup_collision_bump_ok`       | 0        | `## Errors-1` after two `## Errors` → `errors-1-1` (the slugger re-bumps on collision).              |
 | `inline_code_link_ignored`           | 0        | Broken-looking links inside fenced code blocks AND inline code spans — skipped.                      |
+| `block_bound_link_ignored`           | 1        | The shared extractor's block bound + multiline code-span mask reach this gate; the 1 is a real broken wrapped link. |
 | `external_link_skipped_by_default`   | 0        | External `https://` URL — skipped without `--check-external` (the default + `--ci` mode).            |
 | `explicit_id_full_title_ok`          | 0        | `## One {#dup}` is heading TEXT — the id is the full-title slug `one-dup`, so that link resolves.    |
 | `explicit_id_brace_not_a_target`     | 1        | Negative control: a link to the brace id `#dup` targets nothing → flagged.                           |

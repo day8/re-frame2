@@ -1438,6 +1438,13 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("wrapped_link_broken_anchor",       2),  # negative control
         ("wrapped_link_ok",                  0),  # no false positives
         ("wrapped_link_block_bound",         0),  # join stops at a blank line
+        # rf2-8wcbe — the join must not bridge a NON-blank block boundary, and
+        # inline code must be masked over the same unit the link regex scans.
+        # Each expects 1, not 0: the single finding is a REAL broken wrapped
+        # link, so the count fails in BOTH directions — upward if a phantom is
+        # invented, downward if bounding the join discards real links.
+        ("multiline_code_span_not_a_link",   1),
+        ("non_blank_block_bound",            1),
     ]
 
     failures = 0
@@ -1750,11 +1757,15 @@ def _run_self_tests(verbose: bool = False) -> int:
             "rejects the drifted mutation\n"
         )
 
-    # rf2-vpc4c — link extraction driven directly with explicit line lists, so
-    # the wrap contract is pinned at the mechanism rather than only through a
-    # fixture's aggregate count. Each case states the (line_no, destination)
-    # pairs `_iter_inline_links` must yield from fence-stripped, inline-code-
-    # masked input. `_extract_links` reduces a file to exactly this shape.
+    # rf2-vpc4c / rf2-8wcbe — link extraction driven directly with explicit line
+    # lists, so the wrap contract is pinned at the mechanism rather than only
+    # through a fixture's aggregate count. Each case states the (line_no,
+    # destination) pairs `_iter_inline_links` must yield from FENCE-STRIPPED
+    # input — `_extract_links` reduces a file to exactly this shape, and inline
+    # code is masked inside `_iter_inline_links` over the joined unit, so these
+    # inputs are raw source lines. The cases run in both directions: the join
+    # must reach across a wrap (rf2-vpc4c) and must stop at every real block
+    # boundary and inside a multiline code span (rf2-8wcbe).
     extraction_cases: list[tuple[str, list[tuple[int, str]], list[tuple[int, str]]]] = [
         # POSITIVE CONTROL — the unwrapped case that always worked. The reported
         # line is the link's own line, exactly as before the fix.
@@ -1792,6 +1803,63 @@ def _run_self_tests(verbose: bool = False) -> int:
         # The destination itself is still correct and still found.
         ("stray bracket does not lose the destination",
          [(1, "An unclosed [ bracket opens here,"),
+          (2, "and [the real link](target.md#anchor) follows.")],
+         [(2, "target.md#anchor")]),
+        # rf2-8wcbe — NON-BLANK block boundaries. A blank line is not the only
+        # boundary; each pair below spans a real one, so no renderer produces a
+        # link from it. THE BEAD'S SECOND COUNTEREXAMPLE leads.
+        ("ATX heading is not bridged",
+         [(1, "A stray [opening"), (2, "# Separate heading"),
+          (3, "](missing.md)")],
+         []),
+        ("a heading does not reach the paragraph below it",
+         [(1, "# A heading holding a stray ["),
+          (2, "bracket](missing.md) opens the next paragraph.")],
+         []),
+        ("thematic break / setext underline is not bridged",
+         [(1, "A stray bracket [here"), (2, "---"), (3, "](missing.md) after.")],
+         []),
+        ("list-item start is not bridged",
+         [(1, "* A bullet holding a stray ["),
+          (2, "* the next bullet](missing.md) closes the list.")],
+         []),
+        ("table row is not bridged",
+         [(1, "| A cell holding a stray [ | one |"),
+          (2, "| a later row](missing.md) | two |")],
+         []),
+        ("blockquote entry is not bridged",
+         [(1, "A paragraph holding a stray ["),
+          (2, "> and a quote](missing.md) interrupts it.")],
+         []),
+        # POSITIVE CONTROLS for those bounds — the mirror-image failure is
+        # bounding so aggressively that real wrapped links are discarded.
+        # A list item's CONTINUATION line carries no marker, and an unprefixed
+        # line after a quoted one is CommonMark lazy continuation: both are one
+        # inline run, so a link wrapping inside them is still extracted.
+        ("wrapped link inside one list item still extracted",
+         [(1, "* See [the compiled"),
+          (2, "  views](API.md#compiled-views) doc.")],
+         [(2, "API.md#compiled-views")]),
+        ("blockquote lazy continuation still joins",
+         [(1, "> Per the note, [§Compiled"),
+          (2, "views](API.md#compiled-views) is live.")],
+         [(2, "API.md#compiled-views")]),
+        # rf2-8wcbe — code spans are masked over the JOINED unit, because a
+        # CommonMark code span may contain a line ending. THE BEAD'S FIRST
+        # COUNTEREXAMPLE: per-line masking saw two unpaired backticks, masked
+        # neither, and invented a link the renderer never produces.
+        ("multiline code span yields no link",
+         [(1, "`[literal"), (2, "link](missing.md)`")],
+         []),
+        ("multiline code span masks only itself",
+         [(1, "See [the doc](target.md#anchor) and a `[fake"),
+          (2, "link](nowhere.md)` placeholder.")],
+         [(1, "target.md#anchor")]),
+        # POSITIVE CONTROL for the mask: an UNPAIRED backtick opens no span in
+        # CommonMark, so it must not swallow the rest of the unit — the risk
+        # that kept masking per-line in the first place.
+        ("unpaired backtick masks nothing",
+         [(1, "A stray ` backtick opens no span,"),
           (2, "and [the real link](target.md#anchor) follows.")],
          [(2, "target.md#anchor")]),
     ]

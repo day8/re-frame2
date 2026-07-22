@@ -36,4 +36,6 @@ Fixtures:
 | `wrapped_link_broken_anchor`       | 2               | A link whose TEXT wraps across a newline is still validated (rf2-vpc4c)            |
 | `wrapped_link_ok`                  | 0               | Correct wrapped links — plain, multi-line, same-file, blockquoted — are not flagged (rf2-vpc4c) |
 | `wrapped_link_block_bound`         | 0               | False-positive control: the join stops at a block boundary, so `[text` … blank … `](x.md)` is not a link (rf2-vpc4c) |
+| `multiline_code_span_not_a_link`   | 1               | A code span crossing a line ending is masked whole, so the link-shaped text inside it yields nothing; the 1 is a real broken wrapped link (rf2-8wcbe) |
+| `non_blank_block_bound`            | 1               | The join stops at every NON-blank boundary — heading (before and after), thematic break, list item, table row, blockquote entry; the 1 is a real wrapped link inside one list item (rf2-8wcbe) |
 | `compat_anchor_teeth`              | driven directly | The compat-anchor manifest, placement, and source-comment teeth — invoked with explicit fixture inputs, not from this table (rf2-57k74 / rf2-zq5i6 / rf2-k30r7) |
