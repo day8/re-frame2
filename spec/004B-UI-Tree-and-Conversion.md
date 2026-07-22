@@ -1,26 +1,112 @@
 # Spec 004B — The UI structural tree and DOM conversion contract
 
-> Status: v1-required. The Stage-1 public ABI for the JVM structural render
-> tree and the DOM conversion table both emitters consume — the tree/conversion
-> half of Spec 004D's portability law. [004D-Freehand-Compiled-Grammar.md](004D-Freehand-Compiled-Grammar.md) §The JVM
+> Status: v1-required. The public ABI for Freehand's structural render tree and
+> the DOM conversion table every emitter consumes — the tree/conversion half of
+> Spec 004D's portability law. [004D-Freehand-Compiled-Grammar.md](004D-Freehand-Compiled-Grammar.md) §The JVM
 > structural subset and §Template grammar reference this contract; it is never
-> restated there. Consumers: `ui.test/render`'s return value (per
-> [008](008-Testing.md)), tree traversal (ordinary Clojure —
-> `(tree-seq map? :children tree)`), parity/fingerprints
-> (per [008](008-Testing.md) and [011](011-SSR.md)), and the `day8/re-frame2-ssr`
-> artifact (§The SSR consumption boundary). The optimizer/compiler AST is
-> explicitly private: the public contract is this tree plus the conversion
-> table. Rows written to React's published behaviour but not yet exercised
-> against real React are tagged **[S1-CONFIRM]** — confirmed as the parity
-> corpus grows.
+> restated there. Consumers: the structural render surface's return value (per
+> [008](008-Testing.md), where the surface is conventionally aliased `t`), tree
+> traversal (ordinary Clojure — `(tree-seq map? :children tree)`),
+> parity/fingerprints (per [008](008-Testing.md) and [011](011-SSR.md)), and the
+> `day8/re-frame2-ssr` artifact (§The SSR consumption boundary). The
+> optimizer/compiler AST is explicitly private: the public contract is this tree
+> plus the conversion table. Rows written to React's published behaviour but not
+> yet exercised against real React are tagged **[S1-CONFIRM]** — confirmed as the
+> parity corpus grows.
 
 ## Scope — what is public, and the one privacy sentence
 
-Public, versioned, and owned by this contract: **(a)** the JVM structural tree node
+Public, versioned, and owned by this contract: **(a)** the structural tree node
 schema and its canonical form; **(b)** the semantic normalization `N` that feeds parity
-and fingerprints; **(c)** the DOM conversion table both emitters consume; **(d)** the
+and fingerprints; **(c)** the DOM conversion table every emitter consumes; **(d)** the
 tree→`re-frame2-ssr` consumption boundary. **The optimizer/compiler AST is explicitly
-private: the public contract is this JVM tree plus the conversion table, not the AST.**
+private: the public contract is this tree plus the conversion table, not the AST.**
+
+## Two modes, two emitters, one tree
+
+Freehand has two execution modes over one semantic model — an **interpreted**
+paved path and a **compiled** hot tier selected by `{:compiled true}` on the same
+declaration — and two emitters: a **React** emitter for the browser and a
+**structural** emitter that answers the tree this contract describes. The two
+axes are independent, and the cell a declaration lands in changes only how the
+work is done:
+
+| | React emitter | structural emitter |
+|---|---|---|
+| **interpreted** | walks the view body's Hiccup and builds React elements | walks the same Hiccup and builds this tree |
+| **compiled** | lowers finite sites to direct React emission | lowers the same sites to this tree |
+
+All four consume **this one contract**. The node schema, the canonical form, the
+normalization `N`, and the conversion table are stated once, here, and never
+restated per mode or per emitter — which is what makes "the same declaration
+means the same thing" a checkable claim rather than a slogan.
+
+The emitters are **separate implementations on purpose** (EP-0036 governing law
+7). They may share normalizers, and they do; they are not required to be one
+implementation, and they are not. Divergence between them is therefore
+*detected, not prevented* — this contract's job is to give separate code one
+table to be separate against, and the conformance corpus's job is to catch the
+day they disagree.
+
+### The interpreted walk
+
+The interpreted walk needs no compile step and admits no finite grammar: a view
+body is ordinary Clojure, and whatever Hiccup it produces is walked as it
+stands. A keyword head is a DOM or custom element, a declared-view head is an
+internal boundary the walk expands in place, `[:<> …]` is a fragment, strings
+and numbers are text, and seqs splice. Vector-head classification is the total
+rule in [004 §Vector-head classification](004-Views.md#vector-head-classification)
+— the same three answers the compiled analyzer gets, so a head that is legal in
+one mode is legal in the other.
+
+Two consequences follow from interpreting rather than compiling, and both are
+contract rather than accident:
+
+- **Handler sites classify by the value present at render.** There is no
+  compile-time shape to read, so a `:events` entry is a literal event vector, an
+  options map, or the opaque marker, decided by what the site actually holds
+  (§Element fields).
+- **A rejected form is rejected at render, not at a compile step.** Where a row
+  below says "compile error", the compiled mode raises its `:rf.ui.compile/*`
+  finding at the declaration; the interpreted mode raises
+  `:rf.error/ui-tree-malformed` — the shared tree-consumer id — the first time
+  the form is walked. The *rule* is one rule; the tier it fires in, and therefore
+  the id it fires under, is what differs.
+
+### Cross-host equality
+
+The structural emitter runs on the JVM **and** in ClojureScript, and one
+declaration answers one equal value on both. That is the law the structure rows
+are proven against, and it is not a formality: the hosts disagree about number
+formatting (`(str 1.0)` is `"1.0"` on the JVM and `"1"` in JavaScript), about
+which values are callable, and about map ordering — and each of those
+disagreements reaches an ordinary view body. Every rule in this contract that
+touches a value's spelling is therefore stated in host-neutral terms and proven
+on both hosts; a rule proven on one is a gap, not a pass.
+
+### The React emitter
+
+The React emitter applies the **client half** of the conversion table: `:class`
+and `:for` take React's reserved spellings, `data-*` and `aria-*` pass verbatim,
+other HTML names hyphen-collapse, `:style` becomes a style object, `:key` becomes
+the element's key, and a declared-view boundary becomes a real React component so
+the boundary exists in React's tree and not only in ours.
+
+Two coverage boundaries are stated rather than implied, because an unstated gap
+in an emitter is indistinguishable from a bug:
+
+- **Event intent is materialized by the reactive contract, not here.** A `:on-*`
+  site carrying a function is attached as an ordinary React handler. A site
+  carrying an event vector or an options map is recorded in the tree
+  (§Element fields) and attached when the materializer lands —
+  [004 §Event intent and the payload materializer](004-Views.md#event-intent-and-the-payload-materializer)
+  owns the projection, the listener options, and, decisively, which frame the
+  intent dispatches into.
+- **The SVG camelCase attribute alias table is still `[S1-CONFIRM]`.** Inside an
+  SVG or MathML context the React emitter passes the authored attribute spelling
+  **verbatim** rather than collapsing hyphens, because those names are
+  case-sensitive; an author who needs `viewBox` today spells it that way. The
+  kebab alias table lands with the row that discharges it.
 
 ## The node schema — version 1
 
@@ -39,10 +125,10 @@ variants, a **closed set**:
 **Discrimination is pinned, in order:** a string is a text node; a map with `:tag` is an
 element; else `:view-id` → view-boundary; else `:html` → trusted-HTML; else a map with
 `:children` → fragment. A map carrying more than one discriminating field, or none, is
-**malformed** — every consumer (`find`, the serialiser, the fingerprint fn) fails loud
-with the typed error `:rf.error/ui-tree-malformed` (needs its Spec 009 catalogue row at
-promotion; one-catalogue rule). The **text variant is deliberately not a map**: text
-carries no attributes, no key, no identity — it is content, and `ui.test/text` is its
+**malformed** — every consumer (the traversal helpers, the serialiser, the fingerprint
+fn) fails loud with the typed error `:rf.error/ui-tree-malformed`, and so does the walk
+that would otherwise build one. The **text variant is deliberately not a map**: text
+carries no attributes, no key, no identity — it is content, and `t/text` is its
 read surface. Text is therefore not a *queryable node*: selectors never match it and
 `pred-fn` selectors never receive it (reconciled in the selector draft).
 
@@ -63,7 +149,7 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
   `:data-priority`, `:view-box`), with `.class#id` sugar already merged into
   `:class`/`:id`. Values are normalized to **semantic form** (§Attr value normalization
   below). Final DOM *name* conversion (`tabindex`, `for`, `viewBox`, `className`) is the
-  serialiser's/client-emitter's half of the table and is **not** stored in the tree —
+  serialiser's/React emitter's half of the table and is **not** stored in the tree —
   tests and selectors match what the author wrote. Nil-valued entries never appear;
   the map is absent when empty.
 - **`:events`** — handler-position keys (`:on-*`, spelled as authored; **no
@@ -72,17 +158,20 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
   1. a **literal event vector**, verbatim — placeholders retained as the authored
      keywords (`[:todo/toggle 1 :rf.ui/checked]`);
   2. an **options map** `{:event [:…] :prevent-default true …}`, verbatim;
-  3. the **opaque marker** (below) for fn-carried sites (`ui/event`, `ui/handler`, bare
-     fn, `ui/raw-fn`) — the site's *existence and spelling* are testable, its behaviour
+  3. the **opaque marker** (below) for fn-carried sites (`v/event`, `v/handler`, bare
+     fn, `v/raw-fn`) — the site's *existence and spelling* are testable, its behaviour
      is Tier-3.
-  Runtime-classified dynamic handler expressions classify **by the value present at
+  Handler expressions the emitter cannot read statically — which, in the interpreted
+  mode, is every one of them — classify **by the value present at
   render** (vector → 1, map → 2, fn → 3, `nil` → the entry is dropped). Absent when
-  empty. **`:attrs` and `:events` key domains are disjoint by construction** — the
-  compiler routes every `:on-*` name to `:events` — so the merged projection (below) is
+  empty. **`:attrs` and `:events` key domains are disjoint by construction** — every
+  emitter routes every `:on-*` name to `:events` — so the merged projection (below) is
   collision-free.
 - **`:key`** — present **iff** the site was explicitly keyed; holds the authored key
-  *value* (any `rf=`-comparable value), not React's string coercion. Duplicate-key
-  diagnosis happens upstream at the compile-indexed list site and applies React's
+  *value* (any `rf=`-comparable value), not React's string coercion. A view-boundary
+  node records the `:key` its call carried on the same footing, so a keyed boundary is
+  distinguishable from an unkeyed one in either mode. Duplicate-key diagnosis happens
+  upstream at the indexed list site and applies React's
   string coercion (key `1` collides with key `"1"`) **[S1-CONFIRM]**.
 - **`:children`** — a vector of nodes in document order; absent when empty
   (§Child normalization).
@@ -97,34 +186,43 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
   px rule, values stringified verbatim **[S1-CONFIRM]**; keyword values → `name`;
   nil entries dropped.
 - keyword/symbol values (any attr) → `(name x)` (`:data-priority :high` → `"high"`
-  ); a namespaced keyword's namespace is **silently ignored** — the shipped dynamic
-  path (`re-frame.ui.rules/attr-val-semantic`, `css-val->str`) applies `(name x)` with
+  ); a namespaced keyword's namespace is **silently ignored** — the conversion
+  applies `(name x)` with
   no diagnostic (`:data-priority ::high` → `"high"`, the namespace dropped without a
   warning).
-- numbers → **JS `ToString` semantics** — integral doubles render without a trailing
-  `.0` (the JVM emitter must not leak `(str 1.0)` → `"1.0"`) **[S1-CONFIRM]** for the
-  integral-double case; integer fixtures.
+- numbers → **JS `ToString` semantics**, on **both hosts** — integral doubles render
+  without a trailing `.0` (a `.cljc` emitter must not leak `(str 1.0)` → `"1.0"`), and
+  the plain/exponential switch follows ECMA's `(-6, 21]` decimal-exponent window rather
+  than the JVM's own layout. This is the row cross-host equality (§Cross-host equality)
+  turns on most often, because a number reaches a view body more or less constantly.
 - booleans stay **booleans** in the tree — the boolean/booleanish/overloaded emission
   decision is the serialisation row's job, and tests get the semantic truth
   (`{:disabled false}` is present-false, distinguishable from absent).
 - `nil` → the entry is dropped (canonical trees carry no present-nil attrs).
-- collection values outside `:class`/`:style` (e.g. `:data-foo {:a 1}`) → compile/dev
-  error, didactic (React would render `"[object Object]"` garbage).
+- collection values outside `:class`/`:style` (e.g. `:data-foo {:a 1}`) → rejected,
+  didactic (React would render `"[object Object]"` garbage) — at the declaration in
+  compiled mode, at the walk in interpreted mode.
+- everything else — a function in an attribute slot, a host object — is likewise
+  rejected: the value grammar above is closed, and a value outside it has no
+  cross-host spelling to carry.
 
 ### The opaque marker
 
-`{:rf.ui/opaque form}` where `form` ∈ `#{:ui/event :ui/handler :ui/render-fn :ui/raw-fn
+`{:rf.ui/opaque form}` where `form` ∈ `#{:v/event :v/handler :v/render-fn :v/raw-fn
 :fn :foreign}` — the single sentinel for non-data values, used in `:events` (case 3
 above) and in view-boundary `:props` (a fn-valued or foreign prop). The `:rf.ui/*`
-namespace is reserved (Conventions ripple in the rewrite), so author data can never
-collide with the marker.
+namespace is reserved (Conventions), so author data can never collide with the marker.
+`:fn` is the mode-neutral member — a bare function at either kind of site — and it is
+the one the interpreted walk produces; the members naming a specific authoring form
+arrive with the slice that lands the form.
 
-`:ui/render-fn` is the compiled render-slot member ([004D §Compiled render slots](004D-Freehand-Compiled-Grammar.md#compiled-render-slots--render-fn-and-slot)):
-a `ui/render-fn` value carried as a component-call-site prop is recorded on that
-view-boundary's `:props` as `{:rf.ui/opaque :ui/render-fn}`. The render-fn's *rendered
-output* is **not** a marker — a `ui/slot` invocation produces the ordinary child
+`:v/render-fn` is the compiled render-slot member ([004D §Compiled render slots](004D-Freehand-Compiled-Grammar.md#compiled-render-slots--render-fn-and-slot)):
+a `v/render-fn` value carried as a component-call-site prop is recorded on that
+view-boundary's `:props` as `{:rf.ui/opaque :v/render-fn}`. The render-fn's *rendered
+output* is **not** a marker — a `v/slot` invocation produces the ordinary child
 subtree the render-fn built, spliced into the enclosing children like any other
-child, so `ui.test` renders slotted trees headlessly with no special representation.
+child, so the structural test surface renders slotted trees headlessly with no special
+representation.
 
 <a id="reserved-rfui-keys"></a>
 
@@ -158,19 +256,31 @@ and only one is a droppable diagnostic.
 | Key | Role | Where | Meaning |
 |---|---|---|---|
 | `:rf.ui/tree-version` | required gate | root node only | the schema-version integer (**1** for this document); validated first, then removed from `N`'s output |
-| `:rf.ui/property-props` | **semantic** | custom-element element nodes | the set of `:attrs` keys classified as **properties** per the RULED `ui/custom-element` declaration; **consumed** at conversion (the serialiser and `N` omit those props from markup — step 5) and only then removed from the output. Required whenever a property-only classification exists; **removing it changes semantics** — the props would leak back into the attribute space |
+| `:rf.ui/property-props` | **semantic** | custom-element element nodes | the set of `:attrs` keys classified as **properties** per the RULED `v/custom-element` declaration; **consumed** at conversion (the serialiser and `N` omit those props from markup — step 5) and only then removed from the output. Required whenever a property-only classification exists; **removing it changes semantics** — the props would leak back into the attribute space |
 | `:rf.ui/presence` | diagnostic | the fragment node a presence boundary renders as | `{:phase :present :timeout-ms n}` — the presence metadata exposed structurally per [004D §The JVM structural subset](004D-Freehand-Compiled-Grammar.md#the-jvm-structural-subset); phase is always `:present` on the JVM |
 | `:rf.ui/boundary` | diagnostic | the fragment node wrapping a deterministic fallback | `:client-only` (the structural "fallbacks" evidence; `:portal` reserved for the wave-2 row) |
 
 ### Child normalization (canonical form)
 
-At tree build: `nil`/`false` children are dropped (grammar); numeric children become
+At tree build: `nil`/`false`/`true` children are dropped (grammar — React renders none
+of them, and a boolean that survived would put the two emitters out of step); numeric
+children become
 text via JS `ToString` (same rule as attr values); **adjacent text runs are coalesced
 into one string**; empty strings are dropped after coalescing; `for`/seq results are
 **flattened into the parent's single children vector** in document order (keys live on
-the nodes; keyed-run scoping is the compiler's per-list-site concern, upstream of the
-tree). Children of void elements are a compile error **[S1-CONFIRM]** (React throws at
+the nodes; keyed-run scoping is a per-list-site concern, upstream of the
+tree). Children of void elements are rejected **[S1-CONFIRM]** (React throws at
 render; we reject earlier).
+
+**Forwarded children are a run, not markup.** A view that forwards the children it was
+given writes the `:children` value into its own markup, and that value is a *vector* —
+which, in child position, is otherwise markup. Vector-head classification is total and
+carries no heuristic arm ([004 §Vector-head classification](004-Views.md#vector-head-classification)),
+so the distinction is not inferred from the value: the emitter that placed the value
+there marks it, and a marked run splices in document order exactly as a seq does. The
+marker is invisible to the author, invisible in the tree, and does not disturb the
+props map's equality — the value a body splices and the value a props assertion
+compares are one value, not two.
 
 **Canonical uniqueness, stated once:** absent-when-empty for `:attrs`/`:events`/
 `:children`; no nil attr entries; `:ns` absent for HTML; text coalesced. **One pinned
@@ -182,9 +292,12 @@ is what makes the tree a legitimate fingerprint input.
 
 ### Versioning
 
-`ui.test/render` (and the JVM emitter generally) returns the **root node** — always a
-map node — carrying `:rf.ui/tree-version 1`. Interior nodes carry no version (subtrees
-handed to `find` inherit their tree's). **Bump rules:** any change to the variant set,
+The structural emitter returns the **root node** — always a
+map node — carrying `:rf.ui/tree-version 1`. A form that denotes text, several nodes,
+or nothing roots in a **fragment**, which is the variant whose job is to hold a run of
+children; that is what keeps the return type total without a second shape. Interior
+nodes carry no version (subtrees handed to a traversal inherit their tree's).
+**Bump rules:** any change to the variant set,
 discrimination order, required/optional fields, canonical-form rules, normalization
 `N`, projection behaviour, the opaque marker, or a conversion-table row's *semantics*
 bumps the integer. Adding a new optional **diagnostic** `:rf.ui/*` key does **not** bump
@@ -201,7 +314,7 @@ ABI. But **attribute reads go through the projection**: per the binding ruling,
 `(:on-click node)` is a *field miss*, never an attribute read — attrs and events live
 under their own keys.
 
-- **`(ui.test/attrs node)`** — the merged projection:
+- **`(t/attrs node)`** — the merged projection:
   - element → `:attrs` merged with `:events` (collision-free by construction; event
     slots carry vectors/options-maps/opaque markers as data);
   - view-boundary → `:props` (so attr-map selectors match views by prop values for
@@ -209,13 +322,13 @@ under their own keys.
   - fragment / trusted-HTML → `{}` (no attributes exist; total, not an error);
   - `nil` → `nil` (nil-punning threads through a missed `find`);
   - a string (text content) → typed error (text is not a node).
-- **`(ui.test/text node)`** — concatenation of text descendants in document order,
+- **`(t/text node)`** — concatenation of text descendants in document order,
   descending through elements, fragments, and view boundaries; **trusted-HTML nodes
   contribute nothing** (their content is unparsed markup, not text data — by design);
   `nil` → `nil`.
 
 Intent assertion, respelled to this contract:
-`(is (= [:cart/add 42] (:on-click (ui.test/attrs (some #(when (= :button (:tag %)) %) (tree-seq map? :children tree))))))`.
+`(is (= [:cart/add 42] (:on-click (t/attrs (some #(when (= :button (:tag %)) %) (tree-seq map? :children tree))))))`.
 
 ## Semantic normalization `N` — the parity/fingerprint input
 
@@ -244,7 +357,7 @@ and to the render fingerprint. Pinned, in order:
    and escaping-free semantic space — escaping is a serialisation concern the
    comparator normalizes away ).
 7. **Carry trusted-HTML nodes as opaque raw-markup leaves**, compared verbatim (both
-   emitters treat `ui/html` identically — [004D §Interop and boundaries](004D-Freehand-Compiled-Grammar.md#interop-and-boundaries)).
+   emitters treat `v/html` identically — [004D §Interop and boundaries](004D-Freehand-Compiled-Grammar.md#interop-and-boundaries)).
 
 The semantic node is `{:ns … :tag … :attrs {final-name → serialised-value} :children
 […]}` with attribute maps order-insensitive and child vectors order-significant.
@@ -256,7 +369,7 @@ parsed into semantic nodes (the spike comparator is the reference).
 
 ## The DOM conversion table — normative rows
 
-One table, two consumers (the client emitter and the JVM serialiser), exactly as the
+One table, two consumers (the React emitter and the JVM serialiser), exactly as the
 spike validated. Provenance per row: = exercised (the spike, or the **S1b/S1f
 react-dom 19.2.0 probes** — the latter noted inline where they *corrected* the
 pre-probe draft); **[S1-CONFIRM]** = written to React's published behaviour,
@@ -278,7 +391,7 @@ unexercised — Stage 1 confirms.
 |---|---|
 | pass-through default | unrecognized names emit verbatim (React 16+ behaviour); name grammar validated (the 011 attr-key check); illegal names = compile error |
 | hyphen-collapse | `:tab-index` → `tabindex` (the kebab spelling mirrors React camelCase; DOM attr is the collapsed form) |
-| `:class` / `:for` | → `class` / `for` attributes (client emitter: `className` / `htmlFor`); `:class-name`/`:html-for` spellings are compile errors — one spelling per name, ambiguities removed **[S1-CONFIRM]** |
+| `:class` / `:for` | → `class` / `for` attributes (React emitter: `className` / `htmlFor`); `:class-name`/`:html-for` spellings are compile errors — one spelling per name, ambiguities removed **[S1-CONFIRM]** |
 | `data-*` | verbatim, casing preserved (`:data-fooBar` → `data-fooBar`) |
 | `aria-*` | verbatim names; **values always stringify** — `:aria-hidden false` → `aria-hidden="false"`, never omitted |
 | SVG camelCase aliases | the kebab keyword maps through React's published SVG alias table: `:view-box` → `viewBox`, `:stroke-width` → `stroke-width` (SVG's own hyphenated attrs stay hyphenated); mirror `possibleStandardNames` **[S1-CONFIRM]** |
@@ -297,12 +410,12 @@ unexercised — Stage 1 confirms.
 
 | Row | Rule |
 |---|---|
-| property-only names | names React never serialises to markup emit **nothing** on the JVM (the client emitter sets the DOM property). **Probe-corrected (S1b):** the pre-probe draft's `:muted` citizen was **falsified** — react-dom/server 19.2.0 *does* serialise `muted=""` on `<video>` (so `:muted` is a boolean attr, above); **no S1 member remains**, and the `property-only-attrs` set is kept **empty** as the named home for any future member the parity corpus finds |
+| property-only names | names React never serialises to markup emit **nothing** on the JVM (the React emitter sets the DOM property). **Probe-corrected (S1b):** the pre-probe draft's `:muted` citizen was **falsified** — react-dom/server 19.2.0 *does* serialise `muted=""` on `<video>` (so `:muted` is a boolean attr, above); **no S1 member remains**, and the `property-only-attrs` set is kept **empty** as the named home for any future member the parity corpus finds |
 | `:value` on `:input` | serialises as the `value` attribute |
 | `:default-value` / `:default-checked` | serialise as `value` / `checked` attributes **[S1-CONFIRM]** |
 | `:value` on `:textarea` | serialises as the element's **text child**, not an attribute **[S1-CONFIRM]** |
 | `:value` on `:select` | serialises as `selected` on the matching `:option`(s) **[S1-CONFIRM]** |
-| `dangerouslySetInnerHTML` | does not exist in this grammar — `ui/html` is the one trusted-markup spelling, and it is a node variant, not a prop. A trusted-markup (`:html`) child **beneath `<textarea>`** is rejected at the SSR seam through `:rf.error/ui-tree-malformed` (react-dom/server 19.2 rejects `dangerouslySetInnerHTML` on a textarea — its content is `value`/`defaultValue` or a text child). The seam validates the **effective** child stream — a `:html` leaf spliced in through a transparent fragment or view boundary is caught at its actual path, not only an immediate child; the compiler rejects the source shape as `:rf.ui.compile/html-in-textarea` (rf2-ib4fd) |
+| `dangerouslySetInnerHTML` | does not exist in this grammar — `v/html` is the one trusted-markup spelling, and it is a node variant, not a prop. A trusted-markup (`:html`) child **beneath `<textarea>`** is rejected at the SSR seam through `:rf.error/ui-tree-malformed` (react-dom/server 19.2 rejects `dangerouslySetInnerHTML` on a textarea — its content is `value`/`defaultValue` or a text child). The seam validates the **effective** child stream — a `:html` leaf spliced in through a transparent fragment or view boundary is caught at its actual path, not only an immediate child; the compiler rejects the source shape as `:rf.ui.compile/html-in-textarea` (rf2-ib4fd) |
 | `:ref` | absent from the JVM tree entirely ([004D §The JVM structural subset](004D-Freehand-Compiled-Grammar.md#the-jvm-structural-subset): refs absent) |
 
 ### `:style`
@@ -310,7 +423,7 @@ unexercised — Stage 1 confirms.
 | Row | Rule |
 |---|---|
 | px rule | numeric values gain `px` unless the property is in the unitless set: `{:padding 16}` → `padding:16px`; `{:opacity 0.5}` → `opacity:0.5`; `0` stays `0` |
-| unitless set | adopt React's published `isUnitlessNumber` set verbatim, version-pinned to the React release the client emitter targets; the JVM serialiser carries the copy; the parity corpus detects drift **[S1-CONFIRM]** |
+| unitless set | adopt React's published `isUnitlessNumber` set verbatim, version-pinned to the React release the React emitter targets; the JVM serialiser carries the copy; the parity corpus detects drift **[S1-CONFIRM]** |
 | custom properties | `:--main-color` → `--main-color:<value>` verbatim; no px rule, no case mapping **[S1-CONFIRM]** |
 | keyword values | stringify via `name` |
 
@@ -334,9 +447,9 @@ unexercised — Stage 1 confirms.
 
 | Row | Rule |
 |---|---|
-| escaping | full 5-char escaping (`& < > " '`) in text and attribute values; `ui/html` is the single bypass. **Raw-text exception — `<script>`/`<style>` only:** these two HTML raw-text elements emit their **text content verbatim** (no entity escaping — the HTML parser does not decode character references inside them, so routing script/style text through the 5-char escape would corrupt valid JS/CSS), with only a **context-safe closing-sequence rewrite** so the raw-text parser cannot terminate the element early: an embedded `<`/`</` followed by `script` has its `s`/`S` rewritten to the JS unicode escape `\u0073`/`\u0053`, and one followed by `style` to the CSS escape `\73 `/`\53 ` (byte-parity with react-dom/server 19.2.0's `scriptRegex`/`styleRegex` + replacers). `title`/`textarea` are escapable RCDATA and escape normally (**not** raw-text). This narrows the blanket rule for these two elements only, and only because their content is trusted server-authored rendered-tree text (never user input); attribute values and every other element still escape in full, and the `ui/html` bypass for untrusted markup is unchanged |
+| escaping | full 5-char escaping (`& < > " '`) in text and attribute values; `v/html` is the single bypass. **Raw-text exception — `<script>`/`<style>` only:** these two HTML raw-text elements emit their **text content verbatim** (no entity escaping — the HTML parser does not decode character references inside them, so routing script/style text through the 5-char escape would corrupt valid JS/CSS), with only a **context-safe closing-sequence rewrite** so the raw-text parser cannot terminate the element early: an embedded `<`/`</` followed by `script` has its `s`/`S` rewritten to the JS unicode escape `\u0073`/`\u0053`, and one followed by `style` to the CSS escape `\73 `/`\53 ` (byte-parity with react-dom/server 19.2.0's `scriptRegex`/`styleRegex` + replacers). `title`/`textarea` are escapable RCDATA and escape normally (**not** raw-text). This narrows the blanket rule for these two elements only, and only because their content is trusted server-authored rendered-tree text (never user input); attribute values and every other element still escape in full, and the `v/html` bypass for untrusted markup is unchanged |
 | void elements | the void set that self-closes and rejects children (compile error): `area base br col embed hr img input keygen link meta param source track wbr` — **15** tags, the S1b probe adding `param` + `keygen` to the pre-probe draft's 13 (react-dom/server 19.2.0 throws for children on both). `menuitem` **also rejects children** but is *not* self-closing, so it lives in the children-rejected set only (`children-rejected-tags` = void ∪ `{:menuitem}`). Self-closing normalized (S1b probe) |
-| raw-text child shape | a `<script>`/`<style>` is an HTML raw-text element React renders from a **single text body**. The accepted shapes are: **no body**, **one text-producing child** (a string, or an expression that stringifies), or a **sole `ui/html`** trusted-markup child. A **multiple-child** body (React joins the children into an array that warns and loses the body) or a **visibly structural sole child** (a hiccup element/fragment, or a `for` list — React drops or stringifies it, and the JVM serialiser's raw-text fast path rejects it) is the compile error `:rf.ui.compile/raw-text-children`, naming `(str …)` or `(ui/html s)` as the escape (rf2-ib4fd). Static rules on the known host tag; a runtime-dynamic child stays programmer-trusted |
+| raw-text child shape | a `<script>`/`<style>` is an HTML raw-text element React renders from a **single text body**. The accepted shapes are: **no body**, **one text-producing child** (a string, or an expression that stringifies), or a **sole `v/html`** trusted-markup child. A **multiple-child** body (React joins the children into an array that warns and loses the body) or a **visibly structural sole child** (a hiccup element/fragment, or a `for` list — React drops or stringifies it, and the JVM serialiser's raw-text fast path rejects it) is the compile error `:rf.ui.compile/raw-text-children`, naming `(str …)` or `(v/html s)` as the escape (rf2-ib4fd). Static rules on the known host tag; a runtime-dynamic child stays programmer-trusted |
 | textarea child shape | a `<textarea>` (escapable RCDATA, not raw text) renders its content from **one channel** — its `:value`/`:default-value`, **or** a single ordinary text child, never both and never several. **Multiple children** (React allows at most one child), a **`:value`/`:default-value` combined with an authored child** (React rejects the value-plus-child pair), and a **visibly structural sole child** (React renders an element as `[object Object]`; the JVM serialiser would emit a divergent `<span>…</span>`) are the compile error `:rf.ui.compile/textarea-children`, naming `:value` or a single text child as the escape. The equivalent hand-written structural-tree shapes reject at the SSR seam through `:rf.error/ui-tree-malformed`, validated against the **effective** child stream (after transparent fragment / view-boundary splicing) at the actual offending path. Static rules on the known host tag; a sole runtime-dynamic text child, and `:value` alone, stay valid (rf2-ib4fd) |
 | leading-LF compensation (`<pre>`/`<listing>`/`<textarea>`) | react-dom/server 19.2 prefixes one compensating LF inside a newline-eating element whose body is a **single string beginning with LF**, because HTML parsing eats the first LF after the start tag — so the authored content survives the parse round-trip. It applies to a lone **string** child (or a `<textarea>` `:value`) under any of the three, and to a lone **trusted-markup (`:html`) child under `<pre>`/`<listing>` only** — never under `<textarea>`, whose trusted-markup child is rejected outright (row above). Multiple/element children are left untouched. The comprehensive newline-rule prose is `rf2-13mou`-owned; this row states only the scope this grammar's serialiser enforces (rf2-z05di, rf2-0spji, rf2-ib4fd) |
 | numeric text | JS `ToString` (integral doubles without `.0`) **[S1-CONFIRM]** |
@@ -375,7 +488,7 @@ compensates):
   through `:value`/`:default-value` (the form-control special form in *Property-only
   and form-control special forms* above); a `:value` string beginning with LF is
   compensated on the same footing as a string child.
-- **`<pre>` / `<listing>` only** — a **sole trusted-markup (`ui/html`, `{:html s}`)
+- **`<pre>` / `<listing>` only** — a **sole trusted-markup (`v/html`, `{:html s}`)
   child** whose string begins with LF is compensated as well (React doctors
   `dangerouslySetInnerHTML.__html` the same way). `<textarea>` is **absent from this
   arm**: a trusted-markup child beneath a textarea is rejected outright at the SSR
@@ -394,8 +507,8 @@ rf2-0spji, rf2-ib4fd).
 
 ### Custom elements (per the RULED grammar)
 
-Per [Spec 004D §Template grammar](004D-Freehand-Compiled-Grammar.md#template-grammar)'s RULED `ui/custom-element`
-grammar (restated here as consumer): a declared `(ui/custom-element tag {:properties #{…}})`
+Per [Spec 004D §Template grammar](004D-Freehand-Compiled-Grammar.md#template-grammar)'s RULED `v/custom-element`
+grammar (restated here as consumer): a declared `(v/custom-element tag {:properties #{…}})`
 name compiles to the camelCase JS **property** (`:help-text` → `helpText`) on the
 client; undeclared names are attributes; undeclared elements default to
 all-attributes. In this tree: property-classified props stay in `:attrs` (author
@@ -451,9 +564,9 @@ shapes.
   seam's failures by class — version-skew vs. structure — and it is the machine
   discriminator `:rf.error/id`, not ex-data sniffing, that separates them (both carry the
   same `{:got … :supported #{1}}` shape at the version gate).
-- The compiled root render pipeline (011's per-root flow) is: JVM emitter → tree →
-  `emit-ui-tree`; the response accumulator, error projection, and payload machinery are
-  unchanged `re-frame2-ssr` surfaces.
+- The server-side root render pipeline (011's per-root flow) is: structural emitter →
+  tree → `emit-ui-tree`, in either execution mode; the response accumulator, error
+  projection, and payload machinery are unchanged `re-frame2-ssr` surfaces.
 
 ### Stage — the emit seam is shipped; the fingerprint is a deferred candidate
 
@@ -518,7 +631,7 @@ corpus pins; that there is one, and that it is total, is the contract.
 **One table, no seam-local rows.** Emission applies the serialisation half of §The DOM
 conversion table and adds nothing to it. Where a row is version-pinned to a React
 release — the unitless style set, the boolean-attribute set — the seam carries the copy
-the client emitter targets, and the parity corpus is what catches drift between them.
+the React emitter targets, and the parity corpus is what catches drift between them.
 Divergence between the two emitters is *detected, not prevented*: they are separate code
 by design, and this contract's job is to give them one table to be separate against.
 
@@ -605,7 +718,7 @@ encoding, and the manifest field that carries it are Spec 011's (§Normalization
   presence metadata, fallbacks, text) — §Node schema + §Reserved `:rf.ui/*` keys
   (presence and fallback markers).
 - **Q11** (keyword lookup vs opaque; where event vectors live) — §Projections: plain
-  maps, field reads public, attribute reads via `ui.test/attrs`, events under
+  maps, field reads public, attribute reads via `t/attrs`, events under
   `:events`.
 - **Q12** (view-id selectors on fragment/nil-rooted views; boundary survival under
   nesting) — view-boundary nodes are real nodes wrapping each internal-view expansion,
@@ -622,13 +735,17 @@ encoding, and the manifest field that carries it are Spec 011's (§Normalization
 ## Ripples
 
 - Tree traversal is ordinary Clojure — `(tree-seq map? :children tree)` and a
-  `(:view-id %)` / `(:tag %)` predicate. (The former 004D `ui.test/find`/`find-all`
+  `(:view-id %)` / `(:tag %)` predicate. (The former 004D `t/find`/`find-all`
   selector grammar is retired, rf2-n7jtp; a `:view-id` predicate matches the
   view-boundary node, so fragment-rooted and nil-rooted views stay matchable.)
 - `guide/08-testing.md` — the intent assertion reads
-  `(-> (some #(when (= :button (:tag %)) %) (tree-seq map? :children tree)) ui.test/attrs :on-click)`
+  `(-> (some #(when (= :button (:tag %)) %) (tree-seq map? :children tree)) t/attrs :on-click)`
   (owned by the guide pass, not this fold-in).
 - [004D §The JVM structural subset](004D-Freehand-Compiled-Grammar.md#the-jvm-structural-subset) and
   [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views)
   point at this contract; the 009 catalogue gains rows for
   `:rf.error/ui-tree-malformed` and `:rf.error/ssr-ui-tree-version-unsupported`.
+- The executable rows for this contract are the `FH-STRUCT` area of
+  [the Freehand conformance index](conformance/freehand/conformance-index.md). Each
+  addresses one paragraph here, and each fixture runs on both hosts — which is how
+  §Cross-host equality stops being a sentence and starts being a gate.
