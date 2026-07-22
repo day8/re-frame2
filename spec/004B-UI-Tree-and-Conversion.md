@@ -2,7 +2,7 @@
 
 > Status: v1-required. The Stage-1 public ABI for the JVM structural render
 > tree and the DOM conversion table both emitters consume — the tree/conversion
-> half of Spec 004's portability law. [004D-Freehand-Compiled-Grammar.md](004D-Freehand-Compiled-Grammar.md) §The JVM
+> half of Spec 004D's portability law. [004D-Freehand-Compiled-Grammar.md](004D-Freehand-Compiled-Grammar.md) §The JVM
 > structural subset and §Template grammar reference this contract; it is never
 > restated there. Consumers: `ui.test/render`'s return value (per
 > [008](008-Testing.md)), tree traversal (ordinary Clojure —
@@ -119,7 +119,7 @@ above) and in view-boundary `:props` (a fn-valued or foreign prop). The `:rf.ui/
 namespace is reserved (Conventions ripple in the rewrite), so author data can never
 collide with the marker.
 
-`:ui/render-fn` is the compiled render-slot member (Spec 004 §Compiled render slots):
+`:ui/render-fn` is the compiled render-slot member ([004D §Compiled render slots](004D-Freehand-Compiled-Grammar.md#compiled-render-slots--render-fn-and-slot)):
 a `ui/render-fn` value carried as a component-call-site prop is recorded on that
 view-boundary's `:props` as `{:rf.ui/opaque :ui/render-fn}`. The render-fn's *rendered
 output* is **not** a marker — a `ui/slot` invocation produces the ordinary child
