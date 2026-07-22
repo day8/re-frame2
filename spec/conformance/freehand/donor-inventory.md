@@ -319,7 +319,7 @@ surface it names.
 | Donor row | What it is | Disposition | Slice | Status |
 |---|---|---|---|---|
 | `spec/004D-Freehand-Compiled-Grammar.md` | the donor-era compiled view language, moved intact out of 004 by rename so 004 could become the common contract; the moved file is where the donor spelling now lives and evolves into the v1 compiled grammar | MOVE | F0 | done |
-| `spec/004B-UI-Tree-and-Conversion.md` | the semantic tree and conversion tables, generalized from donor names to both modes | MOVE | F1 | pending |
+| `spec/004B-UI-Tree-and-Conversion.md` | the semantic tree and conversion tables, generalized from donor names to both modes | MOVE | F1 | done |
 | `spec/004C-Roots-and-Mount.md` | Root Descriptor, identity, mount, hydration, and teardown, re-spelled for the paved path | MOVE | F1 | pending |
 | `spec/006-ReactiveSubstrate.md` | the observation-port contract plus its packaging and sole-consumer text, which names the donor today | MOVE | F2 | pending |
 | `spec/008-Testing.md` | structural and mounted testing, the host and mode matrix, and the cross-mode conformance contract | MOVE | F1 | pending |
