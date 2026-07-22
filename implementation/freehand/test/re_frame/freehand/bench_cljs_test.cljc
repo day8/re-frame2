@@ -21,6 +21,13 @@
                         :test/self-ms (- (m/now-ms) t0)}))}
     overrides))
 
+(def ^:private provenance
+  "The revision a TEST supplies. A ClojureScript test process is not a
+  build pipeline: no environment variable, no git, and nothing it could
+  truthfully detect. Being unable to emit a record without one is
+  criterion 1 working, and is asserted in the provenance suite."
+  {:revision "test-fixture-revision"})
+
 (defn- defect
   [spec]
   (try (bench/workload spec) nil
@@ -98,7 +105,7 @@
   (testing "otherwise the distribution is over a different thing each
             time it is sampled."
     (is (thrown? #?(:clj Exception :cljs js/Error)
-                 (bench/run-workload (a-workload {:run (fn [_] {:test/rows 3})}))))))
+                 (bench/run-workload (a-workload {:run (fn [_] {:test/rows 3})}) provenance)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Where an exit code comes from
@@ -113,7 +120,7 @@
                                                      :doc "self time"
                                                      :observable :duration-ms}]
                                      :run (fn [_] {:test/self-ms 999999.0})})
-          {:keys [exit-code gate-failures results]} (bench/run [evidence-only])]
+          {:keys [exit-code gate-failures results]} (bench/run [evidence-only] provenance)]
       (is (= 0 exit-code))
       (is (empty? gate-failures))
       (is (empty? (:properties (first results))))
@@ -126,7 +133,7 @@
                                            :observable :count :expect 99}
                                           {:id :test/self-ms :doc "self time"
                                            :observable :duration-ms}]})
-          {:keys [exit-code gate-failures results]} (bench/run [(a-workload {}) red])]
+          {:keys [exit-code gate-failures results]} (bench/run [(a-workload {}) red] provenance)]
       (is (= 1 exit-code))
       (is (= 1 (count gate-failures)))
       (is (= :test/rows (:measurement (first gate-failures))))

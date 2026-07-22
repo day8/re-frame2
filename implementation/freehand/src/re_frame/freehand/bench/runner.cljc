@@ -86,24 +86,29 @@
 
   Answers `{:exit-code n :summary [line …] :report <edn>}`. `-main` adds
   printing and process exit and nothing else, so the exit-code contract
-  is testable without a process."
-  [args]
-  (let [flags (set args)]
-    (cond
-      (or (contains? flags "--help") (contains? flags "-h"))
-      {:exit-code 0 :summary usage :report {:command :help}}
+  is testable without a process.
 
-      (contains? flags "--prove")
-      (let [proof (falsifiability/prove)]
-        {:exit-code (if (:proven? proof) 0 1)
-         :summary   (prove-summary proof)
-         :report    (assoc proof :command :prove)})
+  `opts` are [[re-frame.freehand.bench/run-workload]]'s provenance
+  overrides, for a caller that knows the artefact it built better than
+  the process can detect it. `-main` passes none."
+  ([args] (run-cli args nil))
+  ([args opts]
+   (let [flags (set args)]
+     (cond
+       (or (contains? flags "--help") (contains? flags "-h"))
+       {:exit-code 0 :summary usage :report {:command :help}}
 
-      :else
-      (let [outcome (bench/run)]
-        {:exit-code (:exit-code outcome)
-         :summary   (suite-summary outcome)
-         :report    (assoc outcome :command :suite)}))))
+       (contains? flags "--prove")
+       (let [proof (falsifiability/prove opts)]
+         {:exit-code (if (:proven? proof) 0 1)
+          :summary   (prove-summary proof)
+          :report    (assoc proof :command :prove)})
+
+       :else
+       (let [outcome (bench/run (vals (bench/registered)) opts)]
+         {:exit-code (:exit-code outcome)
+          :summary   (suite-summary outcome)
+          :report    (assoc outcome :command :suite)})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Process

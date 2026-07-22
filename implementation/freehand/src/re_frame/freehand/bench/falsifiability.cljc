@@ -178,18 +178,24 @@
 
   Answers a report rather than throwing, so a test can assert on it, a
   CLI can print it, and a failure says which of the four expectations
-  broke instead of which line threw."
-  []
-  (let [holds (bench/run [honoured-gate])
-        reds  (bench/run [violated-gate])
-        green (bench/run [baseline-timing])
-        moved (bench/run [moved-timing])
-        named (some #(= :falsifiability/node-count (:measurement %)) (:gate-failures reds))
-        base  (p50 (first (:results green)) :falsifiability/render-ms)
-        big   (p50 (first (:results moved)) :falsifiability/render-ms)
-        ratio (when (and (number? base) (pos? base) (number? big)) (/ big base))
-        defects
-        (into []
+  broke instead of which line threw.
+
+  `opts` are [[re-frame.freehand.bench/run-workload]]'s provenance
+  overrides. A host that cannot detect its own revision — a browser, or a
+  ClojureScript test process — supplies one here; a JVM checkout needs
+  nothing."
+  ([] (prove nil))
+  ([opts]
+   (let [holds   (bench/run [honoured-gate] opts)
+         reds    (bench/run [violated-gate] opts)
+         green   (bench/run [baseline-timing] opts)
+         moved   (bench/run [moved-timing] opts)
+         named   (some #(= :falsifiability/node-count (:measurement %)) (:gate-failures reds))
+         base    (p50 (first (:results green)) :falsifiability/render-ms)
+         big     (p50 (first (:results moved)) :falsifiability/render-ms)
+         ratio   (when (and (number? base) (pos? base) (number? big)) (/ big base))
+         defects
+         (into []
               (keep identity)
               [(check (zero? (:exit-code holds))
                       (str "A deterministic property that HOLDS red the run (exit "
@@ -225,16 +231,16 @@
                (check (and ratio (>= ratio minimum-move))
                       (str "The moved-timing arm's distribution did not actually move — p50 "
                            (pr-str big) "ms against a baseline of " (pr-str base) "ms ("
-                           (pr-str ratio) "×, needed " minimum-move "×). Proving that an "
+                           (pr-str ratio) "x, needed " minimum-move "x). Proving that an "
                            "unchanged timing does not red the build proves nothing."))])]
-    {:arms    {:honoured-gate   {:exit-code (:exit-code holds)}
-               :violated-gate   {:exit-code     (:exit-code reds)
-                                 :gate-failures (mapv :message (:gate-failures reds))}
-               :baseline-timing {:exit-code (:exit-code green)
-                                 :p50-ms    base}
-               :moved-timing    {:exit-code     (:exit-code moved)
-                                 :p50-ms        big
-                                 :gate-failures (mapv :message (:gate-failures moved))}}
-     :move    ratio
-     :defects defects
-     :proven? (empty? defects)}))
+     {:arms    {:honoured-gate   {:exit-code (:exit-code holds)}
+                :violated-gate   {:exit-code     (:exit-code reds)
+                                  :gate-failures (mapv :message (:gate-failures reds))}
+                :baseline-timing {:exit-code (:exit-code green)
+                                  :p50-ms    base}
+                :moved-timing    {:exit-code     (:exit-code moved)
+                                  :p50-ms        big
+                                  :gate-failures (mapv :message (:gate-failures moved))}}
+      :move    ratio
+      :defects defects
+      :proven? (empty? defects)})))
