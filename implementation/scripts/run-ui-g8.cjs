@@ -17,11 +17,17 @@
 //   counter.
 //
 //   COMPARATIVE LATENCY (evidence only; NO threshold — G-13's posture) — the
-//   compiled reusable control's event-to-commit p95 measured against an
-//   equivalent hand-written React control in the SAME warmed run. The p95
-//   ratio, the within-10% observation, the sample count, and the noise policy
-//   are RECORDED and reported; nothing gates on a wall-clock number. The budget
-//   comparison is kept non-vacuous by mutation teeth over synthetic data.
+//   compiled reusable control measured against an equivalent hand-written
+//   React control in the SAME warmed run, on TWO channels per engine
+//   (rf2-dpwel): `commit` — the TRUE event-to-commit boundary, each sample
+//   keyed to a fresh input and ended at the arm's own React.Profiler onRender
+//   commitTime with exactly one attributable commit asserted; `settlement` —
+//   the former input-to-flush-settlement metric, retained for comparison.
+//   Pair order alternates compiled-first / hand-written-first (no fixed
+//   sequence bias). The p95 ratios, the within-10% observation, the sample
+//   count, and the noise policy are RECORDED and reported; nothing gates on a
+//   wall-clock number. The budget comparison is kept non-vacuous by mutation
+//   teeth over synthetic data.
 
 const fs = require('fs');
 const path = require('path');
@@ -38,8 +44,10 @@ const {
   PERCENTILE_CONVENTION,
   RATIO_BUDGET,
   NOISE_POLICY,
+  CHANNELS,
   withinBudget,
   engineLatencyEvidence,
+  engineLatencyChannels,
   buildPerformanceSummary,
 } = require('./lib/g8-latency-evidence.cjs');
 
@@ -317,16 +325,16 @@ async function main() {
       engines[name] = await driveEngine(name, url);
     }
 
-    // Comparative-latency evidence — derive the per-engine p95s, ratio, and
-    // within-10% OBSERVATION from the raw event-to-commit samples the fixture
-    // measured in the same warmed run. Evidence-only; the gate's pass/fail does
-    // NOT depend on any of these numbers (only their sample SHAPE is validated,
-    // inside engineLatencyEvidence). The stated relative budget is surfaced as
-    // an observation, not a threshold.
-    const perfEngines = ENGINES.map((name) => {
-      const lat = engines[name].latency;
-      return engineLatencyEvidence(name, lat['compiled-raw-ms'], lat['handwritten-raw-ms']);
-    });
+    // Comparative-latency evidence — derive the per-engine, per-channel p95s,
+    // ratios, and within-10% OBSERVATIONS from the raw samples the fixture
+    // measured in the same warmed run: the `commit` channel (true
+    // event-to-commit — Profiler onRender endpoint) and the `settlement`
+    // channel (the former input-to-quiescence metric, retained for
+    // comparison). Evidence-only; the gate's pass/fail does NOT depend on any
+    // of these numbers (only their sample SHAPE is validated, inside
+    // engineLatencyEvidence). The stated relative budget is surfaced as an
+    // observation, not a threshold.
+    const perfEngines = ENGINES.map((name) => engineLatencyChannels(name, engines[name].latency));
 
     const report = {
       gate: 'G-8', status: 'pass',
@@ -342,11 +350,11 @@ async function main() {
         mutationTeeth,
       },
       // Comparative latency — EVIDENCE ONLY; no wall-clock threshold. The p95
-      // ratio and within-10% observation are recorded, never gated; the budget
-      // comparison is kept non-vacuous by the budget teeth.
+      // ratios and within-10% observations are recorded per channel, never
+      // gated; the budget comparison is kept non-vacuous by the budget teeth.
       performance: {
         posture: 'evidence-only; no wall-clock threshold',
-        contract: 'compiled reusable control event-to-commit p95 measured against an equivalent hand-written React control (useState/onChange) in the same warmed run',
+        contract: 'compiled reusable control vs an equivalent hand-written React control (useState/onChange) in the same warmed run; commit channel = TRUE event-to-commit (per-sample Profiler onRender commitTime, exactly one attributable commit asserted); settlement channel = the former input-to-flush-settlement metric, retained for comparison; pair order alternates compiled-first / hand-written-first',
         percentileConvention: PERCENTILE_CONVENTION,
         noisePolicy: NOISE_POLICY,
         ratioBudget: RATIO_BUDGET,
@@ -361,11 +369,17 @@ async function main() {
     appendSummary(report);
     console.log(`G-8 PASS (${ENGINES.join(' + ')}) — report: ${REPORT}`);
     for (const e of perfEngines) {
-      console.log(
-        `  [${e.engine}] event-to-commit p95: compiled ${e.compiled['p95-ms'].toFixed(3)}ms ` +
-          `vs hand-written ${e.handwritten['p95-ms'].toFixed(3)}ms ` +
-          `(ratio ${e['p95-ratio'].toFixed(3)}, within-10% ${e['within-10pct']}) — evidence only`,
-      );
+      for (const ch of CHANNELS) {
+        const ev = e[ch];
+        const label = ch === 'commit'
+          ? 'commit (true event-to-commit)'
+          : 'settlement (former metric)';
+        console.log(
+          `  [${e.engine}] ${label} p95: compiled ${ev.compiled['p95-ms'].toFixed(3)}ms ` +
+            `vs hand-written ${ev.handwritten['p95-ms'].toFixed(3)}ms ` +
+            `(ratio ${ev['p95-ratio'].toFixed(3)}, within-10% ${ev['within-10pct']}) — evidence only`,
+        );
+      }
     }
   } catch (error) {
     writeReport({ gate: 'G-8', status: 'fail', error: error.stack || String(error) });

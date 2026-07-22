@@ -7,8 +7,11 @@
  * canonical arms: real attributable React commit counts and the comparative
  * event-to-commit latency. This test pins the comparative-latency evidence
  * MATH — the stated nearest-rank quantile convention, sample-shape validation,
- * the evidence-only p95 budget comparison, and the step-summary rendering —
- * without spawning shadow-cljs or Playwright.
+ * the evidence-only p95 budget comparison, the rf2-dpwel two-channel shape
+ * (commit = true event-to-commit via the arm's Profiler onRender endpoint;
+ * settlement = the former input-to-quiescence metric, retained for
+ * comparison), and the step-summary rendering — without spawning shadow-cljs
+ * or Playwright.
  *
  * PURE by construction, exactly like the sibling `_g13-timing-evidence.test.cjs`:
  * it requires ONLY `assert/strict` and the pure `lib/g8-latency-evidence.cjs`
@@ -34,12 +37,14 @@ const {
   PERCENTILE_CONVENTION,
   RATIO_BUDGET,
   NOISE_POLICY,
+  CHANNELS,
   latencyPercentile,
   validateLatencySamples,
   summarizeLatency,
   withinBudget,
   p95Ratio,
   engineLatencyEvidence,
+  engineLatencyChannels,
   buildPerformanceSummary,
 } = require('./lib/g8-latency-evidence.cjs');
 
@@ -165,35 +170,89 @@ test('engineLatencyEvidence validates BOTH raw arrays (a malformed one fails lou
   assert.throws(() => engineLatencyEvidence('chromium', fill25(1), fill25(1).slice(0, 10)), /exactly 25/);
 });
 
+// ----- engineLatencyChannels: the rf2-dpwel two-channel evidence -------------
+
+// A synthetic fixture latency payload with distinguishable channels: commit
+// (true event-to-commit) well below settlement (input-to-quiescence), the way
+// the real fixture reports them.
+function fixtureLatency() {
+  return {
+    'compiled-commit-raw-ms': fill25(1.2),
+    'handwritten-commit-raw-ms': fill25(1.1),
+    'compiled-settle-raw-ms': fill25(5.0),
+    'handwritten-settle-raw-ms': fill25(4.0),
+    'order-policy': 'alternating pair order: even pairs compiled-first, odd pairs hand-written-first',
+  };
+}
+
+test('CHANNELS names exactly the commit and settlement channels', () => {
+  assert.deepEqual(CHANNELS, ['commit', 'settlement']);
+});
+
+test('engineLatencyChannels builds BOTH channels from the fixture payload and carries the order policy', () => {
+  const e = engineLatencyChannels('chromium', fixtureLatency());
+  assert.equal(e.engine, 'chromium');
+  assert.match(e['order-policy'], /alternating pair order/);
+  assert.equal(e.commit.compiled['p95-ms'], 1.2);
+  assert.equal(e.commit.handwritten['p95-ms'], 1.1);
+  assert.equal(e.settlement.compiled['p95-ms'], 5.0);
+  assert.equal(e.settlement.handwritten['p95-ms'], 4.0);
+  assert.equal(e.commit['within-10pct'], true);
+  assert.equal(e.settlement['within-10pct'], false); // 1.25x — observed, never gated
+});
+
+test('engineLatencyChannels validates every raw array and names the engine/channel', () => {
+  const missingCommit = fixtureLatency();
+  delete missingCommit['compiled-commit-raw-ms'];
+  assert.throws(() => engineLatencyChannels('webkit', missingCommit), /webkit\/commit/);
+  const shortSettle = fixtureLatency();
+  shortSettle['handwritten-settle-raw-ms'] = fill25(1).slice(0, 10);
+  assert.throws(() => engineLatencyChannels('webkit', shortSettle), /exactly 25/);
+  assert.throws(() => engineLatencyChannels('webkit', null), /not an object/);
+});
+
 // ----- buildPerformanceSummary: evidence-only posture + raw visible ----------
 
 function twoEngineEvidence() {
   return [
-    engineLatencyEvidence('chromium', fill25(1.2), fill25(1.1)),
-    engineLatencyEvidence('webkit', fill25(1.4), fill25(1.3)),
+    engineLatencyChannels('chromium', fixtureLatency()),
+    engineLatencyChannels('webkit', {
+      ...fixtureLatency(),
+      'compiled-commit-raw-ms': fill25(1.4),
+      'handwritten-commit-raw-ms': fill25(1.3),
+    }),
   ];
 }
 
-test('buildPerformanceSummary states the evidence-only posture and the conventions', () => {
+test('buildPerformanceSummary states the evidence-only posture, the conventions, and both channels', () => {
   const md = buildPerformanceSummary(twoEngineEvidence());
   assert.match(md, /EVIDENCE ONLY/);
   assert.match(md, /no wall-clock threshold/);
+  assert.match(md, /TRUE event-to-commit/);
+  assert.match(md, /former metric, retained for comparison/);
   assert.equal(md.includes(PERCENTILE_CONVENTION), true);
   assert.equal(md.includes(NOISE_POLICY), true);
 });
 
-test('buildPerformanceSummary emits a per-engine p95 + ratio row and exposes the raw samples', () => {
+test('buildPerformanceSummary emits a per-engine, per-channel p95 + ratio row and exposes the raw samples', () => {
   const md = buildPerformanceSummary(twoEngineEvidence());
-  assert.match(md, /\| chromium \| 1\.200 \| 1\.100 \| 1\.091 \| ✓ \|/);
-  assert.match(md, /\| webkit \| 1\.400 \| 1\.300 \| 1\.077 \| ✓ \|/);
-  // Raw distributions must be present, not just the two percentiles.
-  assert.match(md, /chromium compiled/);
-  assert.match(md, /webkit hand-written/);
+  assert.match(md, /\| chromium \| commit \| 1\.200 \| 1\.100 \| 1\.091 \| ✓ \|/);
+  assert.match(md, /\| chromium \| settlement \| 5\.000 \| 4\.000 \| 1\.250 \| observed over \|/);
+  assert.match(md, /\| webkit \| commit \| 1\.400 \| 1\.300 \| 1\.077 \| ✓ \|/);
+  // Raw distributions must be present for both channels, not just percentiles.
+  assert.match(md, /chromium commit compiled/);
+  assert.match(md, /chromium settlement compiled/);
+  assert.match(md, /webkit settlement hand-written/);
 });
 
-test('buildPerformanceSummary reports an over-budget engine as observed-over (evidence, not a gate)', () => {
-  const md = buildPerformanceSummary([engineLatencyEvidence('chromium', fill25(2.0), fill25(1.0))]);
-  assert.match(md, /\| chromium \| 2\.000 \| 1\.000 \| 2\.000 \| observed over \|/);
+test('buildPerformanceSummary reports an over-budget commit channel as observed-over (evidence, not a gate)', () => {
+  const over = engineLatencyChannels('chromium', {
+    ...fixtureLatency(),
+    'compiled-commit-raw-ms': fill25(2.0),
+    'handwritten-commit-raw-ms': fill25(1.0),
+  });
+  const md = buildPerformanceSummary([over]);
+  assert.match(md, /\| chromium \| commit \| 2\.000 \| 1\.000 \| 2\.000 \| observed over \|/);
 });
 
 test('buildPerformanceSummary rejects an empty per-engine set', () => {
