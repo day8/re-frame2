@@ -208,7 +208,12 @@
                     "`(ui/presence-phase) = :unmounting`"]}})
 
 (def a11y-suppress-error :rf.ui.compile/bad-suppress)
-(def a11y-proof-home "re-frame.ui.a11y-diagnostics-cljs-test")
+;; The a11y roster's proof home moved with the compile tier itself (EP-0036
+;; slice F3a): the analyzer, both emitters and the a11y diagnostics they mint
+;; are owned by `implementation/freehand/` now, so the suite that proves this
+;; roster lives there. The profile is donor-era evidence and is deleted at the
+;; retirement gate; until then it must name where the proof ACTUALLY is.
+(def a11y-proof-home "re-frame.freehand.a11y-diagnostics-cljs-test")
 
 ;; ---------------------------------------------------------------------------
 ;; (3) The W14 dual-emitter PARITY rows S4 contributes to the compiled-view
@@ -663,18 +668,23 @@
 (deftest profile-names-real-proof-homes
   ;; A proof home that is not a real test namespace is a lie the row-binding
   ;; checks above cannot see — they only prove the STRING is in the row.
-  (let [test-root (io/file (repo-root) "implementation" "ui" "test")
+  (let [test-roots [(io/file (repo-root) "implementation" "ui" "test")
+                    ;; The absorbed compile tier's suites (EP-0036 slice F3a).
+                    (io/file (repo-root) "implementation" "freehand" "test")]
         exists?   (fn [ns-name]
                     (let [base (-> ns-name (str/replace "-" "_") (str/replace "." "/"))]
-                      (some #(.exists (io/file test-root (str base %)))
-                            [".clj" ".cljs" ".cljc"])))]
+                      (some (fn [root]
+                              (some #(.exists (io/file root (str base %)))
+                                    [".clj" ".cljs" ".cljc"]))
+                            test-roots)))]
     (doseq [home (concat (mapcat (juxt :jvm-proof :cljs-proof) (vals frozen-s4-forms))
                          [(:jvm-proof frozen-foreign-head)
                           (:cljs-proof frozen-foreign-head)
                           a11y-proof-home])]
       (is (exists? home)
           (str "the profile names proof home " home
-               ", which is not a test namespace under implementation/ui/test")))))
+               ", which is not a test namespace under implementation/ui/test "
+               "or implementation/freehand/test")))))
 
 ;; --- the ruled sequencing, non-parity, S5-wall and hand-off obligations ------
 

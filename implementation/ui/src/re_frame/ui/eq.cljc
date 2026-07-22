@@ -6,7 +6,7 @@
 
       Object.is(a, b)  OR  (= a b)
 
-  Consequences (all pinned by `re-frame.ui.eq-cljs-test`):
+  Consequences (all pinned by `re-frame.freehand.eq-cljs-test`):
 
   - CLJS data (anything with `IEquiv`, incl. records and js/Date) compares
     by VALUE — fresh-but-equal literals do not repaint.
