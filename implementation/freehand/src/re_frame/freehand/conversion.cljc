@@ -21,7 +21,7 @@
     - the **semantic** half (`class-parts`, `css-value`, `attr-value`,
       `js-number-str`, the namespace context rows) — author space, the
       values the structural tree carries;
-    - the **client** half (`react-attr-name`, `react-event-name`,
+    - the **client** half (`react-prop-name`, `react-event-name`,
       `react-style-name`) — the final React prop spelling.
 
   What is deliberately ABSENT is the serialisation half — final markup
@@ -331,27 +331,65 @@
     (str/starts-with? css-name "-ms-")      (camelize (subs css-name 1))
     :else                                   (camelize css-name)))
 
-(defn react-attr-name
-  "The author attribute keyword as the React emitter spells it
-  (Spec 004B §Attribute names).
+(defn react-prop-name
+  "The author attribute keyword as the React emitter spells it — React's
+  own CANONICAL prop name (Spec 004B §Attribute names).
 
-  `:class` and `:for` take React's reserved spellings; `data-*` and
-  `aria-*` pass verbatim with their casing intact; every other HTML name
-  hyphen-collapses (`:tab-index` becomes `tabindex`, the DOM attribute the
-  kebab spelling mirrors). Inside an SVG or MathML context the authored
-  spelling passes VERBATIM instead — those attribute names are
-  case-sensitive, and the kebab→camelCase alias table Spec 004B still
-  marks `[S1-CONFIRM]` is not implemented here, so `:viewBox` written
-  as-authored is the spelling that reaches the DOM."
-  [ns-ctx k]
-  (let [n (name k)]
-    (cond
-      (= "class" n)                 "className"
-      (= "for" n)                   "htmlFor"
-      (str/starts-with? n "data-")  n
-      (str/starts-with? n "aria-")  n
-      (some? ns-ctx)                n
-      :else                         (str/replace n "-" ""))))
+  React does not take DOM attribute spellings. `contentEditable`,
+  `acceptCharset`, `charSet`, `tabIndex` and `strokeWidth` are props;
+  their lowercase or hyphen-collapsed forms are unrecognized names React
+  warns about and handles differently. So the projection reads the
+  react-dom `possibleStandardNames` vocabulary in
+  [[re-frame.freehand.rules/react-prop-name]] — the same table the
+  compiled tier bakes into emitted code, not a second one — with
+  `data-*`/`aria-*` verbatim and an unrecognized name verbatim, which is
+  React 16+'s own pass-through rule.
+
+  It takes NO namespace context, and that is the point rather than an
+  omission. A canonical prop name is canonical everywhere: `:stroke-width`
+  is `strokeWidth` whether it sits under `<svg>` directly or under a
+  declared view that React renders as its own component. The context-
+  sensitive rule this replaced could only be right where the walk happened
+  to know the context, so inserting a view boundary silently changed which
+  attribute reached the DOM."
+  [k]
+  (rules/react-prop-name (name k)))
+
+;; ---------------------------------------------------------------------------
+;; Attribute keys the grammar refuses
+;; ---------------------------------------------------------------------------
+
+(defn attr-key-refusal
+  "Why the interpreted walk refuses attribute key `k`, as the sentence a
+  diagnostic states — or `nil` when the key is an ordinary attribute.
+
+  Two sources, one answer, and both are answered BEFORE either emitter
+  writes anything:
+
+  - [[re-frame.freehand.rules/rejected-prop-spellings]] is the grammar's
+    own \"one spelling per name\" roster, which the compiled analyzer
+    enforces at compile time. The interpreted walk must enforce the same
+    keys with the same replacements, or a declaration that the compiler
+    rejects would interpret happily — and `:children` in particular is a
+    prop React RESERVES, so an attribute-path `:children` would put
+    content in the DOM that the structural tree does not carry, and would
+    make a structurally legal void element throw in React alone.
+  - `:ref` is refused for a different reason. It is legal in the grammar,
+    but it is a commit-phase host hook and the interpreted tier has no ref
+    machinery; React consumes it as a reserved prop while the structural
+    tree carries it as an ordinary attribute. Honouring it half-way is
+    exactly the divergence two emitters over one semantic value exist to
+    rule out, so the interpreted walk says so instead. Refs land with the
+    host-lifecycle slice."
+  [k]
+  (if (= :ref k)
+    (str ":ref is a commit-phase host hook, and the interpreted walk has no ref machinery "
+         "— React would consume it as a reserved prop while the structural tree carried it "
+         "as an ordinary attribute, which is two answers for one declaration. Refs land "
+         "with the host-lifecycle slice.")
+    (when-some [replacement (get rules/rejected-prop-spellings k)]
+      (str k " is not a prop — one spelling per name, ambiguities removed. Use "
+           replacement "."))))
 
 (defn react-event-name
   "The handler-position key as React spells the prop: `:on-click` becomes
