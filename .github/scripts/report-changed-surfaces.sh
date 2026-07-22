@@ -47,6 +47,7 @@ cljs_prod=false
 bundle_isolation=false
 reagent_slim_bundle=false
 adapter_testbed_smokes=false
+ui_smoke=false
 tools_jvm=false
 template_expensive=false
 mcp_conformance=false
@@ -67,6 +68,7 @@ mark_all() {
   bundle_isolation=true
   reagent_slim_bundle=true
   adapter_testbed_smokes=true
+  ui_smoke=true
   tools_jvm=true
   template_expensive=true
   mcp_conformance=true
@@ -260,16 +262,19 @@ else
       implementation/adapters/scripts/*)
         # The adapter-smoke harness (orchestrator + runner + shared
         # manifest) lives with the adapters it drives. A harness-script
-        # edit drives the adapter-testbed-smokes job (via
-        # `npm run test:adapter-smokes`) but does NOT change adapter source,
-        # so it fires ONLY that gate — not the full adapter-source fan-out
-        # the broad implementation/adapters/* case below triggers. This
-        # mirrors the dedicated harness-script case the examples tree used
-        # before the harness moved here. (spec-helpers.cjs / examples-port.cjs
-        # / examples-staging.cjs still live under examples/scripts/ and have
-        # their own cases there, since the example dev runner and the Story
-        # launchers share them.)
+        # edit drives the adapter-testbed-smokes job AND the ui-smoke job
+        # (both run `npm run test:adapter-smokes` over the shared
+        # ADAPTER_SMOKES manifest — rf2-nojiwy) but does NOT change adapter
+        # or substrate source, so it fires ONLY those gates — not the full
+        # adapter-source fan-out the broad implementation/adapters/* case
+        # below triggers. This mirrors the dedicated harness-script case
+        # the examples tree used before the harness moved here.
+        # (spec-helpers.cjs / examples-port.cjs / examples-staging.cjs
+        # still live under examples/scripts/ and have their own cases
+        # there, since the example dev runner and the Story launchers
+        # share them.)
         adapter_testbed_smokes=true
+        ui_smoke=true
         ;;
       implementation/adapters/*)
         # rf2-bxdk8 + rf2-cjp0i — the adapter-testbed-smokes gate is
@@ -302,7 +307,11 @@ else
         # examples/** is test-free per rf2-8cevm. (port-resolver.cjs is
         # shared with the Story launchers and is handled in its own case
         # below so it fires BOTH gates; examples-staging.cjs likewise.)
+        # ui_smoke fires too (rf2-nojiwy): the re-frame.ui smoke rides the
+        # same orchestrator, so a break in these helpers breaks it
+        # identically.
         adapter_testbed_smokes=true
+        ui_smoke=true
         ;;
       examples/scripts/serve-and-run-story-feature-load-tests.cjs|examples/scripts/run-story-feature-load-tests.cjs|examples/scripts/serve-and-run-story-play-scripts.cjs|examples/scripts/story-feature-load-port.cjs)
         # rf2-y9o5e3 — the Story CI-as-test launchers + their dedicated
@@ -320,9 +329,11 @@ else
         # rf2-y9o5e3 — port-resolver.cjs is the shared free-port resolver
         # imported by BOTH examples-port.cjs (adapter smoke orchestrator)
         # and story-feature-load-port.cjs (Story launchers). A break here
-        # affects every examples/scripts browser gate, so it fires BOTH
-        # the adapter-testbed-smokes and the story-xray-browser gates.
+        # affects every examples/scripts browser gate, so it fires the
+        # adapter-testbed-smokes, ui-smoke (rf2-nojiwy — same
+        # orchestrator), and story-xray-browser gates.
         adapter_testbed_smokes=true
+        ui_smoke=true
         story_xray_browser=true
         ;;
       examples/scripts/examples-staging.cjs)
@@ -344,8 +355,10 @@ else
         # exactly like the shared port-resolver.cjs case, so editing the shared
         # helper runs the browser gates that depend on it. (The dev runner
         # serve-example.cjs also imports it but is not a CI gate, so no extra
-        # fan-out is warranted.)
+        # fan-out is warranted.) ui_smoke fires too (rf2-nojiwy): the
+        # re-frame.ui smoke's staging rides the same helper.
         adapter_testbed_smokes=true
+        ui_smoke=true
         story_xray_browser=true
         ;;
       examples/scripts/examples-asset-manifest.cjs)
@@ -366,8 +379,11 @@ else
         # examples-staging.cjs case, so editing the manifest runs the browser
         # gates that depend on it. (The static asset scanner
         # check-examples-assets.cjs also require's `pageExemptions`, but it is
-        # not a CI gate, so no extra fan-out is warranted.)
+        # not a CI gate, so no extra fan-out is warranted.) ui_smoke fires
+        # too (rf2-nojiwy): the re-frame.ui smoke's staged output rides the
+        # same manifest-driven staging.
         adapter_testbed_smokes=true
+        ui_smoke=true
         story_xray_browser=true
         ;;
       implementation/epoch/*)
@@ -494,12 +510,22 @@ else
         # every UI change must run cljs_prod.  It also ships as its own artifact,
         # so keep the generic bundle-boundary checks armed alongside the focused
         # ui adapter isolation step.
+        #
+        # rf2-nojiwy — the four-suites rule's new-UI smoke. The re-frame.ui
+        # testbed (implementation/ui/testbed/) and the substrate runtime it
+        # mounts both live under this tree, so any implementation/ui/**
+        # change fires the ui-smoke browser gate — the direct-source-change
+        # trigger discipline the adapter smokes use (adapter source →
+        # adapter_testbed_smokes). Core changes deliberately do NOT fire it,
+        # per the same rf2-8jz9t reasoning: the smoke catches
+        # substrate-mount bugs, not core regressions.
         implementation_jvm=true
         cljs_node_test=true
         ui_gates=true
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
+        ui_smoke=true
         ;;
       implementation/scripts/run-ui-bench.cjs)
         # rf2-vxgfnd.6 — false-green fix, mirroring the launcher cases
@@ -1063,6 +1089,7 @@ emit cljs_prod "$cljs_prod"
 emit bundle_isolation "$bundle_isolation"
 emit reagent_slim_bundle "$reagent_slim_bundle"
 emit adapter_testbed_smokes "$adapter_testbed_smokes"
+emit ui_smoke "$ui_smoke"
 emit tools_jvm "$tools_jvm"
 emit template_expensive "$template_expensive"
 emit mcp_conformance "$mcp_conformance"

@@ -72,6 +72,7 @@ jobs:
       bundle_isolation: ${{ steps.detect.outputs.bundle_isolation }}
       reagent_slim_bundle: ${{ steps.detect.outputs.reagent_slim_bundle }}
       adapter_testbed_smokes: ${{ steps.detect.outputs.adapter_testbed_smokes }}
+      ui_smoke: ${{ steps.detect.outputs.ui_smoke }}
       tools_jvm: ${{ steps.detect.outputs.tools_jvm }}
       template_expensive: ${{ steps.detect.outputs.template_expensive }}
       mcp_conformance: ${{ steps.detect.outputs.mcp_conformance }}
@@ -2285,6 +2286,77 @@ jobs:
           ADAPTER_SMOKE_FILTER: "adapters/"
         run: npm run test:adapter-smokes
 
+  # rf2-nojiwy — the four-suites rule's new-UI smoke. The re-frame.ui
+  # substrate testbed (implementation/ui/testbed/ — homed with the
+  # substrate; re-frame.ui is experimental and ships ALONGSIDE the
+  # first-class adapters, so its smoke is a sibling of the three adapter
+  # smokes, not one of them). Same mount + dispatch + assert shape, same
+  # shared orchestrator (`npm run test:adapter-smokes` over the
+  # ADAPTER_SMOKES manifest in
+  # implementation/adapters/scripts/adapter-smoke-filter.cjs), narrowed to
+  # the one substrate entry via ADAPTER_SMOKE_FILTER=ui/testbed (the
+  # adapter-testbed-smokes job's `adapters/` filter excludes it). Fires on
+  # implementation/ui/** and smoke-harness changes via the ui_smoke
+  # classifier output. The nightly sweep and test-rigorous-local.sh run
+  # `test:adapter-smokes` UNFILTERED, so both pick this smoke up with zero
+  # list edits.
+  ui-smoke:
+    name: re-frame.ui testbed smoke (browser, headless Chromium)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.ui_smoke == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-cljs-examples-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cljs-examples-
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Playwright (Chromium + system deps)
+        run: npx playwright install --with-deps chromium
+
+      - name: Compile the re-frame.ui smoke, serve, and run its Playwright spec
+        env:
+          ADAPTER_SMOKE_FILTER: "ui/testbed"
+        run: npm run test:adapter-smokes
+
   story-xray-browser:
     name: Story/Xray browser gates (PR-smoke)
     needs: detect_changed_surfaces
@@ -3742,6 +3814,7 @@ jobs:
       - cljs-elision
       - cljs-bundle-isolation
       - adapter-testbed-smokes
+      - ui-smoke
       - story-xray-browser
       - cljs-reagent-slim-bundle-isolation
       - tenant-switcher-testbed-smoke
