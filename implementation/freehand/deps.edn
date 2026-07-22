@@ -41,4 +41,18 @@
  {:test {:extra-paths ["test"]
          :extra-deps  {day8/re-frame2-routing    {:local/root "../routing"}
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
-         :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}
+
+  ;; The B-spine measurement harness (D021). No extra paths and no extra
+  ;; deps: the harness is ordinary artefact source under :paths, because
+  ;; B5 measures PRODUCTION bundles and a measurement spine that could
+  ;; not be compiled into one would measure the wrong artefact.
+  ;;
+  ;;   clojure -M:bench            the standing evidence suite
+  ;;   clojure -M:bench --prove    the two-way falsifiability proof
+  ;;
+  ;; Stdout is valid EDN (the summary rides as `;;` comments), so a
+  ;; release run is `clojure -M:bench > out/freehand-bench.edn`. Exit 1
+  ;; means a deterministic property was violated, and nothing else — no
+  ;; wall-clock or byte distribution can reach that exit code.
+  :bench {:main-opts ["-m" "re-frame.freehand.bench.runner"]}}}
