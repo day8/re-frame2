@@ -1,0 +1,382 @@
+# Semantic controllers and reusable fields
+
+Most Freehand apps **never** need this page.
+
+If you only need a live field, or an app-specific draft that commits on blur and
+Enter, ordinary Freehand plus re-frame is enough. Open this page only when
+packaging a **hard, reusable multi-step protocol** — commit-on-blur, cancel races,
+same-value reject — so many screens share one correct implementation.
+
+!!! important "Skip this page unless you need it"
+
+    Live field or app-specific draft + blur/Enter → **stop**.  
+    Open here only for a **reusable** multi-event protocol.
+
+!!! note "Not a Freehand built-in"
+
+    Freehand does **not** ship `v/buffered-field` or a widget catalogue in v1.
+    It supplies the **laws**: re-frame-only state, explicit `:control` addresses,
+    one event per action, consult committed state. A library implements controls
+    as normal `v/defview`s plus events and subs. Sketches below are illustrative.
+
+## You can just use `on-blur`
+
+This is valid Freehand and does **not** use a semantic controller:
+
+```clojure
+[:input {:value   (v/sub [:lines/draft id])
+         :on-input [:lines/draft-changed id ::v/value]
+         :on-blur  [:lines/label-committed id]
+         :on-key-down {"Enter"  [:lines/label-committed id]
+                       "Escape" [:lines/draft-cancelled id]}}]
+```
+
+Use the same event on blur and Enter (commit). Use a **different** event on
+`on-input` (draft) — keystroke is draft; commit is accept.
+
+A semantic controller is only worth it when that protocol must be **correct and
+shared** across many call sites — for example stale blur after cancel, a required
+reset generation, or library packaging — without every team reimplementing it.
+
+## Start from the simple case
+
+Most Freehand controls should **not** use a semantic controller.
+
+A disclosure is enough as props-only / controlled:
+
+```clojure
+(v/defview disclosure [{:keys [open? on-toggle label children]}]
+  [:section.disclosure
+   [:button {:aria-expanded open? :on-click on-toggle} label]
+   (when open? [:div.body children])])
+
+[disclosure
+ {:open?     (v/sub [:faq/open? question-id])
+  :on-toggle [:faq/toggled question-id]
+  :label     "Why?"}]
+```
+
+The parent owns `open?` in re-frame. The control is dumb: **value in, intent out.**
+
+Use that pattern whenever the interaction is a single domain fact (or a single
+domain event) and every caller can wire it without reimplementing a multi-step
+protocol.
+
+## When you need a controller
+
+Only when the control owns a **multi-event protocol** that every caller should not
+rebuild:
+
+| Symptom | Example |
+|---|---|
+| Draft vs accepted baseline | commit on blur/Enter |
+| Cancel must beat late blur | Escape then blur must not commit |
+| Same-value rejection | parent reasserts old string; field must reset |
+| Shared library UX | many screens, same rules |
+
+Classic case: **buffered / revision text field.** Dropdown and typeahead are the
+same class once the protocol is clear.
+
+If every keystroke *is* product state (live filter, autosave), stay controlled and
+dispatch domain events — no controller.
+
+## Async search / typeahead (without a second state system)
+
+Dropdown move/select and typeahead are the same *class* of multi-event protocol
+as buffered fields — but many apps implement them as **ordinary re-frame** first
+and only package a controller when reuse demands it.
+
+### Debounce and supersession (app pattern)
+
+```clojure
+;; Each keystroke updates the query string (controlled field A) and kicks search.
+;; re-frame2: :dispatch-later is an fx id; the map key for the event is :event
+;; (not v1's :dispatch).
+(rf/reg-event :search/query-typed
+  (fn [{:keys [db]} [_ text]]
+    (let [gen (inc (get-in db [:search :generation] 0))]
+      {:db (-> db
+               (assoc-in [:search :query] text)
+               (assoc-in [:search :generation] gen)
+               (assoc-in [:search :status] :pending))
+       :fx [[:dispatch-later
+             {:ms 200
+              :event [:search/run gen text]}]]})))
+
+(rf/reg-event :search/run
+  (fn [{:keys [db]} [_ gen text]]
+    (if (not= gen (get-in db [:search :generation]))
+      {}   ; superseded — do nothing
+      {:fx [[:search/fetch {:q text :gen gen}]]})))
+
+(rf/reg-event :search/results-arrived
+  (fn [{:keys [db]} [_ gen results]]
+    (if (not= gen (get-in db [:search :generation]))
+      {}   ; stale network reply
+      {:db (-> db
+               (assoc-in [:search :results] results)
+               (assoc-in [:search :status] :ready))})))
+```
+
+```clojure
+(v/defview search-box [_]
+  [:div.search
+   [:input {:value (v/sub [:search/query])
+            :on-input [:search/query-typed ::v/value]
+            :aria-autocomplete :list}]
+   [:ul
+    (for [id (v/sub [:search/result-ids])]
+      [result-row {:key id :id id}])]])
+```
+
+| Law | Meaning |
+|---|---|
+| Generation / request id | later keystrokes and replies supersede earlier ones |
+| Decide in the handler | never “trust the callback closed over gen 3” without checking db |
+| Effects own HTTP | views only dispatch; cancel-and-replace lives in fx if you have real abort |
+| Optional controller | package open/highlight/commit only when many screens share the same UX |
+
+Debounce begins as **library or app policy**. It graduates into reserved re-frame
+vocabulary only after independent UI and non-UI uses share identity, cancellation,
+frame, SSR, and trace semantics (D017). Do not invent `v/debounce`.
+
+## Where the data lives
+
+Controller state is **ordinary frame-scoped re-frame data** (usually that frame’s
+**app-db**). It is not React state, not `local`, and not a Freehand-private side
+channel.
+
+**There is no single Freehand-mandated path** like “always under
+`[:rf/controllers …]`.” The **library** chooses the root. Freehand fixes the
+**identity model**: kind + caller `:control` address.
+
+Identity is:
+
+```text
+(controller-kind, semantic-address)
+```
+
+- **Kind** — which protocol (buffered field, dropdown, …). Owned by the library.
+- **Address** — which *instance*, as immutable caller-supplied EDN, e.g.
+  `[:invoice invoice-id :amount]` or `[:line line-id :label]`.
+
+Conceptual store (illustrative library choice only):
+
+```clojure
+;; only rows currently mid-edit need an entry
+{:fh.buffer/by-control
+ {[:line 5 :label]  {:reset-key 0 :draft "Alph"}
+  [:line 12 :label] {:reset-key 2 :draft "…"}}}
+```
+
+You work through the library’s `reg-sub` / `reg-event`s, not by hand-walking that
+map. Xray’s app-db view will show whatever root the library used.
+
+### Edit-session lifecycle (buffered field)
+
+| Moment | Controller record |
+|---|---|
+| Idle (showing external `:value`) | **Absent** (or ignored) |
+| **First real keystroke** (not mere focus) | **Created** under `:control` |
+| Further typing | **Updated** (`:draft`) — each keystroke is still a re-frame event |
+| **Enter** or **blur** (commit) | **Removed**; domain gets `:on-commit` |
+| **Escape** (cancel) | **Removed**; domain unchanged |
+| Parent bumps `:reset-key` | Session invalid; show baseline again |
+| Unmount without commit | Record may **linger** until owner clear |
+
+So “created when I start editing, gone when I finish” is right — but finish means
+**commit or cancel**, not only Return. Leave-without-finish needs an **owner**
+that clears the session.
+
+### Two identities (do not collapse them)
+
+| Identity | Job |
+|---|---|
+| **Occurrence** — view id + parent + `:key` / position | reconciliation, callbacks, presence, “this mount” |
+| **Semantic address** — `:control` | “this field’s protocol state” |
+
+Freehand never derives a writable address from the React tree. Tools may *join*
+occurrence ↔ controller for debugging. Your call sites always pass `:control`
+explicitly.
+
+### Cleanup (two layers)
+
+| What | Cleaned how |
+|---|---|
+| View subs / callbacks / host | Automatic on unmount / disconnect |
+| Controller draft session | Commit, cancel, or **owner clear** — **not** unmount |
+| Domain value (saved label) | Your domain events / route leave |
+
+If you forget owner clear, drafts can orphan in app-db. Dev tools should surface
+that. Plan form/route teardown the same way you release resources on leave.
+
+## Call site: one buffered field
+
+```clojure
+[buffered-field
+ {:control   [:invoice invoice-id :amount]
+  :value     (v/sub [:invoice/amount invoice-id])
+  :reset-key (v/sub [:invoice/amount-revision invoice-id])
+  :on-commit [:invoice/amount-committed invoice-id]}]
+```
+
+| Prop | Meaning |
+|---|---|
+| `:control` | semantic address for this instance’s draft session |
+| `:value` | external baseline when not editing |
+| `:reset-key` | **required** generation; new key drops the draft even if text equals the old baseline |
+| `:on-commit` | caller intent prefix; library commit appends the draft and dispatches |
+
+Design rules worth internalising:
+
+- Editing starts on the **first real edit**, not mere focus.
+- Commit (Enter/blur) and cancel (Escape) **consult committed state** at fire time
+  and are idempotent for stale generations.
+- IME composition suppresses Enter commit until composition ends.
+
+## Table: 20 rows × one editable cell
+
+### Controlled (no controller)
+
+When the draft *is* domain truth:
+
+```clojure
+(v/defview line-row [{:keys [line-id]}]
+  (let [label (v/sub [:lines/label line-id])]
+    [:tr
+     [:td
+      [:input {:value    label
+               :on-input [:lines/set-label line-id ::v/value]}]]]))
+
+(v/defview lines-table [_]
+  [:table
+   [:tbody
+    (for [id (v/sub [:lines/visible-ids])]
+      [line-row {:key id :line-id id}])]])
+```
+
+Twenty domain paths; no `:control`.
+
+### Buffered (controller per row)
+
+```clojure
+(v/defview line-row [{:keys [line-id]}]
+  (let [label    (v/sub [:lines/label line-id])
+        revision (v/sub [:lines/label-revision line-id])]
+    [:tr
+     [:td
+      [buffered-field
+       {:control   [:line line-id :label]   ;; unique per row
+        :value     label
+        :reset-key revision
+        :on-commit [:lines/label-committed line-id]}]]]))
+
+(v/defview lines-table [_]
+  [:table
+   [:tbody
+    (for [id (v/sub [:lines/visible-ids])]
+      [line-row {:key id :line-id id}])]])
+```
+
+| Row | `:key` (list identity) | `:control` (protocol state) |
+|---|---|---|
+| line 1 | `1` | `[:line 1 :label]` |
+| line 5 | `5` | `[:line 5 :label]` |
+| line 20 | `20` | `[:line 20 :label]` |
+
+Use **domain ids** in addresses, not row indexes. Using the same `id` in `:key`
+and `:control` is normal; the two props answer different questions. Do not reuse
+one `:control` for two writable cells unless they should share one draft.
+
+You only need buffer records for rows **currently editing** — not twenty permanent
+slots.
+
+## What `buffered-field` looks like (library sketch)
+
+Yes: it is a normal **`v/defview`**, plus library events/subs. It is not a
+substrate special form.
+
+```clojure
+(ns my.ui.buffered-field
+  (:require [re-frame.core :as rf]
+            [re-frame.freehand :as v :refer [sub]]))
+
+;; ---- library dataflow ------------------------------------------------------
+
+(rf/reg-sub :fh.buffer/value
+  (fn [db [_ control reset-key external-value]]
+    (let [rec (get-in db [:fh.buffer/by-control control])]
+      (if (and rec (= (:reset-key rec) reset-key))
+        (:draft rec)
+        (or external-value "")))))
+
+(rf/reg-event :fh.buffer/edited
+  (fn [{:keys [db]} [_ control reset-key text]]
+    {:db (assoc-in db [:fh.buffer/by-control control]
+                   {:reset-key reset-key :draft text})}))
+
+(rf/reg-event :fh.buffer/committed
+  (fn [{:keys [db]} [_ control reset-key on-commit]]
+    (let [rec (get-in db [:fh.buffer/by-control control])]
+      (if (and rec (= (:reset-key rec) reset-key))
+        {:db (update db :fh.buffer/by-control dissoc control)
+         :fx [[:dispatch (conj (vec on-commit) (:draft rec))]]}
+        {}))))   ; stale / already cancelled → no-op
+
+(rf/reg-event :fh.buffer/cancelled
+  (fn [{:keys [db]} [_ control reset-key]]
+    (let [rec (get-in db [:fh.buffer/by-control control])]
+      (if (and rec (= (:reset-key rec) reset-key))
+        {:db (update db :fh.buffer/by-control dissoc control)}
+        {}))))
+
+;; ---- the control -----------------------------------------------------------
+
+(v/defview buffered-field
+  [{:keys [control value reset-key on-commit placeholder]}]
+  (let [text (sub [:fh.buffer/value control reset-key value])]
+    [:input
+     {:value       text
+      :placeholder placeholder
+      :on-input    [:fh.buffer/edited control reset-key ::v/value]
+      :on-blur     [:fh.buffer/committed control reset-key on-commit]
+      :on-key-down {"Enter"  [:fh.buffer/committed control reset-key on-commit]
+                    "Escape" [:fh.buffer/cancelled control reset-key]}}]))
+```
+
+### Behaviour timeline
+
+1. **Not editing** — sub falls through to external `:value`.
+2. **First keystroke** — `edited` writes `{reset-key, draft}` under `control`.
+3. **Further keys** — update draft; controlled input rides Freehand’s
+   [sync door](events-and-handlers.md#controlled-inputs).
+4. **Enter / blur** — `committed` checks generation, clears record, dispatches
+   caller `on-commit` + draft.
+5. **Escape** — `cancelled` clears record; a later blur no-ops (generation check).
+6. **Parent bumps `:reset-key`** — draft no longer matches → show external value
+   again (including same-value rejection).
+
+Namespace prefixes such as `:fh.buffer/*` are **library vocabulary**, not reserved
+Freehand grammar. v1 does not reserve `:rf.field/*` at the framework layer.
+
+## Who owns what
+
+| Freehand (substrate) | Library |
+|---|---|
+| re-frame as the only reactive app state | control `v/defview` (e.g. `buffered-field`) |
+| explicit `:control` addresses for writable protocol state | record schema under each address |
+| one event (or `nil`) per user action | semantic events: edited / committed / cancelled… |
+| consult committed state at fire time (law) | handler bodies that enforce the protocol |
+| no mount-driven domain/controller cleanup | catalog metadata for tools (optional) |
+
+Freehand does not ship generic view-level `put` / `merge` / `toggle` as the way to
+build these protocols in v1.
+
+## Decision cheat sheet
+
+| Situation | Prefer |
+|---|---|
+| Single domain fact, simple event | props-only controlled control |
+| Keystroke = domain write | controlled input + domain event |
+| Commit / cancel / reject / shared field UX | semantic controller + library control |
+| High-rate or opaque editor | qualified [host boundary](host-boundaries.md), not fake “local” |
