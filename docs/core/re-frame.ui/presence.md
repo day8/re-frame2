@@ -63,6 +63,13 @@ How it behaves:
   timeout is the mandatory exit retention duration *and* the terminal bound; the
   boundary watches no transition events, so make it match (or exceed) your CSS
   transition time.
+- Children render in **first-appearance order**, and that order is frozen: each key
+  holds the slot it first mounted into, an incoming reorder is ignored, and a
+  newly-appearing key is appended at the tail — even one whose value sorts first.
+  The slot stability is deliberate: an exiting child never jumps position
+  mid-animation. Presence is for enter/exit, not reordering — if the rendered order
+  must track a changing sort, order it at the presentation layer rather than
+  wrapping the sorted list in a boundary.
 - `(ui/presence-phase)` is the single phase read. Outside any presence boundary it
   returns `:present`, so presence-aware children stay reusable anywhere.
 - The per-child phase Provider wraps each child **element**, which is why the
