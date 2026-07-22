@@ -156,9 +156,11 @@ docs/
   core/                        Core track
   release-process.md           Operational doc — multi-artefact release pipeline
   quiet-tests.md               Recipe for silent-on-success cljs.test / clojure.test reporters
-examples/                      Worked examples grouped per substrate (reagent canonical full
-                               set — counter, todomvc, realworld, 7GUIs; uix + helix curated
-                               subsets; reagent-slim slim-bundle demo). Test-free.
+examples/                      Worked examples organised by concept — core/ fundamentals,
+                               capabilities/ (one framework subsystem per folder), patterns/
+                               composition recipes, real-apps/ (RealWorld et al.), substrates/
+                               (the same apps on other substrates — UIx, Helix, reagent-slim),
+                               ui/ (re-frame.ui variants). Test-free.
 testbeds/                      Shared framework-behavior testbed surfaces (consumed by Xray + Story
                                + MCP servers). Bundle-isolated from production builds.
   deliberate_throw/            4 :rf.error/* trigger sites (handler / fx / flow / machine)
@@ -178,18 +180,23 @@ implementation/                CLJS reference implementation — per-artefact su
                                jar with its own deps.edn, on the top-level shadow-cljs classpath.
   core/                        day8/re-frame2 — registry, drain, fx, dispatch, subscribe,
                                frame-provider, trace, source-coords, substrate, elision
+  ui/                          day8/re-frame2-ui — re-frame.ui, the compiled-view substrate
+                               (EXPERIMENTAL; offered alongside the adapters, not a replacement)
   adapters/
     reagent/                   day8/re-frame2-reagent — the Reagent adapter (browser default)
     reagent-slim/              day8/reagent-slim — slim Reagent fork (reagent2.core); same view
                                semantics, smaller footprint, capped Form-3 surface
     uix/                       day8/re-frame2-uix — the UIx adapter
-    helix/                     day8/re-frame2-helix — the Helix adapter
+    helix/                     day8/re-frame2-helix — the Helix adapter (removal in flight —
+                               S7/W13, behind the soak gates)
     test-react/                local-test-only (no Maven coord) — pure-CLJC React-lifecycle
                                simulator; catches lifecycle bugs at unit-test speed (no React/DOM/jsdom)
   schemas/                     day8/re-frame2-schemas — Malli boundary-validation artefact
   machines/                    day8/re-frame2-machines — state-machine artefact (xstate-flavoured)
   flows/                       day8/re-frame2-flows — registered computed-state declarations
   http/                        day8/re-frame2-http — managed :rf.http/* effect
+  resources/                   day8/re-frame2-resources — declarative server-state resources
+                               (reg-resource, work ledger, managed-HTTP lowering, SSR preload)
   routing/                     day8/re-frame2-routing — URL ↔ frame routing
   ssr/                         day8/re-frame2-ssr — server-side rendering + hydration
   ssr-ring/                    day8/re-frame2-ssr-ring — Ring adapter for SSR pipeline
@@ -197,6 +204,12 @@ implementation/                CLJS reference implementation — per-artefact su
   test-quiet/                  Quiet-on-success reporter shared across 17 test runners
   security/                    Cross-cutting security regression tests (MCP egress, schema
                                redaction, SSR escaping) — test-only, no shipped namespace
+  derivation-conformance/      test-only, not published — cross-family derivation/process
+                               conformance (subscriptions + flows + resources + machines composed)
+  event-conformance/           test-only, not published — cross-artefact public event-model
+                               conformance (registration, coeffects, replies, error channels)
+  reply-conformance/           test-only, not published — managed-async reply-envelope
+                               conformance across HTTP, resources, machines, routing
   scripts/                     Build / release scripts
   shadow-cljs.edn              Top-level build coordinator: pulls all artefacts onto one classpath
   deps.edn                     Top-level build coordinator (clojure-tools): :local/root deps for all
