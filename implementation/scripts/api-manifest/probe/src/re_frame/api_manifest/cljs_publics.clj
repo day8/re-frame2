@@ -148,17 +148,44 @@
 ;;
 ;; The probe reconciles the live CLJS publics against the `:cljs-only`
 ;; rows in `spec/api-manifest-metadata.edn`. CLJS has no compile-time
-;; filesystem, so we slurp the sidecar from the JVM side of the macro and
-;; emit the relevant rows as a literal into the ClojureScript. The repo
-;; root is found by walking up from the build's working directory until
-;; the sidecar resolves — robust whether shadow runs from `implementation/`
-;; (the consolidated `:node-test` build) or from a tool artefact dir.
+;; filesystem, so the sidecar is read from the JVM side of the macro and
+;; the relevant rows are emitted as a literal into the ClojureScript.
+;;
+;; WHY THE READ GOES THROUGH SHADOW-CLJS (rf2-ze3ai). Inlining at
+;; macro-expansion time by itself HIDES the sidecar from the build: a
+;; compile that caches this probe's namespace has no dependency edge back
+;; to the `.edn` whose bytes it froze, so a SIDECAR-ONLY edit — the
+;; common "reconcile the drift report" edit — does not invalidate the
+;; cache and the compiled probe keeps reconciling the PREVIOUS rows. A
+;; warm-cache green over rows nobody checked is the worst answer a drift
+;; guard can give.
+;;
+;; `shadow.resource/slurp-resource` records the sidecar's classpath path
+;; and last-modified against the compiling namespace, and shadow re-checks
+;; both before reusing that namespace's cache: edit the sidecar, the probe
+;; recompiles, no cache clearing. It resolves through `io/resource`, so
+;; `spec/` is a shadow-cljs `:source-path` (the one classpath root for
+;; committed spec-side data) and the sidecar is the resource
+;; `api-manifest-metadata.edn`.
+;;
+;; The JVM lanes were never affected and keep a filesystem read. The
+;; manifest generator re-reads the sidecar on every `clojure -M -m
+;; re-frame.api-manifest.gen --check`, so it has no cache to invalidate;
+;; the fallback below is for any expansion outside a ClojureScript
+;; compile (a REPL, a tool), and locates the sidecar by walking up from
+;; the compile CWD rather than requiring `spec/` on that classpath.
 ;; ---------------------------------------------------------------------------
+
+(def ^:private sidecar-resource
+  "The sidecar as a classpath resource path, relative to the `spec/`
+   `:source-path` root the ClojureScript lane resolves against."
+  "api-manifest-metadata.edn")
 
 (defn- find-sidecar
   "Walk up from the build's `user.dir` looking for
-   `spec/api-manifest-metadata.edn`. Throws an actionable error when the
-   sidecar cannot be located (a misconfigured build classpath)."
+   `spec/api-manifest-metadata.edn` — the non-ClojureScript locator, where
+   `spec/` is not on the classpath. Throws an actionable error when the
+   sidecar cannot be located."
   []
   (loop [dir (io/file (System/getProperty "user.dir"))]
     (when (nil? dir)
@@ -166,10 +193,24 @@
                            "spec/api-manifest-metadata.edn walking up from "
                            (System/getProperty "user.dir"))
                       {})))
-    (let [candidate (io/file dir "spec" "api-manifest-metadata.edn")]
+    (let [candidate (io/file dir "spec" sidecar-resource)]
       (if (.exists candidate)
         candidate
         (recur (.getParentFile dir))))))
+
+(defn- read-sidecar
+  "The parsed sidecar, read in the macro-expansion environment `env`.
+
+   Under a ClojureScript compile (`&env` carries the compiling `:ns`) the
+   read goes through shadow-cljs, which registers the sidecar as a build
+   dependency of that namespace — the edge that makes a sidecar-only edit
+   invalidate the cached probe. Anywhere else there is no cache to
+   invalidate and the file is read from the tree directly."
+  [env]
+  (edn/read-string
+    (if (:ns env)
+      ((requiring-resolve 'shadow.resource/slurp-resource) env sidecar-resource)
+      (slurp (find-sidecar)))))
 
 (defmacro emit-cljs-only-rows
   "Expand to a literal vector of the sidecar's `:cljs-only` manifest rows
@@ -177,9 +218,10 @@
    These are the curated rows the probe reconciles against the live CLJS
    public surface — so the value the probe checks is pinned to the same
    committed sidecar the JVM generator joins against, with no runtime
-   filesystem dependency."
+   filesystem dependency, and — in ClojureScript — a build dependency, so
+   an edit to the sidecar recompiles this call site."
   []
-  (-> (find-sidecar) slurp edn/read-string :cljs-only vec))
+  (-> (read-sidecar &env) :cljs-only vec))
 
 (defmacro emit-classification-rows
   "Expand to a literal vector of `{:namespace :var}` maps for the sidecar's
@@ -198,7 +240,7 @@
    `:namespace`/`:var` are emitted — the probe checks EXISTENCE, not tier
    (the JVM generator owns tier/kind for these rows)."
   [ns-str]
-  (->> (-> (find-sidecar) slurp edn/read-string :classification)
+  (->> (-> (read-sidecar &env) :classification)
        (keep (fn [[[ns var] _]]
                (when (= ns ns-str) {:namespace ns :var var})))
        (sort-by :var)
@@ -246,6 +288,7 @@
    `spec/api-manifest-metadata.edn` at macro-expansion time (rf2-5bcdi). The
    single machine-readable host-aware signature source, embedded so the probe
    checks the same committed contract the JVM lane joins against with no
-   runtime filesystem dependency."
+   runtime filesystem dependency — and, in ClojureScript, a build dependency,
+   so an edit to the sidecar recompiles this call site."
   []
-  (-> (find-sidecar) slurp edn/read-string :ui-test-signatures))
+  (-> (read-sidecar &env) :ui-test-signatures))

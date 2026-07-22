@@ -30,10 +30,11 @@
   which records the fixture's classpath path and last-modified against
   the compiling namespace; shadow-cljs re-checks both before reusing that
   namespace's cache. Edit a fixture and the suites that read it
-  recompile — no cache clearing, no ritual. `spec/conformance/` is a
-  shadow-cljs `:source-path` (a classpath root of `.edn` data, no
-  sources) so `:FH-PROPS-001` resolves as
-  `freehand/fixtures/fh-props-001.edn`.
+  recompile — no cache clearing, no ritual. `spec/` is a shadow-cljs
+  `:source-path` (the one classpath root under which every committed
+  spec-side data file a build inlines is resolvable — data, no sources)
+  so `:FH-PROPS-001` resolves as
+  `conformance/freehand/fixtures/fh-props-001.edn`.
 
   The JVM lane needs no such edge — `clojure -M:test` has no persistent
   analyzer cache, so every run re-reads the file — and it does not carry
@@ -50,16 +51,16 @@
      segments below the repository root — the shadow-cljs `:source-path`
      the ClojureScript lane resolves resource paths against, and what the
      JVM lane walks up the tree looking for."
-     ["spec" "conformance"]))
+     ["spec"]))
 
 #?(:clj
    (defn ^:private fixture-resource-path
      "The fixture for `id` as a path below [[classpath-root]] — e.g.
-     `freehand/fixtures/fh-props-001.edn`. The filename mirrors the id in
-     lower case, per the fixture convention in
+     `conformance/freehand/fixtures/fh-props-001.edn`. The filename
+     mirrors the id in lower case, per the fixture convention in
      `spec/conformance/freehand/README.md`."
      [id]
-     (str "freehand/fixtures/" (str/lower-case (name id)) ".edn")))
+     (str "conformance/freehand/fixtures/" (str/lower-case (name id)) ".edn")))
 
 #?(:clj
    (defn ^:private fixture-file
