@@ -55,7 +55,34 @@ Rows outside the donor tree — spec obligations, `tools/` consumers, examples,
 docs — are an open roster rather than a closed partition. The ledger claims to
 name every donor *file*; for the consuming trees it claims to name every
 *obligation*, and the paths it lists must continue to exist while the row is
-pending.
+pending. The open roster is not curated by hand alone: the subset of it that is
+a **live consumer** is derived mechanically, and the next section says how.
+
+## What counts as a live consumer
+
+Outside the donor tree the ledger's job is to name every place that would still
+break if `day8/re-frame2-ui` were deleted today. The gate derives that set from
+two signals over git-tracked files, so the ledger cannot silently fall behind
+the code:
+
+| Signal | What it matches |
+|---|---|
+| **require** | a Clojure or EDN libspec naming a `re-frame.ui…` namespace — `[re-frame.ui :as ui]`, `[re-frame.ui.tree :as tree]`, a build's `:entries` vector |
+| **coordinate** | the donor artifact coordinate in dependency position — `day8/re-frame2-ui {…}` in a `deps.edn`, in a generated scaffold, or in an install instruction |
+
+Every file either signal finds must be claimed by a row, and while the signal is
+still there the row must still be `pending`. A row covering a live consumer
+cannot be marked `done`: the require or the coordinate goes first, and the row
+flips in the same change that removes it. That ordering is what keeps `done`
+from becoming a claim the code contradicts.
+
+Historical mentions are **evidence, not consumers**, and are excluded by name:
+`docs/EP/`, `docs/design/`, `CHANGELOG.md`, and `.beads/` record what was
+decided and when, and deleting the donor does not break any of them. This ledger
+and the gate's own script are excluded for the same reason — they quote the
+donor in order to retire it. Nothing else is excluded. Incidental prose
+elsewhere is simply not a signal, because neither detector fires on it, and the
+gate deliberately does not police it.
 
 ## How coverage is enforced
 
@@ -65,11 +92,27 @@ python scripts/check_donor_inventory.py --report     # undisposed-row report
 python scripts/check_donor_inventory.py --self-test  # the gate's own fixtures
 ```
 
-The gate fails when a tracked file under `implementation/ui/` is claimed by no
-row, when two rows claim the same file, when a still-pending row points at a
-path that no longer exists, or when any row is missing a disposition, an owning
-slice, or a status. So a new donor file cannot appear undisposed, and a donor
-file cannot quietly vanish without its row being settled first.
+The gate fails when:
+
+* a tracked file under `implementation/ui/` is claimed by no row, or by more
+  than one — the donor tree is a partition;
+* a live consumer outside the donor tree is claimed by no row;
+* a row covering a still-live consumer is marked `done`;
+* a still-pending row points at a path that no longer exists, or at a path that
+  no longer carries any donor material at all — the shape a row takes when its
+  subject was migrated out from under it and the path was reused for something
+  else;
+* an **established row identity has been deleted** from the ledger. Rows are
+  never removed. Disposing a row means flipping its status to `done`; the row
+  stays as the audit record. The roster of established identities in
+  `scripts/check_donor_inventory.py` is what makes a deletion loud instead of
+  looking like progress. Renaming a row's path is a deliberate act that updates
+  that roster in the same change;
+* any row is missing a disposition, an owning slice, or a status.
+
+So a new donor file cannot appear undisposed, a donor file cannot quietly vanish
+without its row being settled first, a new consumer cannot appear unclassified,
+and the pending count cannot fall by deletion — only by disposition.
 
 `--report` prints the count of rows not yet disposed, broken down by slice,
 disposition, and section. That count is the number the programme drives to zero.
@@ -268,7 +311,7 @@ surface it names.
 
 | Donor row | What it is | Disposition | Slice | Status |
 |---|---|---|---|---|
-| `spec/004-Views.md` | the donor-era compiled view language; its content moves by rename to the compiled-grammar owner, and 004 becomes the common contract | MOVE | F0 | pending |
+| `spec/004D-Freehand-Compiled-Grammar.md` | the donor-era compiled view language, moved intact out of 004 by rename so 004 could become the common contract; the moved file is where the donor spelling now lives and evolves into the v1 compiled grammar | MOVE | F0 | done |
 | `spec/004B-UI-Tree-and-Conversion.md` | the semantic tree and conversion tables, generalized from donor names to both modes | MOVE | F1 | pending |
 | `spec/004C-Roots-and-Mount.md` | Root Descriptor, identity, mount, hydration, and teardown, re-spelled for the paved path | MOVE | F1 | pending |
 | `spec/006-ReactiveSubstrate.md` | the observation-port contract plus its packaging and sole-consumer text, which names the donor today | MOVE | F2 | pending |
@@ -286,6 +329,31 @@ surface it names.
 | `spec/api-manifest.edn` | the generated public-API manifest, which inventories donor namespaces | REPLACE | F6 | pending |
 | `spec/api-manifest-metadata.edn` | the manifest's hand-maintained metadata for donor namespaces | REPLACE | F6 | pending |
 
+## Donor consumers in the implementation tree
+
+The donor is optional, but it is not isolated: sibling artifacts pin its
+coordinate and test against it. Every row here is a live consumer the census
+finds today — a require or a coordinate that would break the moment the donor
+artifact is deleted.
+
+| Donor row | What it is | Disposition | Slice | Status |
+|---|---|---|---|---|
+| `implementation/ssr/deps.edn` | the donor artifact coordinate pinned on the SSR artifact's build and test aliases | REPLACE | F6 | pending |
+| `implementation/ssr/src/re_frame/ssr/ui_tree.cljc` | SSR's deliberate copy of the donor conversion and semantic-normalization rules, plus the tree-version gate it reads from them | MOVE | F5 | pending |
+| `implementation/ssr/test/re_frame/ssr/emit_ui_tree_cljs_test.cljc` | the SSR emitter proved over donor-produced structural trees | MOVE | F5 | pending |
+| `implementation/ssr/test/re_frame/ssr/render_static_jvm_test.clj` | static server rendering of donor views on the JVM | MOVE | F5 | pending |
+| `implementation/ssr/test/re_frame/ssr/root_manifest_cljs_test.cljc` | Root Manifest discovery across the donor hydrate-root seam | MOVE | F5 | pending |
+| `implementation/ssr/test/re_frame/ssr/hydrate_root_seam_dom_cljs_test.cljs` | the hydrate-root seam mounted over a donor root in the browser | MOVE | F5 | pending |
+| `implementation/ssr/test/re_frame/ssr/*_hydration_dom_cljs_test.cljs` | phase-flip and presence hydration in the browser over donor roots | MOVE | F5 | pending |
+| `implementation/ssr/test/re_frame/ssr/client_only_adoption_verification_dom_cljs_test.cljs` | client-only adoption verification over a donor root | MOVE | F5 | pending |
+| `implementation/adapters/reagent/test/re_frame/observation_port_watchable_host_*` | the observation-port cross-host tests, which pair a Reagent host against the donor | MOVE | F2 | pending |
+| `implementation/core/test/re_frame/elision_probe.cljs` | core's production-elision probe, which compiles donor views to prove the debug machinery is stripped | MOVE | F3 | pending |
+| `implementation/scripts/api-manifest/deps.edn` | the donor artifact coordinate on the API-manifest generator's build-only classpath | REPLACE | F6 | pending |
+| `implementation/scripts/api-manifest/src/re_frame/api_manifest/gen.clj` | the generator's namespace roster, which names the donor test surface | REPLACE | F6 | pending |
+| `implementation/scripts/api-manifest/src/re_frame/api_manifest/ui_context.clj` | the donor AI context-sheet generator and its classification drift check | MOVE | F6 | pending |
+| `implementation/scripts/api-manifest/test/re_frame/api_manifest/ui_context_test.clj` | the context-sheet generator's own regression tests | MOVE | F6 | pending |
+| `implementation/scripts/api-manifest/probe/test/re_frame/api_manifest/cljs_manifest_probe_cljs_test.cljs` | the CLJS-publics probe test over donor namespaces | MOVE | F6 | pending |
+
 ## Donor consumers in tools
 
 Nothing under `tools/` may keep a donor dependency at the gate. These rows are
@@ -297,12 +365,15 @@ disposed when the consumer moves to Freehand names.
 | `tools/story/src/re_frame/story/late_bind.cljc` | the late-bound seam story publishes for donor views | MOVE | F6 | pending |
 | `tools/story/src/re_frame/story/sub_overrides.cljc` | the author surface behind the donor subscription-override carriage | MOVE | F6 | pending |
 | `tools/story/src/re_frame/story/play/*` | presence, presence host, runner, and runner events reaching into the donor presence runtime | MOVE | F6 | pending |
+| `tools/story/test/re_frame/story/play/presence_*` | story's play-presence tests, mounted over the donor presence runtime | MOVE | F6 | pending |
 | `tools/story/test/re_frame/story/view_tool*` | story's view-tool tests over donor projections | MOVE | F6 | pending |
 | `tools/story/test/re_frame/story/realworld_ui_consumer_cljs_test.cljs` | story's end-to-end consumer test over a donor example | MOVE | F6 | pending |
 | `tools/story/spec/017-Testing-Story.md` | story's testing contract where it names the donor | REPLACE | F6 | pending |
 | `tools/xray/deps.edn` | the donor artifact coordinate on the xray classpath | REPLACE | F6 | pending |
 | `tools/xray/src/day8/re_frame2_xray/viewcell_evidence.cljs` | xray's reader over the reactor evidence plane | MOVE | F6 | pending |
 | `tools/xray/src/day8/re_frame2_xray/panels/reactive_panel_*` | the xray panel projecting donor view records | MOVE | F6 | pending |
+| `tools/xray/test/day8/re_frame2_xray/viewcell_evidence_cljs_test.cljs` | xray's evidence-reader tests over donor view records | MOVE | F6 | pending |
+| `tools/xray/test/day8/re_frame2_xray/realworld_ui_evidence_cljs_test.cljs` | xray's end-to-end evidence test over a donor-authored example | MOVE | F6 | pending |
 | `tools/xray/spec/*` | xray's own spec pages naming the donor substrate | REPLACE | F6 | pending |
 | `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/view_tool.cljs` | the pair server's view tool over donor projections | MOVE | F6 | pending |
 | `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_data.cljs` | tool descriptors naming donor view vocabulary | REPLACE | F6 | pending |
