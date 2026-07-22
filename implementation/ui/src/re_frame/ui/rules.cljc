@@ -1649,13 +1649,18 @@
 ;; runtime analogue of the compile side, where `build/commit-slice` evicts a
 ;; source that recompiled contributing nothing.
 ;;
-;; Bounded case (matches rf2-df9873's ruling AND the compile side): a source FILE
-;; deleted with no reloading dependent never re-runs, so shadow never reports it
-;; and its runtime rows persist until the next full page load — "no design can
-;; observe an unsaved deletion." The compile-side `finish-build!` evicts the
-;; deleted source from the COMPILE registry via `:build-sources` membership; the
-;; runtime arm converges on the next full reload. `note-reloaded-sources!` stays
-;; the seam an authoritative removed-source manifest would feed if one is wired.
+;; Bounded case of THIS producer — and the second producer that closes it: a
+;; source FILE deleted (or renamed away) never re-runs, so `before-load-src`
+;; never announces it and no SHADOW_NS_RESET call can ever carry its ns. The
+;; compile side evicts the deleted source from the COMPILE registry via
+;; authoritative `:build-sources` membership; the runtime arm used to converge
+;; only on the next full page load. `note-reloaded-sources!` was always the seam
+;; an authoritative removed-source manifest would feed if one were wired — and
+;; one now is: `shadow-build-notify` below (rf2-4vm19) receives shadow's own
+;; `:build-complete` broadcast of that same `:build-sources` membership and
+;; reconciles the REMOVED delta through this exact seam. What remains genuinely
+;; unobservable is only the UNSAVED bare REPL deletion (rf2-df9873): no saved
+;; graph, no successful build, nothing to project.
 ;;
 ;; Dev-only: the whole install is `js/goog.DEBUG`-gated, so `:advanced`
 ;; production carries no producer and never references SHADOW_NS_RESET.
@@ -1821,6 +1826,104 @@
 ;; this makes the ENTRY ITSELF current. `owned-producer` carries the ownership
 ;; record across the reload boundary that this form no longer needs to.
 #?(:cljs (install-reload-source-producer!))
+
+;; ---------------------------------------------------------------------------
+;; The removed-source producer: shadow's build-lifecycle broadcast feeds the
+;; delta SHADOW_NS_RESET cannot report (rf2-4vm19)
+;;
+;; `reload-source-reset!` above records the sources that RE-RAN. A source whose
+;; file is deleted or renamed away never re-runs — shadow's loader has nothing
+;; to load for it — so no SHADOW_NS_RESET call fires, no `:touched` entry is
+;; recorded, and its committed rows used to survive every hot reload until the
+;; next full page load. The compile side has no such blind spot: its registries
+;; fold over the authoritative `:build-sources` membership at finish, so the
+;; deleted source falls out of the COMPILE registry on the very pass that
+;; removed it. What was missing was the projection of that same authority into
+;; the runtime cycle.
+;;
+;; Shadow itself already delivers it. Every successful watch build broadcasts
+;; `:build-complete` to each connected runtime carrying `:info :sources` — the
+;; per-source image of exactly the `:build-sources` graph the compile hook folds
+;; (`shadow.build/extract-build-info`, sent by the worker on success only). The
+;; pinned client exposes ONE seam for that message: the `:build-notify` receiver
+;; (`shadow.cljs.devtools.client.env/run-custom-notify!` resolves the configured
+;; fn by munged name off `$CLJS` — the same late-lookup discipline shadow applies
+;; to its lifecycle fns). `shadow-build-notify` is that receiver: it diffs THIS
+;; build's committed ledger rows against the broadcast membership and reconciles
+;; the REMOVED namespaces through the existing cycle protocol —
+;; `notify-reload!` -> `note-reloaded-sources!` -> `commit-reload!`, one bounded
+;; removal cycle reusing the same eviction law as every other reload (a touched
+;; source that stages nothing is evicted). No second ledger, no parallel
+;; protocol, no new commit path.
+;;
+;; The wiring is automatic: the re-frame.ui compile hook injects the
+;; `custom-notify-fn` closure-define pointing here whenever the WATCHED dev
+;; build did not claim shadow's one `:build-notify` seam itself (see
+;; `re-frame.ui.compiler.build-hook/wire-removed-source-notify`). A build that
+;; DOES claim it keeps it — shadow has exactly one receiver slot — and
+;; removed-source eviction degrades to the pre-existing bound (stale rows until
+;; the next full page load) unless the app's own receiver delegates:
+;; `(re-frame.ui.rules/shadow-build-notify msg)`.
+;;
+;; Host ordering is deliberately immaterial. The browser client runs the
+;; receiver BEFORE the reload chain settles (source fetches are async); the
+;; node client runs it AFTER the chain committed (imports are synchronous). Both
+;; are the same case here: no cycle is open when the receiver runs, so the
+;; removal cycle opens and commits on its own and shadow's own chain is
+;; untouched. A cycle found OPEN here is a predecessor an aborted load stranded
+;; (shadow skips `^:dev/after-load` when a load task throws); opening the
+;; removal cycle performs exactly the supersession the next before-load would,
+;; with the same loud report (`report-unpaired-cycle!`). Under the unsupported
+;; async-lifecycle overlap (§Overlapping cycles above) the degradation is the
+;; documented one — stale classification until the next full reload.
+;;
+;; Dev-only: the define is injected only into a watched dev build, and the body
+;; folds away with the ledger under `:advanced` (rf2-k9yuy).
+;; ---------------------------------------------------------------------------
+
+#?(:cljs
+   (defn shadow-build-notify
+     "shadow-cljs `:build-notify` receiver (dev only): reconcile this build's
+     committed ledger rows against the successful build's authoritative
+     `:build-sources` membership (`:info :sources` on the `:build-complete`
+     broadcast), evicting the rows of every namespace the saved graph REMOVED.
+     A deleted or renamed-away source never re-runs, so the SHADOW_NS_RESET
+     producer can never report it — this broadcast is the only authority that
+     can, and it is the same membership the compile-side registries fold at
+     finish (rf2-4vm19).
+
+     Wired automatically by the re-frame.ui compile hook unless the build
+     claims `:devtools {:build-notify …}` itself; an app's own receiver can
+     delegate by calling this with the same `msg`.
+
+     Only `:build-complete` carries an accepted graph; every other notify type
+     (`:build-failure`, `:build-start`, `:build-init`) is ignored, so a failed
+     compile/evaluation leaves the last-known-good ledger untouched and the
+     successful retry's `:build-complete` converges it."
+     [{:keys [type info] :as _msg}]
+     (when reload-ledger?
+       (when (= :build-complete type)
+         (let [build-id (current-build-id)
+               member?  (into #{}
+                              (mapcat (fn [{:keys [ns provides]}]
+                                        (or (seq provides) (when ns [ns]))))
+                              (:sources info))
+               removed  (into []
+                              (keep (fn [[b n]]
+                                      (when (and (= b build-id)
+                                                 (not (member? n)))
+                                        n)))
+                              (keys (::sources @ledger-state)))]
+           (when (seq removed)
+             ;; ONE bounded removal cycle through the existing seam. The removed
+             ;; sources by definition cannot re-register during it, so the
+             ;; commit evicts exactly their rows and touches nothing else; a
+             ;; removal-only reconciliation can never introduce a cross-source
+             ;; contradiction, so this commit never raises.
+             (notify-reload! build-id)
+             (note-reloaded-sources! removed build-id)
+             (commit-reload! build-id)))))
+     nil))
 
 (defn reset-custom-elements!
   "Test support: clear the runtime custom-element registry, the per-source
