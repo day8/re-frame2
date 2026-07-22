@@ -128,11 +128,11 @@ def _check_citation(
     """Return None when the canonical-paragraph cell resolves, else the reason."""
     m = _LINK_RE.match(cell)
     if not m:
-        return "not a markdown link — expected [text](../../00X-Doc.md#anchor)"
+        return "not a markdown link - expected [text](../../00X-Doc.md#anchor)"
     dest = m.group(1)
     path_part, _, anchor = dest.partition("#")
     if not anchor:
-        return f"`{dest}` has no #anchor — a row cites a paragraph, not a document"
+        return f"`{dest}` has no #anchor - a row cites a paragraph, not a document"
     if not path_part.endswith(".md"):
         return f"`{dest}` does not point at a markdown file"
 
@@ -143,13 +143,13 @@ def _check_citation(
         return f"`{dest}` resolves outside the repository"
     if rel.parts[0] != "spec":
         return (
-            f"`{dest}` resolves to {rel.as_posix()} — a canonical paragraph "
+            f"`{dest}` resolves to {rel.as_posix()} - a canonical paragraph "
             "lives under spec/, not in a design record or guide"
         )
     if not target.is_file():
-        return f"`{dest}` — no such file ({rel.as_posix()})"
+        return f"`{dest}` - no such file ({rel.as_posix()})"
     if anchor not in _slug_index(target):
-        return f"`{dest}` — {rel.as_posix()} has no anchor #{anchor}"
+        return f"`{dest}` - {rel.as_posix()} has no anchor #{anchor}"
     return None
 
 
@@ -157,7 +157,7 @@ def _check_applicability(cell: str) -> str | None:
     """Return None when the applicability cell is well-formed, else the reason."""
     tokens = cell.split()
     if not tokens:
-        return "empty — name one mode token and at least one host token"
+        return "empty - name one mode token and at least one host token"
     unknown = [
         t
         for t in tokens
@@ -167,18 +167,18 @@ def _check_applicability(cell: str) -> str | None:
     ]
     if unknown:
         return (
-            f"unknown token(s) {', '.join(unknown)} — expected one of "
+            f"unknown token(s) {', '.join(unknown)} - expected one of "
             "common/interpreted/compiled plus jvm/browser/ssr/host:<name>"
         )
     modes = [t for t in tokens if t in MODE_TOKENS]
     if len(modes) != 1:
         return (
-            f"{len(modes)} mode token(s) ({', '.join(modes) or 'none'}) — "
+            f"{len(modes)} mode token(s) ({', '.join(modes) or 'none'}) - "
             "exactly one of common/interpreted/compiled is required"
         )
     hosts = [t for t in tokens if t not in MODE_TOKENS]
     if not hosts:
-        return "no host token — name at least one of jvm/browser/ssr/host:<name>"
+        return "no host token - name at least one of jvm/browser/ssr/host:<name>"
     return None
 
 
@@ -190,7 +190,7 @@ def _check_fixture(cell: str, status: str, repo_root: Path) -> str | None:
             return "an `active` row must name the fixture that proves it"
         path = _unquote(raw)
         if not (repo_root / path).is_file():
-            return f"`{path}` — no such file"
+            return f"`{path}` - no such file"
         return None
     if raw != NO_FIXTURE:
         return (
@@ -328,7 +328,7 @@ def check(repo_root: Path, verbose: bool = False) -> int:
 
         if status not in STATUSES:
             defect(line_no, "BAD STATUS", label,
-                   f"`{status}` — expected one of {', '.join(sorted(STATUSES))}")
+                   f"`{status}` - expected one of {', '.join(sorted(STATUSES))}")
         else:
             reason = _check_fixture(fixture, status, repo_root)
             if reason:
@@ -361,7 +361,7 @@ def check(repo_root: Path, verbose: bool = False) -> int:
         for line in defects:
             sys.stderr.write(line + "\n")
         sys.stderr.write(
-            "\nFix: see spec/conformance/freehand/README.md — an FH id is a "
+            "\nFix: see spec/conformance/freehand/README.md - an FH id is a "
             "permanent address, so it must be well-formed, unique, filed under "
             "its own area, and resolve to a real spec paragraph and (when "
             "active) a real fixture.\n"
