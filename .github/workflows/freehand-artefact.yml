@@ -1,4 +1,9 @@
-# Freehand view-substrate gate (rf2-drpa3.15, EP-0036 slice F1a).
+# Freehand ARTEFACT gate (rf2-drpa3.15, EP-0036 slice F1a).
+#
+# Sibling of `freehand-conformance.yml`, which gates the spec-side
+# executable-law index. This one gates the code artefact at
+# `implementation/freehand/`. Same programme, disjoint surfaces, so they stay
+# separate files rather than one workflow with two unrelated triggers.
 #
 # # What this covers
 #
@@ -33,7 +38,7 @@
 # dispatches it against the merge commit via `workflow_dispatch` below —
 # which is exactly the verification the canary exists to provide.
 
-name: freehand
+name: freehand-artefact
 
 on:
   pull_request:
@@ -47,11 +52,11 @@ on:
       # The artefact depends on core (and, on the :test alias, test-quiet).
       - 'implementation/core/**'
       - 'implementation/test-quiet/**'
-      - '.github/workflows/freehand.yml'
+      - '.github/workflows/freehand-artefact.yml'
   workflow_dispatch:
 
 concurrency:
-  group: freehand-${{ github.ref }}
+  group: freehand-artefact-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
