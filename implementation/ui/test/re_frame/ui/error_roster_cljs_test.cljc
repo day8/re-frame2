@@ -613,7 +613,7 @@
 (def ^:private a11y-suite-warning-ids
   "The S4-C a11y ids, frozen HERE but exercised — in BOTH the firing and the
   silent direction, which is the load-bearing half — by their owning suite
-  `re-frame.ui.a11y-diagnostics-cljs-test`."
+  `re-frame.freehand.a11y-diagnostics-cljs-test`."
   #{:rf.ui.compile/a11y-missing-accessible-name
     :rf.ui.compile/a11y-invalid-literal-aria
     :rf.ui.compile/a11y-click-non-interactive

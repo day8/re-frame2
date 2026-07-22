@@ -27,7 +27,7 @@
 
   WHERE THE OTHER ARMS ARE PINNED. The COMPILE arm's barrier and detector
   (`build/contribute-element-checked!` / `build/elements-conflict`, PR #6006)
-  are pinned by `re-frame.ui.compiler-build-jvm-test`. The PRODUCTION arm —
+  are pinned by `re-frame.freehand.compiler-build-jvm-test`. The PRODUCTION arm —
   that this law survives `:advanced` + `goog.DEBUG=false` at all, which is the
   whole point of the placement amendment — is pinned from INSIDE the release
   bundle by `re-frame.ui.custom-element-reload-elision-prod-test`. This suite

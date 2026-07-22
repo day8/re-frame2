@@ -263,7 +263,7 @@ runtime dynamic reactive site, no ViewCell overhead for sub-free views, and no
 compatibility fallback. The set grows only by ruling, and any addition requires
 lexical-scope plus hidden-reactive-injection counterfixtures (the rf2-vxgfnd.100
 hidden-sub / helper / binder-macro proofs in
-`re-frame.ui.compiler-macro-resolution-jvm-test` are the template — the admitted
+`re-frame.freehand.compiler-macro-resolution-jvm-test` are the template — the admitted
 `if-let` family adds its own binder-lowering + out-of-family + pattern-escape rows,
 plus the resolver-confirmation and generated-code-hygiene counterfixtures: a
 same-spelled user macro is rejected, and a hostile local named `some?` / `when`

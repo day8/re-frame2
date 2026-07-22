@@ -183,7 +183,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Custom-element runtime reconciliation registry — the reload-cycle protocol
 ;; (rf2-vxgfnd.67, residual of .48). The RUNTIME arm of .16 AC5; the compile/JVM
-;; arm lives in re-frame.ui.compiler-build-jvm-test. Eviction is driven from the
+;; arm lives in re-frame.freehand.compiler-build-jvm-test. Eviction is driven from the
 ;; reload BOUNDARY (notify-reload! / commit-reload!), NOT from a surviving
 ;; re-registration — so a source that now declares zero elements, or whose file
 ;; is deleted, is reconciled away too.

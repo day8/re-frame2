@@ -1736,8 +1736,13 @@
      tell this framework's producers from shadow's and other libraries'. It is NOT
      the ownership lever — a re-install finds its own entry by OBJECT IDENTITY,
      never by tag, because the same tag can appear on a co-loaded bundle's entry
-     that only identity can distinguish from ours (rf2-ymfix)."
-     "reFrameUiReloadSourceReset"))
+     that only identity can distinguish from ours (rf2-ymfix).
+
+     The tag names the FRAMEWORK COPY, so the absorbed table carries its own
+     spelling: during coexistence the donor's copy and this one are both
+     loadable in one JS realm, and a shared tag would make each copy's
+     producer count the other's."
+     "reFrameFreehandReloadSourceReset"))
 
 #?(:cljs
    (defonce ^{:private true

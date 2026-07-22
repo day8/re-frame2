@@ -133,7 +133,7 @@ warning while the finding remains a manifest `:diagnostics` fact carrying its
 reason. A malformed suppression — an unknown id, a blank or non-string reason —
 is the loud compile error `:rf.ui.compile/bad-suppress`, never a silent no-op.
 
-Proven by `re-frame.ui.a11y-diagnostics-cljs-test` (host-shared, pure analyzer);
+Proven by `re-frame.freehand.a11y-diagnostics-cljs-test` (host-shared, pure analyzer);
 the diagnostics reach tooling through the Xray diagnostics channel.
 
 ### 1.4 The foreign boundary
@@ -238,7 +238,7 @@ owns it:
 |---|---|---|
 | `ui/raw` / foreign component head | a **host escape** — rendering it on the JVM raises `:rf.error/jvm-host-op` by contract, so there is **no JVM side to compare** | paired: `re-frame.ui.raw-foreign-boundary-jvm-test` + `re-frame.ui.raw-foreign-boundary-dom-cljs-test` |
 | the document head | an **absence of surface** (§3), not an emitted shape — there is nothing for either emitter to produce | the facade/op-set absence guards in this profile's drift guard |
-| the a11y roster | **compile-time analyzer facts** — findings are produced during analysis and never reach either emitter's output | `re-frame.ui.a11y-diagnostics-cljs-test` (host-shared, pure analyzer) |
+| the a11y roster | **compile-time analyzer facts** — findings are produced during analysis and never reach either emitter's output | `re-frame.freehand.a11y-diagnostics-cljs-test` (host-shared, pure analyzer) |
 | presence's three-phase machine | **host-bearing** — retention timers, and the phase a *first* render reports, are mounted questions (and, for the server, S5's) | `re-frame.ui.presence-dom-cljs-test` (mounted) + `re-frame.ui.presence-jvm-test` (structural) |
 
 The corpus rows above carry only the **portable** half of each S4 surface — the

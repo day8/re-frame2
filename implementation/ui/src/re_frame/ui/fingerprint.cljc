@@ -62,7 +62,7 @@
   digest identically (no spurious plan-conflict); a genuine config change —
   including a set↔vector↔list type flip, or a record type swap — always
   digests differently. Cross-host equality of the hex output is pinned by
-  `re-frame.ui.fingerprint-cljs-test`."
+  `re-frame.freehand.fingerprint-cljs-test`."
   (:require [clojure.string :as str]))
 
 ;; ---------------------------------------------------------------------------

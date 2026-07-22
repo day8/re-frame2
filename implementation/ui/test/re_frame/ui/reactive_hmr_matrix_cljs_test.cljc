@@ -34,7 +34,7 @@
        and a file-save reload carrying the same hook signature both keep the
        generation; both carrying a changed signature both bump — identical
        outcomes. (The build-authority upsert-vs-pass convergence is
-       `re-frame.ui.build-repl-hmr-convergence-jvm-test`.)"
+       `re-frame.freehand.build-repl-hmr-convergence-jvm-test`.)"
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core                  :as rf]
