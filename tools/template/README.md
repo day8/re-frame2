@@ -71,6 +71,13 @@ clojure -Sdeps '{:deps {day8/re-frame2-template
         :name acme/my-app \
         :substrate :helix
 
+# re-frame.ui — EXPERIMENTAL (the first-party compiled-view substrate)
+clojure -Sdeps '{:deps {day8/re-frame2-template
+                        {:local/root "tools/template"}}}' \
+        -Tnew create :template day8/re-frame2-template \
+        :name acme/my-app \
+        :substrate :ui
+
 # Reagent, with the Story playground scaffold
 clojure -Sdeps '{:deps {day8/re-frame2-template
                         {:local/root "tools/template"}}}' \
@@ -91,9 +98,26 @@ auto-git-clone before classpath lookup — bypassing the local-root
 checkout (and, pre-split, cloning a repo that doesn't exist yet).
 
 `:include-story? true` is currently **Reagent-only**. Combining it with
-`:substrate :uix` or `:substrate :helix` throws
+`:substrate :uix`, `:substrate :helix`, or `:substrate :ui` throws
 `:rf.error/template-include-story-reagent-only`. UIx + Helix Story
 variants follow once those adapters' Story coverage matches Reagent's.
+
+### `:substrate :ui` (EXPERIMENTAL)
+
+`:substrate :ui` scaffolds the app on **re-frame.ui**, the first-party
+compiled-view substrate: `defview` views, value-shaped subscription
+reads (`(sub [:counter/value])` — nothing to deref), event-vector
+handlers (`{:on-click [:counter/increment]}`), and `ui/mount`. The
+emitted `shadow-cljs.edn` carries the one load-bearing build-hook
+setting from
+[docs/core/how-to/install-re-frame-ui.md](../../docs/core/how-to/install-re-frame-ui.md)
+(no `:cache-blockers` line — the S6 cut-over removed the tax), and the
+deps are the minimal consumer shape (`day8/re-frame2` +
+`day8/re-frame2-ui` + `day8/re-frame2-schemas`; no Xray). It is
+**EXPERIMENTAL** (2026-07-19 template-menu ruling): the surface may
+change between alpha releases, and the Reagent / UIx adapter scaffolds
+remain the supported defaults. `:include-story?` / `:include-ssr?` do
+not combine with it; `:css :tailwind` does.
 
 ### `:css :tailwind`
 

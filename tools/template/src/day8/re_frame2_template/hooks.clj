@@ -7,9 +7,11 @@
      2. `template-fn` selects the files for the requested variant.
      3. `post-process-fn` prints the generated project's next steps.
 
-   The supported matrix is Reagent, UIx, and Helix; Story and SSR are
-   mutually exclusive Reagent-only options; Tailwind is available on every
-   substrate. Unknown keys and unsupported combinations fail closed.
+   The supported matrix is Reagent, UIx, and Helix, plus the EXPERIMENTAL
+   `:ui` variant (the first-party re-frame.ui compiled-view substrate —
+   2026-07-19 template-menu ruling); Story and SSR are mutually exclusive
+   Reagent-only options; Tailwind is available on every substrate. Unknown
+   keys and unsupported combinations fail closed.
 
    deps-new performs flat `{{key}}` substitution, not conditional template
    syntax. Variants with structural differences therefore use separate
@@ -28,7 +30,15 @@
    :uix     {:label "UIx"
              :badge-url "https://img.shields.io/badge/substrate-UIx-3498db.svg"}
    :helix   {:label "Helix"
-             :badge-url "https://img.shields.io/badge/substrate-Helix-9b59b6.svg"}})
+             :badge-url "https://img.shields.io/badge/substrate-Helix-9b59b6.svg"}
+   ;; EXPERIMENTAL — the first-party re-frame.ui compiled-view substrate
+   ;; (2026-07-19 template-menu ruling). Emits the minimal consumer-shaped
+   ;; app from docs/core/how-to/install-re-frame-ui.md: `defview` views,
+   ;; `ui/mount`, and the ONE load-bearing build-hook setting. The
+   ;; adapters remain the supported default; this variant's surface may
+   ;; change between alpha releases.
+   :ui      {:label "re-frame.ui"
+             :badge-url "https://img.shields.io/badge/substrate-re--frame.ui%20(EXPERIMENTAL)-e67e22.svg"}})
 
 ;; -- :substrate coercion ----------------------------------------------------
 
@@ -357,10 +367,18 @@
                         "editorconfig"         ".editorconfig"
                         "cljfmt.edn"           ".cljfmt.edn"
                         "clj-kondo/config.edn" ".clj-kondo/config.edn"
-                        ;; Substrate-invariant build configs.
-                        "shadow-cljs.edn"      "shadow-cljs.edn"
+                        ;; Substrate-invariant across the adapter substrates.
                         "package.json"         "package.json"}
         shared-files   (cond-> shared-common
+                         ;; The adapter substrates share one build config
+                         ;; (Xray preload included). The EXPERIMENTAL :ui
+                         ;; variant emits its OWN shadow-cljs.edn instead —
+                         ;; the one-setting install contract of
+                         ;; docs/core/how-to/install-re-frame-ui.md, with
+                         ;; no Xray preload (the minimal consumer shape
+                         ;; carries no Xray coord).
+                         (not= substrate "ui")
+                         (assoc "shadow-cljs.edn" "shadow-cljs.edn")
                          ;; SSR folds these slices into core.cljc.
                          (not include-ssr?)
                          (assoc "events.cljs"      (str "src/" nested "/events.cljs")
@@ -417,6 +435,22 @@
             {"deps.edn"        "deps.edn"
              "core.cljs"       (str "src/" nested "/core.cljs")
              "views.cljs"      (str "src/" nested "/views.cljs")}
+            :only]]
+
+          ;; EXPERIMENTAL (2026-07-19 template-menu ruling). The
+          ;; re-frame.ui compiled-view scaffold: its own deps.edn (core +
+          ;; ui + schemas; NO Xray coord), its own shadow-cljs.edn (the
+          ;; post-S6 one-setting build-hook contract, no Xray preload),
+          ;; and an EXPERIMENTAL-marked README that replaces the SPA
+          ;; README the root copy laid down (transforms run after the
+          ;; root copy — same mechanism as README_with_ssr.md).
+          "ui"
+          [["_ui" "."
+            {"deps.edn"        "deps.edn"
+             "shadow-cljs.edn" "shadow-cljs.edn"
+             "README.md"       "README.md"
+             "core.cljs"       (str "src/" nested "/core.cljs")
+             "views.cljs"      (str "src/" nested "/views.cljs")}
             :only]])
 
         ;; This transform runs after the root copy and replaces the plain-CSS
@@ -446,6 +480,10 @@
         css-tag        (if (= css :tailwind) " (Tailwind CSS)" "")]
     (println (str "Generated a re-frame2 application " (:name data)
                   " (" substrate " substrate" feature-tag css-tag ")."))
+    (when (= "ui" substrate)
+      (println (str "NOTE: the re-frame.ui substrate is EXPERIMENTAL - its "
+                    "surface may change between alpha releases. The Reagent "
+                    "and UIx adapters are the supported defaults.")))
     (println "Next steps:")
     ;; `:target-dir` is preprocess-options' computed output dir
     ;; (defaults to `(:main data)` when no `:target-dir` arg is given).

@@ -1,20 +1,24 @@
 # Template — Substrate Variants
 
-> Capability doc. The template ships three substrate variants; this
-> file documents each, the invocation form, and substrate coercion.
+> Capability doc. The template ships three adapter substrate variants
+> plus the EXPERIMENTAL `:ui` compiled-view variant; this file
+> documents each, the invocation form, and substrate coercion.
 
-## The three variants
+## The variants
 
 | Substrate | Default? | View library | Generated `core.cljs` shape |
 |---|---|---|---|
 | `:reagent` | yes | Reagent | Reagent component + `r/render` |
 | `:uix` | no | UIx | UIx defui + `uix/render-root` |
 | `:helix` | no | Helix | Helix defnc + `createRoot` |
+| `:ui` | no — **EXPERIMENTAL** | re-frame.ui (compiled views) | `defview` root + `ui/mount` |
 
 Reagent is the canonical default — the substrate every re-frame and
 re-frame2 example targets first. UIx and Helix are equally supported;
 the choice is the developer's, surfaced via the `:substrate` top-level
-k/v argument.
+k/v argument. `:ui` is the first-party re-frame.ui compiled-view
+substrate, added EXPERIMENTAL at W8 per the 2026-07-19 template-menu
+ruling — see [§EXPERIMENTAL `:ui` variant](#experimental-ui-variant).
 
 ## Invocation form
 
@@ -59,14 +63,14 @@ message naming the valid set:
 (coerce-substrate 'uix)        ;; => throws — must be a keyword
 ```
 
-Anything not in `#{:reagent :uix :helix}` (or anything not a keyword)
-throws an `ex-info` with the offending value and the set of valid
-substrates in `ex-data`. See
+Anything not in `#{:reagent :uix :helix :ui}` (or anything not a
+keyword) throws an `ex-info` with the offending value and the set of
+valid substrates in `ex-data`. See
 [DESIGN-RATIONALE.md §8](DESIGN-RATIONALE.md) for the rationale.
 
 ## What each variant emits
 
-All three variants emit the same top-level project shape — see
+All three adapter variants emit the same top-level project shape — see
 [002-Generated-Shape.md](002-Generated-Shape.md). The substrate
 choice swaps:
 
@@ -85,15 +89,18 @@ choice swaps:
   soft-passing per Spec 010), and `day8/re-frame2-xray` (the in-app
   devtools panel — see
   [002 §Xray devtools](002-Generated-Shape.md#xray-devtools)).
-`shadow-cljs.edn` and `package.json` are **not** substrate-specific —
-react / react-dom are the only npm deps for every variant, and the
-`:app` build's `:devtools {:preloads …}` carries
-`day8.re-frame2-xray.preload` identically across variants — so they
-live under `_shared/` and emit once (the only per-variant difference
-is a cosmetic substrate label filled by `{{substrate-label}}`).
+`shadow-cljs.edn` and `package.json` are **not** substrate-specific
+across the adapter variants — react / react-dom are the only npm deps
+for every variant, and the `:app` build's `:devtools {:preloads …}`
+carries `day8.re-frame2-xray.preload` identically across the adapter
+variants — so they live under `_shared/` and emit once (the only
+per-variant difference is a cosmetic substrate label filled by
+`{{substrate-label}}`). The EXPERIMENTAL `:ui` variant is the one
+exception: it emits its **own** `shadow-cljs.edn` (see below) while
+still riding the shared `package.json`.
 
-The substrate-agnostic shell is emitted identically across all three
-variants. It splits across two resource sub-trees (see
+The substrate-agnostic shell is emitted identically across every
+variant. It splits across two resource sub-trees (see
 [002-Generated-Shape.md §Resource tree](002-Generated-Shape.md#resource-tree-template-side)):
 the renamed-/flag-switched-at-emit sources — `events.cljs`,
 `subs.cljs`, `schema.cljs`, `shadow-cljs.edn`, `package.json`, and
@@ -103,6 +110,45 @@ default-placement files (`README.md`,
 `dev/*`) are bulk-copied from `root/`. `schema.cljs` is
 substrate-agnostic: the whole-app-db Malli schema and `reg-app-schema`
 registration are the same regardless of view library.
+
+## EXPERIMENTAL `:ui` variant
+
+`:substrate :ui` (added at W8 per the 2026-07-19 template-menu ruling;
+bead rf2-vbjls) scaffolds the app on **re-frame.ui**, the first-party
+compiled-view substrate. It is marked EXPERIMENTAL everywhere it
+surfaces — the template menu (`template.edn` description), the emitted
+README, and the post-generate note — because the substrate's surface
+may change between alpha releases; the adapter variants remain the
+supported defaults.
+
+The emitted app is the minimal consumer shape whose install contract of
+record is
+[docs/core/how-to/install-re-frame-ui.md](../../../docs/core/how-to/install-re-frame-ui.md):
+
+- **`deps.edn`** — `day8/re-frame2` + `day8/re-frame2-ui` +
+  `day8/re-frame2-schemas` (the app `:require`s namespaces from core
+  and ui, and a direct `:require` deserves a direct dependency). **No
+  Xray coord** — the minimal consumer shape ships no devtools panel;
+  the `[data-rf-xray-host]` layout host in the shared `index.html`
+  stays empty and collapses via its `:empty` CSS rule.
+- **`shadow-cljs.edn`** — the variant's own config (not the `_shared/`
+  one): the same `:app` + `:test` builds, plus the ONE load-bearing
+  setting — `:build-defaults {:build-hooks
+  [(re-frame.ui.compiler.build-hook/hook)]}` — and **no
+  `:cache-blockers` line** (the S6 cut-over, rf2-u53yy.1, removed the
+  tax). No Xray preload.
+- **`core.cljs`** — `(rf/init! ui/adapter)`, the schema attach, and a
+  `ui/mount` of a `ui/frame-root`-wrapped root view.
+- **`views.cljs`** — `defview` compiled views: `(sub [:counter/value])`
+  reads a VALUE (nothing to deref) and `{:on-click
+  [:counter/increment]}` dispatches through the compiler-wired event
+  vector door.
+- The dataflow half (`events.cljs` / `subs.cljs` / `schema.cljs` /
+  `events_test.cljs`) is the same `_shared/` slice set every variant
+  emits, and an EXPERIMENTAL-marked README replaces the SPA README.
+
+`:include-story?` and `:include-ssr?` remain Reagent-only and throw on
+`:ui`; `:css :tailwind` composes (the overlay swaps root-level files).
 
 ## The counter throughline
 

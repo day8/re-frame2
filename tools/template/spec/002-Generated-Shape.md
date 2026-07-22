@@ -97,9 +97,14 @@ example.
 
 ## Xray devtools
 
-Every generated app ships [Xray](../../xray/) — the in-app devtools
-panel — **on by default in development**. Three wiring points land,
-identically across all three substrates:
+Every adapter-substrate app (Reagent / UIx / Helix) ships
+[Xray](../../xray/) — the in-app devtools panel — **on by default in
+development**. (The EXPERIMENTAL `:ui` variant is the exception: its
+minimal consumer shape carries no Xray coord and no preload — see
+[001 §EXPERIMENTAL `:ui` variant](001-Substrate-Variants.md#experimental-ui-variant);
+its emitted layout host simply stays empty and collapses via the
+`:empty` rule below.) Three wiring points land, identically across the
+three adapter substrates:
 
 - **deps.edn** carries the `day8/re-frame2-xray` runtime coord at the
   same `{{rf2-version}}` pin as the core coord (Xray publishes in
@@ -179,8 +184,12 @@ tools/template/
     │   └── views.cljs
     ├── _uix/                             ; UIx-specific (deps.edn / core.cljs / views.cljs)
     │   └── ...
-    └── _helix/                           ; Helix-specific (deps.edn / core.cljs / views.cljs)
-        └── ...
+    ├── _helix/                           ; Helix-specific (deps.edn / core.cljs / views.cljs)
+    │   └── ...
+    └── _ui/                              ; EXPERIMENTAL re-frame.ui variant — adds its own
+        └── ...                           ;   shadow-cljs.edn (one-setting build-hook contract,
+                                          ;   no Xray preload) + README.md alongside
+                                          ;   deps.edn / core.cljs / views.cljs
 ```
 
 `root/` files are bulk-copied by deps-new's `:root` mechanism with
@@ -247,8 +256,8 @@ the template's own additions.
 |---|---|---|
 | `{{namespace}}` | `{{top/ns}}.{{main/ns}}` | `acme.my-app` |
 | `{{nested-dirs}}` | `{{top/file}}/{{main/file}}` | `acme/my_app` |
-| `{{substrate}}` | The chosen substrate name, lower-case | `reagent`, `uix`, `helix` |
-| `{{substrate-label}}` | The chosen substrate's display name, proper-case (used in the shared `shadow-cljs.edn` comment + `package.json` description) | `Reagent`, `UIx`, `Helix` |
+| `{{substrate}}` | The chosen substrate name, lower-case | `reagent`, `uix`, `helix`, `ui` |
+| `{{substrate-label}}` | The chosen substrate's display name (used in the `shadow-cljs.edn` comment + `package.json` description) | `Reagent`, `UIx`, `Helix`, `re-frame.ui` |
 | `{{story-tag}}` | `package.json` `description` suffix that varies by `:include-story?` — lets one shared `package.json` serve both paths | `""`, `", with Story playground"` |
 | `{{substrate-badge-url}}` | shields.io badge URL by substrate | `https://img.shields.io/badge/substrate-Reagent-1abc9c.svg` |
 | `{{rf2-version}}` | re-frame2 coord version | `0.0.1.alpha` |

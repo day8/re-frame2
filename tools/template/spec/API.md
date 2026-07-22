@@ -36,8 +36,10 @@ Where:
 
 - `<coord>` is a group-qualified Clojure name — e.g. `acme/my-app`.
   `:name` is required.
-- `:substrate <kw>` is one of `:reagent` `:uix` `:helix`. Optional.
-  Defaults to `:reagent`.
+- `:substrate <kw>` is one of `:reagent` `:uix` `:helix` `:ui`.
+  Optional. Defaults to `:reagent`. `:ui` (the re-frame.ui
+  compiled-view substrate) is **EXPERIMENTAL** — see
+  [001-Substrate-Variants.md §EXPERIMENTAL `:ui` variant](001-Substrate-Variants.md#experimental-ui-variant).
 - `:include-story? <bool>` and `:include-ssr? <bool>` are `true` /
   `false` (default `false`). Both are currently **Reagent-only** and
   **mutually exclusive** — pass at most one.
@@ -71,6 +73,11 @@ clojure -Tnew create :template io.github.day8/re-frame2-template \
 clojure -Tnew create :template io.github.day8/re-frame2-template \
         :name acme/my-app \
         :substrate :helix
+
+# re-frame.ui — EXPERIMENTAL compiled-view substrate
+clojure -Tnew create :template io.github.day8/re-frame2-template \
+        :name acme/my-app \
+        :substrate :ui
 
 # Reagent with the Story playground scaffold
 clojure -Tnew create :template io.github.day8/re-frame2-template \
@@ -107,7 +114,7 @@ clojure -Tnew create \
 
 | Arg | Required | Meaning | Default |
 |---|---|---|---|
-| `:substrate` | no | One of `:reagent` `:uix` `:helix`. | `:reagent` |
+| `:substrate` | no | One of `:reagent` `:uix` `:helix` `:ui`. `:ui` is **EXPERIMENTAL** — the re-frame.ui compiled-view substrate: minimal consumer shape per [docs/core/how-to/install-re-frame-ui.md](../../../docs/core/how-to/install-re-frame-ui.md) (core + ui + schemas coords, its own one-setting `shadow-cljs.edn`, no Xray), `defview` views, `ui/mount`. Does not combine with `:include-story?` / `:include-ssr?`. | `:reagent` |
 | `:include-story?` | no | When `true`, scaffolds the Story playground alongside the live app — adds the `day8/re-frame2-story` coord, emits `src/.../stories.cljs`, and swaps the entry `core.cljs` for the hash-routing `core_with_stories.cljs` variant. **Currently Reagent-only**; non-Reagent substrates throw a clear error. Mutually exclusive with `:include-ssr?`. | `false` |
 | `:include-ssr?` | no | When `true`, scaffolds a server-side-rendered app (JVM render + client hydration). The registration root becomes a single shared `src/.../core.cljc` (folding in the events / subs / schema / view), a Ring/Jetty `server.clj` host is added (run with `clojure -X:server`), and a headless JVM `test/.../ssr_test.clj` gate replaces the CLJS `events_test.cljs`. An SSR-flavoured `README.md` overlays the default SPA one. The per-slice CLJS sources (`events.cljs` / `subs.cljs` / `schema.cljs` / `views.cljs`) are **not** emitted — they live in `core.cljc`. **Currently Reagent-only** and **mutually exclusive with `:include-story?`**. | `false` |
 | `:css` | no | `:tailwind` swaps the plain-CSS scaffold for a Tailwind v4 one — an `index.html` that loads the `@tailwindcss/browser@4` Play CDN compiler (zero build step) and carries the CSS-first source (`@import "tailwindcss";` + `@theme` tokens; v4 has no `tailwind.config.js`) **inline** in a `<style type="text/tailwindcss">` block, which is the only input the Play CDN compiler reads; `app.css` stays ordinary native CSS for the app shell + Xray-host layout. Omit (or pass `nil`) for the plain-CSS default. **Substrate-invariant** — identical across Reagent / UIx / Helix — and composes with `:include-story?` / `:include-ssr?` (the SSR live shell injects the same source block). | `nil` (plain CSS) |
@@ -225,7 +232,7 @@ Then open http://127.0.0.1:8030
 
 | Condition | Error keyword | Behaviour |
 |---|---|---|
-| `:substrate` not one of `#{:reagent :uix :helix}` | `:rf.error/template-substrate-must-be-one-of` (keyword arg outside the valid set) / `:rf.error/template-substrate-must-be-keyword` (non-keyword shape — string, symbol, number, …) | `ex-info` thrown; message names the valid set; `ex-data` carries `{:substrate <bad-value> :valid #{...}}`. |
+| `:substrate` not one of `#{:reagent :uix :helix :ui}` | `:rf.error/template-substrate-must-be-one-of` (keyword arg outside the valid set) / `:rf.error/template-substrate-must-be-keyword` (non-keyword shape — string, symbol, number, …) | `ex-info` thrown; message names the valid set; `ex-data` carries `{:substrate <bad-value> :valid #{...}}`. |
 | `:include-story?` not `true` / `false` / `nil` | `:rf.error/template-bad-include-story-flag` | `ex-info` thrown; message gives the offending value. |
 | `:include-story? true` with non-Reagent substrate | `:rf.error/template-include-story-reagent-only` | `ex-info` thrown; message says "Reagent-only in v1" and names the chosen substrate. |
 | `:include-ssr?` not `true` / `false` / `nil` | `:rf.error/template-bad-include-ssr-flag` | `ex-info` thrown; message gives the offending value. |
