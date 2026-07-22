@@ -67,7 +67,7 @@ Per `docs/the-mayor-method/`, the `ai/` directory at repo root holds all AI work
 
 - **Always dispatch beads to a background agent when sensible.** Don't ask permission for clear-cut implementation work, mechanical fixes, or follow-on tasks where the direction is set. Keep the work flowing. Only pause for genuine decisions Mike hasn't made.
 - **Worker worktree guard is mandatory before edits.** Background workers must run the guard from their intended checkout before editing, and report the printed `WORKTREE_ROOT`. Use `sh scripts/assert-worker-worktree.sh` (POSIX primary) or `powershell -ExecutionPolicy Bypass -File scripts/assert-worker-worktree.ps1` (Windows). The guard derives the mayor checkout as the repository's primary worktree (`git worktree list`) and the worktree parent as its `re-frame2-worktrees` sibling — no hardcoded paths; both overridable via `RF2_MAYOR_ROOT` / `RF2_WORKTREE_PARENT`. It refuses the mayor checkout and any root outside the worktree parent. This mitigates observed harness path-resolution leaks; it is not a root-cause fix for the external edit/write bug.
-- **Minimise merge conflicts when dispatching.** Hot-zone files (`spec/Conventions.md`, `migration/from-re-frame-v1/README.md`, `spec/API.md`, `spec/Tool-Pair.md`, `spec/Spec-Schemas.md`, `spec/009-Instrumentation.md`, `spec/006-ReactiveSubstrate.md`, `spec/005-StateMachines.md`, `spec/002-Frames.md`, top-level `implementation/deps.edn`, `implementation/shadow-cljs.edn`, `.github/workflows/*`) are sequential, never parallel — two beads touching the same hot file = sequence them, second waits for the first's PR to merge. Isolated surfaces (single-artefact `implementation/<feature>/src/`, new-file additions, test-only dirs `implementation/<feature>/test/`, `examples/<substrate>/<example>/`) are safe to parallel.
+- **Minimise merge conflicts when dispatching.** Hot-zone files (`spec/Conventions.md`, `migration/from-re-frame-v1/README.md`, `spec/API.md`, `spec/Tool-Pair.md`, `spec/Spec-Schemas.md`, `spec/009-Instrumentation.md`, `spec/006-ReactiveSubstrate.md`, `spec/005-StateMachines.md`, `spec/004-Views.md`, `spec/002-Frames.md`, top-level `implementation/deps.edn`, `implementation/shadow-cljs.edn`, `.github/workflows/*`) are sequential, never parallel — two beads touching the same hot file = sequence them, second waits for the first's PR to merge. Isolated surfaces (single-artefact `implementation/<feature>/src/`, new-file additions, test-only dirs `implementation/<feature>/test/`, `examples/<substrate>/<example>/`) are safe to parallel.
 - **Do not maintain `ai/dashboard.md`.** The dashboard is retired (Mike, 2026-06-20), as is the `ai/decisions.md` index (Mike, 2026-07-17): don't create or refresh either. Decision gates surface in chat and on the beads; everything else operator-facing goes in chat.
 - **Pull `main` from `origin` immediately after every PR merge.** Run `git pull --ff-only` as the very next step after `gh pr merge ... --rebase --admin --delete-branch`. No exceptions, no batching multiple merges before pulling. Mike glances at his local working tree to track progress; staleness leaves him with a wrong picture and breaks subsequent dispatches that worktree off `origin/main`. Same rule applies whether merge happened seconds ago or while another agent was running.
 - **Stash before pull when needed.** `.beads/issues.jsonl` may carry uncommitted local edits; stash before pulling and pop after if necessary. (The `ai/` tree is local-only and won't show up in `git status`.)
@@ -86,18 +86,22 @@ scripts/test-rigorous-local.sh         # expensive local/release-sized sweep
 # From implementation/:
 npm install                          # one-time, installs shadow-cljs + react
 npm run test:cljs                    # node-runtime CLJS tests (fast, default gate)
+npm run test:ui                      # re-frame.ui substrate suite (adapter-isolation check + node tests)
+npm run test:ui-warm-watch           # re-frame.ui warm-watch recompile probe
 npm run test:browser                 # browser tests via Playwright
 npm run test:elision                 # production elision probe
 npm run test:perf-bundle             # perf-budget bundle check
 npm run test:bundle-isolation        # tools must not leak into production bundles
 npm run test:reagent-slim:bundle-isolation # slim must not pull stock Reagent/react-dom/server
-npm run test:adapter-smokes          # adapter-smoke runner (Reagent/UIx/Helix mount+dispatch+assert)
+npm run test:adapter-smokes          # adapter-smoke runner (one mount+dispatch+assert smoke per adapter)
+npm run test:xray-feature-gate       # Xray feature-matrix browser gate
+npm run test:mcp-conformance         # cross-server MCP wire-vocabulary conformance
 npm run story:build                  # build the story artefact
 ```
 
 Per-artefact tests run from each artefact directory via `clojure -M:test` (see e.g. `tools/story/deps.edn` `:test` alias). The canonical matrix and PR/nightly/release split lives in `TESTING.md`; workflow gates live in `.github/workflows/`.
 
-**Examples are test-free (locked 2026-05-19, rf2-8cevm).** No `*.spec.cjs` may live under `examples/`. Browser smoke coverage is exactly 3 adapter-level smokes (Reagent / UIx / Helix) at `implementation/adapters/<name>/testbed/spec.cjs` — mount + dispatch + assert. Real-regression coverage lives in substrate contract tests (`npm run test:cljs`), the Xray feature-matrix gate (`npm run test:xray-feature-gate`), bundle-isolation, the perf-bundle gate, and mcp-conformance. Framework testbeds (`tools/xray/testbeds/`, top-level `testbeds/`) carry their own non-adapter spec.cjs for cross-cutting surfaces (parallel-frames isolation, perf-API live counterpart, SSR, etc.).
+**Examples are test-free (locked 2026-05-19, rf2-8cevm).** No `*.spec.cjs` may live under `examples/`. Browser smoke coverage is one adapter-level smoke per shipped adapter at `implementation/adapters/<name>/testbed/spec.cjs` — mount + dispatch + assert. Real-regression coverage lives in substrate contract tests (`npm run test:cljs`), the Xray feature-matrix gate (`npm run test:xray-feature-gate`), bundle-isolation, the perf-bundle gate, and mcp-conformance. Framework testbeds (`tools/xray/testbeds/`, top-level `testbeds/`) carry their own non-adapter spec.cjs for cross-cutting surfaces (parallel-frames isolation, perf-API live counterpart, SSR, etc.).
 
 Docs build from repo root with `mkdocs build --strict` (config in `mkdocs.yml`).
 
@@ -108,7 +112,7 @@ Docs build from repo root with `mkdocs build --strict` (config in `mkdocs.yml`).
 Top-level layout:
 
 - `spec/` — the specification (primary artefact; AI-targeted)
-- `implementation/` — CLJS reference: `core/` + per-substrate `adapters/` (Reagent, UIx, Helix) + per-feature artefacts (machines, schemas, …). The top-level `implementation/shadow-cljs.edn` + `implementation/deps.edn` coordinate the cross-artefact classpath.
+- `implementation/` — CLJS reference: `core/` + `ui/` (re-frame.ui, the EXPERIMENTAL compiled-view substrate, offered alongside the adapters) + per-substrate `adapters/` (Reagent, reagent-slim, UIx — first-class, actively supported; Helix removal is in flight, S7/W13) + per-feature artefacts (machines, schemas, resources, …). The top-level `implementation/shadow-cljs.edn` + `implementation/deps.edn` coordinate the cross-artefact classpath.
 - `tools/` — dev/inspection tools that consume the Spec 009 instrumentation API and Tool-Pair contract (`template/`, `story/`, `story-mcp/`, `re-frame2-pair-mcp/`, `xray/`, `machines-viz/`, `testbed-support/`, `mcp-base/`, `mcp-conformance/`). Bundle-isolated from production builds; nothing in `implementation/` may `:require` from `tools/`.
 - `examples/` — worked examples per substrate.
 - `docs/` — human-facing guide (`docs/core/`) and operational docs.
