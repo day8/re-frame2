@@ -310,6 +310,12 @@ is pending); the stages ahead follow
 - **G-10** and the remaining absence/equivalence/budget gates, plus the
   one-time W11 trio table (S6).
 
+Per the 2026-07-21 S7-entry/alpha ruling recorded in
+[EP-0030 §Resolved Decisions](EP-0030-the-compiled-view-substrate-program.md#resolved-decisions),
+G-2, G-9, and G-10 do not gate the alpha: they are deferred as the evidence bar
+for any future default/optimized claim, with W11's one-time trio comparison
+folding into G-2/G-10 whenever they run.
+
 ### Guide impact
 
 Guide 08 (SSR/hydration), 09 (testing/debugging), and 10 (performance) teach
