@@ -1,4 +1,4 @@
-(ns re-frame.ui.build-repl-hmr-convergence-jvm-test
+(ns re-frame.freehand.build-repl-hmr-convergence-jvm-test
   "S2e (rf2-vxgfnd.11) — REPL == file-save reload at the compiler-state
   authority (03 §10; 02 §8; df9873's ruled posture). A view re-registration
   reaches the build authority two ways:
@@ -14,11 +14,11 @@
   Both paths must converge on the IDENTICAL committed `:views` aggregate for the
   same source — otherwise a REPL session and a saved file could diverge. This
   fixture drives the REAL `defview` macro body (the JVM emitter path) under a
-  controlled declaring namespace, exactly as `re-frame.ui.compiler-build-jvm-test`
+  controlled declaring namespace, exactly as `re-frame.freehand.compiler-build-jvm-test`
   does, and compares the two committed aggregates."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.ui.compiler :as compiler]
-            [re-frame.ui.compiler.build :as build]))
+            [re-frame.freehand.compiler :as compiler]
+            [re-frame.freehand.compiler.build :as build]))
 
 (use-fixtures :each
   (fn [f] (build/reset-build!) (try (f) (finally (build/reset-build!)))))

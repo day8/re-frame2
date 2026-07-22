@@ -1,4 +1,4 @@
-(ns re-frame.ui.binding-plan-host-faithful-jvm-test
+(ns re-frame.freehand.binding-plan-host-faithful-jvm-test
   "rf2-vxgfnd.283 — the ONE host-faithful binding plan. The analyzer's scope
   walk and the CLJS header emitter must derive their binding order from a single
   plan that reproduces the host `destructure` `bes` transformation, so neither
@@ -12,10 +12,10 @@
   end to end."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
-            [re-frame.ui.compiler.analyze :as ana]
-            [re-frame.ui.compiler.binding-plan :as bp]
-            [re-frame.ui.compiler.emit-cljs :as emit-cljs]
-            [re-frame.ui.compiler.header :as header]))
+            [re-frame.freehand.compiler.analyze :as ana]
+            [re-frame.freehand.compiler.binding-plan :as bp]
+            [re-frame.freehand.compiler.emit-cljs :as emit-cljs]
+            [re-frame.freehand.compiler.header :as header]))
 
 (defn- real-local-order
   "The user locals `clojure.core/destructure` binds for map `pat`, in order —
@@ -445,7 +445,7 @@
   "Evaluate the JVM emitter path — native `let` destructuring of the raw pattern
   — on keyword-keyed `props`. Returns {local -> final value}; the ground truth."
   [pat props]
-  (binding [*ns* (find-ns 're-frame.ui.binding-plan-host-faithful-jvm-test)]
+  (binding [*ns* (find-ns 're-frame.freehand.binding-plan-host-faithful-jvm-test)]
     (let [locals (->> (destructure [pat 'the-map]) (partition 2) (map first)
                       (remove #(re-find #"^(map__|vec__|seq__|first__|p__|the-map)"
                                         (name %)))
@@ -460,7 +460,7 @@
   keyword-keyed and converted to the slot STRINGS the emitter reads. Returns
   {local -> final value}; `:or` default side effects run for real."
   [argv props]
-  (binding [*ns* (find-ns 're-frame.ui.binding-plan-host-faithful-jvm-test)]
+  (binding [*ns* (find-ns 're-frame.freehand.binding-plan-host-faithful-jvm-test)]
     (let [binds  (vec (emit-cljs/header-bindings (header/parse-header argv)))
           subbed (walk/postwalk-replace
                   {'cljs.core/unchecked-get `uget

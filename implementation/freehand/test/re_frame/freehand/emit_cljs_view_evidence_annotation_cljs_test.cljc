@@ -1,13 +1,13 @@
-(ns re-frame.ui.emit-cljs-view-evidence-annotation-cljs-test
+(ns re-frame.freehand.emit-cljs-view-evidence-annotation-cljs-test
   "98.1 slice (c) — cross-host golden for the host-root view-evidence annotation
   wiring (rf2-hac8p). The emitter is `.cljc`, so the exact CLJS expansion is data
   on BOTH hosts: a host-root-marked element lowers to the DEV-gated
   `data-rf2-source-coord` / `data-rf-view` stamp on its props object, and an
   unmarked element lowers unchanged."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.ui.compiler.analyze :as ana]
-            [re-frame.ui.compiler.emit-cljs :as emit]
-            [re-frame.ui.compiler.env :as env]))
+            [re-frame.freehand.compiler.analyze :as ana]
+            [re-frame.freehand.compiler.emit-cljs :as emit]
+            [re-frame.freehand.compiler.env :as env]))
 
 (defn- forms-of [form] (tree-seq coll? seq form))
 

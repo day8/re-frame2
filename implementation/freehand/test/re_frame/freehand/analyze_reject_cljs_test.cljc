@@ -1,11 +1,11 @@
-(ns re-frame.ui.analyze-reject-cljs-test
+(ns re-frame.freehand.analyze-reject-cljs-test
   "Template-grammar REJECT table: every rejected form throws a compile
   error carrying {:rf.ui.compile/error <id>} — the S1e didactic-message
   roster keys off these ids. Runs on both hosts (injected resolution)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.ui.compiler.analyze :as ana]
-            [re-frame.ui.analyze-accept-cljs-test :refer [mk-env mk-self-env]]))
+            [re-frame.freehand.compiler.analyze :as ana]
+            [re-frame.freehand.analyze-accept-cljs-test :refer [mk-env mk-self-env]]))
 
 (defn reject-id
   "nil when accepted; the :rf.ui.compile/error id when rejected."
@@ -128,7 +128,7 @@
                :resolver (fn [sym]
                            (case sym
                              if-let {:fqn 'app.userland/if-let :meta {:macro true}}
-                             sub    {:fqn 're-frame.ui/sub :meta {}}
+                             sub    {:fqn 're-frame.freehand/sub :meta {}}
                              nil)))]
     (is (= :rf.ui.compile/unsupported-form
            (reject-id-in user-if-let-env
@@ -233,7 +233,7 @@
   ;; ordered scope re-accepts them all, so this deftest is the mutation fixture.
   (testing "a LATER-bound local does not shadow an earlier default (over-accept)"
     ;; `f` binds first; its :or default `sub` evaluates before local `sub` — it
-    ;; is the outer re-frame.ui/sub, not the later local.
+    ;; is the outer re-frame.freehand/sub, not the later local.
     (is (= :rf.ui.compile/unsupported-form
            (reject-id '[:div {:title (let [{:keys [f sub] :or {f sub}} m] f)}]))
         "bare sub default shadowed only by a LATER binding escapes")
@@ -342,9 +342,9 @@
   (is (= :rf.ui.compile/unsupported-form (reject-id '[sub {} [:p "child"]]))
       "children do not change the reserved-head classification")
   ;; qualified + aliased spellings resolve to the exact vars — reserved too
-  (is (= :rf.ui.compile/unsupported-form (reject-id '[ui/sub {}]))
-      "an aliased spelling resolving to re-frame.ui/sub is reserved")
-  (is (= :rf.ui.compile/unsupported-form (reject-id '[re-frame.ui/frame]))
+  (is (= :rf.ui.compile/unsupported-form (reject-id '[v/sub {}]))
+      "an aliased spelling resolving to re-frame.freehand/sub is reserved")
+  (is (= :rf.ui.compile/unsupported-form (reject-id '[re-frame.freehand/frame]))
       "a fully-qualified frame head is reserved")
   ;; a lexical shadow is NOT the reactive var: it falls through to the ordinary
   ;; local-head rule (a local binding can never be a literal head → dynamic-head)
@@ -586,13 +586,13 @@
                        [:input {:key (:id t)
                                 :on-input (event [e] (conj [::set (:id t)]
                                                            (.. e -target -value)))}])))
-      "a ui/event capturing the loop binding is a site too — extract a keyed child")
+      "a v/event capturing the loop binding is a site too — extract a keyed child")
   (is (nil? (reject-id '(let [id 1] [:li {:on-click [::open id]} "x"])))
       "non-loop locals in event vectors are the normal case")
   (is (nil? (reject-id '[:input {:value v
                                  :on-input (event [e] (conj on-value
                                                             (.. e -target -value)))}]))
-      "a ui/event capturing a view-level prefix (not a loop var) is the reusable case"))
+      "a v/event capturing a view-level prefix (not a loop var) is the reusable case"))
 
 (deftest handler-grammar
   (is (= :rf.ui.compile/bad-event-vector
@@ -606,10 +606,10 @@
       "options maps need a literal :event vector")
   (is (= :rf.ui.compile/bad-ui-event
          (reject-id '[:input {:on-input (event [] [:x])}]))
-      "ui/event binds exactly the native event")
+      "v/event binds exactly the native event")
   (is (= :rf.ui.compile/bad-ui-event
          (reject-id '[:input {:on-input (event [a b] [:x])}]))
-      "ui/event binds exactly one event arg, not several"))
+      "v/event binds exactly one event arg, not several"))
 
 (deftest bare-fn-law
   (is (= :rf.ui.compile/bare-fn-prop
@@ -625,42 +625,42 @@
       "bare fn at a non-event DOM prop")
   (is (= :rf.ui.compile/bare-fn-ref
          (reject-id '[:div {:ref (fn [el] el)} "x"]))
-      "callback refs must be explicit (ui/raw-fn f)")
+      "callback refs must be explicit (v/raw-fn f)")
   (is (nil? (reject-id '[:div {:ref (raw-fn (fn [el] el))} "x"]))
-      "(ui/raw-fn f) is the callback-ref spelling")
+      "(v/raw-fn f) is the callback-ref spelling")
   ;; rf2-u53yy.3: an internal view forwards :ref (React 19 ref-as-prop) — an
   ;; object ref carries through the props object; the ref contract is the
-  ;; element's, so a bare fn still needs the explicit (ui/raw-fn f).
+  ;; element's, so a bare fn still needs the explicit (v/raw-fn f).
   (is (nil? (reject-id '[child-view {:ref object-ref}]))
       "an object :ref forwards to an internal view (declared-ref forwarding)")
   (is (nil? (reject-id '[child-view {:ref (raw-fn (fn [el] el))}]))
-      "(ui/raw-fn f) is the callback-ref forwarding spelling on a view")
+      "(v/raw-fn f) is the callback-ref forwarding spelling on a view")
   (is (= :rf.ui.compile/bare-fn-ref
          (reject-id '[child-view {:ref (fn [el] el)}]))
-      "a bare-fn :ref on an internal view still needs (ui/raw-fn f)")
+      "a bare-fn :ref on an internal view still needs (v/raw-fn f)")
   ;; rf2-u53yy.3 obligation 3: the foreign seam is NOT a bare-fn exception —
-  ;; Spec 004 and the guide say every callback ref is explicit (ui/raw-fn f).
+  ;; Spec 004 and the guide say every callback ref is explicit (v/raw-fn f).
   (is (= :rf.ui.compile/bare-fn-ref
          (reject-id '[ForeignComp {:ref (fn [el] el)}]))
-      "a bare-fn :ref at a foreign component still needs (ui/raw-fn f)")
+      "a bare-fn :ref at a foreign component still needs (v/raw-fn f)")
   (is (nil? (reject-id '[ForeignComp {:ref (raw-fn (fn [el] el))}]))
-      "(ui/raw-fn f) is the callback-ref spelling at a foreign component")
+      "(v/raw-fn f) is the callback-ref spelling at a foreign component")
   (is (nil? (reject-id '[ForeignComp {:ref object-ref}]))
       "an object :ref forwards to a foreign component (ordinary foreign props stay open)"))
 
 (deftest ui-handler-grammar
   (is (= :rf.ui.compile/bad-ui-handler
          (reject-id '[:button {:on-click (handler [] (f))} "x"]))
-      "ui/handler binds at least the invoker's argument")
+      "v/handler binds at least the invoker's argument")
   (is (= :rf.ui.compile/bad-ui-handler
          (reject-id '[:button {:on-click (handler [a b] (f a b))} "x"]))
-      "ui/handler at a DOM site binds exactly the native event")
+      "v/handler at a DOM site binds exactly the native event")
   (is (= :rf.ui.compile/bad-ui-callback
          (reject-id '[ForeignComp {:on-select (event [a b] [:x])}]))
-      "ui/event at a component prop binds exactly one invoker arg")
+      "v/event at a component prop binds exactly one invoker arg")
   (is (= :rf.ui.compile/bad-ui-callback
          (reject-id '[ForeignComp {:on-open (handler [& rest] (f rest))}]))
-      "a component-prop ui/handler is a fixed-arity vector (no &)"))
+      "a component-prop v/handler is a fixed-arity vector (no &)"))
 
 (deftest error-boundary-grammar
   (is (= :rf.ui.compile/bad-error-boundary
@@ -704,7 +704,7 @@
       "one spelling per name: :for")
   (is (= :rf.ui.compile/rejected-prop-spelling
          (reject-id '[:div {:dangerouslySetInnerHTML {:__html "x"}}]))
-      "dangerouslySetInnerHTML does not exist — ui/html is the spelling")
+      "dangerouslySetInnerHTML does not exist — v/html is the spelling")
   (is (= :rf.ui.compile/rejected-prop-spelling (reject-id '[:div {:children [x]}]))
       "children are positional")
   (is (= :rf.ui.compile/id-sugar-conflict (reject-id '[:div#a {:id "b"}]))
@@ -719,7 +719,7 @@
       ":class flag-map keys must be literal names")
   ;; hiccup structure disambiguates props: a non-map second element is a
   ;; CHILD, never a dynamic props map — runtime prop maps go through
-  ;; (ui/spread base overrides)
+  ;; (v/spread base overrides)
   (is (nil? (reject-id '[:div some-expr "x"]))
       "a non-map expression after the tag is a dynamic child, not props"))
 
@@ -747,17 +747,17 @@
   (is (= :rf.ui.compile/children-not-accepted
          (reject-id '[leaf-view props-expr]))
       "no dynamic-props back door — a non-map is a child, and leaf views take none")
-  ;; rf2-u53yy.5 — ui/spread IS admitted at a FOREIGN component call site, but an
+  ;; rf2-u53yy.5 — v/spread IS admitted at a FOREIGN component call site, but an
   ;; internal view keeps the literal-props requirement (its per-slot memo
   ;; comparator and slot ABI need the literal keys).
   (is (nil? (reject-id '[ForeignComp (spread {:selected d :on-change (handler [v] (pick v))}
                                              forwarded)]))
-      "a foreign head accepts (ui/spread literal-part runtime-map)")
+      "a foreign head accepts (v/spread literal-part runtime-map)")
   (is (nil? (reject-id '[ForeignComp (spread forwarded)]))
       "a foreign head accepts a plain forwarded map spelled through spread")
   (is (= :rf.ui.compile/spread-internal-view
          (reject-id '[child-view (spread {:a 1} forwarded)]))
-      "an internal view rejects ui/spread — literal props required")
+      "an internal view rejects v/spread — literal props required")
   (is (= :rf.ui.compile/spread-internal-view
          (reject-id '[leaf-view (spread forwarded)]))
       "the internal-view spread rejection covers the plain forwarded form too"))
@@ -765,15 +765,15 @@
 (deftest interop-positions
   (is (= :rf.ui.compile/html-not-sole-child
          (reject-id '[:div [:span "s"] (html "<b>x</b>")]))
-      "(ui/html ...) must be the SOLE child of a DOM element")
+      "(v/html ...) must be the SOLE child of a DOM element")
   (is (= :rf.ui.compile/html-not-sole-child
          (reject-id '(html "<b>x</b>")))
-      "standalone ui/html has no host element to own the markup")
+      "standalone v/html has no host element to own the markup")
   (is (= :rf.ui.compile/raw-fn-child (reject-id '(raw-fn f))))
   (is (= :rf.ui.compile/bad-spread (reject-id '(spread base)))
-      "(ui/spread ...) belongs in an element's props position")
+      "(v/spread ...) belongs in an element's props position")
   (is (= :rf.ui.compile/bad-raw (reject-id '(raw)))
-      "(ui/raw react-element) takes one argument")
+      "(v/raw react-element) takes one argument")
   (is (= :rf.ui.compile/void-children (reject-id '[:br (html "<b>x</b>")]))
       "void elements cannot own trusted markup either"))
 
@@ -781,7 +781,7 @@
   ;; rf2-ib4fd — static special-element child shapes the TARGET (React 19.2 /
   ;; the JVM serialiser) rejects are rejected at COMPILE, not emitted to fail
   ;; later. Fail-fast with a clear diagnostic beats a silent wrong render.
-  (testing "(ui/html …) beneath a static <textarea> is rejected (React 19.2 "
+  (testing "(v/html …) beneath a static <textarea> is rejected (React 19.2 "
            "rejects dangerouslySetInnerHTML on a textarea)"
     ;; RED-BEFORE lever: this compiled and lowered to React
     ;; dangerouslySetInnerHTML / a divergent JVM trusted-markup body.
@@ -790,7 +790,7 @@
         "a textarea's content is :value or a text child, not trusted markup"))
   (testing "a static <textarea>'s single-text-child contract rejects the "
            "host-divergent multi/value+child/structural shapes (rf2-ib4fd "
-           "residual — the cases #6517's (ui/html …) rule did NOT cover)"
+           "residual — the cases #6517's (v/html …) rule did NOT cover)"
     ;; RED-BEFORE lever: each of these COMPILED before this rule — React 19.2
     ;; throws "<textarea> can only have at most one child" for two children and
     ;; for value+child, and renders a structural child as "[object Object]",
@@ -847,7 +847,7 @@
     (is (nil? (reject-id '[:script js-src]))
         "a runtime-dynamic scalar stays programmer-trusted")
     (is (nil? (reject-id '[:script (html "console.log(1)")]))
-        "a sole (ui/html …) is the sanctioned trusted-markup body")
+        "a sole (v/html …) is the sanctioned trusted-markup body")
     (is (nil? (reject-id '[:style]))
         "no body is fine")
     (is (nil? (reject-id '[:script {:src "/main.js"}]))

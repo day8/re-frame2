@@ -1,4 +1,4 @@
-(ns re-frame.ui.emit-cljs-view-evidence-annotation-jvm-test
+(ns re-frame.freehand.emit-cljs-view-evidence-annotation-jvm-test
   "98.1 slice (c) — the compiler emits the view-evidence DOM annotation onto its
   compiler-owned host root (rf2-hac8p).
 
@@ -11,7 +11,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.source-coords :as source-coord]
-            [re-frame.ui.compiler :as compiler]))
+            [re-frame.freehand.compiler :as compiler]))
 
 (defn- cljs-emit
   "Run the REAL cljs `defview*` emit path for `template` under `ns-sym`/`vname`

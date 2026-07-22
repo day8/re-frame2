@@ -1,11 +1,11 @@
-(ns re-frame.ui.fingerprint-cljs-test
+(ns re-frame.freehand.fingerprint-cljs-test
   "template-fingerprint / hook-signature-hash / config-fingerprint — the named
   home's algorithm pins (FNV-1a 64 over canonical EDN, version-prefixed
   hex). The literal golden pins CROSS-HOST equality: the same input must
-  digest identically under `clojure -M:test` and `npm run test:ui`."
+  digest identically under `clojure -M:test` and `npm run test:freehand`."
   (:require [clojure.string :as string]
             [clojure.test :refer [deftest is]]
-            [re-frame.ui.fingerprint :as fp]))
+            [re-frame.freehand.fingerprint :as fp]))
 
 (deftest canonical-string-is-order-insensitive
   (is (= (fp/canonical-string {:b 2 :a 1})
@@ -185,16 +185,16 @@
 (deftest record-tag-cross-host-golden
   ;; The record TAG is the one part of the encoding whose natural host
   ;; renderings DIVERGE — the JVM has a munged, dotted class name
-  ;; (`re_frame.ui.fingerprint_cljs_test.RecA`) where CLJS has the
-  ;; `cljs$lang$ctorPrWriter` literal (`re-frame.ui.fingerprint-cljs-test/RecA`).
+  ;; (`re_frame.freehand.fingerprint_cljs_test.RecA`) where CLJS has the
+  ;; `cljs$lang$ctorPrWriter` literal (`re-frame.freehand.fingerprint-cljs-test/RecA`).
   ;; `record-type-name` normalizes the JVM side onto the CLJS form, so these
   ;; JVM-computed literals must reproduce EXACTLY under the CLJS run. Without
   ;; that normalization a build-time (JVM) digest and a client (CLJS) digest of
   ;; the SAME plan would differ — a spurious plan conflict, the mirror-image
   ;; failure of the collapse this bead fixed.
-  (is (= "cf1-b812168c861e3c0c" (fp/config-fingerprint :frame/f (->RecA 1)))
+  (is (= "cf1-703c3e470d333f0b" (fp/config-fingerprint :frame/f (->RecA 1)))
       "cross-host golden — JVM-computed literal; the CLJS run must match")
-  (is (= "cf1-d5f464cf44df9810" (fp/config-fingerprint :frame/f {:k (->RecA 1)}))
+  (is (= "cf1-e1749d778d5b993d" (fp/config-fingerprint :frame/f {:k (->RecA 1)}))
       "cross-host golden — record nested as a map value")
   ;; The record branch is CONSERVATIVE: it changes the encoding of nothing but
   ;; records, so no fingerprint over the record-free value space moves and the
