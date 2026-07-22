@@ -106,6 +106,19 @@
         (is (string/includes? job "working-directory: implementation")
             "the npm ci step must run in implementation/ (where the
              node_modules tree the smoke links to lives).")
+        ;; `npm ci` installs the playwright PACKAGE but no browser BINARY.
+        ;; Without an explicit install the tier's two Chromium proofs (SSR
+        ;; DOM-adoption, emitted dev-page boot) cannot launch, and a
+        ;; `template-v…` tag would cut a Release whose gate never loaded the
+        ;; emitted index.html in any browser. The tier now hard-fails on an
+        ;; unlaunchable browser under CI, so dropping this step reds the
+        ;; release — but only at tag time; this assertion catches it at PR
+        ;; time instead.
+        (is (re-find #"playwright install --with-deps chromium" job)
+            "test-template must `npx playwright install --with-deps chromium`
+             — `npm ci` installs the playwright package but no browser
+             binary, and the emitted-app tier's dev-page boot + SSR
+             DOM-adoption proofs both need a launchable Chromium.")
         ;; Still actually invokes the JVM test suite.
         (is (re-find #"clojure -M:test" job)
             "test-template must run `clojure -M:test` from tools/template

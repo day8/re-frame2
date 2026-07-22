@@ -3066,6 +3066,26 @@ jobs:
         working-directory: implementation
         run: npm ci
 
+      # rf2-qa5ty — the emitted-tests tier carries TWO Chromium proofs: the
+      # SSR DOM-adoption proof and the emitted dev-page boot proof. `npm ci`
+      # above installs the playwright PACKAGE but never a browser BINARY, so
+      # before this step BOTH drivers hit their `chromium.launch()` catch,
+      # exited 2, and the tier reported green with zero browser coverage —
+      # the mask that let three template defects ship, two of them a BLANK
+      # first page on every scaffold variant. Because this job now provisions
+      # a browser, an unlaunchable Chromium is a HARD FAILURE here rather
+      # than an excused skip (`browser-proofs-required?` in
+      # `emitted_test_run_test.clj` keys off `CI`).
+      #
+      # `--with-deps` (not the bare install) because this is a stock
+      # ubuntu-latest runner with none of Chromium's shared libraries
+      # present and nothing earlier in the job installs them; a
+      # half-provisioned browser would now red the job, so provision it
+      # properly.
+      - name: Install Playwright chromium (for the emitted browser proofs)
+        working-directory: implementation
+        run: npx playwright install --with-deps chromium
+
       # tools/template is a deps-new template (rf2-dolpf §2; clj-new
       # body dropped in §2.5 / rf2-40vmd) — its tests
       # (`template_test.clj`, `template_emission_test.clj`,

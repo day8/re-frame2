@@ -190,9 +190,16 @@ is exercised end-to-end across the layers:
      serves the emitted `resources/public`, loads the real
      `index.html` plus the dev bundle, and requires `#app` to paint
      the counter, the click to move it 0 → 1, and Chromium to report
-     zero uncaught `pageerror`s. Where Chromium is not launchable
-     the cell records a documented skip, printed as a loud
-     NOT PROVEN banner so it cannot read as a pass.
+     zero uncaught `pageerror`s.
+
+   Both browser cells in this tier — the dev-page boot proof and the
+   SSR DOM-adoption proof — treat an unlaunchable Chromium
+   asymmetrically, and deliberately. Every CI job that enables the tier
+   also installs a browser, so under CI a missing one is a broken job
+   and fails the run. Locally it is a skip, printed as a loud
+   NOT PROVEN banner so it cannot read as a pass. Both proofs went
+   unexecuted in CI for months behind a green skip; that is the failure
+   mode the asymmetry closes.
 
 CI sets `RF2_TEMPLATE_RUN_EMITTED_TESTS=1`; a change that breaks
 file-tree shape, drifts the framework surface, breaks the pin

@@ -36,7 +36,9 @@
  *   publicRoot — <proj>/resources/public (holds _ssr_proof.html + js/ + css/)
  *   implRoot   — <repo>/implementation   (resolves the playwright devDep)
  *
- * Exit 0 iff both teeth pass; 1 otherwise (with diagnostics on stdout).
+ * Exit 0 iff both teeth pass; 1 on failure (with diagnostics on stdout); 2 if
+ * Chromium is not launchable here — a REPORT, not a verdict, judged by the
+ * caller (hard failure under CI, loud NOT PROVEN banner locally).
  */
 
 const http = require('http');
@@ -143,11 +145,11 @@ function initScriptStampServerNode() {
   let browser;
   let failure = null;
 
-  // Launch is a SKIP boundary, not a failure: some CI tiers enable this proof
-  // but do not provision a launchable Chromium (no `npx playwright install
-  // --with-deps`). Exit 2 = "browser unavailable, skipped" so the caller keeps
-  // the tier green; the real tooth still runs wherever a browser is installed
-  // (expensive-tests / template-release / local).
+  // Launch failure is REPORTED, not judged, here: exit 2 means "no launchable
+  // browser on this machine" and the caller decides what that is worth. Under
+  // CI it is a hard failure — every job that enables this tier runs
+  // `npx playwright install --with-deps chromium`, so a job with no browser is
+  // broken. Locally it is a skip under a loud NOT PROVEN banner.
   try {
     browser = await chromium.launch({ headless: true });
   } catch (launchErr) {
