@@ -24,13 +24,13 @@ once after cloning, and re-run with `--force` once to retire any stale copy
 a previous copy-install left behind.
 
 The docs-site landing page mirrors this index at
-[`docs/skills/index.md`](../docs/skills/index.md) — same nine skills,
+[`docs/skills/index.md`](../docs/skills/index.md) — same ten skills,
 hosted on the mkdocs site (it carries the human-facing decision flow;
 edit routing here first).
 
 ## Current skills
 
-re-frame2 ships **nine** skills plus a shared protocol layer
+re-frame2 ships **ten** skills plus a shared protocol layer
 ([`shared/`](shared) — see §Layout convention), grouped by
 the situation they cover:
 
@@ -67,6 +67,19 @@ the situation they cover:
   (judgment-call) rewrites for the author. The migration corpus
   is the authoritative breaking-change list; the skill routes and
   sequences but never duplicates it.
+
+- **[`re-frame2-ui/`](re-frame2-ui)** — author view code on
+  **`re-frame.ui`**, the **experimental**, opt-in-alongside compiled-view
+  substrate (the Reagent/UIx/reagent-slim adapters remain first-class).
+  Teaches `defview` components in the closed template grammar,
+  handlers-as-data, reactive `(sub …)` reads, view-local state and effects,
+  frames and roots, presence, interop boundaries, structural tests via
+  `re-frame.ui.test`, and the one-setting Shadow build-hook install. The
+  generated API-disposition + `:rf.ui.compile/*` compile-rejection reference
+  sits behind the prose at `re-frame2-ui/references/ui-context.md`
+  (regenerated from the compiler's own messages; drift-checked in CI).
+  **View layer only** — everything upstream of the view routes to
+  [`re-frame2/`](re-frame2).
 
 - **[`reagent-migration/`](reagent-migration)** — the **optional, second**
   step *after* `re-frame-migration`: migrate Reagent **view** code to
@@ -150,7 +163,7 @@ migration report is signed off.
 | Write new application code on a working re-frame2 project | events, subs, fx, cofx, frames, state machines, schemas, stories, routing, canonical patterns; `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-view`, `reg-route`, `reg-story`, `reg-app-schema`, `reg-interceptor`, `dispatch`, `subscribe`, `app-db` | [`re-frame2/`](re-frame2) |
 | Migrate an existing re-frame v1.x ClojureScript codebase to re-frame2 | "migrate to re-frame2", "upgrade re-frame", "v1 to v2", "what breaks under re-frame2", or any v1 surface (`re-frame.db`, `dispatch-with`, `reg-global-interceptor`, `reg-sub-raw`, `^:flush-dom`, `re-frame.alpha`, `re-frame-test`, old top-level `:dispatch` / `:dispatch-n` effect-map keys) | [`re-frame-migration/`](re-frame-migration) |
 | Migrate Reagent **view** code to the experimental `re-frame.ui` compiled-view substrate — the OPTIONAL, SECOND step, done only after the v1→v2 move and only if the substrate is wanted | "migrate my Reagent views to re-frame.ui", "convert reg-view to defview", "adopt the compiled views", "compiled-view substrate", deref-drop, or a Reagent view surface named in a re-frame.ui context (`r/atom` / `r/with-let` / `r/create-class` / `adapt-react-class` / `@(subscribe …)` in a view / `:onClick` camelCase props / `:dangerouslySetInnerHTML`) — **on an already-re-frame2 app** | [`reagent-migration/`](reagent-migration) |
-| Load compact, machine-first context for authoring, reviewing, or debugging a `re-frame.ui` `defview` on the **experimental**, opt-in-alongside compiled-view substrate — the closed template grammar's valid forms, the state/effect decision table, the forbidden-React-idiom list, and the generated `:rf.ui.compile/*` compile-rejection roster | "re-frame.ui context sheet", "defview grammar", "compiled-view compile-rejection roster", "what does `:rf.ui.compile/…` mean", writing / reviewing / debugging a compiled `ui/defview` view | [`re-frame2-ui-context/`](re-frame2-ui-context) |
+| Write, review, or debug **view** code on `re-frame.ui`, the **experimental**, opt-in-alongside compiled-view substrate — `defview` components, the closed template grammar, handlers-as-data, `(sub …)` reads, frames/roots, presence, interop, `re-frame.ui.test`, the Shadow build-hook install, and the generated `:rf.ui.compile/*` compile-rejection roster | `defview`, `ui/sub`, `frame-root`, `ui/mount`, "compiled views" / "compiled hiccup", ui.test, "re-frame.ui context sheet", "what does `:rf.ui.compile/…` mean", writing/porting view code in an app depending on `day8/re-frame2-ui` | [`re-frame2-ui/`](re-frame2-ui) |
 | Tour the **Xray** in-app devtools panel — how to launch it (true-inline, pop-out, programmatic `init!`, hotkeys, the Dynamic ↔ Static mode toggle) or **which tab / mode surfaces X** | "open Xray", "where is X in Xray", "which Xray panel/tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray hotkey", "Xray popout", "Xray machine inspector", "Xray epoch cascade", "where do Xray issues show up" — the user wants to *read* the panel, not drive a runtime | [`re-frame2-xray/`](re-frame2-xray) |
 | Pair-program against a **running** re-frame2 application — attach to a live shadow-cljs nREPL, inspect a frame's `app-db`, dispatch events, hot-swap handlers, walk traces / epochs, time-travel with `restore-epoch` | live runtime is involved; user is operating on (or wants to operate on) a running local app | [`re-frame2-pair/`](re-frame2-pair) |
 | Retrospect on a `re-frame2-pair` session and turn it into prioritised improvement ideas for the pair-tool skill, scripts, MCP surface, or upstream `re-frame2` Tool-Pair contract | concrete `re-frame2-pair` session in the conversation **or** a user-supplied recap of one; user explicitly asks for a retro ("retro on this pair session", "review my re-frame2-pair session", "draft an issue about that"), OR a post-error post-mortem trigger fires within a live re-frame2-pair session | [`re-frame2-pair-retro/`](re-frame2-pair-retro) |
@@ -195,6 +208,7 @@ family rule — single source below:
 | `re-frame-migration` | migrate v1 code on an existing reference | the **author** in their own env | the author's own build / test / smoke | hard trust boundary — the skill bars the agent from running build/test/smoke in the author's app env |
 | `reagent-migration` | migrate Reagent views to re-frame.ui on an existing re-frame2 app | **split** — the skill runs the discovered safe noninteractive gates; the programmer owns the interactive/visual step | the skill's discovered **compile + tests** pass per closed subtree **and** the programmer has **rendered** and eyeballed the converted views | trust-the-explicit-invoker baseline — the skill discovers and runs the nearest safe noninteractive gate (compile the subtree, run its tests), but "compiles" is not the done-bar: a converted view must still be *rendered* and eyeballed, which stays the programmer's when there is no runtime to drive |
 | `re-frame2` (authoring) | emit authoring recipes | the **human** who pastes the recipe | the human's project gates | Pillar-4 / Q14 lock: no runtime the agent drives, no conformance corpus |
+| `re-frame2-ui` | emit compiled-view authoring recipes | the **human** who pastes the recipe | the human's project gates — and the re-frame.ui compiler itself (didactic rejections are the feedback loop) | authoring-only, mirroring `re-frame2`'s Q14 lock; the closed grammar makes the compiler the first reviewer |
 | `re-frame2-setup` | scaffold greenfield | the **author**, following steps | the counter mounts under `shadow-cljs watch` | greenfield bootstrap; no agent-driven runtime |
 | `re-frame2-improver` | critique existing code | nobody runs; static critique | findings cross-linked to canonical idioms | review-only; proposes `Edit`s, runs no suite |
 | `re-frame2-xray` | read-only tour of the devtools panel | nobody runs; read-only | n/a (read-only tour) | owns the *seeing*, not the *driving* |

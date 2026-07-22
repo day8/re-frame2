@@ -17,7 +17,9 @@ description: >
   (writing new code).
   **Do not use** for: live-app inspection (use `re-frame2-pair`),
   greenfield project bootstrap (use `re-frame2-setup`), v1→v2 migration
-  (use `re-frame-migration`), or porting re-frame2 itself (use
+  (use `re-frame-migration`), view code on the experimental `re-frame.ui`
+  compiled-view substrate — defview, ui/sub, frame-root, ui.test (use
+  `re-frame2-ui`), or porting re-frame2 itself (use
   `re-frame2-implementor`).
 allowed-tools:
   - Read
@@ -59,7 +61,7 @@ Authors re-frame2 ClojureScript application code. Router skill: this file carrie
 
 ## When NOT to use
 
-Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief: not for live-runtime inspection, greenfield bootstrap, v1→v2 migration, porting re-frame2 itself, or spec / API / EP rationale reading.
+Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief: not for live-runtime inspection, greenfield bootstrap, v1→v2 migration, view code on the experimental `re-frame.ui` compiled-view substrate (`defview` and friends — use [`re-frame2-ui`](../re-frame2-ui/SKILL.md); this skill's view surface is the Reagent/UIx/reagent-slim adapters), porting re-frame2 itself, or spec / API / EP rationale reading.
 
 ## Cardinal rules
 
