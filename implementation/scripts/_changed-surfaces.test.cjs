@@ -1230,11 +1230,105 @@ test('examples/scripts static-only scanners stay on the always-on JS harness pat
 test('adapter-testbed-smokes workflow remains scoped to ADAPTER_SMOKE_FILTER=adapters/ (rf2-t5slp)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   // Verify the adapter-testbed-smokes job still passes the narrow
-  // adapters/ filter — adapter testbeds are the only Playwright surface
-  // under the examples orchestrator.
+  // adapters/ filter — the re-frame.ui substrate smoke has its OWN job
+  // (ui-smoke, ADAPTER_SMOKE_FILTER=ui/testbed; rf2-nojiwy), so the
+  // adapter job must never widen onto it.
   assert.match(
     workflow,
     /adapter-testbed-smokes:[\s\S]*ADAPTER_SMOKE_FILTER:\s*"adapters\/"/,
+  );
+});
+
+// rf2-nojiwy — the four-suites rule's new-UI smoke. The re-frame.ui
+// substrate testbed (implementation/ui/testbed/) rides the shared
+// adapter-smoke orchestrator under its own classifier output (ui_smoke) and
+// its own CI job (ui-smoke, ADAPTER_SMOKE_FILTER=ui/testbed). The trigger
+// discipline mirrors adapter_testbed_smokes: direct substrate-source +
+// smoke-harness changes fire it; core / adapter-source / generic
+// build-config changes do not (nightly runs the unfiltered sweep).
+
+test('implementation/ui source change fires ui_smoke (rf2-nojiwy)', () => {
+  const result = classify('implementation/ui/src/re_frame/ui/runtime.cljs');
+  assert.equal(result.ui_smoke, 'true');
+});
+
+test('implementation/ui testbed change fires ui_smoke (rf2-nojiwy)', () => {
+  for (const file of [
+    'implementation/ui/testbed/ui_testbed/core.cljs',
+    'implementation/ui/testbed/spec.cjs',
+    'implementation/ui/testbed/index.html',
+  ]) {
+    const result = classify(file);
+    assert.equal(result.ui_smoke, 'true', `${file} must fire ui_smoke`);
+  }
+});
+
+test('adapter-smoke harness files fire ui_smoke too — the ui smoke rides the same orchestrator (rf2-nojiwy)', () => {
+  for (const file of ADAPTER_HARNESS_FILES) {
+    const result = classify(file);
+    assert.equal(result.ui_smoke, 'true', `${file} must fire ui_smoke`);
+  }
+});
+
+test('shared examples/scripts helpers fire ui_smoke alongside adapter_testbed_smokes (rf2-nojiwy)', () => {
+  for (const file of [
+    'examples/scripts/spec-helpers.cjs',
+    'examples/scripts/examples-port.cjs',
+    'examples/scripts/port-resolver.cjs',
+    'examples/scripts/examples-staging.cjs',
+    'examples/scripts/examples-asset-manifest.cjs',
+  ]) {
+    const result = classify(file);
+    assert.equal(result.ui_smoke, 'true', `${file} must fire ui_smoke`);
+  }
+});
+
+test('core / adapter-source / build-config changes do NOT fire ui_smoke (rf2-nojiwy)', () => {
+  for (const file of [
+    'implementation/core/src/re_frame/core.cljc',
+    'implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs',
+    'implementation/adapters/reagent/testbed/adapter_testbed_reagent/core.cljs',
+    'implementation/shadow-cljs.edn',
+    'implementation/scripts/run-ui-bench.cjs',
+  ]) {
+    const result = classify(file);
+    assert.equal(result.ui_smoke, 'false', `${file} must NOT fire ui_smoke`);
+  }
+});
+
+test('adapter source change still fires adapter_testbed_smokes without ui_smoke; ui source is the mirror image (rf2-nojiwy)', () => {
+  const adapter = classify('implementation/adapters/uix/testbed/adapter_testbed_uix/core.cljs');
+  assert.equal(adapter.adapter_testbed_smokes, 'true');
+  assert.equal(adapter.ui_smoke, 'false');
+  const ui = classify('implementation/ui/testbed/spec.cjs');
+  assert.equal(ui.ui_smoke, 'true');
+  assert.equal(ui.adapter_testbed_smokes, 'false');
+});
+
+test('ui-smoke job is gated on ui_smoke and scoped to ADAPTER_SMOKE_FILTER=ui/testbed (rf2-nojiwy)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, 'ui-smoke');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.ui_smoke == 'true'/,
+  );
+  assert.match(block, /ADAPTER_SMOKE_FILTER:\s*"ui\/testbed"/);
+  assert.match(block, /npm run test:adapter-smokes/);
+});
+
+test('all-required-passed aggregator needs ui-smoke (rf2-nojiwy)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, 'all-required-passed');
+  assert.match(block, /- ui-smoke\r?\n/);
+});
+
+test('detect_changed_surfaces publishes the ui_smoke output (rf2-nojiwy)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, 'detect_changed_surfaces');
+  assert.match(
+    block,
+    /ui_smoke: \$\{\{ steps\.detect\.outputs\.ui_smoke \}\}/,
   );
 });
 

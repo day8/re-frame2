@@ -140,6 +140,15 @@
                 ;; holds: no production build :requires re-frame.ui.*.
                 "ui/src"
                 "ui/test"
+                ;; rf2-nojiwy — re-frame.ui testbed (the four-suites rule's
+                ;; new-UI smoke). Standalone counter app under ui/testbed/
+                ;; that proves the compiled-view substrate wires up
+                ;; end-to-end. Source path here so the :ui/testbed build's
+                ;; init-fn resolves; homed with the substrate (it is not an
+                ;; adapter) but driven by the shared adapter-smoke runner —
+                ;; see the ADAPTER_SMOKES manifest in
+                ;; adapters/scripts/adapter-smoke-filter.cjs.
+                "ui/testbed"
                 ;; rf2-vxgfnd.6 — the G-1 direct-render parity bench
                 ;; surface (compiled bench views + hand-written
                 ;; jsx-runtime baselines + the estimator harness).
@@ -2175,6 +2184,23 @@
    :output-dir "out/examples/adapter-testbeds/helix"
    :asset-path "."
    :modules    {:main {:init-fn adapter-testbed-helix.core/init}}
+   :devtools   {:preloads [re-frame2-pair.runtime]}}
+
+  ;; rf2-nojiwy — re-frame.ui testbed smoke (the four-suites rule's new-UI
+  ;; smoke). Same minimal-counter shape as the adapter testbeds above, but
+  ;; the app is authored on the compiled-view substrate (ui/defview +
+  ;; ui/mount) and the fixture is homed with the substrate at
+  ;; implementation/ui/testbed/ — re-frame.ui is not an adapter. It IS in
+  ;; the shared adapter-smoke manifest (a bespoke entry in
+  ;; adapters/scripts/adapter-smoke-filter.cjs), so the shared orchestrator
+  ;; (npm run test:adapter-smokes) compiles, stages, and drives it exactly
+  ;; like the three adapter smokes; the ui-smoke CI job narrows to it via
+  ;; ADAPTER_SMOKE_FILTER=ui/testbed.
+  :ui/testbed
+  {:target     :browser
+   :output-dir "out/examples/ui-testbed"
+   :asset-path "."
+   :modules    {:main {:init-fn ui-testbed.core/init}}
    :devtools   {:preloads [re-frame2-pair.runtime]}}
 
   ;; rf2-xsgu8a — per-adapter CLIENT-RUNTIME smoke for the day8/reagent-slim

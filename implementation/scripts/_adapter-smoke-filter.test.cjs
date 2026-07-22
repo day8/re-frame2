@@ -13,7 +13,9 @@
  * ZERO specs in the runner. These tests pin that:
  *
  *   - build-id-shaped and path-shaped filters select the SAME singleton,
- *   - the broad CI filter `adapters/` selects all three,
+ *   - the broad CI filter `adapters/` selects exactly the three adapter
+ *     smokes (never the re-frame.ui substrate smoke, whose own CI job
+ *     narrows with `ui/testbed` — the four-suites rule, rf2-nojiwy),
  *   - selection is shared (so orchestrator compile/stage set == runner
  *     spec set by construction), and
  *   - the declared manifest matches the spec.cjs files on disk.
@@ -68,10 +70,18 @@ const ADAPTERS = ['reagent', 'uix', 'helix'];
 
 // ---- manifest shape ------------------------------------------------------
 
-it('manifest declares exactly the three adapter smokes', () => {
+// rf2-nojiwy — the four-suites rule: the three adapter smokes plus the ONE
+// re-frame.ui substrate smoke (bespoke entry; homed at
+// implementation/ui/testbed/, outside implementation/adapters/).
+it('manifest declares exactly the three adapter smokes + the re-frame.ui smoke', () => {
   assert.deepStrictEqual(
     ADAPTER_SMOKES.map((e) => e.build).sort(),
-    ['adapters/helix-testbed', 'adapters/reagent-testbed', 'adapters/uix-testbed'],
+    [
+      'adapters/helix-testbed',
+      'adapters/reagent-testbed',
+      'adapters/uix-testbed',
+      'ui/testbed',
+    ],
   );
 });
 
@@ -87,15 +97,19 @@ it('every manifest entry carries a specPath that exists on disk', () => {
 
 // ---- broad + empty filters ----------------------------------------------
 
-it('empty filter selects all three (full sweep)', () => {
+it('empty filter selects all four (full sweep — nightly + rigorous-local)', () => {
   assert.deepStrictEqual(selectBuildIds(''), [
     'adapters/helix-testbed',
     'adapters/reagent-testbed',
     'adapters/uix-testbed',
+    'ui/testbed',
   ]);
 });
 
-it('broad CI filter `adapters/` selects all three', () => {
+// The adapter-testbed-smokes CI job's filter. It must keep selecting
+// exactly the three ADAPTER smokes — never the re-frame.ui substrate
+// smoke, which has its own CI job (ui-smoke, filter `ui/testbed`).
+it('broad CI filter `adapters/` selects exactly the three adapter smokes (never the ui smoke)', () => {
   assert.deepStrictEqual(selectBuildIds('adapters/'), [
     'adapters/helix-testbed',
     'adapters/reagent-testbed',
@@ -103,8 +117,23 @@ it('broad CI filter `adapters/` selects all three', () => {
   ]);
 });
 
-it('broad filter `adapters` (no slash) selects all three', () => {
-  assert.strictEqual(selectBuildIds('adapters').length, 3);
+it('broad filter `adapters` (no slash) selects the three adapter smokes only', () => {
+  assert.deepStrictEqual(selectBuildIds('adapters'), [
+    'adapters/helix-testbed',
+    'adapters/reagent-testbed',
+    'adapters/uix-testbed',
+  ]);
+});
+
+// rf2-nojiwy — the ui-smoke CI job's filter, in both supported shapes.
+// `uix-testbed` must keep selecting UIx alone (the `ui-testbed` /
+// `uix-testbed` near-collision is the sharp edge here).
+it('ui-smoke CI filter `ui/testbed` selects exactly the re-frame.ui smoke', () => {
+  assert.deepStrictEqual(selectBuildIds('ui/testbed'), ['ui/testbed']);
+});
+
+it('build-id shape `ui-testbed` selects exactly the re-frame.ui smoke (not UIx)', () => {
+  assert.deepStrictEqual(selectBuildIds('ui-testbed'), ['ui/testbed']);
 });
 
 // ---- the rf2-l72e2 core: build-id vs path form equivalence --------------
@@ -147,6 +176,8 @@ it('selected set maps one-to-one between build ids and specPaths for all shapes'
     '',
     'adapters/',
     'adapters',
+    'ui/testbed',
+    'ui-testbed',
     ...ADAPTERS.flatMap((n) => [
       `adapters/${n}-testbed`,
       `${n}-testbed`,
