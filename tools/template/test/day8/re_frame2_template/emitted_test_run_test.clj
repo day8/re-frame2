@@ -470,7 +470,7 @@
   [what out]
   (println)
   (println "!!! ================================================================")
-  (println (str "!!! NOT PROVEN — SKIPPED: " what))
+  (println (str "!!! NOT PROVEN -- SKIPPED: " what))
   (println "!!! Chromium is not launchable here, so this browser proof did NOT run.")
   (println "!!! The tier stays green, but NOTHING about the emitted page is proven.")
   (when-let [line (first (remove string/blank? (string/split-lines (str out))))]
@@ -502,7 +502,7 @@
   (testing (str label " — Chromium dev-page boot proof (emitted index.html + "
                 "dev bundle mounts, zero pageerror)")
     (if-not @node-available?
-      (do (announce-browser-skip! (str "dev-page boot proof — " label)
+      (do (announce-browser-skip! (str "dev-page boot proof -- " label)
                                   "`node` is not on PATH")
           (is true
               "`node` unavailable — skipping the emitted dev-page boot proof"))
@@ -518,7 +518,7 @@
         ;; the playwright PACKAGE but no browser binary). Documented skip, but
         ;; a LOUD one. Exit 0 = booted clean; anything else = the proof FAILED.
         (if (= 2 exit)
-          (do (announce-browser-skip! (str "dev-page boot proof — " label) out)
+          (do (announce-browser-skip! (str "dev-page boot proof -- " label) out)
               (is true
                   (str "Chromium unavailable — the emitted dev-page boot proof "
                        "did not run for " label ". Output:\n" out)))
