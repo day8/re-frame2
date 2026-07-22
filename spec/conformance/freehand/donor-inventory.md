@@ -33,6 +33,18 @@ Reuse of donor code confers no API status. A `MOVE` row means the
 implementation is worth keeping, never that the donor's public spelling
 survives.
 
+For a donor **source** file, `done` records that Freehand owns the code — not
+that the donor's file has vanished. Absorbed code diverges the moment it
+lands: the moved analyzer recognizes Freehand vars and the moved emitters
+lower to Freehand runtime namespaces, so the donor cannot run on its own
+absorbed code, and the donor artifact has to keep building for the whole of
+coexistence. Its copy therefore stays where it is — vestigial and frozen —
+until the artifact is deleted whole. What `done` asserts is precisely this:
+nothing further has to be extracted from that file, and deleting the donor
+costs Freehand nothing. Donor **tests** are different: a suite proves a
+contract, and the contract has one owner, so a moved suite leaves the donor
+tree in the change that moves it.
+
 ## Granularity rules
 
 Three rules fix what gets a row, so coverage can be checked mechanically rather
@@ -153,28 +165,28 @@ Every tracked file under `implementation/ui/src/`.
 |---|---|---|---|---|
 | `implementation/ui/src/re_frame/ui.cljc` | the donor public facade — `defview`, `custom-element`, `sub`, interop forms, `local`, `effect`, `ref`, `presence`, `route-link`, mount | REPLACE | F1 | pending |
 | `implementation/ui/src/re_frame/ui/client.cljs` | Root handle, live-root claim registry, mount / render! / hydrate-root / unmount! | MOVE | F1 | pending |
-| `implementation/ui/src/re_frame/ui/compiler.cljc` | the declaration expansion pipeline: arity and options parsing, header analysis, manifest and fingerprint assembly, per-host emission | MOVE | F3 | pending |
-| `implementation/ui/src/re_frame/ui/compiler/a11y.cljc` | compile-tier accessibility diagnostics minted from literal template facts | MOVE | F3 | pending |
-| `implementation/ui/src/re_frame/ui/compiler/analyze.cljc` | the template-grammar analyzer and its closed normalized AST | MOVE | F3 | pending |
-| `implementation/ui/src/re_frame/ui/compiler/binding_plan.cljc` | the one host-faithful associative-destructuring binding plan | MOVE | F3 | pending |
-| `implementation/ui/src/re_frame/ui/compiler/build.cljc` | build-scoped compiler registries and the acceptance transaction | MOVE | F3 | pending |
-| `implementation/ui/src/re_frame/ui/compiler/build_hook.clj` | the shadow-cljs build-lifecycle adapter that harvests whole-build registries | MOVE | F3 | pending |
-| `implementation/ui/src/re_frame/ui/compiler/emit_cljs.cljc` | the React emitter — direct jsx-runtime lowering, static hoisting, per-slot comparators | MOVE | F3 | pending |
-| `implementation/ui/src/re_frame/ui/compiler/emit_jvm.cljc` | the JVM emitter — the versioned structural tree, event vectors retained as data | MOVE | F3 | pending |
-| `implementation/ui/src/re_frame/ui/compiler/env.cljc` | compile-time environment and internal-versus-foreign head resolution | MOVE | F3 | pending |
-| `implementation/ui/src/re_frame/ui/compiler/harvest.clj` | deterministic pre-seed of compile-time custom-element declarations | MOVE | F3 | pending |
-| `implementation/ui/src/re_frame/ui/compiler/header.cljc` | props-binding analysis: destructuring lowering, `:as` materialization, `:or` defaults | MOVE | F3 | pending |
-| `implementation/ui/src/re_frame/ui/compiler/root.cljc` | root-id grammar, deterministic slug, and the static top-region scan | MOVE | F3 | pending |
-| `implementation/ui/src/re_frame/ui/eq.cljc` | `rf=`, the ruled per-slot equality behind memo-by-default | MOVE | F1 | pending |
+| `implementation/ui/src/re_frame/ui/compiler.cljc` | the declaration expansion pipeline: arity and options parsing, header analysis, manifest and fingerprint assembly, per-host emission | MOVE | F3 | done |
+| `implementation/ui/src/re_frame/ui/compiler/a11y.cljc` | compile-tier accessibility diagnostics minted from literal template facts | MOVE | F3 | done |
+| `implementation/ui/src/re_frame/ui/compiler/analyze.cljc` | the template-grammar analyzer and its closed normalized AST | MOVE | F3 | done |
+| `implementation/ui/src/re_frame/ui/compiler/binding_plan.cljc` | the one host-faithful associative-destructuring binding plan | MOVE | F3 | done |
+| `implementation/ui/src/re_frame/ui/compiler/build.cljc` | build-scoped compiler registries and the acceptance transaction | MOVE | F3 | done |
+| `implementation/ui/src/re_frame/ui/compiler/build_hook.clj` | the shadow-cljs build-lifecycle adapter that harvests whole-build registries | MOVE | F3 | done |
+| `implementation/ui/src/re_frame/ui/compiler/emit_cljs.cljc` | the React emitter — direct jsx-runtime lowering, static hoisting, per-slot comparators | MOVE | F3 | done |
+| `implementation/ui/src/re_frame/ui/compiler/emit_jvm.cljc` | the JVM emitter — the versioned structural tree, event vectors retained as data | MOVE | F3 | done |
+| `implementation/ui/src/re_frame/ui/compiler/env.cljc` | compile-time environment and internal-versus-foreign head resolution | MOVE | F3 | done |
+| `implementation/ui/src/re_frame/ui/compiler/harvest.clj` | deterministic pre-seed of compile-time custom-element declarations | MOVE | F3 | done |
+| `implementation/ui/src/re_frame/ui/compiler/header.cljc` | props-binding analysis: destructuring lowering, `:as` materialization, `:or` defaults | MOVE | F3 | done |
+| `implementation/ui/src/re_frame/ui/compiler/root.cljc` | root-id grammar, deterministic slug, and the static top-region scan | MOVE | F3 | done |
+| `implementation/ui/src/re_frame/ui/eq.cljc` | `rf=`, the ruled per-slot equality behind memo-by-default | MOVE | F3 | done |
 | `implementation/ui/src/re_frame/ui/events.cljs` | commit-owned native event callbacks; the candidate table an abandoned render cannot retarget | MOVE | F2 | pending |
-| `implementation/ui/src/re_frame/ui/fingerprint.cljc` | template fingerprint and hook-signature digests; the hook-signature arm goes with the hook tier | MOVE | F1 | pending |
+| `implementation/ui/src/re_frame/ui/fingerprint.cljc` | template fingerprint and hook-signature digests; the hook-signature arm goes with the hook tier | MOVE | F3 | done |
 | `implementation/ui/src/re_frame/ui/frames.cljc` | preflight ENSURE executor, plan-install registry, frame-scope elements, ambient frame resolution | MOVE | F2 | pending |
 | `implementation/ui/src/re_frame/ui/hooks.cljc` | the host-hook lowering targets `local` / `effect` / `dispatch-fn` / `use-ref` lower to | DELETE | F1 | pending |
 | `implementation/ui/src/re_frame/ui/presence_runtime.cljc` | the three-phase keyed retention machine and its terminal timeout bound | MOVE | F4 | pending |
 | `implementation/ui/src/re_frame/ui/react.cljc` | the six-wrapper neutral React tier: effect, layout-effect, effect-event, context, id, lazy | DELETE | F5 | pending |
 | `implementation/ui/src/re_frame/ui/reactive.cljc` | the ViewCell, the render-side probe/record protocol, the layout-commit reconciler, the lifecycle | MOVE | F2 | pending |
 | `implementation/ui/src/re_frame/ui/route_link_seam.cljc` | runtime helpers consuming the late-bound routing link-model and activate hooks | MOVE | F5 | pending |
-| `implementation/ui/src/re_frame/ui/rules.cljc` | the one DOM prop-conversion rule table shared by analyzers, emitters, and the JVM tree | MOVE | F1 | pending |
+| `implementation/ui/src/re_frame/ui/rules.cljc` | the one DOM prop-conversion rule table shared by analyzers, emitters, and the JVM tree | MOVE | F3 | done |
 | `implementation/ui/src/re_frame/ui/runtime.cljs` | the small client vocabulary emitted code calls, including the one sanctioned runtime conversion | MOVE | F3 | pending |
 | `implementation/ui/src/re_frame/ui/semantic.cljc` | semantic normalization — the parity and fingerprint input | MOVE | F1 | pending |
 | `implementation/ui/src/re_frame/ui/sub_overrides.cljs` | the React carriage for story-supplied subscription overrides | MOVE | F2 | pending |
@@ -194,27 +206,27 @@ re-proved against the Freehand contract rather than ported line by line.
 
 | Donor row | What it is | Disposition | Slice | Status |
 |---|---|---|---|---|
-| `implementation/ui/test/re_frame/ui/a11y_*` | compile-tier accessibility diagnostics | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/a11y_*` | compile-tier accessibility diagnostics | MOVE | F3 | done |
 | `implementation/ui/test/re_frame/ui/adapter_*` | substrate adapter installation, conformance, generation fence, public root disposal | MOVE | F2 | pending |
-| `implementation/ui/test/re_frame/ui/analyze_*` | analyzer accept and reject corpora | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/analyze_*` | analyzer accept and reject corpora | MOVE | F3 | done |
 | `implementation/ui/test/re_frame/ui/authored_collision_*` | authored view-id collision detection | MOVE | F1 | pending |
 | `implementation/ui/test/re_frame/ui/binding_plan_*` | host-faithful destructuring plan, including advanced-build elision | MOVE | F3 | pending |
 | `implementation/ui/test/re_frame/ui/build_*` | build probe and REPL/HMR build convergence | MOVE | F3 | pending |
 | `implementation/ui/test/re_frame/ui/callbacks_*` | callback boundary ownership across hosts | MOVE | F2 | pending |
 | `implementation/ui/test/re_frame/ui/committed_events_*` | the committed-events publication law | MOVE | F2 | pending |
-| `implementation/ui/test/re_frame/ui/compiler_*` | build hook, build state, harvest, and macro resolution | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/compiler_*` | build hook, build state, harvest, and macro resolution | MOVE | F3 | done |
 | `implementation/ui/test/re_frame/ui/conditional_root_annotation_*` | root annotation under conditional markup | MOVE | F3 | pending |
 | `implementation/ui/test/re_frame/ui/conditional_sub_*` | subscriptions inside conditional branches | MOVE | F2 | pending |
 | `implementation/ui/test/re_frame/ui/custom_element_*` | custom-element classification, ordering, conflict, spread parity, warm staleness, elision | MOVE | F3 | pending |
 | `implementation/ui/test/re_frame/ui/defview_grammar_*` | the declaration grammar itself | MOVE | F1 | pending |
 | `implementation/ui/test/re_frame/ui/digest_probe/*` | the warm-watch digest probe project used by the recompile gate | MOVE | F3 | pending |
-| `implementation/ui/test/re_frame/ui/emit_cljs_*` | React-emitter lowering and view-evidence annotation | MOVE | F3 | pending |
-| `implementation/ui/test/re_frame/ui/eq_*` | the per-slot equality law | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/emit_cljs_*` | React-emitter lowering and view-evidence annotation | MOVE | F3 | done |
+| `implementation/ui/test/re_frame/ui/eq_*` | the per-slot equality law | MOVE | F3 | done |
 | `implementation/ui/test/re_frame/ui/error_roster_*` | the diagnostic-id roster | MOVE | F1 | pending |
 | `implementation/ui/test/re_frame/ui/event_*` | event warning scope and event-wrapper shapes | MOVE | F2 | pending |
 | `implementation/ui/test/re_frame/ui/exact_render_capture_*` | exact render capture in the browser | MOVE | F2 | pending |
 | `implementation/ui/test/re_frame/ui/fast_refresh_shell_*` | fast-refresh shell identity | MOVE | F1 | pending |
-| `implementation/ui/test/re_frame/ui/fingerprint_*` | identity digests | MOVE | F1 | pending |
+| `implementation/ui/test/re_frame/ui/fingerprint_*` | identity digests | MOVE | F3 | done |
 | `implementation/ui/test/re_frame/ui/frame_*` | frame ops, plans, scope resolution, preflight races, publication linearization, context | MOVE | F2 | pending |
 | `implementation/ui/test/re_frame/ui/g13/*` | the mass-mount evidence fixture's own measurement test | MOVE | F6 | pending |
 | `implementation/ui/test/re_frame/ui/g14_*` | the compile-budget gate | MOVE | F3 | pending |
@@ -235,7 +247,7 @@ re-proved against the Freehand contract rather than ported line by line.
 | `implementation/ui/test/re_frame/ui/render_capture_*` | render-capture thread ownership | MOVE | F2 | pending |
 | `implementation/ui/test/re_frame/ui/render_key_dom_stamp_*` | key stamping in the DOM and its production elision | MOVE | F1 | pending |
 | `implementation/ui/test/re_frame/ui/render_static_strip_*` | static-subtree stripping | MOVE | F3 | pending |
-| `implementation/ui/test/re_frame/ui/reserved_head_reject_*` | rejection of reserved template heads | MOVE | F3 | pending |
+| `implementation/ui/test/re_frame/ui/reserved_head_reject_*` | rejection of reserved template heads | MOVE | F3 | done |
 | `implementation/ui/test/re_frame/ui/root_*` | root analysis, registry, incarnation, mount, teardown, wiring | MOVE | F1 | pending |
 | `implementation/ui/test/re_frame/ui/route_link_*` | anchor semantics and the click law over the routing seam | MOVE | F5 | pending |
 | `implementation/ui/test/re_frame/ui/rules_*` | the DOM conversion table and its custom-element conflict rule | MOVE | F1 | pending |
