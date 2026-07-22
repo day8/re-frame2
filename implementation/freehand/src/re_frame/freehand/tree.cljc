@@ -33,6 +33,18 @@
     - strings and numbers are text, seqs splice, `nil`/`false`/`true`
       vanish, and adjacent text coalesces.
 
+  ## What it does NOT own
+
+  It does not own the canonical form. Assembling a node — coalescing
+  text, composing classes, dropping absent attributes, adopting a
+  fragment-rooted view — is [[re-frame.freehand.node]]'s, and a compiled
+  view's emitted body calls exactly the same builders with values it
+  resolved at compile time. So this walk is a **front end**: it decides
+  what a FORM denotes, and hands the resulting values to the one
+  canonicalizer. A declaration promoted to `{:compiled true}` swaps the
+  front end and nothing else, which is why the structural output is
+  unchanged by construction rather than by agreement.
+
   Nothing here subscribes, dispatches, mounts or schedules. A view body
   that reads state is F2's; this walk is a pure function of its argument,
   which is why two calls on one declaration are indistinguishable from
@@ -42,7 +54,8 @@
   [`spec/004B-UI-Tree-and-Conversion.md`](../../../../../spec/004B-UI-Tree-and-Conversion.md)."
   (:require [re-frame.error :as error]
             [re-frame.freehand :as v]
-            [re-frame.freehand.conversion :as conv]))
+            [re-frame.freehand.conversion :as conv]
+            [re-frame.freehand.node :as node]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -56,8 +69,12 @@
   "The one authored spelling of a fragment head."
   :<>)
 
+(def ^:private where
+  "The raising site every walk diagnostic names."
+  're-frame.freehand.tree/render)
+
 (defn- malformed!
-  [where reason extra]
+  [reason extra]
   (error/throw-error!
     :rf.error/ui-tree-malformed
     where
@@ -70,272 +87,122 @@
   [x]
   (error/diag-value-summary x))
 
-(defn- type-name [x]
-  (name (:type (shape x))))
-
-;; ---------------------------------------------------------------------------
-;; Children — canonical form
-;; ---------------------------------------------------------------------------
-;;
-;; Spec 004B §Child normalization. One vector, document order, adjacent text
-;; coalesced, empties dropped, seqs flattened in place. The rules run HERE,
-;; once, so no node can be built in a non-canonical shape: one semantic tree
-;; has exactly one representation, and that is what makes the tree a
-;; legitimate fingerprint and equality input.
-
-(declare ^:private node)
-
-(defn- conj-text
-  "Append text, coalescing it into the preceding run when there is one."
-  [acc s]
-  (if (string? (peek acc))
-    (conj (pop acc) (str (peek acc) s))
-    (conj acc s)))
-
-(defn- collect [ctx acc form]
-  (cond
-    (nil? form)     acc
-    (boolean? form) acc
-    (string? form)  (conj-text acc form)
-    (number? form)  (conj-text acc (conv/js-number-str form))
-    (conv/child-run? form) (reduce (fn [a f] (collect ctx a f)) acc form)
-    (vector? form)  (conj acc (node ctx form))
-    (seq? form)     (reduce (fn [a f] (collect ctx a f)) acc form)
-    :else
-    (malformed!
-      're-frame.freehand.tree/render
-      (str "A view body produced a " (type-name form) " where a child was expected. "
-           "A child is markup (a vector), text (a string or a number), a seq of "
-           "children, or nothing (nil / false).")
-      {:value (shape form)})))
+(declare ^:private walk)
 
 (defn- children
-  "The canonical children vector for `forms` — empty when the forms carry
-  no content."
-  [ctx forms]
-  (into []
-        (remove #(and (string? %) (= "" %)))
-        (reduce (fn [acc f] (collect ctx acc f)) [] forms)))
+  "The canonical children vector for markup `forms`."
+  [forms]
+  (node/walked-children walk where forms))
 
 ;; ---------------------------------------------------------------------------
 ;; Element nodes
 ;; ---------------------------------------------------------------------------
 
-(defn- attr-entry
-  "One author-space `:attrs` entry, or nil when the entry is dropped."
-  [tag k v]
-  (when (some? v)
-    (let [semantic (conv/attr-value v)]
-      (when (= ::conv/reject semantic)
-        (malformed!
-          're-frame.freehand.tree/render
-          (str "The " k " attribute on " tag " carries a " (type-name v)
-               ", which has no attribute spelling. An attribute value is a string, a "
-               "keyword, a symbol, a number or a boolean; :class and :style have their "
-               "own richer grammars.")
-          {:attr k :value (shape v)}))
-      [k semantic])))
-
-(defn- style-map
-  [tag v]
-  (when-not (map? v)
-    (malformed!
-      're-frame.freehand.tree/render
-      (str "The :style value on " tag " is a " (type-name v)
-           "; :style is a map of CSS property to value.")
-      {:attr :style :value (shape v)}))
-  (reduce-kv (fn [m k x]
-               (if (nil? x)
-                 m
-                 (let [css-name (name k)]
-                   (assoc m (keyword css-name) (conv/css-value css-name x)))))
-             {} v))
-
-(defn- class-value
-  "The canonical `:class` string for an element: sugar classes FIRST in
-  source order, then the explicit `:class` form's classes, joined with no
-  de-duplication (Spec 004B §`.class#id` sugar vs explicit `:class`)."
-  [tag sugar-classes v]
-  (let [parts (conv/class-parts v)]
-    (when (= ::conv/reject parts)
-      (malformed!
-        're-frame.freehand.tree/render
-        (str "The :class value on " tag " is outside the class grammar. Write a string, "
-             "a keyword, a vector of them in order, or a flag map whose truthy entries "
-             "name classes.")
-        {:attr :class :value (shape v)}))
-    (conv/class-string (into (vec sugar-classes) parts))))
-
-(defn- event-entry
-  "One `:events` entry, classified BY THE VALUE PRESENT AT RENDER
-  (Spec 004B §Element fields): a vector is a literal event intent, a map is
-  an options map, a function is a site whose spelling is testable and whose
-  behaviour is not, and nil drops the entry."
-  [tag k v]
-  (cond
-    (nil? v)    nil
-    (vector? v) [k v]
-    (map? v)    [k v]
-    (fn? v)     [k {:rf.ui/opaque :fn}]
-    :else
-    (malformed!
-      're-frame.freehand.tree/render
-      (str "The " k " handler site on " tag " carries a " (type-name v)
-           ". A handler is an event vector, an options map carrying one, or a function.")
-      {:attr k :value (shape v)})))
-
 (defn- split-attrs
-  "Split one authored attribute map into `[attrs events]` — the two key
-  domains are disjoint by construction, because every `on-*` name routes to
-  `:events` and nothing else does."
+  "Split one authored attribute map into the parts [[re-frame.freehand.node/element]]
+  takes. Every value here is only known now, so they all ride `:dyn` —
+  the interpreted front end has no compile step in which to settle one.
+  `:key` is structural and `:class` composes after the sugar classes."
   [tag sugar-classes sugar-id attrs]
   (reduce-kv
-    (fn [[as es] k raw]
+    (fn [m k raw]
       (cond
-        (= :key k)              [as es]
-        (conv/handler-key? k)   [as (if-let [e (event-entry tag k raw)] (conj es e) es)]
-        (= :class k)            [(if-let [c (class-value tag sugar-classes raw)]
-                                   (assoc as :class c)
-                                   as)
-                                 es]
-        (= :style k)            [(let [s (style-map tag raw)]
-                                   (if (seq s) (assoc as :style s) as))
-                                 es]
-        (= :id k)               (do (when (and sugar-id (some? raw))
-                                      (malformed!
-                                        're-frame.freehand.tree/render
-                                        (str "The element " tag " spells its id twice — once as #"
-                                             sugar-id " sugar and once as :id. Two id spellings on "
-                                             "one element is an ambiguity; keep one.")
-                                        {:attr :id :value (shape raw)}))
-                                    [(if-let [e (attr-entry tag k raw)] (conj as e) as) es])
-        :else                   [(if-let [e (attr-entry tag k raw)] (conj as e) as) es]))
-    [(cond-> {}
-       (and (seq sugar-classes) (not (contains? attrs :class)))
-       (assoc :class (conv/class-string sugar-classes))
-       sugar-id (assoc :id sugar-id))
-     {}]
+        (= :key k)   m
+        (= :class k) (assoc m :class raw)
+        (= :style k) (assoc m :style raw)
+        (= :id k)    (do (when (and sugar-id (some? raw))
+                           (malformed!
+                             (str "The element " tag " spells its id twice — once as #"
+                                  sugar-id " sugar and once as :id. Two id spellings on "
+                                  "one element is an ambiguity; keep one.")
+                             {:attr :id :value (shape raw)}))
+                         (assoc-in m [:dyn :id] raw))
+        :else        (assoc-in m [:dyn k] raw)))
+    {:dyn {}}
     attrs))
 
 (defn- element-node
-  [ctx tag-kw args]
+  [tag-kw args]
   (when (namespace tag-kw)
     (malformed!
-      're-frame.freehand.tree/render
       (str "The element head " tag-kw " is namespaced. An element tag is an unqualified "
            "keyword — its namespace would be silently dropped on the way to the DOM.")
       {:value (shape tag-kw)}))
   (let [{:keys [tag classes id]} (conv/parse-tag tag-kw)
-        _          (when (= "" (name tag))
-                     (malformed!
-                       're-frame.freehand.tree/render
-                       (str "The element head " tag-kw " carries only .class#id sugar and no tag.")
-                       {:value (shape tag-kw)}))
-        el-ns      (conv/element-ns (conv/enter-ns ctx tag))
-        attrs?     (map? (first args))
-        authored   (if attrs? (first args) nil)
-        kid-forms  (if attrs? (rest args) args)
-        [attrs es] (split-attrs tag classes id (or authored {}))
-        k          (:key authored)
-        kids       (children (conv/child-ns (conv/enter-ns ctx tag) tag authored) kid-forms)]
-    (when (and (seq kids) (contains? conv/children-rejected-tags tag))
-      (malformed!
-        're-frame.freehand.tree/render
-        (str "The element " tag " cannot have children — it is a void element, and React "
-             "throws rather than render one. Put the content in an attribute, or use an "
-             "element that takes children.")
-        {:tag tag :children-count (count kids)}))
-    (cond-> {:tag tag}
-      el-ns       (assoc :ns el-ns)
-      (seq attrs) (assoc :attrs attrs)
-      (seq es)    (assoc :events es)
-      (some? k)   (assoc :key k)
-      (seq kids)  (assoc :children kids))))
-
-;; ---------------------------------------------------------------------------
-;; Fragment nodes
-;; ---------------------------------------------------------------------------
-
-(defn- fragment-node
-  [ctx args]
-  (let [attrs? (map? (first args))
-        k      (when attrs? (:key (first args)))
-        kids   (children ctx (if attrs? (rest args) args))]
-    ;; A fragment RETAINS `:children []` when empty — `:children` is its
-    ;; required discriminator, so `{}` would be a malformed node rather than
-    ;; an empty fragment (Spec 004B §Canonical uniqueness).
-    (cond-> {:children kids}
-      (some? k) (assoc :key k))))
-
-;; ---------------------------------------------------------------------------
-;; View-boundary nodes
-;; ---------------------------------------------------------------------------
-
-(defn- recorded-prop
-  "A prop value as the boundary records it. Non-data values become the
-  opaque marker — their existence and spelling stay testable, their
-  behaviour does not (Spec 004B §The opaque marker)."
-  [x]
-  (if (fn? x) {:rf.ui/opaque :fn} x))
-
-(defn- plain-fragment?
-  "Is `x` a fragment node carrying nothing but its children?"
-  [x]
-  (and (map? x)
-       (contains? x :children)
-       (not (contains? x :tag))
-       (not (contains? x :view-id))
-       (not (contains? x :html))
-       (not (contains? x :key))))
-
-(defn- boundary-node
-  "Wrap one internal-view expansion. The boundary is a REAL node, nesting
-  recursively, so a view stays addressable in the tree whatever it renders
-  — including a view that renders nothing.
-
-  `:props` records the props the body received MINUS `:children`: the
-  children are structural, and they are already visible as the expansion
-  the body built from them.
-
-  A fragment-rooted view is ADOPTED — its children become the boundary's
-  children rather than sitting inside a redundant fragment — so a
-  fragment-rooted view is a boundary with several children and a
-  nil-rooted view is a boundary with none. Both stay matchable, which is
-  what makes a `:view-id` predicate a total selector (Spec 004B §Coverage
-  Q12)."
-  [ctx view args]
-  (let [{:keys [key props]} (v/normalize-call view args)
-        recorded (reduce-kv (fn [m k x] (assoc m k (recorded-prop x)))
-                            {} (dissoc props :children))
-        body     ((v/render-body view) (conv/forward-children props))
-        rendered (children ctx [body])
-        kids     (if (and (= 1 (count rendered)) (plain-fragment? (first rendered)))
-                   (:children (first rendered))
-                   rendered)]
-    (cond-> {:view-id (:view-id (v/describe view))}
-      (seq recorded) (assoc :props recorded)
-      (some? key)    (assoc :key key)
-      (seq kids)     (assoc :children kids))))
+        _         (when (= "" (name tag))
+                    (malformed!
+                      (str "The element head " tag-kw " carries only .class#id sugar and no tag.")
+                      {:value (shape tag-kw)}))
+        attrs?    (map? (first args))
+        authored  (if attrs? (first args) nil)
+        kid-forms (if attrs? (rest args) args)
+        parts     (split-attrs tag classes id (or authored {}))]
+    (node/element
+      (merge parts
+             {:tag      tag
+              :sugar    classes
+              :attrs    (cond-> {} id (assoc :id id))
+              :key?     (contains? authored :key)
+              :key-val  (:key authored)
+              :children (when (seq kid-forms) #(children kid-forms))}))))
 
 ;; ---------------------------------------------------------------------------
 ;; The walk
 ;; ---------------------------------------------------------------------------
 
-(defn- node
-  [ctx form]
+(defn- walk
+  "One markup vector -> one node."
+  [form]
   (let [head (first form)]
     (if (= fragment-tag head)
-      (fragment-node ctx (rest form))
+      (let [args   (rest form)
+            attrs? (map? (first args))
+            k      (when attrs? (:key (first args)))]
+        (node/fragment (some? k) k (children (if attrs? (rest args) args))))
       (case (v/classify-head head)
-        :element (element-node ctx head (rest form))
-        :view    (boundary-node ctx head (rest form))
+        :element (element-node head (rest form))
+        ;; Trailing children are the CALLER's markup and are lowered HERE,
+        ;; before the boundary is mounted — not left as forms for the callee
+        ;; to walk. That is what makes the crossing symmetric: a boundary
+        ;; receives already-structural children whichever mode wrote them, so
+        ;; a compiled body splicing `children` and an interpreted body
+        ;; splicing `children` are doing the same thing to the same value.
+        :view    (let [args (rest form)]
+                   (node/mount head (cons (first args) (children (rest args)))))
         :host    (malformed!
-                   're-frame.freehand.tree/render
                    (str "A declared host descriptor is a legal vector head, but the v1 node set "
                         "carries no host variant — a foreign boundary's structural and SSR "
                         "policy is declared at the host boundary, and that declaration lands "
                         "with the host-lifecycle slice.")
                    {:value (shape head)})))))
+
+;; ---------------------------------------------------------------------------
+;; The mount seam — one call, either mode
+;; ---------------------------------------------------------------------------
+;;
+;; Extending the seam HERE, rather than on the descriptor itself, is what keeps
+;; `re-frame.freehand.node` below the public door: the builders a compiled body
+;; calls are reachable through the one require a declaration already has, and
+;; the walk a mounted INTERPRETED child needs arrives with the structural
+;; renderer that is doing the mounting.
+;;
+;; Both arms assemble the identical boundary node from the identical normalized
+;; call. Only the middle step differs — run the body and walk what it returned,
+;; or invoke the compiled body, which returns the node directly.
+
+(extend-type #?(:clj re_frame.freehand.ViewDescriptor :cljs v/ViewDescriptor)
+  node/IMount
+  (-mount [view args]
+    (let [{:keys [key props]} (v/normalize-call view args)
+          props* (conv/forward-children props)
+          kids   (if-let [structural (v/structural-body view)]
+                   (node/children (structural props*))
+                   (children [((v/render-body view) props*)]))]
+      (node/boundary (:view-id (v/describe view)) props key kids))))
+
+;; ---------------------------------------------------------------------------
+;; Render entry
+;; ---------------------------------------------------------------------------
 
 (defn render
   "Interpret `form` and answer its versioned structural tree.
@@ -352,12 +219,17 @@
       ;;     :children [{:tag :h2 :children [\"Details\"]}]
       ;;     :rf.ui/tree-version 1}
 
+  A compiled view mounted anywhere under `form` renders through its own
+  compiled body — the walk never interprets a compiled template, and a
+  compiled body never walks a form.
+
   The value is plain Clojure data — maps and strings, no wrapper types, no
   metadata-carried contract — so it prints and reads back losslessly, and
   `(tree-seq map? :children tree)` is the whole traversal API."
   [form]
-  (let [kids (children nil [form])
-        root (if (and (= 1 (count kids)) (map? (first kids)))
-               (first kids)
-               {:children kids})]
-    (assoc root :rf.ui/tree-version tree-version)))
+  (binding [node/*ns-context* nil]
+    (let [kids (children [form])
+          root (if (and (= 1 (count kids)) (map? (first kids)))
+                 (first kids)
+                 {:children kids})]
+      (assoc root :rf.ui/tree-version tree-version))))

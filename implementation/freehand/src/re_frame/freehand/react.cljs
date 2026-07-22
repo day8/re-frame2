@@ -149,6 +149,25 @@
   [view]
   (or (get @components view)
       (let [view-id (:view-id (v/describe view))
+            _       (when (v/structural-body view)
+                      ;; A compiled declaration has no interpreted body to walk.
+                      ;; Its React lowering — direct jsx calls over the same
+                      ;; analyzed template — is the compiled tier's other
+                      ;; emitter, and it lands with the slice that owns the
+                      ;; ViewCell it renders inside. Until then this path is a
+                      ;; LOUD refusal rather than a walk of `nil`: a compiled
+                      ;; view that quietly rendered nothing in a browser would
+                      ;; be the worst possible way to learn the lowering is
+                      ;; missing.
+                      (error/throw-error!
+                        :rf.error/view-lowering-unavailable
+                        're-frame.freehand.react/element
+                        (str view-id " is declared {:compiled true} and the compiled tier's "
+                             "React lowering is not built yet — the structural lowering is. "
+                             "Render it structurally, or drop the marker to mount it "
+                             "interpreted; the declaration is the only thing that changes.")
+                        {:recovery :render-structurally-or-drop-the-compiled-marker
+                         :extra    {:view-id view-id}}))
             body    (v/render-body view)
             c       (fn freehand-view [js-props]
                       (emit nil (body (conv/forward-children

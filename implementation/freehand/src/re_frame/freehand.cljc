@@ -30,9 +30,17 @@
   Normative owner: [`spec/004-Views.md`](../../../../spec/004-Views.md)."
   (:require [re-frame.error :as error]
             [re-frame.freehand.events :as events]
+            ;; The structural node builders a COMPILED declaration's emitted
+            ;; body calls. Required here, and not by the consumer, because
+            ;; promotion is a one-line change to the declaration: adding
+            ;; `{:compiled true}` must not oblige a namespace to acquire a
+            ;; require it did not need a moment earlier. `node` sits BELOW this
+            ;; namespace and takes nothing back from it.
+            [re-frame.freehand.node]
             [re-frame.freehand.route-link-seam :as route-link-seam]
             [re-frame.interop :as interop]
-            #?(:clj [re-frame.source-coords :as source-coords]))
+            #?@(:clj [[re-frame.freehand.compiler :as compiler]
+                      [re-frame.source-coords :as source-coords]]))
   #?(:cljs (:require-macros [re-frame.freehand :refer [defview event handler render-fn]])))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -142,6 +150,19 @@
   non-`IFn` descriptor exists to prevent."
   [view]
   (:render (.-entry ^ViewDescriptor view)))
+
+(defn ^:no-doc structural-body
+  "A COMPILED view's private structural realisation — the one-argument fn
+  the `:re-frame.freehand/v1` lowering built, from the props map to its
+  structural node — or `nil` for an interpreted declaration.
+
+  It is the presence of this entry, not a flag, that decides how a
+  boundary renders: a structural renderer calls it if it is there and
+  walks [[render-body]] if it is not. A compiled declaration therefore
+  cannot be mounted 'as interpreted' by mistake, and the two never both
+  exist for one declaration."
+  [view]
+  (:structural (.-entry ^ViewDescriptor view)))
 
 ;; ---------------------------------------------------------------------------
 ;; Vector-head classification — total
@@ -335,8 +356,17 @@
      `(meta &form)`, `file` is `*file*`, `ns-sym` is the consuming
      namespace's symbol — all captured at the call site so the emitted
      form holds literals rather than reading `*ns*` / `*file*` at runtime
-     (CLJS binds neither)."
-     [form-meta file ns-sym sym more]
+     (CLJS binds neither).
+
+     The seven-argument arity additionally carries the macro's own `&form`
+     and `&env`, which a `{:compiled true}` declaration needs: the
+     compiled front end anchors diagnostics at the declaration's source
+     coordinates and resolves heads through the consuming compiler's
+     environment. An interpreted declaration needs neither, so the short
+     arity stays exactly what it was."
+     ([form-meta file ns-sym sym more]
+      (expand-defview nil nil form-meta file ns-sym sym more))
+     ([&form &env form-meta file ns-sym sym more]
      (let [{:keys [docstring opts params body]} (or (parse-defview-args more)
                                                     (error/throw-error!
                                                       :rf.error/defview-bad-args
@@ -347,7 +377,16 @@
                                                            "and a body. " sym "'s declaration does not match.")
                                                       {:recovery :fix-the-declaration
                                                        :extra    {:view sym}}))
-           policy (get opts :children-policy :optional)]
+           policy    (get opts :children-policy :optional)
+           compiled? (get opts :compiled false)]
+       (when-not (contains? #{true false} compiled?)
+         (error/throw-error!
+           :rf.error/defview-bad-args
+           'v/defview
+           (str ":compiled selects the compiled tier and is true or false; " sym
+                " declares " (pr-str compiled?) ".")
+           {:recovery :fix-the-declaration
+            :extra    {:view sym :compiled compiled?}}))
        (when-not (= 1 (count params))
          (error/throw-error!
            :rf.error/defview-bad-args
@@ -365,16 +404,45 @@
                 " declares " (pr-str policy) ".")
            {:recovery :fix-the-declaration
             :extra    {:view sym :children-policy policy}}))
-       `(def ~(cond-> (vary-meta sym assoc :re-frame.freehand/view true)
-                docstring (vary-meta assoc :doc docstring))
-          (declare-view
-            {:view-id         ~(keyword (str ns-sym) (str sym))
-             :source          (if interop/debug-enabled?
-                                ~(source-coords/coords-form form-meta file ns-sym)
-                                ~(source-coords/prod-coords-form form-meta file ns-sym))
-             :lowering        :interpreted
-             :children-policy ~policy
-             :render          (fn ~(symbol (str sym "-render")) ~params ~@body)})))))
+       ;; The two lowerings differ in ONE entry. Everything a caller can see —
+       ;; the descriptor, the view id, the source coordinates, the children
+       ;; policy, the props contract, the boundary node a structural render
+       ;; produces — is built here, once, from the same declaration. That is
+       ;; what makes `{:compiled true}` a one-line change rather than a port:
+       ;; there is no compiled call spelling to migrate to, because the compiled
+       ;; tier reuses the interpreted tier's whole surface and replaces only the
+       ;; body that builds the markup.
+       (let [view-id (keyword (str ns-sym) (str sym))
+             entry   {:view-id         view-id
+                      :source          `(if interop/debug-enabled?
+                                          ~(source-coords/coords-form form-meta file ns-sym)
+                                          ~(source-coords/prod-coords-form form-meta file ns-sym))
+                      :lowering        (if compiled? :compiled :interpreted)
+                      :children-policy policy}
+             entry   (if compiled?
+                       (assoc entry :structural
+                              (:body (compiler/compile-structural-view
+                                       {:form            &form
+                                        :menv            &env
+                                        :ns-sym          ns-sym
+                                        :vname           sym
+                                        :view-id         view-id
+                                        :params          params
+                                        :body            body
+                                        :children-policy policy})))
+                       (assoc entry :render
+                              `(fn ~(symbol (str sym "-render")) ~params ~@body)))]
+         ;; The var metadata is what a COMPILE-TIME head classifier reads: a
+         ;; compiled body resolves `[panel {…}]` before any descriptor exists,
+         ;; so view-ness and the children policy have to be legible from the
+         ;; Var alone. It is the same declaration answering the same two
+         ;; questions the runtime descriptor answers — just early enough for a
+         ;; build to fail instead of a render.
+         `(def ~(cond-> (vary-meta sym assoc
+                                   :re-frame.freehand/view true
+                                   :re-frame.freehand/children-policy policy)
+                  docstring (vary-meta assoc :doc docstring))
+            (declare-view ~entry)))))))
 
 #?(:clj
    (defmacro defview
@@ -402,10 +470,38 @@
      Options (all optional):
 
        `:children-policy`  `:optional` (default), `:none`, or `:required`
+       `:compiled`         `false` (default), or `true` to select the
+                           compiled tier's finite grammar
+
+     ## `{:compiled true}` — the one-line promotion
+
+         (v/defview todo-row
+           {:compiled true}                   ; the whole change
+           [{:keys [text done?]}]
+           [:li.row {:class {:done done?}} text])
+
+     The marker selects the versioned grammar `:re-frame.freehand/v1`
+     ([Spec 004D](../../../../spec/004D-Freehand-Compiled-Grammar.md)) for
+     THIS declaration and nothing else. Callers do not change, structural
+     output does not change, and the view's own tests do not change —
+     mounting is `[todo-row {…}]` either way, because the descriptor, the
+     props contract and the boundary node are the interpreted tier's and
+     the compiled tier reuses them.
+
+     What does change is that the body must be inside a finite language.
+     Compilation is EXPLICIT: a form the grammar does not admit is a
+     build failure naming a recovery — never a silent demotion, and never
+     an interpreted walk hidden inside compiled markup, which would make
+     the analysis a compiled view's manifests and diagnostics rest on
+     untrue. Promotion is per-declaration and not transitive: a compiled
+     view may mount interpreted children, and the honest recovery for a
+     body that will not compile is to extract the awkward part into its
+     own declared child — or to drop the marker again, which is the same
+     one-line change in reverse.
 
      Per [Spec 004 §The descriptor and `v/defview`](../../../../spec/004-Views.md)."
      [sym & more]
-     (expand-defview (meta &form) *file* (ns-name *ns*) sym more)))
+     (expand-defview &form &env (meta &form) *file* (ns-name *ns*) sym more)))
 
 ;; ---------------------------------------------------------------------------
 ;; Event intent and the callback roster
