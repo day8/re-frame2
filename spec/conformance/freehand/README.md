@@ -34,15 +34,24 @@ reassigned, and never recycled. A law that is withdrawn keeps its id at status
 
 ### Area roster
 
-The roster is fixed by the Freehand programme EP and is not extended by
-implementation work. A law is filed under the area whose **canonical paragraph**
-owns it; when two areas could plausibly hold it, the owning spec decides.
+The roster comes from the Freehand programme EP, which introduces it with
+"Areas include …" — open, not closed. It is nonetheless closed at any given
+moment: the validator rejects a section or an id whose area is not in the table
+below, so an area is added by a recorded ruling in the change that needs it,
+never by an author reaching for a token mid-allocation. A law is filed under the
+area whose **canonical paragraph** owns it; when two areas could plausibly hold
+it, the owning spec decides.
+
+Adding an area is cheap before ids are allocated and expensive after, because
+`FH` ids are permanent: a law filed in the wrong area either keeps a citation
+that misdescribes it forever, or is retired and reissued. So the question is
+settled when the first row in a candidate area lands.
 
 | Token | Area | Scope |
 |---|---|---|
 | `CALL` | Calls | The declared boundary: vector-called descriptors, plain-helper direct calls, statically named children crossing the boundary, `:key`, occurrence identity and hot reload, and the rejected local/effect/ref declaration forms. |
 | `PROPS` | Props | One props map: reserved `:children`, stripped `:key`, shared equality and conversion, and the optional schema's metadata and validation semantics. |
-| `EVENT` | Events | The projection materializer, the options and key-map grammar, site and proxy lifetime, the atomic selected bundle, and the route-link descriptor's href/click behaviour over the routing-owned law. |
+| `EVENT` | Events | The projection materializer, the options and key-map grammar, site and proxy lifetime, and the atomic selected bundle. |
 | `INPUT` | Controlled input | The one exact door predicate, the frame-scoped synchronous flush, and the real-browser contention matrix. |
 | `SUB` | Subscriptions | Render-only subscription reads: value, resolution, invalidation, and commit safety; separately named one-shot reads; frame-context observation and the proof a compiled elision demands. |
 | `CTRL` | Controllers | Props-only by default; ordinary frame data keyed by kind plus an explicit address; semantic transitions and owner cleanup. |
@@ -52,6 +61,7 @@ owns it; when two areas could plausibly hold it, the owning spec decides.
 | `REACT` | React bridges | The descriptor-only outward bridge, common frame and props semantics, the explicit mapper, the SSR policy, and the qualified host boundaries the three host shapes rest on. |
 | `ERROR` | Errors | The boundary, reset, fallback, and safe-intent contract; private frame error egress; and the rule that a failed candidate publishes nothing. |
 | `ROOT` | Roots and SSR | One Root Descriptor: preflight, identity, teardown, multi-root isolation, SSR emission, and hydration. |
+| `ROUTELINK` | Routing link | The framework-supplied navigation anchor: a real element with a real href, the native-behaviour deferrals, the caller veto, the server shell, and the absent-routing diagnostic — all over the routing-owned href and click law. |
 | `STRUCT` | Structure | The versioned semantic tree, the conversion table, and the explicit host policy. |
 | `DIAG` | Diagnostics | The versioned occurrence schema (scope, basis, completeness, loss), stable ids, source and recovery, bounded retention, and provable-only static findings. |
 

@@ -45,6 +45,11 @@
  {:props {:to :fh.route/cart :class "nav" :aria-label "Cart" :data-testid "cart"}
   :attrs {:class "nav" :aria-label "Cart" :data-testid "cart"}}
 
- ;; The keys the view OWNS. None of them may leak onto the anchor as an
- ;; attribute — `to="…"` on an `<a>` is not HTML.
- :control-keys [:to :params :query :fragment :on-click :children]}
+ ;; The route keys the view OWNS. None of them may leak onto the anchor as
+ ;; an attribute — `to="…"` on an `<a>` is not HTML.
+ ;;
+ ;; `:on-click` is owned too but is deliberately NOT listed: the view
+ ;; REPLACES it with its own activation closure on the browser host, so
+ ;; the key is present on the anchor and carrying a different value. What
+ ;; happens to the caller's fn is FH-ROUTELINK-003's law, not this one.
+ :control-keys [:to :params :query :fragment :children]}
