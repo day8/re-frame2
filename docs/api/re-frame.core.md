@@ -358,7 +358,7 @@ The view layer is **substrate-agnostic**. The shared dataflow — frames, subscr
   (reg-view sym docstring [args] body+)
   (reg-view ^{:rf/id :explicit/id} sym [args] body+)
   ```
-- **Description**: The `defn`-shape view registration — the app-facing lane. It auto-defs the symbol, auto-derives the id from `(keyword *ns* sym)`, and auto-injects `dispatch` / `subscribe` as lexical bindings. It rejects non-defn-shape bodies at macroexpand. In all shapes the symbol is `def`-ed, so sibling code can write `[my-view item]`. Render an app-facing view by **Var reference** or `(rf/view id)`. Bare keyword-tagged hiccup `[:my-view "args"]` is rejected (see [Spec 004 §Resolved decisions](../../spec/004-Views.md#resolved-decisions)).
+- **Description**: The `defn`-shape view registration — the app-facing lane. It auto-defs the symbol, auto-derives the id from `(keyword *ns* sym)`, and auto-injects `dispatch` / `subscribe` as lexical bindings. It rejects non-defn-shape bodies at macroexpand. In all shapes the symbol is `def`-ed, so sibling code can write `[my-view item]`. Render an app-facing view by **Var reference** or `(rf/view id)`. Bare keyword-tagged hiccup `[:my-view "args"]` is rejected (see [Spec 004D §Resolved decisions](../../spec/004D-Freehand-Compiled-Grammar.md#resolved-decisions)).
 - **Example**:
   ```clojure
   (rf/reg-view counter-buttons []

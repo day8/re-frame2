@@ -541,7 +541,7 @@ posture recorded in their spec homes.
   [EP-0031](EP-0031-re-frame-ui-programming-model.md) — programming model
   (`defview`, templates, the handler law, interop); **presence is not
   EP-0031's** — its normative contract is
-  [`spec/004-Views.md` §Presence](../../spec/004-Views.md#presence--declarative-enterexit),
+  [`spec/004D-Freehand-Compiled-Grammar.md` §Presence](../../spec/004D-Freehand-Compiled-Grammar.md#presence--declarative-enterexit),
   and the companion ruling (`ui/presence` wrapper, no reserved nodes, mandatory
   timeout safety bound) is recorded above in this EP;
   [EP-0032](EP-0032-re-frame-ui-reactivity-and-ownership.md) — reactivity and
@@ -561,7 +561,7 @@ posture recorded in their spec homes.
   [EP-0024](EP-0024-unified-frame-identity-and-lifecycle.md)** own explicit
   frame resolution and unified frame identity — the substrate's carried-frame
   law and preflight ENSURE build directly on them.
-- **Specs:** the Spec 004 family ([`spec/004-Views.md`](../../spec/004-Views.md),
+- **Specs:** the Spec 004 family ([`spec/004D-Freehand-Compiled-Grammar.md`](../../spec/004D-Freehand-Compiled-Grammar.md),
   [`spec/004B-UI-Tree-and-Conversion.md`](../../spec/004B-UI-Tree-and-Conversion.md),
   [`spec/004C-Roots-and-Mount.md`](../../spec/004C-Roots-and-Mount.md)),
   [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md)

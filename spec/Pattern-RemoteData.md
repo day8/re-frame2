@@ -261,7 +261,7 @@ Per [011-SSR.md](011-SSR.md):
 
 ## Cross-references
 
-- [004-Views.md §Loading state is explicit, not implicit](004-Views.md#loading-state-is-explicit) — why re-frame2 surfaces loading state as data rather than via Suspense-style implicit suspension; this pattern is the canonical exemplar.
+- [004D-Freehand-Compiled-Grammar.md §Loading state is explicit, not implicit](004D-Freehand-Compiled-Grammar.md#loading-state-is-explicit) — why re-frame2 surfaces loading state as data rather than via Suspense-style implicit suspension; this pattern is the canonical exemplar.
 - [011-SSR.md](011-SSR.md) — SSR-side fetch handling and `:platforms` metadata
 - [009-Instrumentation.md §Error contract](009-Instrumentation.md#error-contract) — `:rf.error/fx-handler-exception` for failed fetches
 - [examples/core/login/core.cljs](../examples/core/login/core.cljs) — the login feature uses a simplified version of this lifecycle

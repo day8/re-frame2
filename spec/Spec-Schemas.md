@@ -454,10 +454,10 @@ The metadata map accepted by `reg-interceptor` ([EP-0022](../docs/EP/EP-0022-reg
 #### `:rf/view-meta`
 
 > **Layer:** Public
-> **Owner:** [004-Views §Removed forms — normative absences](004-Views.md#removed-forms--normative-absences)
+> **Owner:** [004D §Removed forms — normative absences](004D-Freehand-Compiled-Grammar.md#removed-forms--normative-absences)
 > **Status:** v1-required
 
-The metadata map accepted by `reg-view` / `reg-view*` (the stock-Reagent compatibility/interop tier — Spec-Schemas is its live registry-slot-shape carrier per the [004 §Removed forms](004-Views.md#removed-forms--normative-absences) transition annex). **Registry identity is distinct from slot metadata.** The `^{:rf/id ...}` symbol-meta override *selects the registry key* the view registers under (the id, per [Conventions §`reg-view` auto-id derivation rule](Conventions.md#reg-view-auto-id-derivation-rule)); the macro consumes it to choose the id and then removes it from the stamped slot, so `:rf/id` is **not** a slot-metadata field. The fields below are what actually lands in the slot.
+The metadata map accepted by `reg-view` / `reg-view*` (the stock-Reagent compatibility/interop tier — Spec-Schemas is its live registry-slot-shape carrier per the [004D §Removed forms](004D-Freehand-Compiled-Grammar.md#removed-forms--normative-absences) transition annex). **Registry identity is distinct from slot metadata.** The `^{:rf/id ...}` symbol-meta override *selects the registry key* the view registers under (the id, per [Conventions §`reg-view` auto-id derivation rule](Conventions.md#reg-view-auto-id-derivation-rule)); the macro consumes it to choose the id and then removes it from the stamped slot, so `:rf/id` is **not** a slot-metadata field. The fields below are what actually lands in the slot.
 
 ```clojure
 (def ViewMeta
@@ -469,7 +469,7 @@ The metadata map accepted by `reg-view` / `reg-view*` (the stock-Reagent compati
     ]])
 ```
 
-`:reagent2/form` is stamped by the `reg-view` macro at expansion time *only when reagent-slim is on the classpath* — `expand-reg-view` classifies the body via `reagent2.impl.component/classify-form-body` (`requiring-resolve`d, so core carries no static reagent-slim dep) and stamps `{:reagent2/form :reagent2/form-1|:reagent2/form-2}` onto the slot. UIx-only builds and the `reg-view*` plain-fn surface stamp no form tag (per [004 §Removed forms — normative absences](004-Views.md#removed-forms--normative-absences)). `:rf/props` is an optional user-supplied props schema (attached as symbol metadata and surviving into the slot); in dynamic hosts the framework can validate props against it at render-time-boundary in dev builds (per [010](010-Schemas.md)).
+`:reagent2/form` is stamped by the `reg-view` macro at expansion time *only when reagent-slim is on the classpath* — `expand-reg-view` classifies the body via `reagent2.impl.component/classify-form-body` (`requiring-resolve`d, so core carries no static reagent-slim dep) and stamps `{:reagent2/form :reagent2/form-1|:reagent2/form-2}` onto the slot. UIx-only builds and the `reg-view*` plain-fn surface stamp no form tag (per [004D §Removed forms — normative absences](004D-Freehand-Compiled-Grammar.md#removed-forms--normative-absences)). `:rf/props` is an optional user-supplied props schema (attached as symbol metadata and surviving into the slot); in dynamic hosts the framework can validate props against it at render-time-boundary in dev builds (per [010](010-Schemas.md)).
 
 **Note — `:schema` is canonical.** Both Story and the framework read the `:schema` key (there is no `:spec` alias). See [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema) for the v1→v2 rename.
 
@@ -824,7 +824,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 |---|---|---|
 | `:rf.event` | Top-level event-handler invocation (`:rf.event/dispatched`, `:rf.event/db-changed`, etc.) | 009 |
 | `:rf.sub` | Subscription family — `:rf.sub/create` (registration into the reactive graph, emitted at registration time — not first reference), `:rf.sub/run` (input changed; output recomputed), `:rf.sub/skip` (memo-hit; body did not re-run) | 009 |
-| `:rf.view` | View-substrate family — `:rf.view/render` (per-render marker), plus the `:rf.view/rendered` per-render run-attribution / per-view ACTION+REASON marker (carries `:rf.view/mount?`, `:rf.view/deref-subs`, and `:rf.view/render-args` — the latter elided as user data), its `:rf.view/rendered-cap-reached` truncation marker, and the `:rf.view/unmounted` instance-teardown marker. Per [Spec 004 §Render-tree primitives](004-Views.md) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) | 004 / 009 |
+| `:rf.view` | View-substrate family — `:rf.view/render` (per-render marker), plus the `:rf.view/rendered` per-render run-attribution / per-view ACTION+REASON marker (carries `:rf.view/mount?`, `:rf.view/deref-subs`, and `:rf.view/render-args` — the latter elided as user data), its `:rf.view/rendered-cap-reached` truncation marker, and the `:rf.view/unmounted` instance-teardown marker. Per [Spec 004D §Render-tree primitives](004D-Freehand-Compiled-Grammar.md) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) | 004 / 009 |
 | `:rf.fx` | Effect-substrate success-path / lifecycle family — `:rf.fx/do-fx` (the effects-resolution pass after the handler returns), `:rf.fx/handled`, `:rf.fx/override-applied`. The universal discriminator for fx outcomes when not error/warning-shaped | 002 / 009 |
 | `:rf.cofx` | Coeffect-substrate success-path family — `:rf.cofx/run` (a coeffect supplier ran to success during context assembly; carries `:rf.cofx/id` + `:rf.cofx/value` (the PRODUCED value, redacted per classification) + `:rf.cofx/arg` (the requirement-arg of a parameterized `[id arg]` requirement, omitted otherwise) + `:rf.cofx/elapsed-ms`). The cofx skip / error paths ride the `:warning` / `:error` severity discriminators (`:rf.cofx/skipped-on-platform`; the EP-0017 cofx error family `:rf.error/unregistered-cofx` / `:rf.error/missing-required-cofx` / `:rf.error/cofx-value-invalid`). The slice-B generation step emits `:rf.cofx/generated` (reserved). | 002 / 009 |
 
@@ -2125,7 +2125,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 ;; `re-frame.ui.frames/maybe-warn-cross-frame-carried-subscribe!`. Per the [009 error
 ;; catalogue row](009-Instrumentation.md#error-event-catalogue), [002 §Frame target
 ;; resolution](002-Frames.md#frame-target-resolution--the-carried-invariant), and
-;; [004 §Roots and mounting](004-Views.md#roots-and-mounting).
+;; [004D §Roots and mounting](004D-Freehand-Compiled-Grammar.md#roots-and-mounting).
 
 (def CrossFrameCarriedOpTags
   [:map

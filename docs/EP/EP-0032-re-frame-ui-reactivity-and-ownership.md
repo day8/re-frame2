@@ -25,7 +25,7 @@ than a hope.
 The normative home is
 [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md) — §The
 internal observation port is normative there — with the ViewCell consumer
-contract owned by [`spec/004-Views.md`](../../spec/004-Views.md); per EP-0009,
+contract owned by [`spec/004D-Freehand-Compiled-Grammar.md`](../../spec/004D-Freehand-Compiled-Grammar.md); per EP-0009,
 where this EP and the spec differ, **the spec governs**. `final` means the
 decisions are settled, not that the build is gap-free.
 
@@ -314,7 +314,7 @@ None. No open implementation gaps are tracked on this EP's surface.
 - Normative homes:
   [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md) (the
   observation port, cache contract, memo, epoch finalization, the six frozen
-  invariants) and [`spec/004-Views.md`](../../spec/004-Views.md) (the
+  invariants) and [`spec/004D-Freehand-Compiled-Grammar.md`](../../spec/004D-Freehand-Compiled-Grammar.md) (the
   ViewCell/commit reconciler and the view error boundary);
   [`spec/009-Instrumentation.md`](../../spec/009-Instrumentation.md) carries a
   catalogue row for every typed error named above.
