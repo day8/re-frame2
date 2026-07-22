@@ -129,8 +129,8 @@
             (put-attr! o ns-ctx tag k raw))
 
         :else (put-attr! o ns-ctx tag k raw)))
-    (when-let [k (:key attrs)]
-      (gobj/set o "key" k))
+    (when (some? (:key attrs))
+      (gobj/set o "key" (:key attrs)))
     o))
 
 ;; ---------------------------------------------------------------------------

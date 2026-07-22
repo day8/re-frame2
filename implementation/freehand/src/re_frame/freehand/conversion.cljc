@@ -314,17 +314,25 @@
     :math :mathml
     ctx))
 
+(declare attr-value)
+
 (defn child-ns
   "The context this element's CHILDREN are built in (Spec 004B
   §Namespaces): `<foreignObject>` reverts its children to HTML, and
-  `<annotation-xml>` reverts when its `:encoding` names an HTML island."
+  `<annotation-xml>` reverts when its `:encoding` names an HTML island.
+
+  `attrs` may be the authored map or the normalized one — the encoding is
+  read through the same value normalization either way, so both emitters
+  answer the same context for the same element."
   [ctx tag attrs]
   (case tag
     :foreignObject  nil
-    :annotation-xml (if (contains? #{"text/html" "application/xhtml+xml"}
-                                   (some-> (get attrs :encoding) str str/lower-case))
-                      nil
-                      ctx)
+    :annotation-xml (let [enc (some-> (get attrs :encoding) attr-value)]
+                      (if (and (string? enc)
+                               (contains? #{"text/html" "application/xhtml+xml"}
+                                          (str/lower-case enc)))
+                        nil
+                        ctx))
     ctx))
 
 ;; ---------------------------------------------------------------------------
