@@ -1,6 +1,7 @@
 name: freehand-conformance
 
-# Gate for the Freehand executable-law addressing scheme.
+# Gates for the two Freehand ledgers that have to stay honest: the
+# executable-law addressing scheme, and the donor-deletion inventory.
 #
 # Freehand proves its interpreted/compiled + React/JVM/SSR parity row by row.
 # Each law carries a permanent `FH-<AREA>-<NNN>` id and the index at
@@ -23,6 +24,19 @@ name: freehand-conformance
 # against an empty index has not been tested. The self-test drives one
 # deliberately broken fixture index per defect shape and fails if any of them
 # passes.
+#
+# THE DONOR INVENTORY rides the same job. spec/conformance/freehand/donor-
+# inventory.md is what the absorption-completeness gate reads before the
+# standalone re-frame.ui artifact is deleted, and a deletion gate that can
+# silently shrink is worse than no gate — it produces a confident wrong answer
+# at exactly the moment it matters. Its checker censuses live donor consumers
+# across the whole working tree, which is why it belongs on this unfiltered job
+# rather than a path-filtered one: a `re-frame.ui` require added anywhere in the
+# repo is precisely what it is looking for. Stdlib Python, ~1 second.
+#
+# The job id and display name stay `index` / `Freehand conformance index` even
+# though the job now proves two ledgers: that string is the status context the
+# branch ruleset requires, and renaming it would silently drop the requirement.
 
 on:
   push:
@@ -30,6 +44,7 @@ on:
     paths:
       - 'spec/conformance/freehand/**'
       - 'scripts/check_freehand_conformance_index.py'
+      - 'scripts/check_donor_inventory.py'
       - 'scripts/check_doc_slugs.py'   # supplies the shared slug index
       - 'requirements.txt'
       - '.github/workflows/freehand-conformance.yml'
@@ -68,3 +83,11 @@ jobs:
 
       - name: Validate the Freehand conformance index
         run: python scripts/check_freehand_conformance_index.py --verbose
+
+      # Same order and the same reason: a coverage gate that has only ever run
+      # against a ledger it already passes has not been tested.
+      - name: Self-test the donor-inventory gate
+        run: python scripts/check_donor_inventory.py --self-test --verbose
+
+      - name: Validate the donor inventory
+        run: python scripts/check_donor_inventory.py --ci --report
