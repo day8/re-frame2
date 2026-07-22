@@ -203,6 +203,68 @@ Because the structural lowering is host-neutral, a compiled declaration answers
 the same structural tree on the JVM and in ClojureScript, and that tree is the
 one its interpreted twin is pinned to.
 
+### Crossing into an interpreted child
+
+Promotion is per declaration and not transitive, so a compiled body mounting a
+child is the ordinary case rather than the exception. [004](004-Views.md#cross-mode-children)
+owns the call contract; what this grammar owns is how the crossing is lowered.
+
+A statically named internal-view head lowers to **exactly one emitted boundary
+call** — one call, whichever mode the child was declared in, taking the props
+map the compiler settled and the child values it built. The count is the claim:
+one lexical crossing site emits one boundary, and a site inside a keyed list
+still emits one, mounting once per row at render.
+
+Three properties follow, and each is proven rather than asserted:
+
+1. **No interpreter enters through the crossing.** The emitted call carries
+   already-structural children and no markup forms, so a compiled parent never
+   hands a form to a child to walk. The emitted lowering names no entry point
+   into the interpreted walk — the oracle above.
+2. **The call normalization is shared, not duplicated.** `:key` stripping, the
+   reserved `:children` slot and the declared children policy run in the one
+   normalizer the interpreted walk runs, on the same props map, so they cannot
+   mean one thing in a compiled parent and another in an interpreted one.
+3. **The head is static.** A runtime-chosen head is not v1 grammar; dynamic head
+   selection lives inside the interpreted child, where a runtime value legally
+   decides what to render.
+
+### Manifests mark the crossing
+
+A compiled declaration carries a **manifest**: what its analysis makes
+statically knowable about it, as plain data. Every compiled declaration MUST
+carry one, and an interpreted declaration MUST NOT — the interpreted mode has no
+finite grammar and no analysis step, so there is nothing it could honestly
+claim, and `nil` says exactly that.
+
+```clojure
+{:view-id   :app.people/people-list
+ :grammar   :re-frame.freehand/v1
+ :crossings [{:view-id :app.people/person-row
+              :lowering :compiled    :path [0 :for]}
+             {:view-id :re-frame.freehand/markup
+              :lowering :interpreted :path [1]}]}
+```
+
+`:crossings` is the roster of internal-view boundaries the body mounts, in
+source order, **one entry per lexical site**, each MARKED with the mode it
+crosses into. `:lowering` is `:interpreted`, `:compiled`, or `:unknown` — and
+`:unknown` is a real answer, not a failure: a forward-declared head is a view
+whose declaration the compiler has not seen, and a manifest that guessed would
+be claiming evidence it does not have.
+
+The crossings marked `:interpreted` are the view's **interp slots**. They are
+what makes the compiled tier's honesty mechanical: a reader of a manifest can
+see where a declaration stops being compiled without reading its source, and a
+declaration cannot appear wholly compiled in an inventory while running a large
+fraction of its work interpreted.
+
+Sites and mounts are different quantities and MUST NOT be conflated. The
+manifest names **sites** — a static, per-declaration fact. Occurrence evidence
+counts **mounts** under the `:interp-slots` column — a runtime, per-occurrence
+fact, and one interp slot inside a keyed list contributes one mount per row.
+Neither is derivable from the other, which is why both exist.
+
 ## The portability law and the template AST
 
 **A portable view has one deterministic, serialisable template representation, produced

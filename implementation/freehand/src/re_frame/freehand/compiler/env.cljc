@@ -68,9 +68,13 @@
    ;; `:diagnostics` carries the compile-tier a11y findings (S4-C) — INCLUDING
    ;; suppressed ones, which stay manifest facts with their reason but never
    ;; print. Every other kind is a lowering/ownership site.
+   ;; `:views` is the CROSSING index — one entry per lexically visible
+   ;; internal-view boundary in the body, in source order, each carrying the
+   ;; lowering the child declaration reports. It is what makes a compiled
+   ;; manifest able to say where this body stops being compiled (D010).
    :sites     (atom {:events [] :subs [] :htmls [] :frame-ops []
                      :slots [] :locals [] :effects [] :dispatch-fns [] :react []
-                     :diagnostics []})})
+                     :views [] :diagnostics []})})
 
 (defn warn! [env w]
   (swap! (:warnings env) conj w)
@@ -184,6 +188,27 @@
     (not= :none policy)
     (boolean (:rf.ui/children? m))))
 
+(def lowerings
+  "The closed roster of answers [[view-lowering]] gives.
+
+  `:unknown` is a real answer and not a failure: a forward-declared head
+  (`(declare ^:rf.ui/view b)`) is a view whose declaration the compiler has
+  not seen, and a manifest that guessed would be claiming evidence it does
+  not have (D010 — a compiled manifest is honest about where what is
+  statically known stops)."
+  #{:interpreted :compiled :unknown})
+
+(defn view-lowering
+  "The execution mode the resolved var metadata `m` reports for a declared
+  view — the marker `v/defview` stamps alongside `:re-frame.freehand/view`,
+  so a compiled parent can see which of its child boundaries CROSS back into
+  the interpreted mode without loading the child's runtime value.
+
+  One rule and no special cases: a declaration that did not say is
+  `:unknown`."
+  [m]
+  (get m :re-frame.freehand/lowering :unknown))
+
 (defn view-id-of
   "The view id a resolved internal view registers under: explicit
   :rf.ui/view-id meta (from an :id override) or the family-rule
@@ -194,7 +219,9 @@
 
 (defn classify-head
   "Q5: classify a symbol head. -> {:kind :view|:foreign :sym sym
-  :fqn fqn|nil :view-id kw?} or throws for unresolvable heads."
+  :fqn fqn|nil :view-id kw? :lowering kw?} or throws for unresolvable
+  heads. `:lowering` rides an internal-view head only — it is the CROSSING
+  fact, and a foreign boundary has no Freehand mode to report."
   [env sym]
   (cond
     (contains? (:locals env) sym)
@@ -206,15 +233,19 @@
                 "React element meanwhile")
            {:head sym})
 
+    ;; The declaration being compiled: a self-recursive head mounts THIS
+    ;; view, and this view is the one the compiled front end is lowering, so
+    ;; the mode is settled without resolving a var that need not exist yet.
     (and (:self env) (= sym (:self env)))
     {:kind :view :sym sym :fqn (symbol (str (:ns env)) (str sym))
-     :view-id (:self-id env)}
+     :view-id (:self-id env) :lowering :compiled}
 
     :else
     (if-let [{:keys [fqn meta]} (resolve-sym env sym)]
       (cond
         (declared-view? meta)
-        {:kind :view :sym sym :fqn fqn :view-id (view-id-of fqn meta)}
+        {:kind :view :sym sym :fqn fqn :view-id (view-id-of fqn meta)
+         :lowering (view-lowering meta)}
         ;; a re-frame.freehand.react/lazy component: a foreign head that IS callable on
         ;; the JVM structural render (it renders its fallback / nothing), so the
         ;; JVM emitter invokes it instead of raising the foreign host-op. Detected

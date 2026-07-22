@@ -1,0 +1,89 @@
+;; FH-CALL-005 — `v/markup`, the declared boundary a markup VALUE crosses at.
+;;
+;; D010 gives the compiled tier no dynamic-markup valve: there is no
+;; `v/interp`, and no arm that walks a child expression whose value turns
+;; out to be markup. The recovery for "markup already in hand" is an
+;; ordinary declared interpreted child, mounted the ordinary way.
+;;
+;; Every row below renders through a COMPILED parent, because that is the
+;; only situation in which the boundary earns its keep — an interpreted
+;; parent would simply write the markup where it goes. The expected trees
+;; pin the thing that makes this a boundary rather than a valve: the child
+;; is a REAL node with its own view id, its own recorded props, and its own
+;; expansion beneath it. Nothing is inlined into the compiled parent's
+;; structure.
+{:fh/id "FH-CALL-005"
+ :fh/law
+ "[v/markup {:value markup}] mounts markup held as a value through an ordinary declared interpreted child: the value renders, and the child owns its own boundary node, recorded props and expansion rather than being inlined into the compiled parent."
+
+ ;; The view id `v/markup` registers under — a framework view is declared
+ ;; the ordinary way, in the public door's own namespace.
+ :view-id :re-frame.freehand/markup
+
+ ;; It accepts no children: the value IS the content, and a dropped child
+ ;; would be a silent loss.
+ :children-policy :none
+ :lowering :interpreted
+
+ ;; Each case mounts `crossing-views/markup-host`, a compiled parent whose
+ ;; whole body is [:section.host [v/markup {:value value}]].
+ :cases
+ [{:note  "a hiccup vector renders as the child's own expansion"
+   :value [:p.hint "type a name"]
+   :tree
+   {:view-id  :fh/parent
+    :props    {:value [:p.hint "type a name"]}
+    :children [{:tag :section :attrs {:class "host"}
+                :children
+                [{:view-id  :re-frame.freehand/markup
+                  :props    {:value [:p.hint "type a name"]}
+                  :children [{:tag :p :attrs {:class "hint"}
+                              :children ["type a name"]}]}]}]
+    :rf.ui/tree-version 1}}
+
+  {:note  "a seq of markup splices into the child, not into the parent"
+   :value ([:li "a"] [:li "b"])
+   :tree
+   {:view-id  :fh/parent
+    :props    {:value ([:li "a"] [:li "b"])}
+    :children [{:tag :section :attrs {:class "host"}
+                :children
+                [{:view-id  :re-frame.freehand/markup
+                  :props    {:value ([:li "a"] [:li "b"])}
+                  :children [{:tag :li :children ["a"]}
+                             {:tag :li :children ["b"]}]}]}]
+    :rf.ui/tree-version 1}}
+
+  {:note  "text is content, and a number takes the host-neutral spelling"
+   :value ("count: " 3)
+   :tree
+   {:view-id  :fh/parent
+    :props    {:value ("count: " 3)}
+    :children [{:tag :section :attrs {:class "host"}
+                :children
+                [{:view-id  :re-frame.freehand/markup
+                  :props    {:value ("count: " 3)}
+                  :children ["count: 3"]}]}]
+    :rf.ui/tree-version 1}}
+
+  {:note  "no markup is still a boundary — the child stays addressable"
+   :value nil
+   :tree
+   {:view-id  :fh/parent
+    :props    {:value nil}
+    :children [{:tag :section :attrs {:class "host"}
+                :children [{:view-id :re-frame.freehand/markup
+                            :props   {:value nil}}]}]
+    :rf.ui/tree-version 1}}]
+
+ ;; ONE lexical crossing site, mounted once per row — the distinction the
+ ;; manifest (which names sites) and the evidence column (which counts
+ ;; mounts) exist to keep apart. Rendered through
+ ;; `crossing-views/markup-rows`.
+ :mount-count
+ {:note  "one interp slot in the manifest, one mount per row in the tree"
+  :rows  [{:id 1 :value [:li "a"]}
+          {:id 2 :value [:li "b"]}
+          {:id 3 :value nil}]
+  :interp-slots 1
+  :mounts       3}}
