@@ -31,6 +31,7 @@
             [re-frame.substrate.plain-atom  :as plain-atom]
             [re-frame.test-support          :as test-support]
             [re-frame.ui.reactive           :as reactive]
+            [re-frame.ui.tool               :as tool]
             [re-frame.ui.tool.evidence      :as evidence]))
 
 (use-fixtures :each
@@ -556,13 +557,17 @@
 
 (defn- legacy-accrual
   "The exact accrual a PRE-projection head accreted: RAW target keys, claimed
-  exact — its copier did not exist yet, so it had nothing to be inexact about."
+  exact — its copier did not exist yet, so it had nothing to be inexact about.
+  Every pre-projection head ALSO predates the disposal-cause rename
+  (rf2-ao46i), so the true legacy cause spelling is `:value` — seeding
+  `#{:subscription}` here would mask the very transition migration must
+  canonicalize."
   [targets dropped]
   {:first-epoch    1
    :latest-epoch   2
    :count          3
    :batches        1
-   :causes         #{:subscription}
+   :causes         #{:value}
    :targets        (vec targets)
    :targets-exact? true
    :dropped        (set dropped)
@@ -578,6 +583,11 @@
 ;; copier still returned metadata-bearing symbols verbatim, then kept over the
 ;; copier fix. A store stamped with it must be treated as legacy (rf2-1hob1).
 (def ^:private v2-tag :re-frame.ui.tool.evidence/weak-cell-entries-v2)
+
+;; The prior contract tag (`::weak-cell-entries-v3`) — current at the heads
+;; BEFORE the disposal-cause rename (rf2-ao46i), so an ordinary same-owner HMR
+;; store can carry it over accruals whose cause set still says `:value`.
+(def ^:private v3-tag :re-frame.ui.tool.evidence/weak-cell-entries-v3)
 
 (deftest compatible-hmr-sanitizes-a-legacy-strong-map-store
   ;; The pre-weak head kept `:entries` as a STRONG persistent map keyed by
@@ -623,7 +633,8 @@
         (is (= 1 (:batches ev)))
         (is (= 1 (:first-epoch ev)))
         (is (= 2 (:latest-epoch ev)))
-        (is (= #{:subscription} (:causes ev))))
+        (is (= #{:subscription} (:causes ev))
+            "the pre-rename :value cause reads canonicalized, never verbatim"))
       (is (= bounded-evidence-keys
              (set (keys (:evidence (entry-for ::legacy-direct)))))
           "migration adds no keys"))
@@ -786,6 +797,46 @@
        (is (true? (gc-until #(nil? (.get ^java.lang.ref.WeakReference ref))))
            "the re-projected v2 store no longer roots its own weak key")
        (is (= [] (evidence/projection))))))
+
+(deftest compatible-hmr-canonicalizes-a-v3-tagged-pre-rename-cause-set
+  ;; rf2-ao46i [the #6589 audit rider]. `::weak-cell-entries-v3` was current
+  ;; BEFORE the disposal-cause rename, so an ordinary same-owner HMR store
+  ;; tagged v3 can retain `:causes #{:value}`. `weak-store-current?` trusted
+  ;; that tag (skipping sanitation) and `reproject-accrual` carried causes
+  ;; verbatim, so the stale row later unioned with a fresh `:subscription`
+  ;; delivery and `explain-render` exposed `#{:value :subscription}` — a
+  ;; two-vocabulary set the consumer contract (:subscription/:hmr/:disposed)
+  ;; forbids. RED before the v4 tag bump + cause canonicalization; observed
+  ;; through the PUBLIC explain-render path, the surface whose contract the
+  ;; union violated.
+  (is (true? (evidence/install! ::tool-a)))
+  (let [state* @#'evidence/state*
+        cell   (connect-empty! (reactive/make-cell ::v3-pre-rename))
+        store  (:entries @state*)]
+    (#'evidence/store-seed-entry!
+     store cell
+     (legacy-entry 5 ::v3-pre-rename
+                   (legacy-accrual [[:sub fid [::q 1]]] [])))
+    ;; stamp the pre-rename current tag over the seeded store
+    (swap! state* assoc-in [:entries tag-key] v3-tag)
+
+    (is (true? (evidence/install! ::tool-a)) "the reload re-arms the same owner")
+
+    ;; fresh post-rename movement unions into the SAME retained accrual
+    (publish-target! (evidence/installed-sink) cell [:sub fid [::q 2]])
+
+    (testing "the retained :value canonicalizes — no two-vocabulary union"
+      (let [occ (first (:occurrences (tool/explain-render ::v3-pre-rename)))]
+        (is (some? occ) "the migrated row reaches the public projection")
+        (is (= #{:subscription} (:causes occ))
+            "explain-render speaks exactly the unified vocabulary — the
+            retained :value reads as :subscription, never alongside it")
+        (is (= 5 (:occurrence occ)) "the ordinal survives the migration")))
+
+    (testing "the store is re-tagged current, so repeat HMR is idempotent"
+      (let [before (evidence/projection)]
+        (is (true? (evidence/install! ::tool-a)))
+        (is (= before (evidence/projection)))))))
 
 ;; ===========================================================================
 ;; Cross-batch loss honesty (the rf2-vxgfnd.74 axis, cumulative tier)

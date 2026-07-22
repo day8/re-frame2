@@ -238,8 +238,26 @@
          :else
          [dynamic-marker false])))))
 
+(defn- canonicalize-causes
+  "Rewrite the pre-rename disposal-cause spelling `:value` to today's
+  `:subscription` in one ingress cause set (rf2-ao46i, RULING 2). Fresh
+  deliveries already speak the unified `:subscription`/`:hmr`/`:disposed`
+  vocabulary, but a RETAINED accrual — or a pending window carried across a
+  reload — minted before the rename can still say `:value`, and carrying it
+  verbatim would union with fresh `:subscription` into the two-vocabulary set
+  the consumer contract forbids. One spelling rewrite at the shared
+  normalization choke point, not a compatibility layer."
+  [causes]
+  (if (contains? causes :value)
+    (-> causes (disj :value) (conj :subscription))
+    causes))
+
 (defn- project-batch-evidence
-  "Replace delivered target identities with bounded non-owning EDN copies.
+  "Replace delivered target identities with bounded non-owning EDN copies,
+  and canonicalize the cause vocabulary (`canonicalize-causes`) — BOTH ingress
+  paths (fresh delivery via `accrete-evidence`, retained-row migration via
+  `reproject-accrual`) normalize here, so no pre-rename `:value` spelling
+  survives into a retained value or a projection read.
   Loss is explicit: `:targets-exact?` covers both shown and dropped target
   identity. `:dropped-exact?` also becomes false after any such loss because
   opaque collisions mean cumulative omitted-target cardinality is no longer
@@ -257,6 +275,7 @@
         (assoc :targets targets
                :dropped dropped
                :targets-exact? targets-exact?)
+        (update :causes canonicalize-causes)
         (cond-> (or (false? (:dropped-exact? ev))
                     (not targets-exact?))
           (assoc :dropped-exact? false)))))
@@ -337,8 +356,12 @@
   This IS the delivery path — `project-batch-evidence` then `fold-target` —
   so a migrated row is indistinguishable from one accreted fresh: the same
   bounded shown sample, the same distinct-loss partition, the same honesty.
-  Counters (`:count`, `:batches`, epochs, causes) are already bounded plain
-  data and carry over verbatim; `:targets` keeps its first-seen order.
+  Counters (`:count`, `:batches`, epochs) are already bounded plain data and
+  carry over verbatim; `:targets` keeps its first-seen order. The cause set is
+  bounded but NOT vocabulary-neutral: a store minted before the disposal-cause
+  rename retains `:value` where today's contract says `:subscription`, so the
+  causes carry over through the normalization's `canonicalize-causes` — never
+  verbatim (rf2-ao46i).
 
   Exactness only ever LOWERS. Re-projection can discover loss the legacy record
   never marked, but it can never prove an exactness the legacy floor already
@@ -349,7 +372,7 @@
   (let [acc0 (merge empty-accrual acc)
         ev   (project-batch-evidence acc0)]
     (-> acc0
-        (assoc :targets [] :dropped #{})
+        (assoc :causes (:causes ev) :targets [] :dropped #{})
         (as-> a (reduce fold-target a (concat (:targets ev) (:dropped ev))))
         (cond-> (false? (:targets-exact? ev)) (assoc :targets-exact? false)
                 (false? (:dropped-exact? ev)) (assoc :dropped-exact? false)))))
@@ -365,18 +388,24 @@
 
 (def ^:private ^:const weak-store-tag
   ;; The CURRENT retained-value contract version. A store carrying EXACTLY this
-  ;; tag has had every entry through today's `project-target-value`; any other
-  ;; shape — an older tag, or the untagged defrecord/strong-map stores left by
-  ;; earlier heads — is LEGACY, and its entries are re-projected on migration
-  ;; (rf2-vxgfnd.94.18). BUMP THIS whenever the copier changes what a retained
-  ;; value may hold: v1 admitted metadata-bearing symbols, whose metadata could
-  ;; hold the very ViewCell the entry is weak-keyed by (rf2-vxgfnd.94.17). v2 was
-  ;; minted at an intermediate head whose copier ALSO returned those symbols
-  ;; verbatim, and the copier was then FIXED under the same v2 tag — so a store
-  ;; HMR-migrated at that head carries a v2 tag over metadata-bearing values and
-  ;; would be trusted forever. v3 rejects every pre-final store and re-projects
-  ;; it (rf2-1hob1).
-  ::weak-cell-entries-v3)
+  ;; tag has had every entry through today's normalization (the
+  ;; `project-target-value` copier AND the cause-vocabulary canonicalization);
+  ;; any other shape — an older tag, or the untagged defrecord/strong-map
+  ;; stores left by earlier heads — is LEGACY, and its entries are re-projected
+  ;; on migration (rf2-vxgfnd.94.18). BUMP THIS whenever normalization changes
+  ;; what a retained value may hold: v1 admitted metadata-bearing symbols,
+  ;; whose metadata could hold the very ViewCell the entry is weak-keyed by
+  ;; (rf2-vxgfnd.94.17). v2 was minted at an intermediate head whose copier
+  ;; ALSO returned those symbols verbatim, and the copier was then FIXED under
+  ;; the same v2 tag — so a store HMR-migrated at that head carries a v2 tag
+  ;; over metadata-bearing values and would be trusted forever. v3 rejects
+  ;; every pre-final store and re-projects it (rf2-1hob1). v3 was ALSO current
+  ;; before the disposal-cause rename (:value → :subscription, rf2-ao46i), so
+  ;; a same-owner HMR store tagged v3 can retain :causes #{:value}; trusting
+  ;; that tag would skip the sanitation pass that canonicalizes the spelling,
+  ;; and the stale row would later union with fresh :subscription and egress a
+  ;; two-vocabulary set through explain-render. v4 forces that one pass.
+  ::weak-cell-entries-v4)
 
 (def ^:private ^:const weak-store-tag-key ::weak-cell-entries)
 

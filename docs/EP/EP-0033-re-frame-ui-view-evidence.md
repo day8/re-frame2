@@ -127,7 +127,9 @@ capture machine, never a general evidence framework):
 - `:mount` — the first connected commit (`:fresh`→`:connected`); a bare `{:cause :mount}`.
 - `:subscription` — a value-movement port note carrying its ruled detail
   `{:target :query :frame-id :from :to :epoch}` (coalesced: earliest `:from`, latest
-  `:to`). Renamed from the port's `:value` on the record surface.
+  `:to`). The port note itself carries the `:subscription` keyword (unified
+  port-wide from the original `:value` — rf2-ao46i), so the record adopts it
+  unchanged.
 - `:story-override` — a (re)acquired static Story-override target, carrying
   `{:override-id :version}`.
 - `:local-state` — the substrate-owned local writer bridge (gated on an `Object.is`
