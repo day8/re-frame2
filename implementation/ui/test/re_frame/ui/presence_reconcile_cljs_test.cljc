@@ -63,6 +63,20 @@
            (phases next))
         "b holds its slot as :unmounting; d appends at the end")))
 
+(deftest incoming-reorder-is-ignored
+  ;; The blessed order contract (rf2-1kb0v): children render in FIRST-APPEARANCE
+  ;; order. EVERY kept key — not only a retained :unmounting one — holds its
+  ;; committed slot, so an incoming reorder of still-:present keys changes
+  ;; nothing, and a new key appends at the tail even when it arrives first in
+  ;; the incoming vector.
+  (let [committed [{:key "a" :phase :present} {:key "b" :phase :present}]]
+    (testing "committed [a b] + incoming [b a] -> entries stay [a b], both :present"
+      (is (= [["a" :present] ["b" :present]]
+             (phases (presence/reconcile committed ["b" "a"])))))
+    (testing "a prepended new key still appends at the tail: incoming [x a b] -> [a b x]"
+      (is (= [["a" :present] ["b" :present] ["x" :mounting]]
+             (phases (presence/reconcile committed ["x" "a" "b"])))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Idempotence — a StrictMode double-render is harmless
 ;; ---------------------------------------------------------------------------
