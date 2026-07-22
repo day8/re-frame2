@@ -1515,9 +1515,11 @@ React or Reagent idiom.
 
 ### Repository evidence and donor code
 
-- `spec/004-Views.md` — the current donor-era compiled view language; EP-0036
-  moves this content to `004D-Freehand-Compiled-Grammar.md` and makes 004 the
-  common Freehand view contract.
+- `spec/004D-Freehand-Compiled-Grammar.md` — the donor-era compiled view language,
+  moved here by EP-0036's ownership cut; it owns the compiled tier only.
+- `spec/004-Views.md` — the common Freehand declaration, authoring, semantic, and
+  host-boundary contract, established as a skeleton by the same cut; each section
+  lands with its vertical slice.
 - `spec/004B-UI-Tree-and-Conversion.md` — semantic tree and conversion tables.
 - `spec/004C-Roots-and-Mount.md` — Root Descriptor, identity, preflight, hydration,
   mount, and teardown.
