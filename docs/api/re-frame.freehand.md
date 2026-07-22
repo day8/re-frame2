@@ -26,8 +26,8 @@ mint a value that passes `v/view?` and classifies as an internal boundary while
 carrying no view-id, no source and no lowering — `v/defview` is the only way to
 create a mounted boundary, and where the constructor lives is what enforces it.
 
-The roster below is the whole door today. `v/mount`, `v/sub`, the host boundary and
-the compiled tier are declared vacancies that land with their own EP-0036 slices.
+The roster below is the whole door today. `v/mount`, the host boundary and the
+compiled tier are declared vacancies that land with their own EP-0036 slices.
 
 ## Declaration
 
@@ -134,6 +134,44 @@ the compiled tier are declared vacancies that land with their own EP-0036 slices
   than leaving a reader to assume it does not. `nil` for an interpreted declaration
   is the honest answer, not an omission. See
   [spec/004D-Freehand-Compiled-Grammar.md](../../spec/004D-Freehand-Compiled-Grammar.md#manifests-mark-the-crossing).
+
+## Subscriptions
+
+### `sub`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (sub query) → value
+  ```
+- **Description**: the paved path's **render-only reactive read**. `v/sub` resolves
+  the subscription `query` against the view's frame, returns its current **value**
+  (not a reactive reference), and records a render-owned read. The read owns nothing
+  on its own — no ref-count, no watch, no cache node — so a render the host abandons
+  leaks nothing; the SELECTED commit is what turns the record into an owned
+  dependency, published atomically with the rest of the boundary's bundle. A later
+  change to the query's value then invalidates exactly this occurrence and recommits.
+
+  It is legal **only during an active declared render**, and the capture is
+  **same-thread** — including through an ordinary `defn` helper called from the body,
+  because the render owns the read wherever the call lexically sits. A `v/sub` with
+  no active render — a REPL, a timer, a `v/event` / `v/handler` callback, a foreign
+  listener — fails loud with `:rf.error/view-read-outside-render` rather than probing
+  a value nobody owns; a read conveyed to a child thread fails with
+  `:rf.error/view-forked-capture`. Non-reactive callers use the frame-explicit
+  one-shot `rf/subscribe-once`, deliberately a `re-frame.core` verb and not a
+  Freehand one.
+
+  The value is **stabilized**: an `rf=`-equal recompute returns the exact prior value
+  object, so an equal value is not movement. The rule holds in both execution modes —
+  the compiled tier proves a finite set of read sites, the interpreted tier records
+  the reads a committed render actually made. The subscription law is
+  [spec/006-ReactiveSubstrate.md](../../spec/006-ReactiveSubstrate.md).
+- **Example**:
+  ```clojure
+  (v/defview basket-total [_]
+    [:output (v/sub [:basket/total])])
+  ```
 
 ## Callbacks and event intent
 
