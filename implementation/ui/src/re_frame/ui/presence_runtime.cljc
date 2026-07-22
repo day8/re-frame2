@@ -53,7 +53,10 @@
       it is dropped from the set only by its removal callback, never here);
     - a brand-new incoming key is appended as `:mounting`.
 
-  Retained (`:unmounting`) keys hold their slot; new keys append at the end."
+  EVERY committed key — still-`:present` and retained (`:unmounting`) alike —
+  holds its committed slot; the incoming ORDER orders only the appended new keys,
+  so children render in first-appearance order and an incoming reorder is ignored
+  (the blessed order contract, rf2-1kb0v — presence is enter/exit, not reordering)."
   [committed incoming]
   (let [incoming-set (set incoming)
         committed-keys (into #{} (map :key) committed)
