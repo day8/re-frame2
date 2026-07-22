@@ -26,6 +26,9 @@ identity, hot reload, rejected declaration forms.
 
 | Id | Law | Canonical paragraph | Applicability | Fixture | Status |
 |---|---|---|---|---|---|
+| `FH-CALL-001` | A declared view var holds a non-`IFn` descriptor value; it is not a function and not a map, so a direct call raises and can never silently succeed | [004-Views.md#the-descriptor-is-a-value-not-a-callable](../../004-Views.md#the-descriptor-is-a-value-not-a-callable) | common jvm browser | `spec/conformance/freehand/fixtures/fh-call-001.edn` | active |
+| `FH-CALL-002` | Vector-head classification is total: a descriptor is an internal boundary, a keyword is a DOM/custom element, a declared host descriptor is a foreign boundary, and anything else raises naming those three legal forms | [004-Views.md#vector-head-classification](../../004-Views.md#vector-head-classification) | common jvm browser | `spec/conformance/freehand/fixtures/fh-call-002.edn` | active |
+| `FH-CALL-003` | The inspection projection carries exactly the public descriptor ABI; the render body and the host mount/tree entries stay private, and an undeclared props schema is reported as absent rather than `:any` | [004-Views.md#the-inspection-projection](../../004-Views.md#the-inspection-projection) | common jvm browser | `spec/conformance/freehand/fixtures/fh-call-003.edn` | active |
 
 ### FH-PROPS — Props
 
@@ -34,6 +37,9 @@ optional schema semantics.
 
 | Id | Law | Canonical paragraph | Applicability | Fixture | Status |
 |---|---|---|---|---|---|
+| `FH-PROPS-001` | An internal boundary call carries exactly one props map and no positional arguments; a missing or non-map props slot is rejected | [004-Views.md#props-children-and-key](../../004-Views.md#props-children-and-key) | common jvm browser | `spec/conformance/freehand/fixtures/fh-props-001.edn` | active |
+| `FH-PROPS-002` | Trailing children arrive as the reserved `:children` vector — absent when there are none; a caller-authored `:children` is rejected and the declared children policy is enforced at the call | [004-Views.md#props-children-and-key](../../004-Views.md#props-children-and-key) | common jvm browser | `spec/conformance/freehand/fixtures/fh-props-002.edn` | active |
+| `FH-PROPS-003` | `:key` selects sibling identity, is stripped before the props map reaches the view, and is outside props equality | [004-Views.md#props-children-and-key](../../004-Views.md#props-children-and-key) | common jvm browser | `spec/conformance/freehand/fixtures/fh-props-003.edn` | active |
 
 ### FH-EVENT — Events
 

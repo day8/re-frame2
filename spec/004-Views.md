@@ -103,21 +103,219 @@ the contract.
 
 ### The descriptor and `v/defview`
 
-**Lands in:** F1 — paved-path spine. Carries the declaration form, the non-`IFn`
-descriptor value and its public inspection projection, the direct-call error, and
-the helper-versus-view call convention.
+`v/defview` is the one declaration form, and the only way to create an internal
+mounted boundary:
+
+```clojure
+(v/defview panel
+  "Optional docstring."
+  {:children-policy :optional}       ; optional options map
+  [{:keys [title children]}]         ; exactly one parameter — the props map
+  [:section.panel [:h2 title] children])
+```
+
+The parameter vector takes **exactly one argument, the props map**. There are no
+positional view arguments; ordinary map destructuring applies. The body is
+Clojure returning a semantic tree. `{:compiled true}` on the same declaration
+selects the compiled lowering ([§Selecting the compiled mode](#selecting-the-compiled-mode));
+it changes the lowering, never the view model, so promotion edits **one
+definition site and no call site**.
+
+Declared view identity is the **qualified name** — `:app.cart/cart-badge` —
+stable across recompilation, hot reload, and promotion between modes. Runtime
+generations and compiler signatures are internal facts and MUST NOT appear in any
+surface a caller can depend on.
+
+#### The descriptor is a value, not a callable
+
+`v/defview` interns a small **non-`IFn` descriptor value** and binds the var to
+it. A declared view is *mounted*, never *invoked*:
+
+- `(ifn? the-view)` and `(fn? the-view)` are **false**, on every host and in both
+  modes;
+- a direct call `(the-view props)` therefore raises at the host call site.
+
+The prohibition is load-bearing rather than stylistic. A descriptor shaped as a
+plain map would be `IFn` on both hosts, so `(the-view props)` would answer as a
+**lookup** — returning `nil`, rendering nothing, reporting no error. A
+`defrecord` would be worse: `IFn` in ClojureScript and not on the JVM, which is
+precisely the cross-host divergence one semantic model exists to remove. What the
+rule guarantees is that a direct call can never **succeed**.
+
+The host refuses that call before any framework code runs, so the raised
+exception is the host's own and the runtime cannot decorate it. The **didactic**
+direct-call diagnostic — naming the mount form and the helper recovery — is
+therefore owned by the compiled checker and by development tooling, not by the
+call site. The runtime owns the didactic diagnostic for every mistake it *can*
+observe: those are [§Vector-head classification](#vector-head-classification) and
+[§Props, children, and `:key`](#props-children-and-key).
+
+#### Views and helpers — the call convention
+
+The convention is sharp, and it is the same rule for people, tools, and generated
+edits:
+
+1. **`[view props & children]` is the only internal boundary call.** Square
+   brackets always mean "mount this named Freehand boundary."
+2. **`(helper args)` is ordinary Clojure in the current boundary.** Parentheses
+   always mean "do ordinary work inside the enclosing boundary."
+3. **A reactive read reached through a helper belongs to the enclosing declared
+   view.** A helper creates no ownership boundary at all.
+4. **Directly calling a declared view is an authoring error**, per above.
+5. **A plain function is never an internal vector head** — see
+   [§Vector-head classification](#vector-head-classification).
+
+Changing brackets to parentheses changes runtime **ownership**, not spelling:
+
+| | mounted boundary `[view props]` | inline helper `(helper args)` |
+|---|---|---|
+| reactive reads | its own; invalidation re-renders it alone | recorded against the enclosing boundary |
+| memoization | on its one props map | none — re-runs with its caller |
+| occurrence identity | its own | none |
+| event sites | its own committed per-site slots | the enclosing boundary's |
+| errors, profiling, evidence | its own | attributed to the enclosing boundary |
+
+Both granularities are legitimate. A plain helper **is** the deliberately coarse
+region; there is no region DSL and none is needed. When an inline helper later
+needs independent invalidation the move is one visible edit — `defn` →
+`v/defview`, parentheses → brackets — which is exactly where a new
+subscription-owning, memoized, error-contained boundary should surface in review.
+
+#### The inspection projection
+
+What tools, registries and catalogues read is the descriptor's **inspection
+projection**: a plain map, distinct from the runtime value.
+
+```clojure
+{:re-frame.freehand/view true
+ :view-id                :app.todo/todo-row
+ :source                 {:ns … :file … :line …}   ; per 001's capture rules
+ :lowering               :interpreted              ; or :compiled
+ :children-policy        :optional                 ; or :none, :required
+ :props-schema           <schema>}                 ; absent when none declared
+```
+
+- `:view-id` is the qualified, reload-stable identity.
+- `:lowering` reports which mode the declaration selected. It is inspection data,
+  never a dispatch surface — every view is mounted the same way.
+- `:props-schema` is **absent** when no schema was declared. Absence is reported
+  as absence, never as `:any`, so an undeclared schema stays distinguishable from
+  a declared permissive one. The schema surface itself is
+  [§Props, children, and `:key`](#props-children-and-key).
+- The descriptor's **render body**, its host **mount** entry and its structural
+  **tree** entry are private and are **not** projected. Browser heads resolve
+  through the mount entry and structural heads through the tree entry; their
+  shapes are runtime ABI, not a contract an application may depend on.
+
+The key roster is closed in both directions: an extra key is as much a defect as
+a missing one.
+
+#### Cross-mode children
+
+Interpreted and compiled descriptors MUST be mountable as children in either
+direction, through the same descriptor. An interpreted parent mounts a compiled
+descriptor exactly as it mounts an interpreted one. A compiled parent mounts a
+statically named interpreted descriptor through one emitted interpreted-child
+boundary; dynamic head selection belongs inside that interpreted child, never in
+compiled markup. The analyzer recognises the shared descriptor as an internal
+view, never as a foreign component. The grammar of that seam is
+[004D](004D-Freehand-Compiled-Grammar.md).
+
+**Conformance:** [FH-CALL-001](conformance/freehand/conformance-index.md#fh-call--calls),
+FH-CALL-003.
 
 ### Props, children, and `:key`
 
-**Lands in:** F1 — paved-path spine. Carries the one-props-map contract, the
-reserved trailing `:children` vector, sibling identity via `:key`, the
-children-policy declaration, and the props-schema seam.
+Every internal view receives **one props map**.
+
+```clojure
+(v/defview panel [{:keys [title children]}]
+  [:section.panel
+   [:h2 title]
+   children])
+
+[panel {:key panel-id :title "Details"}
+ [details {:id panel-id}]]
+```
+
+1. **One map, no positional arguments.** The mount form is
+   `[view props & children]`; `props` is a single map, `{}` when the view needs
+   nothing. A missing or non-map props slot is an error. The uniform grammar is
+   what lets a call site be read without a special case, in either mode.
+2. **Trailing children arrive as the reserved `:children` vector.** Forms after
+   the props map arrive in the props map under `:children`, and compare as one
+   slot. The key is **absent** when the call supplied no children, so a childless
+   call yields the smallest props map that can compare equal.
+3. **Caller-authored `:children` is rejected.** A `:children` key written into a
+   literal or computed props map is an authoring error — there is exactly one way
+   for children to arrive.
+4. **A view declares its children policy.** `:children-policy` is descriptor
+   metadata — `:optional` (the default), `:none`, or `:required` — and it is
+   enforced at the call. It sits outside the props schema.
+5. **`:key` selects sibling identity and is stripped before delivery.** `:key`
+   feeds occurrence identity for reconciliation; the view body never sees it, and
+   it is outside props equality, so two sibling calls differing only by key
+   deliver props that compare equal. Keys remain mandatory wherever sibling
+   identity matters — the keyed-list law is unweakened.
+
+   ```clojure
+   (v/defview todo-list [_]
+     [:ul.todo-list
+      (for [id (v/sub [:todo/visible-ids])]
+        [todo-row {:key id :id id}])])
+   ```
+
+6. **Props compare by value equality.** Boundary memoization is over the one props
+   map, and both modes share one normalizer, so both deliver the same props map
+   for the same call by construction rather than by convention.
+7. **Mutable host values belong at an explicit host boundary.** Internal props are
+   values; DOM nodes, third-party instances and other host objects cross only
+   through [§Qualified host leaves](#qualified-host-leaves).
+
+**The props-schema seam.** A declaration MAY carry a props schema; it is optional
+in `:re-frame.freehand/v1`, including for compiled application views, and
+required by build and catalogue policy for shipped reusable library views and
+wherever a report claims generated coverage. `:key` is outside the schema, and
+children policy is descriptor metadata rather than a schema slot. The schema's
+grammar, validation timing, elision and generation dependencies land with the
+compiled tier.
+
+**Conformance:** [FH-PROPS-001](conformance/freehand/conformance-index.md#fh-props--props),
+FH-PROPS-002, FH-PROPS-003.
 
 ### Vector-head classification
 
-**Lands in:** F1 — paved-path spine. Carries the total classification of a vector
-head — declared view, element keyword, declared host descriptor — and the didactic
-error for anything else.
+One rule covers every internal vector head — in the interpreter, in the compiled
+analyzer, and in the JVM structural host. The same order, the same outcome, no
+heuristic arm and no fallback:
+
+| Head | Classification |
+|---|---|
+| a Freehand descriptor | internal view boundary — mount it |
+| a keyword | a DOM or custom element |
+| a declared host descriptor | a foreign boundary ([§Qualified host leaves](#qualified-host-leaves)) |
+| anything else | **an error**, naming those three legal forms |
+
+**Totality is the contract.** There is no fourth case and an implementation MUST
+NOT add one: no bare-function heads, no string heads, no duck-typed component
+detection. A plain map is *not* a host boundary merely by being a map — the host
+arm keys off a reserved marker, so the classification stays total rather than
+duck-typed.
+
+The error names all three legal forms. When the offending head is callable it
+additionally names the recovery for the mistake this arm actually catches in the
+field — declare the function with `v/defview` to mount it as a boundary, or call
+it with parentheses as an inline helper. The offending head rides in the
+diagnostic as a **shape summary**, never as the value itself (per
+[015 §Data-Classification](015-Data-Classification.md)). Foreign React components
+are legal only through the qualified host boundary; they are not an exception for
+arbitrary internal function heads.
+
+This single rule is what keeps head resolution uniform across interpreted code,
+compiled code, the structural host, hot reload, catalogues, tools, and generated
+edits.
+
+**Conformance:** [FH-CALL-002](conformance/freehand/conformance-index.md#fh-call--calls).
 
 ### Identity, hot reload, and remount
 
@@ -248,6 +446,26 @@ retains at a view boundary; root identity and mount are
 **Lands in:** F1–F6, incrementally; consolidated at F6 — proof and retirement. Each
 slice records the donor forms its surface retires and the Freehand replacement for
 each, so the absence is a stated contract rather than an omission.
+
+### Absent at the declaration and call surface
+
+A Freehand implementation MUST NOT provide:
+
+- **callable view values.** The donor's JVM emitter produced view values that were
+  invocable as functions; they are replaced by the one shared non-`IFn`
+  descriptor. No callable compatibility layer survives, on either host, in either
+  mode. Preserving one would reintroduce the cross-host call mismatch
+  [§The descriptor is a value, not a callable](#the-descriptor-is-a-value-not-a-callable)
+  closes.
+- **bare-function boundaries.** A plain `defn` vector-called as a tracked
+  boundary. Every internal boundary is declared; the replacement is `v/defview`.
+- **dual-entry descriptors.** A declared view that is both a vector head and
+  directly callable. Brackets mount; a declared view is never invoked.
+- **a region DSL.** Render granularity is expressed by the forms that already
+  exist — a plain helper is the coarse region, a declared keyed child the fine
+  one.
+- **positional view arguments.** A view takes one props map; there is no
+  positional arity to declare or to call.
 
 ## Resolved decisions
 
