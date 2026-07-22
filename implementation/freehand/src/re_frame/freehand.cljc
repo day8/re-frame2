@@ -36,6 +36,7 @@
   Normative owner: [`spec/004-Views.md`](../../../../spec/004-Views.md);
   the published roster is [`spec/API.md`](../../../../spec/API.md)."
   (:require [re-frame.error :as error]
+            [re-frame.freehand.cell :as cell]
             [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.events :as events]
             ;; The structural node builders a COMPILED declaration's emitted
@@ -358,6 +359,56 @@
   Per [Spec 004D §Manifests mark the crossing](../../../../spec/004D-Freehand-Compiled-Grammar.md)."
        :arglists '([view])}
   manifest descriptor/manifest)
+
+;; ---------------------------------------------------------------------------
+;; The subscription law — the render-only reactive read
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 006 §The subscription law (D005). The read primitive of the paved
+;; path is one function over the atomic shell's `observe!`: a render-time
+;; resolve-and-probe that records the read on the render's own candidate,
+;; ownership-free, so an abandoned render publishes nothing and the
+;; SELECTED commit is what turns the record into an owned dependency. The
+;; capture, the same-thread rule, the outside-render diagnostic and the
+;; `rf=` stabilization all live in `re-frame.freehand.cell`; this door
+;; only names the authoring verb over them.
+
+(def ^{:doc "Read a subscription's current VALUE during render — the paved
+  path's reactive read.
+
+      (v/defview basket-total [_]
+        [:output (v/sub [:basket/total])])
+
+  `v/sub` resolves `query` against the view's frame, returns the current
+  value, and RECORDS the read on this render's candidate. The read owns
+  nothing on its own — no ref-count, no watch, no cache node — so a render
+  the host abandons leaks nothing; the SELECTED commit is what turns the
+  record into an owned dependency published with the rest of the boundary's
+  bundle. A later change to the query's value then invalidates exactly this
+  occurrence and recomputes it, and the new dependencies, event targets and
+  evidence republish atomically.
+
+  It is legal ONLY during an active declared render, and the capture is
+  SAME-THREAD — including through an ordinary `defn` helper called from the
+  body, because the render owns the read wherever the call lexically sits. A
+  `v/sub` with no active render — a REPL, a timer, a `v/event` or `v/handler`
+  callback, a foreign listener — fails loud with
+  `:rf.error/view-read-outside-render` rather than probing a value nobody
+  owns; a read conveyed to a child thread fails with
+  `:rf.error/view-forked-capture`. Non-reactive callers use the
+  frame-explicit one-shot [`rf/subscribe-once`](../../../../spec/006-ReactiveSubstrate.md#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value),
+  which resolves, probes, returns and releases without installing a
+  dependency — deliberately a `re-frame.core` verb, not a Freehand one.
+
+  The value is STABILIZED: an `rf=`-equal recompute returns the exact prior
+  value object, so an equal value is not movement. The rule is one sentence
+  and holds in both execution modes — the compiled tier proves a finite set
+  of read sites, the interpreted tier records the reads a committed render
+  actually made.
+
+  Per [Spec 006 §The subscription law](../../../../spec/006-ReactiveSubstrate.md#the-subscription-law)."
+       :arglists '([query])}
+  sub cell/observe!)
 
 ;; ---------------------------------------------------------------------------
 ;; Event intent and the callback roster
