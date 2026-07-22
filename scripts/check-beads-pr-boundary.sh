@@ -20,11 +20,36 @@
 # The base ref is supplied by the caller rather than assumed, and a missing
 # one FAILS CLOSED: a gate that cannot see the diff certifies nothing.
 #
+# WHAT IT DIFFS: THE BRANCH DELTA, NOT TWO TREE ENDPOINTS (rf2-5z20y)
+#
+#   The comparison runs from `git merge-base BASE HEAD` to HEAD — the changes
+#   this branch INTRODUCED — never from BASE's tip to HEAD.
+#
+#   A two-endpoint `git diff BASE HEAD` reports every path where the two trees
+#   differ, including paths only BASE moved. In this repository that is not a
+#   corner case: the mayor checkpoints `.beads/issues.jsonl` to main on
+#   essentially every loop tick, so any worker branch that forked before the
+#   last checkpoint would be told it had committed tracker contamination it
+#   never touched — a false RED with the wrong remedy attached, on most open
+#   branches, within minutes of this gate being wired. Reproduced on real
+#   history: branch bf8eb01b vs origin/main 1233189c reports
+#   `.beads/issues.jsonl` two-dot and reports nothing from the merge base.
+#
+#   Endpoint-only good/bad fixtures cannot see this defect, which is why it
+#   shipped green. The regression test is a DIVERGED-HISTORY SEQUENCE — fork,
+#   advance the base with a beads-only checkpoint, then assert — in
+#   scripts/git-hooks/test-pre-commit.sh (layer 5).
+#
+#   An unresolvable merge base FAILS CLOSED like a missing base ref. The usual
+#   cause is a shallow clone that does not contain the branch point; on GitHub
+#   Actions use `actions/checkout` with `fetch-depth: 0`.
+#
 # Usage:
 #   sh scripts/check-beads-pr-boundary.sh [BASE_REF]
 #
-#   BASE_REF resolution: argument, else $BEADS_BOUNDARY_BASE_REF. Run it
-#   locally against your branch point to pre-flight a PR:
+#   BASE_REF resolution: argument, else $BEADS_BOUNDARY_BASE_REF. Pass the
+#   BASE BRANCH, not a precomputed branch point — the merge base is this
+#   script's job. Run it locally to pre-flight a PR:
 #     sh scripts/check-beads-pr-boundary.sh origin/main
 #
 # Cross-platform: POSIX sh. Runs identically on the ubuntu CI runner, on
@@ -63,7 +88,19 @@ if ! git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null; then
   exit 1
 fi
 
-changed=$(git diff --name-only "$BASE" HEAD)
+# rf2-5z20y — the BRANCH DELTA, from the branch point. See the header: a
+# two-endpoint `git diff "$BASE" HEAD` blames a branch for whatever the base
+# moved after it forked, which here means the mayor's tracker checkpoints.
+BRANCH_POINT=$(git merge-base "$BASE" HEAD 2>/dev/null) || BRANCH_POINT=""
+if [ -z "$BRANCH_POINT" ]; then
+  printf 'check-beads-pr-boundary: no merge base between "%s" and HEAD.\n' "$BASE" >&2
+  printf 'Usually a shallow clone that does not contain the branch point —\n' >&2
+  printf 'on GitHub Actions use actions/checkout with fetch-depth: 0.\n' >&2
+  printf 'Failing closed: a gate that cannot see the branch delta certifies nothing.\n' >&2
+  exit 1
+fi
+
+changed=$(git diff --name-only "$BRANCH_POINT" HEAD)
 
 if printf '%s\n' "$changed" | check_beads_boundary ci; then
   printf 'No beads-database paths in this PR diff.\n'

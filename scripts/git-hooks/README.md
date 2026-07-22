@@ -185,6 +185,15 @@ It enforces on `pull_request` only — pushes to `main` **are** the mayor's
 checkpoint flow. A missing base ref fails closed: a gate that cannot see
 the diff certifies nothing.
 
+Pass the **base branch**, not a precomputed branch point. The script diffs
+from `git merge-base BASE HEAD` to `HEAD` — the changes your branch
+*introduced* (rf2-5z20y). A two-endpoint `git diff BASE HEAD` would report
+every path where the two trees differ, including paths only `main` moved,
+and since the mayor checkpoints `.beads/issues.jsonl` on essentially every
+loop tick, every branch older than the last checkpoint would be blamed for
+contamination it never committed. An unresolvable merge base — usually a
+shallow clone that lacks the branch point — fails closed too.
+
 ## Testing
 
 ```sh
