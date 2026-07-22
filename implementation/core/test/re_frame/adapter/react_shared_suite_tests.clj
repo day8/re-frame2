@@ -147,6 +147,10 @@
    {:test 'rts-published-through-chain
     :fn   'assert-set-hiccup-emitter-published-through-chain}
 
+   {:section "element-slot CLJS-data guard (rf2-p6f6u (c))"}
+   {:test 'render-rejects-cljs-data-render-tree
+    :fn   'assert-render-rejects-cljs-data-render-tree}
+
    {:section "late-bind hook publication set (*_late_bind_publication)"}
    {:test 'late-bind-publishes-expected-set
     :fn   'assert-adapter-publishes-expected-hook-set}

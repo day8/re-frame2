@@ -3044,6 +3044,79 @@
             (when-let [u @unmount]
               (try (act-fn (fn [] (u))) (catch :default _ nil))))))))))
 
+;; ---- element-slot CLJS-data guard (rf2-p6f6u (c)) --------------------------
+;;
+;; The React-hook spine's `make-render` is an ELEMENT-shaped slot. Handing it
+;; CLJS data (a hiccup vector / seq / map) used to let React spray one cryptic
+;; "Objects are not valid as a React child" error per child; the spine now
+;; fails loud FIRST — one structured `:rf.error/hiccup-on-element-render-slot`
+;; thrown BEFORE any root is created, with an EP-0015-safe shape summary
+;; (never the raw tree). The guard also covers, by construction, every
+;; internal hiccup aggregator that funnels through the adapter `:render` slot
+;; (Xray's `panels.cljs` mount-<panel>! fns — the ungated failure shape
+;; rf2-p6f6u names).
+
+(defn assert-render-rejects-cljs-data-render-tree
+  "rf2-p6f6u (c): hiccup / seq / map handed to the element-shaped `:render`
+  slot raises ONE structured `:rf.error/hiccup-on-element-render-slot`
+  (thrown before root creation, so it is node-safe to assert), and a
+  legitimate React element passes the guard — proven directly against the
+  spine predicate on every runtime, and end-to-end through the adapter's
+  `:render` slot on a browser runtime."
+  [{:keys [name]}]
+  (testing (str name " — render slot rejects CLJS data with one structured diagnostic")
+    (doseq [[label tree] [["hiccup vector" [:div "hiccup-secret-xyzzy"]]
+                          ["seq"           (list [:div "hiccup-secret-xyzzy"])]
+                          ["map"           {:hiccup "hiccup-secret-xyzzy"}]]]
+      (let [thrown (try (substrate-adapter/render tree nil {}) nil
+                        (catch :default e e))]
+        (is (some? thrown)
+            (str label " is rejected by the element-slot guard (thrown "
+                 "BEFORE any root is created — no mount-point needed)"))
+        (when thrown
+          (let [data (ex-data thrown)]
+            (is (= :rf.error/hiccup-on-element-render-slot (:rf.error/id data))
+                ":rf.error/id names the canonical error discriminator")
+            (is (string? (:reason data)) ":reason is the human sentence")
+            (is (str/includes? (ex-message thrown)
+                               "[:rf.error/hiccup-on-element-render-slot]")
+                "the message carries the greppability token (Spec 009
+                 §The thrown-error shape rule 4)")
+            ;; EP-0015: the raw tree never rides the ex-data — shape only.
+            (is (nil? (:render-tree data))
+                "no raw :render-tree slot (EP-0015)")
+            (is (some? (:render-tree/summary data))
+                ":render-tree/summary describes the tree's SHAPE")
+            (is (not (re-find #"xyzzy" (pr-str data)))
+                "no tree content leaked into the thrown ex-data"))))))
+  (testing (str name " — a legitimate React tree passes the guard")
+    ;; Node-safe positive leg: the exact predicate `make-render` gates on.
+    (doseq [[label tree] [["React element" (React/createElement "div" nil "ok")]
+                          ["string node"   "just text"]
+                          ["nil node"      nil]]]
+      (is (false? (spine/cljs-data-render-tree? tree))
+          (str label " passes the element-slot guard")))
+    ;; Browser-only end-to-end leg: a real element mounts + unmounts
+    ;; through the adapter's :render slot with the guard in place.
+    (with-browser-act
+     (fn [act-fn]
+      (let [mount-node (make-mount-node!)
+            unmount    (atom nil)]
+        (try
+          (act-fn (fn []
+                    (reset! unmount
+                            (substrate-adapter/render
+                              (React/createElement "div" nil "guard-pass")
+                              mount-node {}))))
+          (is (fn? @unmount)
+              "a legitimate React element mounts through :render (guard
+               does not fire) and returns an unmount thunk")
+          (is (str/includes? (.-textContent mount-node) "guard-pass")
+              "the element's DOM committed")
+          (finally
+            (when-let [u @unmount]
+              (try (act-fn (fn [] (u))) (catch :default _ nil))))))))))
+
 ;; ---- native-root hydration-mismatch adoption reporter (rf2-qfz65) --------
 ;;
 ;; A native UIx root is a React-ELEMENT root: neither the hiccup
