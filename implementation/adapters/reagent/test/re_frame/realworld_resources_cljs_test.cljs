@@ -62,6 +62,11 @@
             [re-frame.resources.state :as state]
             [re-frame.resources.test-support]
             [re-frame.routing :as routing]
+            ;; the shared node window/history/location stub (rf2-y6e2zb) — the
+            ;; existing browser seam the ui-arm url-strategy pins below drive
+            ;; the ingress `:decode` leg through (rf2-nn5s8 audit rider).
+            [re-frame.routing-browser-test-support
+             :refer [with-window-stub-fixture]]
             ;; the framework trace-ring buffer (Spec 009) — cleared around each
             ;; test body so this dispatching suite leaves no trace residue for a
             ;; later cross-cutting tooling test (e.g. the Xray/Story panel e2e
@@ -70,6 +75,10 @@
             ;; the example's production source — chains in every feature ns.
             [realworld-resources.core :as core]
             [realworld-resources.scope :as scope]
+            ;; the example's shared route table + the two ENTRY-SPECIFIC url
+            ;; strategies (already loaded via core; aliased for the ui-arm
+            ;; url-strategy pins — rf2-nn5s8 audit rider).
+            [realworld-resources.routing :as app-routing]
             ;; The shared WIRE contract (User / UserResponse) + this app's durable
             ;; app-db schemas (AuthSlice), for the default-frame validator
             ;; regression (rf2-3fc89f.32).
@@ -1339,3 +1348,64 @@
             "an unmatched URL is not gated — the guard leaves it alone")
         (is (= crumb (return-to f))
             "an unmatched URL leaves the existing crumb untouched — no spurious re-stash")))))
+
+;; ============================================================================
+;; UI-ARM URL STRATEGY — entry-specific deployment base (rf2-nn5s8 audit rider)
+;; ============================================================================
+;;
+;; The re-frame.ui arm (`ui_core.cljs`, build `:examples/realworld-resources-ui`)
+;; is served under its OWN mount, `/realworld-resources-ui` — a prefix-sharing
+;; SIBLING of the Reagent arm's `/realworld-resources`, not a path under it.
+;; PR #6648 shipped the ui entry reusing the Reagent arm's `url-strategy`, so
+;; the shell booted into not-found and every generated link targeted the
+;; Reagent mount (the audit's browser repro). These pins prove the repaired
+;; entry-specific `url-strategy-ui` at the framework's REAL consult points —
+;; ingress `:decode` against the shared node window stub feeding the shared
+;; route table, and egress `route-link` href synthesis — while the examples
+;; tree itself stays test-free (rf2-8cevm).
+
+(deftest ui-arm-url-strategy-decodes-and-links-its-own-mount
+  (testing "ingress: the ui strategy decodes its own served mount — the initial
+            boot URL resolves home, a deep link resolves its route — and the
+            Reagent strategy pins WHY the ui entry may not reuse it"
+    (with-window-stub-fixture
+      (fn []
+        ;; INITIAL DECODE at the ui build's served mount root: the boot URL the
+        ;; frame's first URL→route sync feeds is the app root — the home route's
+        ;; own `"/"` pattern. (Home ownership of `"/"` is the app's `reg-route`
+        ;; declaration; a global `match-url` pin on `"/"` would be test-BUNDLE
+        ;; ambiguous — other co-loaded example apps also register `"/"`.)
+        (.pushState js/globalThis.window.history nil "" "/realworld-resources-ui/")
+        (is (= "/" ((:decode app-routing/url-strategy-ui)))
+            "the ui mount root decodes to the app root — the home boot URL")
+        ;; DEEP LINK under the ui mount, through to route resolution.
+        (.pushState js/globalThis.window.history nil ""
+                    "/realworld-resources-ui/article/how-it-works")
+        (is (= "/article/how-it-works" ((:decode app-routing/url-strategy-ui)))
+            "a deep link under the ui mount decodes to its app-relative path")
+        (is (= {:route-id :realworld.article/show :params {:slug "how-it-works"}}
+               (-> (routing/match-url ((:decode app-routing/url-strategy-ui)))
+                   (select-keys [:route-id :params])))
+            "…which resolves the article route with its slug")
+        ;; THE AUDIT DEFECT, PINNED. `/realworld-resources` is a prefix-sharing
+        ;; SIBLING of `/realworld-resources-ui`, not a segment ancestor — the
+        ;; Reagent strategy fails safe (no strip), so the router receives the
+        ;; raw mount URL, which matches no app route and boots the shell into
+        ;; not-found. This is the Page-not-found repro that reopened rf2-nn5s8.
+        (.pushState js/globalThis.window.history nil "" "/realworld-resources-ui/")
+        (is (= "/realworld-resources-ui/" ((:decode app-routing/url-strategy)))
+            "the Reagent strategy leaves the sibling ui URL unstripped — why the ui entry declares its own"))))
+  (testing "egress: a route-link rendered on the ui entry's frame config targets
+            the ui mount; the Reagent arm's links still target ITS mount"
+    (with-new-frame [f (frame/make-anon-frame-record!
+                         {:url-strategy app-routing/url-strategy-ui})]
+      (let [[_ attrs] (rf/with-frame f
+                        (routing/route-link-render {:to :realworld.auth/login}))]
+        (is (= "/realworld-resources-ui/login" (:href attrs))
+            "the ui arm's generated link carries the ui mount base")))
+    (with-new-frame [f (frame/make-anon-frame-record!
+                         {:url-strategy app-routing/url-strategy})]
+      (let [[_ attrs] (rf/with-frame f
+                        (routing/route-link-render {:to :realworld.auth/login}))]
+        (is (= "/realworld-resources/login" (:href attrs))
+            "the Reagent arm's generated link still carries its own base — untouched")))))
