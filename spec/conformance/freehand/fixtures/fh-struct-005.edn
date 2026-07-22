@@ -1,0 +1,70 @@
+;; FH-STRUCT-005 — namespace context.
+;;
+;; HTML writes no `:ns` at all: the canonical form has exactly one
+;; representation per node, so `:ns :html` is never emitted. `<svg>` and
+;; `<math>` are themselves integration points and carry the namespace they
+;; open; descendants inherit it; `<foreignObject>` reverts its children to
+;; HTML, and `<annotation-xml>` reverts when its `:encoding` names an HTML
+;; island.
+;;
+;; A view compiled or written standalone cannot know it will be mounted
+;; under `<svg>`, so the context is derived at render, from the position a
+;; node actually occupies.
+{:fh/id "FH-STRUCT-005"
+ :fh/law
+ "Namespace context is derived at render: HTML writes no :ns, <svg>/<math> carry the namespace they open, descendants inherit, and <foreignObject> and an HTML-island <annotation-xml> revert their children."
+
+ :cases
+ [{:note "HTML is the default and writes no :ns"
+   :form [:div [:span]]
+   :tree {:tag :div :children [{:tag :span}] :rf.ui/tree-version 1}}
+
+  {:note "<svg> carries the namespace it opens, and descendants inherit it"
+   :form [:svg [:g [:circle]]]
+   :tree {:tag :svg :ns :svg
+          :children [{:tag :g :ns :svg :children [{:tag :circle :ns :svg}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "<foreignObject> is itself SVG; its children revert to HTML"
+   :form [:svg [:foreignObject [:div [:span]]]]
+   :tree {:tag :svg :ns :svg
+          :children [{:tag :foreignObject :ns :svg
+                      :children [{:tag :div :children [{:tag :span}]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "<math> opens MathML and descendants inherit"
+   :form [:math [:mrow [:mi "x"]]]
+   :tree {:tag :math :ns :mathml
+          :children [{:tag :mrow :ns :mathml :children [{:tag :mi :ns :mathml :children ["x"]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "<annotation-xml> reverts to HTML when its :encoding names an HTML island"
+   :form [:math [:annotation-xml {:encoding "text/html"} [:div]]]
+   :tree {:tag :math :ns :mathml
+          :children [{:tag :annotation-xml :ns :mathml :attrs {:encoding "text/html"}
+                      :children [{:tag :div}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "the XHTML encoding is the other island spelling, matched case-insensitively"
+   :form [:math [:annotation-xml {:encoding "APPLICATION/XHTML+XML"} [:div]]]
+   :tree {:tag :math :ns :mathml
+          :children [{:tag :annotation-xml :ns :mathml :attrs {:encoding "APPLICATION/XHTML+XML"}
+                      :children [{:tag :div}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "any other encoding keeps its children in MathML"
+   :form [:math [:annotation-xml {:encoding "application/mathml+xml"} [:mi "x"]]]
+   :tree {:tag :math :ns :mathml
+          :children [{:tag :annotation-xml :ns :mathml
+                      :attrs {:encoding "application/mathml+xml"}
+                      :children [{:tag :mi :ns :mathml :children ["x"]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "an SVG island inside reverted HTML re-enters SVG"
+   :form [:svg [:foreignObject [:div [:svg [:circle]]]]]
+   :tree {:tag :svg :ns :svg
+          :children [{:tag :foreignObject :ns :svg
+                      :children [{:tag :div
+                                  :children [{:tag :svg :ns :svg
+                                              :children [{:tag :circle :ns :svg}]}]}]}]
+          :rf.ui/tree-version 1}}]}

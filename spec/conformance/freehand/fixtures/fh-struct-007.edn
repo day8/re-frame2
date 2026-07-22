@@ -1,0 +1,49 @@
+;; FH-STRUCT-007 — the React emitter puts real DOM on a real page.
+;;
+;; The structural rows prove what the tree SAYS. This one proves what the
+;; browser DOES, because an element tree is not a rendered page: an
+;; emitter can produce a perfectly shaped `createElement` call for an
+;; attribute name React declines to set, a class React drops, or a child
+;; React reorders, and no amount of element-tree assertion would notice.
+;; So the assertions below are read off `document`, after a real
+;; `react-dom/client` mount, against the SAME declaration FH-STRUCT-006
+;; renders structurally.
+;;
+;; Each `:dom` row is one query and what must be true of its result:
+;;
+;;   :selector  a CSS selector, resolved inside the mounted container
+;;   :tag       the matched element's tagName
+;;   :text      its textContent
+;;   :attrs     attribute name -> value, read with getAttribute
+;;   :count     how many elements the selector matches (with :selector-all)
+{:fh/id "FH-STRUCT-007"
+ :fh/law
+ "The interpreted React emitter mounts a declared view as real DOM: elements, converted attribute names, composed classes, text, and a keyed run of child boundaries."
+
+ :view  :page
+ :props {:items [1 2 3]}
+
+ :dom
+ [{:note "the root element is the tag the declaration names, with its sugar id"
+   :selector "#main" :tag "SECTION"}
+
+  {:note "sugar classes and the truthy flag-map entries compose into one className"
+   :selector "#main" :attrs {"class" "panel open" "id" "main"}}
+
+  {:note "the kebab attribute name reaches the DOM in its collapsed spelling"
+   :selector "#main" :attrs {"tabindex" "3"}}
+
+  {:note "a false flag-map entry contributes no class"
+   :selector-all "#main.busy" :count 0}
+
+  {:note "static text renders as text, in its own element"
+   :selector "#main > h2" :text "Details"}
+
+  {:note "the run of child view boundaries renders one element per item, in order"
+   :selector-all "ul.rows > li.row" :count 3}
+
+  {:note "each child boundary renders its own props — numbers as text"
+   :selector "ul.rows > li.row" :text "1"}
+
+  {:note "the whole subtree's text is the document-order concatenation"
+   :selector "#main" :text "Details123"}]}

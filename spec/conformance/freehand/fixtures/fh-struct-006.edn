@@ -1,0 +1,104 @@
+;; FH-STRUCT-006 — one declaration, one value, on both hosts.
+;;
+;; This is the parity row. Every case renders a DECLARED view — not raw
+;; hiccup — and pins the whole tree literally. The suite runs on the JVM
+;; and in ClojureScript from THIS file, so each host proves it produces
+;; the pinned value, and two hosts producing one pinned value is what
+;; "equal on both hosts" means operationally.
+;;
+;; That is the difference between a cross-host claim and a `.cljc`
+;; extension. A law proven on one host is a gap, not a pass: the hosts
+;; disagree about number formatting, about map ordering, and about which
+;; values are callable, and every one of those disagreements reaches a
+;; view body.
+;;
+;; `:view` names a declaration in `re-frame.freehand.tree-views`; `:args`
+;; is the boundary call's argument tail. `:fh/fn` is the fixture's
+;; stand-in for a function value.
+{:fh/id "FH-STRUCT-006"
+ :fh/law
+ "The same declaration yields an equal structural tree on the JVM and in ClojureScript, with view boundaries as real nodes recording props, key, and the expansion."
+
+ :cases
+ [{:note "a view boundary is a real node wrapping its expansion"
+   :view :panel
+   :args [{:title "Details"}]
+   :tree {:view-id :re-frame.freehand.tree-views/panel
+          :props   {:title "Details"}
+          :children [{:tag :section :attrs {:class "panel"}
+                      :children [{:tag :h2 :children ["Details"]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "forwarded children splice into the position the body writes them"
+   :view :panel
+   :args [{:title "Details"} [:p "one"] [:p "two"]]
+   :tree {:view-id :re-frame.freehand.tree-views/panel
+          :props   {:title "Details"}
+          :children [{:tag :section :attrs {:class "panel"}
+                      :children [{:tag :h2 :children ["Details"]}
+                                 {:tag :p :children ["one"]}
+                                 {:tag :p :children ["two"]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note ":key is stripped from props and recorded on the boundary"
+   :view :panel
+   :args [{:key 9 :title "Details"}]
+   :tree {:view-id :re-frame.freehand.tree-views/panel
+          :props   {:title "Details"}
+          :key     9
+          :children [{:tag :section :attrs {:class "panel"}
+                      :children [{:tag :h2 :children ["Details"]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "a nil-rooted view is a boundary with no children — still addressable"
+   :view :nothing
+   :args [{}]
+   :tree {:view-id :re-frame.freehand.tree-views/nothing :rf.ui/tree-version 1}}
+
+  {:note "a fragment-rooted view is a boundary with SEVERAL children, not one wrapping fragment"
+   :view :pair
+   :args [{}]
+   :tree {:view-id :re-frame.freehand.tree-views/pair
+          :children [{:tag :i :children ["a"]} {:tag :b :children ["b"]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "a fn-valued prop is recorded as the opaque marker — spelling testable, behaviour not"
+   :view :panel
+   :args [{:title "Details" :on-pick :fh/fn}]
+   :tree {:view-id :re-frame.freehand.tree-views/panel
+          :props   {:title "Details" :on-pick {:rf.ui/opaque :fn}}
+          :children [{:tag :section :attrs {:class "panel"}
+                      :children [{:tag :h2 :children ["Details"]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "boundaries nest recursively — a keyed run of child views under a real element"
+   :view :page
+   :args [{:items [1 2]}]
+   :tree {:view-id :re-frame.freehand.tree-views/page
+          :props   {:items [1 2]}
+          :children
+          [{:tag :section
+            :attrs {:id "main" :class "panel open" :tab-index "3"}
+            :children
+            [{:tag :h2 :children ["Details"]}
+             {:tag :ul :attrs {:class "rows"}
+              :children
+              [{:view-id :re-frame.freehand.tree-views/row
+                :props {:label 1} :key 1
+                :children [{:tag :li :attrs {:class "row"} :children ["1"]}]}
+               {:view-id :re-frame.freehand.tree-views/row
+                :props {:label 2} :key 2
+                :children [{:tag :li :attrs {:class "row"} :children ["2"]}]}]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "an empty run leaves the list childless — the run is spliced, never wrapped"
+   :view :page
+   :args [{:items []}]
+   :tree {:view-id :re-frame.freehand.tree-views/page
+          :props   {:items []}
+          :children
+          [{:tag :section
+            :attrs {:id "main" :class "panel open" :tab-index "3"}
+            :children [{:tag :h2 :children ["Details"]}
+                       {:tag :ul :attrs {:class "rows"}}]}]
+          :rf.ui/tree-version 1}}]}

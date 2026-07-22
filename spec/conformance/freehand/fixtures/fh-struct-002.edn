@@ -1,0 +1,72 @@
+;; FH-STRUCT-002 — the element node's pinned fields.
+;;
+;; `:tag` survives verbatim with no case folding anywhere; `.class#id`
+;; sugar is merged into `:class`/`:id` sugar-first; `:attrs` and `:events`
+;; are disjoint by construction because every `on-*` name routes to
+;; `:events` and nothing else does; `:key` is present iff the site was
+;; keyed; `:ns` is absent for HTML; and every optional field is absent
+;; when empty, so one semantic element has exactly one representation.
+;;
+;; `:fh/fn` is the fixture's stand-in for a function value — EDN carries
+;; no functions, so the suite substitutes a real one and the fixture pins
+;; what the tree records for it.
+{:fh/id "FH-STRUCT-002"
+ :fh/law
+ "An element node carries :tag verbatim, sugar merged sugar-first, disjoint :attrs and :events, :key iff keyed, :ns absent for HTML, and every optional field absent when empty."
+
+ :cases
+ [{:note "the smallest element carries nothing but its tag"
+   :form [:div]
+   :tree {:tag :div :rf.ui/tree-version 1}}
+
+  {:note "no case folding anywhere — a camelCase SVG tag passes through"
+   :form [:clipPath]
+   :tree {:tag :clipPath :rf.ui/tree-version 1}}
+
+  {:note ".class#id sugar becomes :class and :id, classes in source order"
+   :form [:section.panel.open#main]
+   :tree {:tag :section :attrs {:class "panel open" :id "main"} :rf.ui/tree-version 1}}
+
+  {:note "sugar classes render FIRST, then the explicit :class form's — no de-duplication"
+   :form [:div.a.b {:class ["b" "c"]}]
+   :tree {:tag :div :attrs {:class "a b b c"} :rf.ui/tree-version 1}}
+
+  {:note "attrs and events are disjoint key domains"
+   :form [:button {:type "submit" :on-click [:cart/open 7]}]
+   :tree {:tag :button :attrs {:type "submit"} :events {:on-click [:cart/open 7]}
+          :rf.ui/tree-version 1}}
+
+  {:note "a handler options map is recorded verbatim"
+   :form [:form {:on-submit {:event [:cart/checkout] :prevent-default true}}]
+   :tree {:tag :form :events {:on-submit {:event [:cart/checkout] :prevent-default true}}
+          :rf.ui/tree-version 1}}
+
+  {:note "a fn-carried site is opaque — its existence and spelling are testable, its behaviour is not"
+   :form [:button {:on-click :fh/fn}]
+   :tree {:tag :button :events {:on-click {:rf.ui/opaque :fn}} :rf.ui/tree-version 1}}
+
+  {:note "a nil handler drops the entry entirely"
+   :form [:button {:on-click nil}]
+   :tree {:tag :button :rf.ui/tree-version 1}}
+
+  {:note ":key holds the AUTHORED value, not React's string coercion"
+   :form [:li {:key 3}]
+   :tree {:tag :li :key 3 :rf.ui/tree-version 1}}
+
+  {:note "an unkeyed site carries no :key"
+   :form [:li]
+   :tree {:tag :li :rf.ui/tree-version 1}}
+
+  {:note "`on-` needs the hyphen — :online is an ordinary attribute"
+   :form [:div {:online "yes"}]
+   :tree {:tag :div :attrs {:online "yes"} :rf.ui/tree-version 1}}]
+
+ :rejected
+ [{:note "two id spellings on one element is an ambiguity, not a precedence question"
+   :form [:div#a {:id "b"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "a void element rejects children — React throws rather than render one"
+   :form [:br "x"] :error-id :rf.error/ui-tree-malformed}
+  {:note "menuitem rejects children without being self-closing"
+   :form [:menuitem "x"] :error-id :rf.error/ui-tree-malformed}
+  {:note "an element tag is an unqualified keyword"
+   :form [:svg/circle] :error-id :rf.error/ui-tree-malformed}]}

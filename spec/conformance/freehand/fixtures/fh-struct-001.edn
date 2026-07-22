@@ -1,0 +1,53 @@
+;; FH-STRUCT-001 — the versioned node schema and its pinned discrimination.
+;;
+;; Five node variants, a closed set, discriminated in ONE pinned order:
+;; a string is text, a map with :tag is an element, else :view-id is a
+;; view boundary, else :html is trusted markup, else a map with :children
+;; is a fragment. `render` answers the ROOT node — always a map — carrying
+;; the schema version; interior nodes carry none and inherit their tree's.
+;;
+;; `:cases` are `{:form <hiccup> :tree <the whole expected root node>}`.
+;; The expected value is written LITERALLY, version key included: a
+;; fixture that pinned only the parts a walk happens to emit would agree
+;; with a walk that emitted extra ones.
+{:fh/id "FH-STRUCT-001"
+ :fh/law
+ "The structural tree is plain serialisable data in five discriminated variants; the root node carries :rf.ui/tree-version and a value the node set cannot carry fails loud."
+
+ :cases
+ [{:note  "an element-rooted form roots in its element node"
+   :form  [:div]
+   :tree  {:tag :div :rf.ui/tree-version 1}}
+
+  {:note  "text is the host string itself, not a map — so a text-rooted form roots in a fragment"
+   :form  "hello"
+   :tree  {:children ["hello"] :rf.ui/tree-version 1}}
+
+  {:note  "a form denoting nothing still answers a map root"
+   :form  nil
+   :tree  {:children [] :rf.ui/tree-version 1}}
+
+  {:note  "an empty fragment RETAINS :children [] — it is the fragment's required discriminator"
+   :form  [:<>]
+   :tree  {:children [] :rf.ui/tree-version 1}}
+
+  {:note  "several nodes root in a fragment, in document order"
+   :form  ([:i] [:b])
+   :tree  {:children [{:tag :i} {:tag :b}] :rf.ui/tree-version 1}}
+
+  {:note  "interior nodes carry no version"
+   :form  [:ul [:li "a"]]
+   :tree  {:tag :ul :children [{:tag :li :children ["a"]}] :rf.ui/tree-version 1}}]
+
+ ;; Every consumer of a tree — and the walk that builds one — fails loud on
+ ;; a value the closed node set cannot carry, rather than rendering
+ ;; something plausible.
+ :rejected
+ [{:note "a keyword is not renderable content" :form [:p :oops]
+   :error-id :rf.error/ui-tree-malformed}
+  {:note "nor is a map in child position" :form [:p {} {:a 1}]
+   :error-id :rf.error/ui-tree-malformed}
+  {:note "nor is a set" :form [:p #{1}]
+   :error-id :rf.error/ui-tree-malformed}
+  {:note "a head outside the three legal forms is caught by classification, not the tree"
+   :form [42] :error-id :rf.error/view-bad-head}]}
