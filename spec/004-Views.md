@@ -691,6 +691,13 @@ enter/exit retention is out of scope):
   *and* terminal bound, not a cap over some other completion signal — then cleanup is
   terminal and exactly-once (all ownership released). Unkeyed children under a presence
   boundary are a build failure.
+- Children render in **first-appearance order**, and that order is frozen: a key holds
+  the slot it first mounted into, an incoming reorder is deliberately ignored, and a
+  newly-appearing key appends at the tail regardless of its incoming position. Slot
+  stability is part of the retention contract — an exiting child never jumps position
+  mid-animation. Sort upstream of the boundary when first-appearance order matters; a
+  list whose rendered order must track a changing sort does not belong under a presence
+  boundary — handle display order at the presentation layer (rf2-1kb0v).
 - `(presence-phase)` is the single phase read. Outside a presence boundary it returns
   `:present`, so presence-aware children stay reusable anywhere.
 - Removal-then-reinsertion of a key has deterministic interruption/re-entry; hydration
