@@ -2451,6 +2451,16 @@
                               "). Q2 pin: absent :props = open, present :props "
                               "= closed")
                          {:head head :undeclared (vec bad)}))))))
+    ;; The CROSSING index (D010). An internal boundary is where a compiled
+    ;; body hands rendering to another declaration, and the child's mode is
+    ;; the child's business — so the site records which mode it crosses into
+    ;; rather than the parent pretending to own it. It rides the SITE index,
+    ;; not the AST node, deliberately: a child's promotion is not an edit to
+    ;; this template and must not move this template's fingerprint.
+    (when (= :view (:kind info))
+      (env/add-site! e :views {:view-id  (:view-id info)
+                               :lowering (:lowering info)
+                               :path     (:path e)}))
     (cond-> {:op (if (= :view (:kind info)) :view :foreign)
              :sym head
              :fqn (:fqn info)

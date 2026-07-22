@@ -229,6 +229,30 @@
   [view]
   (:structural (.-entry ^ViewDescriptor view)))
 
+(defn manifest
+  "A COMPILED declaration's manifest — what its analysis makes statically
+  knowable about it, as plain data — or `nil` for an interpreted one,
+  which has no analysis to report. Re-exported on the door as
+  `v/manifest`.
+
+      {:view-id   :app.people/people-list
+       :grammar   :re-frame.freehand/v1
+       :crossings [{:view-id :re-frame.freehand/markup
+                    :lowering :interpreted :path [1]}]}
+
+  `:crossings` is the roster of internal-view boundaries the body mounts,
+  one entry per lexical site, each MARKED with the mode it crosses into.
+  A compiled view that mounts an interpreted child is the ordinary case
+  — promotion is per declaration and not transitive — so the manifest
+  says where the compiled tier stops rather than letting a reader assume
+  it does not.
+
+  Nil for an interpreted declaration is the honest answer, not an
+  omission: the interpreted mode has no finite grammar and no analysis
+  step, so there is nothing it could claim."
+  [view]
+  (:manifest (.-entry ^ViewDescriptor view)))
+
 ;; ---------------------------------------------------------------------------
 ;; Vector-head classification — total
 ;; ---------------------------------------------------------------------------

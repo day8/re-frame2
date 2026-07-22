@@ -270,8 +270,60 @@ compiled markup. The analyzer recognises the shared descriptor as an internal
 view, never as a foreign component. The grammar of that seam is
 [004D](004D-Freehand-Compiled-Grammar.md).
 
+A crossing is invisible in the output. All four pairings of parent mode and
+child mode over one body MUST yield one structural tree, and a caller MUST NOT
+be able to tell from a mount which mode the mounted declaration selected. What a
+crossing does change is what the parent can claim: a compiled parent's manifest
+marks each child boundary with the mode it crosses into
+([004D](004D-Freehand-Compiled-Grammar.md#manifests-mark-the-crossing)).
+
 **Conformance:** [FH-CALL-001](conformance/freehand/conformance-index.md#fh-call--calls),
-FH-CALL-003.
+FH-CALL-003, FH-CALL-004.
+
+#### The `v/markup` boundary
+
+Interpreted Clojure treats markup as a value — a helper returns Hiccup, a prop
+carries it, a late transform rewrites it — and the compiled tier cannot lower
+that, because a runtime value is not a template. Per
+[D010](../docs/design/freehand/decisions/D010-compiled-dynamic-markup-crossing.md)
+the v1 compiled grammar admits no valve for it: there is no `v/interp`, and no
+arm that walks a child expression whose value turns out to be markup.
+
+The framework therefore supplies `v/markup` — the declared boundary that markup
+already in hand crosses at:
+
+```clojure
+(v/defview editor
+  {:compiled true}
+  [{:keys [error hint]}]
+  [:section
+   [v/markup {:value (field-help error hint)}]])
+```
+
+Freehand MUST provide it, and it MUST be an **ordinary interpreted view**: the
+same declaration form an application uses, the same call spelling, the same
+boundary node. Nothing in the compiled tier may know its name, and a compiled
+parent MUST NOT treat it specially — mounting it is mounting a statically named
+interpreted child, which the section above already requires to work.
+
+That distinction is the whole design. A grammar valve would put an interpreter
+*inside* compiled markup, and every claim a compiled manifest makes would become
+conditional on values the analyzer never saw. A declared child puts the
+interpreter on the far side of a boundary that is visible in the source, marked
+in the manifest, and addressable in the tree.
+
+- `:value` accepts anything a view body may return: a Hiccup vector, a seq of
+  them, text, a number, or nothing.
+- It accepts **no children** (`:children-policy :none`). The value is the
+  content; a dropped child would be a silent loss, so the call is rejected
+  instead.
+- The child owns its own occurrence, its own recorded props and its own
+  expansion. It is never inlined into the compiled parent's structure.
+
+Adding a valve later is a new grammar decision and a new grammar version, never
+a widening of `:re-frame.freehand/v1`.
+
+**Conformance:** [FH-CALL-005](conformance/freehand/conformance-index.md#fh-call--calls).
 
 ### Props, children, and `:key`
 

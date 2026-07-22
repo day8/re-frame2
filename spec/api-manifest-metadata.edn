@@ -1271,6 +1271,10 @@
   ["re-frame.freehand" "defview"]           {:tier :front-porch :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "view?"]             {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "describe"]          {:tier :tooling     :owner "004" :status "EP-0036"}
+  ;; `manifest` is the third inspection read: a compiled declaration's
+  ;; crossing manifest as plain data (nil for an interpreted one). Tooling
+  ;; data alongside `describe`, so it shares its tier.
+  ["re-frame.freehand" "manifest"]          {:tier :tooling     :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "event"]             {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "handler"]           {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "render-fn"]         {:tier :advanced    :owner "004" :status "EP-0036"}
@@ -1282,6 +1286,10 @@
   ;; Routing owns the href / click law (Spec 012); Freehand supplies the
   ;; descriptor and nothing else.
   ["re-frame.freehand" "route-link"]        {:tier :advanced    :owner "012" :status "EP-0036"}
+  ;; `markup` is likewise an ORDINARY interpreted declaration — the declared
+  ;; boundary a markup VALUE crosses at (D010). Nothing in the compiled tier
+  ;; knows its name; Spec 004 §Cross-mode children owns the law.
+  ["re-frame.freehand" "markup"]            {:tier :advanced    :owner "004" :status "EP-0036"}
 
   ["re-frame.ui.test" "render"]    {:tier :testing :owner "008" :status "Spec-004 S1"}
   ["re-frame.ui.test" "text"]      {:tier :testing :owner "008" :status "Spec-004 S1"}

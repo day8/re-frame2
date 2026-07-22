@@ -473,17 +473,52 @@
                     ex)
            ex))))))
 
+(defn structural-manifest
+  "The manifest a `{:compiled true}` declaration carries — what its
+  analysis makes statically knowable about it, as plain data.
+
+      {:view-id   :app.people/people-list
+       :grammar   :re-frame.freehand/v1
+       :crossings [{:view-id :app.people/person-row
+                    :lowering :compiled    :path [0 :for]}
+                   {:view-id :re-frame.freehand/markup
+                    :lowering :interpreted :path [1]}]}
+
+  `:crossings` is the roster of internal-view boundaries the body mounts,
+  in source order, one entry per LEXICAL site — a site inside a keyed list
+  is one crossing that mounts many times. Each entry is MARKED with the
+  mode it crosses into, which is the manifest half of D010: a compiled
+  parent may mount an interpreted child, and the manifest says so rather
+  than letting a reader infer that everything under a compiled declaration
+  is compiled.
+
+  The crossings marked `:interpreted` are the view's **interp slots**.
+  Their mounts are what occurrence evidence counts as `:interp-slots`; the
+  manifest names the sites, a render counts the mounts, and neither is
+  derivable from the other — a site in a list mounts once per row.
+
+  Deliberately small. Subscription ownership, capability elision and the
+  rest of the compiled tier's evidence land with their own slices; what
+  F3c owes is that the crossing is marked."
+  [view-id sites]
+  {:view-id   view-id
+   :grammar   grammar/version
+   :crossings (vec (:views sites))})
+
 (defn compile-structural-view
   "Lower a `{:compiled true}` declaration's body to its STRUCTURAL
   realisation — the `(fn [props] node)` the descriptor carries — or throw
   the diagnostic that says why the body is outside
   `:re-frame.freehand/v1`.
 
-  Answers `{:body form :grammar kw :sites {..}}`. `:sites` is the
-  analyzer's lexical site index: the compiled tier's whole claim to see
-  what a body does rests on those sites being complete, so they travel
+  Answers `{:body form :grammar kw :manifest {..} :sites {..}}`. `:sites`
+  is the analyzer's lexical site index: the compiled tier's whole claim to
+  see what a body does rests on those sites being complete, so they travel
   with the lowering rather than being recomputed by anyone who wants
   them.
+
+  `:manifest` is the declaration-facing projection of that index — see
+  [[structural-manifest]].
 
   `form` is the declaration's `&form`, `menv` its `&env`, `params` its
   one-element parameter vector and `body` the body forms."
@@ -519,9 +554,11 @@
               (binding [*out* *err*]
                 (println (str "WARNING re-frame.freehand [" view-id "] "
                               (:id w) ": " (:msg w)))))
-            {:body    (emit-jvm/emit-structural-body e params ast)
-             :grammar grammar/version
-             :sites   @(:sites e)}))))))
+            (let [sites @(:sites e)]
+              {:body     (emit-jvm/emit-structural-body e params ast)
+               :grammar  grammar/version
+               :manifest (structural-manifest view-id sites)
+               :sites    sites})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; re-frame.freehand.react/lazy — the def-level code-splitting constructor

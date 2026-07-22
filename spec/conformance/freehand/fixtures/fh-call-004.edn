@@ -1,0 +1,64 @@
+;; FH-CALL-004 — the crossing is invisible in the output.
+;;
+;; Four declarations, one body, every pairing of parent mode and child
+;; mode. All four render the SAME tree once the two ids that name WHICH
+;; declaration ran are erased — `:fh/parent` for the parent's own view
+;; id, `:fh/child` for the child's. Those two are the only substitutions
+;; the suite is allowed, and they are not a mode difference at all: a view
+;; id names the declaration a view IS, and four pairings need four
+;; declarations.
+;;
+;; The 2 x 2 is the point. Two cases alone would prove that two things
+;; agree; the matrix proves that neither axis is visible, and it includes
+;; the no-crossing control (compiled parent, compiled child) so the
+;; agreement is measured against something rather than only against
+;; itself.
+{:fh/id "FH-CALL-004"
+ :fh/law
+ "An interpreted parent mounts a compiled descriptor and a compiled parent mounts a statically named interpreted descriptor, both through the ordinary named-descriptor boundary; all four mode pairings of one body yield one structural tree."
+
+ ;; The boundary call every case is mounted with.
+ :args {:items [1 2]}
+
+ :cases
+ [{:note "neither side compiled — the baseline the other three are held to"
+   :view :interpreted-parent-interpreted-child
+   :parent-lowering :interpreted
+   :child-lowering  :interpreted
+   :child-view-id   :re-frame.freehand.tree-views/row}
+
+  {:note "an interpreted parent mounts a COMPILED descriptor"
+   :view :interpreted-parent-compiled-child
+   :parent-lowering :interpreted
+   :child-lowering  :compiled
+   :child-view-id   :re-frame.freehand.compiled-views/row}
+
+  {:note "a compiled parent mounts a statically named INTERPRETED descriptor"
+   :view :compiled-parent-interpreted-child
+   :parent-lowering :compiled
+   :child-lowering  :interpreted
+   :child-view-id   :re-frame.freehand.tree-views/row}
+
+  {:note "both sides compiled — the control, where nothing crosses"
+   :view :compiled-parent-compiled-child
+   :parent-lowering :compiled
+   :child-lowering  :compiled
+   :child-view-id   :re-frame.freehand.compiled-views/row}]
+
+ ;; The one tree, in placeholder ids. Each case's parent id becomes
+ ;; `:fh/parent` and its child id `:fh/child` before the comparison.
+ :tree
+ {:view-id  :fh/parent
+  :props    {:items [1 2]}
+  :children [{:tag   :ul
+              :attrs {:class "rows"}
+              :children
+              [{:view-id  :fh/child
+                :props    {:label 1}
+                :key      1
+                :children [{:tag :li :attrs {:class "row"} :children ["1"]}]}
+               {:view-id  :fh/child
+                :props    {:label 2}
+                :key      2
+                :children [{:tag :li :attrs {:class "row"} :children ["2"]}]}]}]
+  :rf.ui/tree-version 1}}

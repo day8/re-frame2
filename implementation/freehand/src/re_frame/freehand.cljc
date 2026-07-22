@@ -179,26 +179,30 @@
                       :lowering        (if compiled? :compiled :interpreted)
                       :children-policy policy}
              entry   (if compiled?
-                       (assoc entry :structural
-                              (:body (compiler/compile-structural-view
-                                       {:form            &form
-                                        :menv            &env
-                                        :ns-sym          ns-sym
-                                        :vname           sym
-                                        :view-id         view-id
-                                        :params          params
-                                        :body            body
-                                        :children-policy policy})))
+                       (let [{:keys [body manifest]}
+                             (compiler/compile-structural-view
+                               {:form            &form
+                                :menv            &env
+                                :ns-sym          ns-sym
+                                :vname           sym
+                                :view-id         view-id
+                                :params          params
+                                :body            body
+                                :children-policy policy})]
+                         (assoc entry :structural body :manifest manifest))
                        (assoc entry :render
                               `(fn ~(symbol (str sym "-render")) ~params ~@body)))]
          ;; The var metadata is what a COMPILE-TIME head classifier reads: a
          ;; compiled body resolves `[panel {…}]` before any descriptor exists,
-         ;; so view-ness and the children policy have to be legible from the
-         ;; Var alone. It is the same declaration answering the same two
-         ;; questions the runtime descriptor answers — just early enough for a
-         ;; build to fail instead of a render.
+         ;; so view-ness, the children policy and the LOWERING have to be
+         ;; legible from the Var alone. It is the same declaration answering
+         ;; the same questions the runtime descriptor answers — just early
+         ;; enough for a build to fail instead of a render. The lowering is
+         ;; there so a compiled parent's manifest can mark a child boundary
+         ;; that crosses back into the interpreted mode (D010).
          `(def ~(cond-> (vary-meta sym assoc
                                    :re-frame.freehand/view true
+                                   :re-frame.freehand/lowering (if compiled? :compiled :interpreted)
                                    :re-frame.freehand/children-policy policy)
                   docstring (vary-meta assoc :doc docstring))
             (descriptor/declare-view ~entry)))))))
@@ -282,15 +286,16 @@
      (expand-defview &form &env (meta &form) *file* (ns-name *ns*) sym more)))
 
 ;; ---------------------------------------------------------------------------
-;; Descriptor inspection — the two public reads
+;; Descriptor inspection — the public reads
 ;; ---------------------------------------------------------------------------
 ;;
-;; A declared view is a value, so a tool needs to answer two questions
-;; about one: is this a view, and what does it say about itself. Those
-;; are the whole supported inspection surface. The descriptor TYPE, its
-;; constructor, the head classifier, the call normalizer and the two
-;; private bodies stay in `re-frame.freehand.descriptor` — an emitter's
-;; vocabulary, not an application's.
+;; A declared view is a value, so a tool needs to answer about one: is this
+;; a view, what does it say about itself, and — for a compiled one — what
+;; does its analysis make statically knowable. Those are the whole
+;; supported inspection surface. The descriptor TYPE, its constructor, the
+;; head classifier, the call normalizer and the two private bodies stay in
+;; `re-frame.freehand.descriptor` — an emitter's vocabulary, not an
+;; application's.
 
 (def ^{:doc "True when `x` is a view declared with [[defview]] — the ONE
   value a Freehand runtime classifies as an internal view boundary.
@@ -328,6 +333,31 @@
   Per [Spec 004 §The inspection projection](../../../../spec/004-Views.md)."
        :arglists '([view])}
   describe descriptor/describe)
+
+(def ^{:doc "A COMPILED declaration's **manifest** — what its analysis
+  makes statically knowable about it, as plain data — or `nil` for an
+  interpreted declaration, which has no analysis to report.
+
+      (v/manifest people-list)
+      ;; => {:view-id   :app.people/people-list
+      ;;     :grammar   :re-frame.freehand/v1
+      ;;     :crossings [{:view-id :re-frame.freehand/markup
+      ;;                  :lowering :interpreted :path [1]}]}
+
+  `:crossings` is the roster of internal-view boundaries the body mounts,
+  one entry per lexical site, each MARKED with the mode it crosses into.
+  A compiled view that mounts an interpreted child is the ordinary case —
+  promotion is per declaration and not transitive — and the manifest says
+  where the compiled tier stops rather than leaving a reader to assume it
+  does not.
+
+  Nil for an interpreted declaration is the honest answer, not an
+  omission: the interpreted mode has no finite grammar and no analysis
+  step, so there is nothing it could claim.
+
+  Per [Spec 004D §Manifests mark the crossing](../../../../spec/004D-Freehand-Compiled-Grammar.md)."
+       :arglists '([view])}
+  manifest descriptor/manifest)
 
 ;; ---------------------------------------------------------------------------
 ;; Event intent and the callback roster
@@ -505,3 +535,57 @@
   — routing owns the law, this view supplies the descriptor."
   [props]
   (route-link-seam/anchor props))
+
+;; ---------------------------------------------------------------------------
+;; `markup` — the declared boundary a markup VALUE crosses at
+;; ---------------------------------------------------------------------------
+;;
+;; D010's standard recovery, and — this is the whole design — it is not a
+;; mechanism. It is an ordinary interpreted `defview`, declared with the same
+;; macro an application uses, mounted with the same call spelling, producing
+;; the same boundary node. Nothing in the compiled tier knows its name.
+;;
+;; That is what keeps `:re-frame.freehand/v1` closed. A grammar valve
+;; (`v/interp`, or a fallback arm that walked an unrecognised child value)
+;; would put an interpreter INSIDE compiled markup, and every claim a compiled
+;; manifest makes would become conditional on values the analyzer never saw.
+;; A declared child puts the interpreter on the other side of a boundary that
+;; is visible in the source, counted in the manifest, and addressable in the
+;; tree.
+
+(defview markup
+  "(v/markup {:value hiccup}) — mount markup you are holding as a VALUE.
+
+  Interpreted Clojure treats markup as data: a helper returns Hiccup, a
+  prop carries it, a late transform rewrites it. The compiled tier cannot
+  lower that — a runtime value is not a template — so a compiled body that
+  hands one to a child position is refused, naming this recovery
+  ([Spec 004D](../../../../spec/004D-Freehand-Compiled-Grammar.md)):
+
+      (v/defview editor
+        {:compiled true}
+        [{:keys [error hint]}]
+        [:section
+         [v/markup {:value (field-help error hint)}]])
+
+  There is no `v/interp` and no automatic dynamic-markup walk. This is an
+  ordinary declared interpreted child, and the difference matters: the
+  compiled parent sees ONE statically named descriptor boundary, the child
+  owns the walk and its own occurrence, and the parent's manifest marks the
+  crossing `:interpreted` instead of quietly claiming the subtree. The cost
+  of the escape is visible in the source and countable in the evidence,
+  which is the only version of the escape worth having.
+
+  `:value` is anything a view body may return — a Hiccup vector, a seq of
+  them, text, a number, or nothing. It accepts no children: the value IS
+  the content, and a silently dropped child would be worse than the loud
+  `:rf.error/view-children-policy` this raises instead.
+
+  In an interpreted parent it is legal but pointless — write the markup
+  where it goes. Reach for it when a compiled parent needs a value it
+  cannot see through.
+
+  Per [Spec 004 §Cross-mode children](../../../../spec/004-Views.md)."
+  {:children-policy :none}
+  [{:keys [value]}]
+  value)
