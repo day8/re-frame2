@@ -163,3 +163,4 @@ provable-only static findings.
 
 | Id | Law | Canonical paragraph | Applicability | Fixture | Status |
 |---|---|---|---|---|---|
+| `FH-DIAG-001` | The checker analyses a declaration read-only against the versioned grammar and answers a stable report — view id, source, current lowering, target grammar, eligibility, and findings each carrying a stable id, source coordinates, the offending form, a reason, and a non-empty recovery ladder ending in `:keep-interpreted` | [004D-Freehand-Compiled-Grammar.md#the-read-only-checker](../../004D-Freehand-Compiled-Grammar.md#the-read-only-checker) | compiled jvm | `spec/conformance/freehand/fixtures/fh-diag-001.edn` | active |

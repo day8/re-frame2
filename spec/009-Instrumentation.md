@@ -1567,6 +1567,23 @@ External tools consume re-frame2 through stable surfaces. Production builds elid
 - Snapshot state, modify, restore.
 - Read state in any frame; `frame-ids` enumerates them.
 
+### The compile checker report
+
+Not every stable surface a tool consumes is a runtime one. Freehand's **compile checker** analyses a view declaration read-only, before the compiled tier has been selected for it, and answers stable EDN carrying the view id, its source coordinates, its current lowering, the grammar version it was checked against, whether it is eligible, and — when it is not — findings each carrying a stable id, coordinates, the offending form, a reason, and a recovery ladder. The shape and its laws are owned by [004D §The read-only checker](004D-Freehand-Compiled-Grammar.md#the-read-only-checker); what this Spec records is where the ids in it come from, because "stable ids/source/recovery" is a diagnostics obligation and a tool author reading this catalogue is entitled to an answer rather than a silence.
+
+**The checker mints no ids.** A finding carries the *analyzer's own* `:rf.ui.compile/<kebab-id>` — the id the build would fail with on the same form — and the recovery ladder the compiler already serves. One roster with two consumers: a checker with a parallel id set would be a second grammar to drift, and a finding that disagreed with the build failure for the same form would be worse than no finding.
+
+**Those ids carry no error-catalogue row, by construction rather than by exception.** `:rf.ui.compile/*` is reserved in [Conventions](Conventions.md#the-single-root-reserved-set) as a *compile-time only* namespace: every id in it is raised at macroexpansion, nothing in it is ever emitted at runtime, and none of it is a trace event. The error/warning catalogue below is a contract about runtime-emitted events, so a compile-tier id has nothing to be catalogued *as* — the same reason [004D §Compile-tier warnings](004D-Freehand-Compiled-Grammar.md#compile-tier-warnings) gives for the warning roster. Because the checker adds no id, it adds no catalogue obligation either.
+
+| Surface | Stability |
+|---|---|
+| The report's six fields (`:view-id`, `:source`, `:current-lowering`, `:target-grammar`, `:compile-eligible?`, `:findings`) | Preserved |
+| The finding's five fields (`:id`, `:source`, `:form`, `:reason`, `:recovery`) | Preserved |
+| Finding ids | The analyzer's `:rf.ui.compile/*` roster; new values additive |
+| `:reason` | A closed roster of unqualified keywords; several ids may share one; new values additive |
+| `:recovery` | A closed roster, ordered most specific first, always ending in `:keep-interpreted` |
+| `:target-grammar` | The version keyword the body was checked against — a report read later says which language answered |
+
 ## JVM vs. CLJS scope
 
 All trace functionality is **dev-build only** — production builds elide the entire trace surface on both platforms.
