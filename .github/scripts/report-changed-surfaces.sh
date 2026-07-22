@@ -702,6 +702,37 @@ else
         cljs_browser=true
         cljs_prod=true
         ;;
+      spec/conformance/freehand/fixtures/*)
+        # rf2-drpa3.66 — false-green fix, the Freehand-corpus counterpart of
+        # the shared spec/conformance/fixtures/* case above.
+        #
+        # Every fixture under this root is a LIVE INPUT to both Freehand host
+        # suites: implementation/freehand/test/re_frame/freehand/conformance.cljc
+        # reads it at MACRO-EXPANSION time and inlines the value, so the JVM
+        # `:test` alias (the required `jvm-freehand` job, gated on
+        # implementation_jvm) and the consolidated `:node-test` build (the
+        # `cljs` job, gated on cljs_node_test) assert against the same bytes.
+        # rf2-drpa3.58 armed those two outputs for implementation/freehand/**
+        # but not for the corpus the suites consume, so a fixture-only PR left
+        # every output false and BOTH newly-required host jobs SKIPPED —
+        # accepted unexplained by `all-required-passed`.
+        #
+        # The always-on freehand-conformance.yml is not a substitute:
+        # check_freehand_conformance_index.py verifies that an active index row
+        # NAMES AN EXISTING FIXTURE, not that the fixture's contract VALUES hold.
+        # Flipping FH-CALL-001's `:predicates :view?` from true to false keeps
+        # the path, the `:fh/id` and the index relationship intact — valid EDN,
+        # green index check — while descriptor_cljs_test.cljc fails on both
+        # hosts once actually run. Arming the two host outputs is what makes it
+        # run.
+        #
+        # Scoped exactly like the implementation/freehand/* case: NOT the
+        # browser/prod/isolation tier. Freehand ships no production-bundle
+        # requirer, so those gates would be pure cost — widen both cases
+        # together when it gains one.
+        implementation_jvm=true
+        cljs_node_test=true
+        ;;
       implementation/scripts/serve-and-run-reagent-slim-smoke.cjs|implementation/scripts/_reagent-slim-smoke-policy.test.cjs)
         # rf2-5v0dg7 — false-green fix, mirroring the xray-feature-gate
         # launcher case below. serve-and-run-reagent-slim-smoke.cjs IS the

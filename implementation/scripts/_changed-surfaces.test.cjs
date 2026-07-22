@@ -2115,6 +2115,91 @@ test('implementation/freehand/** stays OFF the heavy per-feature gates (rf2-drpa
   }
 });
 
+// rf2-drpa3.66 — the fixture corpus is the OTHER half of the Freehand surface.
+//
+// conformance.cljc reads spec/conformance/freehand/fixtures/*.edn at
+// MACRO-EXPANSION time and inlines the value, so both host suites assert
+// against those exact bytes. rf2-drpa3.58 armed implementation/freehand/** but
+// not the corpus it consumes: a fixture-only PR classified as nothing and BOTH
+// newly-required host jobs skipped, unexplained, past `all-required-passed`.
+//
+// The always-on conformance-index check is not a substitute — it verifies that
+// an active row NAMES AN EXISTING FIXTURE, never the fixture's contract VALUES.
+// A mutation that preserves the path and the `:fh/id` (e.g. flipping
+// FH-CALL-001's `:predicates :view?`) keeps that check green and reds
+// descriptor_cljs_test.cljc on both hosts — but only if the hosts RUN.
+
+test('freehand conformance fixtures arm both host suites (rf2-drpa3.66)', () => {
+  // Every fixture the corpus ships today, by conformance family.
+  for (const file of [
+    'spec/conformance/freehand/fixtures/fh-call-001.edn',
+    'spec/conformance/freehand/fixtures/fh-props-003.edn',
+    'spec/conformance/freehand/fixtures/fh-event-001.edn',
+    'spec/conformance/freehand/fixtures/fh-struct-007.edn',
+  ]) {
+    const result = classify(file);
+    assert.equal(
+      result.implementation_jvm,
+      'true',
+      `${file} must arm implementation_jvm or the required jvm-freehand job SKIPS on a fixture-only PR`,
+    );
+    assert.equal(
+      result.cljs_node_test,
+      'true',
+      `${file} must arm cljs_node_test — the :node-test build inlines this fixture too`,
+    );
+  }
+});
+
+test('the freehand fixture arm is ROOT matching, not an enumeration (rf2-drpa3.66)', () => {
+  // Same rot argument as the artefact-root test above: a POSIX `case` glob's
+  // `*` spans `/`, so the whole corpus root is covered at any depth. These
+  // paths do not exist yet — they are the shapes the corpus takes if the
+  // fixtures gain per-family subdirectories — pinned so a future narrowing of
+  // the case reds HERE rather than silently skipping two required jobs.
+  for (const file of [
+    'spec/conformance/freehand/fixtures/props/fh-props-004.edn',
+    'spec/conformance/freehand/fixtures/call/deeply/nested/fh-call-999.edn',
+  ]) {
+    const result = classify(file);
+    assert.equal(
+      result.implementation_jvm,
+      'true',
+      `future nested fixture must arm implementation_jvm: ${file}`,
+    );
+    assert.equal(
+      result.cljs_node_test,
+      'true',
+      `future nested fixture must arm cljs_node_test: ${file}`,
+    );
+  }
+});
+
+test('freehand fixtures stay OFF the heavy gates, like the artefact (rf2-drpa3.66)', () => {
+  // Scope guard. The fixtures feed exactly the two suites the artefact case
+  // arms and nothing else, so this arm must not drift wider than
+  // implementation/freehand/* — widen both together or neither.
+  const result = classify('spec/conformance/freehand/fixtures/fh-call-001.edn');
+  for (const key of ['cljs_browser', 'cljs_prod', 'bundle_isolation', 'ui_gates', 'ui_smoke']) {
+    assert.equal(result[key], 'false', `freehand fixtures must not arm ${key}`);
+  }
+});
+
+test('freehand conformance PROSE is not a fixture — no over-broadening (rf2-drpa3.66)', () => {
+  // The route is the fixtures root, not spec/conformance/freehand/**. The
+  // index and its README are held by the always-on conformance workflow and
+  // its validator, which this bead deliberately leaves alone.
+  for (const file of [
+    'spec/conformance/freehand/README.md',
+    'spec/conformance/freehand/conformance-index.md',
+    'spec/conformance/freehand/donor-inventory.md',
+  ]) {
+    const result = classify(file);
+    assert.equal(result.implementation_jvm, 'false', `${file} must not arm implementation_jvm`);
+    assert.equal(result.cljs_node_test, 'false', `${file} must not arm cljs_node_test`);
+  }
+});
+
 test('jvm-freehand is job-level gated and runs the suite + the donor law (rf2-drpa3.58)', () => {
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'jvm-freehand');
   assert.match(block, /needs: detect_changed_surfaces/);
