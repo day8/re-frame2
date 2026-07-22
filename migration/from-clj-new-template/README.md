@@ -140,8 +140,8 @@ clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-a
   `lefthook.yml` — emitted identically across the
   substrates.
 - **The counter throughline.** Every variant emits a working
-  counter, mirroring [the Guide quickstart — a counter in five
-  minutes](https://github.com/day8/re-frame2/blob/main/docs/core/quickstart.md)
+  counter, mirroring [the Guide introduction — a tiny counter
+  application](https://github.com/day8/re-frame2/blob/main/docs/core/introduction.md)
   and the canonical `examples/<substrate>/counter*/` apps.
 - **Pin lockstep.** `:rf2-version`, `:shadow-version`,
   `:react-version` continue to track

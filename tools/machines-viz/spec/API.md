@@ -1907,7 +1907,7 @@ chart has not rendered a viewport yet (an empty / nil-definition
 placeholder renders no chart), and `:rf.machines-viz.export/no-chart-state`
 when `chart-element` is not a rendered `MachineChart` root (or descendant
 of one). Per the thrown-error contract ([Spec 009 §The thrown-error
-shape](../../spec/009-Instrumentation.md)) the `ex-message` is a human
+shape](../../../spec/009-Instrumentation.md)) the `ex-message` is a human
 sentence naming the public concept (a rendered MachineChart element) plus
 the trailing `[:rf.error/<id>]` token; `:rf.error/id` is the canonical
 machine discriminator and `:reason` carries the same human sentence — the
@@ -2175,7 +2175,7 @@ back.
 ### Error modes
 
 Per the thrown-error contract ([Spec 009 §The thrown-error
-shape](../../spec/009-Instrumentation.md)): `:rf.error/id` is the canonical
+shape](../../../spec/009-Instrumentation.md)): `:rf.error/id` is the canonical
 machine discriminator (tools branch on it), `:reason` is the human
 sentence, and `ex-message` leads with the sentence and trails the
 `[:rf.error/<id>]` token.
@@ -2270,7 +2270,7 @@ clean up or accept as-is).
 ### Error modes
 
 Per the thrown-error contract ([Spec 009 §The thrown-error
-shape](../../spec/009-Instrumentation.md)): `:rf.error/id` is the canonical
+shape](../../../spec/009-Instrumentation.md)): `:rf.error/id` is the canonical
 machine discriminator (tools branch on it), `:reason` is the human
 sentence, and `ex-message` leads with the sentence and trails the
 `[:rf.error/<id>]` token.
