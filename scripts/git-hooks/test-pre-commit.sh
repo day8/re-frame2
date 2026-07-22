@@ -533,6 +533,162 @@ rm -f "$rc_h"
 rm -f /tmp/rf2-pc-smoke.err
 
 # ----------------------------------------------------------------------------
+# Layer 5: the CI arm, on DIVERGED HISTORY (rf2-5z20y).
+#
+# scripts/check-beads-pr-boundary.sh is the pull-request half of the guard.
+# Its defect was not in WHAT it classifies — the layer-3 tests cover that —
+# but in WHICH PATHS it hands the classifier. It used a two-endpoint
+# `git diff "$BASE" HEAD`, which reports every path where the two trees
+# differ, including paths only the BASE moved.
+#
+# In this repository the mayor checkpoints `.beads/issues.jsonl` to main on
+# essentially every loop tick, so a branch that forked before the last
+# checkpoint got told it had committed tracker contamination it never
+# touched — a false RED with the wrong remedy, on most open branches.
+#
+# Endpoint-only good/bad fixtures CANNOT see this: both endpoints are
+# individually well-formed. Only the SEQUENCE exposes it — fork, advance the
+# base with a beads-only commit, then assert. Layer 5 is that sequence, and
+# it fails under the two-endpoint implementation.
+# ----------------------------------------------------------------------------
+
+printf '\n[5] CI arm on diverged history (rf2-5z20y)\n'
+
+PR_GUARD="$REPO_ROOT/scripts/check-beads-pr-boundary.sh"
+CIBOX=$(mktemp -d "${TMPDIR:-/tmp}/rf2-beads-ci-XXXXXX")
+CIERR=$(mktemp "${TMPDIR:-/tmp}/rf2-beads-ci-err-XXXXXX")
+
+(
+  cd "$CIBOX"
+  git init -q -b main
+  git config user.email 'precommit-test@example.invalid'
+  git config user.name 'precommit-test'
+  git config commit.gpgsign false
+  # The guard resolves its classifier lib relative to its OWN location, so
+  # ship both into the sandbox exactly as the repo lays them out.
+  mkdir -p scripts/git-hooks/lib .beads implementation/core/src
+  cp "$PR_GUARD" scripts/
+  cp "$BEADS_LIB" scripts/git-hooks/lib/
+  printf '{"id":"seed"}\n' > .beads/issues.jsonl
+  printf '(ns seed)\n' > implementation/core/src/seed.cljc
+  git add -A
+  git commit -q -m 'seed'
+
+  # Two branches fork HERE, from the same base commit.
+  git branch worker/clean
+  git branch worker/contaminated
+
+  # ...and only THEN does the base advance, with a mayor beads-only
+  # checkpoint. This commit is the whole point of the fixture.
+  printf '{"id":"seed"}\n{"id":"filed-after-the-fork"}\n' > .beads/issues.jsonl
+  git commit -q -am 'chore(beads): mayor heartbeat AFTER both branches forked'
+  # Mirror the CI runner's remote-tracking ref.
+  git update-ref refs/remotes/origin/main "$(git rev-parse main)"
+
+  git checkout -q worker/clean
+  printf '(ns seed)\n;; ordinary work\n' > implementation/core/src/seed.cljc
+  git commit -q -am 'worker: ordinary source change, no tracker'
+
+  git checkout -q worker/contaminated
+  printf '(ns seed)\n;; ordinary work\n' > implementation/core/src/seed.cljc
+  # The worker's own `bd` calls (a claim, a close) rewrote the export, so it
+  # differs from the branch point — and, having forked before the heartbeat,
+  # it silently DROPS the bead filed on main. That is the time travel.
+  printf '{"id":"seed"}\n{"id":"claimed-by-this-worker","status":"in_progress"}\n' \
+    > .beads/issues.jsonl
+  git add -A
+  git commit -q -m 'worker: real work + bd auto-staged tracker snapshot'
+) >/dev/null 2>&1
+
+run_ci_guard() {
+  # $1 = branch, $2 = base ref. Echoes EXIT=<n>; stderr lands in $CIERR.
+  ( cd "$CIBOX" \
+    && git checkout -q "$1" \
+    && GITHUB_EVENT_NAME=pull_request sh scripts/check-beads-pr-boundary.sh "$2" \
+       >/dev/null 2>"$CIERR" ) && echo "EXIT=0" || echo "EXIT=$?"
+}
+
+# 5a: THE REGRESSION. The clean branch never touched the tracker; the BASE
+# did, after the fork. Two-endpoint selection reds this. Branch-delta
+# selection passes it.
+out=$(run_ci_guard worker/clean origin/main)
+case "$out" in
+  EXIT=0) pass "(5a) clean branch forked before a mayor beads checkpoint -> passes" ;;
+  *)
+    fail "(5a) FALSE RED: a clean branch was blamed for the base's beads checkpoint ($out)"
+    cat "$CIERR" >&2 || true
+    ;;
+esac
+
+# 5b: from that SAME diverged history, real contamination must still fail,
+# naming the path and the branch-repair remedy. Without this, 5a could be
+# satisfied by a guard that simply stopped working.
+out=$(run_ci_guard worker/contaminated origin/main)
+case "$out" in
+  EXIT=0)
+    fail "(5b) FALSE GREEN: a branch that committed the tracker was not blocked"
+    ;;
+  *)
+    if grep -q '\.beads/issues\.jsonl' "$CIERR" \
+       && grep -q 'STALE WORKER-SNAPSHOT' "$CIERR" \
+       && grep -q 'git rebase -i' "$CIERR"; then
+      pass "(5b) branch that DID commit the tracker -> refused, names path + remedy"
+    else
+      fail "(5b) refused, but the diagnostic is missing the path or the remedy"
+      cat "$CIERR" >&2 || true
+    fi
+    ;;
+esac
+
+# 5c: an unresolvable branch point FAILS CLOSED. A shallow clone that does
+# not contain the fork is the usual cause, and a gate that cannot see the
+# branch delta certifies nothing.
+( cd "$CIBOX" && git checkout -q --orphan orphan/unrelated \
+  && git commit -q --allow-empty -m 'unrelated history' ) >/dev/null 2>&1
+out=$(run_ci_guard orphan/unrelated origin/main)
+case "$out" in
+  EXIT=0) fail "(5c) unresolvable branch point passed vacuously" ;;
+  *)
+    if grep -q 'no merge base' "$CIERR" && grep -q 'fetch-depth: 0' "$CIERR"; then
+      pass "(5c) unresolvable branch point -> fails closed, names the likely cause"
+    else
+      fail "(5c) failed, but without a didactic diagnostic"
+      cat "$CIERR" >&2 || true
+    fi
+    ;;
+esac
+
+# 5d: a missing base ref still fails closed (unchanged behaviour, re-pinned
+# here so the merge-base work cannot quietly swallow it).
+out=$( ( cd "$CIBOX" && git checkout -q worker/clean \
+         && GITHUB_EVENT_NAME=pull_request sh scripts/check-beads-pr-boundary.sh \
+            >/dev/null 2>"$CIERR" ) && echo "EXIT=0" || echo "EXIT=$?")
+case "$out" in
+  EXIT=0) fail "(5d) missing base ref passed vacuously" ;;
+  *) pass "(5d) missing base ref -> fails closed" ;;
+esac
+
+# 5e: THE MAYOR CHECKPOINT PATH. On a non-pull_request event the guard must
+# no-op, whatever is in the diff. The mayor commits the tracker to main on
+# every heartbeat; blocking that would be worse than the bug.
+out=$( ( cd "$CIBOX" && git checkout -q main \
+         && GITHUB_EVENT_NAME=push sh scripts/check-beads-pr-boundary.sh \
+            >"$CIERR" 2>&1 ) && echo "EXIT=0" || echo "EXIT=$?")
+case "$out" in
+  EXIT=0)
+    if grep -q 'not a pull request' "$CIERR"; then
+      pass "(5e) push event -> guard no-ops and says so (mayor checkpoint intact)"
+    else
+      fail "(5e) push event passed but printed no explanation"
+    fi
+    ;;
+  *) fail "(5e) the mayor checkpoint path was blocked by the CI guard ($out)"; cat "$CIERR" >&2 ;;
+esac
+
+rm -rf "$CIBOX"
+rm -f "$CIERR"
+
+# ----------------------------------------------------------------------------
 # Summary
 # ----------------------------------------------------------------------------
 
