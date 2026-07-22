@@ -733,31 +733,57 @@
 
 (defn- seeded->registries
   "Pure: group harvested `[source tag decl]` triples into the per-source shape
-  `elements-conflict` folds — `{source {elements {tag decl}}}`."
-  [seeded]
-  (reduce (fn [m [source tag decl]] (assoc-in m [source elements tag] decl))
+  `elements-conflict` folds — `{source {elements {tag decl}}}` — or
+  `{::conflict …}` when two non-`rf=`-equal declarations of one tag arrive from
+  the SAME source in ONE harvest. Grouping itself must not pick a winner:
+  `elements-conflict` compares finalized per-source rows, so a same-source
+  contradiction would otherwise collapse last-wins before the law ever ran
+  (PR #6646 audit rider). Two contradictory declarations in one pass of one
+  namespace are two LIVE declarations — the same law violation
+  `contribute-element-checked!` refuses via its staged rows on the plain-JVM
+  path — not a source replacing itself across passes: each prepare harvest is
+  independent, so an ordinary edit between builds still replaces cleanly.
+  `rf=`-equal duplicates fold idempotently."
+  [build-id seeded]
+  (reduce (fn [m [source tag decl]]
+            (let [prior (get-in m [source elements tag])]
+              (cond
+                (nil? prior)        (assoc-in m [source elements tag] decl)
+                (eq/rf= prior decl) m
+                :else
+                (reduced
+                 {::conflict
+                  {:tag tag
+                   :declarations
+                   (vec (sort-by (juxt (comp str :build) (comp str :ns))
+                                 [(element-conflict-row build-id source prior)
+                                  (element-conflict-row build-id source decl)]))}}))))
           {} seeded))
 
 (defn element-manifest
   "Pure: fold harvested `[source tag decl]` triples into the flat all-members
-  custom-element manifest `{tag {:properties #{…}}}`. The SAME cross-source
-  conflict law as `contribute-element-checked!` governs admission — a non-`rf=`
-  same-tag declaration from a DIFFERENT source is a contradiction and THROWS
-  (a `:compile-prepare` error is a build-time error), so the manifest never
-  carries a merge-order winner; `rf=`-equal duplicates fold idempotently.
-  `build-id` anchors the thrown evidence."
+  custom-element manifest `{tag {:properties #{…}}}`. The SAME conflict law as
+  `contribute-element-checked!` governs admission — a non-`rf=` same-tag
+  declaration from a DIFFERENT source, or a second non-`rf=` declaration of one
+  tag inside the SAME source's single harvest (PR #6646 audit rider), is a
+  contradiction and THROWS (a `:compile-prepare` error is a build-time error),
+  so the manifest never carries a merge-order or source-order winner;
+  `rf=`-equal duplicates fold idempotently. `build-id` anchors the thrown
+  evidence."
   [build-id seeded]
-  (when-let [c (elements-conflict build-id (seeded->registries seeded))]
-    (throw
-     (ex-info
-      (str "re-frame.ui found contradictory custom-element declarations for "
-           (:tag c) " while harvesting the build's declarations; refusing to "
-           "publish a merge-order winner")
-      {::error ::custom-element-conflict
-       :build-id build-id
-       :recovery :reconcile-custom-element-declarations
-       :tag (:tag c)
-       :declarations (:declarations c)})))
+  (let [grouped (seeded->registries build-id seeded)]
+    (when-let [c (or (::conflict grouped)
+                     (elements-conflict build-id grouped))]
+      (throw
+       (ex-info
+        (str "re-frame.ui found contradictory custom-element declarations for "
+             (:tag c) " while harvesting the build's declarations; refusing to "
+             "publish a merge-order winner")
+        {::error ::custom-element-conflict
+         :build-id build-id
+         :recovery :reconcile-custom-element-declarations
+         :tag (:tag c)
+         :declarations (:declarations c)}))))
   (reduce (fn [m [_source tag decl]]
             (assoc m tag {:properties (:properties decl #{})}))
           {} seeded))

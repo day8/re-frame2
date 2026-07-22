@@ -257,3 +257,39 @@
                  ::b (registries {'z.ns {:x-el #{:z}} 'a.ns {:x-el #{:a}}}))]
     (is (= a-first z-first)
         "the detector's evidence is identical under source permutation")))
+
+;; ---------------------------------------------------------------------------
+;; Harvested-triple composition (PR #6646 audit rider) — the Shadow-path
+;; all-members harvest feeds `element-manifest` RAW `[source tag decl]`
+;; triples, so the law must fire BEFORE per-source grouping collapses a
+;; same-source contradiction last-wins. On a Shadow build the macro is
+;; validation/reporting-only, so this is the ONLY barrier for two
+;; contradictory live declarations of one tag in one namespace.
+;; ---------------------------------------------------------------------------
+
+(deftest same-source-unequal-harvested-declarations-fail
+  ;; The rider's exact probe: two non-rf=-equal declarations of one tag from
+  ;; the SAME source in ONE harvest previously folded to a silent source-order
+  ;; winner ({:x-tag {:properties #{:b}}}). They are two live declarations —
+  ;; the same law violation as a cross-source contradiction — and must throw.
+  (let [e (try (build/element-manifest
+                :probe [['app.a :x-tag {:properties #{:a}}]
+                        ['app.a :x-tag {:properties #{:b}}]])
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+    (is (some? e) "a same-source contradiction must throw, never last-wins")
+    (let [{:keys [tag declarations] :as data} (ex-data e)]
+      (is (= ::build/custom-element-conflict (::build/error data)))
+      (is (= :x-tag tag))
+      (is (= [{:build :probe :ns 'app.a :properties #{:a}}
+              {:build :probe :ns 'app.a :properties #{:b}}]
+             declarations)
+          "both same-source declarations are reported as evidence"))))
+
+(deftest same-source-equal-harvested-declarations-fold-idempotently
+  ;; rf=-equal duplicates remain idempotent — two literal statements of the
+  ;; same fact in one source are not a contradiction.
+  (is (= {:x-tag {:properties #{:a}}}
+         (build/element-manifest
+          :probe [['app.a :x-tag {:properties #{:a}}]
+                  ['app.a :x-tag {:properties #{:a}}]]))))

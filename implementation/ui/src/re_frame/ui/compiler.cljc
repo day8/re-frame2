@@ -417,8 +417,9 @@
       (build/contribute! build/view-static ns-sym view-id static-facts))
     (if cljs?
       ;; Direct no-pass REPL evaluation may replace the runtime view body, but
-      ;; carries no digest assignment. Only a successful configured file/watch
-      ;; pass patches the whole-build carrier (Option C).
+      ;; never the accepted whole-build registries — those are harvested from
+      ;; cache-durable analyzer descriptors by a successful configured
+      ;; file/watch build pass (rf2-u53yy.1).
       (emit-cljs/emit-defview args)
       (emit-jvm/emit-defview args))))
 
