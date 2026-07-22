@@ -108,6 +108,33 @@ the compiled tier are declared vacancies that land with their own EP-0036 slices
   directions: an extra key is as much a defect as a missing one. This is inspection
   data, never a dispatch surface.
 
+### `manifest`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (manifest view) → manifest-map | nil
+  ```
+- **Description**: a **compiled** declaration's manifest — what its analysis makes
+  statically knowable about it, as plain data — or `nil` for an interpreted one,
+  which has no analysis to report.
+
+  ```clojure
+  (v/manifest people-list)
+  ;; => {:view-id   :app.people/people-list
+  ;;     :grammar   :re-frame.freehand/v1
+  ;;     :crossings [{:view-id :re-frame.freehand/markup
+  ;;                  :lowering :interpreted :path [1]}]}
+  ```
+
+  `:crossings` is the roster of internal-view boundaries the body mounts, one entry
+  per lexical site, each marked with the mode it crosses into. A compiled view that
+  mounts an interpreted child is the ordinary case — promotion is per declaration
+  and not transitive — so the manifest says where the compiled tier stops rather
+  than leaving a reader to assume it does not. `nil` for an interpreted declaration
+  is the honest answer, not an omission. See
+  [spec/004D-Freehand-Compiled-Grammar.md](../../spec/004D-Freehand-Compiled-Grammar.md#manifests-mark-the-crossing).
+
 ## Callbacks and event intent
 
 ### `event`
@@ -243,6 +270,36 @@ the compiled tier are declared vacancies that land with their own EP-0036 slices
   ```clojure
   [v/route-link {:to :article :params {:slug slug} :class "title"} title]
   ```
+
+### `markup`
+
+- **Kind**: Var (a declared view descriptor)
+- **Signature**:
+  ```clojure
+  [v/markup {:value hiccup}]
+  ```
+- **Description**: the declared boundary that markup already held as a **value**
+  crosses at — and, like `route-link`, an ORDINARY interpreted declaration. The
+  compiled tier treats a template as a finite grammar and cannot lower a runtime
+  value, so a compiled body that hands a value to a child position names `v/markup`
+  as its recovery:
+
+  ```clojure
+  (v/defview editor
+    {:compiled true}
+    [{:keys [error hint]}]
+    [:section
+     [v/markup {:value (field-help error hint)}]])
+  ```
+
+  There is no `v/interp` and no automatic dynamic-markup walk. Nothing in the
+  compiled tier knows its name: mounting it is mounting a statically named
+  interpreted child, so the compiled parent sees one descriptor boundary, the child
+  owns the walk and its own occurrence, and the parent's manifest marks the crossing
+  `:interpreted` rather than quietly claiming the subtree. `:value` is anything a
+  view body may return — a Hiccup vector, a seq of them, text, a number, or nothing;
+  it accepts no children (`:children-policy :none`), because the value *is* the
+  content. See [spec/004-Views.md](../../spec/004-Views.md#the-vmarkup-boundary).
 
 ## Related
 
