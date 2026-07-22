@@ -23,6 +23,20 @@
 > (artifact `day8/re-frame2-ui`, alias `ui/`), the donor absorbed by Freehand; frames
 > are created at host preflight (per [002](002-Frames.md)), never from render. SSR
 > ([011](011-SSR.md)) renders the same views on the JVM without React.
+>
+> **Where the compile tier lives.** The analyzer, the React emitter, the JVM
+> emitter and the host-neutral normalizers they share are **owned by Freehand**
+> and live in the Freehand artifact: `re-frame.freehand.compiler` and its
+> `analyze` / `emit-cljs` / `emit-jvm` / `env` / `header` / `binding-plan` /
+> `a11y` / `build` / `build-hook` / `harvest` / `root` namespaces, over
+> `re-frame.freehand.rules`, `re-frame.freehand.fingerprint` and
+> `re-frame.freehand.eq`. The two emitters remain **separate implementations**
+> over one normalized AST: sharing a normalizer is not sharing an emitter, and
+> neither consumes the other's output. The donor artifact keeps its own frozen
+> copy of that code only so it still builds while the two coexist — that copy is
+> not a second owner, and it is deleted with the artifact. Reuse of donor code
+> confers no API status: none of these namespaces is Freehand API, which is
+> `re-frame.freehand` alone.
 
 ## Abstract
 
