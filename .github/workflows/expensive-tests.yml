@@ -70,20 +70,72 @@ jobs:
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium
 
-      - name: Run rigorous implementation browser and bundle gates
-        run: |
-          set -euo pipefail
-          npm run test:browser
-          npm run test:browser-schemas-boundary-prod
-          npm run test:browser-prod-elision
-          npm run test:elision
-          npm run test:bundle-isolation
-          npm run test:reagent-slim:bundle-isolation
-          npm run test:adapter-smokes
-          npm run test:story-feature-load
-          npm run test:story-play-scripts
-          npm run test:xray-feature-gate
-          npm run test:story-static
+      # rf2-wh5to — the eleven gates below used to be ONE unnamed
+      # `set -euo pipefail` step. That structure is why the
+      # 2026-07-08..07-21 nightly outage cost fourteen red nights and TWO
+      # repair rounds instead of one:
+      #
+      #   - A `set -e` chain aborts at the FIRST failing gate, so every
+      #     later gate is simply not run. `test:story-feature-load` broke
+      #     on 07-08 and `test:story-static` broke on 07-13, but the
+      #     second was invisible until the first was fixed on 07-21 —
+      #     the 07-21 nightly then went red on a bug that had been live
+      #     for eight nights, costing another day of the alpha clock.
+      #   - Because the step had no `name:`, `gh run view --log-failed`
+      #     labelled every line of the blob `UNKNOWN STEP`, so even
+      #     identifying WHICH gate failed meant reading a 2000-line log.
+      #
+      # One named step per gate, each `if: ${{ !cancelled() }}`, so a red
+      # night names the failing gate in the Actions UI and reports EVERY
+      # broken gate in that one night. The gates are independent (each
+      # builds and tears down its own artefacts and servers), the job
+      # still fails if any one of them fails, and nothing here is
+      # skipped, retried, softened or allow-listed — only the reporting
+      # changes. The extra CI minutes are spent only on already-red
+      # nightly runs.
+      - name: Gate — browser tests (test:browser)
+        if: ${{ !cancelled() }}
+        run: npm run test:browser
+
+      - name: Gate — schemas boundary, production build (test:browser-schemas-boundary-prod)
+        if: ${{ !cancelled() }}
+        run: npm run test:browser-schemas-boundary-prod
+
+      - name: Gate — production elision, browser (test:browser-prod-elision)
+        if: ${{ !cancelled() }}
+        run: npm run test:browser-prod-elision
+
+      - name: Gate — production elision probe (test:elision)
+        if: ${{ !cancelled() }}
+        run: npm run test:elision
+
+      - name: Gate — tools must not leak into production bundles (test:bundle-isolation)
+        if: ${{ !cancelled() }}
+        run: npm run test:bundle-isolation
+
+      - name: Gate — reagent-slim bundle isolation (test:reagent-slim:bundle-isolation)
+        if: ${{ !cancelled() }}
+        run: npm run test:reagent-slim:bundle-isolation
+
+      - name: Gate — per-adapter mount/dispatch smokes (test:adapter-smokes)
+        if: ${{ !cancelled() }}
+        run: npm run test:adapter-smokes
+
+      - name: Gate — Story feature-load (test:story-feature-load)
+        if: ${{ !cancelled() }}
+        run: npm run test:story-feature-load
+
+      - name: Gate — Story play scripts (test:story-play-scripts)
+        if: ${{ !cancelled() }}
+        run: npm run test:story-play-scripts
+
+      - name: Gate — Xray feature matrix (test:xray-feature-gate)
+        if: ${{ !cancelled() }}
+        run: npm run test:xray-feature-gate
+
+      - name: Gate — Story static export (test:story-static)
+        if: ${{ !cancelled() }}
+        run: npm run test:story-static
 
   template-emitted-app:
     name: Template emitted-app smoke
