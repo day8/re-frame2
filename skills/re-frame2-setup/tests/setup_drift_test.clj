@@ -326,17 +326,23 @@
 ;;
 ;; The template's root/resources/public/index.html ships a DEV-flavoured CSP
 ;; meta tag tuned to the runtime the scaffold produces:
+;;   - `script-src 'self' 'unsafe-eval'` — shadow-cljs DEV builds (`watch` /
+;;     `compile`, :optimizations :none) load every compiled namespace through
+;;     goog.globalEval, so without 'unsafe-eval' the dev page is blank (every
+;;     module load dies with a CSP EvalError). The release bundle never evals;
+;;     the production header drops it (rf2-zgwro).
 ;;   - `style-src 'self' 'unsafe-inline'` — generated views use inline `:style`
 ;;     props and the default-on Xray devtools injects <style>/inline styles, so
 ;;     a strict `style-src 'self'` would emit violations + break Xray on first
 ;;     run.
 ;;   - NO meta `frame-ancestors` — browsers IGNORE it from a <meta> tag; it is a
 ;;     response-header-only directive, so it belongs in the production header.
-;; A strict dev CSP (`style-src 'self'`, meta `frame-ancestors`) would
-;; diverge from the tested template and cause first-run CSP violations /
-;; broken Xray styling. These guards fail if that strict-dev shape (or a meta
-;; `frame-ancestors`) appears, and require the dev/prod split (a documented
-;; stricter production RESPONSE HEADER that adds `frame-ancestors`) to stay
+;; A strict dev CSP (`script-src 'self'`, `style-src 'self'`, meta
+;; `frame-ancestors`) would diverge from the tested template and cause a
+;; blank first run / CSP violations / broken Xray styling. These guards fail
+;; if that strict-dev shape (or a meta `frame-ancestors`) appears, and require
+;; the dev/prod split (a documented stricter production RESPONSE HEADER that
+;; drops the two 'unsafe-*' loosenings and adds `frame-ancestors`) to stay
 ;; present.
 ;; ---------------------------------------------------------------------------
 
@@ -365,6 +371,31 @@
                "that diverges from the template and breaks the first page / "
                "Xray. Strict `style-src 'self'` belongs only in the PRODUCTION "
                "response header (rf2-pxl6l).")))))
+
+(deftest dev-csp-allows-unsafe-eval-scripts
+  (testing "shadow-cljs.md's index.html meta CSP admits 'unsafe-eval' scripts (dev builds eval; matches the template)"
+    (let [meta-csp (meta-csp-content @shadow-cljs-md)]
+      (is (some? meta-csp)
+          "Could not find the Content-Security-Policy <meta> tag in shadow-cljs.md.")
+      (is (and meta-csp (str/includes? meta-csp "script-src 'self' 'unsafe-eval'"))
+          (str "shadow-cljs.md's CSP meta tag no longer admits "
+               "`script-src 'self' 'unsafe-eval'`. shadow-cljs DEV builds "
+               "(watch/compile, :optimizations :none) load every compiled "
+               "namespace through goog.globalEval — without 'unsafe-eval' the "
+               "dev page is BLANK: every module load dies with a CSP "
+               "EvalError. The dev meta tag must match the template's "
+               "root/resources/public/index.html (rf2-zgwro)."))))
+  (testing "the production response header stays eval-free (drops 'unsafe-eval')"
+    (let [prod-header (some-> (re-find #"(?m)^Content-Security-Policy: ([^\r\n]+)"
+                                       @shadow-cljs-md)
+                              second)]
+      (is (some? prod-header)
+          "Could not find the production `Content-Security-Policy:` response-header line in shadow-cljs.md.")
+      (is (and prod-header (not (str/includes? prod-header "unsafe-eval")))
+          (str "shadow-cljs.md's production response header carries "
+               "'unsafe-eval'. The release bundle is one static file and "
+               "never evals — the production policy must drop it "
+               "(rf2-zgwro).")))))
 
 (deftest dev-csp-meta-omits-frame-ancestors
   (testing "shadow-cljs.md's index.html meta CSP omits frame-ancestors (meta-tag-ignored directive)"

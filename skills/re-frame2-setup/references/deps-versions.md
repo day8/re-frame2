@@ -90,11 +90,18 @@ A minimal `deps.edn` for a greenfield re-frame2 project. **Today (pre-publish), 
  :aliases
  {;; Build alias the paired shadow-cljs.edn names via {:deps {:aliases [:shadow]}};
   ;; supplies the JVM-side build deps + test/dev paths. Required — see notes below.
+  ;;
+  ;; Deps only, deliberately NO :main-opts: `npx shadow-cljs` already
+  ;; appends `-m shadow.cljs.devtools.cli` when it shells out to clojure,
+  ;; and clojure prepends an alias's :main-opts to the command line — so
+  ;; a :main-opts here becomes a second `-m` and every npx / npm-script
+  ;; command dies on shadow's arg parser with `Unknown option: "-m"`.
+  ;; Pure-JVM route (no node wrapper):
+  ;;   clojure -M:shadow -m shadow.cljs.devtools.cli watch app
   :shadow
   {:extra-paths ["test" "dev"]
    :extra-deps  {thheller/shadow-cljs        {:mvn/version "<shadow-version>"}
-                 org.clojure/tools.namespace {:mvn/version "1.5.0"}}
-   :main-opts   ["-m" "shadow.cljs.devtools.cli"]}}}
+                 org.clojure/tools.namespace {:mvn/version "1.5.0"}}}}}
 ```
 
 Replace `<SHA>` with the reviewed commit (**every `day8/re-frame2-*` line gets the same `<SHA>`** — that is how lockstep holds with git coords) and `<shadow-version>` with the `shadow-cljs` version from the pinned `implementation/package.json` (keep it in lockstep with `package.json` below). A **sibling checkout** via `:local/root` is the equivalent pre-publish route — see [The `:local/root` sibling-checkout dev route](#the-localroot-sibling-checkout-dev-route-pre-publish) below.
@@ -144,10 +151,11 @@ Notes on the pins:
 - The Clojure / ClojureScript versions match the re-frame2 repo's core artefact (`implementation/core/deps.edn`) and the template; start with these, bump only if shadow-cljs and Reagent support newer.
 - `reagent/reagent {:mvn/version "2.0.1"}` is pinned **explicitly**, matching the template — the adapter pulls Reagent transitively, but pinning it yourself stops a surprise transitive bump changing your rendering substrate. Keep it in lockstep with the adapter's `deps.edn`.
 - The **`:shadow` alias is required**, not optional — the paired `shadow-cljs.edn` reads its build classpath from it via `{:deps {:aliases [:shadow]}}` (see [`shadow-cljs.md`](shadow-cljs.md)). The template ships it alongside `:cljfmt` / `:clj-kondo` lint aliases (out of scope here); the manual route needs at least `:shadow`.
+- The alias is **deps-only — no `:main-opts`**. `npx shadow-cljs` (and every `npm run` script) already appends `-m shadow.cljs.devtools.cli` when it shells out to `clojure`, and `clojure` prepends an alias's `:main-opts` to the command line — a `:main-opts` here becomes a second `-m` and every `npx shadow-cljs watch app` dies on shadow's arg parser with `Unknown option: "-m"`. To run without the node wrapper, the pure-JVM invocation is `clojure -M:shadow -m shadow.cljs.devtools.cli watch app`.
 
 ## `package.json` shape
 
-re-frame2 ships no npm code — but Reagent depends on React, and shadow-cljs is the build tool. **Default to the versions the pinned `implementation/package.json` ships** — known-good against the chosen re-frame2 VERSION:
+re-frame2 ships no npm code — but Reagent depends on React, shadow-cljs is the build tool, and the day-one Xray preload's machine canvas compiles against two npm packages (`@xyflow/react` + `elkjs`, pulled in via `day8/re-frame2-machines-viz`). **Default to the versions the pinned `implementation/package.json` ships** — known-good against the chosen re-frame2 VERSION:
 
 ```json
 {
@@ -159,7 +167,9 @@ re-frame2 ships no npm code — but Reagent depends on React, and shadow-cljs is
     "release": "shadow-cljs release app"
   },
   "devDependencies": {
-    "shadow-cljs": "<from pinned implementation/package.json>"
+    "shadow-cljs":   "<from pinned implementation/package.json>",
+    "@xyflow/react": "<from pinned implementation/package.json>",
+    "elkjs":         "<from pinned implementation/package.json>"
   },
   "dependencies": {
     "react":     "<from pinned implementation/package.json>",
@@ -168,7 +178,7 @@ re-frame2 ships no npm code — but Reagent depends on React, and shadow-cljs is
 }
 ```
 
-`shadow-cljs` is build-only → `devDependencies`; `react` / `react-dom` are runtime deps → `dependencies`. Matches the template's `package.json`. Read the pinned `implementation/package.json` (see [`../SKILL.md`](../SKILL.md) cardinal rule 1) and copy the three versions verbatim.
+`shadow-cljs` is build-only → `devDependencies`; `react` / `react-dom` are runtime deps → `dependencies`. `@xyflow/react` + `elkjs` are the JS packages Xray's machine canvas imports: shadow-cljs resolves JS deps from your project-local `node_modules` at compile time, so omitting them fails the first `npx shadow-cljs watch app` with `The required JS dependency "@xyflow/react" is not available`. They ride only the dev build (the Xray preload is cut from `release`), so they sit in `devDependencies` too. Matches the template's `package.json`. Read the pinned `implementation/package.json` (see [`../SKILL.md`](../SKILL.md) cardinal rule 1) and copy the five versions verbatim.
 
 **Latest-from-npm is opt-in only.** If the author explicitly asks for the newest, run `npm view <pkg> version` for each and **show the result for confirmation before writing it** — don't auto-substitute. Reagent 2.x requires React 19; flag any pick below 19 as a conflict and stop.
 
