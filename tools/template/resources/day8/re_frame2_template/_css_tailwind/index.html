@@ -34,15 +34,22 @@
            anti-clickjacking contract lives in the README's response-header
            snippets ("Production hardening").
 
+         `script-src` also carries `'unsafe-eval'`: shadow-cljs DEV
+         builds (`watch` / `compile`, `:optimizations :none`) load every
+         compiled namespace through `goog.globalEval` — without it the
+         dev page is blank (every module load dies with a CSP
+         EvalError). Release builds don't eval.
+
          For production, serve a Content-Security-Policy RESPONSE HEADER
-         (see README "Production hardening"): drop `'unsafe-inline'` and
+         (see README "Production hardening"): drop `'unsafe-eval'` (the
+         release bundle doesn't eval), drop `'unsafe-inline'` and
          the jsdelivr origin once you've compiled Tailwind with
          `@tailwindcss/cli` and externalised styles, drop `ws: wss:` (no
          dev hot-reload), tighten `connect-src` to your real API
          origin(s), and add `frame-ancestors 'none'` THERE (where it
          works). -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'">
+          content="default-src 'self'; script-src 'self' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'">
     <title>{{name}} — re-frame2</title>
     <!-- Tailwind v4, dev-only Play CDN compiler (@tailwindcss/browser@4).
          It compiles the CSS-first source in the

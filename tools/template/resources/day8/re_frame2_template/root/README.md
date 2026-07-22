@@ -169,8 +169,10 @@ emit CSP violations on the first page and block Xray styling. The meta
 tag also drops `frame-ancestors` (browsers ignore it from `<meta>`).
 
 For production, serve the **stricter** policy below as a response
-header. It tightens three things relative to the dev meta tag:
-**drops `'unsafe-inline'`** (do this only after you have externalised
+header. It tightens four things relative to the dev meta tag:
+**drops `'unsafe-eval'`** (shadow's dev watch bundle loads compiled
+namespaces via eval; the release bundle is one static file and never
+evals); **drops `'unsafe-inline'`** (do this only after you have externalised
 all inline styles — move the views' `:style` props to `css/app.css`
 classes, and either drop the dev-only Xray preload from your release
 build [it already is — see "In-app devtools" above] or serve Xray under
@@ -200,9 +202,12 @@ origin), `'self'` will block it — add that origin explicitly, e.g.
 silently forbids any cross-origin request you haven't whitelisted, so
 add API origins here as you wire them up.
 
-`script-src` stays strict (`'self'`, no `'unsafe-inline'`) in both the
-dev meta tag and the production header — the scaffold has no inline
-`<script>`. If you add a CDN, embed in an iframe, inline a `<script>`,
+`script-src` allows no inline `<script>` in either policy — the
+scaffold has none. The dev meta tag carries `'unsafe-eval'` because
+shadow-cljs dev builds load every compiled namespace through
+`goog.globalEval` (without it the watch page is blank); the release
+bundle never evals, so the production header drops it and `script-src`
+collapses to a strict `'self'`. If you add a CDN, embed in an iframe, inline a `<script>`,
 or load an analytics snippet, **explicitly widen the policy** for that
 origin / hash — don't drop it to `'unsafe-inline'` wholesale. (For
 inline *styles*, see the `style-src` note above: the dev meta tag

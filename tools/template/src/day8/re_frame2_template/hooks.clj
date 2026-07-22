@@ -323,6 +323,23 @@
        ;; shell also loads the Tailwind dev compiler.
        :css-name            (if css (name css) "")
        :story-tag           (if include-story? ", with Story playground" "")
+       ;; Xray rides the dev build of every adapter substrate (the
+       ;; :devtools/preloads entry in the shared shadow-cljs.edn), and its
+       ;; machine canvas compiles against two npm packages (@xyflow/react +
+       ;; elkjs, required by day8/re-frame2-machines-viz). shadow-cljs
+       ;; resolves JS deps from the project-local node_modules at compile
+       ;; time, so the emitted package.json must carry both — omit them and
+       ;; the scaffold's first `shadow-cljs watch app` fails with a missing
+       ;; JS dependency (found by the rf2-b16va G1-G4 external-consumer
+       ;; validation; the in-repo emitted-test tier masks it by junctioning
+       ;; implementation/node_modules). The EXPERIMENTAL :ui variant ships
+       ;; no Xray coord (minimal consumer shape) and gets none of this.
+       ;; Pins ride lockstep with implementation/package.json
+       ;; (version_lockstep_test.clj).
+       :xray-npm-deps       (if (= substrate :ui)
+                              ""
+                              (str ",\n    \"@xyflow/react\": \"12.4.2\","
+                                   "\n    \"elkjs\": \"^0.11.1\""))
        ;; SSR emits a JVM test instead of the shared CLJS test.
        :test-script         (if include-ssr?
                               "clojure -M:test"

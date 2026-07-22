@@ -458,10 +458,16 @@
                     "a symlink or `mklink /J` junction."))
 
            ;; --- compile -----------------------------------------------------
+           ;; The emitted :shadow alias is deps-only (NO :main-opts — the
+           ;; npx wrapper appends its own `-m`, and a second one kills
+           ;; shadow's arg parser), so the pure-JVM route here names the
+           ;; CLI ns explicitly.
            (testing (str label " — shadow-cljs compile "
                          (string/join " " compile-targets))
              (let [{:keys [exit out]}
-                   (run-process! (into ["clojure" "-M:shadow" "compile"]
+                   (run-process! (into ["clojure" "-M:shadow"
+                                        "-m" "shadow.cljs.devtools.cli"
+                                        "compile"]
                                        compile-targets)
                                  proj env-overrides)]
                (is (zero? exit)
@@ -502,7 +508,9 @@
            (when release?
              (testing (str label " — clojure -M:shadow release app (:advanced)")
                (let [{:keys [exit out]}
-                     (run-process! ["clojure" "-M:shadow" "release" "app"]
+                     (run-process! ["clojure" "-M:shadow"
+                                    "-m" "shadow.cljs.devtools.cli"
+                                    "release" "app"]
                                    proj env-overrides)]
                  (is (zero? exit)
                      (str "`clojure -M:shadow release app` exited " exit
@@ -616,7 +624,9 @@
           ;; `npx shadow-cljs watch app`.
           (testing "reagent-ssr — clojure -M:shadow compile app (client :cljs hydration branch)"
             (let [{:keys [exit out]}
-                  (run-process! ["clojure" "-M:shadow" "compile" "app"]
+                  (run-process! ["clojure" "-M:shadow"
+                                 "-m" "shadow.cljs.devtools.cli"
+                                 "compile" "app"]
                                 proj env-overrides)]
               (is (zero? exit)
                   (str "`clojure -M:shadow compile app` exited " exit
@@ -1126,8 +1136,13 @@
           ;; --- compile the :app build -------------------------------------
           (testing (str "setup-skill " (name substrate)
                         " scaffold — clojure -M:shadow compile app")
+            ;; The harvested :shadow alias is deps-only (no :main-opts),
+            ;; so name the shadow CLI ns explicitly — same rationale as
+            ;; the template variants above.
             (let [{:keys [exit out]}
-                  (run-process! ["clojure" "-M:shadow" "compile" "app"] proj env)]
+                  (run-process! ["clojure" "-M:shadow"
+                                 "-m" "shadow.cljs.devtools.cli"
+                                 "compile" "app"] proj env)]
               (is (zero? exit)
                   (str "`clojure -M:shadow compile app` exited " exit
                        " for the MANUAL setup-skill " (name substrate)

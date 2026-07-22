@@ -44,11 +44,18 @@
   ;; that range — docs/core/how-to/install-re-frame-ui.md §Supported
   ;; Shadow versions). Keep it matching package.json — the two halves
   ;; of shadow-cljs must ride the same version.
+  ;;
+  ;; Deps only, deliberately NO :main-opts: `npx shadow-cljs` already
+  ;; appends `-m shadow.cljs.devtools.cli` when it shells out to clojure,
+  ;; and clojure prepends an alias's :main-opts to the command line — so
+  ;; an :main-opts here becomes a second `-m` and every npx / npm-script
+  ;; command dies on shadow's arg parser with `Unknown option: "-m"`.
+  ;; Pure-JVM route (no node wrapper):
+  ;;   clojure -M:shadow -m shadow.cljs.devtools.cli watch app
   :shadow
   {:extra-paths ["test" "dev"]
    :extra-deps  {thheller/shadow-cljs        {:mvn/version "{{shadow-version}}"}
-                 org.clojure/tools.namespace {:mvn/version "1.5.0"}}
-   :main-opts   ["-m" "shadow.cljs.devtools.cli"]}
+                 org.clojure/tools.namespace {:mvn/version "1.5.0"}}}
 
   ;; cljfmt — `clojure -M:cljfmt check` / `fix`. Config in
   ;; .cljfmt.edn.

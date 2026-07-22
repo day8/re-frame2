@@ -8,6 +8,14 @@
          to the RUNTIME the scaffold actually produces, not an aspirational
          strict baseline.
 
+         - `script-src 'self' 'unsafe-eval'` — shadow-cljs DEV builds
+           (`watch` / `compile`, `:optimizations :none`) load every
+           compiled namespace through `goog.globalEval`, so without
+           `'unsafe-eval'` the dev page is blank: every module load dies
+           with a CSP EvalError. Release builds (`shadow-cljs release`)
+           ship one static bundle and do NOT eval — the production
+           response header drops `'unsafe-eval'` (README "Production
+           hardening").
          - `style-src 'self' 'unsafe-inline'` — the generated views use
            inline `:style` props, and the default-on Xray devtools surface
            injects `<style>` blocks and inline styles. Without
@@ -27,12 +35,13 @@
            snippets ("Production hardening").
 
          For production, serve a Content-Security-Policy RESPONSE HEADER
-         (see README "Production hardening"): drop `'unsafe-inline'` once
+         (see README "Production hardening"): drop `'unsafe-eval'` (the
+         release bundle doesn't eval), drop `'unsafe-inline'` once
          you've externalised styles, drop `ws: wss:` (no dev hot-reload),
          tighten `connect-src` to your real API origin(s), and add
          `frame-ancestors 'none'` THERE (where it works). -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'">
+          content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'">
     <title>{{name}} — re-frame2</title>
     <link rel="stylesheet" href="/css/app.css">
   </head>
