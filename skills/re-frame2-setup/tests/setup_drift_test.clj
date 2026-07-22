@@ -977,6 +977,93 @@
                "(rf2-3fc89f lineage; frame-root migration).")))))
 
 ;; ---------------------------------------------------------------------------
+;; Lock 15 — the UIx route ships NO Xray (rf2-hki2j; rf2-p6f6u lineage).
+;;
+;; Xray's panel shell is hiccup rendered through the ratom-family substrates;
+;; on element-shaped React substrates (UIx) it cannot mount — the launch verbs
+;; refuse (rf2-qgfo4) and hiccup on the React-hook render slot raises
+;; :rf.error/hiccup-on-element-render-slot (rf2-p6f6u). The generator
+;; template's :uix scaffold therefore ships no Xray pieces, and the skill's
+;; UIx manual route must match: no day8/re-frame2-xray coord, no
+;; @xyflow/react + elkjs npm pair, no :devtools preload, no
+;; [data-rf-xray-host] host, no .rf2-xray-host CSS — with the devtools story
+;; stated honestly (Story + re-frame2-pair work on every substrate). The
+;; Reagent route keeps its full day-one Xray wiring (Locks 3 + 11 guard it).
+;; These guards fail if an Xray piece leaks back into the UIx recipe, if the
+;; honest devtools framing disappears, or if the template's _uix/deps.edn
+;; re-adds Xray (in which case revisit this whole lock deliberately —
+;; element-substrate support may have landed).
+;; ---------------------------------------------------------------------------
+
+(deftest uix-template-stays-xray-free
+  (testing "the template _uix/deps.edn carries no Xray coord (premise of this lock)"
+    (is (not (str/includes? @uix-template-deps "re-frame2-xray"))
+        (str "tools/template's _uix/deps.edn now carries day8/re-frame2-xray. "
+             "If Xray gained element-substrate support and the :uix scaffold "
+             "deliberately re-ships it, update Lock 15 AND the skill's UIx "
+             "route (entry-namespace.md §UIx greenfield, deps-versions.md, "
+             "SKILL.md) together (rf2-hki2j)."))))
+
+(deftest uix-build-wiring-is-xray-free
+  (testing "entry-namespace.md's UIx shadow-cljs.edn block ships no Xray preload"
+    (let [block (first-shadow-build-block @entry-namespace-md)]
+      (is (some? block)
+          (str "Could not find the UIx `:builds` shadow-cljs.edn block in "
+               "entry-namespace.md §UIx greenfield. The UIx route must ship "
+               "its own Xray-free build block (rf2-hki2j)."))
+      (is (and block
+               (not (str/includes? block "day8.re-frame2-xray"))
+               (not (str/includes? block ":devtools")))
+          (str "entry-namespace.md's UIx shadow-cljs.edn block wires a "
+               "devtools preload — the UIx route ships none (the emitted "
+               "build map has no :devtools key, matching the template's "
+               "_uix emission) (rf2-hki2j)."))))
+  (testing "entry-namespace.md's UIx index.html/app.css blocks ship no Xray host"
+    (let [body      @entry-namespace-md
+          uix-html  (some-> (re-find #"(?s)```html\r?\n(.*?)```" body) second)
+          uix-css   (some-> (re-find #"(?s)```css\r?\n(.*?)```" body) second)]
+      (is (some? uix-html)
+          "Could not find the UIx index.html block in entry-namespace.md §UIx greenfield.")
+      (is (and uix-html (not (str/includes? uix-html "data-rf-xray-host")))
+          (str "entry-namespace.md's UIx index.html block carries the "
+               "[data-rf-xray-host] column — no panel can fill it on this "
+               "route; drop the aside (rf2-hki2j)."))
+      (is (some? uix-css)
+          "Could not find the UIx app.css block in entry-namespace.md §UIx greenfield.")
+      (is (and uix-css (not (str/includes? uix-css "rf2-xray-host")))
+          (str "entry-namespace.md's UIx app.css block carries .rf2-xray-host "
+               "rules — there is no host to size on this route (rf2-hki2j).")))))
+
+(deftest uix-route-states-honest-devtools-story
+  (testing "entry-namespace.md drops the Xray coord and states the devtools story"
+    (let [body @entry-namespace-md]
+      (is (str/includes? body "drop the `day8/re-frame2-xray` coord")
+          (str "entry-namespace.md's UIx deps bullet no longer tells the "
+               "author to drop the day8/re-frame2-xray coord (rf2-hki2j)."))
+      (is (str/includes? body "ratom-family")
+          (str "entry-namespace.md no longer explains WHY the UIx route is "
+               "Xray-free (the panel shell renders through the ratom-family "
+               "substrates). The honesty needs its reason (rf2-hki2j)."))
+      (is (and (str/includes? body "re-frame2-pair") (str/includes? body "Story"))
+          (str "entry-namespace.md no longer states the honest devtools "
+               "story — Story + the re-frame2-pair tooling work on every "
+               "substrate (rf2-hki2j)."))))
+  (testing "deps-versions.md scopes Xray + its npm pair to the Reagent route"
+    (let [body @deps-versions-md]
+      (is (str/includes? body "day-one dep on the Reagent route")
+          (str "deps-versions.md no longer scopes day8/re-frame2-xray to the "
+               "Reagent route — the UIx route ships no Xray (rf2-hki2j)."))
+      (is (str/includes? body "Reagent-route-only")
+          (str "deps-versions.md no longer scopes the @xyflow/react + elkjs "
+               "npm pair to the Reagent route. The UIx package.json is three "
+               "deps (shadow-cljs / react / react-dom), matching the "
+               "template's _uix emission (rf2-hki2j)."))))
+  (testing "SKILL.md states the UIx route ships no Xray pieces"
+    (is (str/includes? @skill-md "no Xray pieces")
+        (str "SKILL.md no longer states the UIx route ships no Xray pieces "
+             "(cardinal rules 3/4 + step scoping) (rf2-hki2j)."))))
+
+;; ---------------------------------------------------------------------------
 ;; Run
 ;; ---------------------------------------------------------------------------
 

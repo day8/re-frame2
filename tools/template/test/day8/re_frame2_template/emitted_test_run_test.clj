@@ -63,23 +63,27 @@
    are executable manual scaffolds the skill ships copyable source for:
 
      * Reagent — the one-file counter (`references/first-counter.md` →
-       `src/your_app/core.cljs`).
+       `src/your_app/core.cljs`), built with the Xray-wired
+       `shadow-cljs.edn` + `index.html` + `css/app.css` from
+       `references/shadow-cljs.md`.
      * UIx — the substrate-neutral dataflow
        (`references/shared-dataflow.md` → `events.cljs` + `subs.cljs` +
-       `schema.cljs`) plus the substrate entry ns + views
-       (`references/entry-namespace.md` → `core.cljs` + `views.cljs`).
+       `schema.cljs`) plus the substrate entry ns + views AND the
+       Xray-free build wiring (`references/entry-namespace.md` §UIx
+       greenfield → `core.cljs` + `views.cljs` +
+       `shadow-cljs.edn`/`index.html`/`app.css` — the UIx route ships no
+       Xray, rf2-hki2j / rf2-p6f6u).
 
-   All three share the `shadow-cljs.edn` + `index.html` + `css/app.css`
-   from `references/shadow-cljs.md`. For each route the fixture
-   synthesises the day-one `deps.edn` the skill documents
-   (`references/deps-versions.md`): core + the selected adapter + schemas
-   + Xray + the substrate's own Maven deps + the `:shadow` alias. It
-   asserts those DIRECT day-one coordinates are present BEFORE the
-   `:local/root` rewrite (`assert-skill-deps-shape!`) — the
-   dependency-honesty net — then rewrites the framework coords via
-   `rewrite-deps-for-local-run!`, links node_modules, and compiles the
-   `:app` build (Xray preload + `[data-rf-xray-host]` host column
-   asserted).
+   For each route the fixture synthesises the day-one `deps.edn` the
+   skill documents (`references/deps-versions.md`): core + the selected
+   adapter + schemas + Xray (Reagent route only) + the substrate's own
+   Maven deps + the `:shadow` alias. It asserts those DIRECT day-one
+   coordinates are present BEFORE the `:local/root` rewrite
+   (`assert-skill-deps-shape!`) — the dependency-honesty net — then
+   rewrites the framework coords via `rewrite-deps-for-local-run!`,
+   links node_modules, and compiles the `:app` build (the per-route Xray
+   contract asserted: preload + `[data-rf-xray-host]` host PRESENT on
+   Reagent, ABSENT on UIx).
 
    ## Why the pre-rewrite dependency-shape assertion is load-bearing
 
@@ -906,10 +910,11 @@
 (defn- skill-deps-edn
   "The synthesised greenfield `deps.edn` for the setup-skill scaffold in
   `substrate`, matching `references/deps-versions.md`'s documented day-one
-  shape: core + the selected substrate adapter + schemas + Xray (the FOUR
-  re-frame2 day-one coords the skill documents for every substrate) + the
-  substrate's own Maven deps (reagent/reagent for Reagent;
-  com.pitch/uix.{core,dom} for UIx) + the
+  shape: core + the selected substrate adapter + schemas + Xray on the
+  REAGENT route only (the UIx route ships no Xray — its day-one framework
+  set is three coords, matching the template's `_uix/deps.edn`;
+  rf2-hki2j / rf2-p6f6u) + the substrate's own Maven deps
+  (reagent/reagent for Reagent; com.pitch/uix.{core,dom} for UIx) + the
   required `:shadow` alias.
 
   `day8/re-frame2-schemas` is a DIRECT day-one coordinate — the counter
@@ -919,7 +924,7 @@
   Xray; `assert-skill-deps-shape!` pins that honesty before the
   `:local/root` rewrite.
 
-  The four framework `day8/re-frame2*` coords carry a placeholder
+  The framework `day8/re-frame2*` coords carry a placeholder
   `:mvn/version`; `rewrite-deps-for-local-run!` swaps them for
   `:local/root` paths into the monorepo before the compile, so the
   placeholder version is never resolved. The substrate Maven deps resolve
@@ -931,8 +936,9 @@
                     'org.clojure/clojurescript {:mvn/version clojurescript}
                     'day8/re-frame2            {:mvn/version "PLACEHOLDER"}
                     adapter-coord              {:mvn/version "PLACEHOLDER"}
-                    'day8/re-frame2-schemas    {:mvn/version "PLACEHOLDER"}
-                    'day8/re-frame2-xray       {:mvn/version "PLACEHOLDER"}}
+                    'day8/re-frame2-schemas    {:mvn/version "PLACEHOLDER"}}
+                   (when (= substrate :reagent)
+                     {'day8/re-frame2-xray {:mvn/version "PLACEHOLDER"}})
                    substrate-deps)
      :aliases {:shadow shadow-alias}}))
 
@@ -941,15 +947,16 @@
 (defn- required-direct-coords
   "The DIRECT day-one coordinate keys the skill documents for `substrate`
   (`references/deps-versions.md` + `entry-namespace.md`): core + the
-  selected adapter + schemas + Xray + the substrate's own Maven deps. The
+  selected adapter + schemas + Xray (REAGENT route only — the UIx route
+  ships no Xray, rf2-hki2j) + the substrate's own Maven deps. The
   synthesised deps.edn must carry every one as a DIRECT `:deps` key — none
   may be left to resolve transitively (Xray → schemas; adapter
   `:local/root` → substrate dep)."
   [substrate]
   (concat ['day8/re-frame2
            (symbol "day8" (str "re-frame2-" (name substrate)))
-           'day8/re-frame2-schemas
-           'day8/re-frame2-xray]
+           'day8/re-frame2-schemas]
+          (when (= substrate :reagent) ['day8/re-frame2-xray])
           (get substrate-dep-symbols substrate)))
 
 (defn- assert-skill-deps-shape!
@@ -972,13 +979,14 @@
                "day-one dep. It is absent, yet a compile would still go "
                "green because "
                (cond
-                 (= coord 'day8/re-frame2-schemas)
+                 (and (= coord 'day8/re-frame2-schemas)
+                      (= substrate :reagent))
                  "day8/re-frame2-xray depends on schemas transitively"
                  (contains? (set (get substrate-dep-symbols substrate)) coord)
                  (str "the " (name substrate) " adapter :local/root pulls it "
                       "transitively")
                  :else
-                 "it resolves through another coord transitively")
+                 "it may resolve through another coord transitively")
                " — masking the missing DIRECT dependency the skill teaches. "
                "Add it to skill-deps-edn (and confirm the skill reference "
                "still documents it as day-one)."))))
@@ -991,12 +999,16 @@
   skill's own markdown fenced blocks (the load-bearing surfaces) plus a
   synthesised, dependency-honest framework `deps.edn`. Returns proj-dir.
 
-  Shared across substrates (from `references/shadow-cljs.md`):
+  Build wiring is PER-ROUTE (rf2-hki2j): the Reagent route takes the
+  Xray-wired blocks from `references/shadow-cljs.md`; the UIx route takes
+  the Xray-free variants from `references/entry-namespace.md` §UIx
+  greenfield (no :devtools preload, no [data-rf-xray-host] aside, no
+  .rf2-xray-host CSS — the panel cannot mount on element substrates):
     deps.edn                        (synthesised — see skill-deps-edn;
                                      shape-asserted before any rewrite)
-    shadow-cljs.edn                 (the day-one :builds block)
-    resources/public/index.html     (the html block)
-    resources/public/css/app.css    (the css block)
+    shadow-cljs.edn                 (the route's :builds block)
+    resources/public/index.html     (the route's html block)
+    resources/public/css/app.css    (the route's css block)
 
   Reagent route (from `references/first-counter.md`):
     src/your_app/core.cljs          (the one-file counter block)
@@ -1009,16 +1021,23 @@
     src/your_app/views.cljs         (entry-namespace.md substrate views block)"
   [^java.io.File proj-dir substrate pins]
   (let [refs        @skill-setup-refs
-        shadow-md   (slurp (io/file refs "shadow-cljs.md"))
-        ;; The day-one shadow-cljs.edn build — the FIRST ```clojure block
-        ;; in shadow-cljs.md that carries a `:builds` map (later clojure
-        ;; blocks are the deps.edn :shadow alias fragment + the
-        ;; ^:dev/after-load hook snippet). Substrate-invariant.
-        shadow-edn  (single-fenced-block shadow-md "clojure"
-                                         "in shadow-cljs.md (the :builds block)"
+        reagent?    (= substrate :reagent)
+        ;; Per-route build-wiring source: Reagent reads shadow-cljs.md
+        ;; (the FIRST ```clojure block carrying a `:builds` map — later
+        ;; clojure blocks are the deps.edn :shadow alias fragment etc.);
+        ;; UIx reads the Xray-free variants in entry-namespace.md §UIx
+        ;; greenfield (its only :builds/html/css blocks).
+        wiring-md   (slurp (io/file refs (if reagent?
+                                           "shadow-cljs.md"
+                                           "entry-namespace.md")))
+        wiring-where (if reagent?
+                       "in shadow-cljs.md"
+                       "in entry-namespace.md §UIx greenfield")
+        shadow-edn  (single-fenced-block wiring-md "clojure"
+                                         (str wiring-where " (the :builds block)")
                                          #(string/includes? % ":builds"))
-        index-html  (single-fenced-block shadow-md "html" "in shadow-cljs.md")
-        app-css     (single-fenced-block shadow-md "css" "in shadow-cljs.md")
+        index-html  (single-fenced-block wiring-md "html" wiring-where)
+        app-css     (single-fenced-block wiring-md "css" wiring-where)
         deps        (skill-deps-edn substrate pins)]
     (.mkdirs (io/file proj-dir "src/your_app"))
     (.mkdirs (io/file proj-dir "resources/public/css"))
@@ -1102,24 +1121,41 @@
                    "(`npm install` in implementation/) and the OS allows a "
                    "symlink or `mklink /J` junction."))
 
-          ;; --- assert the scaffold wires the day-one Xray contract BEFORE
+          ;; --- assert the scaffold wires the PER-ROUTE Xray contract BEFORE
           ;; compiling (cheap structural locks on the extracted snippets).
-          ;; shadow-cljs.edn + index.html are substrate-invariant. ----------
+          ;; Reagent ships the day-one preload + host; the UIx route ships
+          ;; NEITHER (Xray cannot mount on element substrates — rf2-hki2j /
+          ;; rf2-p6f6u). -----------------------------------------------------
           (testing (str "setup-skill " (name substrate)
-                        " scaffold wires the day-one Xray preload + host column")
+                        " scaffold wires the per-route Xray contract")
             (let [shadow-text (slurp (io/file proj "shadow-cljs.edn"))
                   html-text   (slurp (io/file proj "resources/public/index.html"))]
-              (is (string/includes? shadow-text "day8.re-frame2-xray.preload")
-                  (str "the skill's day-one shadow-cljs.edn block "
-                       "(references/shadow-cljs.md) no longer wires "
-                       "`:devtools {:preloads [day8.re-frame2-xray.preload]}`. "
-                       "Xray is a day-one dep and index.html ships the host "
-                       "column — the canonical block must wire the preload that "
-                       "fills it."))
-              (is (string/includes? html-text "data-rf-xray-host")
-                  (str "the skill's index.html block (references/shadow-cljs.md) "
-                       "no longer carries the `[data-rf-xray-host]` Xray layout "
-                       "host column."))))
+              (if (= substrate :reagent)
+                (do
+                  (is (string/includes? shadow-text "day8.re-frame2-xray.preload")
+                      (str "the skill's day-one shadow-cljs.edn block "
+                           "(references/shadow-cljs.md) no longer wires "
+                           "`:devtools {:preloads [day8.re-frame2-xray.preload]}`. "
+                           "Xray is a Reagent-route day-one dep and index.html "
+                           "ships the host column — the canonical block must "
+                           "wire the preload that fills it."))
+                  (is (string/includes? html-text "data-rf-xray-host")
+                      (str "the skill's index.html block (references/shadow-cljs.md) "
+                           "no longer carries the `[data-rf-xray-host]` Xray layout "
+                           "host column.")))
+                (do
+                  (is (and (not (string/includes? shadow-text "day8.re-frame2-xray"))
+                           (not (string/includes? shadow-text ":devtools")))
+                      (str "the skill's UIx shadow-cljs.edn block "
+                           "(references/entry-namespace.md §UIx greenfield) "
+                           "wires a devtools preload — the UIx route ships no "
+                           "Xray (the panel cannot mount on element "
+                           "substrates; rf2-hki2j)."))
+                  (is (not (string/includes? html-text "data-rf-xray-host"))
+                      (str "the skill's UIx index.html block "
+                           "(references/entry-namespace.md §UIx greenfield) "
+                           "carries the `[data-rf-xray-host]` column — no "
+                           "panel can fill it on this route (rf2-hki2j)."))))))
 
           ;; --- compile the :app build -------------------------------------
           (testing (str "setup-skill " (name substrate)

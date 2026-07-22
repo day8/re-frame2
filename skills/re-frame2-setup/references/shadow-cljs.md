@@ -141,6 +141,8 @@ re-frame2's *core* does not need a preload for hot-reload — shadow-cljs's defa
 
 There is no "keep the dep, drop the preload" half-state — that is the false-green the default block avoids (compiling app, permanently-empty Xray host). Xray is in or out as a unit.
 
+(On the **UIx route** this is not an opt-out but the baseline: Xray's panel cannot mount on element-shaped React substrates, so the UIx scaffold never ships any of the three pieces. Its Xray-free `shadow-cljs.edn` / `index.html` / `app.css` variants live in [`entry-namespace.md` §UIx greenfield](entry-namespace.md).)
+
 ## `.gitignore` — what the build generates
 
 A brand-new project needs a `.gitignore`, or the first commit drags in every generated artefact: the compiled bundle (`:output-dir "resources/public/js"`), shadow's caches, `node_modules/`, the clojure CLI's classpath cache. All regenerable. Drop this at the project root (a subset of the generator template's `.gitignore`, scoped to what the manual route emits):

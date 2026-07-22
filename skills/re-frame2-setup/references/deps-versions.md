@@ -41,11 +41,13 @@ grep -oE 'day8/re-frame2[a-z-]* *\{:git/url[^}]*:git/sha "[^"]+"' deps.edn
 | `day8/re-frame2-ssr` | per-feature | When you call `render-to-string` server-side. |
 | `day8/re-frame2-epoch` | per-feature | When you call `epoch-history` or `restore-epoch!` — or when you want `re-frame2-pair`'s live time-travel, which reads `epoch-history` and so needs this artefact on your app's own classpath. |
 
-These ten are the **publishable** lockstep set. (Two niche local roots — `reagent-slim`, `re-frame2-ssr-ring` — ride the same version but aren't greenfield.) `day8/re-frame2-xray` is tooling, not one of the ten, but is a **day-one** dep (below).
+These ten are the **publishable** lockstep set. (Two niche local roots — `reagent-slim`, `re-frame2-ssr-ring` — ride the same version but aren't greenfield.) `day8/re-frame2-xray` is tooling, not one of the ten, but is a **day-one dep on the Reagent route** (below). The **UIx route ships no Xray**: the panel shell renders through the ratom-family substrates and cannot mount on element-shaped React substrates, so the UIx scaffold carries no dependency it cannot honour.
 
 **One more per-feature artefact, tagged (post-v1).** `day8/re-frame2-resources` (Spec [016](../../../spec/016-Resources.md) / EP-0003 — the richest per-feature artefact) is a **settled contract at a fixed coordinate** that ships *after* v1, so it sits outside the ten; [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md) enumerates it inline as **(post-v1)**. Its runtime has landed and it is already wired into `implementation/deps.edn` as `day8/re-frame2-resources {:local/root "resources"}`, so on the pre-publish `:local/root` dev route you can add it today — add it when you call `reg-resource`. The count stays **ten** for the v1 publishable set.
 
-**Greenfield day-one shape.** Matching the [generator template](../README.md#relationship-to-the-generator-template), the day-one set is **four** re-frame2 coords — `day8/re-frame2` (core) + `day8/re-frame2-reagent` (adapter) + `day8/re-frame2-schemas` (the starter app attaches a whole-app-db schema — see the table row for the `:rf.error/schemas-artefact-missing` contract) + `day8/re-frame2-xray` (in-app devtools via `:devtools/preloads`) — plus an explicit `reagent/reagent` pin.
+**Greenfield day-one shape.** Matching the [generator template](../README.md#relationship-to-the-generator-template), the **Reagent** day-one set is **four** re-frame2 coords — `day8/re-frame2` (core) + `day8/re-frame2-reagent` (adapter) + `day8/re-frame2-schemas` (the starter app attaches a whole-app-db schema — see the table row for the `:rf.error/schemas-artefact-missing` contract) + `day8/re-frame2-xray` (in-app devtools via `:devtools/preloads`) — plus an explicit `reagent/reagent` pin.
+
+The **UIx** day-one set is **three** re-frame2 coords — core + `day8/re-frame2-uix` + `day8/re-frame2-schemas` — plus `com.pitch/uix.core` / `com.pitch/uix.dom`; **no `-xray`** (Xray rides the ratom-family substrates today — devtools on this route are Story and `re-frame2-pair`, which work on every substrate). The full UIx delta, verified against the template's `_uix/deps.edn`: [`entry-namespace.md` §UIx greenfield](entry-namespace.md).
 
 The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) stay pay-as-you-go — add them only when the author writes code that uses them (§When to add, below), so apps that don't use them don't pay the classpath cost.
 
@@ -70,7 +72,7 @@ The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`,
 
 ## `deps.edn` shape
 
-A minimal `deps.edn` for a greenfield re-frame2 project. **Today (pre-publish), use the `:git/sha` shape** — the framework artefacts are not on Clojars:
+A minimal `deps.edn` for a greenfield re-frame2 project (**Reagent route** shown — the UIx route swaps the adapter and drops `-xray`, per [`entry-namespace.md` §UIx greenfield](entry-namespace.md)). **Today (pre-publish), use the `:git/sha` shape** — the framework artefacts are not on Clojars:
 
 ```clojure
 {:paths ["src"]
@@ -119,11 +121,11 @@ day8/re-frame2-schemas {:local/root "../re-frame2/implementation/schemas"}
 day8/re-frame2-xray    {:local/root "../re-frame2/tools/xray"}
 ```
 
-Those four are the day-one set. The **pay-as-you-go per-feature artefacts** (and the alternate substrate adapters) take the same `:local/root` shape pointed at their own directory — add each only when you call into it:
+Those four are the Reagent day-one set. The **pay-as-you-go per-feature artefacts** (and the alternate substrate adapters) take the same `:local/root` shape pointed at their own directory — add each only when you call into it:
 
 | Artefact | `:local/root` path (sibling checkout) |
 |---|---|
-| `day8/re-frame2-uix` (adapter; instead of `-reagent`) | `../re-frame2/implementation/adapters/uix` |
+| `day8/re-frame2-uix` (adapter; instead of `-reagent` — and drop the `-xray` line on this route) | `../re-frame2/implementation/adapters/uix` |
 | `day8/re-frame2-machines` | `../re-frame2/implementation/machines` |
 | `day8/re-frame2-routing` | `../re-frame2/implementation/routing` |
 | `day8/re-frame2-flows` | `../re-frame2/implementation/flows` |
@@ -153,7 +155,7 @@ Notes on the pins:
 
 ## `package.json` shape
 
-re-frame2 ships no npm code — but Reagent depends on React, shadow-cljs is the build tool, and the day-one Xray preload's machine canvas compiles against two npm packages (`@xyflow/react` + `elkjs`, pulled in via `day8/re-frame2-machines-viz`). **Default to the versions the pinned `implementation/package.json` ships** — known-good against the chosen re-frame2 VERSION:
+re-frame2 ships no npm code — but the substrate depends on React, shadow-cljs is the build tool, and **on the Reagent route** the day-one Xray preload's machine canvas compiles against two npm packages (`@xyflow/react` + `elkjs`, pulled in via `day8/re-frame2-machines-viz`). **Default to the versions the pinned `implementation/package.json` ships** — known-good against the chosen re-frame2 VERSION. The Reagent-route shape:
 
 ```json
 {
@@ -176,7 +178,11 @@ re-frame2 ships no npm code — but Reagent depends on React, shadow-cljs is the
 }
 ```
 
-`shadow-cljs` is build-only → `devDependencies`; `react` / `react-dom` are runtime deps → `dependencies`. `@xyflow/react` + `elkjs` are the JS packages Xray's machine canvas imports: shadow-cljs resolves JS deps from your project-local `node_modules` at compile time, so omitting them fails the first `npx shadow-cljs watch app` with `The required JS dependency "@xyflow/react" is not available`. They ride only the dev build (the Xray preload is cut from `release`), so they sit in `devDependencies` too. Matches the template's `package.json`. Read the pinned `implementation/package.json` (see [`../SKILL.md`](../SKILL.md) cardinal rule 1) and copy the five versions verbatim.
+`shadow-cljs` is build-only → `devDependencies`; `react` / `react-dom` are runtime deps → `dependencies`. `@xyflow/react` + `elkjs` are the JS packages Xray's machine canvas imports: shadow-cljs resolves JS deps from your project-local `node_modules` at compile time, so omitting them fails the first `npx shadow-cljs watch app` with `The required JS dependency "@xyflow/react" is not available`. They ride only the dev build (the Xray preload is cut from `release`), so they sit in `devDependencies` too. Matches the template's Reagent `package.json`.
+
+**The `@xyflow/react` + `elkjs` pair is Reagent-route-only.** The UIx route ships no Xray preload, so its `package.json` drops both — **three** npm deps (`shadow-cljs`, `react`, `react-dom`), matching the template's `_uix` emission ([`entry-namespace.md` §UIx greenfield](entry-namespace.md)).
+
+Read the pinned `implementation/package.json` (see [`../SKILL.md`](../SKILL.md) cardinal rule 1) and copy the versions verbatim — five on the Reagent route, three on UIx.
 
 **Latest-from-npm is opt-in only.** If the author explicitly asks for the newest, run `npm view <pkg> version` for each and **show the result for confirmation before writing it** — don't auto-substitute. Reagent 2.x requires React 19; flag any pick below 19 as a conflict and stop.
 
