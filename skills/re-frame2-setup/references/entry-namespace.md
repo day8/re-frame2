@@ -84,9 +84,9 @@ When you split this way, the `reg-view` forms move to `views.cljs`, so split `co
 
 ## UIx greenfield
 
-This skill scaffolds against **Reagent** (the default reference substrate). For a UIx greenfield the **dataflow is unchanged** — the events, subscription, and schema are the substrate-neutral trio in [`shared-dataflow.md`](shared-dataflow.md), copied **verbatim**. Only three layers are substrate-specific: `deps.edn`, the entry-ns root API, and the views. The **complete** emitted project is those three shared files (`events.cljs` + `subs.cljs` + `schema.cljs`) plus the substrate `core.cljs` + `views.cljs` below — nothing from the Reagent-only `first-counter.md`:
+This skill scaffolds against **Reagent** (the default reference substrate). For a UIx greenfield the **dataflow is unchanged** — the events, subscription, and schema are the substrate-neutral trio in [`shared-dataflow.md`](shared-dataflow.md), copied **verbatim**. Four layers are substrate-specific: `deps.edn`, the build wiring (`package.json` + `shadow-cljs.edn` + `index.html` + `app.css` — all **Xray-free** on this route), the entry-ns root API, and the views. The **complete** emitted project is the three shared files (`events.cljs` + `subs.cljs` + `schema.cljs`) plus the substrate `core.cljs` + `views.cljs` and the Xray-free build wiring below — nothing from the Reagent-only `first-counter.md`:
 
-- **deps.edn** — swap `day8/re-frame2-reagent` for `day8/re-frame2-uix`, drop the `reagent/reagent` pin, and add the substrate's Maven deps **at the exact versions the generator template pins** (the template is the source of truth — do not chase latest or invent a version, same discipline as the Reagent/React/shadow pins in [`deps-versions.md`](deps-versions.md)). Verified against the template's `_uix/deps.edn`:
+- **deps.edn** — swap `day8/re-frame2-reagent` for `day8/re-frame2-uix`, drop the `reagent/reagent` pin, **drop the `day8/re-frame2-xray` coord** (this route ships no Xray — see the build-wiring bullet below), and add the substrate's Maven deps **at the exact versions the generator template pins** (the template is the source of truth — do not chase latest or invent a version, same discipline as the Reagent/React/shadow pins in [`deps-versions.md`](deps-versions.md)). The UIx day-one framework set is **three** coords — core + `-uix` + `-schemas` — matching the template's `_uix/deps.edn`:
 
   > **Pre-publish coordinate shape.** The `day8/re-frame2-uix` **framework** coord below shows `:mvn/version "<VERSION>"` (the post-publish shape); pre-publish it takes the `:git/sha` / `:local/root` form like the Reagent day-one set — see [`deps-versions.md` §Choosing the coordinate](deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape). The `com.pitch/uix.*` substrate deps are on Clojars and keep `:mvn/version`.
 
@@ -95,9 +95,61 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
   day8/re-frame2-uix {:mvn/version "<VERSION>"}
   com.pitch/uix.core {:mvn/version "1.4.4"}
   com.pitch/uix.dom  {:mvn/version "1.4.4"}
+  ;; ...and DELETE the day8/re-frame2-xray line — the UIx route ships no Xray.
   ```
 
   > **Heads-up on the UIx version target.** `spec/006-ReactiveSubstrate.md` names **UIx 2.x** (hooks-based) as the design target, but the generator template pins **`com.pitch/uix` `1.4.4`** — the **known-good, tested** set. Use the template pin; treat UIx 2.x as an unverified manual override to test before relying on it. (Pins read off the template's `_uix/deps.edn`; re-check if either bumps.)
+- **build wiring — no Xray pieces on this route.** Xray's panel shell is hiccup, rendered through the ratom-family (Reagent) substrates; on an element-shaped React substrate like UIx it cannot mount — the launch verbs refuse cleanly, and hiccup handed to the React-hook render slot raises the `:rf.error/hiccup-on-element-render-slot` diagnostic. So the UIx scaffold ships **no dependency it cannot honour**: no `day8/re-frame2-xray` coord, no `@xyflow/react` / `elkjs` npm packages, no `:devtools` preload, no `[data-rf-xray-host]` host column, no `.rf2-xray-host` CSS — matching the generator template's `_uix` emission. The devtools story on this route: **Story and the `re-frame2-pair` tooling work on every substrate**; Xray rides the ratom-family substrates today (UIx support follows once Xray mounts on element substrates). Concretely, three files diverge from the Reagent shapes in [`shadow-cljs.md`](shadow-cljs.md):
+
+  - `package.json` — **three** npm deps only: `shadow-cljs` (dev), `react` + `react-dom` (runtime), at the pinned `implementation/package.json` versions. No `@xyflow/react`, no `elkjs` — they exist solely for the machine canvas inside the Xray preload this route never loads ([`deps-versions.md` §`package.json`](deps-versions.md)).
+  - `shadow-cljs.edn` — same build, **no `:devtools` key** (the template's `_uix` emission simply has none):
+
+  ```clojure
+  ;; UIx — shadow-cljs.edn (the whole file; note there is no devtools-preload entry)
+  {:deps   {:aliases [:shadow]}           ;; pull classpath from deps.edn's :shadow alias
+   :source-paths ["src"]
+
+   :dev-http {8280 "resources/public"}    ;; dev server: serve resources/public on :8280
+
+   :builds
+   {:app
+    {:target     :browser
+     :output-dir "resources/public/js"
+     :asset-path "/js"
+     :modules    {:main {:init-fn your-app.core/init}}}}}
+  ```
+
+  - `index.html` + `app.css` — the same shell and dev CSP, **without the `<aside data-rf-xray-host>` column or the `.rf2-xray-host` rules** (`#app` simply spans the viewport):
+
+  ```html
+  <!doctype html>
+  <html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Same dev-flavoured CSP as the Reagent route (shadow-cljs.md §index.html):
+         'unsafe-eval' for shadow's dev-build module loading, 'unsafe-inline'
+         for the views' inline :style props. -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'">
+    <title>your-app — re-frame2</title>
+    <link rel="stylesheet" href="/css/app.css">
+  </head>
+  <body>
+    <div class="rf2-app-shell">
+      <main id="app"></main>
+    </div>
+    <script src="/js/main.js"></script>
+  </body>
+  </html>
+  ```
+
+  ```css
+  body { font: 16px/1.4 system-ui, sans-serif; margin: 0; }
+  .rf2-app-shell { display: flex; min-height: 100vh; }
+  #app { flex: 1; min-width: 0; padding: 2em; }
+  ```
+
 - **shared dataflow** — first lay down the substrate-neutral `events.cljs` + `subs.cljs` + `schema.cljs` from [`shared-dataflow.md`](shared-dataflow.md), copied **verbatim** into `src/your_app/`. They carry the `:counter/initialise` / `:counter/increment` events, the `:counter/value` sub, and the `CounterDb` schema + `register-schema!` — identical to the events / sub / schema the Reagent `first-counter.md` inlines. Do **not** copy them out of the Reagent file, and do **not** re-derive them per substrate.
 - **entry ns** — `:require` the shared `your-app.events`, `your-app.subs`, and `your-app.schema` (so their registrations load), require `[re-frame.adapter.uix :as uix-adapter]`, pass `uix-adapter/adapter` to `rf/init!`, call `(schema/register-schema!)` (it names `:rf/default` explicitly, so it runs before the frame exists — the generator's boot order), and mount with the substrate's own root API — **wrapping the tree in the adapter's `frame-root` `{:id … :initial-events …}` ENSURE shape** (a `$`-element native component that creates the frame at mount and reuses it without re-seeding on later mounts). For UIx that's `uix.dom/create-root` + `uix.dom/render-root`, view wrapped in `$` from `uix.core`:
   ```clojure
@@ -144,7 +196,7 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
        ($ counter-buttons)))
   ```
 
-- everything the two substrates share is **single-sourced**: the events, subscription, and schema live once in [`shared-dataflow.md`](shared-dataflow.md), and the `frame-root` `:initial-events` seed + `:init-fn ...core/init` boot are the same. **Only the view layer differs** — do not reach for the Reagent `reg-view` first-counter leaf on a UIx app; use the substrate views above (or take the complete generator route below).
+- everything the two substrates share is **single-sourced**: the events, subscription, and schema live once in [`shared-dataflow.md`](shared-dataflow.md), and the `frame-root` `:initial-events` seed + `:init-fn ...core/init` boot are the same. **What differs is the view layer and the Xray-free build wiring** — do not reach for the Reagent `reg-view` first-counter leaf (or its Xray-wired build shapes) on a UIx app; use the substrate views and the build wiring above (or take the complete generator route below).
 
 The fastest path for a non-Reagent greenfield is the **generator template**, which ships a complete `_uix/` variant. This is a **user-run** route — the **author** invokes `clojure -Tnew create … :substrate :uix` in their own shell; **this skill does not run `clojure -Tnew`** (its `allowed-tools` cover only the manual scaffold). Pre-publish caveat + the working `:local/root` dev route: [`SKILL.md` cardinal rule 5](../SKILL.md) and [the generator-template section](../README.md#relationship-to-the-generator-template).
 

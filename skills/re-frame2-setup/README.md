@@ -55,7 +55,7 @@ The canonical six-step greenfield path:
 
 1. Discover the current re-frame2 VERSION (the ten artefacts ship in lockstep; Xray rides the same line).
 2. Add the day-one deps to `deps.edn` — `day8/re-frame2` + `day8/re-frame2-reagent` + `day8/re-frame2-schemas` + `day8/re-frame2-xray`, plus an explicit `reagent/reagent`.
-3. Add `react`, `react-dom`, `shadow-cljs`, and Xray's npm deps `@xyflow/react` + `elkjs` to `package.json`. Run `npm install`.
+3. Add `react`, `react-dom`, `shadow-cljs`, and (Reagent route) Xray's npm deps `@xyflow/react` + `elkjs` to `package.json`. Run `npm install`.
 4. Write a minimal `shadow-cljs.edn` for a single-page Reagent app (with the Xray `:devtools/preloads` wiring), plus `resources/public/index.html` carrying the `[data-rf-xray-host]` column.
 5. Write `src/your_app/core.cljs` — the whole counter in one file: `(rf/init! reagent-adapter/adapter)`, the Reagent root, `(defn ^:export init [] ...)`, and the registered event + sub + `reg-view` view + schema. (first-counter.md is the sole copy-complete source; entry-namespace.md explains the boot lifecycle.)
 6. Run `npx shadow-cljs watch app`. Visit the dev server. Click the buttons. Done.
@@ -66,7 +66,7 @@ The canonical six-step greenfield path:
 - Live REPL inspection of the running app — that's [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair).
 - Migrating an existing re-frame v1 codebase to v2 — that's a different problem; see [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 - Test infrastructure, CI, deployment — out of scope. The author chooses their own.
-- Anything beyond Reagent + shadow-cljs. The canonical path is Reagent + shadow-cljs. For a UIx greenfield, the substrate-neutral dataflow (events + sub + schema) is single-sourced in `references/shared-dataflow.md`, and `references/entry-namespace.md` §UIx greenfield gives the substrate `core.cljs` + `views.cljs` this skill hand-wires; the fastest non-Reagent path is the **user-run** generator template's complete `_uix/` variant (`clojure -Tnew create ... :substrate :uix`, run by the author — see "Relationship to the generator template" above for who runs what).
+- Anything beyond Reagent + shadow-cljs. The canonical path is Reagent + shadow-cljs. For a UIx greenfield, the substrate-neutral dataflow (events + sub + schema) is single-sourced in `references/shared-dataflow.md`, and `references/entry-namespace.md` §UIx greenfield gives the substrate `core.cljs` + `views.cljs` plus the Xray-free build wiring this skill hand-wires (the UIx route ships no Xray — the panel rides the ratom-family substrates today; Story and `re-frame2-pair` work on every substrate); the fastest non-Reagent path is the **user-run** generator template's complete `_uix/` variant (`clojure -Tnew create ... :substrate :uix`, run by the author — see "Relationship to the generator template" above for who runs what).
 
 ## Status
 
