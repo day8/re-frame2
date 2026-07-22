@@ -55,7 +55,7 @@ The canonical six-step greenfield path:
 
 1. Discover the current re-frame2 VERSION (the eleven artefacts ship in lockstep; Xray rides the same line).
 2. Add the day-one deps to `deps.edn` — `day8/re-frame2` + `day8/re-frame2-reagent` + `day8/re-frame2-schemas` + `day8/re-frame2-xray`, plus an explicit `reagent/reagent`.
-3. Add `react`, `react-dom`, `shadow-cljs` to `package.json`. Run `npm install`.
+3. Add `react`, `react-dom`, `shadow-cljs`, and Xray's npm deps `@xyflow/react` + `elkjs` to `package.json`. Run `npm install`.
 4. Write a minimal `shadow-cljs.edn` for a single-page Reagent app (with the Xray `:devtools/preloads` wiring), plus `resources/public/index.html` carrying the `[data-rf-xray-host]` column.
 5. Write `src/your_app/core.cljs` — the whole counter in one file: `(rf/init! reagent-adapter/adapter)`, the Reagent root, `(defn ^:export init [] ...)`, and the registered event + sub + `reg-view` view + schema. (first-counter.md is the sole copy-complete source; entry-namespace.md explains the boot lifecycle.)
 6. Run `npx shadow-cljs watch app`. Visit the dev server. Click the buttons. Done.
