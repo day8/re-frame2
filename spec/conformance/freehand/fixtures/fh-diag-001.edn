@@ -1,0 +1,149 @@
+;; FH-DIAG-001 — the read-only checker's report.
+;;
+;; Discovery before commitment. The checker runs the compiled tier's own
+;; analyzer against a declaration as it stands TODAY — normally an
+;; interpreted one, before `{:compiled true}` has been added — and
+;; answers stable data: which view, where, what lowering it carries now,
+;; which grammar it was checked against, whether it is eligible, and, if
+;; not, findings carrying a stable id, coordinates, the offending form, a
+;; reason, and a recovery ladder whose last rung is always
+;; `:keep-interpreted`.
+;;
+;; `:cases` are `{:view-id :source :compiled? :params :body :report}` and
+;; the expected `:report` is written LITERALLY, every key included: a
+;; fixture that pinned only the keys a report happens to carry would
+;; agree with a report that carried extra ones.
+;;
+;; The suite supplies `:ns-sym` — its OWN namespace — because head
+;; classification is resolution, and derives `:vname` from the view id.
+;; The bodies below therefore resolve `map` and `for` as core, and
+;; `person-item` / `nope-not-a-thing` as nothing at all, which is what
+;; the last row is about.
+;;
+;; Forms read out of EDN carry no reader coordinates, so every finding
+;; here inherits its declaration's `:line` / `:column`. That fallback is
+;; the law's own rule, not an artefact of the fixture: a finding always
+;; carries a position, and the narrowest true one available.
+{:fh/id "FH-DIAG-001"
+ :fh/law
+ "The checker analyses a declaration read-only against the versioned grammar and answers a stable report — view id, source, current lowering, target grammar, eligibility, and findings each carrying a stable id, source coordinates, the offending form, a reason, and a non-empty recovery ladder ending in :keep-interpreted."
+
+ :params [{:keys [items label tag done?]}]
+
+ :cases
+ [{:note      "a literal element over declared prop slots is inside the grammar"
+   :view-id   :fh.diag/todo-row
+   :source    {:file "fh-diag-001.edn" :line 40 :column 1}
+   :compiled? false
+   :body      [[:li.row {:class {:done done?}} label]]
+   :report    {:view-id           :fh.diag/todo-row
+               :source            {:file "fh-diag-001.edn" :line 40 :column 1}
+               :current-lowering  :interpreted
+               :target-grammar    :re-frame.freehand/v1
+               :compile-eligible? true
+               :findings          []}}
+
+  {:note      "markup manufactured by a helper the analyzer cannot see through — the D010 cliff"
+   :view-id   :fh.diag/roster
+   :source    {:file "fh-diag-001.edn" :line 50 :column 1}
+   :compiled? false
+   :body      [[:ul (map person-item items)]]
+   :report    {:view-id           :fh.diag/roster
+               :source            {:file "fh-diag-001.edn" :line 50 :column 1}
+               :current-lowering  :interpreted
+               :target-grammar    :re-frame.freehand/v1
+               :compile-eligible? false
+               :findings          [{:id       :rf.ui.compile/markup-returning-map
+                                    :source   {:line 50 :column 1}
+                                    :form     (map person-item items)
+                                    :reason   :markup-hidden-from-analyzer
+                                    :recovery [:make-template-visible
+                                               :extract-declared-child
+                                               :keep-interpreted]}]}}
+
+  {:note      "a head computed at runtime, in a declaration that ALREADY says {:compiled true}"
+   :view-id   :fh.diag/wrapper
+   :source    {:file "fh-diag-001.edn" :line 60 :column 1}
+   :compiled? true
+   :body      [[tag {:class "x"} label]]
+   :report    {:view-id           :fh.diag/wrapper
+               :source            {:file "fh-diag-001.edn" :line 60 :column 1}
+               :current-lowering  :compiled
+               :target-grammar    :re-frame.freehand/v1
+               :compile-eligible? false
+               :findings          [{:id       :rf.ui.compile/dynamic-head
+                                    :source   {:line 60 :column 1}
+                                    :form     [tag {:class "x"} label]
+                                    :reason   :head-is-a-runtime-value
+                                    :recovery [:use-a-literal-head
+                                               :extract-declared-child
+                                               :keep-interpreted]}]}}
+
+  {:note      "a list whose rows carry no key"
+   :view-id   :fh.diag/plain-list
+   :source    {:file "fh-diag-001.edn" :line 70 :column 1}
+   :compiled? false
+   :body      [[:ul (for [i items] [:li i])]]
+   :report    {:view-id           :fh.diag/plain-list
+               :source            {:file "fh-diag-001.edn" :line 70 :column 1}
+               :current-lowering  :interpreted
+               :target-grammar    :re-frame.freehand/v1
+               :compile-eligible? false
+               :findings          [{:id       :rf.ui.compile/unkeyed-list-item
+                                    :source   {:line 70 :column 1}
+                                    :form     (for [i items] [:li i])
+                                    :reason   :list-row-carries-no-key
+                                    :recovery [:key-each-row
+                                               :extract-declared-child
+                                               :keep-interpreted]}]}}
+
+  {:note      "a keyword in content position"
+   :view-id   :fh.diag/labelled
+   :source    {:file "fh-diag-001.edn" :line 80 :column 1}
+   :compiled? false
+   :body      [[:div :label]]
+   :report    {:view-id           :fh.diag/labelled
+               :source            {:file "fh-diag-001.edn" :line 80 :column 1}
+               :current-lowering  :interpreted
+               :target-grammar    :re-frame.freehand/v1
+               :compile-eligible? false
+               :findings          [{:id       :rf.ui.compile/keyword-child
+                                    :source   {:line 80 :column 1}
+                                    :form     :label
+                                    :reason   :keyword-in-content-position
+                                    :recovery [:pass-computed-value
+                                               :keep-interpreted]}]}}
+
+  {:note      "children under a void element"
+   :view-id   :fh.diag/rule
+   :source    {:file "fh-diag-001.edn" :line 90 :column 1}
+   :compiled? false
+   :body      [[:div [:br label]]]
+   :report    {:view-id           :fh.diag/rule
+               :source            {:file "fh-diag-001.edn" :line 90 :column 1}
+               :current-lowering  :interpreted
+               :target-grammar    :re-frame.freehand/v1
+               :compile-eligible? false
+               :findings          [{:id       :rf.ui.compile/void-children
+                                    :source   {:line 90 :column 1}
+                                    :form     [:br label]
+                                    :reason   :void-element-carries-children
+                                    :recovery [:pass-computed-value
+                                               :keep-interpreted]}]}}
+
+  {:note      "a head that resolves to nothing — the diagnostic names no form, so the finding falls back to the template"
+   :view-id   :fh.diag/mystery
+   :source    {:file "fh-diag-001.edn" :line 100 :column 1}
+   :compiled? false
+   :body      [[:div [nope-not-a-thing {}]]]
+   :report    {:view-id           :fh.diag/mystery
+               :source            {:file "fh-diag-001.edn" :line 100 :column 1}
+               :current-lowering  :interpreted
+               :target-grammar    :re-frame.freehand/v1
+               :compile-eligible? false
+               :findings          [{:id       :rf.ui.compile/unresolved-head
+                                    :source   {:line 100 :column 1}
+                                    :form     [:div [nope-not-a-thing {}]]
+                                    :reason   :head-does-not-resolve
+                                    :recovery [:use-a-literal-head
+                                               :keep-interpreted]}]}}]}

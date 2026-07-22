@@ -1,0 +1,343 @@
+(ns re-frame.freehand.compiler.check
+  "The READ-ONLY compile checker — discovery before commitment.
+
+  `{:compiled true}` is a one-line change to a declaration, which makes
+  it a tempting thing to try and see. Trying and seeing is a poor way to
+  learn a finite language: the build stops at the first form outside
+  `:re-frame.freehand/v1`, and an author who reached that failure by
+  editing has already changed the declaration before finding out whether
+  the change was available. So the order is inverted. The checker runs
+  the SAME analyzer the build runs, against the declaration as it stands
+  today, and answers in data:
+
+      {:view-id          :app.people/people-list
+       :source           {:file \"src/app/people.cljc\" :line 42 :column 1}
+       :current-lowering :interpreted
+       :target-grammar   :re-frame.freehand/v1
+       :compile-eligible? false
+       :findings         [{:id       :rf.ui.compile/markup-returning-map
+                           :source   {:line 47 :column 5}
+                           :form     (map person-item people)
+                           :reason   :markup-hidden-from-analyzer
+                           :recovery [:make-template-visible
+                                      :extract-declared-child
+                                      :keep-interpreted]}]}
+
+  Changing the declaration is then the FINAL step, not the discovery
+  mechanism.
+
+  ## Three laws
+
+  1. **It never writes.** No file is opened for writing, no emitter runs,
+     no registry is contributed to, and nothing is printed. A checker
+     that edited source would make its own advice unfalsifiable, and one
+     that emitted code would no longer be answering a question about the
+     declaration in front of you.
+  2. **It never recommends.** There is no percentage, no \"hot 5%\", and
+     no promotion recommender — an explicit EP-0036 non-goal. Eligibility
+     is a property of the body; whether compiling it is *worth* it is a
+     measurement and a judgement, and neither is this namespace's.
+  3. **It invents no diagnostics.** Findings carry the analyzer's OWN
+     `:rf.ui.compile/*` ids and the recovery ladders
+     [[re-frame.freehand.compiler.grammar/recovery]] already serves the
+     build. One roster, two consumers: a checker with its own id set
+     would be a second grammar to drift.
+
+  The recovery list is the payload. `:id` says which rule stopped you and
+  `:reason` says what kind of thing went wrong, but `:recovery` is the
+  ordered ladder of things you can actually do to the source in front of
+  you, most specific first, drawn from
+  [[re-frame.freehand.compiler.grammar/recoveries]] — whose values are
+  the sentences a tool renders. Its last rung is always
+  `:keep-interpreted`, because declining to compile is a first-class
+  answer: the interpreted mode has no finite grammar, so every body the
+  compiler refuses is a body that already runs.
+
+  ## Hosts
+
+  The ANALYSIS is JVM-only. Head classification resolves symbols through
+  the host compiler exactly as macro expansion does, which happens on the
+  JVM for both targets — the same reason
+  [[re-frame.freehand.compiler]] is JVM-only. This namespace is `.cljc`
+  so that it loads everywhere, and the REPORT VOCABULARY below —
+  [[reasons]], [[reason]], [[finding]], [[report]] — is host-neutral, so
+  a ClojureScript tool can render a report it received over the wire
+  without a second copy of the vocabulary.
+
+  Normative owner:
+  [`spec/004D-Freehand-Compiled-Grammar.md`](../../../../../../spec/004D-Freehand-Compiled-Grammar.md)
+  §The read-only checker."
+  (:require [re-frame.freehand.compiler.grammar :as grammar]
+            #?@(:clj [[clojure.java.io :as io]
+                      [re-frame.freehand :as v]
+                      [re-frame.freehand.compiler.analyze :as ana]
+                      [re-frame.freehand.compiler.env :as env]
+                      [re-frame.freehand.fingerprint :as fingerprint]]))
+  #?(:clj (:import [clojure.lang LineNumberingPushbackReader])))
+
+;; ---------------------------------------------------------------------------
+;; The report vocabulary — host-neutral
+;; ---------------------------------------------------------------------------
+
+(def reasons
+  "Diagnostic id -> the REASON the checker reports for it: a short,
+  unqualified keyword naming the KIND of thing that stopped the body.
+
+  A reason is not a second id. `:id` is the machine discriminator and is
+  the only thing a tool should branch on; `:reason` groups ids into the
+  handful of categories an author actually reasons in — \"the analyzer
+  cannot see this markup\", \"this head is a runtime value\", \"this
+  reactive site is not finite\" — so several ids can and do share one.
+  It is a projection the CHECKER makes for readers; the build itself
+  reports ids and messages and has no use for it.
+
+  Deliberately unqualified, per the shape in
+  `docs/design/freehand/codex-design.md` §Checker-first workflow: a
+  reason is a member of this closed roster, not a keyword in the
+  framework's reserved `:rf.*` scheme, and nothing emits it at runtime."
+  {:rf.ui.compile/dynamic-head         :head-is-a-runtime-value
+   :rf.ui.compile/unresolved-head      :head-does-not-resolve
+   :rf.ui.compile/bad-tag              :head-is-not-an-element-name
+   :rf.ui.compile/keyword-child        :keyword-in-content-position
+   :rf.ui.compile/markup-returning-map :markup-hidden-from-analyzer
+   :rf.ui.compile/lazy-seq-child       :markup-hidden-from-analyzer
+   :rf.ui.compile/unkeyed-list-item    :list-row-carries-no-key
+   :rf.ui.compile/constant-list-key    :list-key-does-not-vary
+   :rf.ui.compile/nested-for-body      :iteration-is-not-lexically-flat
+   :rf.ui.compile/sub-in-loop          :reactive-site-is-not-finite
+   :rf.ui.compile/frame-in-loop        :reactive-site-is-not-finite
+   :rf.ui.compile/void-children        :void-element-carries-children
+   :rf.ui.compile/duplicate-id-sugar   :element-id-declared-twice
+   :rf.ui.compile/id-sugar-conflict    :element-id-declared-twice
+   :rf.ui.compile/unsupported-form     :form-outside-the-grammar})
+
+(def unclassified-reason
+  "The reason for an id nobody has written a category for.
+
+  Total, like [[grammar/recovery]], and for the same reason: a checker
+  that threw on an id it did not recognise would turn every new analyzer
+  diagnostic into a tool outage. `:form-outside-the-grammar` is the
+  honest general statement — the id and the ladder still say which rule
+  and what to do."
+  :form-outside-the-grammar)
+
+(defn reason
+  "The reason keyword for diagnostic `id`. Total over ids."
+  [id]
+  (get reasons id unclassified-reason))
+
+(defn finding
+  "One finding: `id` refused `form`, which sits at `source`.
+
+  Five fields, and they are the whole contract — a stable id, the
+  coordinates, the offending form, the reason, and the recovery ladder.
+  There is deliberately no message: a sentence is stable in meaning and
+  never in bytes, so the renderable prose lives in the closed
+  [[grammar/recoveries]] roster where a tool can look it up and a test
+  can pin it."
+  [id form source]
+  {:id       id
+   :source   source
+   :form     form
+   :reason   (reason id)
+   :recovery (grammar/recovery id)})
+
+(defn report
+  "Assemble a checker report from a declaration's identity and its
+  `findings`.
+
+  `:compile-eligible?` is exactly \"no findings\" — it is derived here
+  rather than passed in, so a report cannot claim eligibility while
+  carrying a reason it is not."
+  [{:keys [view-id source lowering findings]}]
+  {:view-id           view-id
+   :source            source
+   :current-lowering  lowering
+   :target-grammar    grammar/version
+   :compile-eligible? (empty? findings)
+   :findings          (vec findings)})
+
+;; ---------------------------------------------------------------------------
+;; The analysis — JVM
+;; ---------------------------------------------------------------------------
+
+#?(:clj
+   (do
+
+(defn- coords
+  "`{:line … :column …}` for `form` — its own reader coordinates when the
+  reader gave it any, else the declaration's.
+
+  Clojure's reader anchors lists and not vectors, so a refused
+  `(map person-item people)` locates itself and a refused `[tag {} …]`
+  inherits its declaration's line. Falling back keeps the field present
+  and never invents a position: the worst answer is \"somewhere in this
+  declaration\", which is where the form is."
+  [form declaration-source]
+  (let [m (meta form)]
+    (select-keys (if (integer? (:line m)) m declaration-source) [:line :column])))
+
+(defn- findings-for
+  "Run the analyzer over a declaration and answer its findings.
+
+  The analyzer is FAIL-FAST — it refuses at the first form outside the
+  grammar, which is also where the build would stop — so a refused
+  declaration yields one finding and a clean one yields none. Re-run
+  after taking a rung; the ladder is walked one step at a time by
+  construction, not by the checker rationing what it knows.
+
+  Nothing here emits: the analyzer is run for its refusals, its AST is
+  discarded, and neither emitter is reached."
+  [{:keys [view-id vname params body children-policy ns-sym source resolver]}]
+  (try
+    (let [e0  (-> (env/make-env {:host            :clj
+                                 :ns-sym          ns-sym
+                                 :self            vname
+                                 :self-id         view-id
+                                 :resolver        resolver
+                                 :source          source
+                                 :template-anchor (fingerprint/digest "sta1-" body)})
+                  (assoc :self-children? (not= :none children-policy)
+                         :self-closed-keys nil))
+          _   (ana/reject-reactive-binding! e0 params)
+          e   (-> e0
+                  (env/with-locals (set (env/binding-syms (first params))))
+                  (assoc :hooks-region? true))
+          ast (ana/analyze-view-body e body)]
+      (grammar/check! e view-id ast)
+      [])
+    (catch clojure.lang.ExceptionInfo ex
+      (let [data (ex-data ex)
+            id   (:rf.ui.compile/error data)]
+        (when-not id
+          ;; not a grammar refusal — the checker has no opinion about it
+          (throw ex))
+        (let [form (if (contains? data :form) (:form data) (last body))]
+          [(finding id form (coords form source))])))))
+
+(defn check-declaration
+  "Check ONE declaration against `:re-frame.freehand/v1` WITHOUT
+  compiling it, and answer the report.
+
+  The declaration arrives as data — the parts `v/defview` itself parses:
+
+      {:view-id         :app.people/people-list
+       :vname           'people-list      ; for self-recursive heads
+       :ns-sym          'app.people       ; heads resolve through it
+       :params          '[{:keys [people]}]
+       :body            '([:ul (map person-item people)])
+       :compiled?       false             ; what the declaration says TODAY
+       :children-policy :optional
+       :source          {:file \"src/app/people.cljc\" :line 42 :column 1}
+       :resolver        <fn>}             ; optional; tests only
+
+  A declaration that already carries `{:compiled true}` is checked the
+  same way and reports `:current-lowering :compiled` — the question
+  \"is this still eligible?\" is the same question."
+  [{:keys [view-id source compiled?] :as declaration}]
+  (report {:view-id  view-id
+           :source   source
+           :lowering (if compiled? :compiled :interpreted)
+           :findings (findings-for declaration)}))
+
+(def ^:private read-opts
+  "Reader options for a source file. `:read-eval` is refused separately
+  (see [[read-declarations]]); a `.cljc` file is read through its `:clj`
+  branch because that is the host this analysis runs on."
+  {:eof ::eof :read-cond :allow :features #{:clj}})
+
+(defn- source-namespace
+  "The namespace symbol declared by the file's leading `(ns …)` form."
+  [form path]
+  (or (when (and (seq? form) (= 'ns (first form)) (symbol? (second form)))
+        (second form))
+      (throw (ex-info (str "re-frame.freehand check: " path
+                           " does not begin with an (ns …) form, so there is no "
+                           "namespace to resolve its declarations against.")
+                      {:file (str path)}))))
+
+(defn- live-namespace
+  "The LOADED namespace `ns-sym` names.
+
+  Head classification is resolution — a symbol head is an internal view,
+  a foreign component, or an error according to what it resolves to — so
+  the checker reads the same namespace the compiler would. Refusing to
+  guess is the point: checking against an unloaded namespace would
+  report every symbol head as unresolved and call the view ineligible
+  for a reason that is about the checker, not the code."
+  [ns-sym path]
+  (or (find-ns ns-sym)
+      (throw (ex-info (str "re-frame.freehand check: namespace " ns-sym " (" path
+                           ") is not loaded. Heads are classified by resolution, so "
+                           "load it first — (require '" ns-sym ") — and check again.")
+                      {:file (str path) :ns ns-sym}))))
+
+(defn- declaration-at
+  "The declaration data for a `v/defview` form read out of `path`."
+  [path ns-sym form]
+  (let [[_ vname & more] form
+        {:keys [opts params body]}
+        (or (v/parse-defview-args more)
+            (throw (ex-info (str "re-frame.freehand check: " ns-sym "/" vname " in " path
+                                 " does not match (v/defview name docstring? opts? "
+                                 "[props] body …), so there is no declaration to check.")
+                            {:file (str path) :view vname})))
+        m (meta form)]
+    {:view-id         (keyword (str ns-sym) (str vname))
+     :vname           vname
+     :ns-sym          ns-sym
+     :params          params
+     :body            body
+     :compiled?       (get opts :compiled false)
+     :children-policy (get opts :children-policy :optional)
+     :source          (cond-> {:file (str path)}
+                        (:line m)   (assoc :line (:line m))
+                        (:column m) (assoc :column (:column m)))}))
+
+(defn- read-declarations
+  "Every `v/defview` in the file at `path`, in declaration order, as
+  declaration data.
+
+  The file is opened for READING and read with `*read-eval*` false: a
+  checker is pointed at source an author has not yet decided to compile,
+  and evaluating it to find out whether it compiles would be a strange
+  way to answer the question. Forms are read in the file's own
+  namespace so `::keyword` aliases resolve, and a head counts as
+  `v/defview` when it RESOLVES there — an alias, a `:refer`, or the
+  qualified name all read the same."
+  [path]
+  (with-open [rdr (LineNumberingPushbackReader. (io/reader (io/file path)))]
+    (binding [*read-eval* false]
+      (let [ns-sym (source-namespace (read read-opts rdr) path)
+            ns-obj (live-namespace ns-sym path)]
+        (binding [*ns* ns-obj]
+          (loop [declarations []]
+            (let [form (read read-opts rdr)]
+              (cond
+                (= ::eof form)
+                declarations
+
+                (and (seq? form)
+                     (symbol? (first form))
+                     (= #'v/defview (try (ns-resolve ns-obj (first form))
+                                         (catch Exception _ nil))))
+                (recur (conj declarations (declaration-at path ns-sym form)))
+
+                :else
+                (recur declarations)))))))))
+
+(defn check-file
+  "Check every `v/defview` in the source file at `path` and answer one
+  report per declaration, in declaration order.
+
+  This is the discovery workflow: point it at a namespace and read which
+  of its views are already inside `:re-frame.freehand/v1` and, for the
+  rest, why not and what to do about it. The file is only ever read —
+  see the read-only law in this namespace's docstring.
+
+  The file's namespace must be LOADED, because heads are classified by
+  resolution; a tool driving this from a REPL or a build already has it."
+  [path]
+  (mapv check-declaration (read-declarations path)))
+
+))
