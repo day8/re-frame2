@@ -10,7 +10,7 @@
   frame/query keywords are built HERE and handed to the suite via the cfg
   map (Approach A: components passed in as elements + atoms + keywords).
   The orchestration (make-frame, dispatch, mount under act, assert) lives
-  once in the suite; a gap on UIx is a gap on Helix by construction.
+  once in the suite.
 
   Coverage forwarded:
     - use-subscribe sees post-dispatch values via useSyncExternalStore
@@ -383,9 +383,10 @@
 
 ;; ---- regression: frame-provider under the idiomatic `$` trailing-children shape (rf2-8svnm / rf2-z7hfp / rf2-7kii2) -
 ;;
-;; The UIx twin of the Helix rf2-9ok1s defect, now pinning the moved-up
-;; seam (rf2-z7hfp) AND the unified trailing-children call shape
-;; (rf2-7kii2). HISTORY: `frame-provider` used to be a plain re-exported
+;; The UIx counterpart of the rf2-9ok1s defect (found on the Helix adapter
+;; before its W13 removal), now pinning the moved-up seam (rf2-z7hfp) AND
+;; the unified trailing-children call shape (rf2-7kii2).
+;; HISTORY: `frame-provider` used to be a plain re-exported
 ;; spine CLJS fn (not a `defui`), so UIx's `$` routed it through
 ;; `uix.compiler.alpha/react-component-element` → `interpret-attrs`, which
 ;; stringified keyword prop values and DROPPED the namespace — `:frame`

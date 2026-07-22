@@ -1,12 +1,12 @@
 ;; day8/re-frame2-uix — UIx adapter.
 ;;
 ;; Each adapter ships separately so consumers only add the selected adapter's
-;; implementation dependencies. Core still carries stock Reagent for its
-;; `reg-view` path; this boundary prevents UIx and Helix adapter dependencies
-;; from pulling one another in.
+;; implementation dependencies. Core carries no substrate dep (stock Reagent
+;; lives in implementation/adapters/reagent), so this boundary keeps uix.core
+;; off non-UIx consumers' classpaths.
 ;;
 ;; React-shaped adapters read the same frame context from core, allowing mixed
-;; Reagent, UIx, and Helix provider trees to compose.
+;; Reagent and UIx provider trees to compose.
 ;;
 ;; "UIx 2.x" names the hooks-based product/API family, not its Maven version.
 ;; That family is published as com.pitch/uix.core 1.x.x; there is no 2.x.y

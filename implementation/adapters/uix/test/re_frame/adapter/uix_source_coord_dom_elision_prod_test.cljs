@@ -26,9 +26,9 @@
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.uix :as uix-adapter]
-            ;; rf2-5g21s — the react-element-attr accessor is hoisted into
-            ;; the dependency-free shared test home (out of cross-suite
-            ;; duplication with the Helix twin); reference it rather than
+            ;; rf2-5g21s — the react-element-attr accessor lives in the
+            ;; dependency-free shared test home (hoisted there to dedupe
+            ;; the since-removed Helix twin); reference it rather than
             ;; carry a copy. Kept separate from react-shared-suite so this
             ;; prod-elision build does not pull the suite's heavy deps.
             [re-frame.adapter.react-test-support :refer [react-element-attr]]
