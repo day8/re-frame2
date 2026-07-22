@@ -1275,6 +1275,11 @@
   ;; crossing manifest as plain data (nil for an interpreted one). Tooling
   ;; data alongside `describe`, so it shares its tier.
   ["re-frame.freehand" "manifest"]          {:tier :tooling     :owner "004" :status "EP-0036"}
+  ;; The paved path's render-only reactive read. The subscription law lives in
+  ;; Spec 006 (D005), so the row is owned there even though the verb rides the
+  ;; Freehand door — front-porch, the everyday read primitive paired with
+  ;; `defview`.
+  ["re-frame.freehand" "sub"]               {:tier :front-porch :owner "006" :status "EP-0036"}
   ["re-frame.freehand" "event"]             {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "handler"]           {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "render-fn"]         {:tier :advanced    :owner "004" :status "EP-0036"}
