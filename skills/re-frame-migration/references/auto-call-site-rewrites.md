@@ -46,7 +46,7 @@ See `references/setup.md` for the per-build-tool detail. Applied once, in Phase 
 This is the **single, canonical allowlist** of `re-frame.*` namespaces the M-1 scan must **leave in place** (never flag as a site). [`breaking-changes.md`](breaking-changes.md) and [`inventory-and-plan.md`](inventory-and-plan.md) link here rather than restating a subset; the invert-filter below and this list are kept in step. The public surface is:
 
 - **`re-frame.core`** — the public façade. The single import for application code (`[re-frame.core :as rf]`).
-- **`re-frame.adapter.<substrate>`** — the published substrate-adapter namespaces (`re-frame.adapter.reagent` / `re-frame.adapter.uix` / `re-frame.adapter.helix`), the adapter-tier public surface (`spec/api-manifest-metadata.edn`). **M-38 rewrites *into* it and M-40 boot *requires* it**, so it is on-contract — never an M-1 site. (M-38 renames the v1 `re-frame.substrate.<name>` require to this destination; that destination must survive the scan, not be flagged by it.)
+- **`re-frame.adapter.<substrate>`** — the published substrate-adapter namespaces (`re-frame.adapter.reagent` / `re-frame.adapter.uix`), the adapter-tier public surface (`spec/api-manifest-metadata.edn`). **M-38 rewrites *into* it and M-40 boot *requires* it**, so it is on-contract — never an M-1 site. (M-38 renames the v1 `re-frame.substrate.<name>` require to this destination; that destination must survive the scan, not be flagged by it.)
 - **The per-feature artefact namespaces** `re-frame.<feature>` you require *only when the feature is in use* (M-27..M-33): `re-frame.schemas`, `re-frame.machines`, `re-frame.routing`, `re-frame.flows`, `re-frame.http.managed` / `re-frame.http`, `re-frame.ssr`, `re-frame.epoch`, and the test-side `re-frame.test-support` / `re-frame.http.test-support`.
 - **`re-frame.interop`** (JVM interop) — explicitly preserved (see [`breaking-changes.md` §What stays the same](breaking-changes.md#what-stays-the-same-do-not-change)). Not off-contract; leave it.
 - **`re-frame.spec`** — the namespace is **NOT renamed**; its alias is preserved for back-compat. M-54 renames the `:spec` metadata *key* to `:schema` — it does **not** touch the `re-frame.spec` *namespace* (see [`auto-cross-cutting.md` §M-54](auto-cross-cutting.md#m-54--schema-vocabulary-unification-spec--schema) / [`MIGRATION.md` §M-54](../../../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema)). Leave the require in place; reach the schema boundary-validator by its framework ref `:rf.schema/at-boundary`, never by rewriting the require away.
@@ -117,7 +117,7 @@ So before rewriting each `@app-db` site, **check whether it sits inside a reacti
 (:require [re-frame.adapter.reagent :as reagent-adapter])
 ```
 
-Same for `uix` / `helix` variants.
+Same for the `uix` variant.
 
 ### M-23 — `re-frame.alpha` removal (mechanical half)
 

@@ -273,7 +273,7 @@ value assertion in `end-to-end-story.cjs`).
 ### `list-substrates`
 
 Returns the set registered via
-`re-frame.story/register-substrate!` (Reagent canonical; UIx / Helix
+`re-frame.story/register-substrate!` (Reagent canonical; UIx
 opt-in per host). The JVM stdio server returns `[]` because it has no
 bridge to the CLJS registry.
 

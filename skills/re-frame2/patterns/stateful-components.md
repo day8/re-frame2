@@ -30,7 +30,7 @@ The split is forced by reactive context: subs want render-time reads; lifecycle 
 Never a bare `(rf/dispatch …)` from a lifecycle callback — it fires on a fresh stack with no `*current-frame*` binding and, under EP-0002, fails loudly with `:rf.error/no-frame-context`. Carry the frame api, captured while the frame scope still exists, into the callback. Same primitive everywhere (`capture-frame`'s frame api), different spelling per adapter:
 
 - **Reagent / Reagent-slim** — capture `(rf/capture-frame)` in the closure around `create-class`; use its `:dispatch` op.
-- **UIx / Helix** — call the **`use-frame` hook** at the top of the `defui` / `defnc` (the hook-position spelling of `capture-frame`), and read subs with **`use-subscribe`**. Both hooks read the surrounding `frame-provider` / `frame-root` from React context — a bare render-time `(rf/capture-frame)` in a plain hooks component cannot (no-arg capture reads only the dynamic-var tier, so it raises under a context-only frame). These adapters need no `:contextType`.
+- **UIx** — call the **`use-frame` hook** at the top of the `defui` (the hook-position spelling of `capture-frame`), and read subs with **`use-subscribe`**. Both hooks read the surrounding `frame-provider` / `frame-root` from React context — a bare render-time `(rf/capture-frame)` in a plain hooks component cannot (no-arg capture reads only the dynamic-var tier, so it raises under a context-only frame). This adapter needs no `:contextType`.
 
 ## Canonical declaration (Reagent — a Mapbox-shaped widget)
 
@@ -84,17 +84,16 @@ The shape is identical; only the lifecycle surface differs.
 |---|---|---|
 | **Reagent** / **Reagent-slim** | `create-class` Form-3 (`:component-did-mount` / `-did-update` / `-will-unmount` + `:reagent-render`) | `reg-view*` |
 | **UIx** | `use-effect` inside a `defui`, deps vector listing every prop read; cleanup is the returned fn | ordinary `defui`; subs via `use-subscribe`, frame via `use-frame`; `reg-view*` optional (registry addressing only) |
-| **Helix** | `use-effect` inside a `defnc`, deps vector **first**, cleanup is the last expression | ordinary `defnc`; subs via `use-subscribe`, frame via `use-frame`; `reg-view*` optional (registry addressing only) |
 
 See the per-adapter README "Imperative escape hatch" sections for the hooks-shaped spelling.
 
 ## Animations are a special case
 
-Regime C (library-bridged: Framer Motion, React-Spring, GSAP, AutoAnimate) **is** this pattern — outer derives state-driven props (target opacity, x/y, easing), inner hands them to the library, completion callbacks bridge via the carried frame (Reagent: `capture-frame`; UIx/Helix: the `use-frame` hook). Regimes A (CSS-driven `:class`) and B (per-frame RAF loop in a registered fx) do *not* use this pattern — no library to wrap.
+Regime C (library-bridged: Framer Motion, React-Spring, GSAP, AutoAnimate) **is** this pattern — outer derives state-driven props (target opacity, x/y, easing), inner hands them to the library, completion callbacks bridge via the carried frame (Reagent: `capture-frame`; UIx: the `use-frame` hook). Regimes A (CSS-driven `:class`) and B (per-frame RAF loop in a registered fx) do *not* use this pattern — no library to wrap.
 
 ## Anti-patterns
 
-- **`addEventListener` from a render body.** Fires with no carried frame — under EP-0002 a bare `dispatch` in the callback raises `:rf.error/no-frame-context` (there is no `:rf/default` to fall open to) — and leaks. The right home is the inner's mount hook with cleanup on unmount; carry the frame (Reagent: `capture-frame`; UIx/Helix: the `use-frame` hook) for any dispatch the listener fires after commit.
+- **`addEventListener` from a render body.** Fires with no carried frame — under EP-0002 a bare `dispatch` in the callback raises `:rf.error/no-frame-context` (there is no `:rf/default` to fall open to) — and leaks. The right home is the inner's mount hook with cleanup on unmount; carry the frame (Reagent: `capture-frame`; UIx: the `use-frame` hook) for any dispatch the listener fires after commit.
 - **Owning the library lifecycle in a render body.** `(js/MyLib. el opts)` from a Form-1 builds a fresh instance every render — leaking at the rate of reactive updates. Build it once in the mount hook.
 - **`@(subscribe …)` inside a lifecycle hook.** No reactive context after commit. Subscribe in the outer; pass the value as a prop. The lone exception (Reagent only) is a rare imperative widget re-fed from a hook: capture the frame's `:subscribe` in the outer callable, `add-watch` the reaction under a **per-mount** key (never a constant — equal `(frame, query-v)` subscriptions share one cached reaction, so a constant key clobbers a sibling's watch), and balance it with frame-first `(rf/unsubscribe frame query-v)` at unmount — the migration skill's *exceptional imperative-subscription Form-3* (guided-handlers-state.md §M-11). It is ref-count-balanced and does not relax the default above.
 - **Stashing the instance in `defonce` / top-level `def`.** Leaks across mounts and hot-reloads; breaks when the component mounts twice (two frames). The instance is per-mount — closure cell only.

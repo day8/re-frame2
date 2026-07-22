@@ -781,8 +781,8 @@ to implementation:
   "SVG primitive" (per §Share affordance §Performance) but
   doesn't lock; defer to a `001-Rendering.md` bead.
 - **Component substrate** — `MachineChart` is registered via
-  `reg-view` (Spec 004) so it works across Reagent / UIx /
-  Helix; the registration spec lives in a future capability doc.
+  `reg-view` (Spec 004) so it works across Reagent / UIx;
+  the registration spec lives in a future capability doc.
 - **Test corpus shape** — a snapshot-tested fixture per
   rendering case (compound, parallel, `:after`, `:spawn-all`,
   `:final?`); shape mirrors the framework's conformance corpus.

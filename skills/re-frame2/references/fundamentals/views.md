@@ -86,9 +86,8 @@ The shape is identical; the registration surface differs by adapter (cross-ref t
 |---|---|---|
 | **Reagent** / **Reagent-slim** | `reg-view` (defn-shape, Form-1) | `reg-view*` + `create-class` (Form-3) |
 | **UIx** | ordinary `defui`; subs via `use-subscribe`, frame via `use-frame`; `reg-view*` optional (registry addressing only) | same + `use-effect` (deps vector) |
-| **Helix** | ordinary `defnc`; subs via `use-subscribe`, frame via `use-frame`; `reg-view*` optional (registry addressing only) | same + `use-effect` (deps vector first) |
 
-The `reg-view` macro (and its injected locals) is **Reagent-only** — it does not cover UIx / Helix (spec 004, Decision 4). On the hooks adapters a UIx / Helix component is an ordinary `defui` / `defnc`: it reads subs through the adapter's `use-subscribe` hook (no injected `subscribe`) and carries the frame — for dispatch, and for any async callback that fires after render — through the **`use-frame`** hook (the hook-position spelling of `capture-frame`, reading the surrounding `frame-provider` / `frame-root` from React context). `reg-view*` on these adapters is optional, only when a component needs registry-keyed view addressing — never the source of the frame wiring.
+The `reg-view` macro (and its injected locals) is **Reagent-only** — it does not cover UIx (spec 004, Decision 4). On the hooks adapter a UIx component is an ordinary `defui`: it reads subs through the adapter's `use-subscribe` hook (no injected `subscribe`) and carries the frame — for dispatch, and for any async callback that fires after render — through the **`use-frame`** hook (the hook-position spelling of `capture-frame`, reading the surrounding `frame-provider` / `frame-root` from React context). `reg-view*` on this adapter is optional, only when a component needs registry-keyed view addressing — never the source of the frame wiring.
 
 ## Common gotchas
 

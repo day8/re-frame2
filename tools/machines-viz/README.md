@@ -30,8 +30,8 @@ Surfaces that ship today:
   Nested compound states, parallel regions, multi-source edges,
   `:spawn-all` join + cancellation-cascade overlays, `:after` countdown
   rings, focused-event from/to lens, and fired-edge highlighting.
-  Substrate-agnostic: a Reagent component plus `$`-mountable UIx and
-  Helix adapter shells.
+  Substrate-agnostic: a Reagent component plus a `$`-mountable UIx
+  adapter shell.
 - **Read-only viewer page** — `public/viewer.html` + `viewer.cljs` decode
   a `#machine=` URL fragment client-side and mount the chart with
   `:read-only? true`. Malformed / newer-version payloads render a banner,
@@ -64,7 +64,7 @@ tools/machines-viz/
 └── src/day8/re_frame2_machines_viz/
     ├── chart.cljs                            ; the MachineChart component
     ├── chart/                                ; layout, nodes, edges, overlays, projection
-    ├── adapters/                             ; react-chart + UIx + Helix shells
+    ├── adapters/                             ; react-chart + UIx shells
     ├── viewer.cljs                           ; read-only viewer entry
     ├── share.cljs                            ; share-URL encode / decode
     ├── export.cljs                           ; PNG / SVG / Mermaid / share-URL exporters

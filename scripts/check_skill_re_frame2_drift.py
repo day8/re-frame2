@@ -114,10 +114,10 @@ existing automated guards did not catch (the no-bead-id guard was scoped to
      TABLE CELL right while the leaf's adjacent paragraph stays right, and it
      reaches only the leaves this skill globs. So the three concrete recipe
      blocks a programmer or a model actually copies are additionally anchored
-     as BOUNDED BLOCKS, checked in place: the UIx and Helix ordinary-view rows
+     as BOUNDED BLOCKS, checked in place: the UIx ordinary-view row
      of the `references/fundamentals/views.md` per-adapter table, the
      `skills/re-frame2-setup/references/first-counter.md` "Reagent only"
-     warning, and the canonical UIx/Helix paragraph under the `spec/
+     warning, and the canonical UIx hooks paragraph under the `spec/
      006-ReactiveSubstrate.md` adapter inventory. The last two live outside
      this skill entirely, so the block anchor is their ONLY protection — and
      deliberately so: only the named block is read, never the whole file (spec/
@@ -693,11 +693,8 @@ HOOKS_ANCHORED_BLOCKS = (
         "the per-adapter table's UIx ordinary-view row",
         re.compile(r"^\|\s*\*\*UIx\*\*\s*\|"),
     ),
-    (
-        ("skills", "re-frame2", "references", "fundamentals", "views.md"),
-        "the per-adapter table's Helix ordinary-view row",
-        re.compile(r"^\|\s*\*\*Helix\*\*\s*\|"),
-    ),
+    # (The per-adapter table's Helix row was retired with the S7 Helix removal
+    # — only Helix left the roster; the UIx row above stays anchored.)
     (
         ("skills", "re-frame2-setup", "references", "first-counter.md"),
         "the 'Reagent only' greenfield warning",
@@ -705,8 +702,10 @@ HOOKS_ANCHORED_BLOCKS = (
     ),
     (
         ("spec", "006-ReactiveSubstrate.md"),
-        "the canonical UIx/Helix paragraph under the adapter inventory",
-        re.compile(r"^The UIx and Helix rows\b"),
+        "the canonical UIx hooks paragraph under the adapter inventory",
+        # Tolerates both the pre-S7 "The UIx and Helix rows ..." spelling and
+        # the post-Helix-removal "The UIx row(s) ..." rewording.
+        re.compile(r"^The UIx (?:and Helix )?rows?\b"),
     ),
 )
 
@@ -745,8 +744,8 @@ def anchored_block_problems(label: str, block: str) -> list[str]:
             "is a bounded authority: it is the concrete recipe a programmer or "
             "a model copies, so a correct paragraph elsewhere in the file does "
             "NOT cover it. `reg-view*` on these adapters is OPTIONAL registry "
-            "addressing (see examples/substrates/helix/counter/core.cljs — a "
-            "plain `defnc` with `use-subscribe` + `use-frame` and no "
+            "addressing (see examples/substrates/uix/counter/core.cljs — a "
+            "plain `defui` with `use-subscribe` + `use-frame` and no "
             "`reg-view*`); it is never required, and never the frame wiring."
         )
     for sent in SENTENCE_SPLIT_RE.split(block):

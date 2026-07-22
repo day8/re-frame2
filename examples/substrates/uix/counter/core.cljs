@@ -18,7 +18,7 @@
        so `use-subscribe` and `use-frame` resolve to it
 
    For the full substrate tour see
-   `docs/core/how-to/use-uix-helix-or-slim.md`."
+   `docs/core/how-to/use-uix-or-slim.md`."
   (:require [uix.core :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core    :as rf]

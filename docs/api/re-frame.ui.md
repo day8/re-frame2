@@ -31,7 +31,7 @@ description says so.
 - **Kind**: Var (adapter map)
 - **Signature**: pass to `(rf/init! ui/adapter)`
 - **Description**: The `re-frame.ui` substrate adapter. CLJS installs the native
-  React observation substrate (no Reagent / UIx / Helix). JVM uses the headless atom
+  React observation substrate (no Reagent / UIx). JVM uses the headless atom
   realisation of the same closed adapter contract. Discriminator
   `:rf.adapter/ui`. Destroying the adapter tears down every public compiled Root,
   then the generic React spine. The JavaScript host must provide `WeakRef`; Root
@@ -373,7 +373,7 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
 - **Kind**: function (outward interop bridge)
 - **Signature**: `(->react view) → React component`
 - **Description**: Export a compiled `view` (a `defview` value) as a React component a
-  **foreign** React/UIx/Helix tree can render — the OUTWARD half of the foreign boundary
+  **foreign** React/UIx tree can render — the OUTWARD half of the foreign boundary
   (`raw` is the inward half). The incremental-adoption bridge: `(def CartRow (ui/->react
   cart-row))`, then render `CartRow` anywhere in the legacy/foreign tree.
 - **Memoised per view identity**: repeated `(->react view)` returns the **identical**

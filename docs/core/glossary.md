@@ -6,7 +6,7 @@ A catalog of re-frame2's nouns, verbs, and concepts.
 
 ### **adapter**
 
-re-frame2 renders through one of several React-family rendering libraries — Reagent, UIx, or Helix (its [substrate](#substrate)). An **adapter** is the small map of "glue" functions that wires re-frame2's core to the substrate you picked. It's a *value*, not the library itself.
+re-frame2 renders through one of several React-family rendering libraries — Reagent or UIx (its [substrate](#substrate)). An **adapter** is the small map of "glue" functions that wires re-frame2's core to the substrate you picked. It's a *value*, not the library itself.
 
 You install it once, at boot, by passing it to `init!`:
 
@@ -18,7 +18,7 @@ You install it once, at boot, by passing it to `init!`:
 (rf/init! reagent-adapter/adapter)
 ```
 
-To switch substrate you change that one line — require `re-frame.adapter.uix` or `re-frame.adapter.helix` and pass *its* `adapter`. Nothing else moves: your events, subscriptions, and app-db are substrate-agnostic.
+To switch substrate you change that one line — require `re-frame.adapter.uix` and pass *its* `adapter`. Nothing else moves: your events, subscriptions, and app-db are substrate-agnostic.
 
 Related: [Views](views.md), [Adapters](../api/re-frame.adapter.reagent.md). Don't confuse it with the [substrate](#substrate) — the substrate is the rendering library; the adapter is the value that binds re-frame2 to it.
 
@@ -482,13 +482,13 @@ Related: [Subscriptions](subscriptions.md). Casual "sub" is fine; not as a headw
 
 ### **substrate**
 
-The React-family rendering layer your app runs on — Reagent, UIx, Helix, or reagent-slim. You pick one and wire re-frame2 to it with an [adapter](#adapter). Because the core is substrate-agnostic, your events, subscriptions, and app-db are identical whichever you choose — only the rendering differs.
+The React-family rendering layer your app runs on — Reagent, UIx, or reagent-slim. You pick one and wire re-frame2 to it with an [adapter](#adapter). Because the core is substrate-agnostic, your events, subscriptions, and app-db are identical whichever you choose — only the rendering differs.
 
 ```clojure
 ;; substrate = the rendering library; the adapter is the value you pass to init!
 ```
 
-Related: [Use UIx, Helix, or slim](how-to/use-uix-helix-or-slim.md).
+Related: [Use UIx or slim](how-to/use-uix-or-slim.md).
 
 ### **view**
 

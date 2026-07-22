@@ -1,18 +1,14 @@
-# Use UIx, Helix, or reagent-slim
+# Use UIx or reagent-slim
 
-You're adopting re-frame2, but your team writes React function components — UIx or Helix — and Reagent's [hiccup](../glossary.md#hiccup) isn't going to happen. Or you're already on Reagent, and the shipped bundle has grown a little too round for comfort. Both problems have the same fix: swap the [substrate](../glossary.md#substrate) — the React-rendering layer underneath your [views](../glossary.md#view) — and leave every [event](../glossary.md#event), [subscription](../glossary.md#subscription), [effect](../glossary.md#effect), and your [app-db](../glossary.md#app-db) untouched. This page shows you how.
+You're adopting re-frame2, but your team writes React function components — UIx — and Reagent's [hiccup](../glossary.md#hiccup) isn't going to happen. Or you're already on Reagent, and the shipped bundle has grown a little too round for comfort. Both problems have the same fix: swap the [substrate](../glossary.md#substrate) — the React-rendering layer underneath your [views](../glossary.md#view) — and leave every [event](../glossary.md#event), [subscription](../glossary.md#subscription), [effect](../glossary.md#effect), and your [app-db](../glossary.md#app-db) untouched. This page shows you how.
 
-A word on *substrate*, since the rest of the page leans on it. A re-frame2 app is two layers stacked. On top: your dataflow — events, subscriptions, effects, and the app-db map they all read and write — plain Clojure data and functions, with no idea React exists. Underneath: the [substrate](../glossary.md#substrate), the thin layer that actually drives a React renderer and turns your views into pixels. Reagent is one substrate. UIx, Helix, and reagent-slim are three more. The whole trick of this page: you can swap the bottom layer, and the top layer never notices.
+A word on *substrate*, since the rest of the page leans on it. A re-frame2 app is two layers stacked. On top: your dataflow — events, subscriptions, effects, and the app-db map they all read and write — plain Clojure data and functions, with no idea React exists. Underneath: the [substrate](../glossary.md#substrate), the thin layer that actually drives a React renderer and turns your views into pixels. Reagent is one substrate. UIx and reagent-slim are two more. The whole trick of this page: you can swap the bottom layer, and the top layer never notices.
 
-We'll take it one step at a time: the single line that picks a substrate, then a working UIx view, then how its callbacks [dispatch](../glossary.md#dispatch), then how you mount and scope it, and finally how Helix and reagent-slim fit the same mould. By the end you'll be able to boot one app on any of four substrates, write UIx/Helix views that read subs and dispatch correctly, and recognise the handful of errors the framework throws when you get the boundary wrong.
+We'll take it one step at a time: the single line that picks a substrate, then a working UIx view, then how its callbacks [dispatch](../glossary.md#dispatch), then how you mount and scope it, and finally how reagent-slim fits the same mould. By the end you'll be able to boot one app on any of three substrates, write UIx views that read subs and dispatch correctly, and recognise the handful of errors the framework throws when you get the boundary wrong.
 
-!!! note "Same app, four substrates — the only line that changes is `init!`"
+!!! note "Same app, three substrates — the only line that changes is `init!`"
 
     Events, subscriptions, effects, and app-db never learn which React wrapper renders them. The boot call ([`init!`](../glossary.md#init)) names the substrate. Only the view bodies speak its notation. That's the whole story; the rest of this page is detail.
-
-!!! warning "Helix is scheduled for removal at S7"
-
-    Of the four substrates covered here, Helix is the odd one out: it is a transition adapter, scheduled for removal in the S7 Helix-removal wave. Stock Reagent, reagent-slim, and UIx live on as first-class, actively-supported adapters, so for new work reach for one of those three — pick Helix only if you're already committed to it. (The first-party [`re-frame.ui`](../re-frame.ui/index.md) compiled substrate is a separate, experimental option offered alongside them.)
 
 ??? info "Coming from Redux?"
 
@@ -42,10 +38,6 @@ That's it. To switch substrates, you change that one argument. Each adapter live
 ;; UIx
 (require '[re-frame.adapter.uix :as uix-adapter])
 (rf/init! uix-adapter/adapter)
-
-;; Helix
-(require '[re-frame.adapter.helix :as helix-adapter])
-(rf/init! helix-adapter/adapter)
 ```
 
 reagent-slim follows the same explicit shape — but here the published artefact deliberately ships its adapter at the *canonical* `re-frame.adapter.reagent` ns, the very same require and `init!` line as stock Reagent. The `day8/reagent-slim` package renames its adapter namespace to `re-frame.adapter.reagent` at publication, so a consumer's boot line is identical whichever of the two Reagent coordinates they depend on:
@@ -83,7 +75,6 @@ A build *may* carry two adapters on its classpath, but `init!` installs exactly 
 |---|---|---|
 | Reagent | `day8/re-frame2-reagent` | `reagent` (hiccup) |
 | UIx | `day8/re-frame2-uix` | `com.pitch/uix.core` (UIx 2 publishes as Maven 1.x) |
-| Helix | `day8/re-frame2-helix` | `lilactown/helix` (0.2.x) |
 | reagent-slim | `day8/reagent-slim` | `reagent2` (ships inside it) |
 
 !!! note "Coordinates are not published yet"
@@ -111,11 +102,11 @@ Here's the part people are usually nervous about, and it turns out to be the eas
        ($ :button {:on-click #(dispatch [:counter/inc])} "+"))))
 ```
 
-Three rules govern every UIx and Helix component, and once they click you won't think about them again:
+Three rules govern every UIx component, and once they click you won't think about them again:
 
 - **Read subs with `use-subscribe`.** It's a React hook built on `useSyncExternalStore`, which *is* the substrate's native "re-render when this changes" mechanism — so a re-frame2 subscription behaves like any other hook your team already trusts. It resolves the [frame](../glossary.md#frame) from the surrounding provider; the 2-arg form `(use-subscribe frame-id [:q …])` pins the read to an explicit frame instead.
 - **Hold frame ops with `use-frame`.** `(use-frame)` is a React hook that returns the [frame api](../glossary.md#capture-frame) — the ops map `{:frame :dispatch :dispatch-sync :subscribe}` — for the surrounding provider's frame; you pull `dispatch` (or `dispatch-sync`) off it and close over it. It is exactly what `(rf/capture-frame)` returns, in hook position. Grab it during render; never reach for a bare `rf/dispatch` inside a callback. (The next step explains exactly why.)
-- **There is no `reg-view` macro here.** That sugar is Reagent-only. UIx components are plain `defui`, Helix components plain `defnc`. (`rf/reg-view*` exists for the rare component that needs a registry id, but you'll reach for it about as often as you reach for `forwardRef`.)
+- **There is no `reg-view` macro here.** That sugar is Reagent-only. UIx components are plain `defui`. (`rf/reg-view*` exists for the rare component that needs a registry id, but you'll reach for it about as often as you reach for `forwardRef`.)
 
 ??? info "For JavaScript developers"
 
@@ -127,7 +118,7 @@ Step 2's second rule said: hold the frame's ops with `use-frame` during render, 
 
 It's the async-boundary rule from [Frames](../frames.md#the-async-boundary-capture-the-frame): a click handler fires *after* render, on a frameless stack, so a bare `rf/dispatch` inside it has no frame to aim at and raises `:rf.error/no-frame-context`. The [frame api](../glossary.md#capture-frame), obtained *during* render while the provider's frame is in scope, captures that frame as a value the callback closes over — [carried, not found](../glossary.md#frame-identity-is-carried-not-found).
 
-This is one primitive wearing different faces. [`capture-frame`](../glossary.md#capture-frame) is *the* hold primitive; each substrate spells it in its own idiom. In Reagent `reg-view` injects `dispatch` / `subscribe` for you (its lexical spelling). UIx/Helix have no such injection, so you call `(use-frame)` — capture-frame in hook position, the hook spelling. Both hand you the same frame-locked ops map. (Outside a component — an async setup fn, a tool, a test — you reach for the underlying `(rf/capture-frame frame-id)` directly, since a hook can only be called during render; see below.)
+This is one primitive wearing different faces. [`capture-frame`](../glossary.md#capture-frame) is *the* hold primitive; each substrate spells it in its own idiom. In Reagent `reg-view` injects `dispatch` / `subscribe` for you (its lexical spelling). UIx has no such injection, so you call `(use-frame)` — capture-frame in hook position, the hook spelling. Both hand you the same frame-locked ops map. (Outside a component — an async setup fn, a tool, a test — you reach for the underlying `(rf/capture-frame frame-id)` directly, since a hook can only be called during render; see below.)
 
 And the frame api gives you more than just a dispatch function — it's a small map of *every* frame-locked operation, captured the instant you call it:
 
@@ -176,7 +167,7 @@ So the last move is to mount the root inside it. The scope shape takes a `:frame
   react-root)
 ```
 
-Children ride the native `$` trailing-args channel — `($ frame-provider {:frame :f} ($ a) ($ b))` — exactly the shape every other UIx/Helix component uses. No `:children` prop-map key to remember, so no key to forget.
+Children ride the native `$` trailing-args channel — `($ frame-provider {:frame :f} ($ a) ($ b))` — exactly the shape every other UIx component uses. No `:children` prop-map key to remember, so no key to forget.
 
 ??? info "For JavaScript developers"
 
@@ -222,17 +213,9 @@ And here is that stumble: **pick the component, not a prop-map key.** `frame-roo
 
     If you *do* take explicit ownership and `destroy-frame!` a frame, a handle you captured against it (a `capture-frame :that-id` you stashed at setup) can fire its `dispatch` or `subscribe` *after* the teardown — a slow HTTP reply, a `setTimeout`, a WebSocket message that lands late. The framework won't corrupt anything: a `dispatch` / `subscribe` against a frame that's been torn down raises `:rf.error/frame-destroyed`, and the deeper case where a scheduled commit reaches the container *after* it's already gone no-ops behind a guard and emits `:rf.error/write-after-destroy` (recovery `:ignored`). Both are **always-on** errors — they survive production and land in your error listeners, not just the dev trace. The fix is ownership-shaped: cancel the in-flight work when you destroy the frame, or hold the data in a longer-lived frame if it must outlast the widget.
 
-## Step 6 — Helix is the same moves, different notation
+Every React-shaped adapter reads the *same* React context object for frame routing, which means a provider chain even composes across substrates — a Reagent provider wrapping a UIx subtree resolves correctly.
 
-Helix is the same decisions in Helix notation: `defnc` components built with `helix.dom`, the same `use-subscribe` and `use-frame` (this time from `re-frame.adapter.helix`), and the same `($ helix-adapter/frame-provider {:frame ...} ...)` mount — here over `react-dom/client`'s `createRoot`. If you want to see it side by side, compare [`examples/substrates/helix/counter/`](../../../examples/substrates/helix/counter) line-for-line with [`examples/substrates/uix/counter/`](../../../examples/substrates/uix/counter); the diff is notation, nothing more.
-
-All three React-shaped adapters read the *same* React context object for frame routing, which means a provider chain even composes across substrates — a Reagent provider wrapping a UIx subtree resolves correctly.
-
-??? info "For JavaScript developers"
-
-    UIx and Helix differ from each other the way they would in any React-CLJS project, not in any re-frame2-specific way. UIx ships a richer, more instrumented hook layer; Helix is the deliberately *minimal* React wrapper — a smaller surface, no hook auto-instrumentation. For re-frame2's purposes the view-author-facing trio (`use-subscribe`, `use-frame` dispatch, `frame-provider {:frame …}` mount) is byte-identical between them.
-
-## Step 7 — reagent-slim: kilobytes for capability
+## Step 6 — reagent-slim: kilobytes for capability
 
 Slim isn't a fourth view paradigm — that trips people up, so let's be clear up front. It's plain Reagent with a decade of legacy surface removed, aimed at client-only apps where ship-size is a *measured* problem. Think of it as Reagent on a diet, not a different language. Here's the trade you're making:
 
@@ -265,29 +248,29 @@ There are two different "render to HTML" jobs, and slim treats them differently 
 
 ## What carries over, what doesn't
 
-Once you've seen all four substrates, the whole port collapses to one table. The dataflow rows are identical everywhere; only the view-author surface changes:
+Once you've seen all three substrates, the whole port collapses to one table. The dataflow rows are identical everywhere; only the view-author surface changes:
 
-| Surface | Reagent / slim | UIx | Helix |
-|---|---|---|---|
-| Events, subs, fx, app-db | identical | identical | identical |
-| Read a sub in a view | `@(subscribe [:q])` | `(uix-adapter/use-subscribe [:q])` | `(helix-adapter/use-subscribe [:q])` |
-| Read a sub from an explicit frame | `@(subscribe [:q] {:frame f})` | `(uix-adapter/use-subscribe f [:q])` | `(helix-adapter/use-subscribe f [:q])` |
-| Dispatch from a callback | `dispatch` injected by `reg-view` | `(:dispatch (use-frame))` | `(:dispatch (use-frame))` |
-| View form | `reg-view` + hiccup | `defui` + `$` | `defnc` + `helix.dom` |
-| Registry-keyed view (when needed) | `reg-view` | `(rf/reg-view* id render-fn)` | `(rf/reg-view* id render-fn)` |
-| Scope an existing frame | `[rf/frame-provider {:frame f} [app]]` | `($ uix-adapter/frame-provider {:frame f} ($ app))` | `($ helix-adapter/frame-provider {:frame f} ($ app))` |
-| Ensure a named frame | `[rf/frame-root {:id f :images […]} [app]]` | `($ uix-adapter/frame-root {:id f :images […]} ($ app))` | `($ helix-adapter/frame-root {:id f :images […]} ($ app))` |
-| Flush renders in a test | `r/flush` (stock) / `flush-views!` (slim) | `(uix-adapter/flush-views!)` | `(helix-adapter/flush-views!)` |
+| Surface | Reagent / slim | UIx |
+|---|---|---|
+| Events, subs, fx, app-db | identical | identical |
+| Read a sub in a view | `@(subscribe [:q])` | `(uix-adapter/use-subscribe [:q])` |
+| Read a sub from an explicit frame | `@(subscribe [:q] {:frame f})` | `(uix-adapter/use-subscribe f [:q])` |
+| Dispatch from a callback | `dispatch` injected by `reg-view` | `(:dispatch (use-frame))` |
+| View form | `reg-view` + hiccup | `defui` + `$` |
+| Registry-keyed view (when needed) | `reg-view` | `(rf/reg-view* id render-fn)` |
+| Scope an existing frame | `[rf/frame-provider {:frame f} [app]]` | `($ uix-adapter/frame-provider {:frame f} ($ app))` |
+| Ensure a named frame | `[rf/frame-root {:id f :images […]} [app]]` | `($ uix-adapter/frame-root {:id f :images […]} ($ app))` |
+| Flush renders in a test | `r/flush` (stock) / `flush-views!` (slim) | `(uix-adapter/flush-views!)` |
 
 There's one Reagent footgun that doesn't port at all, and that's good news: the lazy-seq deref trap — the *"Reactive deref not supported in lazy seq, it should be wrapped in doall"* warning. It exists because Reagent tracks derefs *during* render, and a lazy seq can defer a deref until after render has finished. On Reagent the fix is to realise the seq inside the render fn — `(doall (for …))`, `(mapv child @sub)`, or `(into [:<>] (map child) @sub)`.
 
 ??? note "Going deeper: why hooks are immune to the lazy-seq trap"
 
-    Hooks capture their dependency at call time, so UIx and Helix sidestep that whole class of bug by construction — `use-subscribe` registers the dependency at hook-call time regardless of when any surrounding seq realises. Reagent's reactivity, by contrast, is *render-tracked*: it records every deref that happens during the render pass, so a deref deferred into an unrealised lazy seq escapes the tracking window. The hook model trades render-tracking for an explicit dependency edge, and that edge doesn't care about evaluation order. One fewer thing to teach a new hire.
+    Hooks capture their dependency at call time, so UIx sidesteps that whole class of bug by construction — `use-subscribe` registers the dependency at hook-call time regardless of when any surrounding seq realises. Reagent's reactivity, by contrast, is *render-tracked*: it records every deref that happens during the render pass, so a deref deferred into an unrealised lazy seq escapes the tracking window. The hook model trades render-tracking for an explicit dependency edge, and that edge doesn't care about evaluation order. One fewer thing to teach a new hire.
 
 !!! note "Flushing renders in tests"
 
-    When a test dispatches against a UIx- or Helix-mounted tree and then wants to read the resulting DOM, the React `useSyncExternalStore` updates haven't settled yet. Call `(uix-adapter/flush-views!)` (or `(helix-adapter/flush-views!)`) after the dispatch — it wraps React's `act()` and settles pending effects. This is a *test* helper, per-adapter-require (you reach for it from test code, not app code). It's distinct from the production-grade `flush-render!` contract function the adapter implements for headless tooling; you won't call that one directly.
+    When a test dispatches against a UIx-mounted tree and then wants to read the resulting DOM, the React `useSyncExternalStore` updates haven't settled yet. Call `(uix-adapter/flush-views!)` after the dispatch — it wraps React's `act()` and settles pending effects. This is a *test* helper, per-adapter-require (you reach for it from test code, not app code). It's distinct from the production-grade `flush-render!` contract function the adapter implements for headless tooling; you won't call that one directly.
 
 !!! note "Why this matters"
 
@@ -295,6 +278,6 @@ There's one Reagent footgun that doesn't port at all, and that's good news: the 
 
 ## Which substrate, and what ships for it
 
-Reagent is the canonical substrate. It has the full example set, and it's this guide's notation throughout, so it's the path of least resistance unless you have a reason to leave it. Reach for UIx or Helix when your team or host codebase is *already* React-function-component native — that's the case where their notation feels like home rather than a detour, and where the impedance match with the surrounding React code pays for itself. Each carries a curated example set rather than a full mirror: counter + login (the cross-substrate parity pair) plus one design-led app. For UIx that's an analytics dashboard ([`examples/substrates/uix/dashboard/`](../../../examples/substrates/uix/dashboard)); for Helix a process monitor ([`examples/substrates/helix/process_monitor/`](../../../examples/substrates/helix/process_monitor)). And slim is just stock Reagent minus kilobytes — reach for it once you've measured that those kilobytes actually matter, not before.
+Reagent is the canonical substrate. It has the full example set, and it's this guide's notation throughout, so it's the path of least resistance unless you have a reason to leave it. Reach for UIx when your team or host codebase is *already* React-function-component native — that's the case where its notation feels like home rather than a detour, and where the impedance match with the surrounding React code pays for itself. It carries a curated example set rather than a full mirror: counter + login (the cross-substrate parity pair) plus one design-led app, an analytics dashboard ([`examples/substrates/uix/dashboard/`](../../../examples/substrates/uix/dashboard)). And slim is just stock Reagent minus kilobytes — reach for it once you've measured that those kilobytes actually matter, not before.
 
-The decision, then, collapses to one question with a default: stay on Reagent unless your host code is React-hooks-native (then UIx or Helix) or your bundle is provably too big and you'll never hydrate-able-server-render (then slim). Whichever you land on, the line that encodes it is the argument to `init!` — and everything above that boundary is the app you already wrote.
+The decision, then, collapses to one question with a default: stay on Reagent unless your host code is React-hooks-native (then UIx) or your bundle is provably too big and you'll never hydrate-able-server-render (then slim). Whichever you land on, the line that encodes it is the argument to `init!` — and everything above that boundary is the app you already wrote.

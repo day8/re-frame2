@@ -33,8 +33,8 @@ tools per the Storybook MCP Dev / Docs / Testing toolset split. See
 
 ### §inline-substrate-failures — render inline
 
-**Decision.** A variant may declare `:substrates #{:reagent :uix
-:helix}` (subset, default = the host frame's adapter); when Story
+**Decision.** A variant may declare `:substrates #{:reagent :uix}`
+(subset, default = the host frame's adapter); when Story
 renders the variant against multiple substrates the failure for each
 is rendered **inline** with the variant pane — not auto-skipped.
 `:reagent-slim` is reserved for addition at reagent-slim GA / first

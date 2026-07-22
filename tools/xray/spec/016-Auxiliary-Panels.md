@@ -101,7 +101,7 @@ deletion PR.
 All tab content shares the cross-panel substrate:
 
 - **Pure hiccup** per [rf2-tijr](../../../spec/Conventions.md) — no
-  Reagent / UIx / Helix references in the view. Frame isolation comes
+  Reagent / UIx references in the view. Frame isolation comes
   from the enclosing `[rf/frame-provider {:frame :rf/xray}]` in
   `shell.cljs`. Every `subscribe` / `dispatch` resolves to `:rf/xray`.
 - **Read-only by default** per [`Principles.md`](./Principles.md). The

@@ -98,8 +98,8 @@ of the v1 `process-event*` drain:
 **Substrate-agnostic boundary.** None of these xforms call into the rendering substrate. The
 transducer produces a step-result; the **reducing function** decides whether to write
 `:db-after` into the substrate container, whether to flush `:effects`, and when to schedule the
-next event. This is what makes the transducer reusable across all three substrates (Reagent /
-UIx / Helix), under JVM (no substrate), and inside a tool-pair replay (rewrites the reducing
+next event. This is what makes the transducer reusable across the view substrates (Reagent /
+UIx), under JVM (no substrate), and inside a tool-pair replay (rewrites the reducing
 function to capture a trace instead of committing).
 
 ### 2.2 Reducing-function presets

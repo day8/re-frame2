@@ -8,7 +8,7 @@ Greppable signals inside `.cljs` / `.cljc` files containing views:
 
 - `(reagent/atom ...)` or `(r/atom ...)` declared **inside** a view function or at the top of a view namespace, and the resulting atom is **named & exported**, or referenced from a sibling view.
 - `(let [!state (reagent/atom ...)] ...)` inside a view body whose value is then derefed in a sibling component imported elsewhere.
-- React hooks (`uix.core/use-state`, `helix.hooks/use-state`, `(.useState js/React ...)`) holding values like `:current-filter`, `:selected-id`, `:modal-open?`, `:form-data` — concerns the rest of the application would want to query or dispatch about.
+- React hooks (`uix.core/use-state`, `(.useState js/React ...)`) holding values like `:current-filter`, `:selected-id`, `:modal-open?`, `:form-data` — concerns the rest of the application would want to query or dispatch about.
 - Event handlers (in `events.cljs`) reaching into a view-owned atom — e.g. `(deref view-ns/!current-tab)` from inside a `reg-event` handler.
 
 Structural signal: the state lives outside `app-db` *but* is consumed by anything other than the very component that declared it.

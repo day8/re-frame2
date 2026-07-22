@@ -59,10 +59,10 @@ v2 tool inherits that lineage. The technology underneath shifts:
 - **re-frame → re-frame2.** The generated app's deps target the
   alpha re-frame2 coords. The shape of the generated counter
   mirrors v2's reference examples, not v1's.
-- **One substrate → three substrates.** v1 was Reagent only. v2's
-  template ships Reagent (canonical default), UIx, and Helix
-  variants. The substrate selector is a top-level k/v argument
-  (`:substrate :uix`); see
+- **One substrate → a substrate menu.** v1 was Reagent only. v2's
+  template ships Reagent (canonical default) and UIx variants, plus
+  the EXPERIMENTAL `:ui` compiled-view variant. The substrate
+  selector is a top-level k/v argument (`:substrate :uix`); see
   [001-Substrate-Variants.md](001-Substrate-Variants.md).
 
 A v1 user who knew `lein new re-frame my-app` reads the v2 invocation

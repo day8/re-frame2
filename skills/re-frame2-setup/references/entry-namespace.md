@@ -1,6 +1,6 @@
 # Entry namespace
 
-The **boot lifecycle** of `your-app/core.cljs` — the entry namespace shadow-cljs's `:init-fn` points at, where re-frame2 wires up to the substrate (Reagent) and to the DOM. The **sole copy-complete `core.cljs`** you write lives in [`first-counter.md` §The whole file](first-counter.md); this leaf explains the boot ceremony that file performs (and the substrate deltas for a UIx / Helix greenfield) so you understand each line rather than pasting it blind.
+The **boot lifecycle** of `your-app/core.cljs` — the entry namespace shadow-cljs's `:init-fn` points at, where re-frame2 wires up to the substrate (Reagent) and to the DOM. The **sole copy-complete `core.cljs`** you write lives in [`first-counter.md` §The whole file](first-counter.md); this leaf explains the boot ceremony that file performs (and the substrate deltas for a UIx greenfield) so you understand each line rather than pasting it blind.
 
 ## Contents
 
@@ -9,7 +9,7 @@ The **boot lifecycle** of `your-app/core.cljs` — the entry namespace shadow-cl
 - Why `rf/init!` exists (and why it's explicit)
 - The Reagent root pattern (`defonce` + `rdc/create-root`)
 - Where everything else goes
-- UIx / Helix greenfield
+- UIx greenfield
 - Differences from re-frame v1
 
 ---
@@ -40,11 +40,11 @@ If you render *without* `frame-root` (or a `frame-provider` around an existing f
 
 ## Why `rf/init!` exists (and why it's explicit)
 
-re-frame2 splits **the registry** (the process-wide handler / sub / fx map your `reg-*` forms write to) from **the substrate** (Reagent / UIx / Helix / plain atom), supplied at boot via an *adapter map*. `rf/init!` is when that adapter map + the runtime capabilities are **installed**, before any frame exists. (A single-frame app never spells an *image* — that layering is the `re-frame2` skill's territory; here the ordinary `reg-*` path writes the default registrations and your one frame resolves them.)
+re-frame2 splits **the registry** (the process-wide handler / sub / fx map your `reg-*` forms write to) from **the substrate** (Reagent / UIx / plain atom), supplied at boot via an *adapter map*. `rf/init!` is when that adapter map + the runtime capabilities are **installed**, before any frame exists. (A single-frame app never spells an *image* — that layering is the `re-frame2` skill's territory; here the ordinary `reg-*` path writes the default registrations and your one frame resolves them.)
 
 Three consequences:
 
-- **Adapters are values, not magic.** `re-frame.adapter.reagent/adapter` is a regular CLJS var holding a map. `rf/init!` takes that value directly — no global registration, no name-based lookup. Swap it for `re-frame.adapter.uix/adapter` or `re-frame.adapter.helix/adapter` and you have a UIx / Helix app.
+- **Adapters are values, not magic.** `re-frame.adapter.reagent/adapter` is a regular CLJS var holding a map. `rf/init!` takes that value directly — no global registration, no name-based lookup. Swap it for `re-frame.adapter.uix/adapter` and you have a UIx app.
 - **`rf/init!` is idempotent — safe to call more than once.** `init` re-runs on **every** hot reload, so `rf/init!` runs again each save; that is safe — a second `init!` re-installs the substrate config only when none is seated, and creates no frame. Leave it unguarded in `init` (don't wrap it in a `defonce`); the idempotence is what makes the per-reload re-run harmless. (`frame-root` re-mounting against the same `:id` likewise reuses the live frame — no re-seed, no state loss.)
 - **No implicit boot.** No default adapter — multi-substrate support and the per-frame substrate-config model (Spec 006) mean the runtime must know *which* adapter you want before any subscription resolves, so you supply it at boot via the explicit `init!`.
 
@@ -82,28 +82,24 @@ then `(:require [your-app.events] [your-app.subs] [your-app.views :as views])` i
 
 When you split this way, the `reg-view` forms move to `views.cljs`, so split `core.cljs` requires neither `[re-frame.views]` nor the `reg-view` macro (only the side-effecting `[your-app.views :as views]`). The generator template's `views.cljs` requires just `[re-frame.core :as rf]` and calls `rf/reg-view` **fully qualified** — that is the template's literal shape; this skill's `:refer [reg-view]` skeleton (above) is an equivalent alternative. The single-file counter in `first-counter.md` keeps the view requires in `core.cljs` because the views live there.
 
-## UIx / Helix greenfield
+## UIx greenfield
 
-This skill scaffolds against **Reagent** (the default reference substrate). For a UIx or Helix greenfield the **dataflow is unchanged** — the events, subscription, and schema are the substrate-neutral trio in [`shared-dataflow.md`](shared-dataflow.md), copied **verbatim**. Only three layers are substrate-specific: `deps.edn`, the entry-ns root API, and the views. The **complete** emitted project is those three shared files (`events.cljs` + `subs.cljs` + `schema.cljs`) plus the substrate `core.cljs` + `views.cljs` below — nothing from the Reagent-only `first-counter.md`:
+This skill scaffolds against **Reagent** (the default reference substrate). For a UIx greenfield the **dataflow is unchanged** — the events, subscription, and schema are the substrate-neutral trio in [`shared-dataflow.md`](shared-dataflow.md), copied **verbatim**. Only three layers are substrate-specific: `deps.edn`, the entry-ns root API, and the views. The **complete** emitted project is those three shared files (`events.cljs` + `subs.cljs` + `schema.cljs`) plus the substrate `core.cljs` + `views.cljs` below — nothing from the Reagent-only `first-counter.md`:
 
-- **deps.edn** — swap `day8/re-frame2-reagent` for `day8/re-frame2-uix` (or `-helix`), drop the `reagent/reagent` pin, and add the substrate's Maven deps **at the exact versions the generator template pins** (the template is the source of truth — do not chase latest or invent a version, same discipline as the Reagent/React/shadow pins in [`deps-versions.md`](deps-versions.md)). Verified against the template's `_uix/deps.edn` / `_helix/deps.edn`:
+- **deps.edn** — swap `day8/re-frame2-reagent` for `day8/re-frame2-uix`, drop the `reagent/reagent` pin, and add the substrate's Maven deps **at the exact versions the generator template pins** (the template is the source of truth — do not chase latest or invent a version, same discipline as the Reagent/React/shadow pins in [`deps-versions.md`](deps-versions.md)). Verified against the template's `_uix/deps.edn`:
 
-  > **Pre-publish coordinate shape.** The `day8/re-frame2-uix` / `-helix` **framework** coords below show `:mvn/version "<VERSION>"` (the post-publish shape); pre-publish they take the `:git/sha` / `:local/root` form like the Reagent day-one set — see [`deps-versions.md` §Choosing the coordinate](deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape). The `com.pitch/uix.*` / `lilactown/helix` substrate deps are on Clojars and keep `:mvn/version`.
+  > **Pre-publish coordinate shape.** The `day8/re-frame2-uix` **framework** coord below shows `:mvn/version "<VERSION>"` (the post-publish shape); pre-publish it takes the `:git/sha` / `:local/root` form like the Reagent day-one set — see [`deps-versions.md` §Choosing the coordinate](deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape). The `com.pitch/uix.*` substrate deps are on Clojars and keep `:mvn/version`.
 
   ```clojure
   ;; UIx — replace the reagent line with (framework coord post-publish shape; pre-publish use :git/sha):
   day8/re-frame2-uix {:mvn/version "<VERSION>"}
   com.pitch/uix.core {:mvn/version "1.4.4"}
   com.pitch/uix.dom  {:mvn/version "1.4.4"}
-
-  ;; Helix — replace the reagent line with (framework coord post-publish shape; pre-publish use :git/sha):
-  day8/re-frame2-helix {:mvn/version "<VERSION>"}
-  lilactown/helix      {:mvn/version "0.2.2"}
   ```
 
   > **Heads-up on the UIx version target.** `spec/006-ReactiveSubstrate.md` names **UIx 2.x** (hooks-based) as the design target, but the generator template pins **`com.pitch/uix` `1.4.4`** — the **known-good, tested** set. Use the template pin; treat UIx 2.x as an unverified manual override to test before relying on it. (Pins read off the template's `_uix/deps.edn`; re-check if either bumps.)
-- **shared dataflow** — first lay down the substrate-neutral `events.cljs` + `subs.cljs` + `schema.cljs` from [`shared-dataflow.md`](shared-dataflow.md), copied **verbatim** into `src/your_app/`. They carry the `:counter/initialise` / `:counter/increment` events, the `:counter/value` sub, and the `CounterDb` schema + `register-schema!` — identical for UIx and Helix (and to the events / sub / schema the Reagent `first-counter.md` inlines). Do **not** copy them out of the Reagent file, and do **not** re-derive them per substrate.
-- **entry ns** — `:require` the shared `your-app.events`, `your-app.subs`, and `your-app.schema` (so their registrations load), require `[re-frame.adapter.uix :as uix-adapter]` (or `re-frame.adapter.helix`), pass `uix-adapter/adapter` to `rf/init!`, call `(schema/register-schema!)` (it names `:rf/default` explicitly, so it runs before the frame exists — the generator's boot order), and mount with the substrate's own root API — **wrapping the tree in the adapter's `frame-root` `{:id … :initial-events …}` ENSURE shape** (a `$`-element native component that creates the frame at mount and reuses it without re-seeding on later mounts). For UIx that's `uix.dom/create-root` + `uix.dom/render-root`, view wrapped in `$` from `uix.core`:
+- **shared dataflow** — first lay down the substrate-neutral `events.cljs` + `subs.cljs` + `schema.cljs` from [`shared-dataflow.md`](shared-dataflow.md), copied **verbatim** into `src/your_app/`. They carry the `:counter/initialise` / `:counter/increment` events, the `:counter/value` sub, and the `CounterDb` schema + `register-schema!` — identical to the events / sub / schema the Reagent `first-counter.md` inlines. Do **not** copy them out of the Reagent file, and do **not** re-derive them per substrate.
+- **entry ns** — `:require` the shared `your-app.events`, `your-app.subs`, and `your-app.schema` (so their registrations load), require `[re-frame.adapter.uix :as uix-adapter]`, pass `uix-adapter/adapter` to `rf/init!`, call `(schema/register-schema!)` (it names `:rf/default` explicitly, so it runs before the frame exists — the generator's boot order), and mount with the substrate's own root API — **wrapping the tree in the adapter's `frame-root` `{:id … :initial-events …}` ENSURE shape** (a `$`-element native component that creates the frame at mount and reuses it without re-seeding on later mounts). For UIx that's `uix.dom/create-root` + `uix.dom/render-root`, view wrapped in `$` from `uix.core`:
   ```clojure
   (ns your-app.core
     (:require [uix.core             :refer [$]]
@@ -126,30 +122,8 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
         ($ views/counter-app))
       react-root))
   ```
-  Helix is the same boot with its own root API — `react-dom/client`'s `createRoot` + `.render`, `$` from `helix.core`:
-  ```clojure
-  (ns your-app.core
-    (:require ["react-dom/client"      :as react-dom-client]
-              [helix.core             :refer [$]]
-              [re-frame.core          :as rf]
-              [re-frame.adapter.helix :as helix-adapter]
-              [your-app.events]              ;; reg-event registrations (shared-dataflow.md)
-              [your-app.subs]                ;; reg-sub registration   (shared-dataflow.md)
-              [your-app.schema :as schema]   ;; CounterDb + register-schema! (shared-dataflow.md)
-              [your-app.views  :as views]))
-
-  (defonce react-root (react-dom-client/createRoot (js/document.getElementById "app")))
-
-  (defn ^:export init []
-    (rf/init! helix-adapter/adapter)
-    (schema/register-schema!)   ;; names :rf/default explicitly — attach before the frame exists
-    (.render react-root
-      ($ helix-adapter/frame-root {:id             :rf/default
-                                   :initial-events [[:counter/initialise]]}
-        ($ views/counter-app))))
-  ```
-  Every adapter's `frame-root` ensures + provides the app frame for its subtree; rendering without it raises `:rf.error/no-frame-context` on the first subscribe. Both entry namespaces match the generator template's `_uix/core.cljs` / `_helix/core.cljs`.
-- **views** — the substitution `first-counter.md` does **not** cover. Reagent's `reg-view` auto-injects `dispatch`/`subscribe`; UIx and Helix have **no auto-injection** — components read subs through the adapter's `use-subscribe` hook and get `dispatch` off the adapter's `use-frame` hook (capture-frame in hook position), destructured once per render (the closed-over `dispatch` still targets that frame from an async callback). UIx uses `defui` + `$`; Helix uses `defnc` + `helix.dom`. Copy the matching `views.cljs` below verbatim (identical to the template's `_uix/views.cljs` / `_helix/views.cljs`, reproduced here so the recipe is self-contained):
+  The adapter's `frame-root` ensures + provides the app frame for its subtree; rendering without it raises `:rf.error/no-frame-context` on the first subscribe. The entry namespace matches the generator template's `_uix/core.cljs`.
+- **views** — the substitution `first-counter.md` does **not** cover. Reagent's `reg-view` auto-injects `dispatch`/`subscribe`; UIx has **no auto-injection** — components read subs through the adapter's `use-subscribe` hook and get `dispatch` off the adapter's `use-frame` hook (capture-frame in hook position), destructured once per render (the closed-over `dispatch` still targets that frame from an async callback). UIx uses `defui` + `$`. Copy the `views.cljs` below verbatim (identical to the template's `_uix/views.cljs`, reproduced here so the recipe is self-contained):
 
   ```clojure
   ;; UIx — src/your_app/views.cljs
@@ -170,28 +144,9 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
        ($ counter-buttons)))
   ```
 
-  ```clojure
-  ;; Helix — src/your_app/views.cljs
-  (ns your-app.views
-    (:require [helix.core             :refer [$ defnc]]
-              [helix.dom              :as d]
-              [re-frame.adapter.helix :as helix-adapter]))
+- everything the two substrates share is **single-sourced**: the events, subscription, and schema live once in [`shared-dataflow.md`](shared-dataflow.md), and the `frame-root` `:initial-events` seed + `:init-fn ...core/init` boot are the same. **Only the view layer differs** — do not reach for the Reagent `reg-view` first-counter leaf on a UIx app; use the substrate views above (or take the complete generator route below).
 
-  (defnc counter-buttons []
-    (let [value              (helix-adapter/use-subscribe [:counter/value])
-          {:keys [dispatch]} (helix-adapter/use-frame)]
-      (d/div
-        (d/button {:on-click #(dispatch [:counter/increment])} "+1")
-        (d/span {:style {:margin "0 1em"}} value))))
-
-  (defnc counter-app []
-    (d/div
-      (d/h1 "your-app")
-      ($ counter-buttons)))
-  ```
-- everything the two substrates share is **single-sourced**: the events, subscription, and schema live once in [`shared-dataflow.md`](shared-dataflow.md), and the `frame-root` `:initial-events` seed + `:init-fn ...core/init` boot are the same. **Only the view layer differs** — do not reach for the Reagent `reg-view` first-counter leaf on a UIx/Helix app; use the substrate views above (or take the complete generator route below).
-
-The fastest path for a non-Reagent greenfield is the **generator template**, which ships complete `_uix/` and `_helix/` variants. This is a **user-run** route — the **author** invokes `clojure -Tnew create … :substrate :uix` (or `:helix`) in their own shell; **this skill does not run `clojure -Tnew`** (its `allowed-tools` cover only the manual scaffold). Pre-publish caveat + the working `:local/root` dev route: [`SKILL.md` cardinal rule 5](../SKILL.md) and [the generator-template section](../README.md#relationship-to-the-generator-template).
+The fastest path for a non-Reagent greenfield is the **generator template**, which ships a complete `_uix/` variant. This is a **user-run** route — the **author** invokes `clojure -Tnew create … :substrate :uix` in their own shell; **this skill does not run `clojure -Tnew`** (its `allowed-tools` cover only the manual scaffold). Pre-publish caveat + the working `:local/root` dev route: [`SKILL.md` cardinal rule 5](../SKILL.md) and [the generator-template section](../README.md#relationship-to-the-generator-template).
 
 ## Differences from re-frame v1
 

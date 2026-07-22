@@ -90,7 +90,7 @@ Second, the settle uses `ts/poll-until`, not a straight walk. The invoked `:on-c
 Three neighbouring tools pick up where the tree walk stops:
 
 - **Rendered markup** — when the assertion is about the HTML *string* a view produces (attribute serialisation, SSR output), `render-to-string` is the complementary path; see [`re-frame.ssr`](../../api/re-frame.ssr.md).
-- **A real DOM** — when you genuinely need React mounted (a ref, a portal, an imperative child), use your adapter and settle updates with its `flush-views!` test helper; [Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md#what-carries-over-what-doesnt) covers the shape. This is the rare case, not the default.
+- **A real DOM** — when you genuinely need React mounted (a ref, a portal, an imperative child), use your adapter and settle updates with its `flush-views!` test helper; [Use UIx or reagent-slim](../how-to/use-uix-or-slim.md#what-carries-over-what-doesnt) covers the shape. This is the rare case, not the default.
 - **A view's *states*** — "show this view empty, loading, error, and loaded" is not a tree-walk job; it's [Story](../observability.md#the-tools-four-presentations-zero-second-truths)'s whole purpose: named variants in isolated frames, promotable into tests.
 
 ## When not to test a view

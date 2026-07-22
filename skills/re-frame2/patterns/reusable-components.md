@@ -84,7 +84,7 @@ When a widget is distributed as a *library* across host apps, the slice path may
 
 ## Substrate-agnostic
 
-The idiom ports across adapters with **zero changes to the view body**. The view is an ordinary function of its args; Reagent splices `[customer-card 42]`; UIx / Helix read the parameterised sub through the adapter's `use-subscribe` hook with the id as the first prop. Only the surrounding component wrapper differs by adapter.
+The idiom ports across adapters with **zero changes to the view body**. The view is an ordinary function of its args; Reagent splices `[customer-card 42]`; UIx reads the parameterised sub through the adapter's `use-subscribe` hook with the id as the first prop. Only the surrounding component wrapper differs by adapter.
 
 ## Anti-patterns
 

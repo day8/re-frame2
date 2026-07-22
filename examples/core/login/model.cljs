@@ -39,11 +39,11 @@
    `auth.login` registration — the schemas, the demo fx, the `:auth.login/flow`
    machine, the form-slice events, and the named subs — plus the initial form
    slice and the shared frame config. It names NO substrate: no view library, no
-   adapter. The three login examples — Reagent (`login.core`), UIx
-   (`uix.login.core`), and Helix (`helix.login.core`) — each `:require` this
-   namespace for its side-effecting registrations and its `frame-config` /
-   schema Vars, and add ONLY their own substrate-specific views, root, adapter
-   init, and visible provider mount. One model, three view layers.
+   adapter. The two login examples — Reagent (`login.core`) and UIx
+   (`uix.login.core`) — each `:require` this namespace for its side-effecting
+   registrations and its `frame-config` / schema Vars, and add ONLY their own
+   substrate-specific views, root, adapter init, and visible provider mount.
+   One model, two view layers.
 
    Why one owner and not three copies? Because the logic of a login flow doesn't
    care which view library draws it, so duplicating it three times is 38

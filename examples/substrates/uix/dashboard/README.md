@@ -77,7 +77,7 @@ every sparkline for free. There's nothing extra to wire.
 
 ## Why this shape
 
-This is the UIx member of a design-led trio. Each member is a different,
+This is the UIx member of a design-led pair. Each member is a different,
 substantial UI built on a different
 [substrate](../../../../docs/core/glossary.md#substrate). Together they
 make one point: the substrate is a swappable back end, not the
@@ -87,9 +87,8 @@ framework.
 |---|---|---|
 | Reagent | [`notebook`](../../../core/notebook/) | Three-pane editor |
 | UIx | `dashboard` (this) | Cards + sparklines |
-| Helix | [`process_monitor`](../../helix/process_monitor/) | Terminal log viewer |
 
-Three different apps, one per substrate — yet they all wear the same
+Two different apps, one per substrate — yet they both wear the same
 "Editorial Warm" identity from
 [`examples/_shared/css/style.css`](../../../_shared/css/style.css). So what
 looks *different* is the layout and the interaction, never the brand. A
@@ -163,4 +162,4 @@ UIx app should copy:
 
 ## Cross-references
 
-- [`examples/core/notebook/`](../../../core/notebook/) + [`examples/substrates/helix/process_monitor/`](../../helix/process_monitor/) — the other two design-led trio members.
+- [`examples/core/notebook/`](../../../core/notebook/) — the other design-led pair member.

@@ -60,8 +60,7 @@ github.com/day8/re-frame2-template/        ; external repo (NEW)
 │   ├── root/                              ; bulk-copied content (README, lefthook, dev/, resources/public/)
 │   ├── _shared/                           ; substrate-agnostic content (dotfiles, src/test sources, build configs shadow-cljs.edn + package.json)
 │   ├── _reagent/                          ; Reagent-specific (core.cljs / views.cljs / deps.edn)
-│   ├── _uix/                              ; UIx-specific (core.cljs / views.cljs / deps.edn)
-│   └── _helix/                            ; Helix-specific (core.cljs / views.cljs / deps.edn)
+│   └── _uix/                              ; UIx-specific (core.cljs / views.cljs / deps.edn)
 ├── spec/                                  ; the spec/ tree (000-Vision, 001-Substrate-Variants, ...)
 ├── test/day8/re_frame2_template/            ; monorepo-coupled — needs §3.2.1 framework-root setup to run standalone
 │   ├── template_test.clj
@@ -258,7 +257,7 @@ root, which the external repo no longer has):
   tree, which does not exist in the standalone template repo.
 - `version_lockstep_test.clj` reads `implementation/package.json`
   (react / shadow-cljs pins) and `implementation/core/deps.edn` +
-  `implementation/adapters/{uix,helix}/deps.edn` (substrate pins) to
+  `implementation/adapters/uix/deps.edn` (substrate pins) to
   assert the template's literal version pins ride lockstep with the
   framework.
 - `template_emission_test.clj` resolves emitted re-frame symbols

@@ -27,7 +27,7 @@ see [Xray's Machine Inspector spec](../../xray/spec/003-Machine-Inspector.md).
 - `MachineChart`: xyflow + elkjs rendering for flat, compound, and parallel
   machines, with event nodes, active/focused/fired treatments, context,
   overlays, and density/theme controls.
-- React, UIx, and Helix adapter shells over the same Reagent chart.
+- React and UIx adapter shells over the same Reagent chart.
 - Read-only `#machine=` viewer and versioned Transit share URLs.
 - PNG, SVG, Mermaid, and share-URL export and clipboard helpers.
 - Pure Mermaid `stateDiagram-v2` generation.

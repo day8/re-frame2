@@ -123,8 +123,14 @@ the first cut.
   adding a substrate has a low maintenance tax.
 
 Reagent remains the default — it's the canonical substrate every
-re-frame example targets first. UIx and Helix are equal citizens,
-not afterthoughts.
+re-frame example targets first. UIx is an equal citizen, not an
+afterthought.
+
+> **Amended at S7/W13 (rf2-d6epb, 2026-07-22).** The Helix adapter was
+> removed framework-wide, and the template's `:helix` variant went with
+> it. The menu is now `:reagent` (default), `:uix`, and the
+> EXPERIMENTAL `:ui` compiled-view variant (2026-07-19 template-menu
+> ruling); the decision record above is kept as history.
 
 ## §3 — Counter as the canonical example
 
@@ -157,7 +163,7 @@ trees are for studying complete patterns.
 **Decision.** The template does **not** pre-wire
 [`tools/story/`](../../story/) on the default path. The
 `:include-story?` flag is the opt-in on-ramp — Reagent-only in
-v1; UIx + Helix variants follow once their adapter coverage
+v1; a UIx variant follows once that adapter's coverage
 matches Reagent's.
 
 **Why default-off.**
@@ -182,9 +188,9 @@ matches Reagent's.
   `day8/re-frame2-story` coord. One flag collapses that into a
   scaffolded baseline they can edit.
 - **Reagent first.** v1 ships Reagent only — matching Story's own
-  UI-shell substrate and the exemplar's substrate. UIx + Helix
-  variants land when Story's substrate-agnostic seams (spec/007
-  §Substrate constraints) cover them end-to-end.
+  UI-shell substrate and the exemplar's substrate. A UIx
+  variant lands when Story's substrate-agnostic seams (spec/007
+  §Substrate constraints) cover it end-to-end.
 
 **Invocation.**
 
@@ -252,8 +258,7 @@ resources/day8/re_frame2_template/
 ├── root/                       ; bulk-copied, no rename
 ├── _shared/                    ; substrate-agnostic; rename + emit only on select
 ├── _reagent/                   ; substrate-specific
-├── _uix/                       ; substrate-specific
-└── _helix/                     ; substrate-specific
+└── _uix/                       ; substrate-specific
 ```
 
 Not a flat layout with substrate-prefixed filenames, not a
@@ -274,7 +279,7 @@ per-variant top-level tree (no shared tree at all).
   under the per-substrate dirs.
 - **Adding a substrate is "drop a sub-tree."** Future substrates
   (reagent-slim, SSR variants) plug in by adding a sibling of
-  `_reagent/`, `_uix/`, `_helix/`. Nothing in `_shared/` needs to
+  `_reagent/` and `_uix/`. Nothing in `_shared/` needs to
   change.
 - **The `root/` vs underscore-prefix split mirrors deps-new's
   contract.** `root/` is bulk-copied with default placement (no
@@ -343,7 +348,7 @@ already rules out.
   is now: pass a keyword, get a result; pass anything else, get a
   clear error.
 - **Strict on the value set is unchanged.** Any keyword outside
-  `#{:reagent :uix :helix}` throws with a clear message naming the
+  `#{:reagent :uix :ui}` throws with a clear message naming the
   valid set. The user sees the typo and fixes it.
 
 **Why not keep the forgiving posture.** The inverse — strict on

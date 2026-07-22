@@ -1,17 +1,16 @@
 (ns uix.login.core
-  "A login flow, rendered through UIx. The same feature lives on Reagent and
-   Helix too, and that's exactly the point of this file: watch how little has
-   to change to move between them.
+  "A login flow, rendered through UIx. The same feature lives on Reagent too,
+   and that's exactly the point of this file: watch how little has to change
+   to move between them.
 
    Everything below the views — the state machine, the schemas, the form-slice
    events and subs, the managed-HTTP effect — lives in the substrate-free
    [`login.model`](../../../core/login/model.cljs) namespace, the ONE owner of
    the `auth.login` dataflow. This file `:require`s it (registering everything at
-   ns-load) and adds only the UIx view layer + mount. The Reagent
-   (`login.core`) and Helix (`helix.login.core`) twins import the identical
-   model. Same data, three doorways: here a view is a UIx `defui` that reads
-   subscriptions through the `use-subscribe` hook; the Reagent twin reaches for
-   `reg-view`.
+   ns-load) and adds only the UIx view layer + mount. The Reagent twin
+   (`login.core`) imports the identical model. Same data, two doorways: here a
+   view is a UIx `defui` that reads subscriptions through the `use-subscribe`
+   hook; the Reagent twin reaches for `reg-view`.
 
    The machine tags a few of its states — `:auth/busy`, `:auth/authenticated`,
    `:auth/locked` — and views ask about them through the `:rf.machine/has-tag?`
@@ -20,7 +19,7 @@
 
    For the boundary mechanics — `use-subscribe`, `use-frame`,
    `frame-root` / `frame-provider`, and what stays put across React wrappers — see
-   docs/core/how-to/use-uix-helix-or-slim.md."
+   docs/core/how-to/use-uix-or-slim.md."
   (:require [uix.core :as uix :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core :as rf]
@@ -42,7 +41,7 @@
 ;; simply handed `dispatch`/`subscribe` — the same hold primitive in its other
 ;; spelling. The subscription vectors and event vectors don't change one
 ;; character between them; all that differs is how a React component reaches
-;; the wires. See docs/core/how-to/use-uix-helix-or-slim.md.
+;; the wires. See docs/core/how-to/use-uix-or-slim.md.
 ;;
 ;; The inputs are controlled: each `:value` reads the draft from
 ;; `:auth.login/draft`, and `:on-change` dispatches an edit event
@@ -135,7 +134,7 @@
     ;; the tree.
     ;;
     ;; `model/frame-config` is the substrate-free half, shared with the Reagent
-    ;; and Helix mounts; we add the `:id` / `:doc` for this frame. The machine
+    ;; mount; we add the `:id` / `:doc` for this frame. The machine
     ;; asks for nothing here: its `:initial` and `:data` seed the snapshot in
     ;; runtime-db the first time the flow runs
     ;; (see docs/machines/glossary.md#snapshot).

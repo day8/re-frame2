@@ -18,7 +18,7 @@ chose it.
 | Day-to-day app API | [`re-frame.core`](re-frame.core.md) (the facade) |
 | Compiled views (`defview`, `mount`, `sub`) | [`re-frame.ui`](re-frame.ui.md) |
 | Optional capabilities | machines, routing, resources, flows, schemas, HTTP, SSR |
-| Substrate adapters | `re-frame.adapter.{reagent,uix,helix}` — or `re-frame.ui/adapter` |
+| Substrate adapters | `re-frame.adapter.{reagent,uix}` — or `re-frame.ui/adapter` |
 | Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md), [`re-frame.ui.test`](re-frame.ui.test.md) (compiled-view substrate) |
 | Production timing | [`re-frame.performance`](re-frame.performance.md) |
 
@@ -72,7 +72,6 @@ red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 |---|---|
 | [re-frame.adapter.reagent](re-frame.adapter.reagent.md) | Stock / slim Reagent substrate |
 | [re-frame.adapter.uix](re-frame.adapter.uix.md) | UIx substrate |
-| [re-frame.adapter.helix](re-frame.adapter.helix.md) | Helix substrate |
 | [re-frame.test-support](re-frame.test-support.md) | Fixtures, registrar snapshot, poll, sequester |
 | [re-frame.test-helpers](re-frame.test-helpers.md) | Hiccup walkers, testids |
 | [re-frame.ui.test](re-frame.ui.test.md) | Compiled-view test surface: headless render + find/attrs/text, mounted DOM |

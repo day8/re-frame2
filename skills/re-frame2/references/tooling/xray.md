@@ -83,7 +83,7 @@ The recommended snippet also publishes a second CSS custom property — `--rf-xr
 ## Mount lifecycle (defonce, single-shell, hot-reload-safe)
 
 - The preload installs **one** shell instance per page lifetime (`defonce` semantics). Hot-reload preserves the mounted DOM; full reload re-installs from scratch.
-- Auto-open waits for the substrate adapter (`rf/init!` having installed a substrate adapter like Reagent / UIx / Helix) before mounting. If `[data-rf-xray-host]` is missing at that point, Xray logs an actionable `console.error` plus exposes the same diagnostic through `window.day8.re_frame2_xray.status()` — it does **not** `alert()` and does not block app startup.
+- Auto-open waits for the substrate adapter (`rf/init!` having installed a substrate adapter like Reagent / UIx) before mounting. If `[data-rf-xray-host]` is missing at that point, Xray logs an actionable `console.error` plus exposes the same diagnostic through `window.day8.re_frame2_xray.status()` — it does **not** `alert()` and does not block app startup.
 - Toggle visibility with `Ctrl+Shift+C`; the shell stays mounted, `display: none` toggles. No React remount.
 - Override the host selector before auto-open if needed:
   ```clojure

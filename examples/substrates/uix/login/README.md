@@ -16,7 +16,7 @@ the same — the same schemas, the same machine, the same named subscriptions,
 the same canned HTTP stub — because it is *literally* the same source. All of it
 lives in one substrate-free namespace, `login.model`
 ([`examples/core/login/model.cljs`](../../../core/login/model.cljs)), which this
-example `:require`s and the Reagent and Helix twins import unchanged. Only the
+example `:require`s and the Reagent twin imports unchanged. Only the
 views are written differently. That's the idea worth taking away: swapping the
 renderer changes almost nothing. So this is a clear place to see where the
 substrate boundary falls, and how little sits on the substrate side of it.
@@ -36,8 +36,8 @@ React-family library renders them. Same model, swap the renderer, get UIx.
   and five named [subscriptions](../../../../docs/core/glossary.md#subscription);
   and the demo HTTP stub. None of it names a substrate. This `core.cljs` holds
   the *only* substrate-specific code: the
-  [views](../../../../docs/core/glossary.md#view) and the mount. The Reagent and
-  Helix twins `:require` the identical `login.model` — literally the same source,
+  [views](../../../../docs/core/glossary.md#view) and the mount. The Reagent
+  twin `:require`s the identical `login.model` — literally the same source,
   different renderer.
 
 - **`defui` + the `use-subscribe` hook, in place of Reagent's deref.** A Reagent
@@ -86,20 +86,19 @@ React-family library renders them. Same model, swap the renderer, get UIx.
 ## Why this shape
 
 This is a parity demonstration. Parity shows best when you hold everything
-constant except the one thing under test. Read this side by side with its two
-siblings — [`examples/core/login/`](../../../core/login/) is the reference,
-[`examples/substrates/helix/login/`](../../helix/login/) is the Helix twin. The
-schemas, the machine, the subs, and the HTTP stub are the same in all three; the
-view layer is the only thing that differs. Three renderers, one model.
+constant except the one thing under test. Read this side by side with its
+sibling — [`examples/core/login/`](../../../core/login/) is the reference. The
+schemas, the machine, the subs, and the HTTP stub are the same in both; the
+view layer is the only thing that differs. Two renderers, one model.
 
-"One model" is meant literally: the three logins **share** the one substrate-free
+"One model" is meant literally: the two logins **share** the one substrate-free
 `login.model` namespace, rather than each carrying its own copy. That is the
 strongest form of parity — the comparison holds the model constant not by keeping
-three copies in step, but by there being only one. It also removes the drift risk
+two copies in step, but by there being only one. It also removes the drift risk
 of duplication: there is no second copy to diverge. The bundle-isolation gate
 (`npm run test:bundle-isolation`) now scans the login builds too and proves each
-carries **only its own substrate** — the UIx login `main.js` has no Reagent or
-Helix code — which is exactly what proves the shared `login.model` drags in no
+carries **only its own substrate** — the UIx login `main.js` has no Reagent
+code — which is exactly what proves the shared `login.model` drags in no
 renderer.
 
 One mechanical note: the *view* namespace here is `uix.login.core`, not

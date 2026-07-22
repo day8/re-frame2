@@ -224,7 +224,7 @@ The chrome's keybinding registry + installer pair.
 |---|---|---|
 | `:story/active-modes` | `[<mode-id> ...]` | Chrome-toolbar's active mode-set. |
 | `:story/active-args` | `{<arg-key> <value>}` | Deep-merge of all active modes' `:args`. |
-| `:story/substrate` | `:reagent` / `:uix` / `:helix` | Active substrate. |
+| `:story/substrate` | `:reagent` / `:uix` | Active substrate. |
 
 ## Canonical assertion events
 

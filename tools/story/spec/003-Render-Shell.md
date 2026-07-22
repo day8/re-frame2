@@ -227,7 +227,7 @@ independently — this is **not** a global lock.
 
 ## Multi-substrate side-by-side rendering
 
-For a variant declaring `:substrates #{:reagent :uix :helix}` (or any
+For a variant declaring `:substrates #{:reagent :uix}` (or any
 subset; default = the host frame's adapter), the render shell renders
 each substrate **inline** in its own pane.
 
@@ -245,10 +245,10 @@ The rationale for inline-rendering substrate failures is documented in
 DOM-mutating chrome that runs against the rendered output of a variant
 (axe-core a11y scans; the layout-debug overlay trio — measure, outline,
 pseudo) uses the **`:adapter/after-render`** late-bind hook the
-framework publishes from each substrate adapter (Reagent / UIx /
-Helix — rf2-334d9). The hook is `(re-frame.interop/after-render f)`,
+framework publishes from each substrate adapter (Reagent / UIx —
+rf2-334d9). The hook is `(re-frame.interop/after-render f)`,
 which dispatches through the late-bind directory to whichever
-substrate the active variant runs under; UIx and Helix wire it via
+substrate the active variant runs under; UIx wires it via
 `useLayoutEffect`, Reagent via its post-render queue. Each adapter
 publishes the hook at startup so panel code stays substrate-agnostic.
 

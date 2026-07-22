@@ -1,6 +1,6 @@
 # Template — Substrate Variants
 
-> Capability doc. The template ships three adapter substrate variants
+> Capability doc. The template ships two adapter substrate variants
 > plus the EXPERIMENTAL `:ui` compiled-view variant; this file
 > documents each, the invocation form, and substrate coercion.
 
@@ -10,15 +10,15 @@
 |---|---|---|---|
 | `:reagent` | yes | Reagent | Reagent component + `r/render` |
 | `:uix` | no | UIx | UIx defui + `uix/render-root` |
-| `:helix` | no | Helix | Helix defnc + `createRoot` |
 | `:ui` | no — **EXPERIMENTAL** | re-frame.ui (compiled views) | `defview` root + `ui/mount` |
 
 Reagent is the canonical default — the substrate every re-frame and
-re-frame2 example targets first. UIx and Helix are equally supported;
+re-frame2 example targets first. UIx is equally supported;
 the choice is the developer's, surfaced via the `:substrate` top-level
 k/v argument. `:ui` is the first-party re-frame.ui compiled-view
 substrate, added EXPERIMENTAL at W8 per the 2026-07-19 template-menu
-ruling — see [§EXPERIMENTAL `:ui` variant](#experimental-ui-variant).
+ruling (as amended by the S7/W13 Helix removal, rf2-d6epb) — see
+[§EXPERIMENTAL `:ui` variant](#experimental-ui-variant).
 
 ## Invocation form
 
@@ -34,11 +34,6 @@ clojure -Tnew create :template io.github.day8/re-frame2-template \
 clojure -Tnew create :template io.github.day8/re-frame2-template \
         :name acme/my-app \
         :substrate :uix
-
-# Helix
-clojure -Tnew create :template io.github.day8/re-frame2-template \
-        :name acme/my-app \
-        :substrate :helix
 ```
 
 deps-new passes the args through to the template's `data-fn` directly
@@ -63,27 +58,25 @@ message naming the valid set:
 (coerce-substrate 'uix)        ;; => throws — must be a keyword
 ```
 
-Anything not in `#{:reagent :uix :helix :ui}` (or anything not a
+Anything not in `#{:reagent :uix :ui}` (or anything not a
 keyword) throws an `ex-info` with the offending value and the set of
 valid substrates in `ex-data`. See
 [DESIGN-RATIONALE.md §8](DESIGN-RATIONALE.md) for the rationale.
 
 ## What each variant emits
 
-All three adapter variants emit the same top-level project shape — see
+Both adapter variants emit the same top-level project shape — see
 [002-Generated-Shape.md](002-Generated-Shape.md). The substrate
 choice swaps:
 
 - `core.cljs` — the entry point. Reagent uses
   `reagent.dom.client/create-root` + `.render` (the React 19
-  client-Root API); UIx uses `uix.dom/render-root`; Helix uses
-  `react-dom/client`'s `createRoot`.
+  client-Root API); UIx uses `uix.dom/render-root`.
 - `views.cljs` — the counter view. Reagent uses plain hiccup;
-  UIx uses `$` with `defui`; Helix uses `defnc` and `d/...`
-  elements.
+  UIx uses `$` with `defui`.
 - `deps.edn` — only the substrate-adapter coord changes:
-  `day8/re-frame2-reagent`, `day8/re-frame2-uix`, or
-  `day8/re-frame2-helix`. The remaining runtime coords are identical
+  `day8/re-frame2-reagent` or
+  `day8/re-frame2-uix`. The remaining runtime coords are identical
   across variants: `day8/re-frame2` (core), `day8/re-frame2-schemas`
   (so `schema.cljs`'s whole-app-db schema validates rather than
   soft-passing per Spec 010), and `day8/re-frame2-xray` (the in-app
@@ -161,8 +154,6 @@ shape the developer reads about in:
   the canonical Reagent counter.
 - [`examples/substrates/uix/counter/`](../../../examples/substrates/uix/counter/) —
   the UIx counter.
-- [`examples/substrates/helix/counter/`](../../../examples/substrates/helix/counter/) —
-  the Helix counter.
 
 What the template emits is what the guide walks through. A
 developer who runs `clojure -Tnew create :template
@@ -181,18 +172,18 @@ hydration path), a `server.clj` Ring/Jetty host wired to
 per-slice CLJS sources (`events.cljs` / `subs.cljs` / `schema.cljs` /
 `views.cljs`) are folded into `core.cljc`, so they are not emitted
 separately. The flag is **mutually exclusive** with `:include-story?`
-(004-SSR-Validation-Report §2.1). UIx + Helix SSR variants follow once the
-per-substrate adapters demonstrate parity (Spec 011 §Streaming SSR and the
+(004-SSR-Validation-Report §2.1). A UIx SSR variant follows once the
+per-substrate adapter demonstrates parity (Spec 011 §Streaming SSR and the
 report §7 out-of-scope list track the deferred surface).
 
 ## Future variants
 
 Reserved space — not implemented:
 
-- **UIx + Helix SSR.** The Spec 011 contract is substrate-agnostic
+- **UIx SSR.** The Spec 011 contract is substrate-agnostic
   (`render-to-string` consumes hiccup), but the worked example + the
-  ssr-ring test corpus are Reagent-driven; the UIx / Helix SSR variants
-  land once those adapters demonstrate parity.
+  ssr-ring test corpus are Reagent-driven; the UIx SSR variant
+  lands once that adapter demonstrates parity.
 - **reagent-slim.** Gated on reagent-slim GA / first published
   artefact — the same trigger that gates Story's substrate-enum
   addition and UI-shell migration (see
@@ -209,7 +200,7 @@ Adding a substrate requires:
    [`src/day8/re_frame2_template/hooks.clj`](../src/day8/re_frame2_template/hooks.clj).
 2. A new resource sub-tree at
    `resources/day8/re_frame2_template/_<substrate>/` (matching the
-   existing `_reagent` / `_uix` / `_helix` shape).
+   existing `_reagent` / `_uix` shape).
 3. A new `case` clause in `template-fn`'s per-substrate transform
    block.
 4. A test entry in each of `test/day8/re_frame2_template/`'s test

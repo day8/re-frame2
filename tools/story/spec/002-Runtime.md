@@ -787,7 +787,7 @@ tests / REPL via `deref-blocking`, CLJS callers chain with `then` / await.
 
 ```clojure
 (story/registered-substrates)
-;; => #{:reagent :uix :helix}  (CLJS-only; the substrate set as
+;; => #{:reagent :uix}  (CLJS-only; the substrate set as
 ;;    registered via story/register-substrate!. A variant renders
 ;;    against the intersection of this set and its own :substrates
 ;;    opt-in.)

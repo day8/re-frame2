@@ -96,8 +96,8 @@ design doc, a Slack thread, or a whiteboard.
 A standalone CLJS jar — `day8/re-frame2-machines-viz` — that
 exports:
 
-1. **The `MachineChart` component.** A Reagent component with React,
-   UIx, and Helix adapter shells. It renders the host-supplied
+1. **The `MachineChart` component.** A Reagent component with React
+   and UIx adapter shells. It renders the host-supplied
    `:definition`, `:current-state`, focus sets, and overlay descriptors;
    it does not query the registry, runtime-db, or trace bus.
 2. **The read-only viewer page.** A statically hostable HTML page plus
@@ -344,7 +344,7 @@ same model.
 | Renderer | Layout | Output | Surface | Status |
 |---|---|---|---|---|
 | Mermaid | Mermaid-internal (Dagre-derived) | static SVG via DSL | docs prose, README, AI-pair chat replies | shipped (`day8.re-frame2-machines-viz.mermaid`) |
-| xyflow + elkjs (`MachineChart`) | ELK.js inside `@xyflow/react` | interactive React canvas | Xray panel + user-app drop-in + docs cells | v1.0 commitment (Phase 2 COMPLETE — rf2-gpzb4 xyflow migration + rf2-lkwev/rf2-3ow55/rf2-yg9he/rf2-y9j79: full parallel-region rendering, `:spawn-all` join + cancellation-cascade overlays, UIx/Helix substrate adapters, browser-side visual-pin tests) |
+| xyflow + elkjs (`MachineChart`) | ELK.js inside `@xyflow/react` | interactive React canvas | Xray panel + user-app drop-in + docs cells | v1.0 commitment (Phase 2 COMPLETE — rf2-gpzb4 xyflow migration + rf2-lkwev/rf2-3ow55/rf2-yg9he/rf2-y9j79: full parallel-region rendering, `:spawn-all` join + cancellation-cascade overlays, UIx/Helix substrate adapters — the Helix shell since deleted at S7/W13 (rf2-d6epb), browser-side visual-pin tests) |
 
 ### Alternatives rejected (with reasons)
 
@@ -481,14 +481,16 @@ re-litigate them — these were knowingly traded, not overlooked):
   restored Phase 2, rf2-yg9he).** xyflow is a React component
   library; the chart becomes React-component-shaped rather than
   substrate-agnostic hiccup data. Phase 1 shipped Reagent-only.
-  Phase 2 restored UIx + Helix parity: because xyflow IS React,
+  Phase 2 restored substrate parity: because xyflow IS React,
   the Reagent `MachineChart` bottoms out at a React element tree,
   and `reagent.core/reactify-component` lifts it to a plain React
   class any host mounts. The shared bridge
-  (`adapters/react_chart.cljs`) reactifies ONCE; thin per-substrate
-  shells (`adapters/uix.cljs`, `adapters/helix.cljs`) present an
-  idiomatic surface. There is no fork of the chart per substrate —
-  all three render the same component through one bridge.
+  (`adapters/react_chart.cljs`) reactifies ONCE; a thin per-substrate
+  shell (`adapters/uix.cljs`) presents an idiomatic surface. (Phase 2
+  also shipped a Helix shell, deleted with the Helix adapter's removal
+  at S7/W13 — rf2-d6epb, 2026-07-22.) There is no fork of the chart
+  per substrate — every host renders the same component through one
+  bridge.
 - **JVM-testability of the rendered output LOST (browser-side CLJS
   coverage restored Phase 2, rf2-y9j79).** The previous
   `chart/svg.cljc` was `.cljc`-testable from `clojure -M:test`;

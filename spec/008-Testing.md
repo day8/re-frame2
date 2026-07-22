@@ -35,7 +35,7 @@ A test that exercises events / subs / machines reaches `re-frame.test-support`. 
 
 ### Adapter-aware test helpers — `flush-views!`
 
-Some test helpers are **per-adapter**. The React-based adapters (`re-frame.adapter.reagent`, `re-frame.adapter.uix`, `re-frame.adapter.helix`) each ship a `flush-views!` fn that wraps React's `act()` so tests dispatching against a mounted tree can settle pending React effects before reading the DOM. The function NAME is shared across adapters (substrate uniformity); the entry point is **per-adapter-require**, not centralised through `re-frame.test-support`:
+Some test helpers are **per-adapter**. The React-based adapters (`re-frame.adapter.reagent`, `re-frame.adapter.uix`) each ship a `flush-views!` fn that wraps React's `act()` so tests dispatching against a mounted tree can settle pending React effects before reading the DOM. The function NAME is shared across adapters (substrate uniformity); the entry point is **per-adapter-require**, not centralised through `re-frame.test-support`:
 
 ```clojure
 (:require [re-frame.adapter.reagent :as reagent-adapter])
@@ -613,7 +613,8 @@ substrate `re-frame.ui` ([004-Views.md](004-Views.md)). It is the compiled-view
 counterpart of the legacy hiccup-walk `re-frame.test-helpers` above (which serves the
 Reagent compatibility tier); the two do not mix. The hiccup-walk `test-helpers`
 are [TRANSITION] — they belong to the stock-Reagent compatibility tier, which lives on
-(only Helix is removed at S7; see EP-0030 Resolved Decisions, 2026-07-17).
+(only Helix was removed, at S7/W13 — rf2-d6epb, 2026-07-22; see EP-0030 Resolved
+Decisions, 2026-07-17).
 
 **Two tiers.** A test runs at exactly one tier; a tier-mismatched call is a typed error
 (`:rf.error/ui-test-tier-mismatch`) pointing at the other tier's surface.

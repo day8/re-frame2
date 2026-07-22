@@ -1500,7 +1500,7 @@ cells independently.
 
 ```clojure
 (story/reg-variant :story.ui.button/all-substrates
-  {:substrates #{:reagent :uix :helix}})
+  {:substrates #{:reagent :uix}})
 ```
 
 The multi-substrate pane (render shell) renders each substrate

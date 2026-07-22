@@ -159,7 +159,7 @@ docs/
 examples/                      Worked examples organised by concept — core/ fundamentals,
                                capabilities/ (one framework subsystem per folder), patterns/
                                composition recipes, real-apps/ (RealWorld et al.), substrates/
-                               (the same apps on other substrates — UIx, Helix, reagent-slim),
+                               (the same apps on other substrates — UIx, reagent-slim),
                                ui/ (re-frame.ui variants). Test-free.
 testbeds/                      Shared framework-behavior testbed surfaces (consumed by Xray + Story
                                + MCP servers). Bundle-isolated from production builds.
@@ -187,8 +187,6 @@ implementation/                CLJS reference implementation — per-artefact su
     reagent-slim/              day8/reagent-slim — slim Reagent fork (reagent2.core); same view
                                semantics, smaller footprint, capped Form-3 surface
     uix/                       day8/re-frame2-uix — the UIx adapter
-    helix/                     day8/re-frame2-helix — the Helix adapter (removal in flight —
-                               S7/W13, behind the soak gates)
     test-react/                local-test-only (no Maven coord) — pure-CLJC React-lifecycle
                                simulator; catches lifecycle bugs at unit-test speed (no React/DOM/jsdom)
   schemas/                     day8/re-frame2-schemas — Malli boundary-validation artefact

@@ -10,19 +10,17 @@
 
    This file is the Reagent HALF: the only substrate-specific code. Below it are
    the `reg-view` views, the React root, the adapter init, and the mount — the
-   parts that actually name Reagent. The UIx (`uix.login.core`) and Helix
-   (`helix.login.core`) twins import the identical `login.model` and supply
-   their own view layer instead. One model, three view layers; the three-way
-   comparison is exactly this substrate-specific half, held against a model that
-   never changes.
+   parts that actually name Reagent. The UIx twin (`uix.login.core`) imports the
+   identical `login.model` and supplies its own view layer instead. One model,
+   two view layers; the cross-substrate comparison is exactly this
+   substrate-specific half, held against a model that never changes.
 
    Examples are test-free: login's behaviour is covered by the substrate
    contract suite (`npm run test:cljs`) and the framework gates, not by a test
    alongside this file."
   ;; This example runs on stock Reagent. It's also the cross-substrate reference
-  ;; base — mirrored as `login-uix` and `login-helix` over the same
-  ;; `login.model` — so staying on Reagent keeps the three an honest
-  ;; apples-to-apples comparison.
+  ;; base — mirrored as `login-uix` over the same `login.model` — so staying
+  ;; on Reagent keeps the pair an honest apples-to-apples comparison.
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; The substrate-free model owner. Requiring it registers every

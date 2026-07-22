@@ -464,12 +464,12 @@ The metadata map accepted by `reg-view` / `reg-view*` (the stock-Reagent compati
   [:merge
    RegistrationMetadata
    [:map
-    [:reagent2/form {:optional true} [:enum :reagent2/form-1 :reagent2/form-2]] ;; compile-time Reagent form-shape tag; stamped by the `reg-view` macro ONLY when reagent-slim is on the classpath (an additive perf hint — the runtime detection in `reagent2.impl.component/wrap-render` is the load-bearing path). Absent on UIx / Helix builds and on the `reg-view*` plain-fn surface. Form classification is binary — there is no `:reagent2/form-3`.
+    [:reagent2/form {:optional true} [:enum :reagent2/form-1 :reagent2/form-2]] ;; compile-time Reagent form-shape tag; stamped by the `reg-view` macro ONLY when reagent-slim is on the classpath (an additive perf hint — the runtime detection in `reagent2.impl.component/wrap-render` is the load-bearing path). Absent on UIx builds and on the `reg-view*` plain-fn surface. Form classification is binary — there is no `:reagent2/form-3`.
     [:rf/props      {:optional true} :any]                                     ;; Malli schema for the view's props (when the author attaches it as symbol metadata, e.g. `^{:rf/props S}`); the canonical props-schema slot, resolved first-match over `[:rf/props :schema]` (not composed — `:rf/props` wins outright over `:schema` for the view-args boundary) per [010](010-Schemas.md)
     ]])
 ```
 
-`:reagent2/form` is stamped by the `reg-view` macro at expansion time *only when reagent-slim is on the classpath* — `expand-reg-view` classifies the body via `reagent2.impl.component/classify-form-body` (`requiring-resolve`d, so core carries no static reagent-slim dep) and stamps `{:reagent2/form :reagent2/form-1|:reagent2/form-2}` onto the slot. UIx / Helix-only builds and the `reg-view*` plain-fn surface stamp no form tag (per [004 §Removed forms — normative absences](004-Views.md#removed-forms--normative-absences)). `:rf/props` is an optional user-supplied props schema (attached as symbol metadata and surviving into the slot); in dynamic hosts the framework can validate props against it at render-time-boundary in dev builds (per [010](010-Schemas.md)).
+`:reagent2/form` is stamped by the `reg-view` macro at expansion time *only when reagent-slim is on the classpath* — `expand-reg-view` classifies the body via `reagent2.impl.component/classify-form-body` (`requiring-resolve`d, so core carries no static reagent-slim dep) and stamps `{:reagent2/form :reagent2/form-1|:reagent2/form-2}` onto the slot. UIx-only builds and the `reg-view*` plain-fn surface stamp no form tag (per [004 §Removed forms — normative absences](004-Views.md#removed-forms--normative-absences)). `:rf/props` is an optional user-supplied props schema (attached as symbol metadata and surviving into the slot); in dynamic hosts the framework can validate props against it at render-time-boundary in dev builds (per [010](010-Schemas.md)).
 
 **Note — `:schema` is canonical.** Both Story and the framework read the `:schema` key (there is no `:spec` alias). See [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema) for the v1→v2 rename.
 
@@ -700,7 +700,7 @@ The string format is committed as a public contract: pair-shaped tools, conforma
 > **Owner:** [006-ReactiveSubstrate §View tagging contract](006-ReactiveSubstrate.md#view-tagging-contract-fallback)
 > **Status:** v1-required (fallback path; primary path is the Fiber walker per [View-Hierarchy-Capture.md](View-Hierarchy-Capture.md))
 
-The DOM-attribute string contract emitted by Reagent / UIx / Helix adapters as the value of `data-rf-view` on rendered view roots (per [Spec 006 §View tagging contract](006-ReactiveSubstrate.md#view-tagging-contract-fallback)). The stringified registry id keyword:
+The DOM-attribute string contract emitted by the Reagent / UIx adapters as the value of `data-rf-view` on rendered view roots (per [Spec 006 §View tagging contract](006-ReactiveSubstrate.md#view-tagging-contract-fallback)). The stringified registry id keyword:
 
 ```
 <id-as-str>          ;; e.g. ":my.app/header" for the keyword :my.app/header
@@ -1815,7 +1815,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; keyword (per Spec 006 §Adapter introspection — surfaced by
   ;; `(rf/current-adapter)`). Consumers pass this map to
   ;; (rf/init! adapter-map) — each adapter ns
-  ;; (re-frame.adapter.{reagent,reagent-slim,uix,helix}, re-frame.ssr,
+  ;; (re-frame.adapter.{reagent,reagent-slim,uix}, re-frame.ssr,
   ;; re-frame.substrate.plain-atom) exports an `adapter` Var of this shape.
   [:map
    [:kind                      :keyword]

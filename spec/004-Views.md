@@ -1352,12 +1352,12 @@ rather than fabricating them (`tools/xray/spec/021` §3.4.1).
 - **Production erasure is a proof (I-12).** Compile-time defines + bundle-scan gates;
   manifests, cause vectors, histories, warning text, and `data-rf2-*` strings are on the
   scanned absence roster. The always-on Spec 009 error contracts remain.
-- **[TRANSITION]** The `[view-id instance-token]` `:render-key` wire shape and the
+- The `[view-id instance-token]` `:render-key` wire shape and the
   `[:rf.view/anonymous nil]` fallback for unregistered render fns are emitted by the
-  Reagent, UIx, and reagent-slim adapters — first-class, actively-supported adapters —
-  and by the Helix adapter until it is removed at S7; the compiled substrate emits its own
-  versioned evidence schema (integer render-key + separate `:view-id` + `occurrence-path`)
-  in the 009 catalogue.
+  Reagent, UIx, and reagent-slim adapters — first-class, actively-supported adapters;
+  the compiled substrate emits its own versioned evidence schema (integer render-key +
+  separate `:view-id` + `occurrence-path`) in the 009 catalogue. (Helix was removed at
+  S7/W13 — rf2-d6epb, 2026-07-22.)
 
 ## The JVM structural subset
 
@@ -1474,8 +1474,8 @@ experimental** substrate offered **alongside** the existing adapters — not a m
 replacement for them. **Stock Reagent (with the `reg-view` family), reagent-slim, and
 UIx all live on as first-class, actively-supported adapters**: not frozen, not scheduled
 for removal, each keeping its artifact, its public exports, its contract suite and one
-smoke, and its documented boot choice. **Only Helix is removed**, at S7 and strictly
-behind the soak gates recorded in
+smoke, and its documented boot choice. **Only Helix was removed** — at S7/W13
+(rf2-d6epb, 2026-07-22), behind the soak gates recorded in
 [EP-0030 §Resolved Decisions](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#resolved-decisions),
 which is the source of record for this disposition. Nothing in this contract retires an
 adapter or relocates its exports, and **no `spec/004A` compatibility appendix lands** —
@@ -1483,10 +1483,9 @@ there is no compatibility tier to relocate exports into. `ui/defview` is *this*
 contract's one component form; the adapter tier's Forms remain taught alongside it. Old
 and new trees co-mount at explicit boundaries (per the migration guide), and the dataflow
 layer is untouched throughout. The process still installs exactly one adapter at boot —
-never per frame, never within one frame. After the Helix-removal wave, Spec 006's
-host-neutral contracts, the plain-atom substrate, and the benchmark results + fixtures
-are kept, along with a git tag over the removed Helix surfaces **as provenance, not
-contract**.
+never per frame, never within one frame. Spec 006's host-neutral contracts, the
+plain-atom substrate, and the benchmark results + fixtures are kept, along with a git
+tag over the removed Helix surfaces **as provenance, not contract**.
 
 **Transition annex — where the adapter tier's view contract lives.** The `reg-view`
 family and Form-1/2/3 are absent from *this* contract because this contract specifies

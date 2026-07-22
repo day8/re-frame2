@@ -71,7 +71,7 @@ renders under) with `rf/with-frame`, or carry an explicit frame inline
 any frame-scoped scratch call that is neither inside a frame-scope form
 nor carries an explicit frame target.
 
-The UIx and Helix variants follow the same shape; only `core.cljs`,
+The UIx variant follows the same shape; only `core.cljs`,
 `views.cljs`, `deps.edn`, and the substrate-adapter coord change.
 See [001-Substrate-Variants.md](001-Substrate-Variants.md) §What
 each variant emits.
@@ -97,14 +97,14 @@ example.
 
 ## Xray devtools
 
-Every adapter-substrate app (Reagent / UIx / Helix) ships
+Every adapter-substrate app (Reagent / UIx) ships
 [Xray](../../xray/) — the in-app devtools panel — **on by default in
 development**. (The EXPERIMENTAL `:ui` variant is the exception: its
 minimal consumer shape carries no Xray coord and no preload — see
 [001 §EXPERIMENTAL `:ui` variant](001-Substrate-Variants.md#experimental-ui-variant);
 its emitted layout host simply stays empty and collapses via the
 `:empty` rule below.) Three wiring points land, identically across the
-three adapter substrates:
+adapter substrates:
 
 - **deps.edn** carries the `day8/re-frame2-xray` runtime coord at the
   same `{{rf2-version}}` pin as the core coord (Xray publishes in
@@ -184,8 +184,6 @@ tools/template/
     │   └── views.cljs
     ├── _uix/                             ; UIx-specific (deps.edn / core.cljs / views.cljs)
     │   └── ...
-    ├── _helix/                           ; Helix-specific (deps.edn / core.cljs / views.cljs)
-    │   └── ...
     └── _ui/                              ; EXPERIMENTAL re-frame.ui variant — adds its own
         └── ...                           ;   shadow-cljs.edn (one-setting build-hook contract,
                                           ;   no Xray preload) + README.md alongside
@@ -256,8 +254,8 @@ the template's own additions.
 |---|---|---|
 | `{{namespace}}` | `{{top/ns}}.{{main/ns}}` | `acme.my-app` |
 | `{{nested-dirs}}` | `{{top/file}}/{{main/file}}` | `acme/my_app` |
-| `{{substrate}}` | The chosen substrate name, lower-case | `reagent`, `uix`, `helix`, `ui` |
-| `{{substrate-label}}` | The chosen substrate's display name (used in the `shadow-cljs.edn` comment + `package.json` description) | `Reagent`, `UIx`, `Helix`, `re-frame.ui` |
+| `{{substrate}}` | The chosen substrate name, lower-case | `reagent`, `uix`, `ui` |
+| `{{substrate-label}}` | The chosen substrate's display name (used in the `shadow-cljs.edn` comment + `package.json` description) | `Reagent`, `UIx`, `re-frame.ui` |
 | `{{story-tag}}` | `package.json` `description` suffix that varies by `:include-story?` — lets one shared `package.json` serve both paths | `""`, `", with Story playground"` |
 | `{{xray-npm-deps}}` | `package.json` `devDependencies` fragment carrying the npm packages the Xray preload compiles against (`@xyflow/react` + `elkjs`, required by the machine canvas via `day8/re-frame2-machines-viz`). Empty for the `:ui` variant, which ships no Xray coord. | `""`, `",\n    \"@xyflow/react\": \"12.4.2\",\n    \"elkjs\": \"^0.11.1\""` |
 | `{{substrate-badge-url}}` | shields.io badge URL by substrate | `https://img.shields.io/badge/substrate-Reagent-1abc9c.svg` |

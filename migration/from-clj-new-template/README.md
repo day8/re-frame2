@@ -92,7 +92,7 @@ Plus the substrate selector:
 
 | Arg | Values | Default |
 |---|---|---|
-| `:substrate` | `:reagent` / `:uix` / `:helix` | `:reagent` |
+| `:substrate` | `:reagent` / `:uix` | `:reagent` |
 
 No other branching flags ship in v1. Every new flag requires
 explicit DESIGN-RATIONALE justification (see
@@ -131,13 +131,13 @@ clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-a
 
 ## What didn't change
 
-- **The substrate set.** Reagent (default) / UIx / Helix. Adding a
+- **The substrate set.** Reagent (default) / UIx. Adding a
   new substrate is still the same shape: drop a sub-tree under
   `_<substrate>/`, add a `case` clause in `template-fn`, ship the
   per-substrate test.
 - **The substrate-agnostic shell.** `events.cljs`, `subs.cljs`,
   host HTML, `.gitignore`, `dev/` tree, `.editorconfig`,
-  `lefthook.yml` — emitted identically across all three
+  `lefthook.yml` — emitted identically across the
   substrates.
 - **The counter throughline.** Every variant emits a working
   counter, mirroring [the Guide quickstart — a counter in five

@@ -12,7 +12,3 @@ Runnable apps that exercise the machine grammar. Build a machine yourself first
 | [nine_states](../../examples/patterns/nine_states) | One parallel machine, three regions; tags collapse 3×3×3 UI into one view decision | [Tags](tags.md), [Parallel regions](parallel-states.md) |
 | [long_running_work](../../examples/patterns/long_running_work) | Parent spawns N workers with `:spawn-all`; cooperative cancel on every exit path | [Actors](actors.md) |
 | [websocket](../../examples/patterns/websocket) | Hierarchical connection machine; spawned socket actor; `:after` backoff; `:always` flush | [Hierarchical states](hierarchical-states.md), [Automatic transitions](automatic-transitions.md), [Actors](actors.md) |
-
-**Not a machine** (substrate only): [process_monitor_helix](../../examples/substrates/helix/process_monitor) —
-Helix + `use-subscribe` and a tick loop, no state machine. Use it to see another
-substrate, not as a machines example.

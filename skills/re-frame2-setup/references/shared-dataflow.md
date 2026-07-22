@@ -1,10 +1,10 @@
 # Shared counter dataflow
 
-The **substrate-neutral** half of the greenfield counter — the event handlers, the subscription, and the app-db schema. These three files are **identical for Reagent, UIx, and Helix**: the dataflow (event → handler → app-db change → sub recompute) is a framework concern, not a substrate concern. Only the *view + mount* layer is substrate-specific.
+The **substrate-neutral** half of the greenfield counter — the event handlers, the subscription, and the app-db schema. These three files are **identical for Reagent and UIx**: the dataflow (event → handler → app-db change → sub recompute) is a framework concern, not a substrate concern. Only the *view + mount* layer is substrate-specific.
 
-Use this leaf when you scaffold a **UIx or Helix** greenfield (or lay the Reagent counter out across split files instead of the one-file [`first-counter.md`](first-counter.md)). Copy the three files **verbatim** into `src/your_app/`, then add the substrate entry ns + `views.cljs` from [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md). Together those files are the **complete** emitted project — nothing else is needed, and you do **not** copy any part of the Reagent-only `first-counter.md`.
+Use this leaf when you scaffold a **UIx** greenfield (or lay the Reagent counter out across split files instead of the one-file [`first-counter.md`](first-counter.md)). Copy the three files **verbatim** into `src/your_app/`, then add the substrate entry ns + `views.cljs` from [`entry-namespace.md` §UIx greenfield](entry-namespace.md). Together those files are the **complete** emitted project — nothing else is needed, and you do **not** copy any part of the Reagent-only `first-counter.md`.
 
-> **Single-sourced.** UIx and Helix share these exact files — do not fork a per-substrate copy. The Reagent one-file counter in [`first-counter.md`](first-counter.md) inlines the same `:counter/initialise` / `:counter/increment` events, `:counter/value` sub, and `CounterDb` schema; this leaf is the split-file form the non-Reagent entry namespaces `:require`.
+> **Single-sourced.** These exact files serve every substrate — do not fork a per-substrate copy. The Reagent one-file counter in [`first-counter.md`](first-counter.md) inlines the same `:counter/initialise` / `:counter/increment` events, `:counter/value` sub, and `CounterDb` schema; this leaf is the split-file form the non-Reagent entry namespace `:require`s.
 
 ## Contents
 
@@ -27,7 +27,7 @@ src/your_app/
 
 ```clojure
 (ns your-app.events
-  "Event handlers — substrate-neutral. Copy verbatim for a UIx or Helix
+  "Event handlers — substrate-neutral. Copy verbatim for a UIx
    greenfield; identical to the events the Reagent first-counter registers."
   (:require [re-frame.core :as rf]
             ;; Side-effecting load: publishes Malli's validate/explain into the
@@ -50,7 +50,7 @@ src/your_app/
 
 ```clojure
 (ns your-app.subs
-  "Subscriptions — substrate-neutral. Copy verbatim for UIx or Helix."
+  "Subscriptions — substrate-neutral. Copy verbatim for a UIx greenfield."
   (:require [re-frame.core :as rf]))
 
 (rf/reg-sub :counter/value
@@ -63,7 +63,7 @@ One subscription: `[:counter/value]` reads `(:counter/value db)`. re-frame2 cach
 
 ```clojure
 (ns your-app.schema
-  "App-db schema — substrate-neutral. Copy verbatim for UIx or Helix.
+  "App-db schema — substrate-neutral. Copy verbatim for a UIx greenfield.
    register-schema! is FRAME-LOCAL: it names the app frame explicitly
    ({:frame :rf/default}), so core/init calls it at boot BEFORE the
    frame-root mount creates the frame (see the boot order below)."
@@ -98,7 +98,7 @@ Two contracts make the attach work — the same two the Reagent counter document
 
 ## How the entry namespace wires them
 
-The substrate `core.cljs` (from [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md)) `:require`s all three namespaces so their registrations load, then boots in this order — **matching the generator template's boot order**:
+The substrate `core.cljs` (from [`entry-namespace.md` §UIx greenfield](entry-namespace.md)) `:require`s all three namespaces so their registrations load, then boots in this order — **matching the generator template's boot order**:
 
 1. `(rf/init! <substrate>-adapter/adapter)` — install the adapter (no frame yet).
 2. `(schema/register-schema!)` — attach the frame-local schema (explicit `{:frame :rf/default}` target; the frame does not exist yet).

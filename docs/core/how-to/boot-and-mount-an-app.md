@@ -10,8 +10,8 @@ A [frame](../glossary.md#frame) is one isolated running instance of your app: it
 [app-db](../glossary.md#app-db), event queue, runtime state, and subscription cache.
 One division of labour catches nearly everyone, so hear it before the code:
 `rf/init!` does not create a frame. It only installs the
-[adapter](../glossary.md#adapter) for your React substrate, such as Reagent, UIx,
-or Helix. The frame is created later by the rendered
+[adapter](../glossary.md#adapter) for your React substrate, such as Reagent or
+UIx. The frame is created later by the rendered
 [frame-root](../glossary.md#frame-root).
 
 The whole recipe serves two moments. First page load should create and seed the
@@ -261,8 +261,8 @@ not a silent dead button. The fix is the require list in the `ns` form above.
 - [`examples/core/todomvc/core.cljs`](../../../examples/core/todomvc/core.cljs)
   adds URL routing, a `hashchange` listener, and `:url-bound? true`.
 
-The UIx and Helix examples use the same lifecycle. Only the adapter, root
-creation, and render calls change.
+The UIx examples use the same lifecycle. Only the adapter, root creation, and
+render calls change.
 
 ??? info "From re-frame v1"
 

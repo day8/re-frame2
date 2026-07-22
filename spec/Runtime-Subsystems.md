@@ -256,7 +256,7 @@ The CLJS reference rule "one adapter per process" is the implementation strategy
 
 The boundary (issue 4 disposition):
 
-- the **process owns adapter selection** — *which* reactive substrate (Reagent / UIx / Helix / plain-atom) the app renders through (the capability);
+- the **process owns adapter selection** — *which* reactive substrate (Reagent / UIx / plain-atom) the app renders through (the capability);
 - **render roots own concrete mount/disposer instances** of that adapter.
 
 The invariant:

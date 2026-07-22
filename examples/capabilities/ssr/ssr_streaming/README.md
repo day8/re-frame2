@@ -120,7 +120,7 @@ cosmetic. A keyword head is an HTML element on every host, so a marker
 left in a client render tree paints a phantom `<suspense-boundary>`
 element — a quiet failure, not a loud one. And the marker could not be
 given client semantics either: stock Reagent is an external dependency
-whose element dispatch isn't ours to extend, and UIx / Helix views are
+whose element dispatch isn't ours to extend, and UIx views are
 `defui` / `$` forms where a hiccup keyword head cannot occur at all. A
 callable component is the one form expressible everywhere, so that is the
 authoring surface. `:rf/suspense-boundary` still exists, demoted to

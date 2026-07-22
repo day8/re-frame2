@@ -6,7 +6,7 @@
 
 The `re-frame2-setup` skill bootstraps a greenfield re-frame2 project. The author starts with nothing (or close to nothing — a `deps.edn` they intend to fill in, an empty `package.json`, no source). When the skill is done, the author has a project that compiles under `shadow-cljs watch`, mounts a working counter in the browser, and is ready to switch to the [`re-frame2`](re-frame2.md) skill for writing application code.
 
-The skill teaches **only** the re-frame2-specific wiring: which artefacts to add, the lockstep VERSION discipline (all eleven publishable framework artefacts ship at the same version, with `day8/re-frame2-xray` riding the same line; mixing versions is unsupported), the canonical `(rf/init! reagent-adapter/adapter)` entry-namespace shape, and a counter that exercises every layer end-to-end (event → handler → app-db change → sub recompute → view re-render). It does not teach `deps.edn`, `npm`, or `shadow-cljs` themselves — those are assumed.
+The skill teaches **only** the re-frame2-specific wiring: which artefacts to add, the lockstep VERSION discipline (all ten publishable framework artefacts ship at the same version, with `day8/re-frame2-xray` riding the same line; mixing versions is unsupported), the canonical `(rf/init! reagent-adapter/adapter)` entry-namespace shape, and a counter that exercises every layer end-to-end (event → handler → app-db change → sub recompute → view re-render). It does not teach `deps.edn`, `npm`, or `shadow-cljs` themselves — those are assumed.
 
 ## When to reach for it
 
@@ -31,7 +31,7 @@ The skill auto-triggers on greenfield-setup phrasings. To force-load:
 /skill re-frame2-setup
 ```
 
-The skill walks six steps in order: discover the current artefact VERSION, add deps to `deps.edn`, add npm deps to `package.json`, write `shadow-cljs.edn`, write `core.cljs` (the whole counter in one file), run and verify. The Reagent adapter is the default reference substrate; UIx and Helix are supported but only on explicit request. The skill stops at *"the counter mounts"* — writing tests, schemas, or further features is the next skill's job.
+The skill walks six steps in order: discover the current artefact VERSION, add deps to `deps.edn`, add npm deps to `package.json`, write `shadow-cljs.edn`, write `core.cljs` (the whole counter in one file), run and verify. The Reagent adapter is the default reference substrate; UIx is supported but only on explicit request. The skill stops at *"the counter mounts"* — writing tests, schemas, or further features is the next skill's job.
 
 ## Where the skill lives
 

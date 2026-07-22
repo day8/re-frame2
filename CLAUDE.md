@@ -112,7 +112,7 @@ Docs build from repo root with `mkdocs build --strict` (config in `mkdocs.yml`).
 Top-level layout:
 
 - `spec/` — the specification (primary artefact; AI-targeted)
-- `implementation/` — CLJS reference: `core/` + `ui/` (re-frame.ui, the EXPERIMENTAL compiled-view substrate, offered alongside the adapters) + per-substrate `adapters/` (Reagent, reagent-slim, UIx — first-class, actively supported; Helix removal is in flight, S7/W13) + per-feature artefacts (machines, schemas, resources, …). The top-level `implementation/shadow-cljs.edn` + `implementation/deps.edn` coordinate the cross-artefact classpath.
+- `implementation/` — CLJS reference: `core/` + `ui/` (re-frame.ui, the EXPERIMENTAL compiled-view substrate, offered alongside the adapters) + per-substrate `adapters/` (Reagent, reagent-slim, UIx — first-class, actively supported) + per-feature artefacts (machines, schemas, resources, …). The top-level `implementation/shadow-cljs.edn` + `implementation/deps.edn` coordinate the cross-artefact classpath.
 - `tools/` — dev/inspection tools that consume the Spec 009 instrumentation API and Tool-Pair contract (`template/`, `story/`, `story-mcp/`, `re-frame2-pair-mcp/`, `xray/`, `machines-viz/`, `testbed-support/`, `mcp-base/`, `mcp-conformance/`). Bundle-isolated from production builds; nothing in `implementation/` may `:require` from `tools/`.
 - `examples/` — worked examples per substrate.
 - `docs/` — human-facing guide (`docs/core/`) and operational docs.

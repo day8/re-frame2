@@ -21,7 +21,7 @@ The one rule (EP-0002 carried invariant): **frame identity is a value that trave
 | Read a frame's runtime-db / whole frame-state (tools, SSR) | `(:rf.db/runtime (frame-state-value id))` / `frame-state-value` |
 | Install state from outside a cascade (tools, tests, SSR) | `replace-frame-state!` (the ONE partial-map write surface) |
 
-A `reg-view` body needs none of these for ordinary dispatch / subscribe — the macro injects frame-aware `dispatch` and `subscribe` locals automatically. A plain (non-`reg-view`) fn that needs to reach a frame does it **per adapter**: on **Reagent** register it via `reg-view*`, which gives the class a live scope (a `:contextType`), then capture `(rf/capture-frame)` from the body; on the hooks adapters (**UIx / Helix**) an ordinary `defui` / `defnc` reads the surrounding `frame-provider` / `frame-root` directly through the `use-subscribe` and `use-frame` hooks — no `:contextType`, and `reg-view*` only when the component must be addressable by id (registry addressing). An arbitrary async callback captures `(rf/capture-frame)` where a frame is in scope and calls its `:dispatch` / `:subscribe` ops later.
+A `reg-view` body needs none of these for ordinary dispatch / subscribe — the macro injects frame-aware `dispatch` and `subscribe` locals automatically. A plain (non-`reg-view`) fn that needs to reach a frame does it **per adapter**: on **Reagent** register it via `reg-view*`, which gives the class a live scope (a `:contextType`), then capture `(rf/capture-frame)` from the body; on the hooks adapter (**UIx**) an ordinary `defui` reads the surrounding `frame-provider` / `frame-root` directly through the `use-subscribe` and `use-frame` hooks — no `:contextType`, and `reg-view*` only when the component must be addressable by id (registry addressing). An arbitrary async callback captures `(rf/capture-frame)` where a frame is in scope and calls its `:dispatch` / `:subscribe` ops later.
 
 ## What a frame is
 
@@ -155,7 +155,7 @@ User-supplied keys win on conflict with preset expansion.
 
 Two per-adapter React-context components, one verb each — **roots ensure; providers scope** (per `spec/002-Frames.md` §`frame-provider` — the SCOPE-only component / §`frame-root` — the ENSURE component) — choose by intent:
 
-- **`frame-provider {:frame existing-id}`** — **SCOPE-only**. Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` to a frame that **already exists** (created elsewhere by `make-frame`, a tool runtime, or an enclosing boundary). It creates / refreshes / destroys nothing, and **fails loud if the frame is absent** (`:rf.error/frame-provider-frame-absent`):
+- **`frame-provider {:frame existing-id}`** — **SCOPE-only**. Wraps a Reagent / UIx subtree so descendants resolve `current-frame-id` to a frame that **already exists** (created elsewhere by `make-frame`, a tool runtime, or an enclosing boundary). It creates / refreshes / destroys nothing, and **fails loud if the frame is absent** (`:rf.error/frame-provider-frame-absent`):
 
   ```clojure
   [rf/frame-provider {:frame :stories} [my-story-shell]]
@@ -169,7 +169,7 @@ Two per-adapter React-context components, one verb each — **roots ensure; prov
 
 (`with-frame` remains for lexical / non-React ambient scoping — it binds a dynamic var, which cannot cross React's render boundary, which is why scope-into-React needs a context component rather than `with-frame`. True lifetime *ownership* — destroy-on-unmount — is now explicit: `make-frame` + `destroy-frame!` inside a `create-class`, where the component declares it owns the frame's life.)
 
-`reg-view`-wrapped components participate in the provider automatically (the wrapper carries `:contextType`). A plain Reagent fn carries no `:contextType`, so it **cannot read the provider's frame** from React context; its ambient `rf/subscribe` / `rf/dispatch` resolve to nil and raise `:rf.error/no-frame-context` (EP-0002) rather than silently routing to a default. Use `reg-view` (which reads the provider's frame from context), or — to keep it a plain fn — carry the frame explicitly (`(rf/capture-frame frame-id)`, a `{:frame …}` opt, or a frame api threaded down). A **bare** no-arg `(rf/capture-frame)` inside the plain fn re-raises: it has no scope to read (no-arg capture works only from a live scope — a registered view, or a synchronous `with-frame` around the operation). (Per spec/004 §Plain Reagent fns.) The **hooks adapters (UIx / Helix)** differ: an ordinary `defui` / `defnc` reads the provider's frame through the `use-subscribe` / `use-frame` hooks (React context is read in hook position), so it needs no `reg-view` and no `:contextType` — but a bare no-arg `(rf/capture-frame)` still cannot read React context (it is not a hook), so carry the frame with the `use-frame` hook rather than a render-time `capture-frame`.
+`reg-view`-wrapped components participate in the provider automatically (the wrapper carries `:contextType`). A plain Reagent fn carries no `:contextType`, so it **cannot read the provider's frame** from React context; its ambient `rf/subscribe` / `rf/dispatch` resolve to nil and raise `:rf.error/no-frame-context` (EP-0002) rather than silently routing to a default. Use `reg-view` (which reads the provider's frame from context), or — to keep it a plain fn — carry the frame explicitly (`(rf/capture-frame frame-id)`, a `{:frame …}` opt, or a frame api threaded down). A **bare** no-arg `(rf/capture-frame)` inside the plain fn re-raises: it has no scope to read (no-arg capture works only from a live scope — a registered view, or a synchronous `with-frame` around the operation). (Per spec/004 §Plain Reagent fns.) The **hooks adapter (UIx)** differs: an ordinary `defui` reads the provider's frame through the `use-subscribe` / `use-frame` hooks (React context is read in hook position), so it needs no `reg-view` and no `:contextType` — but a bare no-arg `(rf/capture-frame)` still cannot read React context (it is not a hook), so carry the frame with the `use-frame` hook rather than a render-time `capture-frame`.
 
 ## Common gotchas
 
@@ -192,7 +192,7 @@ A single-frame app never spells `image` — `reg-*` writes the default registrat
 
 ## Deeper material
 
-Frame presets in detail, machine-instance teardown contract, the React-context chain through Reagent / Helix / UIx, `dispatch-to-system`: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — State machines (005)**.
+Frame presets in detail, machine-instance teardown contract, the React-context chain through Reagent / UIx, `dispatch-to-system`: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — State machines (005)**.
 
 ---
 

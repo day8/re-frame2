@@ -37,7 +37,7 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 >
 > *- **L3 — the skill never *executes* builds/tests/smoke (refined).** Cardinal rule 5 is the lock: the skill prints the build / test / smoke commands and the **author** runs them — never the skill (arbitrary-code-execution trust boundary). The lock does NOT forbid teaching verification: the skill DOES carry a Phase-4 boot smoke-test (`references/runtime-smoke-test.md`) and DOES gate "done" on it (a read-only live-`app-db` introspection loop), because "compiles" is not the done-bar. Preserve the cardinal-rule-5 invariant and the smoke-test done-bar together; see `design.md` §L3/§L4.*
 > *- **L5 — `migration/from-re-frame-v1/README.md` Part 2 IS the migration prompt.** The kickoff prompt in `references/kickoff-prompt.md` wraps it; it doesn't replace it.*
-> *- **L7 — Reagent v2 is the default substrate target.** Substrate migration (O-13 / O-14) is never part of a v1→v2 migration.*
+> *- **L7 — Reagent v2 is the default substrate target.** Substrate migration (O-13) is never part of a v1→v2 migration.*
 > *- **L9 — Smallest correct diff.** Opt-in modernisations (O-rules) are never auto-applied as part of a routine migration.*
 > *- **L10 — Findings stay local.** Don't commit `ai/` or `findings/` content.*
 >
