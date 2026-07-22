@@ -157,7 +157,7 @@
   This is a threshold on the PROOF, not on Freehand. It exists to stop
   the fourth row of the table being satisfied by a timing that did not
   move — the opposite of a performance budget, and the reason it is set
-  far below the ~50× the fixture actually produces."
+  far below the 20x-50x the fixture actually produces."
   10)
 
 (defn- p50
@@ -196,43 +196,43 @@
          ratio   (when (and (number? base) (pos? base) (number? big)) (/ big base))
          defects
          (into []
-              (keep identity)
-              [(check (zero? (:exit-code holds))
-                      (str "A deterministic property that HOLDS red the run (exit "
-                           (:exit-code holds) "): " (pr-str (:gate-failures holds))
-                           ". The gate direction is vacuous if the harness reds on everything."))
+               (keep identity)
+               [(check (zero? (:exit-code holds))
+                       (str "A deterministic property that HOLDS red the run (exit "
+                            (:exit-code holds) "): " (pr-str (:gate-failures holds))
+                            ". The gate direction is vacuous if the harness reds on everything."))
 
-               (check (= 1 (:exit-code reds))
-                      (str "A deterministic property registered as a GATE was violated and the "
-                           "run exited " (:exit-code reds)
-                           ". A gate that does not red CI is not a gate."))
+                (check (= 1 (:exit-code reds))
+                       (str "A deterministic property registered as a GATE was violated and the "
+                            "run exited " (:exit-code reds)
+                            ". A gate that does not red CI is not a gate."))
 
-               (check named
-                      (str "The violated run failed without naming the property "
-                           ":falsifiability/node-count — got "
-                           (pr-str (mapv :measurement (:gate-failures reds)))
-                           ". A gate failure that cannot say what broke is not evidence."))
+                (check named
+                       (str "The violated run failed without naming the property "
+                            ":falsifiability/node-count — got "
+                            (pr-str (mapv :measurement (:gate-failures reds)))
+                            ". A gate failure that cannot say what broke is not evidence."))
 
-               (check (zero? (:exit-code green))
-                      (str "The reference timing arm exited " (:exit-code green)
-                           ": " (pr-str (:gate-failures green))))
+                (check (zero? (:exit-code green))
+                       (str "The reference timing arm exited " (:exit-code green)
+                            ": " (pr-str (:gate-failures green))))
 
-               (check (zero? (:exit-code moved))
-                      (str "A wall-clock measurement registered as EVIDENCE moved and the run "
-                           "exited " (:exit-code moved)
-                           ". D021 sets no numeric threshold on timing: a harness that fails on "
-                           "a slow run has silently become the threshold it forbids."))
+                (check (zero? (:exit-code moved))
+                       (str "A wall-clock measurement registered as EVIDENCE moved and the run "
+                            "exited " (:exit-code moved)
+                            ". D021 sets no numeric threshold on timing: a harness that fails on "
+                            "a slow run has silently become the threshold it forbids."))
 
-               (check (empty? (:gate-failures moved))
-                      (str "The moved-timing arm reported gate failures: "
-                           (pr-str (:gate-failures moved))
-                           ". Only deterministic properties may produce a verdict."))
+                (check (empty? (:gate-failures moved))
+                       (str "The moved-timing arm reported gate failures: "
+                            (pr-str (:gate-failures moved))
+                            ". Only deterministic properties may produce a verdict."))
 
-               (check (and ratio (>= ratio minimum-move))
-                      (str "The moved-timing arm's distribution did not actually move — p50 "
-                           (pr-str big) "ms against a baseline of " (pr-str base) "ms ("
-                           (pr-str ratio) "x, needed " minimum-move "x). Proving that an "
-                           "unchanged timing does not red the build proves nothing."))])]
+                (check (and ratio (>= ratio minimum-move))
+                       (str "The moved-timing arm's distribution did not actually move — p50 "
+                            (pr-str big) "ms against a baseline of " (pr-str base) "ms ("
+                            (pr-str ratio) "x, needed " minimum-move "x). Proving that an "
+                            "unchanged timing does not red the build proves nothing."))])]
      {:arms    {:honoured-gate   {:exit-code (:exit-code holds)}
                 :violated-gate   {:exit-code     (:exit-code reds)
                                   :gate-failures (mapv :message (:gate-failures reds))}
