@@ -1,35 +1,44 @@
-# Freehand design dossiers (transitional tracked snapshot)
+# Freehand design record
 
-These are the Freehand design dossiers — the design record behind
-[EP-0036](../../EP/EP-0036-the-freehand-view-substrate-programme.md), the
-programme that delivers **Freehand** (`re-frame.freehand`, alias `v`): one
-re-frame-native view substrate with an interpreted paved path and a compiled
-tier, built by absorbing `re-frame.ui`'s useful machinery and deleting the
-donor artifact at the conformance gate.
+This directory is the durable supporting record behind
+[EP-0036](../../EP/EP-0036-the-freehand-view-substrate-programme.md) and the
+implementation of **Freehand** (`re-frame.freehand`, alias `v`): one
+re-frame-native view substrate with an interpreted paved path and a compiled tier
+built by absorbing the useful `re-frame.ui` machinery.
 
 | Document | Role |
 |---|---|
-| [`fable-design.md`](fable-design.md) | the ARGUED DOSSIER — worked dream code, fitness scoring, semantic traces, wounds/pre-mortems, alternatives |
-| [`codex-design.md`](codex-design.md) | the PRODUCT SPINE — the normative statement of what Freehand is and is not, its conformance surface, and its build order |
-| [`studio/fitness-harness.md`](studio/fitness-harness.md) | the acceptance harness — the three hard cases, the examples-corpus census, and the re-com problem inventory |
-| [`decisions/`](decisions/README.md) | the 21 ratified decisions D001–D021 (ratified and folded 2026-07-22; see the note below) |
+| [`codex-design.md`](codex-design.md) | product spine: the ratified target, boundaries, conformance contract, and technical dependency order |
+| [`fable-design.md`](fable-design.md) | argued dossier: worked code, corpus fitness, semantic traces, alternatives, wounds, and pre-mortems |
+| [`studio/fitness-harness.md`](studio/fitness-harness.md) | evidence and acceptance pressure from applications, re-com, and hard browser cases |
+| [`decisions/`](decisions/README.md) | D001–D021, each with its explicit ratified ruling and rationale |
 
-Read them in the order the decision register prescribes: operator rulings,
-then `codex-design.md` as the product spine, then `fable-design.md` as
-evidence and argument, then the individual decision dossiers.
+## Authority
 
-**Snapshot honesty.** These files are copied verbatim from the working tree
-(`ai/findings/better-ui/`, 2026-07-22) and are not edited here. Two
-consequences: the per-dossier `Status:` lines under `decisions/` predate the
-ratification — the ratification of all twenty-one decisions is recorded in
-`fable-design.md`'s header (2026-07-22) — and relative links were written for
-source-tree browsing, so this directory is excluded from the mkdocs site
-build and is meant to be read on GitHub or in a checkout.
+This directory is not a parallel specification tree. Operator rulings and
+EP-0036 control the programme. For target details not yet migrated into `spec/`,
+the product spine carries the ratified design. As each implementation slice lands,
+the owning specification becomes the canonical contract for that surface. The
+argued dossier and fitness harness explain and test the design; they do not enlarge
+the API.
 
-**TRANSITIONAL TRACKED EXCEPTION.** Design working artefacts normally live
-under the untracked `ai/` tree. This directory is deliberately tracked so
-that beads and the EP can cite stable, reviewable paths while the normative
-spec is authored. It is deleted when the `spec/0XX-Freehand` family
-(EP-0036 §W1) supersedes it — the same retirement pattern EP-0030 applied to
-its synthesis dossier. Until then, beads cite these paths; do not grow this
-tree beyond the snapshot.
+Current donor-era specs continue to describe current shipped behavior until their
+Freehand migration lands. That temporary difference between “shipped now” and
+“ratified target” is explicit; it is not a choice offered to implementers.
+
+## Retention and maintenance
+
+Keep this record after specification graduation. It preserves evidence, rejected
+alternatives, and the reasoning that the tighter specifications intentionally omit.
+There is no automatic deletion gate for this directory. A later explicit archival
+decision may move it, but implementation completion alone does not erase it.
+
+Keep the record lean and stable: correct factual errors, broken links, stale status,
+or contradictions with a ruling, but do not grow it into a second API manual or
+implementation tracker. Implementation work should cite stable spec/conformance
+ids as they become available; before then it may cite the EP, product-spine section,
+fitness requirement, or decision id.
+
+The directory is excluded from the published mkdocs site because many evidence
+links are intentionally source-tree-relative. It remains reviewable on GitHub and
+in a checkout.

@@ -1,6 +1,8 @@
 # D009 — What exactly is the controlled-input synchronous flush law?
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Use the narrow controlled-input synchronous door with a frame-scoped
+flush; no `:on-before-input`; vector-plus-options sites remain eligible.**
 
 Horizon: **Immediate**
 

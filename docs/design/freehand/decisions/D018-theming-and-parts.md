@@ -1,6 +1,9 @@
 # D018 — Theming and semantic parts
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Use CSS-cascade tokens plus `data-component`/`data-part` addresses
+and bounded `:parts` spreads through `v/spread-safe`; transforms remain
+interpreted/test-only.**
 
 Horizon: **Upcoming**
 
@@ -256,7 +259,7 @@ expressed in CSS.
 - `v/spread-safe` remains the one merge semantic. A special compiled-only parts
   form is unnecessary.
 
-## Evidence required to close
+## Implementation evidence
 
 Port a representative set of components—a button, controlled field, buffered
 field, dropdown, and virtual-table row—and demonstrate:

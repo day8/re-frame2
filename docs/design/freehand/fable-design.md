@@ -19,8 +19,9 @@ twenty-one design decisions D001–D021 are ratified and folded** (2026-07-22;
 dossiers in `decisions/`): where the two documents once forked, the fork is
 now a closed ruling carried in the body as settled design, not a numbered
 question. Design only: no implementation plan, no staging, no effort
-estimates (the build sequence lives in the product spine). Every load-bearing
-claim is verified at source (`file:line` in this checkout; `bd show` for
+estimates (EP-0036 owns programme slices; the product spine records technical
+dependency order). Every load-bearing
+claim is verified at source (`file:line` in this checkout; decision headers for
 rulings); estimates and knowledge-sourced claims are labelled. Provenance and
 the verification ledger are in Appendix C.
 
@@ -89,7 +90,7 @@ per substrate release, not per view. The product topology:
 | Scheduling | host-checkpoint render batches; one sanctioned synchronous door for controlled inputs (D009: frame-scoped flush confirmed) | §2.2, §2.3 |
 | Events | flat `:on-*`; vectors + options map + closed placeholder trio + key-condition maps (D007); materialize-at-the-adapter splice (D006); **one event per user action** (no multi-intent vectors) | §2.3 |
 | Instance state | semantic controllers (D003 + D004) — library-registered records keyed by kind + explicit caller-supplied `:control` address, semantic transition events; occurrence identity stays in the tool plane; raw storage verbs only for protocol-free state; controlled-first stands | §2.4 |
-| Host integration | registered behaviors (D013) — `host/defbehavior` + `::v/behavior` use-site data, connect/update/disconnect, bounded `:commands` with semantic-id targets; `v/ref` only at the React boundary | §2.5 |
+| Host integration | registered behaviors (D013) — `host/defbehavior` + `::v/behavior` use-site data, connect/update/disconnect, bounded `:commands` with semantic-id targets; React ref protocols stay inside explicit wrappers | §2.5 |
 | Data orientation | purpose-ranked doctrine (testability, AI-authorability first); inline `v/sub` is the one read language in v1 (D012 — no `:reads` declaration) | §2.5 |
 | Tier-2 shape | ABSORPTION, by operator ruling: re-frame.ui's machinery becomes the compiled tier; the standalone artifact is deleted at the gate | §3.4 |
 | Tier placement | app pages interpret; library leaves and row templates compile at birth; promotion by evidence, never folklore | §3.5 |
@@ -704,7 +705,11 @@ The tree carries `[chart-host {:series …}]` — comparable, serializable, asse
 by `=` in a JVM test (inert there); the imperative code lives in one registered
 place. `:connect` runs only after a selected commit, `:update` on committed
 `rf=`-changed config, `:disconnect` exactly once per committed connection,
-threading remembered state (WeakMap-backed on the client). **`ctx`** is
+threading remembered state (WeakMap-backed on the client). Registration timing is
+closed: `:timing :passive` is the default; `:timing :layout` is reserved for
+measurement or mutation that must finish before paint and carries the no-wrong-
+position-paint proof. This is registry metadata, not a lifecycle callback DSL.
+**`ctx`** is
 deliberately small — committed-generation-bound `:dispatch` plus diagnostic
 identity, and NOT an unrestricted frame query function: values flow in through
 config; hidden imperative frame reads are refused. The dispatch is the
@@ -749,12 +754,12 @@ information → configured intent through the ctx dispatch; perform one-shot
 host operation now → one data command effect; React owns the protocol → a
 wrapper, not a behavior. This registry carries measurement (§4.2's anchored
 placement), observers, focus mechanics beyond `:auto-focus`, and non-React
-host libraries (charts, maps, editors). What survives outside it: `v/ref`
-where a node reference is itself a foreign React component's protocol, and the
-React-bound wrapper for hooks/context/portals. Registered behaviors are
-addressable state: `(v/behaviors frame)` lists active connections and command
-traffic as read-only projections (the `:active-owners` pattern extended to
-host integration), so "leaked listener" stays an assertable absence — without
+host libraries (charts, maps, editors). A node reference that is itself part of a
+foreign React component protocol stays inside the React-bound wrapper alongside
+hooks, context, and portals; there is no neutral `v/ref`. Existing read-only
+occurrence/evidence projections list active behavior connections and command
+traffic (the `:active-owners` pattern extended to host integration), so “leaked
+listener” stays an assertable absence—without
 exposing private instances or adding application events. The compiled tier
 lowers `::v/behavior` as an ordinary attribute into the same registry —
 tier-blind by construction. Four behavior laws: behavior CONFIG carries
@@ -1847,8 +1852,8 @@ one lifecycle reach) arbitrates "frequent shapes justify syntax":
 | intent dispatch (93 pure + 58 value-carrying + 36 preventDefault + 3 key sites) | vectors + placeholder trio + options map + key-condition maps → ~97% of the 183 handler sites become pure data | §2.3 |
 | controlled draft input (77 controls, 100 `:disabled`) | the door + draft/canonical split + the field family | §4.1 |
 | keyed row with per-row identity (48 `for` / 35 keys) | `:key` → host slot + occurrence; rows self-subscribe | §2.1; scale: §3.5 |
-| status-driven attribute + route link (106 links) | attrs off async-state maps; href-real `route-link` unchanged — first-page shared vocabulary in both tiers | inherited from core |
-| rare by census (1 ref, 1 autofocus, 0 portals, 0 observers, 0 foreign components) | escape hatches only: behavior registry, `v/ref`, top-layer intrinsics | correctly starved of syntax |
+| status-driven attribute + route link (106 links) | attrs off async-state maps; donor view renamed `v/route-link`, with its href/click law still owned by Spec 012 — first-page shared vocabulary in both tiers | inherited contract, renamed surface |
+| rare by census (1 ref, 1 autofocus, 0 portals, 0 observers, 0 foreign components) | escape hatches only: behavior registry, explicit React wrapper, top-layer intrinsics | correctly starved of syntax |
 
 ### §5.2 The requirements matrix
 
@@ -2324,7 +2329,7 @@ line each, full dossiers in `decisions/`:
 | D010 | no dynamic-markup valve in v1; `v/markup` is the blessed boundary crossing; `:interp-slots` counts its mounts |
 | D011 | props schemas optional in the grammar, mandatory by library/catalogue/generated-parity policy; closed-by-default Malli |
 | D012 | no `:reads` declaration in v1; evidence is the scope×basis×complete?×loss record everywhere |
-| D013 | registered behaviors (`host/defbehavior`, connect/update/disconnect) with the bounded `:commands` channel; semantic-id targets only; `:v.scroll/window` deferred |
+| D013 | registered behaviors (`host/defbehavior`, connect/update/disconnect) with closed passive/layout timing and the bounded `:commands` channel; semantic-id targets only; `:v.scroll/window` deferred |
 | D014 | `v/->react` on the shipped contract: shallow uncoerced copy, reserved `frame` prop, one `:map-props` adapter, descriptor-only, descriptor-keyed caching |
 | D015 | the closed top-layer intrinsic pair `:rf.web/popover-open?`/`:rf.web/modal-open?`; no neutral portal; efxb1h triggers gate any future helper |
 | D016 | one generation-fenced buffered controller; required `:reset-key`; begin = first edit; cancel = semantic clear |
@@ -2342,9 +2347,8 @@ light-dismiss/focus-return, presence retention/re-entry); the component and
 library pilots that gate donor deletion (§3.4) and the key-condition map's
 delete-before-release evidence (D007); the D013 Vega/SpreadJS-class behavior
 pilots and the D014 bridge pilots; and the B1–B5 measurement obligations with
-D021's two-lane policy. Programme-level sequencing — EP-0030's framing, the
-S-train's transitional surface, tool and spec migration by rename — remains
-the mayor's lane, flagged here and not designed here.
+D021's two-lane policy. EP-0036 owns programme sequencing, donor migration, and
+canonical-spec graduation; this dossier does not restate them.
 
 **Premises, reframed where the design disagrees with the original brief:**
 
@@ -2480,8 +2484,8 @@ this substrate's position):
 (`v/defview` + `[view props]`; helpers stay parens) · `sub` · event forms ·
 `:key` · controller records + `:control` addresses · the escape roster. Seven.
 The hatch tier met in the first weeks:
-`v/error-boundary` · `::v/behavior` · the top-layer intrinsics · `v/ref` +
-`v/->react` at the React boundary — twelve. The library/hot-surface owner
+`v/error-boundary` · `::v/behavior` · the top-layer intrinsics · an explicit
+React wrapper + `v/->react` at the React boundary — twelve. The library/hot-surface owner
 adds the `{:compiled true}` option and `v/markup` — fourteen — plus the
 teaching load of the three fence sentences (markup visible, sites finite,
 macros closed) and the tier-decision procedure (cold-start table + evidence
@@ -2628,24 +2632,25 @@ D016, under which begin is the first `edited`), the protocol-free annex
 (disclosure), and
 the pilots-first fence; the gallery's remaining raw-verb sites on
 protocol-bearing state were respelled accordingly. Decision D001 (2026-07-22,
-ai/findings/better-ui/decisions/) ruled the name
+`decisions/`) ruled the name
 and namespace: Freehand / `re-frame.freehand`, alias `v`, no second public
 door — unlocking namespace ownership for absorbed code, diagnostic ids, and
 the generated context sheet (reserved-keyword final spellings remain
 downstream work). The operator's absorption ruling (2026-07-22: the useful code in re-frame.ui
 folds into Freehand; re-frame.ui is then eventually deleted, gated on the
-conformance contract) reshaped §3.4/§8 Q1 and the topology — the product
-spine (codex-design.md) still carries the two-frontends framing and needs the
-same reframing on its side. A comparative critique of the two
+conformance contract) reshaped §3.4/§8 Q1 and the topology; the product spine
+(`codex-design.md`) carries the same one-substrate absorption framing. A
+comparative critique of the two
 documents (operator-supplied) fixed their division of labor — product spine
 vs argued dossier — and prompted this document's conformance contract,
 deliberate-non-goals list, and settled-vs-contested surface ledger.
 
 **The batch fold (2026-07-22).** The nineteen remaining decision dossiers
-D002 and D004–D021 (`ai/findings/better-ui/decisions/`) were ratified by the
-operator wholesale and folded into this document in one pass; for each file
-the operative ruling is its "Recommendation" section as amended by its Fable
-analysis, and the amendments win where they differ. The fold rewrote §2.1–§2.7,
+D002 and D004–D021 (`decisions/`) were ratified by the
+operator wholesale and folded into this document in one pass. Each decision file
+now states its operative ruling in the header; `codex-design.md` carries the
+resulting target contract, and this dossier retains the supporting analysis. The
+fold rewrote §2.1–§2.7,
 §3.2–§3.6, §4, §5, §6, §7, §8, and Appendices A–B to carry the rulings as
 settled design — the sharp declaration boundary, render-only `sub`,
 explicit-only state addresses, the materializer, the closed callback roster,

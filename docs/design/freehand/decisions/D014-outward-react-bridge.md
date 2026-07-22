@@ -1,6 +1,8 @@
 # D014 — Outward React bridge
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Ship `v/->react` for descriptors, with shallow uncoerced props, a
+reserved `frame` prop, one `:map-props` adapter, and descriptor-keyed caching.**
 
 Horizon: **Upcoming**
 
@@ -11,9 +13,9 @@ React component value for APIs that accept a component as a prop? If so, what
 does the bridge do with props, frame context, identity, children, SSR, and host
 objects?
 
-The provisional forms in the design documents are `host/as-react` and
-`v/->react`. This dossier uses `host/as-react` because the operation crosses a
-host boundary; the final name remains part of the ruling.
+The ruled public spelling is `v/->react`. The implementation crosses the React
+host boundary internally, but the operation converts a Freehand descriptor and
+belongs on the one main authoring surface.
 
 ## The problem
 
@@ -22,7 +24,7 @@ leaf or wrapper. Some React libraries reverse the direction and demand a React
 component value:
 
 ```clojure
-{:cellRenderer (host/as-react person-cell)}
+{:cellRenderer (v/->react person-cell)}
 ```
 
 Examples include:
@@ -70,7 +72,7 @@ A component-as-prop API under application control may pass ordinary shallow Reac
 props whose values are already suitable Freehand values:
 
 ```clojure
-(def react-badge (host/as-react account-badge))
+(def react-badge (v/->react account-badge))
 
 [foreign-tabs {:badgeComponent react-badge
                :badgeProps     #js {"account-id" account-id}}]
@@ -90,7 +92,7 @@ contract is usually a small value projection:
    :column-id (.. params -column getColId)})
 
 (def person-cell-react
-  (host/as-react person-cell {:map-props cell-props}))
+  (v/->react person-cell {:map-props cell-props}))
 ```
 
 `cell-props` is intentionally code at the host boundary. It is a top-level,
@@ -117,7 +119,7 @@ Consequences:
 
 ### Option B — a zero-option bridge
 
-`host/as-react` accepts a descriptor and converts the React props object to a
+`v/->react` accepts a descriptor and converts the React props object to a
 Freehand map using one fixed shallow or deep conversion rule.
 
 Consequences:
@@ -131,11 +133,11 @@ Consequences:
 
 ### Option C — a bounded bridge with an explicit prop adapter
 
-`host/as-react` accepts a declared view plus an optional top-level prop mapper:
+`v/->react` accepts a declared view plus an optional top-level prop mapper:
 
 ```clojure
-(host/as-react view)
-(host/as-react view {:map-props adapter})
+(v/->react view)
+(v/->react view {:map-props adapter})
 ```
 
 The no-option form performs one shallow own-property mapping: every own enumerable
@@ -171,7 +173,7 @@ This is precisely the gold-plating boundary the designs intend to avoid.
 
 ## Recommendation
 
-Choose **Option C**: a small `host/as-react` bridge with one optional, explicit
+Choose **Option C**: a small `v/->react` bridge with one optional, explicit
 prop adapter.
 
 The bridge contract should be:
@@ -223,7 +225,7 @@ the clearer and more powerful unit.
   foreign call site in evidence so debugging does not stop at an anonymous React
   wrapper.
 
-## Evidence required to close
+## Implementation evidence
 
 Use at least two different protocol shapes:
 
@@ -263,12 +265,12 @@ Unlocks:
 ## Source basis
 
 - [Codex design — Three host shapes](../codex-design.md#three-host-shapes) defines
-  `host/as-react` as the outward half of the wrapper boundary.
+  `v/->react` as the outward half of the wrapper boundary.
 - [Codex design — React-library integration](../codex-design.md#react-library-integration)
   identifies component-as-prop and compound React protocols as separate cases.
 - [Codex design — Descriptor ABI and cross-mode calls](../codex-design.md#descriptor-abi-and-cross-mode-calls)
   supplies the stable descriptor entry the bridge must mount.
 - [Fable design §2.6](../fable-design.md#26-the-renderer-boundary) proposes the
-  equivalent `v/->react` bridge and specifies ambient frame and wrapper behavior.
+  `v/->react` bridge and specifies ambient frame and wrapper behavior.
 - [Fable design §5.4](../fable-design.md#54-the-component-library-test) treats the
   outward bridge as part of the component-library escape roster.

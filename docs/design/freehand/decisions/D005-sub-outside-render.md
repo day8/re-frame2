@@ -1,12 +1,14 @@
 # D005 — What should `sub` do outside a view render?
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **`v/sub` is render-only; `rf/subscribe-once` is the named one-shot
+read outside render.**
 
 Horizon: **Immediate**
 
 ## Decision
 
-Choose whether `v/sub` is a render-only operation or also performs an
+The decision is whether `v/sub` is a render-only operation or also performs an
 ownership-free, one-shot read when no Freehand view is rendering.
 
 This is a small surface decision with an outsized effect on mistakes. It decides

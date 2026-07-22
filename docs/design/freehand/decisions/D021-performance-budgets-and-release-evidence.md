@@ -1,12 +1,15 @@
 # D021 — Performance budgets and release evidence
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Deterministic properties are release gates; wall-clock and byte
+distributions are required published evidence with named baselines, never fixed
+thresholds.**
 
 Horizon: **Upcoming**
 
-## Decision required
+## Decision
 
-Decide whether Freehand’s timing and byte measurements ever become numerical
+The decision is whether Freehand’s timing and byte measurements ever become numerical
 release gates, which deterministic properties do gate, which workloads and
 baselines are published, and what evidence is required for alpha, donor deletion,
 and beta.

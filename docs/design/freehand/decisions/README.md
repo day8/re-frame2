@@ -1,130 +1,111 @@
-# Freehand implementation decision register
+# Freehand decision register
 
-This directory contains the implementation decision set exposed by
-[the product spine](../codex-design.md) and
-[the argued dossier](../fable-design.md). Each decision has one self-contained
-file. D001 records the settled product name; the other dossiers remain **Open**
-until Mike decides them or delegates that authority.
+All twenty-one Freehand product decisions are **Ruled**. The files in this
+directory explain the problem, alternatives, consequences, and rationale; their
+header states the operative ruling so an implementer does not have to infer it
+from a recommendation section.
 
-The register includes choices that change public authoring, semantic laws,
-cross-mode conformance, host integration, tooling contracts, or a release claim.
-It deliberately excludes ordinary private implementation choices that can be
-changed without affecting those surfaces.
+The register contains choices that affect public authoring, semantic laws,
+cross-mode conformance, host integration, tooling, or release claims. Ordinary
+private implementation choices remain with the programmer.
 
-## Authority and settled constraints
+## Authority and document roles
 
-Read the documents in this order:
+Use these sources according to the question being answered:
 
-1. explicit operator rulings;
-2. `codex-design.md` as the normative product spine;
-3. `fable-design.md` as evidence, worked examples, and competing recommendations;
-4. these dossiers as the remaining choice set.
+1. An explicit operator ruling controls.
+2. [EP-0036](../../../EP/EP-0036-the-freehand-view-substrate-programme.md)
+   controls product topology, programme ownership, migration, and gates.
+3. A canonical specification controls a surface once its Freehand migration has
+   landed. Until then, the existing specification describes the donor-era shipped
+   contract and [`codex-design.md`](../codex-design.md) describes the ratified
+   Freehand target.
+4. This register records the individual rulings and their rationale.
+5. [`fable-design.md`](../fable-design.md) and the
+   [fitness harness](../studio/fitness-harness.md) supply worked examples,
+   evidence, failure modes, and acceptance pressure. They do not add API.
 
-The following are settled and therefore do **not** get open-decision files:
+The distinction in item 3 is temporal, not permission to choose between two
+contracts. Each implementation slice migrates its canonical spec before or with
+code; after that migration there is one owner.
+
+## Settled foundations
 
 - The product is Freehand, published through `re-frame.freehand` with alias `v`
-  and no second public namespace. [D001](D001-product-name-and-namespace.md)
-  records the ruling and its rationale.
+  and no second public namespace.
 - Freehand is one re-frame-native substrate with interpreted and compiled modes;
   the compiled mode is required.
-- The named useful `re-frame.ui` machinery is absorbed as the compiled mode's
-  implementation. `re-frame.ui` is in donor mode now and is deleted when internal
-  conformance is green, the component/library pilots pass, and consumers migrate—a
-  gate, not a date.
-- There is one declaration form. Compilation is selected with
-  `{:compiled true}`; `:re-frame.freehand/v1` is the versioned compiled grammar,
-  not a compatibility profile between products.
-- `local`, its placement machinery, and the neutral React hook tier do not survive
-  absorption. React protocols remain in explicit wrappers.
+- The useful `re-frame.ui` machinery is absorbed as the compiled mode's
+  implementation. `re-frame.ui` is donor-only now and is deleted when internal
+  conformance, pilots, and consumer migration are complete—a gate, not a date.
+- There is one declaration form. `{:compiled true}` selects compilation, and
+  `:re-frame.freehand/v1` versions the compiled grammar.
+- `local`, its placement machinery, and the neutral React hook tier do not
+  survive absorption. React protocols remain behind explicit host wrappers.
 - re-frame is the only reactive application-state system.
-- One user action produces one semantic event vector or `nil`, never a
-  vector-of-vectors event language.
-- Mount/unmount and host lifecycle facts go to tools, never to domain events.
-- Compilation is manual and evidence-guided; there is no automatic promotion,
-  second compiler, or permanent interpreted fallback hidden inside generated code.
+- One user action produces one semantic event vector or `nil`, never an event
+  vector-of-vectors language.
+- Mount/unmount and other host lifecycle facts are tool evidence, not domain
+  events.
+- Compilation is manual and evidence-guided. There is no second compiler,
+  automatic promotion, or hidden interpreted fallback in compiled markup.
 - Keyed presence and separate React/JVM emitters are required capabilities.
 
-## Immediate decisions
+## Rulings
 
-These choices should be ruled before their associated implementation surface is
-allowed to harden.
-
-| ID | Decision | Why now |
-|---|---|---|
-| [D002](D002-view-boundaries-and-call-semantics.md) | declared boundaries and call syntax | determines view identity, HMR, vector resolution, and page-one teaching |
-| [D003](D003-reusable-control-state-model.md) | reusable-control state model | resolves the largest remaining Codex/Fable architectural fork after `local` dies |
-| [D004](D004-state-identity-and-addressing.md) | state identity and addressing | required before any stateful reusable controller can be stable across refactors/tests |
-| [D005](D005-sub-outside-render.md) | `sub` outside a render | fixes whether a common mistake is a probe or an error |
-| [D006](D006-event-projections-and-payload-injection.md) | projection tokens and payload injection | completes the common dispatcher contract replacing donor literal-only recognition |
-| [D007](D007-key-condition-event-maps.md) | key-condition maps | determines the event grammar absorbed by both runtime and compiler |
-| [D008](D008-callback-forms-and-stable-identity.md) | callback forms and foreign identity | bounds React interop without importing hook ceremony into neutral views |
-| [D009](D009-controlled-input-synchronous-flush.md) | synchronous controlled-input flush scope | determines correctness and background-work latency coupling |
-| [D010](D010-compiled-dynamic-markup-crossing.md) | dynamic markup at the compiled seam | decides whether compiled views ever contain an interpreter walk |
-| [D011](D011-compiled-props-schemas.md) | props schemas for compiled views | determines how generative parity is proved without imposing needless ceremony |
-| [D013](D013-imperative-host-behaviors-and-commands.md) | behavior registry and commands-in | fixes the host ABI that replaces refs/effects and absorbs imperative libraries |
-
-## Upcoming decisions
-
-These can wait for the named dependency or pilot, but should be ruled before the
-feature is claimed or its API is published.
-
-| ID | Decision | Decision trigger |
-|---|---|---|
-| [D012](D012-declared-reads-and-evidence-levels.md) | declared reads and manifest evidence levels | first public component-library manifest/catalogue pilot |
-| [D014](D014-outward-react-bridge.md) | Freehand view as a React component value | first component-as-prop integration |
-| [D015](D015-top-layer-overlays-and-portals.md) | top-layer and portal vocabulary | popup/dialog re-com pilot in a real browser |
-| [D016](D016-buffered-and-revision-controls.md) | buffered/revision controller placement and acceptance | full stale-blur/reset/caret/IME harness |
-| [D017](D017-framework-control-and-policy-vocabulary.md) | framework versus library control/event/effect vocabulary | two independent controls repeat the same protocol |
-| [D018](D018-theming-and-parts.md) | theming and parts contract | representative re-com port and compiled controlled control |
-| [D019](D019-error-boundaries-and-production-reports.md) | error boundary and production report policy | browser host/error integration and privacy review |
-| [D020](D020-tool-evidence-retention-and-warning-policy.md) | tool evidence, retention, and warning strictness | Xray/tool API implementation |
-| [D021](D021-performance-budgets-and-release-evidence.md) | performance evidence and release-gate policy | B1–B5 baseline results |
-
-## Dependency shape
-
-- D003 precedes D004 and D016. If no generic substrate state is adopted, D004
-  still decides explicit identity for library-owned controllers.
-- D006–D009 settle the event and controlled-input laws before D016 can be judged.
-- D013 precedes D014 and D015; otherwise host integrations will establish an ABI
-  accidentally.
-- D002, D010, and D011 precede the compiled conformance corpus.
-- D003/D004 and D019 constrain the fields and privacy boundary in D020.
-- D021 defines performance evidence and release-gate policy, but it cannot weaken
-  any semantic conformance or browser-correctness gate.
-
-## Coverage of Fable's operator list
-
-Fable Q1 (absorption) is ruled and appears above as a settled constraint. The
-remaining explicit questions map as follows:
-
-| Fable question | Decision dossier |
+| ID | Operative ruling |
 |---|---|
-| Q2(a), declared versus bare-function boundaries | D002 |
-| Q2(b), derived versus explicit state identity | D003 and D004 |
-| Q3, dependency-annotated foreign `v/event` | D008 |
-| Q4, top-layer intrinsics | D015 |
-| Q5, `sub` outside render | D005 |
-| Q6, declared reads | D012 |
-| Q7, attach registry and commands | D013 |
-| Q8, framework control vocabulary | D017 |
+| [D001](D001-product-name-and-namespace.md) | Freehand; `re-frame.freehand`, alias `v`; no second public door |
+| [D002](D002-view-boundaries-and-call-semantics.md) | every mounted boundary is a vector-called `v/defview`; helpers are direct-called functions |
+| [D003](D003-reusable-control-state-model.md) | semantic controllers over shared re-frame infrastructure; generic storage only for protocol-free state |
+| [D004](D004-state-identity-and-addressing.md) | explicit caller-supplied `:control` addresses for writable state; occurrence identity remains tool-plane evidence |
+| [D005](D005-sub-outside-render.md) | `v/sub` is render-only; `rf/subscribe-once` is the one-shot read |
+| [D006](D006-event-projections-and-payload-injection.md) | the Freehand adapter materializes the closed projection trio; general dispatch has no payload arity |
+| [D007](D007-key-condition-event-maps.md) | closed exact-key maps ship subject to their delete-before-release pilot gate |
+| [D008](D008-callback-forms-and-stable-identity.md) | closed callback roster with committed per-site slots; no generic dispatcher helper |
+| [D009](D009-controlled-input-synchronous-flush.md) | narrow controlled-input door with a frame-scoped synchronous flush |
+| [D010](D010-compiled-dynamic-markup-crossing.md) | no dynamic-markup valve in v1; use the declared `v/markup` boundary |
+| [D011](D011-compiled-props-schemas.md) | schemas optional in grammar, mandatory for public library/catalogue and generated-parity surfaces |
+| [D012](D012-declared-reads-and-evidence-levels.md) | no `:reads` language in v1; evidence always states scope, basis, completeness, and loss |
+| [D013](D013-imperative-host-behaviors-and-commands.md) | registered behaviors with closed passive/layout timing, bounded commands, and semantic-id targets |
+| [D014](D014-outward-react-bridge.md) | descriptor-only React bridge with shallow props, reserved frame, one mapper, and stable caching |
+| [D015](D015-top-layer-overlays-and-portals.md) | qualified popover/modal desired-state intrinsics; no neutral portal |
+| [D016](D016-buffered-and-revision-controls.md) | one generation-fenced buffered controller with required reset revision |
+| [D017](D017-framework-control-and-policy-vocabulary.md) | control families are first-party library vocabulary; policy graduates only when repeated |
+| [D018](D018-theming-and-parts.md) | CSS tokens, semantic part addresses, and bounded safe spreads; no portable transform seam |
+| [D019](D019-error-boundaries-and-production-reports.md) | resettable error boundary, once-per-generation safe intent, and private frame error egress |
+| [D020](D020-tool-evidence-retention-and-warning-policy.md) | one occurrence-keyed evidence schema and the existing Spec 009 retention axis |
+| [D021](D021-performance-budgets-and-release-evidence.md) | deterministic release gates plus mandatory published timing/byte evidence without fixed thresholds |
 
-The register also captures unnumbered forks and implementation-triggered choices:
-event payload provenance (D006), key-condition maps (D007), the synchronous door
-(D009), `(interp ...)` at the compiled seam (D010), generative props schemas
-(D011), the outward React bridge (D014), buffered-control proof (D016), theming
-(D018), production errors (D019), evidence policy (D020), and performance
-release-gate policy (D021).
+## Implementation horizons
 
-## Closing a decision
+“Immediate” and “upcoming” now describe implementation order, not unresolved
+design.
 
-When a ruling is made:
+- **Immediate common-contract work:** D002–D011 and D013 establish boundaries,
+  state, reads, events, controlled scheduling, the compiled crossing, schemas,
+  and the host behavior protocol.
+- **Capability slices and pilots:** D012 and D014–D020 become executable with the
+  evidence, React bridge, top-layer, buffered-control, library-policy, theming,
+  error, and tooling slices.
+- **Continuous release evidence:** D021 applies from the first runnable B1–B5
+  fixture and cannot weaken a semantic or browser-correctness gate.
 
-1. change the dossier status to **Ruled** and state the selected option plainly;
-2. update `codex-design.md` so the product spine carries the decision;
-3. update the relevant specification or acceptance harness when implementation
-   begins;
-4. remove contradictory recommendation language from the other design document or
-   mark it explicitly as a losing alternative.
+Dependency constraints remain small and explicit: D003 precedes the controller
+work governed by D004/D016; D006–D009 precede the controlled-input proof; D013
+precedes bridge/behavior integration; D002/D010/D011 precede generated cross-mode
+parity; D019 constrains D020's privacy boundary.
 
-Do not preserve two spellings or compatibility aliases merely to avoid making the
-decision.
+## Graduation discipline
+
+Each implementation slice must:
+
+1. migrate the canonical specification and API/ownership indexes for its surface;
+2. cite the relevant decision ids in its acceptance criteria;
+3. add common, interpreted, compiled, JVM, browser, or host proof only where that
+   surface requires it; and
+4. remove the corresponding donor obligation or record why it has not yet crossed.
+
+If implementation reveals a genuine contradiction, amend the one affected ruling
+explicitly. Do not preserve two spellings, two semantics, or a compatibility alias
+merely to avoid resolving it.

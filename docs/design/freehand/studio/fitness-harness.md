@@ -135,7 +135,7 @@ component's quirk.
 | Commit-forces-reset flicker | input_text.cljs:96-110 | forced external-model reset misfires "changed"; async on-change flickers; escape hatch = arity-sniffed done-fn (:104) |
 | Ephemeral state re-minted per render | input_text.cljs:90 | `showing? (reagent/atom false)` created INSIDE the render fn — the tooltip's open state dies on any re-render (typing a char while a status tooltip shows closes it). Even the library's own authors misplace ephemeral state |
 | Substrate-level caret heuristics | reagent/impl/input.cljs (2.0.1 jar) | async batched rendering breaks React's same-tick caret preservation; Reagent ships shadow-DOM-aware active-element walking + selection restore as permanent machinery |
-| External-store input hazard | spec/004-Views.md:448-461; ai/findings/Uix/fable.md ("a real dropped-keystroke/IME problem that any external-store state … has and React's useState path does not") | ANY design where the input value round-trips through an external store must name its synchronous door |
+| External-store input hazard | spec/004-Views.md:448-461 and the prior verified UIx review | ANY design where the input value round-trips through an external store must name its synchronous door |
 | Uncontrolled dodge trade | cells/core.cljs:455-462 | `:default-value` avoids per-keystroke writes but state cannot see mid-edit text; seeding only applies at mount |
 
 ---
@@ -417,7 +417,7 @@ Donor sketches: **Replicant answers are [knowledge]** (no replicant findings doc
 this checkout; claims kept to its documented core: pure hiccup from state, handlers as
 data to one global dispatcher, lifecycle/aliases as data, top-down root re-render,
 library-managed DOM state). **UIx answers** draw on the verified prior review
-(`ai/findings/Uix/fable.md` + codex.md) plus [knowledge] for API shapes. "Seeds" are
+(the prior verified UIx review) plus [knowledge] for API shapes. "Seeds" are
 better-than-all-donors leads — repo precedents first, then what native event/sub
 understanding could unlock (marked [seed] = design-space lead, not a requirement).
 
@@ -481,10 +481,10 @@ understanding could unlock (marked [seed] = design-space lead, not a requirement
   `~/.m2/repository/reagent/reagent/2.0.1/reagent-2.0.1.jar`.
 - **Spec**: spec/004-Views.md:448-461 (synchrony law), :322 (controlled-input-async-
   handler diagnostic id).
-- **UIx claims**: `ai/findings/Uix/fable.md` + codex.md (prior verified reviews);
+- **UIx claims**: the prior verified UIx review, with the findings restated here;
   API shapes beyond them are [knowledge].
 - **Replicant claims**: [knowledge] throughout (no replicant findings doc in this
-  checkout; `ai/findings/replicant/` absent).
+  checkout; no separate Replicant findings dossier was available).
 - **Numbers that differ from the brief's**: brief says "23 direct hiccup-value props" —
   my grep counts 34 `string-or-hiccup?` mentions including definitions/requires; the
   brief's 23 counts actual prop rows and is retained as the canonical figure with

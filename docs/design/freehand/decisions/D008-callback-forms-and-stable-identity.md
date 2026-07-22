@@ -1,12 +1,14 @@
 # D008 — Which callback forms exist, and what owns stable identity?
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Use the closed callback roster with per-site committed slots; do not
+add `v/dispatcher` or a dependency-annotated `v/event`.**
 
 Horizon: **Immediate**
 
 ## Decision
 
-Ratify the finite callback roster and define when a JavaScript callback keeps its
+The ruling fixes the finite callback roster and defines when a JavaScript callback keeps its
 identity, which render/commit generation it reads, and when it becomes inert.
 
 Without this decision, integration with React libraries may appear correct while

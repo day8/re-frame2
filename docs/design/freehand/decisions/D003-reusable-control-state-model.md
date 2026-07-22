@@ -1,11 +1,13 @@
 # D003 — Reusable-control state model
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Use semantic controllers over shared re-frame infrastructure;
+generic storage verbs are only for protocol-free state.**
 
 Horizon: **Immediate** — required before the common state contract and component
 pilots are implemented
 
-## Decision to make
+## Decision
 
 When a reusable control genuinely owns interaction state, where does that state
 live, how is it changed, and how much generic state machinery does Freehand expose?
@@ -244,7 +246,7 @@ re-frame's single state, transition, testing, and explanation model.
 - Too many semantic controller families would blur the boundary between Freehand
   and a component library. D017 decides vocabulary ownership.
 
-## Evidence required to close the decision
+## Implementation evidence
 
 The recommendation should be accepted only after a thin prototype demonstrates:
 

@@ -1,12 +1,14 @@
 # D012 — Declared reads and evidence levels
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **There is no `:reads` declaration in v1; every evidence projection
+states scope, basis, completeness, and loss.**
 
 Horizon: **Upcoming**
 
-## Decision required
+## Decision
 
-Decide whether Freehand should add an author-facing declaration of subscription
+The decision is whether Freehand should add an author-facing declaration of subscription
 reads, and define how tools distinguish static proof, author declaration, runtime
 observation, opaque host behavior, and capped evidence.
 

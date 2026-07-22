@@ -1,6 +1,9 @@
 # D013 — Imperative host behaviors and commands
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Use registered connect/update/disconnect behaviors with closed
+`:passive`/`:layout` timing, a bounded command channel, and semantic-id targets;
+defer any scroll-window primitive.**
 
 Horizon: **Immediate**
 
@@ -216,10 +219,13 @@ Choose **Option D**, under the public term **behavior** rather than introducing 
 second `attach` concept.
 
 The base API should remain the Codex protocol: `host/defbehavior` and a qualified
-behavior value on one node, with `connect`, `update`, and `disconnect`. Add the
-bounded command channel as an optional capability of that same registry. Do not
-add general refs, effects, mount callbacks, direct frame reads, derived command
-anchors, or a catalogue of framework-owned behaviors.
+behavior value on one node, with `connect`, `update`, and `disconnect`. A
+registration chooses `:timing :passive` (the default) or `:timing :layout` for
+host work that must finish before paint; this is closed registry metadata, not a
+general lifecycle callback. Add the bounded command channel as an optional
+capability of that same registry. Do not add general refs, effects, mount
+callbacks, direct frame reads, derived command anchors, or a catalogue of
+framework-owned behaviors.
 
 This is the smallest surface that honestly replaces the relevant ref/effect jobs
 being retired with `re-frame.ui`. It accepts Fable's strongest command argument
@@ -272,12 +278,13 @@ The behavioral split should be taught plainly:
   pilot demonstrates that the reusable implementation belongs in the substrate
   rather than a component library.
 
-## Evidence required to close
+## Implementation evidence
 
-The decision is ready to ratify when one direct Vega integration and one
-SpreadJS- or editor-shaped integration demonstrate:
+The ruled contract remains implementation-proven when one direct Vega integration
+and one SpreadJS- or editor-shaped integration demonstrate:
 
 - commit-only connect and atomic config/event publication;
+- layout-timed measure-then-place without a visible wrong-position paint;
 - update without cursor/selection destruction;
 - disconnect exactly once, including root teardown, HMR, and presence removal;
 - stale outward callbacks becoming inert;

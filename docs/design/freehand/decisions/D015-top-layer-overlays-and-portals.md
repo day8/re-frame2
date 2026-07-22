@@ -1,6 +1,9 @@
 # D015 — Top-layer overlays and portals
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Ship only the qualified popover/modal desired-state intrinsics in
+the neutral tree; ship no neutral portal unless the recorded graduation trigger
+fires.**
 
 Horizon: **Upcoming**
 
@@ -234,7 +237,7 @@ does not ask the substrate to become an overlay component library.
 - The two intrinsics are compiler-recognised common semantics, not compiled-only
   forms.
 
-## Evidence required to close
+## Implementation evidence
 
 The popup component pilot should cover:
 

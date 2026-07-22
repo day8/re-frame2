@@ -1,18 +1,20 @@
 # D010 — Dynamic markup crossing into compiled views
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **The v1 compiled grammar has no dynamic-markup valve; `v/markup` is
+the declared boundary crossing and its mounts count as `:interp-slots`.**
 
 Horizon: **Immediate**
 
-## Decision required
+## Decision
 
-Decide whether `:re-frame.freehand/v1`, the versioned grammar of Freehand’s
+The decision is whether `:re-frame.freehand/v1`, the versioned grammar of Freehand’s
 compiled tier, admits an explicit operation that asks the interpreted runtime to
 walk a dynamically produced Hiccup value inside an otherwise compiled view.
 
 This is a grammar decision, not a topology decision. Freehand is one substrate,
 `re-frame.ui` is its donor, and compilation is selected with
-`v/defview {:compiled true}`. The open question is how sharp the boundary of
+`v/defview {:compiled true}`. The decision was how sharp the boundary of
 that one compiled grammar should be.
 
 ## The problem
@@ -198,12 +200,12 @@ compiled grammar closed makes its proof, diagnostics, and performance meaning
 exceptionally clear and avoids building machinery before the component and
 library pilots demonstrate demand.
 
-If “markup already in hand” recurs enough to deserve a standard recovery, provide
-an ordinary declared interpreted child such as `[v/markup {:value markup}]`. The
-compiled parent sees one statically named descriptor boundary; the child owns the
-interpreted walk and its normal ViewCell/evidence. This is convenience at the
-existing boundary, not `v/interp`, an inline walker, capture masking, or a new
-compiled grammar form.
+The standard recovery for “markup already in hand” is the ordinary declared
+interpreted child `[v/markup {:value markup}]`. The compiled parent sees one
+statically named descriptor boundary; the child owns the interpreted walk and its
+normal ViewCell/evidence, and `:interp-slots` counts the mounts. This is convenience
+at the existing boundary, not `v/interp`, an inline walker, capture masking, or a
+new compiled grammar form.
 
 This is not a claim that an explicit valve is incoherent. If pilots reveal a
 large, recurring class of *inert* markup values for which a child boundary is

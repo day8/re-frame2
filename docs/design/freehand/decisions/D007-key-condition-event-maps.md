@@ -1,12 +1,14 @@
 # D007 — Should key-condition event maps be part of the grammar?
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Ship the closed key-condition map, including the normative
+composition rule, subject to its delete-before-release pilot gate.**
 
 Horizon: **Immediate**
 
 ## Decision
 
-Decide whether ordinary keyboard branching has a bounded data form, or whether
+The decision is whether ordinary keyboard branching has a bounded data form, or whether
 every key-dependent listener must use `v/event`.
 
 This is a direct fork between the two designs: Codex keeps the event grammar smaller;

@@ -1,11 +1,13 @@
 # D004 — State identity and addressing
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Writable state uses explicit caller-supplied `:control` addresses;
+occurrence identity remains tool-plane evidence, with no public `v/self` in v1.**
 
 Horizon: **Immediate** — stateful controller implementation cannot start safely
 without it
 
-## Decision to make
+## Decision
 
 How does a reusable stateful control identify its re-frame state across renders,
 reordering, HMR, structural tests, SSR, virtualization, and temporary absence?
@@ -17,7 +19,7 @@ Freehand already has a renderer occurrence identity:
 ```
 
 That identity is suitable for cells, event sites, presence, host connection
-generations, and debugging. The open question is whether it may also become an
+generations, and debugging. The decision was whether it may also become an
 application-state address, or whether writable controller state requires a
 separate caller-supplied semantic identity.
 
@@ -249,7 +251,7 @@ not need to reproduce the application's parent tree to manufacture a derived pat
   development warnings should explain why unpredictable mount tokens defeat replay
   and tests.
 
-## Evidence required to close the decision
+## Implementation evidence
 
 - Demonstrate a keyed reorder, virtualization unmount/remount, HMR, and isolated
   Story render with one unchanged semantic address.

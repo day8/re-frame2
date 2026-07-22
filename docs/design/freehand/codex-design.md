@@ -1,13 +1,16 @@
 # Better UI: Freehand, one substrate with two execution modes
 
-Status: pre-alpha design. The substrate is **Freehand**; its public namespace is
-`re-frame.freehand`, conventionally aliased as `v`.
+Status: ratified pre-alpha target design; implementation is not yet complete. The
+substrate is **Freehand**; its public namespace is `re-frame.freehand`,
+conventionally aliased as `v`.
 
-This is the normative product design. It incorporates the rulings in
-[`decisions/D001-D021`](decisions/README.md). Required prototypes, pilots, and
-measurements are acceptance obligations, not open product design. Research
-dossiers, fitness harnesses, and `re-frame.ui` donor code do not independently
-enlarge Freehand's public contract.
+This is the product spine. It incorporates the ruled
+[`decisions/D001-D021`](decisions/README.md) and defines the target until each
+surface graduates into its canonical specification. It is not a second spec tree:
+after a spec migration lands, that spec owns the contract. Required prototypes,
+pilots, and measurements are acceptance obligations, not open product design. The
+argued dossier, fitness harness, and `re-frame.ui` donor code supply evidence but
+do not independently enlarge Freehand's API.
 
 Notation:
 
@@ -305,6 +308,25 @@ is added. `:re-frame.freehand/v1` is the artifact-wide version of Freehand's
 compiled grammar, carried by compiler findings and manifests; it is not a
 compatibility profile negotiated between products or selected independently per
 view. There is no second macro or second namespace.
+
+### Framework-supplied views
+
+Framework views use the same descriptor contract as application views; they are
+not compiler intrinsics. The corpus-critical example is `v/route-link`:
+
+```clojure
+[v/route-link {:to :article :params {:slug slug} :class "title"}
+ title]
+```
+
+It renders a real anchor with a strategy-correct `href`. Plain in-app left clicks
+produce routing intent; modifier clicks, middle clicks, downloads, and non-`_self`
+targets retain native behavior. A caller `:on-click` runs first and may veto. The
+routing artifact owns href and navigation semantics through its existing late-bound
+seam; Freehand owns only the ordinary view and host-neutral rendering. Absence of
+the optional routing artifact fails loudly. The same declaration renders a
+handler-free anchor for JVM/SSR and may itself be compiled without changing its
+public contract.
 
 ### State ownership
 
@@ -802,13 +824,13 @@ the boundary, and a declared wrapper states its structural/SSR policy.
 #### Outward React bridge
 
 Some React libraries demand a component value as a prop—for example a grid cell
-renderer or drag overlay. `host/as-react` is the outward half of the same wrapper
+renderer or drag overlay. `v/->react` is the outward half of the same wrapper
 boundary, not a fourth host shape:
 
 ```clojure
-{:cellRenderer (host/as-react person-cell)}
+{:cellRenderer (v/->react person-cell)}
 
-(host/as-react person-cell {:map-props cell-props})
+(v/->react person-cell {:map-props cell-props})
 ```
 
 The bridge accepts only a declared descriptor. It returns a memoized React
@@ -827,7 +849,7 @@ remints the React component is a development diagnostic. Protocols needing hooks
 refs, compound cloning, React children, or imperative handles use a real wrapper.
 
 Inside, props, subscriptions, events, HMR, errors, and evidence retain ordinary
-Freehand semantics. `host/as-react` raises the common typed host-operation error on
+Freehand semantics. `v/->react` raises the common typed host-operation error on
 the JVM. Each structural use site therefore needs a truthful SSR adapter or
 `v/client-only` with an explicit fallback; the bridge does not infer server support
 from the foreign library.
@@ -877,6 +899,10 @@ intents. The browser adapter owns the code, node, and opaque memory.
 Behavior semantics:
 
 - `connect` runs after a selected commit and returns private memory;
+- a registration chooses one closed host timing: `:passive` by default or
+  `:layout` for measurement/mutation that must finish before paint; timing is
+  registry metadata, not use-site callback syntax, and the JVM records it without
+  pretending to execute it;
 - `update` runs when public config changes by `rf=`;
 - `disconnect` runs exactly once for that committed connection before memory is
   released; reconnect/replay is allowed, so implementations must tolerate replay;
@@ -897,6 +923,12 @@ Behavior semantics:
   serializable traces;
 - the JVM retains an inert behavior marker and public config, or renders an explicit
   fallback when the behavior owns visible content.
+
+A `:layout` behavior must prove that measure-then-place produces no visible
+wrong-position frame. It must also state whether it positions once, responds to
+resize/scroll through bounded observers, or tracks continuously; a silent animation
+loop is not permitted. The mounted overlay pilot verifies both timing and total
+observer/listener cleanup.
 
 #### Commands
 
@@ -950,6 +982,24 @@ mounted view, frame preflight, and SSR/hydration facts. The live DOM container a
 Root handle remain host objects. `unmount!` performs total teardown and records the
 result; it does not become a data event inside the view tree.
 
+The descriptor is tooling/compiler data, not page-one ceremony. The single-root
+paved path remains the donor shape with only the namespace changed:
+
+```clojure
+(def mounted
+  (v/mount [app-root {}]
+           (.getElementById js/document "app")))
+
+(v/unmount! mounted)
+```
+
+Identity derives when unambiguous; an application supplies `:root-id` only for a
+real collision or stable external identity. The advanced create/render/hydrate
+operations consume the same descriptor and return an opaque handle. The same root
+form is accepted by structural rendering, so a normal test does not reconstruct a
+parallel boot plan. Root acceptance includes this minimal boot path, explicit-id
+multi-root use, frame preflight, hydration, failed-root isolation, and total teardown.
+
 The versioned structural host retains declared view boundaries, public props,
 children, data intents/key maps, presence and top-layer metadata, error boundaries,
 and host behavior/component/command markers. Host internals remain opaque.
@@ -1002,9 +1052,12 @@ There is no “compiled except for this unknown subtree.” Recovery is to expos
 finite choice, pass a computed value, extract an interpreted or compiled child,
 qualify a host leaf, register a bounded behavior, or keep the parent interpreted.
 `:re-frame.freehand/v1` contains neither `v/interp` nor an automatic dynamic-markup
-walk. If repeated inert “markup already in hand” needs convenience, it crosses a
-statically named interpreted child descriptor rather than creating an inline
-interpreter valve. Any future valve is a new grammar decision and version.
+walk. The standard recovery for inert “markup already in hand” is
+`[v/markup {:value markup}]`: an ordinary declared interpreted child. The compiled
+parent sees one statically named descriptor boundary; the child owns the walk and
+normal ViewCell/evidence. Manifests mark the crossing as interpreted and occurrence
+evidence counts its mounts as `:interp-slots`. This is a visible boundary, not an
+inline grammar valve. Any future valve is a new grammar decision and version.
 
 `:reads` is not part of v1. Reconsider it only for a concrete SSR, catalog, or
 tooling need, and only if undeclared reads are rejected before completeness is
@@ -1082,12 +1135,13 @@ Every row must be green; parity is not a cross-product compatibility negotiation
 | state/host | local/effect/ref forms rejected; opaque facts remain behind qualified boundaries |
 | presence | one keyed retention/override/timeout/accessibility/test contract |
 | top layer | one popover/modal desired-state pair, commit/generation law, structural metadata, and browser matrix; no neutral portal |
-| behavior | one id/config/optional-command protocol; commit-only connection; explicit command target; private memory; marker/fallback on JVM |
+| behavior | one id/config/timing/optional-command protocol; commit-only connection; explicit command target; private memory; marker/fallback on JVM |
 | outward React | descriptor-only stable bridge; common frame/props semantics; explicit mapper and SSR policy |
 | errors | one boundary/reset/fallback/safe-intent contract plus private frame error egress; failed candidates publish nothing |
 | roots | one Root Descriptor, preflight, identity, teardown, SSR, and hydration contract |
+| routing link | one ordinary descriptor over Spec 012's href/click law; real anchor and native modifier behavior in both modes |
 | structure | one versioned tree and conversion table; explicit host policy |
-| diagnostics/tools | one versioned occurrence schema with scope/basis/completeness/loss, stable ids/source/recovery, and bounded retention |
+| diagnostics/tools | one versioned occurrence schema with scope/basis/completeness/loss, stable ids/source/recovery, bounded retention, and provable-only static accessibility findings |
 
 The React and JVM emitters remain separate. They share host-neutral normalizers
 where practical and prove parity through a cross-mode conformance corpus.
@@ -1121,8 +1175,8 @@ re-com’s independence from re-frame.
 | controlled inputs | value + forwarded intent + projection materializer + `spread-safe` | simpler; no atom/value polymorphism or closure stack |
 | buffered inputs | addressed semantic library controller with required reset key; qualified host-owned escape | architecture settled; portable claim gated by reset/caret/IME/cost harness |
 | validation/status | derived subscriptions and re-frame state | traceable and renderer-independent |
-| async dropdown/typeahead | props-only where practical; library semantic controller for cross-event interaction; resources/machines own async work | clear causal lifetime; no fetch-on-mount or framework widget vocabulary |
-| popover/focus/measurement | qualified popover/modal desired state; behavior for placement/measurement; wrapper for React protocols | bounded and honest; no neutral portal |
+| async dropdown/typeahead | props-only where practical; library semantic controller for cross-event interaction; resources/machines own async work | clear causal lifetime; correlation, supersession, debounce, and late-result races remain data and are headlessly provable |
+| popover/focus/measurement | qualified popover/modal desired state; layout-timed behavior for placement/measurement; wrapper for React protocols | bounded timing and tracking policy; no neutral portal |
 | enter/exit | keyed presence plus mounting/unmounting data | inspectable and deterministic |
 | tables/virtual lists | keys, windowing, pure row slot; behavior/wrapper for scrolling | sufficient; row slot is load-bearing |
 | parts/themes | CSS tokens, public `data-part`, bounded safe part maps, composition slots | one portable contract; no late transform seam |
@@ -1143,7 +1197,7 @@ compatibility exercise; §8 pilots determine completeness.
 | declarative leaf | `react-vega` `spec` and options | qualified React leaf | static chart remains data-oriented |
 | imperative view | Vega View API for data, resize, signals | direct Vega behavior or `react-vega` wrapper | View/listeners private; config/intents visible; disconnect tested |
 | large widget | SpreadJS Workbook from `workbookInitialized`, instance methods, nested sheets | direct Workbook behavior with explicit command target, or React wrapper | one opaque owner; finite commands/events cross a small data API |
-| component-as-prop | AG Grid cell renderer, drag overlay, virtual row component | `host/as-react` descriptor bridge with optional top-level prop adapter | stable frame-aware React identity; foreign parameter object projected explicitly |
+| component-as-prop | AG Grid cell renderer, drag overlay, virtual row component | `v/->react` descriptor bridge with optional top-level prop adapter | stable frame-aware React identity; foreign parameter object projected explicitly |
 | compound/context/ref | Radix `asChild`, prop cloning, forwarded refs, portals | UIx/React wrapper | do not emulate React composition in neutral Hiccup |
 | headless hook adapter | TanStack `useReactTable` over framework-neutral core | core as value logic or hook wrapper | do not recreate hooks; state in, intent out |
 | simple controlled control | date picker/select value + callback | qualified leaf with `v/event` | no bespoke adapter per leaf |
@@ -1185,10 +1239,31 @@ or SpreadJS test connects the real behavior/wrapper, drives visible behavior,
 asserts outward intent, and disconnects to prove cleanup. A Radix test exercises
 keyboard/focus behavior through the real primitive.
 
+Accessibility proof has two lanes. Static checks report only facts the analyzer or
+complete structural tree can prove—for example, a statically nameless interactive
+element. Dynamic content and opaque foreign interiors are marked unknown, not
+guessed. Roles, accessible names, keyboard behavior, focus containment/return,
+background inertness, and top-layer nesting are then checked on the complete tree or
+in a real browser as appropriate.
+
 The parity corpus compares whole structural values for children, spreads, slots,
 forwarded events, key maps, keys, conditional subscriptions, cross-mode children,
 controller joins, presence, top-layer facts, behavior/command markers, host
 fallbacks, error boundaries, frame retarget, and HMR fencing.
+
+### Fitness-harness closure
+
+The product spine carries the harness obligations that are otherwise easy to lose
+during decomposition:
+
+| Harness pressure | Required proof |
+|---|---|
+| route links are a dominant application shape | real href, native modifier/middle/download/target behavior, caller veto, SSR shell, and absent-routing diagnostics |
+| asynchronous controls race | correlation, debounce cancel-and-replace, supersession, stale completion, unmount, and retry tests over ordinary re-frame state |
+| per-keystroke state traffic has a cost | event/write/sub-recompute/render-commit counts for a four-field form and 100-cell editing grid, in both modes, plus the uncontrolled grid alternative |
+| overlays measure and track | named before-paint phase, zero wrong-position paint, declared tracking frequency, and cleanup after close/unmount/re-entry |
+| accessibility diagnostics can overclaim | static findings only when provable; complete-tree and browser checks own dynamic/composite semantics |
+| roots can be correct but unpleasant | minimal one-root boot, structural reuse of the same form, explicit multi-root identity, hydration, and total teardown examples/tests |
 
 ### Debugging
 
@@ -1297,7 +1372,7 @@ folklore or a compilation quota.
 | B1 | direct lowering reduces view work | the same 10³–10⁴-node finite template in interpreted and compiled modes | p50/p95 self time, per-node cost, allocation, equal structural/browser output |
 | B2 | capability elision matters | cells-shaped mass mount with three-read and sub/event/presence/host-free arms | mount decomposition, retained objects, exact omitted-ViewCell count |
 | B3 | generated comparison isolates rows | 10,000 keyed records, repeated with a visible window of about 40 | committed/skipped rows, comparator time, end-to-end latency |
-| B4 | controlled editing survives contention | typing, selection, and IME while a heavy sibling is dirty at 20 Hz | event-to-commit and settlement/presentation p50/p95/p99, zero dropped input, stable caret/composition |
+| B4 | controlled editing survives contention and scales honestly | typing, selection, and IME while a heavy sibling is dirty at 20 Hz; four-field form and 100-cell editing grid in both modes | event-to-commit and settlement/presentation p50/p95/p99, zero dropped input, stable caret/composition, event/write/sub-recompute/render-commit counts per keystroke |
 | B5 | shipped cost remains bounded | representative interpreted, compiled, and mixed production bundles | gzip, parse/eval, initial mount, per-promotion delta, reachable runtime modules |
 
 B1–B5 exist from the first working relevant slices. Deterministic properties are
@@ -1321,7 +1396,7 @@ auto-promote declarations, and does not require compiled mode to win every workl
 Implementation reuse does not confer API status. The analyzer, both emitters,
 ViewCell reactor, manifest/elision machinery, diagnostic taxonomy, presence
 runtime, structural test surface, and useful evidence tooling move under Freehand
-ownership. The eight donor-contract differences have explicit dispositions:
+ownership. Donor-contract differences have explicit dispositions:
 
 | Donor difference | Freehand disposition |
 |---|---|
@@ -1333,15 +1408,25 @@ ownership. The eight donor-contract differences have explicit dispositions:
 | refs, effects, and the React hook tier | delete as neutral forms; one-node behavior owns bounded DOM/imperative lifecycle and optional explicit-target commands, while UIx/Helix wrappers own React protocols. Absorb `spread-safe`/`spread` and `render-fn`/`slot` as common grammar without the donor hook tier |
 | key-condition event maps | admit the closed exact-key `:on-key-down`/`:on-key-up` form with existing event values and pre-dispatch mechanics; composition, modifiers, predicates, and richer chords remain `v/event`/wrapper work |
 | presence | absorb the runtime and make the interpreted mode join the same keyed retention/override/timeout/accessibility/test contract |
+| callable JVM view values | replace with the shared non-`IFn` descriptor; direct invocation remains a helper-only operation and no callable compatibility layer survives |
+
+The donor's ordinary route-link implementation crosses by rename as
+`v/route-link` over Spec 012's late-bound semantics; it is common framework view
+code, not a compiler form or a second routing contract.
 
 Direction is fixed: donor mode now; the alpha surface may coexist only while code,
 Spec 004, tools, and consumers migrate; delete the standalone artifact when §6 and
 the component/library pilots are green and consumers have moved—a gate, not a date.
 The new package never depends on the donor. Any temporary forwarding facade lives
 only in `re-frame.ui`, gains no semantics, and is not Freehand API. EP-0030 and the
-detailed migration program are sequencing outside this design.
+detailed donor record remain evidence; EP-0036 owns programme slicing and migration.
 
-### Implementation sequence
+### Technical dependency order
+
+This order expresses technical dependencies, not one task or waterfall stage per
+number. EP-0036's vertical F0–F6 slices take the thinnest runnable path through it;
+no slice waits for an entire architectural layer when its own prerequisites are
+already green.
 
 1. **Common ABI:** descriptor, props/children/key/schema metadata, semantic tree,
    event materializer/options/key maps, controlled predicate, frame binding,
@@ -1359,14 +1444,17 @@ detailed migration program are sequencing outside this design.
    equality, event/controller/frame/HMR/error parity, schema policy, and production
    isolation of test/debug code.
 6. **Browser laws:** controlled input/IME, keyed presence/re-entry/accessibility,
-   top-layer reconciliation, behavior command/commit/replay/cleanup, error
-   containment, root teardown, fallback hydration.
+   top-layer reconciliation and layout timing, behavior
+   command/commit/replay/cleanup, provable-only accessibility diagnostics, error
+   containment, route-link native behavior, root ergonomics/teardown, fallback
+   hydration.
 7. **Component pilots:** controlled field, buffered field, popup, async typeahead,
-   virtual table with row slot, public schemas, tokens, and semantic parts. Start
-   controllers as ordinary re-frame registrations; extract no DSL before repeated
-   mechanics exist.
+   virtual table with row slot, public schemas, tokens, and semantic parts. The
+   typeahead includes debounce/supersession/stale-result races; the field/table pair
+   publishes per-keystroke work counts. Start controllers as ordinary re-frame
+   registrations; extract no DSL before repeated mechanics exist.
 8. **Library pilots:** React-Vega/Vega, SpreadJS/editor behavior and commands, Radix,
-   TanStack Table, and an AG Grid-style `host/as-react` cell through the appropriate
+   TanStack Table, and an AG Grid-style `v/->react` cell through the appropriate
    leaf, bridge, behavior, or wrapper.
 
 B1–B5 fixtures arrive alongside the first step that can run each workload, rather
@@ -1427,8 +1515,9 @@ React or Reagent idiom.
 
 ### Repository evidence and donor code
 
-- `spec/004-Views.md` — compiled view language, events, controlled inputs, slots,
-  spread policy, presence, tools, and tests.
+- `spec/004-Views.md` — the current donor-era compiled view language; EP-0036
+  moves this content to `004D-Freehand-Compiled-Grammar.md` and makes 004 the
+  common Freehand view contract.
 - `spec/004B-UI-Tree-and-Conversion.md` — semantic tree and conversion tables.
 - `spec/004C-Roots-and-Mount.md` — Root Descriptor, identity, preflight, hydration,
   mount, and teardown.
@@ -1444,7 +1533,7 @@ React or Reagent idiom.
   surfaces.
 - `examples/real-apps/realworld_resources/ui_editor.cljc` and
   `article_editor.cljs` — compiled and Reagent application forms.
-- `ai/findings/better-ui/studio/fitness-harness.md` — component-library fitness
+- `studio/fitness-harness.md` — component-library fitness
   cases.
 
 ### External

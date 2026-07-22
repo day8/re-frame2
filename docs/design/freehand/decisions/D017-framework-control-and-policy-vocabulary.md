@@ -1,11 +1,13 @@
 # D017 — Framework control and policy vocabulary
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Control families are first-party library vocabulary, not reserved
+framework grammar; shared policies graduate only through the promotion test.**
 
-Horizon: **Upcoming** — decide after the first controller pilots expose repeated
-semantics, before reserving public event ids
+Horizon: **Upcoming** — apply after the first controller pilots expose repeated
+semantics and before reserving public event ids
 
-## Decision to make
+## Decision
 
 Which reusable-control events and policies, if any, should be public Freehand or
 re-frame vocabulary rather than component-library vocabulary?
@@ -26,7 +28,7 @@ typeahead, and debounce semantics—not merely to accepting event vectors.
 
 The Codex design instead treats the buffered controller as a component-library
 candidate and keeps Freehand focused on event, state, host, and evidence laws. Both
-documents agree that `local` is deleted; the open question is where its semantic
+documents agree that `local` is deleted; the decision was where its semantic
 replacement is named and maintained.
 
 ## Settled constraints
@@ -224,7 +226,7 @@ of these are true:
 The buffered-field pilot alone is evidence for a component-library protocol, not
 automatically for framework ownership.
 
-## Evidence required to close the decision
+## Implementation evidence
 
 - Implement field, dropdown, and typeahead pilots with library-owned event ids.
 - Confirm tools can group controller state and causes using generic metadata.

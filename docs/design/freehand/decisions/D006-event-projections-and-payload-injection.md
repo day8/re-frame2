@@ -1,6 +1,9 @@
 # D006 — How should event projections and payload injection work?
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Freehand's event adapter materializes `::v/value`, `::v/checked`, and
+`::v/key`; general dispatch gains no payload arity, and tests reuse the same
+materializer.**
 
 Horizon: **Immediate**
 

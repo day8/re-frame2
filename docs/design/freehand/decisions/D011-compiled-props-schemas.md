@@ -1,12 +1,15 @@
 # D011 — Props schemas for compiled views
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Props schemas are optional grammar but mandatory policy for public
+library/catalogue surfaces and generated-parity claims; Malli maps are closed by
+default.**
 
 Horizon: **Immediate**
 
-## Decision required
+## Decision
 
-Decide whether a props schema is required for every compiled declaration
+The decision is whether a props schema is required for every compiled declaration
 (`v/defview` with `{:compiled true}`), what guarantees the schema buys, and how
 it relates to the one-map props ABI, children, validation, documentation, and
 cross-emitter tests.

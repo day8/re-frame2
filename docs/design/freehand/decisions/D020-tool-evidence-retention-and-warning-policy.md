@@ -1,9 +1,12 @@
 # D020 — Tool evidence, retention, and warning policy
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Use one versioned occurrence-keyed evidence schema; hard errors are
+for semantic corruption, warnings are once-per-site contract misfires, and
+history uses Spec 009's retained ring.**
 
-Horizon: **Upcoming** — decide before the evidence API and Xray integration become
-public
+Horizon: **Upcoming** — required before the evidence API and Xray integration
+become public
 
 Sources: [Codex product spine](../codex-design.md), “Debugging” and lifecycle
 sections; [Fable dossier](../fable-design.md), §2.5, §3.5, §7.1, and Appendix A.

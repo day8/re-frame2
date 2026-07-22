@@ -1,12 +1,14 @@
 # D002 — View boundaries and call semantics
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Every mounted boundary uses `v/defview` and vector-call syntax;
+ordinary helpers are direct-called functions and are never vector heads.**
 
 Horizon: **Immediate**
 
-## Decision required
+## Decision
 
-Decide which functions may create a Freehand view boundary, how a boundary is
+The decision is which functions may create a Freehand view boundary, how a boundary is
 called, and whether the same definition may also be called as an inline helper.
 
 This decision must be made before the descriptor ABI, interpreter, compiler,

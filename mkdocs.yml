@@ -24,13 +24,11 @@ site_dir: site
 # fresh (npm ci + npm run build) before `mkdocs build`, so this exclude is now
 # load-bearing in CI too — not just for local builds — to keep the installed
 # node_modules/ READMEs out of the published site.
-# Exclude the Freehand design snapshot (EP-0036) from the mkdocs scan.
-# `docs/design/freehand/` is a transitional tracked copy of the ratified
-# design dossiers (see docs/design/freehand/README.md): its relative links
-# were written for source-tree browsing (e.g. ../../../../spec/...), which
-# escape docs_dir and would trip --strict. The tree is read on GitHub or in
-# a checkout, is cited by beads/EP-0036 as inline paths, and is deleted when
-# the spec/0XX-Freehand family supersedes it.
+# Exclude the durable Freehand design record (EP-0036) from the mkdocs scan.
+# Its evidence links were written for source-tree browsing (for example,
+# ../../../../spec/...), which escape docs_dir and would trip --strict. The
+# record remains reviewable on GitHub and in a checkout; graduated contracts
+# live in their canonical spec owners rather than being published from here.
 exclude_docs: |
   tools/playground/
   migration/from-re-frame-v1/codemod/

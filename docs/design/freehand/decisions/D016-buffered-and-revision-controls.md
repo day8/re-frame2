@@ -1,11 +1,13 @@
 # D016 — Buffered and revision controls
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Use one generation-fenced buffered controller with required
+`:reset-key`; editing begins on first edit and cancel semantically clears it.**
 
-Horizon: **Upcoming** — decide during the component-library pilot, before buffered
-controls are called portable
+Horizon: **Upcoming** — implement during the component-library pilot; the portable
+claim remains gated on its browser and JVM evidence
 
-## Decision to make
+## Decision
 
 What exact state machine and public props should a reusable commit-on-blur control
 use, especially when a caller must reject an edit by reasserting the same value?
@@ -248,7 +250,7 @@ update as effects of one re-frame event, preserving one epoch and one trace caus
 
 ## Acceptance matrix
 
-The decision is not closed by agreeing on the API. The pilot must pass:
+The ruling fixes the API; its portable product claim remains gated on this pilot:
 
 | Area | Required case |
 |---|---|

@@ -1,6 +1,9 @@
 # D019 — Error boundaries and production reports
 
-Status: **Open**
+Status: **Ruled**
+Ruling: **Use `v/error-boundary` with `:reset-key` recovery and once-per-
+failure-generation `:on-error`; production detail uses the Spec 009 error axis
+and frame sink, with snapshots opt-in only.**
 
 Horizon: **Upcoming**
 
@@ -278,7 +281,7 @@ Codex's smaller evidence contract and keeping replay history outside the substra
 - Report correlation and deduplication add a small runtime responsibility even
   when development evidence is otherwise eliminated.
 
-## Evidence required to close
+## Implementation evidence
 
 The implementation/pilots must demonstrate:
 
