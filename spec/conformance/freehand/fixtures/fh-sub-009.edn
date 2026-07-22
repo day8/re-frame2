@@ -1,0 +1,7 @@
+{:fh/id  "FH-SUB-009"
+ :fh/law "v/sub is legal only during an active declared render; a read with no render to own it is refused loudly with :rf.error/view-read-outside-render — raised before the target is resolved — rather than probed and dropped to a silent nil."
+
+ :query [:sub/v]
+ :db    {:v 1}
+
+ :outside-render-error-id :rf.error/view-read-outside-render}

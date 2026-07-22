@@ -1,0 +1,12 @@
+{:fh/id  "FH-SUB-010"
+ :fh/law "The capture rides the active render, not the call depth: a v/sub inside an ordinary defn helper called from the body is owned by the calling render exactly as an inline read is, and the same helper called outside a render is refused with :rf.error/view-read-outside-render."
+
+ :query [:sub/n]
+ :db    {:n 41}
+
+ ;; The plain defn helper computes on the subscription value; the render owns
+ ;; the v/sub the helper made.
+ :helper-value       42
+ :dependency-queries [[:sub/n]]
+
+ :outside-render-error-id :rf.error/view-read-outside-render}

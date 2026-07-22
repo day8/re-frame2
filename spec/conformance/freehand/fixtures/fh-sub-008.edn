@@ -1,0 +1,15 @@
+{:fh/id  "FH-SUB-008"
+ :fh/law "v/sub during render returns the subscription's current value and records a render-owned read; the SELECTED commit publishes those reads as the bundle's dependency set — exactly the queries read, in render order, each an owned dependency."
+
+ ;; Two ordinary subscription sites over one frame's app-db, read through the
+ ;; PUBLIC v/sub rather than the shell's internal observe! port.
+ :query-a [:sub/a]
+ :query-b [:sub/b]
+ :db      {:a 10 :b 20}
+
+ ;; v/sub returns each subscription's current value, in read order.
+ :values  [10 20]
+
+ ;; A render owns nothing; the SELECTED commit owns the whole dependency set.
+ :before  {:lifecycle :new       :dependency-count 0}
+ :after   {:lifecycle :connected :dependency-count 2}}
