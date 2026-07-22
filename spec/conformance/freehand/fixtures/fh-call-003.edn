@@ -1,0 +1,26 @@
+;; FH-CALL-003 — the descriptor's public inspection/registry projection.
+;;
+;; What tools, registries and catalogues read is a projection, not the
+;; runtime value. The roster below is closed in both directions: the
+;; public keys are always present, and the private entries are never
+;; projected — a consumer that could reach the render body, the host
+;; mount entry, or the structural tree entry through this map would be
+;; depending on a shape no slice promises to keep.
+{:fh/id "FH-CALL-003"
+ :fh/law
+ "describe projects the descriptor's public ABI slots; the render body and the host mount/tree entries stay private, and an undeclared props schema is reported as absent rather than :any."
+
+ :marker {:key :re-frame.freehand/view :value true}
+
+ :public-keys [:re-frame.freehand/view :view-id :source :lowering :children-policy]
+
+ ;; Never projected. `:props-schema` is conditional — absent unless the
+ ;; declaration carries one, which no F1 declaration can.
+ :private-keys [:render :mount :tree]
+ :absent-when-undeclared [:props-schema]
+
+ :lowering :interpreted
+ :default-children-policy :optional
+
+ ;; `:source` follows Spec 001's capture rules.
+ :source-keys [:ns :line]}

@@ -1,0 +1,23 @@
+;; FH-CALL-001 — a declared view var holds a non-IFn descriptor value.
+;;
+;; The law has two halves, and the second is the one that earns the first:
+;; a declared view is not callable, AND it is not a map. A map-shaped
+;; descriptor would answer `(the-view props)` as a lookup — returning nil
+;; and rendering nothing, silently. The predicates below are asserted
+;; against a view declared with `v/defview`, on the JVM and in
+;; ClojureScript, from this one fixture.
+{:fh/id "FH-CALL-001"
+ :fh/law
+ "v/defview binds its var to a small non-IFn descriptor value; a direct call raises and can never silently succeed."
+
+ ;; predicate -> expected answer for a declared view
+ :predicates {:view? true
+              :ifn?  false
+              :fn?   false
+              :map?  false
+              :coll? false}
+
+ ;; Invoking the descriptor as a function raises on both hosts. The host
+ ;; refuses the call before any framework code runs, so the exception is
+ ;; the host's own — what the law fixes is that the call cannot SUCCEED.
+ :direct-call {:raises true}}

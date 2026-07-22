@@ -1,0 +1,22 @@
+;; FH-PROPS-003 — `:key` selects sibling identity and is stripped.
+;;
+;; The view body never sees `:key`. It is returned beside the props map,
+;; not inside it, so two sibling calls that differ ONLY by key deliver
+;; props that compare equal — which is what makes `:key` a reconciliation
+;; fact rather than a prop the boundary re-renders on.
+{:fh/id "FH-PROPS-003"
+ :fh/law
+ ":key selects sibling identity, is stripped before the props map reaches the view, and is outside props equality."
+
+ :cases
+ [{:args [{:key 7 :id 7}]        :key 7       :props {:id 7}}
+  {:args [{:id 7}]               :key nil     :props {:id 7}}
+  {:args [{:key "row-1"}]        :key "row-1" :props {}}
+  {:args [{:key nil :id 7}]      :key nil     :props {:id 7}}
+  {:args [{:key 7} [:span "a"]]  :key 7       :props {:children [[:span "a"]]}}]
+
+ ;; Same props, different keys — the normalized props maps are equal.
+ :equality {:a [{:key 1 :id 7}]
+            :b [{:key 2 :id 7}]
+            :props-equal true
+            :keys-differ  true}}

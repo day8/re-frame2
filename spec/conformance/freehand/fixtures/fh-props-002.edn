@@ -1,0 +1,31 @@
+;; FH-PROPS-002 — `:children` is reserved.
+;;
+;; Trailing forms of the call arrive under `:children`; the key is absent
+;; when the call supplied none, so a childless call yields the smallest
+;; props map that can compare equal. A caller-authored `:children` inside
+;; the props map is rejected — there is one way for children to arrive.
+{:fh/id "FH-PROPS-002"
+ :fh/law
+ "Trailing children arrive as the reserved :children vector, absent when there are none; a caller-authored :children in the props map is rejected, and the declared children policy holds."
+
+ :accepted
+ [{:args [{}]                                :children :absent}
+  {:args [{:title "Details"}]                :children :absent}
+  {:args [{} [:span "a"]]                    :children [[:span "a"]]}
+  {:args [{} [:span "a"] [:span "b"]]        :children [[:span "a"] [:span "b"]]}
+  {:args [{} "plain text"]                   :children ["plain text"]}]
+
+ :rejected
+ [{:args [{:children [[:span "a"]]}]         :error-id :rf.error/view-bad-props}
+  {:args [{:children nil}]                   :error-id :rf.error/view-bad-props}]
+
+ ;; Each row declares a view with `:children-policy` and calls it.
+ :policy
+ [{:policy :none     :args [{}]              :expect :accepted}
+  {:policy :none     :args [{} [:span "a"]]  :error-id :rf.error/view-children-policy}
+  {:policy :required :args [{} [:span "a"]]  :expect :accepted}
+  {:policy :required :args [{}]              :error-id :rf.error/view-children-policy}
+  {:policy :optional :args [{}]              :expect :accepted}
+  {:policy :optional :args [{} [:span "a"]]  :expect :accepted}]
+
+ :recovery :pass-children-as-trailing-forms}
