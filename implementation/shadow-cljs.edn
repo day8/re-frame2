@@ -142,6 +142,20 @@
                 ;; `ui/` donor above.
                 "freehand/src"
                 "freehand/test"
+                ;; The Freehand conformance FIXTURES, as a classpath root
+                ;; — data only (`.edn`), no sources, nothing compilable.
+                ;; `re-frame.freehand.conformance/fixture` inlines a
+                ;; fixture at macro-expansion time, which by itself hides
+                ;; the file from the build: a fixture-only edit would not
+                ;; invalidate the cached test namespace, and the compiled
+                ;; suite would keep asserting the PREVIOUS expectations.
+                ;; Reading it as a classpath resource through
+                ;; `shadow.resource/slurp-resource` records the fixture's
+                ;; last-modified against the namespace that inlines it, so
+                ;; the fixture participates in that namespace's cache key.
+                ;; The JVM counterpart is the `../../spec/conformance`
+                ;; entry in implementation/freehand/deps.edn `:test`.
+                "../spec/conformance"
                 ;; rf2-nojiwy — re-frame.ui testbed (the four-suites rule's
                 ;; new-UI smoke). Standalone counter app under ui/testbed/
                 ;; that proves the compiled-view substrate wires up
