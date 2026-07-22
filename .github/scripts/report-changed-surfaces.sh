@@ -527,6 +527,35 @@ else
         bundle_isolation=true
         ui_smoke=true
         ;;
+      implementation/freehand/*)
+        # rf2-drpa3.58 — the Freehand view substrate artefact (EP-0036).
+        # Its JVM lane shipped as a standalone workflow with its own
+        # `paths:` trigger, so the classifier never had to know about the
+        # tree. Folding that lane into test.yml as `jvm-freehand` makes the
+        # classifier load-bearing: with no case here every output stays
+        # false on a freehand-only PR, so the newly-required job would
+        # SKIP exactly when it matters — strictly worse than the advisory
+        # standalone workflow it replaces.
+        #
+        # implementation_jvm fires the `jvm-freehand` job (the artefact's
+        # `:test` alias plus the donor-boundary law). cljs_node_test fires
+        # the consolidated `:node-test` build, which carries `freehand/src`
+        # + `freehand/test` (implementation/shadow-cljs.edn) and matches
+        # `re-frame.freehand.*-cljs-test` — the deleted workflow's header
+        # asserted that arm was covered by an "always-on `cljs` job", but
+        # `cljs` is surface-gated on cljs_node_test, so before this case
+        # the CLJS arm skipped on a freehand-only PR too.
+        #
+        # Deliberately NOT the full per-feature fan-out (cljs_browser /
+        # cljs_prod / bundle_isolation): Freehand ships no public surface,
+        # no browser-test namespace and no production-bundle requirer yet
+        # (shadow-cljs.edn puts it on `:node-test` only). Widen this case
+        # the moment it gains a `*-dom-cljs-test` namespace or a bundle
+        # requirer — the `implementation/ui/*` case above is the worked
+        # precedent for what that widening looks like.
+        implementation_jvm=true
+        cljs_node_test=true
+        ;;
       implementation/scripts/run-ui-bench.cjs)
         # rf2-vxgfnd.6 — false-green fix, mirroring the launcher cases
         # above: run-ui-bench.cjs IS the executable orchestration for
