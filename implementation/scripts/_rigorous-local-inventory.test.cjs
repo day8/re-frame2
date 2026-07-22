@@ -18,15 +18,29 @@
  * runtime needed, mirroring the test.yml-shape assertions in
  * `_lint-workflow-policy.test.cjs`):
  *
- *  1. Every `npm run test:*` command in the expensive-tests.yml "Run rigorous
- *     implementation browser and bundle gates" step also runs in the local
- *     script (lockstep — the local mirror must not drift BEHIND the nightly
- *     sweep for implementation browser/bundle commands).
+ *  1. Every `npm run test:*` command in the expensive-tests.yml
+ *     `browser-bundle-and-story-gates` job also runs in the local script
+ *     (lockstep — the local mirror must not drift BEHIND the nightly sweep
+ *     for implementation browser/bundle commands).
  *  2. The two inventory commands — `test:examples-compile` and
  *     `test:story-play-scripts` — are present in the local script (a direct
  *     pin, independent of the parse, so neither can silently drop out again).
  *  3. Every command the local script invokes is a real `package.json` script
  *     (catches a typo'd or renamed-away gate).
+ *  4. Each of those nightly commands runs in its OWN named step (rf2-wh5to).
+ *
+ * On (4): the eleven browser/bundle/Story/Xray gates used to be one unnamed
+ * `run: |` block. A `set -e` chain aborts at the first failing gate, so a red
+ * night could only ever reveal ONE broken gate — which is why the
+ * 2026-07-08..07-21 nightly outage took two repair rounds and fourteen red
+ * nights: `test:story-static` broke on 07-13 but stayed invisible behind
+ * `test:story-feature-load` until 07-21. Being unnamed also made
+ * `gh run view --log-failed` label the whole blob `UNKNOWN STEP`. One command
+ * per named step is therefore load-bearing, not cosmetic, and is pinned here
+ * so a later tidy-up cannot silently reintroduce the masking shape.
+ *
+ * Comment lines are stripped before any parse, so prose mentioning a command
+ * can neither satisfy lockstep nor trip the one-command-per-step rule.
  *
  * Wired into `test:script-policy`.
  */
@@ -67,29 +81,65 @@ const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON, 'utf8'));
 
 const localScripts = npmRunScripts(scriptText);
 
-// Narrow the workflow to the rigorous browser/bundle `run: |` step body: from
-// the named step header to the next `- name:` sibling. Scopes the parse so we
-// only compare against the implementation browser/bundle sweep, not other
-// steps in the file.
-function rigorousSweepStep(text) {
-  const headerRe = /- name: Run rigorous implementation browser and bundle gates\r?\n/;
+// Drop full-line YAML comments. Prose in a comment must not be able to satisfy
+// lockstep, nor to look like a second command inside a gate step.
+function stripComments(text) {
+  return text
+    .split('\n')
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n');
+}
+
+// Narrow the workflow to the `browser-bundle-and-story-gates` job body: from
+// its 2-space-indented job key to the next job key at the same indent. Scopes
+// the parse so we only compare against the implementation browser/bundle
+// sweep, not the template / mcp-live / jvm-slow-tests jobs in the same file.
+const GATES_JOB = 'browser-bundle-and-story-gates';
+
+function gatesJobBody(text) {
+  const headerRe = new RegExp(`\\n {2}${GATES_JOB}:\\r?\\n`);
   const m = headerRe.exec(text);
   assert.notEqual(
     m,
     null,
-    'expensive-tests.yml must carry the "Run rigorous implementation browser and bundle gates" step',
+    `expensive-tests.yml must carry the \`${GATES_JOB}\` job`,
   );
   const rest = text.slice(m.index + m[0].length);
-  const next = rest.search(/\n\s+- name:/);
+  const next = rest.search(/\n {2}[A-Za-z0-9_-]+:\s*\r?\n/);
   return next === -1 ? rest : rest.slice(0, next);
 }
 
-const sweepScripts = npmRunScripts(rigorousSweepStep(workflowText));
+const gatesJobText = stripComments(gatesJobBody(workflowText));
+const sweepScripts = npmRunScripts(gatesJobText);
+
+// Split the job body into step chunks on the 6-space `- ` step bullet.
+function jobSteps(jobText) {
+  return jobText.split(/\n {6}- /).slice(1);
+}
 
 test('expensive-tests.yml sweep is non-empty (parse sanity) (rf2-lm5mu9)', () => {
   assert.ok(
     sweepScripts.size >= 8,
     `expected the rigorous sweep to list many npm scripts, parsed ${sweepScripts.size}`,
+  );
+});
+
+test('every nightly sweep command runs in its own named step (rf2-wh5to)', () => {
+  const offenders = [];
+  for (const step of jobSteps(gatesJobText)) {
+    const commands = [...step.matchAll(/npm run ([A-Za-z0-9:._-]+)/g)].map((m) => m[1]);
+    if (commands.length === 0) continue;
+    const named = /(^|\n\s*)name:\s*\S/.test(step);
+    if (commands.length > 1 || !named) {
+      offenders.push(`${named ? '' : '(unnamed) '}${commands.join(' + ')}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'each nightly gate must be the whole body of its OWN named step, so a red night '
+      + 'names the failing gate and reports EVERY broken gate instead of aborting the '
+      + `chain at the first one (rf2-wh5to). Offending step(s): ${offenders.join('; ')}`,
   );
 });
 
