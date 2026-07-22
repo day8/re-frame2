@@ -12,7 +12,7 @@ For substrate `:reagent` (the default):
 my-app/
 ├── deps.edn                  re-frame2 + Reagent adapter + schemas + Xray + shadow-cljs
 ├── shadow-cljs.edn           :app (watch/release) + :test builds; Xray preload on :app
-├── package.json              react + react-dom + shadow-cljs
+├── package.json              react + react-dom + shadow-cljs (+ @xyflow/react + elkjs for the Xray preload)
 ├── README.md                 "run shadow-cljs watch app; open localhost:8280"
 ├── .gitignore
 ├── .editorconfig             2-space, LF, trim trailing, final newline
@@ -259,6 +259,7 @@ the template's own additions.
 | `{{substrate}}` | The chosen substrate name, lower-case | `reagent`, `uix`, `helix`, `ui` |
 | `{{substrate-label}}` | The chosen substrate's display name (used in the `shadow-cljs.edn` comment + `package.json` description) | `Reagent`, `UIx`, `Helix`, `re-frame.ui` |
 | `{{story-tag}}` | `package.json` `description` suffix that varies by `:include-story?` — lets one shared `package.json` serve both paths | `""`, `", with Story playground"` |
+| `{{xray-npm-deps}}` | `package.json` `devDependencies` fragment carrying the npm packages the Xray preload compiles against (`@xyflow/react` + `elkjs`, required by the machine canvas via `day8/re-frame2-machines-viz`). Empty for the `:ui` variant, which ships no Xray coord. | `""`, `",\n    \"@xyflow/react\": \"12.4.2\",\n    \"elkjs\": \"^0.11.1\""` |
 | `{{substrate-badge-url}}` | shields.io badge URL by substrate | `https://img.shields.io/badge/substrate-Reagent-1abc9c.svg` |
 | `{{rf2-version}}` | re-frame2 coord version | `0.0.1.alpha` |
 | `{{shadow-version}}` | shadow-cljs pin | `3.4.10` |
@@ -297,6 +298,9 @@ They are bumped in lockstep with the repo-root `VERSION` and
 - `:react-version` matches `implementation/package.json`
   :devDependencies/react (and react-dom — those two are kept
   pinned together).
+- The `:xray-npm-deps` fragment's `@xyflow/react` and `elkjs` pins
+  match `implementation/package.json` — the versions the monorepo
+  compiles and tests the Xray machine canvas against.
 
 The
 [`version_lockstep_test.clj`](../test/day8/re_frame2_template/version_lockstep_test.clj)

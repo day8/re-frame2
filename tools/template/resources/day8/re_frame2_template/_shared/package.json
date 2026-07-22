@@ -9,7 +9,7 @@
     "test":    "{{test-script}}"
   },
   "devDependencies": {
-    "shadow-cljs": "{{shadow-version}}"
+    "shadow-cljs": "{{shadow-version}}"{{xray-npm-deps}}
   },
   "dependencies": {
     "react":     "{{react-version}}",

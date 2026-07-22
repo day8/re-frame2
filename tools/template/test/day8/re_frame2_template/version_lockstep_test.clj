@@ -219,6 +219,34 @@
         (finally
           (delete-recursively tmp))))))
 
+(deftest xray-npm-deps-lockstep
+  (testing "Template's Xray machine-canvas npm pins match implementation/package.json"
+    ;; The adapter scaffolds carry @xyflow/react + elkjs because the Xray
+    ;; preload compiles day8/re-frame2-machines-viz's machine canvas
+    ;; (rf2-b16va). The pins must ride lockstep with
+    ;; implementation/package.json — the versions the monorepo actually
+    ;; compiles and tests against.
+    (let [pkg-xyflow (read-package-json-pin "@xyflow/react")
+          pkg-elkjs  (read-package-json-pin "elkjs")
+          tmp        (tmp-dir "rf2-template-lockstep-xray-npm-")]
+      (try
+        (let [root       (run-template! tmp "acme/my-app" :reagent)
+              pj-text    (slurp (io/file root "package.json"))
+              tpl-xyflow (extract-pin pj-text "@xyflow/react")
+              tpl-elkjs  (extract-pin pj-text "elkjs")]
+          (is (= pkg-xyflow tpl-xyflow)
+              (str "Template @xyflow/react pin (" tpl-xyflow ") must match "
+                   "implementation/package.json (" pkg-xyflow ") — "
+                   "P5 lockstep. Bump :xray-npm-deps in "
+                   "tools/template/src/day8/re_frame2_template/hooks.clj."))
+          (is (= pkg-elkjs tpl-elkjs)
+              (str "Template elkjs pin (" tpl-elkjs ") must match "
+                   "implementation/package.json (" pkg-elkjs ") — "
+                   "P5 lockstep. Bump :xray-npm-deps in "
+                   "tools/template/src/day8/re_frame2_template/hooks.clj.")))
+        (finally
+          (delete-recursively tmp))))))
+
 (deftest rf2-version-lockstep
   (testing "Template's :rf2-version literal matches repo-root VERSION"
     (let [version-file (read-version-file)

@@ -189,9 +189,13 @@ Then:
 ```bash
 cd my-app
 npm install
-clojure -M:shadow watch app   # or: npx shadow-cljs watch app
+npx shadow-cljs watch app
 # open http://localhost:8280
 ```
+
+(The emitted `:shadow` alias is deps-only — the npx wrapper supplies
+`-m shadow.cljs.devtools.cli` itself, so the pure-JVM form is
+`clojure -M:shadow -m shadow.cljs.devtools.cli watch app`.)
 
 You should see the counter — the same shape walked through in
 [Guide — app-db](../../docs/core/app-db.md).

@@ -273,7 +273,15 @@
           (is (.contains pj-text "\"shadow-cljs\"")
               "package.json declares shadow-cljs devDependency")
           (is (.contains pj-text "\"react\"")
-              "package.json declares react"))
+              "package.json declares react")
+          ;; The Xray preload compiles day8/re-frame2-machines-viz's
+          ;; machine canvas, which requires these npm packages. Without
+          ;; them the scaffold's first `shadow-cljs watch app` fails with
+          ;; a missing JS dependency (rf2-b16va).
+          (is (.contains pj-text "\"@xyflow/react\"")
+              "package.json declares @xyflow/react (Xray machine-canvas npm dep)")
+          (is (.contains pj-text "\"elkjs\"")
+              "package.json declares elkjs (Xray machine-canvas npm dep)"))
 
         ;; -- views.cljs picks up the substrate-specific shape --
         (let [views-text (slurp (io/file root "src/acme/my_app/views.cljs"))]
@@ -613,6 +621,19 @@
                  views + default-on Xray both rely on them — rf2-l4prz
                  Finding 2)")
 
+            ;; shadow-cljs DEV builds (:optimizations :none) load every
+            ;; compiled namespace through goog.globalEval. Without
+            ;; 'unsafe-eval' in script-src the documented first run
+            ;; (`npx shadow-cljs watch app` → open localhost:8280) is a
+            ;; BLANK page — every module load dies with a CSP EvalError.
+            ;; The release bundle never evals; the production response
+            ;; header drops it (README). Found by the rf2-b16va G1-G4
+            ;; external boot proof.
+            (is (.contains csp-policy "script-src 'self' 'unsafe-eval'")
+                "index.html meta CSP script-src admits 'unsafe-eval' —
+                 shadow dev builds eval compiled namespaces; without it
+                 the dev page is blank (rf2-b16va)")
+
             ;; `frame-ancestors` delivered via a <meta> tag is IGNORED by
             ;; browsers; only a response header honours it. Asserting it on
             ;; the meta tag would be a false anti-clickjacking pass. The CSP
@@ -776,7 +797,13 @@
             (is (.contains pj-text "\"shadow-cljs\"")
                 ":ui package.json declares shadow-cljs devDependency")
             (is (.contains pj-text "\"react\"")
-                ":ui package.json declares react")))
+                ":ui package.json declares react")
+            ;; The minimal consumer shape carries no Xray coord, so the
+            ;; Xray machine-canvas npm deps must NOT leak into it.
+            (is (not (.contains pj-text "@xyflow/react"))
+                ":ui package.json does NOT carry @xyflow/react (no Xray)")
+            (is (not (.contains pj-text "\"elkjs\""))
+                ":ui package.json does NOT carry elkjs (no Xray)")))
         (finally
           (delete-recursively tmp))))))
 
@@ -1114,7 +1141,9 @@
 
 (def ^:private expected-package-json-default
   "Expected `_shared/package.json` emission for `acme/my-app` on the
-  Reagent default path (`:include-story? false`, subst vars resolved)."
+  Reagent default path (`:include-story? false`, subst vars resolved —
+  including the `{{xray-npm-deps}}` fragment carrying the Xray
+  machine-canvas npm deps, rf2-b16va)."
   (str "{\n"
        "  \"name\": \"acme/my-app\",\n"
        "  \"version\": \"0.1.0\",\n"
@@ -1126,7 +1155,9 @@
        "    \"test\":    \"shadow-cljs compile test && node out/node-test.js\"\n"
        "  },\n"
        "  \"devDependencies\": {\n"
-       "    \"shadow-cljs\": \"3.4.10\"\n"
+       "    \"shadow-cljs\": \"3.4.10\",\n"
+       "    \"@xyflow/react\": \"12.4.2\",\n"
+       "    \"elkjs\": \"^0.11.1\"\n"
        "  },\n"
        "  \"dependencies\": {\n"
        "    \"react\":     \"19.2.0\",\n"
@@ -1149,7 +1180,9 @@
        "    \"test\":    \"shadow-cljs compile test && node out/node-test.js\"\n"
        "  },\n"
        "  \"devDependencies\": {\n"
-       "    \"shadow-cljs\": \"3.4.10\"\n"
+       "    \"shadow-cljs\": \"3.4.10\",\n"
+       "    \"@xyflow/react\": \"12.4.2\",\n"
+       "    \"elkjs\": \"^0.11.1\"\n"
        "  },\n"
        "  \"dependencies\": {\n"
        "    \"react\":     \"19.2.0\",\n"
@@ -1650,6 +1683,9 @@
               "tailwind index.html loads the @tailwindcss/browser@4 dev CDN")
           (is (re-find #"script-src[^;]*cdn\.jsdelivr\.net" index)
               "tailwind index.html CSP script-src admits the jsdelivr CDN")
+          (is (re-find #"script-src[^;]*'unsafe-eval'" index)
+              "tailwind index.html CSP script-src admits 'unsafe-eval'
+               (shadow dev builds eval compiled namespaces — rf2-b16va)")
           ;; -- the RIGHT-side Xray host DOM order survives the swap --
           (is (< (.indexOf index "id=\"app\"")
                  (.indexOf index "data-rf-xray-host"))
