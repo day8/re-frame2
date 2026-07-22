@@ -5349,7 +5349,6 @@ prerequisites.
   `:rf.view/rendered` with the watch's input-deps.
 - **UIx**: hook-firing instrumentation — hook into `useSyncExternalStore`
   callback to emit on render commit.
-- **Helix**: hook-instrumented render counter; emit on render commit.
 
 Each adapter's emit is gated on `goog.DEBUG` (cost is non-trivial — only
 ship in dev / Xray-bundle builds).
@@ -5386,7 +5385,7 @@ real beads after approving this doc.
   disclosure consumes it via `:subs-skipped` (rf2-ty5r5o).
 
 - **rf2-?????** — *Substrate: add `:rf.view/rendered` trace op per
-  substrate adapter.* One per Reagent / UIx / Helix; instrumented at the
+  substrate adapter.* One per Reagent / UIx; instrumented at the
   adapter's render-commit boundary; DEBUG-gated. Gates: Reactive panel
   step 8 (§3.5).
 

@@ -1363,13 +1363,13 @@ a Reagent API call. The generated runtime form calls
 primitive, which routes through the `:adapter/after-render` late-bind
 hook (Spec 006 §Substrate adapter contract). Each adapter publishes its
 substrate-native impl: Reagent maps it to `r/after-render` (post-commit),
-the UIx / Helix spine to a `React.useLayoutEffect`-backed queue drain
+the UIx spine to a `React.useLayoutEffect`-backed queue drain
 (post-commit / pre-paint, rf2-334d9), plain-atom / SSR to `next-tick`.
 `after-render` fires once the DOM reflects the new state; the form then
 chains ONE `requestAnimationFrame` so resolution lands at the paint
 boundary (environments without rAF — headless / SSR — resolve straight
 off the after-render callback). The MCP server therefore never names
-Reagent, UIx, or Helix.
+Reagent or UIx.
 
 **Wire shape.** `:await-render` forces synchronous dispatch (the cascade
 must commit before the render can settle against the new state), so the

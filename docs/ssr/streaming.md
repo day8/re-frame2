@@ -58,7 +58,7 @@ That same rule is why the boundary is a **component** and not a hiccup keyword.
 in a client render tree its name passes the DOM tag grammar, so React paints a
 phantom `<suspense-boundary>` element rather than raising anything. And it could
 not simply be taught client semantics either: stock Reagent's element dispatch is
-an external dependency, and UIx / Helix views are `defui` / `$` forms where a
+an external dependency, and UIx views are `defui` / `$` forms where a
 hiccup keyword head cannot occur at all. A callable component is the one form
 that works everywhere.
 

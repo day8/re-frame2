@@ -1333,7 +1333,7 @@ meta render in `text-tertiary` / `text-secondary` to recede.
 
 **Substrate-agnostic state.** Per the pure-hiccup contract
 ([Conventions rf2-tijr](./Conventions.md)) the renderer never
-references Reagent / UIx / Helix. Per-node expand state lives in
+references Reagent / UIx. Per-node expand state lives in
 `:rf/xray` app-db under `[:data-inspector <node-key> …]` and is
 read/written via re-frame primitives:
 

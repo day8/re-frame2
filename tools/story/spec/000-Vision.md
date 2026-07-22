@@ -107,8 +107,8 @@ before they meet the token contracts.
 ## What re-frame2-story is for
 
 - **Visual development.** Iterate on a component in isolation; see
-  every state side-by-side; flip between substrates (Reagent, UIx,
-  Helix) when the view is substrate-portable.
+  every state side-by-side; flip between substrates (Reagent, UIx)
+  when the view is substrate-portable.
 - **Test fixtures.** A `:test`-tagged variant *is* a complete component
   test; `(run-variant id)` returns
   `{:frame :app-db :assertions :rendered-hiccup :elapsed-ms}` —

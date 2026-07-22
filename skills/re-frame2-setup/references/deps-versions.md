@@ -5,7 +5,7 @@ How to choose **which** re-frame2 artefacts to depend on, and **what version** t
 ## Contents
 
 - The lockstep contract
-- The eleven artefacts (and which ones a greenfield project needs)
+- The ten artefacts (and which ones a greenfield project needs)
 - Choosing the coordinate (publication state decides the shape) — including discovering the current VERSION
 - `deps.edn` shape
 - `package.json` shape
@@ -15,7 +15,7 @@ How to choose **which** re-frame2 artefacts to depend on, and **what version** t
 
 ## The lockstep contract
 
-re-frame2 ships **eleven Maven artefacts in lockstep** (core + 7 per-feature + 3 per-adapter; see [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md)): every artefact at the same VERSION, every release, and `day8/re-frame2-xray` rides the same line. Mixing versions across `day8/re-frame2-*` coordinates is **unsupported and undefined** — the runtime contract is bound to a single coordinated VERSION.
+re-frame2 ships **ten Maven artefacts in lockstep** (core + 7 per-feature + 2 per-adapter; see [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md)): every artefact at the same VERSION, every release, and `day8/re-frame2-xray` rides the same line. Mixing versions across `day8/re-frame2-*` coordinates is **unsupported and undefined** — the runtime contract is bound to a single coordinated VERSION.
 
 **Lockstep is a build/dependency discipline, not a boot-time runtime check.** `rf/init!` only checks you handed it an adapter spec map (nil / non-map rejected); the spec carries a `:kind` discriminator, **not** a VERSION, so the runtime never compares per-artefact versions at boot. The enforcement that *does* exist is **build-time**: `tools/template/test/day8/re_frame2_template/version_lockstep_test.clj` fails if the template's pinned `:rf2-version` / `:shadow-version` / `:react-version` literals drift from their sources of truth. Keep every coordinate at one VERSION because a mixed set is undefined, not because a guard will catch it.
 
@@ -26,14 +26,13 @@ re-frame2 ships **eleven Maven artefacts in lockstep** (core + 7 per-feature + 3
 grep -oE 'day8/re-frame2[a-z-]* *\{:git/url[^}]*:git/sha "[^"]+"' deps.edn
 ```
 
-## The eleven artefacts
+## The ten artefacts
 
 | Artefact | Tier | When to add |
 |---|---|---|
 | `day8/re-frame2` | core | **Always.** Registry, drain, fx, dispatch, subscribe, frame-provider, trace, the substrate-adapter contract. |
 | `day8/re-frame2-reagent` | substrate | **Always (for a Reagent app).** The Reagent adapter map. |
 | `day8/re-frame2-uix` | substrate | Instead of `-reagent` if you target UIx. |
-| `day8/re-frame2-helix` | substrate | Instead of `-reagent` if you target Helix. |
 | `day8/re-frame2-schemas` | per-feature | **Day one** (the template attaches a whole-app-db schema). **Required** whenever you call `reg-app-schema` / `reg-app-schemas`, and you must `:require` `re-frame.schemas` first — without the artefact those calls throw `:rf.error/schemas-artefact-missing` (loud, NOT a silent soft-pass). Requiring `re-frame.schemas` wires Malli automatically, so a registered schema validates (Spec 010). |
 | `day8/re-frame2-machines` | per-feature | When you call `reg-machine` or `make-machine-handler`. |
 | `day8/re-frame2-routing` | per-feature | When you dispatch `:rf.route/*` events or register routes. |
@@ -42,9 +41,9 @@ grep -oE 'day8/re-frame2[a-z-]* *\{:git/url[^}]*:git/sha "[^"]+"' deps.edn
 | `day8/re-frame2-ssr` | per-feature | When you call `render-to-string` server-side. |
 | `day8/re-frame2-epoch` | per-feature | When you call `epoch-history` or `restore-epoch!` — or when you want `re-frame2-pair`'s live time-travel, which reads `epoch-history` and so needs this artefact on your app's own classpath. |
 
-These eleven are the **publishable** lockstep set. (Two niche local roots — `reagent-slim`, `re-frame2-ssr-ring` — ride the same version but aren't greenfield.) `day8/re-frame2-xray` is tooling, not one of the eleven, but is a **day-one** dep (below).
+These ten are the **publishable** lockstep set. (Two niche local roots — `reagent-slim`, `re-frame2-ssr-ring` — ride the same version but aren't greenfield.) `day8/re-frame2-xray` is tooling, not one of the ten, but is a **day-one** dep (below).
 
-**One more per-feature artefact, tagged (post-v1).** `day8/re-frame2-resources` (Spec [016](../../../spec/016-Resources.md) / EP-0003 — the richest per-feature artefact) is a **settled contract at a fixed coordinate** that ships *after* v1, so it sits outside the eleven; [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md) enumerates it inline as **(post-v1)**. Its runtime has landed and it is already wired into `implementation/deps.edn` as `day8/re-frame2-resources {:local/root "resources"}`, so on the pre-publish `:local/root` dev route you can add it today — add it when you call `reg-resource`. The count stays **eleven** for the v1 publishable set.
+**One more per-feature artefact, tagged (post-v1).** `day8/re-frame2-resources` (Spec [016](../../../spec/016-Resources.md) / EP-0003 — the richest per-feature artefact) is a **settled contract at a fixed coordinate** that ships *after* v1, so it sits outside the ten; [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md) enumerates it inline as **(post-v1)**. Its runtime has landed and it is already wired into `implementation/deps.edn` as `day8/re-frame2-resources {:local/root "resources"}`, so on the pre-publish `:local/root` dev route you can add it today — add it when you call `reg-resource`. The count stays **ten** for the v1 publishable set.
 
 **Greenfield day-one shape.** Matching the [generator template](../README.md#relationship-to-the-generator-template), the day-one set is **four** re-frame2 coords — `day8/re-frame2` (core) + `day8/re-frame2-reagent` (adapter) + `day8/re-frame2-schemas` (the starter app attaches a whole-app-db schema — see the table row for the `:rf.error/schemas-artefact-missing` contract) + `day8/re-frame2-xray` (in-app devtools via `:devtools/preloads`) — plus an explicit `reagent/reagent` pin.
 
@@ -125,7 +124,6 @@ Those four are the day-one set. The **pay-as-you-go per-feature artefacts** (and
 | Artefact | `:local/root` path (sibling checkout) |
 |---|---|
 | `day8/re-frame2-uix` (adapter; instead of `-reagent`) | `../re-frame2/implementation/adapters/uix` |
-| `day8/re-frame2-helix` (adapter; instead of `-reagent`) | `../re-frame2/implementation/adapters/helix` |
 | `day8/re-frame2-machines` | `../re-frame2/implementation/machines` |
 | `day8/re-frame2-routing` | `../re-frame2/implementation/routing` |
 | `day8/re-frame2-flows` | `../re-frame2/implementation/flows` |

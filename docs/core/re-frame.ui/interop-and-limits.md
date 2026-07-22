@@ -119,7 +119,7 @@ library needs to forward a consumer's attrs onto an internal element.
 ### Exporting a view outward: `ui/->react`
 
 `ui/raw` embeds foreign React *inward*; `ui/->react` is the reverse — it exports a
-compiled view *outward* as a React component a legacy or foreign React/UIx/Helix
+compiled view *outward* as a React component a legacy or foreign React/UIx
 tree can render. It is the incremental-adoption bridge: migrate a leaf or a panel
 to `defview` and drop it into the shell you have not migrated yet.
 
@@ -127,7 +127,7 @@ to `defview` and drop it into the shell you have not migrated yet.
 ;; Once, at the boundary — `cart-row` is an ordinary defview:
 (def CartRow (ui/->react cart-row))
 
-;; Then, in the foreign React/UIx/Helix parent, render it like any component:
+;; Then, in the foreign React/UIx parent, render it like any component:
 ;;   <CartRow frame={the-frame} item={row} />
 ```
 

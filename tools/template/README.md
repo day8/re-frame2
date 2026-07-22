@@ -64,13 +64,6 @@ clojure -Sdeps '{:deps {day8/re-frame2-template
         :name acme/my-app \
         :substrate :uix
 
-# Helix
-clojure -Sdeps '{:deps {day8/re-frame2-template
-                        {:local/root "tools/template"}}}' \
-        -Tnew create :template day8/re-frame2-template \
-        :name acme/my-app \
-        :substrate :helix
-
 # re-frame.ui — EXPERIMENTAL (the first-party compiled-view substrate)
 clojure -Sdeps '{:deps {day8/re-frame2-template
                         {:local/root "tools/template"}}}' \
@@ -98,9 +91,9 @@ auto-git-clone before classpath lookup — bypassing the local-root
 checkout (and, pre-split, cloning a repo that doesn't exist yet).
 
 `:include-story? true` is currently **Reagent-only**. Combining it with
-`:substrate :uix`, `:substrate :helix`, or `:substrate :ui` throws
-`:rf.error/template-include-story-reagent-only`. UIx + Helix Story
-variants follow once those adapters' Story coverage matches Reagent's.
+`:substrate :uix` or `:substrate :ui` throws
+`:rf.error/template-include-story-reagent-only`. A UIx Story
+variant follows once that adapter's Story coverage matches Reagent's.
 
 ### `:substrate :ui` (EXPERIMENTAL)
 
@@ -218,7 +211,7 @@ The normative contract lives under [`spec/`](./spec/):
 | File | What's in it |
 |---|---|
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What the tool is for; lineage from v1; goals; non-goals. |
-| [`spec/001-Substrate-Variants.md`](./spec/001-Substrate-Variants.md) | Reagent / UIx / Helix variants; the top-level k/v invocation form; substrate coercion. |
+| [`spec/001-Substrate-Variants.md`](./spec/001-Substrate-Variants.md) | Reagent / UIx / experimental `:ui` variants; the top-level k/v invocation form; substrate coercion. |
 | [`spec/002-Generated-Shape.md`](./spec/002-Generated-Shape.md) | The file tree emitted; the resource tree; substitution variables. |
 | [`spec/003-DepsNew-Rebuild-Plan.md`](./spec/003-DepsNew-Rebuild-Plan.md) | Completed migration record from clj-new and Clojars to deps-new and git-coord. |
 | [`spec/004-SSR-Validation-Report.md`](./spec/004-SSR-Validation-Report.md) | Completed validation record for the shipped SSR variant. |
@@ -238,5 +231,3 @@ The normative contract lives under [`spec/`](./spec/):
   canonical counter the Reagent variant mirrors.
 - [`examples/substrates/uix/counter/`](../../examples/substrates/uix/counter/) — UIx
   counter.
-- [`examples/substrates/helix/counter/`](../../examples/substrates/helix/counter/) —
-  Helix counter.

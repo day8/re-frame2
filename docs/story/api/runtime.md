@@ -100,7 +100,7 @@ The `opts` map for `run-variant` accepts:
 ```clojure
 {:active-modes    [:Mode.app/dark-large]   ;; coll of mode ids, deep-merged into args
  :cell-overrides  {:label "Override"}      ;; controls-panel-shaped runtime overrides
- :substrate       :reagent                 ;; / :uix / :helix
+ :substrate       :reagent                 ;; / :uix
  :render?         true                     ;; when truthy, :rendered-hiccup is populated
  :assertions      <hook>}                  ;; assertions hook (re-frame.story.assertions)
 ```
@@ -399,7 +399,7 @@ Two key behaviours are worth pinning:
   ```clojure
   (register-substrate! substrate-id render-fn) → nil
   ```
-- **Description**: Register a substrate render fn under `substrate-id`. The host calls this once at boot for each substrate it wants Story to render against (`:uix`, `:helix`, etc.). The `:reagent` substrate is registered automatically by the canonical-vocabulary auto-install.
+- **Description**: Register a substrate render fn under `substrate-id`. The host calls this once at boot for each substrate it wants Story to render against (`:uix`, etc.). The `:reagent` substrate is registered automatically by the canonical-vocabulary auto-install.
 
 ### `registered-substrates` (substrate registration)
 
@@ -469,7 +469,7 @@ Phase 4's `:dispatch` rail emits these fx; the chrome's control widgets and tool
 |---|---|---|
 | `:story/active-modes` | `[<mode-id> ...]` | The chrome-toolbar's active mode-set. Cofx-injected into Layer 3 of the precedence chain. |
 | `:story/active-args` | `{<arg-key> <value>}` | Deep-merge of all active modes' `:args`. |
-| `:story/substrate` | `:reagent` / `:uix` / `:helix` | The active substrate. |
+| `:story/substrate` | `:reagent` / `:uix` | The active substrate. |
 
 ## See also
 

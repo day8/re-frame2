@@ -57,7 +57,7 @@ re-frame2 preserves `re-frame.interop`. The skill calls out JVM-side test runs i
 
 ### L7 — Reagent v2 is the default substrate target
 
-When the skill picks an adapter to recommend (M-0 substrate-adapter slot), the default is `day8/re-frame2-reagent` unless the codebase shows it has already migrated to UIx or Helix. Substrate migration (O-13 / O-14) is **never** part of a v1→v2 migration; it's a separate concern.
+When the skill picks an adapter to recommend (M-0 substrate-adapter slot), the default is `day8/re-frame2-reagent` unless the codebase shows it has already migrated to UIx. Substrate migration (O-13) is **never** part of a v1→v2 migration; it's a separate concern.
 
 ### L8 — Single-import contract for new / migrated code
 
@@ -77,7 +77,7 @@ Per Mike's standing memory rule "Findings is local-only" — any exploration of 
 
 - Re-frame v1.x CLJS codebases moving to re-frame2.
 - JVM-side test infrastructure (`.clj` runners, `re-frame.test` → `re-frame.test-support`).
-- Both Reagent v2 (default) and pre-existing UIx / Helix codebases (the substrate is detected, not migrated).
+- Both Reagent v2 (default) and pre-existing UIx codebases (the substrate is detected, not migrated).
 - The full M-rule and O-rule surfaces in `migration/from-re-frame-v1/README.md`.
 
 ### Out of scope

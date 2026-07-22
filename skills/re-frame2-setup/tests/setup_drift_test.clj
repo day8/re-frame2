@@ -10,13 +10,13 @@
 ;;;;      future edit re-introducing the boot-enforcement claim fails this
 ;;;;      suite.
 ;;;;
-;;;;   2. The UIx / Helix manual substrate pins MUST match the generator
+;;;;   2. The UIx manual substrate pins MUST match the generator
 ;;;;      template's `deps.edn` literals (the source of truth — the skill's
 ;;;;      own "never invent a version, match the template" discipline).
-;;;;      This test READS the live template `_uix/deps.edn` /
-;;;;      `_helix/deps.edn` on disk and asserts the skill's entry-namespace
-;;;;      pins still match — so a template bump that isn't mirrored into the
-;;;;      skill fails here rather than silently shipping a stale pin.
+;;;;      This test READS the live template `_uix/deps.edn` on disk and
+;;;;      asserts the skill's entry-namespace pins still match — so a
+;;;;      template bump that isn't mirrored into the skill fails here
+;;;;      rather than silently shipping a stale pin.
 ;;;;
 ;;;; This is the CHEAP class of drift the setup skill can suffer: a prose
 ;;;; promise of a runtime invariant that doesn't exist, or a substrate pin
@@ -93,10 +93,6 @@
   (delay (slurp-rel repo-root
                     "tools/template/resources/day8/re_frame2_template/_uix/deps.edn")))
 
-(def ^:private helix-template-deps
-  (delay (slurp-rel repo-root
-                    "tools/template/resources/day8/re_frame2_template/_helix/deps.edn")))
-
 (defn- contains-any? [text alts]
   (some #(str/includes? text %) alts))
 
@@ -159,7 +155,7 @@
                "suggested direction).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 2 — UIx / Helix manual pins match the generator template (source of truth)
+;; Lock 2 — UIx manual pins match the generator template (source of truth)
 ;; ---------------------------------------------------------------------------
 
 (deftest uix-skill-pin-matches-template
@@ -184,18 +180,6 @@
           (str "Template uix.core (" tmpl-core ") and uix.dom (" tmpl-dom
                ") pins are no longer equal — UIx ships core+dom in "
                "lockstep; update the skill's paired pins accordingly.")))))
-
-(deftest helix-skill-pin-matches-template
-  (testing "entry-namespace.md Helix pin matches the template _helix/deps.edn"
-    (let [tmpl-helix (mvn-version @helix-template-deps "lilactown/helix")
-          skill      @entry-namespace-md]
-      (is (some? tmpl-helix)
-          "Could not read lilactown/helix pin from the template _helix/deps.edn.")
-      (is (str/includes? skill (str "lilactown/helix      {:mvn/version \"" tmpl-helix "\"}"))
-          (str "entry-namespace.md's lilactown/helix pin diverged from the "
-               "template (template pins " (pr-str tmpl-helix) "). The manual "
-               "Helix setup path must generate the same known-good dep as "
-               "the generator template (rf2-0qkyn).")))))
 
 (deftest uix-version-target-divergence-is-flagged
   (testing "the spec-006 UIx-2.x vs template-1.4.4 divergence carries a heads-up"
@@ -448,72 +432,68 @@
                "(esp. Windows/PowerShell) (rf2-pxl6l).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 7 — the UIx/Helix manual path supplies substrate-specific VIEW code and
-;; does NOT route UIx/Helix authors to the Reagent `reg-view` first-counter.
+;; Lock 7 — the UIx manual path supplies substrate-specific VIEW code and
+;; does NOT route UIx authors to the Reagent `reg-view` first-counter.
 ;;
 ;; The Reagent first-counter leaf uses `reg-view` (auto-injected
-;; dispatch/subscribe) — a Reagent-only construct. UIx/Helix have no
-;; auto-injection: they read subs via the adapter `use-subscribe` hook and
-;; take `dispatch` off the adapter `use-frame` hook (capture-frame in hook
+;; dispatch/subscribe) — a Reagent-only construct. UIx has no
+;; auto-injection: it reads subs via the adapter `use-subscribe` hook and
+;; takes `dispatch` off the adapter `use-frame` hook (capture-frame in hook
 ;; position). Supplying only
-;; deps/entry-root substitutions for UIx/Helix would leave an author to
-;; combine a UIx/Helix entry ns with the Reagent `reg-view` counter — a
+;; deps/entry-root substitutions for UIx would leave an author to
+;; combine a UIx entry ns with the Reagent `reg-view` counter — a
 ;; non-compiling scaffold. These guards require the substrate VIEW snippets to
 ;; be present in
-;; entry-namespace.md (matching the template's _uix/_helix/views.cljs) and
-;; require SKILL.md + first-counter.md to steer UIx/Helix away from `reg-view`.
+;; entry-namespace.md (matching the template's _uix/views.cljs) and
+;; require SKILL.md + first-counter.md to steer UIx away from `reg-view`.
 ;; ---------------------------------------------------------------------------
 
-(deftest uix-helix-greenfield-supplies-substrate-views
-  (testing "entry-namespace.md gives UIx/Helix view code (defui/defnc + use-subscribe), not just deps/entry"
+(deftest uix-greenfield-supplies-substrate-views
+  (testing "entry-namespace.md gives UIx view code (defui + use-subscribe), not just deps/entry"
     (let [body @entry-namespace-md]
-      (is (and (str/includes? body "defui counter-buttons")
-               (str/includes? body "defnc counter-buttons"))
-          (str "entry-namespace.md no longer supplies BOTH the UIx (`defui`) "
-               "and Helix (`defnc`) counter view snippets. UIx/Helix have no "
+      (is (str/includes? body "defui counter-buttons")
+          (str "entry-namespace.md no longer supplies the UIx (`defui`) "
+               "counter view snippet. UIx has no "
                "auto-injection — the manual path must ship the substrate "
                "`views.cljs`, not send the author to the Reagent `reg-view` "
                "leaf (rf2-74uffk)."))
-      (is (and (str/includes? body "uix-adapter/use-subscribe")
-               (str/includes? body "helix-adapter/use-subscribe"))
-          (str "The UIx/Helix view snippets must read subscriptions through "
+      (is (str/includes? body "uix-adapter/use-subscribe")
+          (str "The UIx view snippet must read subscriptions through "
                "the adapter `use-subscribe` hook (no auto-injected `subscribe` "
-               "on these substrates) (rf2-74uffk)."))
-      (is (and (str/includes? body "(uix-adapter/use-frame)")
-               (str/includes? body "(helix-adapter/use-frame)"))
-          (str "The UIx/Helix view snippets must obtain `dispatch` from the "
+               "on that substrate) (rf2-74uffk)."))
+      (is (str/includes? body "(uix-adapter/use-frame)")
+          (str "The UIx view snippet must obtain `dispatch` from the "
                "adapter `use-frame` hook (capture-frame in hook position) — "
-               "there is no auto-injected `dispatch` on these substrates "
+               "there is no auto-injected `dispatch` on that substrate "
                "(rf2-p74yf2)."))
       ;; The "everything else is identical" claim must NOT swallow views.
       (is (not (re-find #"(?i)views.{0,40}identical across substrates" body))
           (str "entry-namespace.md claims views are identical across "
-               "substrates — they are NOT. Reagent uses `reg-view`; UIx/Helix "
-               "use `defui`/`defnc` with `use-subscribe`. The 'everything else "
+               "substrates — they are NOT. Reagent uses `reg-view`; UIx "
+               "uses `defui` with `use-subscribe`. The 'everything else "
                "identical' claim must exclude views (rf2-74uffk).")))))
 
-(deftest uix-helix-not-routed-to-reagent-reg-view-counter
-  (testing "SKILL.md + first-counter.md steer UIx/Helix away from the Reagent reg-view leaf"
+(deftest uix-not-routed-to-reagent-reg-view-counter
+  (testing "SKILL.md + first-counter.md steer UIx away from the Reagent reg-view leaf"
     (let [skill @skill-md
           fc    (slurp-rel setup-root "references/first-counter.md")]
       ;; SKILL step 6 must flag the leaf as Reagent-specific and point
-      ;; UIx/Helix at use-subscribe / the substrate views.
-      (is (contains-any? skill ["UIx / Helix do NOT use `reg-view`"
-                                "UIx / Helix** do NOT use `reg-view`"
-                                "UIx and Helix do NOT use `reg-view`"
-                                "UIx / Helix** do not use `reg-view`"
-                                "do NOT use `reg-view`"])
-          (str "SKILL.md step 6 no longer warns that UIx/Helix do not use the "
-               "Reagent `reg-view` counter. A UIx/Helix author must be routed "
+      ;; UIx at use-subscribe / the substrate views.
+      (is (contains-any? skill ["UIx does NOT use `reg-view`"
+                                "UIx** does NOT use `reg-view`"
+                                "UIx does not use `reg-view`"
+                                "does NOT use `reg-view`"])
+          (str "SKILL.md step 6 no longer warns that UIx does not use the "
+               "Reagent `reg-view` counter. A UIx author must be routed "
                "to the substrate views, not the Reagent leaf (rf2-74uffk)."))
       ;; first-counter.md must declare itself Reagent-only and redirect.
       (is (contains-any? fc ["Reagent only" "Reagent-only"])
           (str "first-counter.md no longer flags itself as Reagent-only. The "
-               "leaf uses `reg-view` + `reagent.dom.client` — UIx/Helix must "
+               "leaf uses `reg-view` + `reagent.dom.client` — UIx must "
                "be redirected to the substrate views (rf2-74uffk)."))
       (is (and (str/includes? fc "use-subscribe")
                (str/includes? fc "entry-namespace.md"))
-          (str "first-counter.md no longer redirects UIx/Helix authors to the "
+          (str "first-counter.md no longer redirects UIx authors to the "
                "`use-subscribe`/substrate path in entry-namespace.md "
                "(rf2-74uffk).")))))
 
@@ -714,20 +694,20 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 12 — the generator route is USER-RUN; the skill's allowed-tools do NOT
-;; grant `clojure -Tnew create`, and the UIx/Helix greenfield route the skill
+;; grant `clojure -Tnew create`, and the UIx greenfield route the skill
 ;; EXECUTES is the manual scaffold.
 ;;
 ;; The skill documents the one-command `clojure -Tnew create …` generator as a
 ;; complete alternative, but its `allowed-tools` front-matter grants only
 ;; `clojure -Stree`, npm, and `shadow-cljs watch/compile` — NOT `-Tnew`. So the
 ;; skill must frame the generator as something the AUTHOR runs, while the route
-;; the skill itself executes (esp. for UIx/Helix) is the manual scaffold whose
-;; commands the grant actually covers. Steering UIx/Helix users toward the
+;; the skill itself executes (esp. for UIx) is the manual scaffold whose
+;; commands the grant actually covers. Steering UIx users toward the
 ;; generator as "the fastest/complete path" without flagging that the loaded
 ;; skill cannot run it weakens prompt ergonomics (the agent recommends a route
 ;; it must then abandon or interrupt for extra tool access). These guards fail
 ;; if the front-matter starts advertising `-Tnew`, or if the prose stops
-;; framing the generator as user-run / stops giving UIx/Helix an executable
+;; framing the generator as user-run / stops giving UIx an executable
 ;; manual route.
 ;; ---------------------------------------------------------------------------
 
@@ -757,7 +737,7 @@
                "route. The skill's allowed-tools cannot execute `clojure -Tnew "
                "create`; the prose must hand the author the command to run "
                "rather than imply the skill runs it (rf2-agi57x)."))
-      ;; And the UIx/Helix path the skill EXECUTES must be the manual substrate
+      ;; And the UIx path the skill EXECUTES must be the manual substrate
       ;; views (already locked by Lock 7) — re-assert the executable framing.
       (is (contains-any? skill ["manual six-step" "manual scaffold"])
           (str "SKILL.md no longer names the manual six-step scaffold as the "
@@ -768,7 +748,7 @@
     (let [body @entry-namespace-md]
       (is (contains-any? body ["user-run" "the **author** invokes" "the author invokes"
                                "does not run `clojure -Tnew`" "this skill does not run"])
-          (str "entry-namespace.md no longer frames the UIx/Helix generator "
+          (str "entry-namespace.md no longer frames the UIx generator "
                "route as user-run. The skill cannot execute `clojure -Tnew`; "
                "the author runs it (rf2-agi57x).")))))
 
@@ -781,9 +761,10 @@
 ;; from them:
 ;;
 ;;   * docs/skills/re-frame2-setup.md must teach the current lockstep count —
-;;     ELEVEN publishable framework artefacts, with day8/re-frame2-xray on the
-;;     same line (see SKILL.md cardinal rule 2 + README.md) — not a stale "all
-;;     ten ship at the same version" count, and must link the reference leaves
+;;     TEN publishable framework artefacts (the S7 Helix removal took the set
+;;     from eleven to ten), with day8/re-frame2-xray on the same line (see
+;;     SKILL.md cardinal rule 2 + README.md) — not the stale "all
+;;     eleven ship at the same version" count, and must link the reference leaves
 ;;     to the PLURAL `…/skills/re-frame2-setup/references` GitHub path (a
 ;;     singular `…/reference` 404s). check_doc_slugs.py can't catch either: it
 ;;     skips external http(s) URLs and does not validate prose artefact counts.
@@ -807,21 +788,21 @@
   (delay (slurp-rel repo-root "skills/README.md")))
 
 (deftest docs-setup-page-no-stale-artefact-count
-  (testing "docs/skills/re-frame2-setup.md does not re-teach the stale 'all ten' lockstep count"
+  (testing "docs/skills/re-frame2-setup.md does not re-teach the stale 'all eleven' lockstep count"
     (let [body @docs-setup-page-md]
-      (is (not (re-find #"(?i)all ten" body))
+      (is (not (re-find #"(?i)eleven" body))
           (str "docs/skills/re-frame2-setup.md re-teaches the stale "
-               "\"all ten ship at the same version\" lockstep count. The "
-               "current contract is ELEVEN publishable framework artefacts "
-               "shipping in lockstep, with day8/re-frame2-xray riding the "
+               "\"all eleven ship at the same version\" lockstep count. The "
+               "current contract is TEN publishable framework artefacts "
+               "shipping in lockstep (the S7 Helix removal dropped "
+               "day8/re-frame2-helix), with day8/re-frame2-xray riding the "
                "same version line (SKILL.md cardinal rule 2 / README.md). "
-               "The docs-site page must not drift back to the old count "
-               "(rf2-79gtjr)."))
-      (is (re-find #"(?i)eleven" body)
-          (str "docs/skills/re-frame2-setup.md no longer states the ELEVEN "
+               "The docs-site page must not drift back to the old count."))
+      (is (re-find #"(?i)\ball ten\b" body)
+          (str "docs/skills/re-frame2-setup.md no longer states the TEN "
                "publishable framework artefacts ship in lockstep. The "
                "corrected lockstep wording must name the current count "
-               "consistently with SKILL.md / README.md (rf2-79gtjr).")))))
+               "consistently with SKILL.md / README.md.")))))
 
 (deftest docs-setup-page-references-link-is-plural
   (testing "docs/skills/re-frame2-setup.md links the reference leaves to the real plural `references/` path"
@@ -916,19 +897,19 @@
                "of the greenfield boot recipe).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 14 — the UIx/Helix manual namespace graph is COMPLETE and SELF-CONTAINED.
+;; Lock 14 — the UIx manual namespace graph is COMPLETE and SELF-CONTAINED.
 ;;
 ;; The alternate-substrate route was previously false-green: the entry snippets
 ;; dispatched :counter/initialise and subscribed :counter/value, but no supplied
 ;; copied file registered them, so a compiled project reached
 ;; :rf.error/no-such-handler / :rf.error/no-such-sub at boot and never attached
 ;; CounterDb. The fix single-sources the substrate-neutral dataflow ONCE in
-;; references/shared-dataflow.md (events + subs + schema) and makes BOTH the UIx
-;; and Helix entry namespaces :require it + call register-schema! under
+;; references/shared-dataflow.md (events + subs + schema) and makes the UIx
+;; entry namespace :require it + call register-schema! under
 ;; with-frame BEFORE dispatch-sync (the generator's boot order). These guards
-;; fail if the shared dataflow loses any of the three registration axes, or if a
-;; substrate core.cljs stops requiring it / stops attaching the schema before the
-;; seed. Lock 7 checks only that the VIEW snippets exist; a project with the
+;; fail if the shared dataflow loses any of the three registration axes, or if
+;; the substrate core.cljs stops requiring it / stops attaching the schema before
+;; the seed. Lock 7 checks only that the VIEW snippets exist; a project with the
 ;; views but no registrations still COMPILES — this lock closes that hole
 ;; (rf2-3fc89f).
 ;; ---------------------------------------------------------------------------
@@ -940,12 +921,12 @@
                (re-find #"reg-event\s+:counter/increment" body))
           (str "shared-dataflow.md no longer registers BOTH :counter/initialise "
                "and :counter/increment via reg-event. The substrate-neutral "
-               "events source must install every event the UIx/Helix views "
+               "events source must install every event the UIx views "
                "dispatch, or the manual scaffold boots to "
                ":rf.error/no-such-handler (rf2-3fc89f)."))
       (is (re-find #"reg-sub\s+:counter/value" body)
           (str "shared-dataflow.md no longer registers the :counter/value sub. "
-               "The UIx/Helix views subscribe it via use-subscribe; without the "
+               "The UIx views subscribe it via use-subscribe; without the "
                "registration the counter renders nil (:rf.error/no-such-sub) "
                "(rf2-3fc89f)."))
       (is (and (str/includes? body "CounterDb")
@@ -964,27 +945,26 @@
                "registered schema validates rather than throwing "
                ":rf.error/schemas-artefact-missing (rf2-3fc89f).")))))
 
-(deftest uix-helix-core-requires-shared-dataflow-and-attaches-schema
-  (testing "entry-namespace.md's UIx + Helix core.cljs require the shared graph and attach the schema before the seed"
+(deftest uix-core-requires-shared-dataflow-and-attaches-schema
+  (testing "entry-namespace.md's UIx core.cljs requires the shared graph and attaches the schema before the seed"
     (let [body @entry-namespace-md]
-      ;; Both substrate core.cljs blocks must :require the shared event/sub/schema
-      ;; namespaces (once per substrate → at least two occurrences of each token
-      ;; in the leaf, tolerating extra prose mentions).
+      ;; The substrate core.cljs block must :require the shared event/sub/schema
+      ;; namespaces.
       (doseq [[label ns-token] [["events" "your-app.events"]
                                 ["subs"   "your-app.subs"]
                                 ["schema" "your-app.schema"]]]
-        (is (>= (count (re-seq (re-pattern (java.util.regex.Pattern/quote ns-token)) body)) 2)
-            (str "entry-namespace.md's UIx/Helix core.cljs no longer :require the "
-                 "shared `" ns-token "` namespace in BOTH substrate snippets. "
-                 "Each substrate entry ns must load the shared " label
+        (is (>= (count (re-seq (re-pattern (java.util.regex.Pattern/quote ns-token)) body)) 1)
+            (str "entry-namespace.md's UIx core.cljs no longer :requires the "
+                 "shared `" ns-token "` namespace. "
+                 "The substrate entry ns must load the shared " label
                  " registrations, or the compiled project boots with the "
                  "dataflow unregistered (rf2-3fc89f).")))
-      ;; register-schema! must be called at boot in BOTH substrate blocks.
-      (is (>= (count (re-seq #"\(schema/register-schema!\)" body)) 2)
+      ;; register-schema! must be called at boot in the substrate block.
+      (is (>= (count (re-seq #"\(schema/register-schema!\)" body)) 1)
           (str "entry-namespace.md no longer calls (schema/register-schema!) in "
-               "BOTH the UIx and Helix core.cljs. The frame-local schema attach "
+               "the UIx core.cljs. The frame-local schema attach "
                "must run at boot on every substrate, matching the generator's "
-               "_uix/core.cljs / _helix/core.cljs (rf2-3fc89f)."))
+               "_uix/core.cljs (rf2-3fc89f)."))
       ;; …and it must run BEFORE the frame-root mount (the attach names
       ;; :rf/default explicitly, so it precedes frame creation; the frame's
       ;; :initial-events seed is then validated from its first write).

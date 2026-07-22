@@ -25,7 +25,7 @@ wants a chart without the rest of Xray) declare it themselves.
 
 The single chart-rendering surface. Substrate-agnostic — exported
 by every substrate adapter Machines-Viz ships against (Reagent /
-UIx / Helix).
+UIx).
 
 ### Namespace
 
@@ -875,21 +875,18 @@ so the chart bottoms out at a React element tree.
 `reagent.core/reactify-component` lifts it to a plain React class any
 host mounts. The shared bridge `adapters.react-chart` reactifies once
 (`MachineChartReactClass`) + exposes `chart-element` (CLJS props map →
-React element); thin per-substrate shells present an idiomatic surface:
+React element); a thin per-substrate shell presents an idiomatic surface:
 
 ```clojure
 ;; UIx host
 (:require [day8.re-frame2-machines-viz.adapters.uix :as mv-uix])
 ($ mv-uix/MachineChart {:machine-id :auth/flow :definition defn})
-
-;; Helix host
-(:require [day8.re-frame2-machines-viz.adapters.helix :as mv-helix]
-          [helix.core :refer [$]])
-($ mv-helix/MachineChart {:machine-id :auth/flow :definition defn})
 ```
 
-All three substrates render the SAME component through one bridge —
-there is no per-substrate fork of the chart.
+Every substrate renders the SAME component through one bridge —
+there is no per-substrate fork of the chart. (A Helix shell shipped in
+Phase 2 and was deleted with the Helix adapter's removal at S7/W13 —
+rf2-d6epb, 2026-07-22.)
 
 The chart's click surface is `:on-state-click`, invoked with the
 clicked node's `path`; the host resolves source coords for that path
@@ -2298,7 +2295,6 @@ day8.re-frame2-machines-viz.chart/MachineChart    ; component (Reagent)
 day8.re-frame2-machines-viz.adapters.react-chart/MachineChartReactClass ; rf2-yg9he — reactified React class
 day8.re-frame2-machines-viz.adapters.react-chart/chart-element          ; rf2-yg9he — CLJS props → React element
 day8.re-frame2-machines-viz.adapters.uix/MachineChart   ; rf2-yg9he — UIx shell ($-mountable)
-day8.re-frame2-machines-viz.adapters.helix/MachineChart ; rf2-yg9he — Helix shell ($-mountable)
 day8.re-frame2-machines-viz.share/encode-share-url
 day8.re-frame2-machines-viz.share/decode-share-url
 day8.re-frame2-machines-viz.mermaid/emit          ; pure fn — definition → string (rf2-sqhqu — relocated into this tool jar; runtime artefact is pure-engine)

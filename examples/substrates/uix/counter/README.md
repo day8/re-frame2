@@ -69,11 +69,10 @@ that makes that swap a one-liner.
 
 ## Why this shape
 
-Read it as one corner of a triangle. Set it beside
-[`examples/core/counter/`](../../../core/counter/) and
-[`examples/substrates/helix/counter/`](../../helix/counter/) and you have
-the same app rendered three ways. The events, subscription, and app-db are
-the constant; the substrate is the variable. Diff any two and what's left
+Read it as one half of a pair. Set it beside
+[`examples/core/counter/`](../../../core/counter/) and you have
+the same app rendered two ways. The events, subscription, and app-db are
+the constant; the substrate is the variable. Diff the two and what's left
 is exactly the [adapter](../../../../docs/core/glossary.md#adapter)'s job —
 which argues that the core is substrate-agnostic better than any paragraph
 could.

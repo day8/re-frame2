@@ -329,7 +329,7 @@ rf/trace-api-version → drop (no replacement)
 (rf/init!)
 
 ;; REWRITE — after the author confirms the adapter
-(rf/init! reagent/adapter) ; or uix/adapter, helix/adapter, per the confirmed substrate
+(rf/init! reagent/adapter) ; or uix/adapter, per the confirmed substrate
 ```
 
 The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:require [re-frame.adapter.reagent :as reagent])` → `reagent/adapter`), verified against `re-frame.core/init!`'s docstring (`implementation/core/src/re_frame/core.cljc` — "Pass the adapter spec map directly"). Pair with M-38's substrate-ns rename so the symbol resolves; non-map / nil args raise `:rf.error/no-adapter-specified`.

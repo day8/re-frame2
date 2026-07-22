@@ -4,7 +4,7 @@
 > **Normative status:** v1 contract surface — pattern contract; a conformant React-backed port MUST implement the walker against the read paths below. Non-React substrates (post-v1) MAY publish their own equivalent capture surface; this doc owns the React case.
 > Locked: 2026-05-19 — Fiber-reading for hierarchy capture relaxed; per-component metadata reads remain rejected.
 
-This doc pins the contract for **runtime view-hierarchy capture** — how a tool (today, Xray) reads the parent ⊃ children relationships of the views the host application has mounted. The contract is single-document because **the React Fiber parent/child slots ARE the contract for every React-backed substrate** the framework supports (Reagent / UIx / Helix all mount through React).
+This doc pins the contract for **runtime view-hierarchy capture** — how a tool (today, Xray) reads the parent ⊃ children relationships of the views the host application has mounted. The contract is single-document because **the React Fiber parent/child slots ARE the contract for every React-backed substrate** the framework supports (Reagent and UIx both mount through React).
 
 Per-adapter spec is intentionally absent — no adapter ships its own hierarchy-capture surface. The host's Fiber tree IS the source of truth; the walker reads it directly.
 
@@ -48,7 +48,7 @@ The walker is also dev-only by classpath: Xray's preload is `:devtools/preloads`
 1. **Ship a fix** — update the walker to the new Fiber slot names / shape. This is the expected path when React renames a slot but keeps the structural model.
 2. **Fall back to data-attribute tagging** — each `reg-view` mutates its first element's attribute map to include `data-rf-view="<name>"`; the walker queries `document.querySelectorAll('[data-rf-view]')` and infers parent ⊃ children by DOM containment. This is the React-version-independent escape hatch.
 
-The fallback is **shipped and dormant** — the tagging is wired into every adapter's render-time wrapper (Reagent via the inline hiccup walk, UIx + Helix via the spine's React.cloneElement wrapper); the contract pins the attribute format and the documented edge cases at [Spec 006 §View tagging contract](006-ReactiveSubstrate.md#view-tagging-contract-fallback). It is the second-best option (fragments invisible, portals teleport-broken, requires per-adapter wrap-view cost in dev builds) and consumers should default to the Fiber walker.
+The fallback is **shipped and dormant** — the tagging is wired into every adapter's render-time wrapper (Reagent via the inline hiccup walk, UIx via the spine's React.cloneElement wrapper); the contract pins the attribute format and the documented edge cases at [Spec 006 §View tagging contract](006-ReactiveSubstrate.md#view-tagging-contract-fallback). It is the second-best option (fragments invisible, portals teleport-broken, requires per-adapter wrap-view cost in dev builds) and consumers should default to the Fiber walker.
 
 ## View-id tagging convention
 

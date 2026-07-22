@@ -131,7 +131,7 @@ The idiom is **substrate-agnostic**. The view is an ordinary function of its arg
 
 - **Reagent** — render-tree splice `[customer-card 42]` works as-is; the registered view is a Form-1 fn that closes over its args.
 - **Reagent-slim** — same surface.
-- **UIx / Helix** — the adapter's `use-subscribe` hook reads the parameterised sub identically; the view is a hooks-style function whose first prop carries the id.
+- **UIx** — the adapter's `use-subscribe` hook reads the parameterised sub identically; the view is a hooks-style function whose first prop carries the id.
 
 The id idiom predates substrate choice. A view that follows it ports across adapters with zero changes to the view body — only the surrounding component wrapper differs by adapter.
 
@@ -147,7 +147,7 @@ The id idiom predates substrate choice. A view that follows it ports across adap
 - [001-Registration.md](001-Registration.md) — `reg-sub` and `reg-view` registration grammar; the query-vector destructure is standard `reg-sub` mechanics.
 - [004-Views.md](004-Views.md) — `reg-view` positional args; render-tree splice semantics; Form-1 canonical.
 - [002-Frames.md](002-Frames.md) — per-frame `app-db` isolation; how frames change the multi-instance story for views rendered in different frames.
-- [006-ReactiveSubstrate.md](006-ReactiveSubstrate.md) — the adapter contract; why the idiom ports across Reagent / UIx / Helix unchanged.
+- [006-ReactiveSubstrate.md](006-ReactiveSubstrate.md) — the adapter contract; why the idiom ports across Reagent / UIx unchanged.
 - [013-Flows.md](013-Flows.md) — when a host app's existing storage shape doesn't match a library's expected slice path, project into the expected shape via a registered flow.
 - **Pattern — Stateful Components** — companion pattern for the case where the parameterised widget also wraps a stateful JS library (a chart, a map, a code editor). The entity-id idiom handles the data flow; the stateful-component idiom handles the imperative-handle lifecycle. The two compose: a `[customer-chart id]` widget is a reusable component (entity-id) that is also a stateful component (wraps a charting library).
 

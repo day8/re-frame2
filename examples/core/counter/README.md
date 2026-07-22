@@ -51,11 +51,10 @@ Every richer example is the same pipeline with more parts.
 - **Standing up the frame** — the part worth slowing down for, and the
   reason this is more than a generic Reagent demo. See below.
 
-The same counter, on other substrates, lives at
-[`examples/substrates/uix/counter/`](../../substrates/uix/counter/) and
-[`examples/substrates/helix/counter/`](../../substrates/helix/counter/) — the same
+The same counter, on another substrate, lives at
+[`examples/substrates/uix/counter/`](../../substrates/uix/counter/) — the same
 dataflow, rendered through hooks instead of Reagent's reactive
-[substrate](../../../docs/core/glossary.md#substrate). Put the three
+[substrate](../../../docs/core/glossary.md#substrate). Put the two
 side by side and the seam is clear: the events, subscription, and
 `app-db` are byte-for-byte identical, and only the rendering layer
 changes. That seam is the whole point of the

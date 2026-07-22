@@ -6,7 +6,7 @@ These are small, complete apps you can run and read top to bottom — each one c
 - **Capabilities** — one framework subsystem per folder (each has its own `docs/<capability>/` guide).
 - **Patterns** — composition recipes built from the capabilities (the `spec/Pattern-*` docs).
 - **Real-apps** — full applications that put it all together.
-- **Substrates** — the same apps rendered on other substrates (UIx, Helix, reagent-slim).
+- **Substrates** — the same apps rendered on other substrates (UIx, reagent-slim).
 
 They range from the counter (the smallest app the pattern admits) to RealWorld (the widest surface in the repo). Run any from `implementation/` with `shadow-cljs watch <build-id>` (the build-id is in each row).
 
@@ -57,10 +57,6 @@ examples/
       counter/
       login/
       dashboard/
-    helix/
-      counter/
-      login/
-      process_monitor/
     reagent_slim/
       counter/
   ui/                          <-- standalone re-frame.ui scaffold (its own build; not on the monorepo classpath)
@@ -78,7 +74,7 @@ The fundamentals — the dataflow concepts every other example builds on.
 | [`core/todomvc/`](core/todomvc/README.md) — `examples/todomvc` | Canonical cross-framework todo app: localStorage persistence, editing, bulk actions, remaining count, and hash-routing filters. **Specs:** [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md), [012 Routing](../spec/012-Routing.md). |
 | [`core/flows/`](core/flows/) — `examples/flows` | The canonical Flows exemplar: a cart whose subtotal + total are *materialised into app-db* by registered flows (not subs). A flow-reads-flow cascade, reading a flow inside an event handler, and a runtime-toggleable discount. **Specs:** [013 Flows](../spec/013-Flows.md). |
 | [`core/managed_http_counter/`](core/managed_http_counter/) — `examples/managed-http-counter` | A counter where each button issues a `:rf.http/managed` request: success, 4xx failure, retry-recover, and abort. The compact complement to RealWorld for Spec 014. **Specs:** [014 HTTPRequests](../spec/014-HTTPRequests.md), [Pattern-AsyncEffect](../spec/Pattern-AsyncEffect.md). |
-| [`core/notebook/`](core/notebook/) — `examples/notebook` | Three-pane editorial layout (documents tree · markdown editor · live preview). The design-led Reagent counterpart to `substrates/uix/dashboard/` and `substrates/helix/process_monitor/` — all three share the "Editorial Warm" identity from [`_shared/css/style.css`](_shared/css/style.css). **Specs:** [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md). |
+| [`core/notebook/`](core/notebook/) — `examples/notebook` | Three-pane editorial layout (documents tree · markdown editor · live preview). The design-led Reagent counterpart to `substrates/uix/dashboard/` — the two share the "Editorial Warm" identity from [`_shared/css/style.css`](_shared/css/style.css). **Specs:** [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md). |
 | [`core/seven_guis/temperature/`](core/seven_guis/temperature/core.cljs) — `examples/temperature` | 7GUIs #2 — Temperature converter. Bidirectional derivations; one source of truth. **Specs:** [004 Views](../spec/004-Views.md), [006 ReactiveSubstrate](../spec/006-ReactiveSubstrate.md). |
 | [`core/seven_guis/flight_booker/`](core/seven_guis/flight_booker/core.cljs) — `examples/flight-booker` | 7GUIs #3 — Flight booker. Form validation; layered subs deriving the Book button's enabled state. **Specs:** [004 Views](../spec/004-Views.md), [Pattern-Forms](../spec/Pattern-Forms.md). |
 | [`core/seven_guis/timer/`](core/seven_guis/timer/core.cljs) — `examples/timer` | 7GUIs #4 — Timer. `:dispatch-later` periodic tick; controlled slider; one source of truth for elapsed time. **Specs:** [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md). |
@@ -144,16 +140,13 @@ Both apps share read-only helpers (avatars, markdown rendering) from `real-apps/
 
 ## Substrates
 
-The same dataflow, rendered on a different substrate — the proof the adapter swaps cleanly. UIx and Helix each ship the curated **counter + login** pair plus one design-led example; reagent-slim ships the counter.
+The same dataflow, rendered on a different substrate — the proof the adapter swaps cleanly. UIx ships the curated **counter + login** pair plus one design-led example; reagent-slim ships the counter.
 
 | Example | What it demonstrates |
 |---|---|
 | [`substrates/uix/counter/`](substrates/uix/counter/) — `examples/counter-uix` | The [`core/counter/`](core/counter/) dataflow through UIx — same events, subs, and `app-db`; views are `defui` components consuming subs via the `use-subscribe` hook. |
 | [`substrates/uix/login/`](substrates/uix/login/) — `examples/login-uix` | The [`core/login/`](core/login/) example through UIx — schemas, machine, and HTTP stub unchanged; only the view layer differs. |
-| [`substrates/uix/dashboard/`](substrates/uix/dashboard/) — `examples/dashboard-uix` | Design-led: UIx driving a substantive multi-pane layout. Shares the "Editorial Warm" identity from [`_shared/css/style.css`](_shared/css/style.css) with `core/notebook/` and `substrates/helix/process_monitor/`. |
-| [`substrates/helix/counter/`](substrates/helix/counter/) — `examples/counter-helix` | The [`core/counter/`](core/counter/) dataflow through Helix — same events, subs, and `app-db`; views are `defnc` components consuming subs via the `use-subscribe` hook. |
-| [`substrates/helix/login/`](substrates/helix/login/) — `examples/login-helix` | The [`core/login/`](core/login/) example through Helix — schemas, machine, and HTTP stub unchanged; only the view layer differs. |
-| [`substrates/helix/process_monitor/`](substrates/helix/process_monitor/) — `examples/process-monitor-helix` | Design-led: Helix driving a substantive multi-pane layout. Shares the "Editorial Warm" identity from [`_shared/css/style.css`](_shared/css/style.css) with `core/notebook/` and `substrates/uix/dashboard/`. |
+| [`substrates/uix/dashboard/`](substrates/uix/dashboard/) — `examples/dashboard-uix` | Design-led: UIx driving a substantive multi-pane layout. Shares the "Editorial Warm" identity from [`_shared/css/style.css`](_shared/css/style.css) with `core/notebook/`. |
 | [`substrates/reagent_slim/counter/`](substrates/reagent_slim/counter/) — `examples/counter-slim-and-fast` | The [`core/counter/`](core/counter/) dataflow on `day8/reagent-slim` (a ground-up `reagent2.*` rewrite; every `reagent.*` import → `reagent2.*`; `rf/init!` takes the slim adapter Var). The interest is in what the bundle does *not* contain. **Specs:** [006 ReactiveSubstrate](../spec/006-ReactiveSubstrate.md), [Conventions §Adapter test matrix](../spec/Conventions.md#adapter-test-matrix-policy). |
 
 > **Auxiliary Story showcases.** Two examples ship a Story showcase layered over the example itself: [`core/login/`](core/login/) (`:examples/login-with-stories`) and [`patterns/nine_states/`](patterns/nine_states/) (`:examples/nine-states-with-stories`) — a `stories.cljs` + `stories_host.cljs` + `stories.index.html` trio that sources the example's real machine and views and enumerates its states as Story variants. See each example's README for the run command.

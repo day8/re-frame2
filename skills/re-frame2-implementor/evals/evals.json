@@ -11,7 +11,7 @@
  {"id": 5, "name": "conformance-suite", "should_trigger": true, "prompt": "How do I run the spec/conformance/ tests against my partial port?"},
  {"id": 6, "name": "primitive-decisions", "should_trigger": true, "prompt": "My host language has structural records but no protocols — what re-frame2 primitives does that affect?"},
  {"id": 7, "name": "phase-2-order", "should_trigger": true, "prompt": "What EP order should I implement re-frame2 in? Frames first, or the registrar?"},
- {"id": 8, "name": "scope-substrate", "should_trigger": true, "prompt": "If I'm writing a new Helix React-binding adapter on the CLJS impl, is that a port or just a new adapter?"},
+ {"id": 8, "name": "scope-substrate", "should_trigger": true, "prompt": "If I'm writing a new Rum React-binding adapter on the CLJS impl, is that a port or just a new adapter?"},
  {"id": 9, "name": "neg-author-app", "should_trigger": false, "prompt": "Write a re-frame2 reg-event that loads articles from /api/articles.", "rationale": "Authoring code on the CLJS reference is re-frame2's job."},
  {"id": 10, "name": "neg-setup", "should_trigger": false, "prompt": "Start me a new re-frame2 ClojureScript project from scratch.", "rationale": "Greenfield CLJS bootstrap is re-frame2-setup."},
  {"id": 11, "name": "neg-live-pair", "should_trigger": false, "prompt": "Attach to my running shadow-cljs build and tell me what's in app-db.", "rationale": "Live-runtime work is re-frame2-pair."},

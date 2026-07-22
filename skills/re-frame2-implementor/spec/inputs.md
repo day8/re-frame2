@@ -36,7 +36,7 @@ Path: `implementation/` in the re-frame2 repo.
 The most load-bearing directories for the tour:
 
 - **`implementation/core/src/re_frame/`** — public API + the heart of EP 001 / 002 / 009; also `core/src/re_frame/substrate/` (the substrate contract `adapter.cljc` + the in-core plain-atom reference substrate `plain_atom.cljc`).
-- **`implementation/adapters/{reagent,reagent-slim,uix,helix,test-react}/`** — EP 006's React-binding adapter realisations (plain-atom is NOT here; it lives in core's `substrate/`).
+- **`implementation/adapters/{reagent,reagent-slim,uix,test-react}/`** — EP 006's React-binding adapter realisations (plain-atom is NOT here; it lives in core's `substrate/`).
 - **`implementation/{epoch,flows,http,machines,routing,schemas,ssr}/`** — the per-feature artefacts (per the pay-as-you-go split).
 
 The tour names what's in each directory, calls out CLJS-specific choices, and names pattern-required behaviour. The tour does not transcribe source.

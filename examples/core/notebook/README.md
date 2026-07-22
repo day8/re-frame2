@@ -110,7 +110,7 @@ A design-led example exists to prove that polished visuals and
 interaction hold up on its substrate. So it skips the platform features
 other examples already cover. No state machines, no HTTP, no routing
 here — the dataflow and the rendering get to be the star. This is the
-Reagent member of a three-substrate design-led trio. Each is a
+Reagent member of a design-led pair. Each is a
 substantial, genuinely different UI on a different
 [substrate](../../../docs/core/glossary.md#substrate):
 
@@ -118,12 +118,11 @@ substantial, genuinely different UI on a different
 |---|---|---|
 | Reagent | `notebook` (this) | Three-pane editor |
 | UIx | [`dashboard`](../../substrates/uix/dashboard/) | Cards + sparklines |
-| Helix | [`process_monitor`](../../substrates/helix/process_monitor/) | Terminal log viewer |
 
-All three wear the same "Editorial Warm" identity from
+Both wear the same "Editorial Warm" identity from
 [`examples/_shared/css/style.css`](../../_shared/css/style.css). So what
 looks different between them is the layout and the interaction, never
-the brand. Use the trio to see how each substrate's idiom lands at real
+the brand. Use the pair to see how each substrate's idiom lands at real
 scale. This one shows Reagent's `reg-view` + `@(subscribe …)` idiom
 doing the whole job.
 

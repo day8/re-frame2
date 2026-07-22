@@ -42,7 +42,7 @@ When the app does something you didn't ask for, you don't reach for `println` �
 | keep tokens, passwords, and large blobs out of traces | [Keep secrets and large things out of traces](keep-secrets-out-of-traces.md) |
 | hear about production errors with their full context | [Report errors in production](report-errors-in-production.md) |
 | set up dev and production builds — tools in, tools out | [Configure dev and production builds](configure-dev-and-prod.md) |
-| swap the substrate (the React-family rendering layer) — the event pipeline is identical on all of them | [Use UIx, Helix, or reagent-slim](use-uix-helix-or-slim.md) |
+| swap the substrate (the React-family rendering layer) — the event pipeline is identical on all of them | [Use UIx or reagent-slim](use-uix-or-slim.md) |
 
 ??? info "For JavaScript developers"
 

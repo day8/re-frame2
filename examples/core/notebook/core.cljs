@@ -33,7 +33,7 @@
   ;; We render through stock Reagent (`reagent.dom.client` +
   ;; `re-frame.adapter.reagent`). The adapter is the value that teaches
   ;; re-frame2 how to talk to a given rendering library — swap it and the
-  ;; same app runs on UIx or Helix. See docs/core/glossary.md#adapter.
+  ;; same app runs on UIx. See docs/core/glossary.md#adapter.
   (:require [reagent.dom.client :as rdc]
             [clojure.string     :as str]
             [re-frame.core      :as rf]

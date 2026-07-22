@@ -213,10 +213,10 @@ isolation and carry are [Frames](frames.md); packaging a real entry point is
 ??? note "`reg-view` is the Reagent surface"
 
     The `defn`-shape macro is specific to **Reagent** (this page's default). On
-    UIx and Helix you write native components and reach the frame through adapter
+    UIx you write native components and reach the frame through adapter
     hooks (`use-subscribe`, `use-frame`). The pure-function rule, the
     compute-in-subs rule, and frame isolation hold on every substrate. See
-    [Use UIx, Helix, or reagent-slim](how-to/use-uix-helix-or-slim.md).
+    [Use UIx or reagent-slim](how-to/use-uix-or-slim.md).
 
 ??? note "Docstring and explicit id"
 
@@ -426,7 +426,7 @@ that survives any async hop. [Frames](frames.md) is that pattern's home.
     Handlers, subs, and app-db never name a rendering library. The adapter
     (`(rf/init! reagent-adapter/adapter)`) is the seam where hiccup becomes pixels.
     Port substrates and only `init!` plus view notation change —
-    [Use UIx, Helix, or reagent-slim](how-to/use-uix-helix-or-slim.md). A more
+    [Use UIx or reagent-slim](how-to/use-uix-or-slim.md). A more
     radical, still-experimental option is [re-frame.ui](re-frame.ui/index.md), a
     first-party *compiled* view substrate where views are macro-compiled rather
     than interpreted at runtime.

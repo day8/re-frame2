@@ -149,7 +149,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 - **Why it matters.** The runtime's reactive container for `app-db`, the change-tracking that drives view re-renders, and the render-tree → surface step. Substrate-decoupled per [006](006-ReactiveSubstrate.md). Adapter contract is locked at six required + two optional + one lifecycle function, with a [§Revertibility constraint](006-ReactiveSubstrate.md#revertibility-constraints-on-adapters) that adapter-internal state must be derivable from the frame value.
 - **Options by host.** Every in-scope host targets React, so the substrate is the host's React-binding's state-and-reactivity bridge over the framework's container.
-  - **CLJS** — Reagent (default; atop React) or plain-atom (JVM/headless/SSR). Other CLJS adapters (UIx, Helix) plug in via the same contract.
+  - **CLJS** — Reagent (default; atop React) or plain-atom (JVM/headless/SSR). Other CLJS adapters (UIx) plug in via the same contract.
   - **TypeScript** — `useSyncExternalStore` against a hand-rolled atom-shaped store, or a signal library bridged through it (Solid `createSignal` + `createMemo`, MobX, Zustand, Jotai).
   - **Melange / ReScript / Reason** — Melange-React / ReasonReact `useState` + `useSyncExternalStore` bridge against a Belt/Map-shaped container.
   - **Fable (F#)** — Fable.React / Feliz `useState` + `useSyncExternalStore` against an F# `IObservable` or hand-rolled store.

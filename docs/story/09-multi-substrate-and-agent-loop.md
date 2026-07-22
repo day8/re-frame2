@@ -9,7 +9,7 @@ run the same variants.
 ## Substrates
 
 A Story body names a view id and application behaviour. It does not contain
-JSX, Reagent hiccup, UIx calls, or Helix component code. That keeps the variant
+JSX, Reagent hiccup, or UIx component code. That keeps the variant
 body independent from the renderer:
 
 ```clojure
@@ -20,7 +20,7 @@ body independent from the renderer:
 ```
 
 Today, the tutorial and scaffolded Story path are Reagent-focused. The broader
-contract leaves room for UIx and Helix as adapter coverage matures. The design
+contract leaves room for UIx as adapter coverage matures. The design
 reason is still worth understanding now: a variant should describe a state and
 behaviour, not smuggle a renderer-specific render function into the artifact.
 

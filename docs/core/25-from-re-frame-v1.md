@@ -42,7 +42,7 @@ The rest of this chapter is orientation. It gives you the mental model of what t
 re-frame2 is **pay-as-you-go**: capabilities ship as separate artefacts, so unused ones never bundle. That one fact shapes the whole deps migration:
 
 1. **Swap the core coord.** Remove `re-frame/re-frame`. Add `day8/re-frame2`.
-2. **Add a substrate adapter** for your view library — `day8/re-frame2-reagent` if you're on Reagent (and bump Reagent to v2, which the reference targets), or the matching UIx/Helix adapter if you've already moved off Reagent. ([Chapter 22 — Adapters](how-to/use-uix-helix-or-slim.md) is the [substrate](glossary.md#substrate) story in full.)
+2. **Add a substrate adapter** for your view library — `day8/re-frame2-reagent` if you're on Reagent (and bump Reagent to v2, which the reference targets), or the UIx adapter if you've already moved off Reagent. ([Chapter 22 — Adapters](how-to/use-uix-or-slim.md) is the [substrate](glossary.md#substrate) story in full.)
 3. **Add per-feature artefacts only for features you actually use.** Don't add them all "to be safe" — the skill tells you which ones the codebase trips. The split is `day8/re-frame2-{machines, flows, routing, http, resources, ssr, schemas, epoch}`, and an app that doesn't use flows doesn't carry flow code.
 4. **Don't bump anything else in the same change.** Keep React, shadow-cljs, and the rest on their current versions until the migration settles. A migration that is also a dependency upgrade is two bugs wearing one diff — separate failure modes are far easier to debug separately.
 

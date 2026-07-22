@@ -1,7 +1,7 @@
 # re-frame.ui
 
 `re-frame.ui` is the first-party **compiled-view substrate**. Where the
-[Reagent, reagent-slim, and UIx adapters](../how-to/use-uix-helix-or-slim.md)
+[Reagent, reagent-slim, and UIx adapters](../how-to/use-uix-or-slim.md)
 interpret your hiccup at runtime, `re-frame.ui` reads your templates at *compile*
 time and lowers them to direct React construction in the browser and a versioned
 structural tree on the JVM — there is no hiccup interpreter in the production
@@ -29,7 +29,7 @@ messages, so it never drifts from what the compiler actually enforces.
     It is pre-alpha, delivered in staged slices, and some surfaces are still
     landing. The Maven coordinates aren't on Clojars yet. Treat it as a track you
     can *trial* today, not one to bet a shipping product on. The
-    [adapters](../how-to/use-uix-helix-or-slim.md) are where the stable ground is.
+    [adapters](../how-to/use-uix-or-slim.md) are where the stable ground is.
 
 ## What stays the same
 

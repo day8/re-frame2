@@ -28,10 +28,9 @@ and mcp-conformance — not here.
 
 ## The design-led examples
 
-Three examples exist to prove *polished visuals + interaction* on each substrate:
-the Reagent [`notebook`](core/notebook/), the UIx
-[`dashboard`](substrates/uix/dashboard/), and the Helix
-[`process_monitor`](substrates/helix/process_monitor/). They share the
+Two examples exist to prove *polished visuals + interaction* on each substrate:
+the Reagent [`notebook`](core/notebook/) and the UIx
+[`dashboard`](substrates/uix/dashboard/). They share the
 "Editorial Warm" identity from [`_shared/css/style.css`](_shared/css/style.css).
 
 `test:examples-compile` sweeps their builds like any other, and
@@ -94,9 +93,9 @@ example's own README links here for the canonical statement.
 the `:counter/*` event + sub ids, proving the two Reagent bridges run identical
 dataflow.
 
-#### Exception 2 — the cross-substrate Reagent/UIx/Helix id share
+#### Exception 2 — the cross-substrate Reagent/UIx id share
 
-The Reagent, UIx, and Helix **counter** triplet shares its event, sub, fx,
+The Reagent and UIx **counter** triplet shares its event, sub, fx,
 machine, and schema ids, proving one dataflow across three reactive substrates.
 Each counter carries its own copy of that dataflow, deliberately kept in step.
 
@@ -112,9 +111,9 @@ outright — there is no second copy to diverge.
 Both are safe because each side is a **separate standalone build** that never
 shares a JS runtime, and the bundle-isolation gates
 (`npm run test:bundle-isolation`, `npm run test:reagent-slim:bundle-isolation`)
-keep those builds split. `test:bundle-isolation` now scans the three login
+keep those builds split. `test:bundle-isolation` now scans the two login
 builds too (`check-login-bundle-isolation.cjs`): each login `main.js` carries
-**only its own substrate** — the UIx login bundle has no Reagent or Helix code —
+**only its own substrate** — the UIx login bundle has no Reagent code —
 which is exactly what proves the shared `login.model` drags in no view library or
 adapter. Views are never shared — each substrate's views carry their own
 namespace. If two of these examples were ever co-loaded into one frame image, the
@@ -147,7 +146,7 @@ to sweep it.
 
 ## Adapter smokes are not an example surface
 
-The three adapter browser smokes (Reagent / UIx / Helix) live with the adapters
+The three adapter browser smokes (Reagent / UIx) live with the adapters
 they test — see
 [`../implementation/adapters/TESTING.md`](../implementation/adapters/TESTING.md).
 They reuse the shared Playwright assertion matchers in

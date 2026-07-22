@@ -7,7 +7,7 @@ re-frame2's examples are the canonical authoring substrate — per SKILL.md card
 
 A one-paragraph-per-example index: what each demonstrates and when to point at it, naming the *patterns and primitives* it exercises so a routing decision lands on the right directory in one hop. It does **not** explain internals — read the source.
 
-The full catalogue (with maturity, build ids, and end-to-end Playwright coverage) lives at [`examples/README.md`](../../examples/README.md). The substrate policy (Reagent is canonical; UIx and Helix ship a smoke-pair) lives at [`spec/Conventions.md` §Adapter shipping convention](../../spec/Conventions.md).
+The full catalogue (with maturity, build ids, and end-to-end Playwright coverage) lives at [`examples/README.md`](../../examples/README.md). The substrate policy (Reagent is canonical; UIx ships a smoke-pair) lives at [`spec/Conventions.md` §Adapter shipping convention](../../spec/Conventions.md).
 
 ## counter — `examples/core/counter/`
 
@@ -83,11 +83,11 @@ The streaming-SSR worked example for [Spec 011 §Streaming](../../spec/011-SSR.m
 
 ## notebook — `examples/core/notebook/`
 
-The design-led Reagent example — a three-pane editorial layout (documents tree · markdown editor · live preview) that proves the substrate drives a substantive multi-pane UI. The design-led counterpart to `examples/substrates/uix/dashboard/` and `examples/substrates/helix/process_monitor/`; all three share the "Editorial Warm" identity from `examples/_shared/css/style.css`. A tiny pure-CLJS markdown parser keeps the bundle small. Point at this example when authoring a multi-pane layout, a master-detail editor shape, or when verifying the shared design-system identity across substrates. Single `core.cljs`. Exercises 002 Frames and 004 Views. Not a pattern-teaching example — read it for layout/identity shape, not for a primitive.
+The design-led Reagent example — a three-pane editorial layout (documents tree · markdown editor · live preview) that proves the substrate drives a substantive multi-pane UI. The design-led counterpart to `examples/substrates/uix/dashboard/`; the two share the "Editorial Warm" identity from `examples/_shared/css/style.css`. A tiny pure-CLJS markdown parser keeps the bundle small. Point at this example when authoring a multi-pane layout, a master-detail editor shape, or when verifying the shared design-system identity across substrates. Single `core.cljs`. Exercises 002 Frames and 004 Views. Not a pattern-teaching example — read it for layout/identity shape, not for a primitive.
 
 ## Adapter smoke-pairs
 
-Per [Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md), the UIx and Helix substrates each ship a curated smoke-pair (counter + login) rather than a 1:1 mirror of the Reagent set. Point at `examples/substrates/uix/counter/` and `examples/substrates/uix/login/` (and the Helix counterparts at `examples/substrates/helix/`) only when authoring against UIx or Helix specifically. The dataflow is identical to the Reagent siblings; only the view layer differs (`defui` for UIx, `defnc` for Helix, plus the `use-subscribe` hook).
+Per [Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md), the UIx substrate ships a curated smoke-pair (counter + login) rather than a 1:1 mirror of the Reagent set. Point at `examples/substrates/uix/counter/` and `examples/substrates/uix/login/` only when authoring against UIx specifically. The dataflow is identical to the Reagent siblings; only the view layer differs (`defui` plus the `use-subscribe` hook).
 
 ## How to use this map during an authoring task
 
@@ -101,7 +101,7 @@ Per [Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md
 
 - [`SKILL.md`](SKILL.md) — router skill; cardinal rules; loading map.
 - [`examples/README.md`](../../examples/README.md) — the full example catalogue with maturity, build ids, and end-to-end coverage.
-- [`spec/Conventions.md` §Adapter shipping convention](../../spec/Conventions.md) — Reagent-canonical / UIx-Helix-smoke-pair policy.
+- [`spec/Conventions.md` §Adapter shipping convention](../../spec/Conventions.md) — Reagent-canonical / UIx-smoke-pair policy.
 - [`patterns/`](patterns) — pattern leaves; each names the worked example for its pattern.
 
 ---

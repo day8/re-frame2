@@ -53,7 +53,7 @@ applies.
 
 The canonical six-step greenfield path:
 
-1. Discover the current re-frame2 VERSION (the eleven artefacts ship in lockstep; Xray rides the same line).
+1. Discover the current re-frame2 VERSION (the ten artefacts ship in lockstep; Xray rides the same line).
 2. Add the day-one deps to `deps.edn` — `day8/re-frame2` + `day8/re-frame2-reagent` + `day8/re-frame2-schemas` + `day8/re-frame2-xray`, plus an explicit `reagent/reagent`.
 3. Add `react`, `react-dom`, `shadow-cljs`, and Xray's npm deps `@xyflow/react` + `elkjs` to `package.json`. Run `npm install`.
 4. Write a minimal `shadow-cljs.edn` for a single-page Reagent app (with the Xray `:devtools/preloads` wiring), plus `resources/public/index.html` carrying the `[data-rf-xray-host]` column.
@@ -66,11 +66,11 @@ The canonical six-step greenfield path:
 - Live REPL inspection of the running app — that's [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair).
 - Migrating an existing re-frame v1 codebase to v2 — that's a different problem; see [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 - Test infrastructure, CI, deployment — out of scope. The author chooses their own.
-- Anything beyond Reagent + shadow-cljs. The canonical path is Reagent + shadow-cljs. For a UIx or Helix greenfield, the substrate-neutral dataflow (events + sub + schema) is single-sourced in `references/shared-dataflow.md`, and `references/entry-namespace.md` §UIx / Helix greenfield gives the substrate `core.cljs` + `views.cljs` this skill hand-wires; the fastest non-Reagent path is the **user-run** generator template's complete `_uix/` / `_helix/` variants (`clojure -Tnew create ... :substrate :uix`, run by the author — see "Relationship to the generator template" above for who runs what).
+- Anything beyond Reagent + shadow-cljs. The canonical path is Reagent + shadow-cljs. For a UIx greenfield, the substrate-neutral dataflow (events + sub + schema) is single-sourced in `references/shared-dataflow.md`, and `references/entry-namespace.md` §UIx greenfield gives the substrate `core.cljs` + `views.cljs` this skill hand-wires; the fastest non-Reagent path is the **user-run** generator template's complete `_uix/` variant (`clojure -Tnew create ... :substrate :uix`, run by the author — see "Relationship to the generator template" above for who runs what).
 
 ## Status
 
-Pre-alpha. The skill's load-bearing code snippets are compile-tested and drift-guarded in re-frame2's CI: an opt-in real `compile app` of the skill's own fenced blocks (`setup-skill-scaffold-compiles-test`, behind `RF2_TEMPLATE_RUN_EMITTED_TESTS`), plus two cheap prose/structural guards on every relevant change — `scripts/check_skill_setup_counter_drift.py` (counter vocabulary + `:init-fn` hot-reload lifecycle wording) and `tests/setup_drift_test.clj` (the build-discipline, UIx/Helix template-pin, Xray-host, CSP dev/prod, and publication-state contracts; run locally with `bb tests/setup_drift_test.clj`). The prose guards assert the skill teaches the right shapes; the opt-in compile closes the buildability gap for in-repo coords (a published-coordinate buildability gate stays deferred to publication). The content is grounded against `examples/core/counter/core.cljs` and the deps shapes in `implementation/`. Fuller test-infra notes: [`spec/design.md` §Testing & drift guards](spec/design.md) (authoring-time meta-doc, not shipped in the package — reach it from a monorepo clone).
+Pre-alpha. The skill's load-bearing code snippets are compile-tested and drift-guarded in re-frame2's CI: an opt-in real `compile app` of the skill's own fenced blocks (`setup-skill-scaffold-compiles-test`, behind `RF2_TEMPLATE_RUN_EMITTED_TESTS`), plus two cheap prose/structural guards on every relevant change — `scripts/check_skill_setup_counter_drift.py` (counter vocabulary + `:init-fn` hot-reload lifecycle wording) and `tests/setup_drift_test.clj` (the build-discipline, UIx template-pin, Xray-host, CSP dev/prod, and publication-state contracts; run locally with `bb tests/setup_drift_test.clj`). The prose guards assert the skill teaches the right shapes; the opt-in compile closes the buildability gap for in-repo coords (a published-coordinate buildability gate stays deferred to publication). The content is grounded against `examples/core/counter/core.cljs` and the deps shapes in `implementation/`. Fuller test-infra notes: [`spec/design.md` §Testing & drift guards](spec/design.md) (authoring-time meta-doc, not shipped in the package — reach it from a monorepo clone).
 
 ## Layout
 
@@ -98,7 +98,7 @@ skills/re-frame2-setup/
     └── evals.json
 ```
 
-`SKILL.md` is the router: it walks the six-step canonical path and links to the leaf in `references/` whenever depth is useful. The five reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. The UIx / Helix recipe reads two together (`entry-namespace.md` for the substrate `core.cljs` / `views.cljs`, `shared-dataflow.md` for the substrate-neutral events / subs / schema); otherwise no leaf depends on another. `spec/` carries skill-internal design/authoring meta-docs, `tests/` holds the structural drift guard (`bb tests/setup_drift_test.clj`), and `evals/` holds the trigger-accuracy fixture — all repo-maintenance surfaces, not shipped with the skill (the `files` allow-list omits them).
+`SKILL.md` is the router: it walks the six-step canonical path and links to the leaf in `references/` whenever depth is useful. The five reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. The UIx recipe reads two together (`entry-namespace.md` for the substrate `core.cljs` / `views.cljs`, `shared-dataflow.md` for the substrate-neutral events / subs / schema); otherwise no leaf depends on another. `spec/` carries skill-internal design/authoring meta-docs, `tests/` holds the structural drift guard (`bb tests/setup_drift_test.clj`), and `evals/` holds the trigger-accuracy fixture — all repo-maintenance surfaces, not shipped with the skill (the `files` allow-list omits them).
 
 ## Install the skill in Claude Code
 

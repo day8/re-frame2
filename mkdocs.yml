@@ -192,7 +192,7 @@ nav:
       - "Keep secrets out of traces": core/how-to/keep-secrets-out-of-traces.md
       - "Report errors in production": core/how-to/report-errors-in-production.md
       - "Configure dev and prod": core/how-to/configure-dev-and-prod.md
-      - "Use UIx, Helix, or slim": core/how-to/use-uix-helix-or-slim.md
+      - "Use UIx or slim": core/how-to/use-uix-or-slim.md
     - "re-frame.ui (experimental)":
       - core/re-frame.ui/index.md
       - "Mental model": core/re-frame.ui/mental-model.md
@@ -242,7 +242,6 @@ nav:
     - "re-frame.performance": api/re-frame.performance.md
     - "re-frame.adapter.reagent": api/re-frame.adapter.reagent.md
     - "re-frame.adapter.uix": api/re-frame.adapter.uix.md
-    - "re-frame.adapter.helix": api/re-frame.adapter.helix.md
     - "re-frame.test-support": api/re-frame.test-support.md
     - "re-frame.test-helpers": api/re-frame.test-helpers.md
     - "re-frame.ui.test": api/re-frame.ui.test.md

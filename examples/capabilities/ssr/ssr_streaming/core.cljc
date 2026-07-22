@@ -134,7 +134,7 @@
   through the DOM tag grammar and paints a phantom `<suspense-boundary>`
   with `:id` and `:fallback` mangled into attributes. And the marker could
   not simply be taught client semantics either — stock Reagent's element
-  dispatch is an external dependency, and UIx / Helix views are `defui` /
+  dispatch is an external dependency, and UIx views are `defui` /
   `$` forms where a hiccup keyword head cannot occur at all.
 
   A callable component has none of those problems, and removing the

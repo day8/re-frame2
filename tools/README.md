@@ -125,7 +125,7 @@ wired into the build, and consumers can use it today.
   substrate-agnostic **`MachineChart`** state-chart component (xyflow +
   elkjs in-page renderer: nested compound states, parallel regions,
   `:spawn-all` join + cancellation-cascade overlays, `:after` countdown
-  rings, UIx/Helix adapters) plus a read-only share-URL **viewer page**
+  rings, a UIx adapter) plus a read-only share-URL **viewer page**
   (`public/viewer.html` + `viewer.cljs`). Also ships the pure-data
   Mermaid `stateDiagram-v2` emitter (relocated out of the runtime
   `machines` artefact per rf2-sqhqu so the engine stays pure), SCXML
@@ -239,9 +239,10 @@ wired into the build, and consumers can use it today.
   invoke it via `clojure -Tnew create :template
   io.github.day8/re-frame2-template :name acme/my-app` and receive a
   working CLJS app wired against the alpha `day8/re-frame2-*` coords.
-  Three substrate variants (Reagent / UIx / Helix) selectable via the
-  top-level `:substrate :uix|:helix` k/v. Distribution is git-coord,
-  not Clojars (rf2-dolpf §2.5).
+  Two substrate variants (Reagent / UIx) selectable via the top-level
+  `:substrate :uix` k/v, plus the experimental `:substrate :ui`
+  (re-frame.ui) variant. Distribution is git-coord, not Clojars
+  (rf2-dolpf §2.5).
 
   Note: `tools/template/` is **build-time only**; the template jar is
   never on a consumer's runtime classpath, so the bundle-isolation

@@ -370,7 +370,7 @@ You've now met every way a piece of code learns which frame it belongs to. They 
 
 1. **Hold** — capture the frame *as a value* and carry it. This is the primary move, the one that survives every boundary: an async callback, a component that dispatches, a fn handed to an outside library. There is **one** hold primitive, `capture-frame`, wearing a different face per context:
     - `reg-view` injection — Reagent's face. A `reg-view` body's `dispatch` / `subscribe` are the captured ops, handed to you lexically.
-    - `use-frame` — the UIx / Helix face. `(use-frame)` returns the same ops map in hook position (see [Use UIx, Helix, or reagent-slim](how-to/use-uix-helix-or-slim.md#step-3--why-callbacks-dispatch-off-the-frame-api)).
+    - `use-frame` — the UIx face. `(use-frame)` returns the same ops map in hook position (see [Use UIx or reagent-slim](how-to/use-uix-or-slim.md#step-3--why-callbacks-dispatch-off-the-frame-api)).
     - `capture-frame` itself — the bare form, for anything that leaves the render stack: an async setup fn, a tool, a test, a callback registered with the outside world.
 
     *One primitive, three faces.* Whichever face you use, you're holding the frame — the thing that actually travels.

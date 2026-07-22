@@ -12,7 +12,7 @@ The release pipeline reflects a small set of decisions Mike made up front. They 
 
 1. **Mechanism — tag-triggered CD, modeled on re-frame v1.** Push a tag matching the [tag glob](#tag-format); the [`release` workflow](../.github/workflows/release.yml) runs end-to-end. Same shape as [re-frame v1's `continuous-deployment-workflow.yml`](https://github.com/day8/re-frame/blob/master/.github/workflows/continuous-deployment-workflow.yml): tag-push trigger, gated test job, `clojure -M:clein deploy`, `softprops/action-gh-release` for the GitHub Release. The differences are structural — re-frame v1 ships one artefact, re-frame2 ships a coordinated set — and are documented in [§Topological deploy DAG](#topological-deploy-dag). The authoritative artefact roster is the [`release` workflow](../.github/workflows/release.yml)'s `deploy-leaf` matrix; the enumerations below mirror it.
 2. **Channel gating — pre-1.0 = alpha/beta, post-1.0 = stable.** Pre-1.0 releases tag as `v0.0.1.alpha` (and `v0.0.1.alpha-N` / `v0.0.2.alpha` etc. for subsequent alphas; the same pattern with `.beta` once we promote). Post-1.0 releases tag as `vX.Y.Z` per Semantic Versioning. The release workflow flags any tag containing `beta`, `alpha`, or `rc` as a GitHub `prerelease` automatically.
-3. **First publish — manual cut, all artefacts together.** Mike triggers the first `v0.0.1.alpha` deploy by hand once the policy text and the workflow have been reviewed against an actual tag. After the first cut, subsequent releases run automatically on tag push. The first cut ships the **full artefact set** — core plus every `deploy-leaf`: `schemas`, `reagent`, `reagent-slim`, `uix`, `helix`, `ui`, `machines`, `routing`, `flows`, `http`, `ssr`, `ssr-ring`, `resources`, `epoch`; no artefact "comes later" — they all ship together at every release per the lockstep contract below. Per the ratified packaging decision (spec/006 §R-6) the compiled-view substrate `day8/re-frame2-ui` is a **required** member of the alpha train: `verify-version-lockstep.sh` refuses a core-only tag (rf2-vxgfnd.99.2).
+3. **First publish — manual cut, all artefacts together.** Mike triggers the first `v0.0.1.alpha` deploy by hand once the policy text and the workflow have been reviewed against an actual tag. After the first cut, subsequent releases run automatically on tag push. The first cut ships the **full artefact set** — core plus every `deploy-leaf`: `schemas`, `reagent`, `reagent-slim`, `uix`, `ui`, `machines`, `routing`, `flows`, `http`, `ssr`, `ssr-ring`, `resources`, `epoch`; no artefact "comes later" — they all ship together at every release per the lockstep contract below. Per the ratified packaging decision (spec/006 §R-6) the compiled-view substrate `day8/re-frame2-ui` is a **required** member of the alpha train: `verify-version-lockstep.sh` refuses a core-only tag (rf2-vxgfnd.99.2).
 4. **Atomic rollback — NOT POLICY.** Clojars does not support yanking a published version, and re-frame2 does not invest in machinery that would make it look like it does. If a deploy fails part-way through, recovery is **bump VERSION + re-tag + re-run** (see [§Recovery from a partial deploy](#recovery-from-a-partial-deploy) for the procedure). The partial-release artefacts from a failed run remain on Clojars, tombstoned-by-supersession; consumers pin the bumped version and pull a coherent set. Manual recovery is acceptable; we do not build atomic-rollback or partial-deploy-replay machinery.
 5. **Artefact set ships together at lockstep VERSION.** Every artefact ships at every release at the same VERSION, sourced from the repo-root [`VERSION`](../VERSION) file. The lockstep contract is enforced before any deploy by [`./.github/scripts/verify-version-lockstep.sh`](../.github/scripts/verify-version-lockstep.sh) — which also asserts the required `day8/re-frame2-ui` substrate is publishable, so a core-only tag fails closed. Independent versioning is revisited post-1.0; until then, every published Maven coord moves in lockstep.
 
@@ -50,7 +50,6 @@ graph TD
   C --> R[deploy-reagent]
   C --> RS[deploy-reagent-slim]
   C --> U[deploy-uix]
-  C --> HX[deploy-helix]
   C --> UI[deploy-ui]
   C --> M[deploy-machines]
   C --> RT[deploy-routing]
@@ -64,7 +63,6 @@ graph TD
   R --> GR
   RS --> GR
   U --> GR
-  HX --> GR
   UI --> GR
   M --> GR
   RT --> GR
@@ -85,7 +83,6 @@ verify-version-lockstep ──► test ──► deploy-core
                                        ├── deploy-reagent
                                        ├── deploy-reagent-slim
                                        ├── deploy-uix
-                                       ├── deploy-helix
                                        ├── deploy-ui
                                        ├── deploy-machines
                                        ├── deploy-routing
@@ -100,9 +97,9 @@ verify-version-lockstep ──► test ──► deploy-core
                                         github-release
 ```
 
-**Why fan-out (not strict serial).** A strict topological linearization would suffice; the deps-graph data is wider — every leaf has core as its only re-frame2 dependency (the one exception is `ssr-ring`, which also depends on `ssr`; the release workflow rewrites both `:local/root` coordinates and resolves `ssr` from Clojars, so the leaves still fan out with no inter-leaf CI edge). The CI graph realises a valid topological sort that exploits the parallelism: leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The leaves group into per-feature artefacts (schemas, machines, routing, flows, http, ssr, ssr-ring, resources, epoch) and the view layer — the compiled-view substrate `ui` plus the adapter set (reagent default, reagent-slim, uix, helix). The authoritative roster is always the `deploy-leaf` matrix in [`release.yml`](../.github/workflows/release.yml).
+**Why fan-out (not strict serial).** A strict topological linearization would suffice; the deps-graph data is wider — every leaf has core as its only re-frame2 dependency (the one exception is `ssr-ring`, which also depends on `ssr`; the release workflow rewrites both `:local/root` coordinates and resolves `ssr` from Clojars, so the leaves still fan out with no inter-leaf CI edge). The CI graph realises a valid topological sort that exploits the parallelism: leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The leaves group into per-feature artefacts (schemas, machines, routing, flows, http, ssr, ssr-ring, resources, epoch) and the view layer — the compiled-view substrate `ui` plus the adapter set (reagent default, reagent-slim, uix). The authoritative roster is always the `deploy-leaf` matrix in [`release.yml`](../.github/workflows/release.yml).
 
-**The view layer, as consumers meet it.** The app template (`tools/template/`, `day8/re-frame2-template`) scaffolds against this released view layer through its substrate menu: `:reagent` (the default), `:uix`, `:helix`, and the experimental `:ui` (re-frame.ui, offered alongside the adapters). The `:helix` variant departs with the Helix adapter's in-flight removal (S7/W13, behind the soak gates); the template menu and the view-layer rows of the `deploy-leaf` matrix move together.
+**The view layer, as consumers meet it.** The app template (`tools/template/`, `day8/re-frame2-template`) scaffolds against this released view layer through its substrate menu: `:reagent` (the default), `:uix`, and the experimental `:ui` (re-frame.ui, offered alongside the adapters). The template menu and the view-layer rows of the `deploy-leaf` matrix move together.
 
 ## Pre-flight checklist
 

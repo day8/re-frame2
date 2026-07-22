@@ -3,7 +3,7 @@
 ## Files
 
 - **[000-Vision.md](000-Vision.md)** — The v2 equivalent of v1's `day8/re-frame-template`: front-door scaffolding tool for new re-frame2 apps via deps-new + git-coord distribution.
-- **[001-Substrate-Variants.md](001-Substrate-Variants.md)** — The three substrate variants (`:reagent` default, `:uix`, `:helix`); top-level k/v invocation form; substrate coercion.
+- **[001-Substrate-Variants.md](001-Substrate-Variants.md)** — The substrate variants (`:reagent` default, `:uix`, EXPERIMENTAL `:ui`); top-level k/v invocation form; substrate coercion.
 - **[002-Generated-Shape.md](002-Generated-Shape.md)** — File layout the template emits; deps-new resource tree (`root/` + `_shared/` + per-substrate); substitution variables.
 - **[003-DepsNew-Rebuild-Plan.md](003-DepsNew-Rebuild-Plan.md)** — Completed migration record for the deps-new rebuild; historical, not the current API contract.
 - **[004-SSR-Validation-Report.md](004-SSR-Validation-Report.md)** — Completed validation record for the shipped SSR variant.

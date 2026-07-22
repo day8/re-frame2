@@ -280,7 +280,7 @@ On CLJS, `dispatch`, `dispatch-sync`, and `subscribe` are macros in call positio
   (unsubscribe query-v) → nil
   (unsubscribe frame-id query-v) → nil
   ```
-- **Description**: Decrement the cache ref-count for a query. When the count hits zero, the entry is disposed **synchronously** (see [Subscriptions](../core/subscriptions.md)). The Reagent / UIx / Helix adapters wire it on unmount; most callers never reach for it directly. Target a non-ambient frame with the frame-first `(unsubscribe frame-id query-v)` form. Unlike `subscribe` / `subscribe-once`, `unsubscribe` has no `{:frame …}` opts form — it is pure teardown, never a hot in-view call.
+- **Description**: Decrement the cache ref-count for a query. When the count hits zero, the entry is disposed **synchronously** (see [Subscriptions](../core/subscriptions.md)). The Reagent / UIx adapters wire it on unmount; most callers never reach for it directly. Target a non-ambient frame with the frame-first `(unsubscribe frame-id query-v)` form. Unlike `subscribe` / `subscribe-once`, `unsubscribe` has no `{:frame …}` opts form — it is pure teardown, never a hot in-view call.
 - **Example**:
   ```clojure
   ;; Manual ref-count pairing (tests / REPL) — balances an explicit subscribe.
@@ -347,7 +347,7 @@ The framework ships a small, fixed set of standard `:rf/*` events you dispatch l
 
 ## Views
 
-The view layer is **substrate-agnostic**. The shared dataflow — frames, subscriptions, dispatch, source metadata, registry ids — is uniform across every adapter, and the same `capture-frame` carry primitive composes across all of them. The substrate-specific hooks (`use-subscribe`, `wrap-view`, …) live in each adapter's namespace doc: the first-party compiled-view substrate [re-frame.ui.md](re-frame.ui.md), plus [re-frame.adapter.reagent.md](re-frame.adapter.reagent.md) (covering both the full and slim Reagent variants), [re-frame.adapter.uix.md](re-frame.adapter.uix.md), and [re-frame.adapter.helix.md](re-frame.adapter.helix.md).
+The view layer is **substrate-agnostic**. The shared dataflow — frames, subscriptions, dispatch, source metadata, registry ids — is uniform across every adapter, and the same `capture-frame` carry primitive composes across all of them. The substrate-specific hooks (`use-subscribe`, `wrap-view`, …) live in each adapter's namespace doc: the first-party compiled-view substrate [re-frame.ui.md](re-frame.ui.md), plus [re-frame.adapter.reagent.md](re-frame.adapter.reagent.md) (covering both the full and slim Reagent variants) and [re-frame.adapter.uix.md](re-frame.adapter.uix.md).
 
 ### `reg-view`
 
@@ -842,7 +842,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```clojure
   (current-adapter) → discriminator keyword
   ```
-- **Description**: Which substrate is installed. Answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/ui` / `:rf.adapter/uix` / `:rf.adapter/helix` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr` / `:custom` — or `nil` when no adapter is installed. For predicate / branch code.
+- **Description**: Which substrate is installed. Answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/ui` / `:rf.adapter/uix` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr` / `:custom` — or `nil` when no adapter is installed. For predicate / branch code.
 - **Example**:
   ```clojure
   (rf/current-adapter)   ;; => :rf.adapter/reagent   (nil when no adapter is installed)

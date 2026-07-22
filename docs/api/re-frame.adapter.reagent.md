@@ -8,7 +8,7 @@
 
 There is no per-substrate hook surface here. The substrate-agnostic ergonomic surface (`capture-frame`, `with-frame`, `with-new-frame`, `frame-provider`) and the `reg-view` registry live in [`re-frame.core`](re-frame.core.md). They compose across every substrate. The dependency is one-way: this adapter depends on `re-frame.core`; core never depends on it.
 
-The adapter ships in two artefacts: `day8/re-frame2-reagent` (full) and `day8/reagent-slim` (slim). See the variant table under [`adapter`](#adapter). For substrate choice, see [Use UIx, Helix, or reagent-slim](../core/how-to/use-uix-helix-or-slim.md).
+The adapter ships in two artefacts: `day8/re-frame2-reagent` (full) and `day8/reagent-slim` (slim). See the variant table under [`adapter`](#adapter). For substrate choice, see [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md).
 
 ```clojure
 (:require [re-frame.adapter.reagent :as reagent-adapter])
@@ -50,7 +50,7 @@ In-repo `:git/sha` consumers require `re-frame.adapter.reagent-slim` directly, b
 
 The slim variant is bundle-isolated: a dedicated isolation gate verifies that stock Reagent / `react-dom/server` don't leak into builds that select it.
 
-The migration (a four-line swap) is in [Use UIx, Helix, or reagent-slim](../core/how-to/use-uix-helix-or-slim.md).
+The migration (a four-line swap) is in [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md).
 
 ## Test helpers
 
@@ -86,7 +86,7 @@ The migration (a four-line swap) is in [Use UIx, Helix, or reagent-slim](../core
 - **Description**: Install a render-tree → HTML fn: the hiccup → HTML emitter used by render-to-string.
   - Last call wins; pass `nil` to reset.
   - Normally you don't call this directly. Requiring [`re-frame.ssr`](re-frame.ssr.md) resolves the late-bind hook and wires the emitter for you.
-  - It is the Reagent-side late-bind seam for SSR, matching the parallel seam on the UIx and Helix adapters.
+  - It is the Reagent-side late-bind seam for SSR, matching the parallel seam on the UIx adapter.
 - **Example**:
   ```clojure
   ;; SSR: install a render-tree → HTML emitter (normally wired for you by
@@ -98,8 +98,8 @@ The migration (a four-line swap) is in [Use UIx, Helix, or reagent-slim](../core
 ## See also
 
 - [`re-frame.core`](re-frame.core.md) — the substrate-agnostic surface (`capture-frame`, `with-frame`, `with-new-frame`, `frame-provider`, `reg-view`) and the lifecycle surface (`init!`, `install-adapter!`, `destroy-adapter!`, `current-adapter`).
-- [`re-frame.adapter.uix`](re-frame.adapter.uix.md) / [`re-frame.adapter.helix`](re-frame.adapter.helix.md) — the hooks-first React substrates and their parallel adapter surfaces.
+- [`re-frame.adapter.uix`](re-frame.adapter.uix.md) — the hooks-first React substrate and its parallel adapter surface.
 - [`re-frame.ssr`](re-frame.ssr.md) — server-side rendering; wires `set-hiccup-emitter!` for you.
-- [Use UIx, Helix, or reagent-slim](../core/how-to/use-uix-helix-or-slim.md) — the substrate-choice how-to, including the slim swap.
+- [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md) — the substrate-choice how-to, including the slim swap.
 - [Views](../core/views.md) — why the substrate only shows up in the view body.
 - [Adapter](../core/glossary.md#adapter) and [substrate](../core/glossary.md#substrate) — the seam, and the thing it binds to, defined.

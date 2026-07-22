@@ -33,7 +33,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 ## D2. Substrate / React binding
 
 - **Substrate:** React + VDOM (fixed — every in-scope host binds against React).
-- **React binding:** <e.g. "Reagent atop React" / "UIx" / "Helix" / "Feliz / Fable.React" / "kotlin-wrappers React" / "rescript-react" / "scalajs-react / Slinky" / "purescript-react-basic">
+- **React binding:** <e.g. "Reagent atop React" / "UIx" / "Feliz / Fable.React" / "kotlin-wrappers React" / "rescript-react" / "scalajs-react / Slinky" / "purescript-react-basic">
 - **Reactive container library:** <e.g. "Reagent ratom" / "useSyncExternalStore-backed atom store" / "signal cell" / "MutableStateFlow-shaped cell">
 - **Render-tree shape:** <e.g. "hiccup" / "JSX-as-data / snabbdom vnodes" / "Feliz Html.div DSL" / "R.div [...]" — must serialise for SSR + tooling>
 

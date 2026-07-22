@@ -173,7 +173,7 @@ together are best-in-class. See
 
 ### Multi-substrate side-by-side rendering
 
-A variant declares `:substrates #{:reagent :uix :helix}` (subset,
+A variant declares `:substrates #{:reagent :uix}` (subset,
 default = the host frame's adapter); the multi-substrate pane renders
 each substrate side-by-side. Substrate-specific failures render inline
 (per [`003-Render-Shell.md`](003-Render-Shell.md) §Multi-substrate).

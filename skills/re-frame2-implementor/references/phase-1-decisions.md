@@ -81,7 +81,7 @@ Non-React substrates (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit) and non-c
 
 **Options (the host's React binding).**
 
-- ClojureScript — Reagent atop React (the reference); UIx or Helix as alternative React bindings.
+- ClojureScript — Reagent atop React (the reference); UIx as an alternative React binding.
 - TypeScript / JavaScript — React directly, or a `useSyncExternalStore`-backed store.
 - Fable (F#) — Feliz / Fable.React over React.
 - Squint — a thin React binding (Squint preserves the CLJS shape).
@@ -92,7 +92,7 @@ Non-React substrates (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit) and non-c
 
 **How to choose.** Pick the host's idiomatic React binding. The reactive container is usually the same library that supplies the binding's reactivity (a ratom, a `useSyncExternalStore`-backed atom-shaped store, a signal cell, a `MutableStateFlow`-shaped cell).
 
-**Trade-offs.** Bindings differ on how subscriptions auto-track (Reagent's deref-during-render vs UIx / Helix `use-subscribe` over `useSyncExternalStore`), but every in-scope binding plugs into the same six required + three optional + one lifecycle function contract from EP 006. The render trigger is uniformly "React re-renders on subscribed-value change."
+**Trade-offs.** Bindings differ on how subscriptions auto-track (Reagent's deref-during-render vs UIx `use-subscribe` over `useSyncExternalStore`), but every in-scope binding plugs into the same six required + three optional + one lifecycle function contract from EP 006. The render trigger is uniformly "React re-renders on subscribed-value change."
 
 **Where the spec speaks.** [`spec/006-ReactiveSubstrate.md`](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/) — the adapter contract + the React+VDOM commitment. [Implementor-Checklist §F3 Reactive substrate](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#f3-reactive-substrate) — options per host. [Host-profile matrix in 000](https://day8.github.io/re-frame2/spec/000-Vision/#host-profile-matrix) — the reactive-tracking row names each host's React binding.
 

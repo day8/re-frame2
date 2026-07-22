@@ -29,7 +29,7 @@ Register views by Var (the React-component idiom) or with `rf/reg-view*` for reg
        ($ :td count))))
 ```
 
-For narrative coverage and the substrate decision set, see [Use UIx, Helix, or reagent-slim](../core/how-to/use-uix-helix-or-slim.md).
+For narrative coverage and the substrate decision set, see [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md).
 
 ## Adapter spec
 
@@ -50,7 +50,7 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
    :flush-render!             …
    :dispose-adapter!          …}
   ```
-- **Description**: The adapter spec passed to `(rf/init! ...)`. Implements the same substrate adapter contract as the Reagent and Helix adapters. `:kind` is `:rf.adapter/uix`.
+- **Description**: The adapter spec passed to `(rf/init! ...)`. Implements the same substrate adapter contract as the Reagent adapter. `:kind` is `:rf.adapter/uix`.
 - **Example**:
   ```clojure
   (rf/init! uix-adapter/adapter)
@@ -88,7 +88,7 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
   ```
 - **Description**: Returns the frame ops map for the ambient frame — exactly what `(rf/capture-frame)` returns (the frame-locked ops map), captured in hook position. This is how a UIx component gets hold of `dispatch` (and the other frame-locked ops) without auto-injection: destructure `dispatch` off it and close over that.
 
-  `capture-frame` is *the* hold primitive; `reg-view` injection (Reagent) and `use-frame` (UIx / Helix) are its two ergonomic spellings — one primitive, three faces.
+  `capture-frame` is *the* hold primitive; `reg-view` injection (Reagent) and `use-frame` (UIx) are its two ergonomic spellings — one primitive, three faces.
 
   - Frame resolution matches `use-subscribe`: `with-frame` dynamic scope first, then the surrounding `frame-provider` / `frame-root` via React context. It raises `:rf.error/no-frame-context` when neither is in scope.
   - The returned map is reference-stable across re-renders for the same resolved frame (safe in effect deps and child props); a provider swap re-renders the caller and yields a map locked to the new frame.
@@ -209,13 +209,12 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
 
 ## Notes
 
-- **Shared React Context.** The `frame-provider` in all three adapters (Reagent, UIx, Helix) consumes the same `createContext` object, factored into `re-frame.adapter.context` (a CLJS-only file in core). There is exactly one Context, not three. A mixed-substrate app therefore composes: a UIx `frame-provider` can wrap a Reagent or Helix subtree, and vice versa.
+- **Shared React Context.** The `frame-provider` in both adapters (Reagent and UIx) consumes the same `createContext` object, factored into `re-frame.adapter.context` (a CLJS-only file in core). There is exactly one Context, not two. A mixed-substrate app therefore composes: a UIx `frame-provider` can wrap a Reagent subtree, and vice versa.
 - **DOM source-coord annotations.** Adapters inject `data-rf2-source-coord` on every registered view's root element; `wrap-view` is the explicit seam for that injection. The attribute is gated on debug builds and elided from production `:advanced` builds via dead-code elimination, so it costs no shipped bytes. It powers click-to-source in Xray and re-frame2-pair. The full contract is in the [Observability concept guide](../core/observability.md).
 
 ## See also
 
 - [re-frame.core](re-frame.core.md) — the substrate-agnostic ergonomic surface (`capture-frame`, `with-frame`, `with-new-frame`, `frame-provider`) plus the `init!` / `install-adapter!` / `current-adapter` / `adapter-disposed?` lifecycle.
-- [re-frame.adapter.helix](re-frame.adapter.helix.md) — the parallel hooks-first adapter; the UIx surface transfers to it one-for-one.
 - [re-frame.adapter.reagent](re-frame.adapter.reagent.md) — the default (inline) substrate.
-- [Use UIx, Helix, or reagent-slim](../core/how-to/use-uix-helix-or-slim.md) — narrative coverage with worked examples and the full decision set.
+- [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md) — narrative coverage with worked examples and the full decision set.
 - [Adapter (glossary)](../core/glossary.md#adapter) — the substrate seam, defined.

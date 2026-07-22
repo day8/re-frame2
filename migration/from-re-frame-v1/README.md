@@ -76,7 +76,7 @@ day8/re-frame2-reagent {:mvn/version "<latest>"}    ;; ← new in v2
 
 `<latest>` is the latest released version of `day8/re-frame2` (look it up — Clojars / Maven Central). Adapter artefacts are versioned in lock-step with core. The `re-frame.core` and `re-frame.adapter.reagent` namespaces and `:require` lines are unchanged; only the dep coord moves.
 
-**Pick the adapter artefact by current substrate.** v1 codebases use Reagent universally, so the migration adds `day8/re-frame2-reagent`. Codebases that have already switched to UIx or Helix (rare; usually post-migration) get `day8/re-frame2-uix` or `day8/re-frame2-helix` instead. Per [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention).
+**Pick the adapter artefact by current substrate.** v1 codebases use Reagent universally, so the migration adds `day8/re-frame2-reagent`. Codebases that have already switched to UIx (rare; usually post-migration) get `day8/re-frame2-uix` instead. Per [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention).
 
 **If no released v2 version is available yet** (pre-publication): leave the dep alone, do not apply any other migration rules, and flag the situation in the migration report — the user must update the coord manually once a release lands, then re-run the migration.
 
@@ -1659,9 +1659,9 @@ The v2 spec corpus had drifted between two phrasings for the routing slot key �
 
 **Type A — note only** (no codebase rewrite needed; Maven artefact names are unchanged).
 
-The three adapters now live under a single `implementation/adapters/` directory: `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/` (the directory was first introduced as `substrates/` and then renamed to `adapters/` — see [M-38](#m-38-cljs-namespace-rename--re-framesubstrate--re-frameadapter) for the companion namespace rename). Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The reorg surfaces the substrate-vs-per-feature distinction in the directory layout — adapters implement the [Spec 006 §adapter API contract](../../spec/006-ReactiveSubstrate.md#the-adapter-api-contract); per-feature artefacts plug in via [`re-frame.late-bind`](../../spec/Conventions.md#independence-rule).
+The adapters now live under a single `implementation/adapters/` directory: `implementation/adapters/reagent/`, `implementation/adapters/reagent-slim/`, `implementation/adapters/uix/` (the directory was first introduced as `substrates/` and then renamed to `adapters/` — see [M-38](#m-38-cljs-namespace-rename--re-framesubstrate--re-frameadapter) for the companion namespace rename). Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The reorg surfaces the substrate-vs-per-feature distinction in the directory layout — adapters implement the [Spec 006 §adapter API contract](../../spec/006-ReactiveSubstrate.md#the-adapter-api-contract); per-feature artefacts plug in via [`re-frame.late-bind`](../../spec/Conventions.md#independence-rule).
 
-**No user-side migration.** Maven artefact names (`day8/re-frame2-reagent`, `day8/re-frame2-uix`, `day8/re-frame2-helix`) are published from the new paths but the coordinates a consumer's `deps.edn` declares are unchanged. The on-disk move is a re-frame2 *repository* concern; consumers of the published jars are unaffected by the directory layout. The companion CLJS namespace rename (`re-frame.substrate.<name>` → `re-frame.adapter.<name>`) is documented separately as [M-38](#m-38-cljs-namespace-rename--re-framesubstrate--re-frameadapter).
+**No user-side migration.** Maven artefact names (`day8/re-frame2-reagent`, `day8/re-frame2-uix`) are published from the new paths but the coordinates a consumer's `deps.edn` declares are unchanged. The on-disk move is a re-frame2 *repository* concern; consumers of the published jars are unaffected by the directory layout. The companion CLJS namespace rename (`re-frame.substrate.<name>` → `re-frame.adapter.<name>`) is documented separately as [M-38](#m-38-cljs-namespace-rename--re-framesubstrate--re-frameadapter).
 
 ---
 
@@ -1675,7 +1675,6 @@ The four CLJS namespaces that name adapter implementations or adapter-shared uti
 |---|---|
 | `re-frame.substrate.reagent` | `re-frame.adapter.reagent` |
 | `re-frame.substrate.uix` | `re-frame.adapter.uix` |
-| `re-frame.substrate.helix` | `re-frame.adapter.helix` |
 | `re-frame.substrate.context` | `re-frame.adapter.context` |
 
 Apps update each `:require` line in their ns declarations:
@@ -1688,11 +1687,11 @@ Apps update each `:require` line in their ns declarations:
 (:require [re-frame.adapter.reagent :as reagent-adapter])
 ```
 
-**Type A rewrite.** The substring `re-frame.substrate.{reagent|uix|helix|context}` has exactly one canonical replacement (`re-frame.adapter.{reagent|uix|helix|context}`); the agent rewrites every `:require` and any reference to the namespace symbol mechanically. The local alias on the right of `:as` is the consumer's choice and is left untouched.
+**Type A rewrite.** The substring `re-frame.substrate.{reagent|uix|context}` has exactly one canonical replacement (`re-frame.adapter.{reagent|uix|context}`); the agent rewrites every `:require` and any reference to the namespace symbol mechanically. The local alias on the right of `:as` is the consumer's choice and is left untouched.
 
 **No back-compat alias.** Pre-1.0 supports a clean rename; the old `re-frame.substrate.<name>` symbols do not resolve in re-frame2. The substrate-contract namespaces under `re-frame.substrate.*` (notably `re-frame.substrate.adapter` and `re-frame.substrate.plain-atom`) are unaffected by this rename and stay as-is — they are slated for separate redesign under the explicit `(rf/init! adapter-map)` form (M-40).
 
-**Maven artefact names are unchanged.** A consumer's `deps.edn` continues to declare `day8/re-frame2-reagent` / `day8/re-frame2-uix` / `day8/re-frame2-helix` exactly as before. Only the `:require` lines move.
+**Maven artefact names are unchanged.** A consumer's `deps.edn` continues to declare `day8/re-frame2-reagent` / `day8/re-frame2-uix` exactly as before. Only the `:require` lines move.
 
 ---
 
@@ -1737,7 +1736,6 @@ The interceptor's `:before` receives a ctx `{:request :args :frame :event}` and 
 2. For each, add a `:require` of the relevant adapter ns (if not already present):
    - Reagent: `[re-frame.adapter.reagent :as reagent]`
    - UIx: `[re-frame.adapter.uix :as uix]`
-   - Helix: `[re-frame.adapter.helix :as helix]`
    - SSR (JVM-side): `[re-frame.ssr :as ssr]`
    - Plain-atom (headless tests): `[re-frame.substrate.plain-atom :as plain-atom]`
 3. Replace the call:
@@ -2949,7 +2947,7 @@ The unary-fx-handler back-compat path was cut from the runtime; the binary signa
 
 re-frame2 v1 still ships against Reagent and continues to return Reagent-compatible reactives from `subscribe`. Code that introspects the returned object (`reagent.ratom/reaction?`, `.-state`, calling `reagent.core/dispose!`, etc.) will work in v1.
 
-A future re-frame2.x or v3 may swap the substrate (UIx, Helix, headless). Code that depends on the Reagent type leaking through `subscribe` blocks that path. Future-proofing now means staying within the documented `re-frame.core` boundary.
+A future re-frame2.x or v3 may swap the substrate (UIx, headless). Code that depends on the Reagent type leaking through `subscribe` blocks that path. Future-proofing now means staying within the documented `re-frame.core` boundary.
 
 **What to look for:**
 
@@ -3070,25 +3068,9 @@ re-frame2 ships UIx 2.x as a second canonical browser substrate alongside Reagen
 
 The agent does NOT auto-apply this rule even if the dep coords match — substrate migration is an architectural choice for the codebase owner, not something an AI agent infers from `:require` lines.
 
-### O-14. Switch a Reagent app to Helix via the `day8/re-frame2-helix` adapter
+### O-14. Retired
 
-re-frame2 ships Helix 0.2.x as a third canonical browser substrate alongside Reagent and UIx (per [Spec 006 §Helix as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-helix-as-alternative-substrate)). Migrating a Reagent app to Helix is **opt-in** and out of scope for the v1.x → v2.x mechanical migration — it is a substrate change, not a re-frame upgrade. Apply this only when the user has explicitly asked to move to Helix.
-
-**What changes.**
-
-- **Dependencies.** Drop `day8/re-frame2-reagent` and add `day8/re-frame2-helix` (lockstep version with core).
-- **Adapter install.** Drop the `[re-frame.adapter.reagent]` `:require` and add `[re-frame.adapter.helix]`; the `:require`'s ns-load auto-registers the adapter as the default, so `(rf/init!)` with no args picks up Helix without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the older form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
-- **View registration.** `reg-view` (the macro) stays Reagent-only per Spec 006 Decision 4. Rewrite each `(reg-view foo [args] body)` as a Helix `(defnc foo [args] ...)` paired with a `(rf/reg-view* ::foo {} foo)` if the app needs registry-keyed addressing for the view (most don't).
-- **Subscription reads.** `@(subscribe [:foo])` inside views becomes `(helix-adapter/use-subscribe [:foo])` — a hook call, not a deref. Outside of views (event handlers, fx, REPL) the substrate-agnostic `(rf/subscribe [:foo])` and `(rf/subscribe-once [:foo])` still work; only the view-layer reactive read shape changes.
-- **Dispatch.** Same as before — `(rf/dispatch [...])` / `(:dispatch (rf/capture-frame))`. No change.
-- **Local component state.** `(reagent.core/atom ...)` and Form-2 closures become `(helix.hooks/use-state ...)` / `use-reducer` / `use-ref`. This is the largest mechanical change in a typical view body. **This is a substrate rehome, not a placement decision:** the mechanical 1:1 map preserves *where* the value lived (view-local), it does not decide *where it should* live. Apply [Spec 004 §Where ephemeral view-state lives](../../spec/004-Views.md#local-state--local--and-the-placement-rule-this-spec-owns-the-rule) — the owner of the rule — to each value: anything a handler, sub, schema, or tool reads belongs in `app-db` (rewrite it to events + subs, not a hook); only the render-mechanical tier (uncommitted IME composition, transient focus/hover, animation interpolation) stays substrate-local as `use-state` / `use-ref`.
-- **Frame boundaries.** `[rf/frame-provider {:frame :session} children…]` becomes the Helix adapter's `($ helix-adapter/frame-provider {:frame :session} children…)`, and the ENSURE sibling `[rf/frame-root {:id :session …}]` becomes `($ helix-adapter/frame-root {:id :session …} children…)` — *roots ensure; providers scope*. All three React-shaped adapters consume the same underlying React Context object (Decision 2), so a tree containing both works during a phased migration.
-- **Test flush.** Reagent tests calling `r/flush` become Helix tests calling `(helix-adapter/flush-views!)` — wraps React's `act()`.
-- **DOM helpers.** Helix ships `helix.dom` (`d/div`, `d/span`, `d/button`, etc.) as the idiomatic way to emit React elements from CLJS without the `$ :div ...` shape. UIx users keep the `$ :div` form; the choice is per-substrate idiom, not a re-frame contract.
-
-**What stays the same.** Same as O-13 (UIx) — events, subs, fx, machines, schemas, routing, flows, http-managed, ssr, and trace surfaces are substrate-agnostic per [Spec 006 §The boundary](../../spec/006-ReactiveSubstrate.md#the-boundary). Migration cost lives entirely in the view layer.
-
-The agent does NOT auto-apply this rule even if the dep coords match — substrate migration is an architectural choice for the codebase owner, not something an AI agent infers from `:require` lines.
+This slot covered switching a Reagent app to the Helix adapter (the Helix adapter was removed at S7/W13, rf2-d6epb). For a substrate move off Reagent, use [O-13 (UIx)](#o-13-switch-a-reagent-app-to-uix-via-the-day8re-frame2-uix-adapter). The number is retained so later rule ids stay stable.
 
 ### O-15. Replace hand-rolled spawn-and-join with `:spawn-all`
 
