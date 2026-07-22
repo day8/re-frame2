@@ -4,7 +4,7 @@
 
   THE PROBLEM. The JVM manifest generator (`re-frame.api-manifest.gen`)
   introspects every JVM-loadable public namespace with `clojure.core/
-  ns-publics`. The Reagent / UIx / Helix adapter namespaces and the Xray
+  ns-publics`. The Reagent / UIx adapter namespaces and the Xray
   `mount` host-embed surface are ClojureScript-ONLY — they cannot be
   `require`d on the JVM, so the generator carries their rows verbatim in
   `spec/api-manifest-metadata.edn` under `:cljs-only` with

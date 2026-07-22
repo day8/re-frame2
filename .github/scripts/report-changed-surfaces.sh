@@ -278,8 +278,8 @@ else
         ;;
       implementation/adapters/*)
         # rf2-bxdk8 + rf2-cjp0i — the adapter-testbed-smokes gate is
-        # scoped to the 3 adapter smokes at
-        # implementation/adapters/<reagent|uix|helix>/testbed/. Adapter
+        # scoped to the 2 adapter smokes at
+        # implementation/adapters/<reagent|uix>/testbed/. Adapter
         # source changes are the canonical trigger; harness-script
         # changes are caught by the dedicated case above.
         implementation_jvm=true

@@ -7,7 +7,7 @@
  *
  * The acceptance criterion this file enforces: edits to the slim smoke
  * manifest/path must ARM the intended CI gate and cannot silently drift
- * back to Reagent/UIx/Helix-only coverage. These checks have teeth — each
+ * back to Reagent/UIx-only coverage. These checks have teeth — each
  * fails RED if a future edit unwires the slim smoke, points it at the
  * wrong substrate, deletes a required file, or removes the npm gate.
  *
@@ -30,7 +30,7 @@
  *      spec.cjs/*.spec.cjs (so the shared adapter-smoke spec-walker never
  *      discovers it and its reconcile guard stays green) AND it is not an
  *      entry in implementation/adapters/scripts/adapter-smoke-filter.cjs
- *      (whose Reagent/UIx/Helix set is its own surface). This is the
+ *      (whose Reagent/UIx set is its own surface). This is the
  *      two-way drift guard.
  *
  * Standalone node-runnable suite — no external test framework, mirroring
@@ -281,26 +281,26 @@ it('the slim smoke driver is NOT named spec.cjs/*.spec.cjs (shared walker ignore
   );
 });
 
-it('the shared adapter-smoke manifest carries NO slim entry (Reagent/UIx/Helix + the re-frame.ui smoke only)', () => {
+it('the shared adapter-smoke manifest carries NO slim entry (Reagent/UIx + the re-frame.ui smoke only)', () => {
   // The slim smoke is the slim adapter's OWN gate; it must NOT be folded
   // into the shared adapter-smoke manifest. This pins both directions of
   // the drift: the shared set does not silently grow a slim entry, and the
-  // slim gate does not silently vanish into it. (The manifest's four-suites
-  // set — the three adapter smokes plus the re-frame.ui substrate smoke,
-  // rf2-nojiwy — is pinned by _adapter-smoke-filter.test.cjs; here we pin
+  // slim gate does not silently vanish into it. (The manifest's set — the
+  // two adapter smokes plus the re-frame.ui substrate smoke, rf2-nojiwy;
+  // the Helix arm left at S7/W13, rf2-d6epb — is pinned by
+  // _adapter-smoke-filter.test.cjs; here we pin
   // the exact set too so a slim entry cannot hide behind growth.)
   const { ADAPTER_SMOKES } = require(ADAPTER_SMOKE_FILTER);
   const builds = ADAPTER_SMOKES.map((e) => e.build).sort();
   assert.deepStrictEqual(
     builds,
     [
-      'adapters/helix-testbed',
       'adapters/reagent-testbed',
       'adapters/uix-testbed',
       'ui/testbed',
     ],
     'the shared adapter-smoke manifest drifted from the ' +
-      'Reagent/UIx/Helix + re-frame.ui set; the slim client-runtime smoke is a ' +
+      'Reagent/UIx + re-frame.ui set; the slim client-runtime smoke is a ' +
       'dedicated adapter-owned gate (test:reagent-slim:smoke), not a ' +
       'shared-manifest entry',
   );

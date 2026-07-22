@@ -3,11 +3,12 @@
  * re-frame.ui focused-build dependency isolation (G-12).
  *
  * The artefact `day8/re-frame2-ui` is the WRAPPER-FREE core: it must stay
- * independent of every view-stack wrapper AND of the four
- * `re-frame.adapter.<reagent|reagent-slim|uix|helix>` adapter namespaces. The
- * view stacks themselves are not all "retiring" — Reagent, UIx, and
+ * independent of every view-stack wrapper AND of the three
+ * `re-frame.adapter.<reagent|reagent-slim|uix>` adapter namespaces. The
+ * view stacks themselves are not "retiring" — Reagent, UIx, and
  * reagent-slim remain SUPPORTED SIBLING artefacts (`day8/re-frame2-reagent`,
- * `day8/re-frame2-uix`, `day8/reagent-slim`); only Helix is retired. What the
+ * `day8/re-frame2-uix`, `day8/reagent-slim`); only Helix was removed
+ * (S7/W13, rf2-d6epb). What the
  * gate forbids is any of those wrappers being baked into the wrapper-free core:
  * re-frame.ui pulls in NONE of them, so a consumer picks a substrate as a
  * separate sibling dependency. This is a bounded artefact-isolation contract —
@@ -23,17 +24,17 @@
  *   loaded by the consolidated `:node-test` build, where the sibling adapters
  *   are intentionally present because their own tests still run).
  *
- *   The closure is rejected against namespace ROOTS, not only the four
+ *   The closure is rejected against namespace ROOTS, not only the
  *   `re_frame.adapter.*` adapter roots. A DIRECT wrapper import such as
- *   `uix.core`, `reagent.core`, `reagent2.core` (reagent-slim's real module
+ *   `uix.core`, `reagent.core`, or `reagent2.core` (reagent-slim's real module
  *   root — the Maven coord is `day8/reagent-slim` but the import paths are
- *   `reagent2.*`), or `helix.core` is munged to a module name (`uix.core.js`,
+ *   `reagent2.*`) is munged to a module name (`uix.core.js`,
  *   `reagent2.core.js`, ...) that does NOT begin with `re_frame.adapter.*`, so
  *   a prefix-only check let it through. Listing the wrapper roots — INCLUDING
  *   `reagent2` — closes that false-green. Note: the adapter-NEUTRAL core
  *   namespaces `re_frame.adapter.context` and
  *   `re_frame.adapter.sub_override_context` are the shared substrate spine
- *   and are legitimately present — only the four VIEW-STACK adapter roots are
+ *   and are legitimately present — only the VIEW-STACK adapter roots are
  *   forbidden.
  *
  * Arm 2 — resolved dependency graph.
@@ -78,9 +79,9 @@ const requiredImport = 're_frame.ui.substrate.js';
 
 // --- Arm 1: compiler-selected module closure -------------------------------
 
-// Forbidden module-namespace roots: the four view-stack adapter namespaces PLUS
+// Forbidden module-namespace roots: the three view-stack adapter namespaces PLUS
 // the direct wrapper libraries they wrap. A direct `uix.core` / `reagent.core`
-// / `reagent2.core` / `helix.core` import does not begin with
+// / `reagent2.core` import does not begin with
 // `re_frame.adapter.*`; listing the bare wrapper roots is what a prefix-only
 // check was missing. `reagent2` is the real module root of `day8/reagent-slim`
 // (its Maven coord carries the brand; its import paths are `reagent2.*`) and is
@@ -89,11 +90,9 @@ const forbiddenModuleRoots = [
   're_frame.adapter.reagent',
   're_frame.adapter.reagent_slim',
   're_frame.adapter.uix',
-  're_frame.adapter.helix',
   'reagent',
   'reagent2',
   'uix',
-  'helix',
 ];
 
 function importsFrom(loader) {
@@ -102,7 +101,7 @@ function importsFrom(loader) {
 
 // A module name (e.g. `reagent2.core.js`) is forbidden when its namespace
 // equals a forbidden root or sits under one on a dotted boundary. The boundary
-// check keeps `reagent`/`reagent2`/`uix`/`helix` from matching an unrelated
+// check keeps `reagent`/`reagent2`/`uix` from matching an unrelated
 // `re_frame.adapter.context.js`, keeps `reagent` from swallowing the distinct
 // `reagent2` root, and keeps a lookalike (`reagent2foo.js`, `uixfoo.js`) clear.
 function isForbiddenModule(importName) {
@@ -124,8 +123,7 @@ const forbiddenCoordinatePatterns = [
   /^reagent\/reagent$/,
   /^day8\/reagent-slim$/,
   /^com\.pitch\/uix(\.|$)/,
-  /^lilactown\/helix$/,
-  /^day8\/re-frame2-(reagent(-slim)?|uix|helix)$/,
+  /^day8\/re-frame2-(reagent(-slim)?|uix)$/,
 ];
 
 // Arm-2 POSITIVE CONTROL (rf2-xgfpq, hardened rf2-tutg8, anchored rf2-rbget,
@@ -446,7 +444,6 @@ function selfTest() {
     're_frame.adapter.reagent',
     're_frame.adapter.reagent_slim',
     're_frame.adapter.uix',
-    're_frame.adapter.helix',
   ];
   const legacyForbidden = (imports) =>
     imports.filter((name) => legacyPrefixes.some((prefix) => name.startsWith(prefix)));
@@ -608,7 +605,7 @@ function selfTest() {
 
   // Exact-boundary matching — lookalikes stay green (no `reagent2` swallowing
   // `reagent2foo`, no `reagent` swallowing `reagent2`).
-  for (const lookalike of ['reagent2foo.core.js', 'reagentx.core.js', 'uixfoo.js', 'helixir.js']) {
+  for (const lookalike of ['reagent2foo.core.js', 'reagentx.core.js', 'uixfoo.js']) {
     if (forbiddenModules([lookalike]).length !== 0) {
       return fail(`lookalike ${lookalike} was wrongly rejected (boundary match broken)`);
     }
@@ -627,11 +624,10 @@ function selfTest() {
   const everyWrapper = [
     'reagent/reagent 2.0.1',
     'day8/reagent-slim /repo/implementation/adapters/reagent-slim',
-    'lilactown/helix 0.2.2',
     'day8/re-frame2-uix 0.0.1',
   ].join('\n');
   const wrapperCoords = forbiddenCoordinates(everyWrapper);
-  if (wrapperCoords.length !== 4) {
+  if (wrapperCoords.length !== 3) {
     console.error(`  detected: ${wrapperCoords.join(', ') || '(none)'}`);
     return fail('wrapper coordinate denylist incomplete');
   }

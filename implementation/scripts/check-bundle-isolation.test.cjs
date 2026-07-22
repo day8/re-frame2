@@ -279,8 +279,8 @@ coverageMutations += 1;
   const grammarScripts = {
     'gate:echo':      'echo check-login-bundle-isolation.cjs',
     'gate:false-and': 'false && node scripts/check-login-bundle-isolation.cjs',
-    'gate:comment':   'node scripts/check-uix-helix-reagent-free.cjs && # node scripts/check-login-bundle-isolation.cjs',
-    'gate:arg-only':  'node scripts/check-uix-helix-reagent-free.cjs check-login-bundle-isolation.cjs',
+    'gate:comment':   'node scripts/check-uix-reagent-free.cjs && # node scripts/check-login-bundle-isolation.cjs',
+    'gate:arg-only':  'node scripts/check-uix-reagent-free.cjs check-login-bundle-isolation.cjs',
     'gate:substring': 'node scripts/xcheck-login-bundle-isolation.cjs',
     'gate:real':      'shadow-cljs release x && node scripts/check-login-bundle-isolation.cjs',
   };

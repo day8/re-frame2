@@ -15,11 +15,6 @@
 ;; its sources are added to :source-paths and com.pitch/uix.{core,dom}
 ;; are added to :dependencies so the per-example UIx builds resolve.
 ;;
-;; Per rf2-2qit the Helix adapter ships in
-;; implementation/adapters/helix; its sources are added to
-;; :source-paths and lilactown/helix is added to :dependencies so the
-;; per-example Helix builds resolve.
-;;
 ;; Per rf2-zha9 the per-substrate adapters live under
 ;; implementation/adapters/<name>/ (renamed from substrates/ per
 ;; rf2-0imy); per-feature artefacts (schemas, machines, ...) stay flat
@@ -46,7 +41,7 @@
                 ;; never reaches the JVM `gen` build). Listing the paths
                 ;; here puts the probe test on the consolidated
                 ;; `:node-test` classpath so `npm run test:cljs` runs it
-                ;; — the test reconciles the LIVE Reagent/UIx/Helix
+                ;; — the test reconciles the LIVE Reagent/UIx
                 ;; adapter + Xray mount publics against the `:cljs-only`
                 ;; rows in spec/api-manifest-metadata.edn. Bundle-isolation
                 ;; holds: probe code is test-only and nothing under a
@@ -81,11 +76,6 @@
                 ;; rf2-eceuv — per-adapter testbed (UIx). See the Reagent
                 ;; testbed comment above.
                 "adapters/uix/testbed"
-                "adapters/helix/src"
-                "adapters/helix/test"
-                ;; rf2-eceuv — per-adapter testbed (Helix). See the Reagent
-                ;; testbed comment above.
-                "adapters/helix/testbed"
                 ;; rf2-ee38b.16 — test-react adapter (headless CLJC class-3
                 ;; lifecycle simulator). src+test paths added so the
                 ;; :node-test build discovers re-frame.adapter.test-react-cljs-test
@@ -334,7 +324,7 @@
                 ;;   patterns/        -> boot.core, websocket.core, nine-states.core, ...
                 ;;   real-apps/       -> realworld-http.core, realworld-resources.core,
                 ;;                       realworld-shared.* (shared by both)
-                ;;   substrates/      -> uix.counter.core, helix.counter.core,
+                ;;   substrates/      -> uix.counter.core,
                 ;;                       reagent-slim.counter.core (path-prefixed, so the
                 ;;                       substrate ports never collide with the canonical
                 ;;                       core/ namespaces in the shared test bundle)
@@ -373,7 +363,6 @@
                 [metosin/malli     "0.20.1"]
                 [com.pitch/uix.core "1.4.4"]
                 [com.pitch/uix.dom  "1.4.4"]
-                [lilactown/helix   "0.2.2"]
                 ;; rf2-oqa60 phase 1 — binaryage/devtools dep dropped.
                 ;; Xray's first-class edn-inspector widget
                 ;; (`views/edn-inspector`) replaces the cljs-devtools-
@@ -1542,36 +1531,6 @@
    :asset-path "."
    :modules    {:main {:init-fn uix.dashboard.core/run}}}
 
-  ;; rf2-2qit — Helix-substrate smoke trio (counter + login per Decision 7,
-  ;; transferred from rf2-3yij). Each example has its own per-example
-  ;; shadow-cljs build, mirroring the Reagent and UIx variants, so the
-  ;; bundle-isolation grep can verify a Reagent / UIx example's main.js
-  ;; carries NO Helix code and vice versa. Per Spec 006
-  ;; §Adapter shipping convention.
-
-  :examples/counter-helix
-  {:target     :browser
-   :output-dir "out/examples/counter-helix"
-   :asset-path "."
-   :modules    {:main {:init-fn helix.counter.core/run}}}
-
-  :examples/login-helix
-  {:target     :browser
-   :output-dir "out/examples/login-helix"
-   :asset-path "."
-   :modules    {:main {:init-fn helix.login.core/run}}}
-
-  ;; rf2-t7t6f — Helix design-led example. Terminal-style process-monitor
-  ;; (status tiles + filterable process list + live log stream with a
-  ;; recurring :dispatch-later tick) proving Helix builds substantive
-  ;; UIs. Pairs with the shared 'Editorial Warm' visual identity
-  ;; (rf2-v4fpe Option 2) from examples/_shared/css/style.css.
-  :examples/process-monitor-helix
-  {:target     :browser
-   :output-dir "out/examples/process-monitor-helix"
-   :asset-path "."
-   :modules    {:main {:init-fn helix.process-monitor.core/run}}}
-
   :examples/realworld
   {:target     :browser
    :output-dir "out/examples/realworld"
@@ -2149,7 +2108,7 @@
   ;; Per-adapter testbeds (rf2-eceuv).
   ;;
   ;; Per Mike's directive ("examples are for humans, not smoke tests")
-  ;; each adapter (Reagent / UIx / Helix) ships a dedicated standalone
+  ;; each adapter (Reagent / UIx) ships a dedicated standalone
   ;; smoke fixture under implementation/adapters/<name>/testbed/. Each is
   ;; a minimal counter that proves the adapter wires up — mount,
   ;; subscribe, dispatch, re-render — without depending on any example.
@@ -2179,13 +2138,6 @@
    :modules    {:main {:init-fn adapter-testbed-uix.core/init}}
    :devtools   {:preloads [re-frame2-pair.runtime]}}
 
-  :adapters/helix-testbed
-  {:target     :browser
-   :output-dir "out/examples/adapter-testbeds/helix"
-   :asset-path "."
-   :modules    {:main {:init-fn adapter-testbed-helix.core/init}}
-   :devtools   {:preloads [re-frame2-pair.runtime]}}
-
   ;; rf2-nojiwy — re-frame.ui testbed smoke (the four-suites rule's new-UI
   ;; smoke). Same minimal-counter shape as the adapter testbeds above, but
   ;; the app is authored on the compiled-view substrate (ui/defview +
@@ -2194,7 +2146,7 @@
   ;; the shared adapter-smoke manifest (a bespoke entry in
   ;; adapters/scripts/adapter-smoke-filter.cjs), so the shared orchestrator
   ;; (npm run test:adapter-smokes) compiles, stages, and drives it exactly
-  ;; like the three adapter smokes; the ui-smoke CI job narrows to it via
+  ;; like the two adapter smokes; the ui-smoke CI job narrows to it via
   ;; ADAPTER_SMOKE_FILTER=ui/testbed.
   :ui/testbed
   {:target     :browser
@@ -2204,7 +2156,7 @@
    :devtools   {:preloads [re-frame2-pair.runtime]}}
 
   ;; rf2-xsgu8a — per-adapter CLIENT-RUNTIME smoke for the day8/reagent-slim
-  ;; substrate. Same minimal-counter shape as the Reagent/UIx/Helix
+  ;; substrate. Same minimal-counter shape as the Reagent/UIx
   ;; testbeds above, but every Reagent import points at reagent2.* and
   ;; rf/init! receives the slim adapter Var (init value 5; inc + dec). It
   ;; proves the slim mount/inject/click path end-to-end in a browser — the

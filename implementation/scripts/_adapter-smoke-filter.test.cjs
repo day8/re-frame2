@@ -66,18 +66,18 @@ function selectBuildIds(filter) {
 
 console.log('adapter-smoke-filter selection tests (rf2-l72e2)');
 
-const ADAPTERS = ['reagent', 'uix', 'helix'];
+const ADAPTERS = ['reagent', 'uix'];
 
 // ---- manifest shape ------------------------------------------------------
 
-// rf2-nojiwy — the four-suites rule: the three adapter smokes plus the ONE
+// rf2-nojiwy — the four-suites rule's smoke roster, minus the Helix arm
+// (removed at S7/W13, rf2-d6epb): the two adapter smokes plus the ONE
 // re-frame.ui substrate smoke (bespoke entry; homed at
 // implementation/ui/testbed/, outside implementation/adapters/).
-it('manifest declares exactly the three adapter smokes + the re-frame.ui smoke', () => {
+it('manifest declares exactly the two adapter smokes + the re-frame.ui smoke', () => {
   assert.deepStrictEqual(
     ADAPTER_SMOKES.map((e) => e.build).sort(),
     [
-      'adapters/helix-testbed',
       'adapters/reagent-testbed',
       'adapters/uix-testbed',
       'ui/testbed',
@@ -97,9 +97,8 @@ it('every manifest entry carries a specPath that exists on disk', () => {
 
 // ---- broad + empty filters ----------------------------------------------
 
-it('empty filter selects all four (full sweep — nightly + rigorous-local)', () => {
+it('empty filter selects all three (full sweep — nightly + rigorous-local)', () => {
   assert.deepStrictEqual(selectBuildIds(''), [
-    'adapters/helix-testbed',
     'adapters/reagent-testbed',
     'adapters/uix-testbed',
     'ui/testbed',
@@ -107,19 +106,17 @@ it('empty filter selects all four (full sweep — nightly + rigorous-local)', ()
 });
 
 // The adapter-testbed-smokes CI job's filter. It must keep selecting
-// exactly the three ADAPTER smokes — never the re-frame.ui substrate
+// exactly the two ADAPTER smokes — never the re-frame.ui substrate
 // smoke, which has its own CI job (ui-smoke, filter `ui/testbed`).
-it('broad CI filter `adapters/` selects exactly the three adapter smokes (never the ui smoke)', () => {
+it('broad CI filter `adapters/` selects exactly the two adapter smokes (never the ui smoke)', () => {
   assert.deepStrictEqual(selectBuildIds('adapters/'), [
-    'adapters/helix-testbed',
     'adapters/reagent-testbed',
     'adapters/uix-testbed',
   ]);
 });
 
-it('broad filter `adapters` (no slash) selects the three adapter smokes only', () => {
+it('broad filter `adapters` (no slash) selects the two adapter smokes only', () => {
   assert.deepStrictEqual(selectBuildIds('adapters'), [
-    'adapters/helix-testbed',
     'adapters/reagent-testbed',
     'adapters/uix-testbed',
   ]);
@@ -208,9 +205,9 @@ it('selected set maps one-to-one between build ids and specPaths for all shapes'
 // ---- comma-separated OR-match -------------------------------------------
 
 it('comma-separated filter OR-matches multiple shapes', () => {
-  assert.deepStrictEqual(selectBuildIds('reagent-testbed,helix/testbed'), [
-    'adapters/helix-testbed',
+  assert.deepStrictEqual(selectBuildIds('reagent-testbed,uix/testbed'), [
     'adapters/reagent-testbed',
+    'adapters/uix-testbed',
   ]);
 });
 

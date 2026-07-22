@@ -20,7 +20,7 @@
   are skipped — they are not vars and carry no Tier-for-a-var.
 
   QUALIFIER RESOLUTION. API.md writes some var names
-  namespace-qualified (`helix-adapter/adapter`, `re-frame.http/get`,
+  namespace-qualified (`uix-adapter/adapter`, `re-frame.http/get`,
   `re-frame.interop/debug-enabled?`) and others bare (`reg-event`). The
   two SHAPES resolve against DIFFERENT manifest indexes, because they carry
       different identity:
@@ -28,8 +28,8 @@
     - A QUALIFIED row names BOTH a namespace (or its documented `:as`
       alias) AND a var. It resolves STRICTLY against the `[namespace var]`
       index — resolving by bare var alone is unsound, because the manifest
-      carries the SAME `:var \"adapter\"` for FOUR distinct namespaces
-      (`re-frame.adapter.{reagent,uix,helix}` at tier `:adapter`, plus
+      carries the SAME `:var \"adapter\"` for THREE distinct namespaces
+      (`re-frame.adapter.{reagent,uix}` at tier `:adapter`, plus
       `re-frame.ssr` at `:internal-public`). A bare-`:var` match would let
       a qualified row drift to a stale/wrong/unknown qualifier
       (`uix-adapter/adapter` → `bogus-adapter/adapter`) and still pass the
@@ -121,22 +121,21 @@
 
 (def adapter-aliases
   "The documented `:require [<ns> :as <alias>]` adapter aliases API.md uses
-   to qualify the substrate-adapter surfaces (spec/API.md §UIx adapter /
-   §Helix adapter prose). A qualified API.md row written with one of these
+   to qualify the substrate-adapter surfaces (spec/API.md §UIx adapter
+   prose). A qualified API.md row written with one of these
    aliases resolves to the EXACT manifest namespace named here — never by
    bare var name (the `adapter` / `flush-views!` / … vars are carried for
-   all three adapter namespaces, so a bare match would not distinguish
+   every adapter namespace, so a bare match would not distinguish
    them). The alias→namespace shape is regular (`<x>-adapter` ->
    `re-frame.adapter.<x>`); it is spelled out so the contract is explicit
    and a new adapter alias is an intentional one-line addition."
   {"reagent-adapter" "re-frame.adapter.reagent"
-   "uix-adapter"     "re-frame.adapter.uix"
-   "helix-adapter"   "re-frame.adapter.helix"})
+   "uix-adapter"     "re-frame.adapter.uix"})
 
 (defn- parse-first-cell-ident
   "Split an API.md first-cell identifier into `[qualifier bare-var]`. For a
    QUALIFIED ident the qualifier is everything before the last `/`
-   (`helix-adapter/adapter` -> `[\"helix-adapter\" \"adapter\"]`,
+   (`uix-adapter/adapter` -> `[\"uix-adapter\" \"adapter\"]`,
    `re-frame.http/get` -> `[\"re-frame.http\" \"get\"]`); for a BARE ident
    the qualifier is nil (`reg-event` -> `[nil \"reg-event\"]`). The
    qualifier is PRESERVED (not stripped) so a qualified row can be resolved
@@ -227,7 +226,7 @@
    documents (nil for a `Component` marker, which pins no single kind), so
    the root-verb kind guard can reconcile it against the manifest
    (rf2-e9q33). `:qualifier` is the
-   namespace/alias prefix for a qualified row (`helix-adapter`,
+   namespace/alias prefix for a qualified row (`uix-adapter`,
    `re-frame.http`) or nil for a bare row — preserved so qualified rows can
    resolve strictly against the manifest `[namespace var]` index
    (rf2-41j0a).

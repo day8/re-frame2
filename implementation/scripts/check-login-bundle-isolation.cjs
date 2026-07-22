@@ -1,51 +1,50 @@
 #!/usr/bin/env node
 /*
- * Login cross-substrate bundle-isolation verifier (bead rf2-ppbvav).
+ * Login cross-substrate bundle-isolation verifier (bead rf2-ppbvav; the
+ * Helix login arm left with the Helix adapter at S7/W13, rf2-d6epb).
  *
- * The three login examples — Reagent (`login.core`), UIx (`uix.login.core`),
- * and Helix (`helix.login.core`) — now share ONE substrate-free model owner,
+ * The two login examples — Reagent (`login.core`) and UIx
+ * (`uix.login.core`) — share ONE substrate-free model owner,
  * `login.model` (examples/core/login/model.cljs): the single source for every
  * `auth.login` schema, fx, machine, event, sub, and the frame config. Each
  * example `:require`s that model and adds only its own views + mount.
  *
- * This gate proves the model stayed substrate-free. Because all three builds
+ * This gate proves the model stayed substrate-free. Because both builds
  * import `login.model`, if that namespace ever `:require`d a view library or
- * adapter (Reagent, UIx, or Helix), the foreign substrate's fingerprint would
- * appear in the TWO login bundles it doesn't belong in. So the binding claim is
+ * adapter (Reagent or UIx), the foreign substrate's fingerprint would
+ * appear in the login bundle it doesn't belong in. So the binding claim is
  * cross-substrate absence: each login bundle carries EXACTLY its own substrate
- * and neither of the other two.
+ * and not the other.
  *
  *   - the Reagent login bundle contains stock-Reagent's reactive-atom
- *     fingerprints and NO UIx / Helix spine strings;
+ *     fingerprints and NO UIx spine strings;
  *   - the UIx login bundle contains the UIx spine's gensym-prefix strings and
- *     NO Reagent / Helix fingerprints;
- *   - the Helix login bundle contains the Helix spine's gensym-prefix strings
- *     and NO Reagent / UIx fingerprints.
+ *     NO Reagent fingerprints.
  *
  * A regression — e.g. a stray `[re-frame.adapter.reagent]` slipping into
- * `login.model` — drags Reagent into all three bundles, so the UIx and Helix
+ * `login.model` — drags Reagent into both bundles, so the UIx
  * ABSENT checks fail. That is the substrate-free proof.
  *
  * Strategy mirrors scripts/check-bundle-isolation.cjs (rf2-51x5) and
- * scripts/check-uix-helix-reagent-free.cjs (rf2-jicu2): grep, not parse. Closure
+ * scripts/check-uix-reagent-free.cjs (rf2-jicu2): grep, not parse. Closure
  * `:advanced` renames symbols / namespaces but NOT string literals. Each
  * sentinel is a literal a substrate emits from its own body:
  *
  *   Reagent — `cljsRatom` / `cljsIsDirty`: interop property names stock Reagent
  *     sets via `set!` on React components (reagent.ratom / reagent.impl.batching).
  *     Same sentinels the counter-side rf2-jicu2 gate uses.
- *   UIx / Helix — `rf-uix-sub-` … / `rf-helix-sub-` …: the per-substrate gensym
+ *   UIx — `rf-uix-sub-` …: the per-substrate gensym
  *     prefixes the shared React spine (`re-frame.substrate.spine`) is
- *     parameterised on (re-frame.adapter.{uix,helix}). They reach the bundle as
+ *     parameterised on (re-frame.adapter.uix). They reach the bundle as
  *     string literals (the spine derives a watch-key keyword namespace from
- *     them), unique to each substrate's adapter, and reachable on every mount.
+ *     them), unique to the substrate's adapter, and reachable on every mount.
  *
  * Each substrate set is checked PRESENT in its own bundle (methodology sanity —
  * proves the grep has signal + the model and views actually compiled in) and
- * ABSENT in the other two (the isolation proof). If a future refactor displaces
+ * ABSENT in the other (the isolation proof). If a future refactor displaces
  * a sentinel, its own-bundle PRESENT check fails fast rather than letting the
  * cross-bundle ABSENT greps go silently vacuous — re-derive from a sibling
- * literal (Reagent: `Compiler.parse-tag` / `ReagentInput`; UIx/Helix: the
+ * literal (Reagent: `Compiler.parse-tag` / `ReagentInput`; UIx: the
  * `-use-sub-` / `-derived-` prefixes, or the substrate-name warning text).
  *
  * Exit 0 on PASS, 1 on FAIL.
@@ -83,16 +82,7 @@ const UIX_SENTINELS = [
     sentinel: 'rf-uix-use-sub-' },
 ];
 
-const HELIX_SENTINELS = [
-  // re-frame.adapter.helix — the Helix spine's subscribe-container gensym prefix.
-  { source: 're-frame.adapter.helix spine subscribe gensym prefix',
-    sentinel: 'rf-helix-sub-' },
-  // re-frame.adapter.helix — the Helix spine's use-subscribe gensym prefix.
-  { source: 're-frame.adapter.helix spine use-subscribe gensym prefix',
-    sentinel: 'rf-helix-use-sub-' },
-];
-
-// Each login bundle: the substrate it MUST contain (own) + the two it must NOT.
+// Each login bundle: the substrate it MUST contain (own) + the one it must NOT.
 const BUNDLES = [
   {
     name: 'Reagent login',
@@ -100,7 +90,6 @@ const BUNDLES = [
     own: { label: 'Reagent', sentinels: REAGENT_SENTINELS },
     foreign: [
       { label: 'UIx',   sentinels: UIX_SENTINELS },
-      { label: 'Helix', sentinels: HELIX_SENTINELS },
     ],
   },
   {
@@ -109,16 +98,6 @@ const BUNDLES = [
     own: { label: 'UIx', sentinels: UIX_SENTINELS },
     foreign: [
       { label: 'Reagent', sentinels: REAGENT_SENTINELS },
-      { label: 'Helix',   sentinels: HELIX_SENTINELS },
-    ],
-  },
-  {
-    name: 'Helix login',
-    dir: 'login-helix',
-    own: { label: 'Helix', sentinels: HELIX_SENTINELS },
-    foreign: [
-      { label: 'Reagent', sentinels: REAGENT_SENTINELS },
-      { label: 'UIx',     sentinels: UIX_SENTINELS },
     ],
   },
 ];
@@ -198,7 +177,7 @@ function checkBundle(spec) {
 
 function main() {
   report.detail('=== Login cross-substrate bundle isolation (rf2-ppbvav) ===');
-  report.detail('One substrate-free login.model, three builds; each login bundle');
+  report.detail('One substrate-free login.model, two builds; each login bundle');
   report.detail('must carry ONLY its own substrate.');
   report.detail('');
 
@@ -226,7 +205,7 @@ function main() {
       console.error('  The shared substrate-free login.model (examples/core/login/model.cljs)');
       console.error('  appears to have pulled in a view library / adapter — the isolation');
       console.error('  claim (rf2-ppbvav) is broken. Likely cause: a `:require` on');
-      console.error('  `reagent.*` / `uix.*` / `helix.*` or `re-frame.adapter.*` slipped');
+      console.error('  `reagent.*` / `uix.*` or `re-frame.adapter.*` slipped');
       console.error('  into login.model (which every login build imports) or into another');
       console.error('  substrate-agnostic ns it pulls. Keep login.model substrate-free —');
       console.error('  views, roots, adapter init, and mounts belong ONLY in each core.cljs.');
@@ -236,13 +215,13 @@ function main() {
       console.error('  be vacuous. Either the sentinel strings have moved (a spine / adapter');
       console.error('  refactor) or the build stopped depending on its adapter. Re-derive the');
       console.error('  substrate sentinel set in this script (Reagent: Compiler.parse-tag /');
-      console.error('  ReagentInput; UIx/Helix: the -use-sub- / -derived- gensym prefixes).');
+      console.error('  ReagentInput; UIx: the -use-sub- / -derived- gensym prefixes).');
     }
   }
   console.error('');
   console.error('Reproduce with:');
   console.error('  cd implementation && shadow-cljs release examples/login \\');
-  console.error('    examples/login-uix examples/login-helix \\');
+  console.error('    examples/login-uix \\');
   console.error('    && node scripts/check-login-bundle-isolation.cjs');
   process.exit(1);
 }
@@ -252,9 +231,9 @@ function main() {
 // check-bundle-isolation.cjs requires a runtime's descriptor to name a checker
 // whose COVERS_RUNTIMES includes it, so an unrelated existing checker can NOT be
 // reused for a new runtime it never inspects. This gate proves the shared
-// login.model stays substrate-free across the Reagent / UIx / Helix login
-// bundles, so it isolates all three adapter runtimes.
-const COVERS_RUNTIMES = ['adapters/reagent', 'adapters/uix', 'adapters/helix'];
+// login.model stays substrate-free across the Reagent / UIx login
+// bundles, so it isolates both adapter runtimes.
+const COVERS_RUNTIMES = ['adapters/reagent', 'adapters/uix'];
 
 module.exports = { COVERS_RUNTIMES };
 

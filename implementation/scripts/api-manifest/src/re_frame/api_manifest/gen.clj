@@ -36,7 +36,7 @@
   check. This is the PRIMARY drift-guard: it goes red in CI until the
   manifest + sidecar are updated.
 
-  CLJS-ONLY SURFACES. The Reagent / UIx / Helix adapter namespaces, the
+  CLJS-ONLY SURFACES. The Reagent / UIx adapter namespaces, the
   Xray `mount-*!` family, and the pair-MCP server are ClojureScript-only
   and cannot be `require`d on the JVM. Their rows live in the sidecar
   under `:cljs-only` and are carried through verbatim. The JVM

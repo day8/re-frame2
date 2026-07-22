@@ -56,7 +56,7 @@ const fs = require('fs');
 // __dirname is <repo>/implementation/adapters/scripts. REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 
-// The canonical smoke set: the three adapter smokes plus the re-frame.ui
+// The canonical smoke set: the two adapter smokes plus the re-frame.ui
 // substrate smoke (the four-suites rule, rf2-nojiwy). Each entry pairs a
 // shadow-cljs build id with the hand-written spec.cjs that drives it and
 // the HTML/output staging coordinates the orchestrator needs.
@@ -76,7 +76,7 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 // resolve to a spec.cjs that exists on disk. Add a bespoke literal entry
 // only for a non-standard layout (the re-frame.ui testbed below is the
 // precedent — it is substrate-homed, not adapter-homed).
-const ADAPTERS = ['reagent', 'uix', 'helix'];
+const ADAPTERS = ['reagent', 'uix'];
 const OUT_ROOT = path.join(REPO_ROOT, 'implementation', 'out', 'examples');
 
 const ADAPTER_SMOKES = [

@@ -10,10 +10,8 @@
 ;; (`(reg-view sym [args] body)`) and lints-as `defn`.
 ;;
 ;; Story's authoring macros (`reg-story` / `reg-variant` / `reg-workspace`
-;; / `reg-mode` / `reg-story-panel` / `reg-decorator` / `reg-tag`) and
-;; the Helix substrate's `defnc` (and the matching `defnc-` from
-;; `re-frame.adapter.helix`) follow the same shape and get lint-as'd
-;; here too.
+;; / `reg-mode` / `reg-story-panel` / `reg-decorator` / `reg-tag`)
+;; follow the same shape and get lint-as'd here too.
 {:linters
  {:unresolved-symbol {:level :warning}
   :unused-binding    {:level :warning}
@@ -130,12 +128,6 @@
   re-frame.story/reg-decorator     clojure.core/do
   re-frame.story/reg-tag           clojure.core/do
 
-  ;; Helix authoring — `defnc` / `defnc-` are `defn`-shaped wrappers
-  ;; from `helix.core`. clj-kondo doesn't ship a built-in hook for
-  ;; them; lint-as gives us the basics (arity check, body lint, name
-  ;; resolution) without the prop-spec analysis a real hook would do.
-  helix.core/defnc                  clojure.core/defn
-  helix.core/defnc-                 clojure.core/defn-
 
   ;; UIx authoring — `defui` from `uix.core` is also `defn`-shaped.
   uix.core/defui                    clojure.core/defn}

@@ -42,7 +42,7 @@
     "test:elision": "shadow-cljs release elision-probe elision-probe-control && node scripts/check-elision.cjs",
     "test:perf-bundle": "shadow-cljs release examples/counter examples/counter-perf && node scripts/check-perf-bundle.cjs",
     "test:schemas-bundle": "shadow-cljs release schemas-bundle-probe schemas-bundle-probe-malli && node scripts/check-schemas-bundle.cjs",
-    "test:bundle-isolation": "shadow-cljs release examples/counter examples/counter-uix examples/counter-helix examples/login examples/login-uix examples/login-helix examples/realworld-resources bundle-isolation-positive-control && node scripts/check-bundle-isolation.test.cjs && node scripts/check-bundle-isolation.cjs && node scripts/check-uix-helix-reagent-free.cjs && node scripts/check-login-bundle-isolation.cjs",
+    "test:bundle-isolation": "shadow-cljs release examples/counter examples/counter-uix examples/login examples/login-uix examples/realworld-resources bundle-isolation-positive-control && node scripts/check-bundle-isolation.test.cjs && node scripts/check-bundle-isolation.cjs && node scripts/check-uix-reagent-free.cjs && node scripts/check-login-bundle-isolation.cjs",
     "test:examples-compile": "node scripts/check-examples-compile.cjs",
     "test:reagent-slim:bundle-isolation": "shadow-cljs release examples/counter examples/counter-slim-and-fast && node scripts/check-reagent-slim-bundle-isolation.cjs",
     "test:reagent-slim:smoke": "node scripts/serve-and-run-reagent-slim-smoke.cjs",

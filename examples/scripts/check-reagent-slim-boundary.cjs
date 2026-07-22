@@ -65,7 +65,7 @@ const EXAMPLES_ROOT = path.join(REPO_ROOT, 'examples');
 // buckets (core/, capabilities/, patterns/, real-apps/). The slim example is
 // the legitimate home of slim wiring and lives under
 // examples/substrates/reagent_slim/ — part of the substrates/ tree, which this
-// gate NEVER walks (substrates/ holds the non-stock-Reagent ports: uix, helix,
+// gate NEVER walks (substrates/ holds the non-stock-Reagent ports: uix,
 // reagent-slim).
 const STOCK_REAGENT_ROOTS = [
   path.join(EXAMPLES_ROOT, 'core'),

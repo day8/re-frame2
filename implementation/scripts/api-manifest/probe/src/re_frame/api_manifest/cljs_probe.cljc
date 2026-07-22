@@ -23,7 +23,7 @@
 
     2. MISSING ROW (added → RED). For namespaces the probe marks
        `:fully-rowed` (the adapter namespaces, whose entire public
-       surface is the documented adapter API per spec/API.md §UIx/Helix
+       surface is the documented adapter API per spec/API.md §UIx
        adapter), every live public var MUST have a `:cljs-only` row. A
        var ADDED to an adapter without a row → RED (the analogue of the
        generator's missing-classification check).

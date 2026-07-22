@@ -10,7 +10,7 @@
 ;; tool→implementation dependency arrow (the generator merely *reads*
 ;; both sides' public vars; nothing under implementation/ requires it).
 ;;
-;; CLJS-only public surfaces (the Reagent / UIx / Helix adapter
+;; CLJS-only public surfaces (the Reagent / UIx adapter
 ;; namespaces, the Xray `mount-*!` family, the pair-MCP server) cannot
 ;; be `require`d on the JVM — their rows are carried in the curated
 ;; sidecar and passed through verbatim. The CLJS-side enumeration probe

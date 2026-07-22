@@ -2565,7 +2565,7 @@ it('RETIRED_OG_SOURCE_COLORS names the retired #8A8270 → #6E6654 ink-faint mig
 it('TEETH: the retired #8A8270 used as an og.svg fill is flagged', () => {
   const badSvg =
     '<svg xmlns="http://www.w3.org/2000/svg">' +
-    `<text fill="${RETIRED_INK_FAINT}">REAGENT - UIX - HELIX</text></svg>`;
+    `<text fill="${RETIRED_INK_FAINT}">REAGENT - UIX - SLIM</text></svg>`;
   const errors = checkSharedTree(ogSvgIo(badSvg), { sharedRoot: SHARED_ROOT });
   assert.ok(
     errors.some(
