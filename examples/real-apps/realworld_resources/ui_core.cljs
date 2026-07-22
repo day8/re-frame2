@@ -167,7 +167,14 @@
    [ui/frame-root {:id             :rf/default
                    :doc            "RealWorld-on-resources demo frame (re-frame.ui variant)."
                    :url-bound?     true
-                   :url-strategy   routing/url-strategy
+                   ;; The re-frame.ui arm is served under its OWN mount point,
+                   ;; `/realworld-resources-ui` (matching its
+                   ;; `out/examples/realworld-resources-ui` output) — so it uses
+                   ;; routing's entry-specific `url-strategy-ui`, NOT the Reagent
+                   ;; arm's `/realworld-resources` base (which would strip the
+                   ;; wrong prefix and boot the shell into a not-found route —
+                   ;; rf2-nn5s8 audit rider).
+                   :url-strategy   routing/url-strategy-ui
                    :interceptors   [:realworld-resources.routing/auth-guard]
                    :fx-overrides   {:rf.http/managed :realworld-resources.demo/http-stub}
                    :initial-events [[:auth/classify-token]

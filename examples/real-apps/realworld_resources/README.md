@@ -231,12 +231,25 @@ adapters, never a replacement).
 | view form | `reg-view` (Reagent) | `ui/defview` (compiled) |
 | mount | `reagent.dom.client/render` + `rf/frame-root` | `ui/mount` + `ui/frame-root` |
 
-Build it under shadow-cljs id `examples/realworld-resources-ui` from
-`implementation/`:
+Run it with the one-command dev front door, from `implementation/`:
 
 ```bash
-shadow-cljs watch examples/realworld-resources-ui
+npm run dev:example -- examples/realworld-resources-ui
 ```
+
+That stages the app's `index.html`, the shared design-system assets, **and** the
+fallback `default-avatar.svg` next to the compiled bundle, serves the build, and
+watches for edits. Open the printed `http://127.0.0.1:<port>/` and the shell
+boots straight into the home route.
+
+The ui arm mounts under its own `/realworld-resources-ui` deployment base — the
+sub-path that matches its `out/examples/realworld-resources-ui` output — declared
+as `url-strategy-ui` in `routing.cljs` (the Reagent arm keeps its own
+`/realworld-resources` base, `url-strategy`). The route table and every bit of
+dataflow are shared verbatim; only the mount point differs, so the two arms never
+collide and every generated ui-arm link targets the `/realworld-resources-ui`
+mount. `strip-base-path` fails safe on `/`, so the shell still boots into home
+when the build is served at the server root (as `dev:example` does).
 
 A few compiled-view idioms the ui arm demonstrates, worth reading for how a real
 CRUD app expresses itself on the substrate:
