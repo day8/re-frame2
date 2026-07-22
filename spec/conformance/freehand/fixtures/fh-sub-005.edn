@@ -1,0 +1,11 @@
+{:fh/id  "FH-SUB-005"
+ :fh/law "Each keyed occurrence owns its own cell and its own bundle: committing one publishes into that occurrence and no other, equal intent at two occurrences gets two independent sites, and a reorder that makes two live occurrences trade targets disposes neither node."
+
+ :query-a [:shell/a]
+ :query-b [:shell/b]
+ :db      {:a 1 :b 2}
+ :intent  [:row/picked]
+
+ ;; After the trade each node still has exactly one owner, and neither
+ ;; passed through zero.
+ :reordered {:ref-count 1}}

@@ -1,0 +1,26 @@
+{:fh/id  "FH-SUB-006"
+ :fh/law "Disconnect deactivates exactly what the selected commit owned — every dependency released, every callback retired, the cell dropped from the pending window — and a later commit, including a host's replay of the same committed render, reconnects the cell from a clean slate rather than resurrecting released ownership."
+
+ :query  [:shell/v]
+ :intent [:panel/clicked]
+
+ :after-disconnect {:lifecycle         :disconnected
+                    :dependency-count  0
+                    :ref-count         nil
+                    :events            :retired
+                    :dispatched-events []}
+
+ ;; A host that tears an effect down and runs it again for the SAME
+ ;; committed render — StrictMode's mount, cleanup, mount — reconnects.
+ :replayed {:result           :published
+            :lifecycle        :connected
+            :dependency-count 1
+            :ref-count        1}
+
+ :notifications-after-disconnect 0
+ :revision-after-disconnect      0
+
+ :reconnect {:result           :published
+             :lifecycle        :connected
+             :dependency-count 1
+             :ref-count        1}}

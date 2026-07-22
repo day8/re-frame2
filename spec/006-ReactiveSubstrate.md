@@ -100,14 +100,15 @@ Layer-1 app subs read the **app-db** projection; framework subs (`[:rf/machine <
 
 Every adapter implements the surface below. The contract is **closed for v1** — the function set is fixed, signatures are fixed, dispose-after-use is fixed; new adapter capabilities ship post-v1 additively (a new fn with a feature predicate consumers can branch on).
 
-> **The internal observation port is not part of this contract.** The compiled UI
+> **The internal observation port is not part of this contract.** The Freehand view
 > substrate reads subscriptions through an adapter-internal observation port (per
 > [§The internal observation port](#the-internal-observation-port-adapter-internal))
 > that lives **outside** this closed ten-fn map: no entry is added to the adapter spec
 > map, no signature here changes, and existing adapters implement nothing new. The
-> port's sole consumer is the `day8/re-frame2-ui` view runtime, via the core-internal
-> `re-frame.substrate.observation` namespace on the lockstep release train. The
-> closed-for-v1 statement above is unaffected by the port's existence.
+> port's consumer is the `day8/re-frame2-freehand` view runtime — its atomic shell —
+> via the core-internal `re-frame.substrate.observation` namespace on the lockstep
+> release train. The closed-for-v1 statement above is unaffected by the port's
+> existence.
 
 > **The adapter contract is the canonical mechanism for bridging external reactive sources** (timers, JS event streams, external pub/sub, signals from other libraries). The v1 `reg-sub-raw` escape hatch — which v1 users sometimes leaned on for non-app-db reactivity — is not shipped in v2 (per [MIGRATION §M-18](../migration/from-re-frame-v1/README.md)). A custom adapter brings the external source into the substrate; subs consume normally via `reg-sub`. State that needs to live across [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility) must reach `app-db` through an event handler (Pattern-AsyncEffect plus a registered fx), not through an adapter-private side channel — see [§What an adapter MUST NOT do](#what-an-adapter-must-not-do).
 
@@ -1140,10 +1141,10 @@ Three contract guarantees this enforces:
 > This port is INTERNAL — it is NOT part of the public adapter API contract; see the
 > scope statement below.
 
-The compiled UI substrate (`re-frame.ui`) reads subscriptions through a six-operation
-**observation port** rather than through the reactive `subscribe`/deref path the current
-view layers use. The port exists because concurrent React separates *rendering* (which
-may run, restart, or be abandoned) from *committing* (which alone may own resources):
+The Freehand view substrate (`re-frame.freehand`) reads subscriptions through a
+six-operation **observation port** rather than through the reactive `subscribe`/deref path
+the adapter-backed view layers use. The port exists because concurrent React separates
+*rendering* (which may run, restart, or be abandoned) from *committing* (which alone may own resources):
 the port splits "read a subscription's value" (render-safe, ownership-free) from "own a
 subscription node" (commit-only), so the sub-cache's ref-counting and synchronous
 disposal contract ([§Reference counting and disposal](#reference-counting-and-disposal))
@@ -1152,8 +1153,8 @@ is never driven from a speculative render (invariants I-1/I-2).
 ### Scope — outside the closed public adapter contract, one named consumer
 
 The port is **adapter-internal**: a private surface between the core's sub-cache and the
-`re-frame.ui` substrate's view runtime (the ViewCell/commit reconciler, specified with
-the Spec 004 rewrite). It is **not** an entry in the adapter spec map. The public
+Freehand substrate's view runtime — the [atomic shell](#the-freehand-atomic-shell), whose
+commit law is specified below. It is **not** an entry in the adapter spec map. The public
 adapter API contract remains exactly as [§The adapter API contract](#the-adapter-api-contract)
 states it — six required functions, three optional functions, one lifecycle function,
 plus the `:kind` discriminator (the 11-key adapter spec map) — **closed for v1**.
@@ -1163,17 +1164,19 @@ the port's presence because the port is not consumable.
 
 **The seam, named.** The port's concrete surface is the namespace
 **`re-frame.substrate.observation`** in the core artifact (`day8/re-frame2`), a sibling
-of the existing `re-frame.substrate.*` internals. Its **sole consumer** is the
-**`day8/re-frame2-ui`** artifact's view runtime. The seam is versioned by two rules
-(the second follows from the lockstep release train recorded in
-[EP-0030 §Resolved Decisions](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#resolved-decisions)):
+of the existing `re-frame.substrate.*` internals. Its **consumer** is the
+**`day8/re-frame2-freehand`** artifact's view runtime. During the donor coexistence
+window the `day8/re-frame2-ui` runtime reads the same port; that is migration state, not
+a second contract, and it ends when the donor artifact is deleted. The seam is versioned
+by two rules (the second follows from the lockstep release train recorded in
+[EP-0036 §Product topology](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md#product-topology)):
 
-1. **Lockstep release train (R-6).** Core and UI artifacts release together; the port
-   may change shape between releases without deprecation ceremony because no third
-   party may consume it.
+1. **Lockstep release train (R-6).** The core and the view-substrate artifact release
+   together; the port may change shape between releases without deprecation ceremony
+   because no third party may consume it.
 2. **Explicit ABI guard.** `re-frame.substrate.observation` exports an integer
-   **`port-abi-version`**; `re-frame2-ui` records the version it compiled against and
-   asserts it at load, failing loudly on skew with
+   **`port-abi-version`**; the consuming view runtime records the version it compiled
+   against and asserts it at load, failing loudly on skew with
    `:rf.error/observation-port-version-mismatch` (always-on; catalogued per
    [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
    Artifact drift is a boot error, never undefined behaviour.
@@ -1801,6 +1804,137 @@ notifications, or host work, carrying the active `:frame` and `:frame-epoch` (pe
 rejects a misuse of the **explicit** flush; it is not the automatic scheduling boundary,
 which consults no drain state at all. The
 adapter's distinct production/tooling `flush-render!` contract is unchanged.
+
+## The Freehand atomic shell
+
+> **Status: normative.** The port's one consumer, specified here because the commit law
+> IS the port's usage contract: everything the port refuses to do during a render, the
+> shell is what does at commit. Freehand's declaration, authoring, and semantic surface is
+> owned by [Spec 004](004-Views.md); this section owns only the reactive commit.
+
+A **mounted boundary occurrence** owns one **cell**. A render produces a **candidate** —
+a value the renderer holds — and the candidate is the unit of everything a render might
+later publish.
+
+### The selected render bundle
+
+A render against one exact frame incarnation produces a candidate bundle:
+
+```clojure
+{:body-revision      revision
+ :frame-incarnation  frame
+ :dependencies       candidate-dependencies
+ :events             candidate-event-sites
+ :evidence           candidate-evidence}
+```
+
+The bundle is published **entirely or not at all**, and only when the render is SELECTED
+for commit. Publication is one synchronous step with no intervening host yield, so no
+observer can see a boundary whose dependencies came from one render and whose event
+bodies came from another. Subscription ownership, callback targets, and evidence are
+therefore always from the same generation of the same body.
+
+Commit **acquires before it releases** (invariant 3 above), so a node that both the prior
+and the new dependency set use never falls through its zero-owner disposal edge. After
+publication, and only then, the superseded handles are released.
+
+The candidate is a **value the renderer holds**, never an ambient slot the commit reads
+back. That is a structural requirement, not an implementation preference: a render is
+abandoned by dropping its candidate, so an abandoned render is unable to publish rather
+than prevented from publishing. A "current render" module global or thread-local would
+make abandonment a flag somebody has to clear correctly, and would put the JVM and
+ClojureScript hosts on two different mechanisms for one law.
+
+### Abandoned and failed candidates
+
+A candidate that is never selected publishes **nothing at all** — no ref-count, no watch,
+no cache node, no live event site, no evidence. This holds however many speculative
+renders precede the selected one, which is what makes concurrent rendering, StrictMode's
+double render, and a time-sliced tear-off ordinary rather than special.
+
+A candidate whose reconcile **fails** publishes nothing either. Acquisition failure
+unwinds per [§Transactional multi-acquire](#transactional-multi-acquire--staging-and-rollback):
+the staged handles are released in reverse order, the prior committed set stays installed
+with its published values, and the typed error propagates. A partly-owned cell — one
+whose dependencies came from two different renders — is not a state the shell can reach.
+
+### Body authority across a live cell
+
+A candidate rendered against a body revision the cell has since replaced is **stale** and
+publishes nothing. Authority is checked at the two points
+[§Body authority under hot reload](#body-authority-under-hot-reload--the-two-point-commit-fence)
+fixes: once at commit entry, before any ownership is touched, and once again at the
+narrowest publication boundary — after the callback-capable staging work, with nothing
+callback-capable between the check and the publish. A candidate that goes stale at the
+second point releases **only** what its own staging acquired.
+
+Reload that replaces a whole declaration is the ordinary case and needs no fence: a
+declared view is a descriptor VALUE, so a redeclared view is a different boundary, the
+host remounts it, and the old cell's teardown releases exactly what the old body owned.
+
+### Frame binding and retarget
+
+A view is bound to its frame through the shared frame context, and the **interpreted shell
+observes that context unconditionally**. A provider retarget from frame A to frame B must
+rebind a child even when the child's own props are equal, so the shell must be a real
+context CONSUMER — a private-slot read resolves the right value but subscribes to nothing,
+and the host correctly bails a non-consumer whose props did not move, leaving its
+dependencies locked to A.
+
+Retarget is exactly a re-commit against a different frame. The whole bundle moves: the
+dependencies are re-resolved and acquired against B before A's are released, and the
+committed event destination becomes B — without changing one callback identity, because
+identity belongs to the site and the destination belongs to the commit.
+
+A **compiled** shell may elide this machinery only when its manifest PROVES that neither
+the view nor its events are frame-sensitive. Absent that proof the machinery stays: an
+unrestricted body's reads have not been enumerated, so there is nothing to base an
+elision on.
+
+### Occurrence identity across a reorder
+
+Each occurrence owns its own cell, and a commit publishes into that cell and no other.
+Two sibling occurrences carrying equal props and equal event intent still own two
+independent bundles, so their dependencies, callback identities, and per-site state never
+merge.
+
+A **keyed reorder moves occurrences rather than rebuilding them**: the boundary, its cell,
+and its ownership travel with the key. Within one boundary, a reorder that makes its own
+sites trade targets disposes neither node, because the reconcile's acquire-before-release
+covers the whole site set at once.
+
+### Disconnect and replay
+
+Disconnect deactivates exactly what the selected commit owned by that exact generation:
+every dependency released synchronously (so each node reaches its zero-owner edge), every
+published callback retired to inert, and the cell removed from the pending notification
+window.
+
+Disconnect is **not terminal**. A host may tear an effect down and run it again for the
+same committed render — StrictMode's mount/cleanup/mount, and a hidden subtree later
+revealed — and that replay must RECONNECT. It reconnects from a clean slate: fresh
+acquisition against a freshly resolved node, never resurrection of a released handle.
+What keeps a genuinely dead boundary from re-acquiring is that a host runs no commit for
+a boundary it has torn down, which is structural and needs no flag.
+
+### Same-render-thread capture
+
+A render's reads are recorded on the render's own thread and on no other. A read reached
+through `future`, `pmap`, `bound-fn`, or any other conveyed child thread **fails before it
+probes**, so a forked read performs no observation work and records nothing.
+
+The rule is enforced rather than engineered around because the alternative is silent: a
+conveyed capture is mutated concurrently, sites are lost, and a capture with sites missing
+reaches commit as MISSING OWNERSHIP. Refusing an unsupported parallel render body is
+strictly better than losing dependencies quietly. The owning thread travels INSIDE the
+captured value, because conveyance is precisely the mechanism at fault — a check held in
+a dynamic var or a thread-local would be conveyed along with the capture and agree with
+itself.
+
+A read outside any active render is refused for the same reason: it has no owner, so
+nothing would ever release it. Non-reactive callers use the frame-explicit one-shot read
+([§`subscribe-once`](#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value)),
+which resolves, probes, returns, and releases without installing a dependency.
 
 ## What happens when a sub references an unknown sub
 

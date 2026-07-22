@@ -29,23 +29,35 @@
     - **fragments**, **text**, spliced seqs, and the same dropped
       `nil`/`false`/`true`.
 
-  ## What this slice deliberately does NOT emit
+  ## The atomic shell
 
-  **Handler sites carrying event INTENT.** A `:on-*` whose value is a
-  function is attached as an ordinary React handler; a `:on-*` carrying an
-  event vector or an options map is recorded in the structural tree and
-  materialized by the reactive slice, which owns the projection
-  materializer, the listener options, and — decisively — which frame the
-  intent is dispatched into. Attaching a listener here would mean choosing
-  that frame before the contract that chooses it exists.
+  Every declared view is mounted through
+  [[re-frame.freehand.shell/render]], so a boundary owns a ViewCell, reads
+  its frame from the shared context, and publishes exactly one bundle per
+  SELECTED render. The walk below therefore threads that render's
+  CANDIDATE: a `:on-*` carrying event intent is recorded on the candidate
+  through `re-frame.freehand.events/site` and becomes live — targeted at
+  the committed frame — only at commit. A `:on-*` carrying a plain
+  function is a site too, so its lifetime is the same site lifetime.
+
+  An event site outside ANY declared boundary — an element handed
+  straight to [[element]] with no view above it — has no candidate and so
+  no commit to belong to; declarative intent there is not attached,
+  because there is nothing that could own it.
 
   Normative owner:
-  [`spec/004B-UI-Tree-and-Conversion.md`](../../../../../spec/004B-UI-Tree-and-Conversion.md)."
+  [`spec/004B-UI-Tree-and-Conversion.md`](../../../../../spec/004B-UI-Tree-and-Conversion.md);
+  the shell's commit law is
+  [`spec/006-ReactiveSubstrate.md`](../../../../../spec/006-ReactiveSubstrate.md)
+  §The Freehand atomic shell."
   (:require ["react" :as react]
             [goog.object :as gobj]
             [re-frame.error :as error]
+            [re-frame.freehand.cell :as cell]
             [re-frame.freehand.conversion :as conv]
             [re-frame.freehand.descriptor :as descriptor]
+            [re-frame.freehand.events :as events]
+            [re-frame.freehand.shell :as shell]
             [re-frame.freehand.tree :as tree]))
 
 (defn- malformed!
@@ -91,13 +103,15 @@
 
 (defn- react-props
   "The React props object for one element: the author attribute map in
-  React's CANONICAL prop spelling, with the `.class#id` sugar merged in
-  and handler sites resolved per the emitter's stated coverage.
+  React's CANONICAL prop spelling, with the `.class#id` sugar merged in and
+  every handler site recorded on `cand` — this render's candidate — so the
+  site becomes live, targeted at the committed frame, only when the render
+  is selected.
 
   No namespace context is threaded in, because a canonical prop name does
   not depend on one — which is what stops a declared-view boundary from
   changing which attribute reaches the DOM."
-  [tag sugar-classes sugar-id attrs]
+  [cand tag sugar-classes sugar-id attrs]
   (let [o (js-obj)]
     (when-let [c (conv/class-string sugar-classes)]
       (gobj/set o "className" c))
@@ -112,8 +126,16 @@
         (nil? raw)   nil
 
         (conv/handler-key? k)
-        (when (fn? raw)
-          (gobj/set o (conv/react-event-name k) raw))
+        (if (some? cand)
+          (when-some [proxy (events/site (cell/candidate-events cand)
+                                         (cell/next-site-key! cand)
+                                         raw)]
+            (gobj/set o (conv/react-event-name k) proxy))
+          ;; No boundary above this element, so no commit can own the
+          ;; site. A plain function is still the caller's own callback and
+          ;; is attached; declarative intent has nothing to belong to.
+          (when (fn? raw)
+            (gobj/set o (conv/react-event-name k) raw)))
 
         (= :class k)
         (let [parts (conv/class-parts raw)]
@@ -179,8 +201,15 @@
                          :extra    {:view-id view-id}}))
             body    (descriptor/render-body view)
             c       (fn freehand-view [js-props]
-                      (emit (body (conv/forward-children
-                                    (gobj/get js-props "props")))))]
+                      (shell/render
+                        view-id
+                        (fn [cand]
+                          (cell/with-capture
+                            cand
+                            (fn []
+                              (emit cand
+                                    (body (conv/forward-children
+                                            (gobj/get js-props "props")))))))))]
         (gobj/set c "displayName" (str view-id))
         (swap! components assoc view c)
         c)))
@@ -188,7 +217,6 @@
 ;; ---------------------------------------------------------------------------
 ;; The walk
 ;; ---------------------------------------------------------------------------
-;;
 ;; This walk carries NO namespace context, and its sibling
 ;; [[re-frame.freehand.tree]] does. That asymmetry is the contract, not an
 ;; oversight: `:ns` is a field of the structural node, so the structural
@@ -199,11 +227,17 @@
 ;; carry: a boundary becomes a real React component, so the body runs in a
 ;; fresh call with no walk above it. A rule that needed the context would
 ;; be a rule that changed meaning when an author extracted a view.
+;;
+;; It does thread `cand` — THIS render's candidate — which is what every
+;; event site is recorded on, and which is nil only for a walk that has no
+;; declared boundary above it. Unlike a namespace context, the candidate
+;; decides something: whether declarative event intent has a commit to
+;; belong to.
 
 (declare ^:private children)
 
 (defn- element-node
-  [tag-kw args]
+  [cand tag-kw args]
   (when (namespace tag-kw)
     (malformed! (str "The element head " tag-kw " is namespaced. An element tag is an unqualified "
                      "keyword — its namespace would be silently dropped on the way to the DOM.")
@@ -212,22 +246,20 @@
         attrs?    (map? (first args))
         attrs     (if attrs? (first args) {})
         kid-forms (if attrs? (rest args) args)
-        kids      (children kid-forms)]
+        props     (react-props cand tag classes id attrs)
+        kids      (children cand kid-forms)]
     (when (and (seq kids) (contains? conv/children-rejected-tags tag))
       (malformed! (str "The element " tag " cannot have children — it is a void element, and "
                        "React throws rather than render one. Put the content in an attribute, "
                        "or use an element that takes children.")
                   {:tag tag :children-count (count kids)}))
-    (apply react/createElement
-           (name tag)
-           (react-props tag classes id attrs)
-           kids)))
+    (apply react/createElement (name tag) props kids)))
 
 (defn- fragment-node
-  [args]
+  [cand args]
   (let [attrs? (map? (first args))
         k      (when attrs? (:key (first args)))
-        kids   (children (if attrs? (rest args) args))]
+        kids   (children cand (if attrs? (rest args) args))]
     (apply react/createElement
            react/Fragment
            (when (some? k) #js {:key k})
@@ -242,12 +274,16 @@
     (react/createElement (component-for view) js-props)))
 
 (defn- node
-  [form]
+  [cand form]
   (let [head (first form)]
     (if (= tree/fragment-tag head)
-      (fragment-node (rest form))
+      (fragment-node cand (rest form))
       (case (descriptor/classify-head head)
-        :element (element-node head (rest form))
+        :element (element-node cand head (rest form))
+        ;; A nested boundary is a React ELEMENT this walk does not enter:
+        ;; the child renders later, in its own component, under its own
+        ;; candidate. That is why a candidate can never collect a
+        ;; descendant boundary's sites.
         :view    (boundary-node head (rest form))
         :host    (malformed!
                    (str "A declared host descriptor is a legal vector head, but the React "
@@ -255,15 +291,15 @@
                         "shapes land with the host-lifecycle slice.")
                    {:value (shape head)})))))
 
-(defn- collect [acc form]
+(defn- collect [cand acc form]
   (cond
     (nil? form)     acc
     (boolean? form) acc
     (string? form)  (conj acc form)
     (number? form)  (conj acc (conv/js-number-str form))
-    (conv/child-run? form) (reduce collect acc form)
-    (vector? form)  (conj acc (node form))
-    (seq? form)     (reduce collect acc form)
+    (conv/child-run? form) (reduce (fn [a f] (collect cand a f)) acc form)
+    (vector? form)  (conj acc (node cand form))
+    (seq? form)     (reduce (fn [a f] (collect cand a f)) acc form)
     :else
     (malformed!
       (str "A view body produced a " (type-name form) " where a child was expected. "
@@ -272,12 +308,12 @@
       {:value (shape form)})))
 
 (defn- children
-  [forms]
-  (reduce collect [] forms))
+  [cand forms]
+  (reduce (fn [acc f] (collect cand acc f)) [] forms))
 
 (defn- emit
-  [form]
-  (let [kids (children [form])]
+  [cand form]
+  (let [kids (children cand [form])]
     (case (count kids)
       0 nil
       1 (first kids)
@@ -290,6 +326,9 @@
       (element [my-panel {:title \"Details\"}])
 
   Pure: it builds elements and mounts nothing. Handing the result to
-  `react-dom/client` is what puts it on a page."
+  `react-dom/client` is what puts it on a page.
+
+  There is no boundary above this call, so no candidate: the declared
+  views inside the form each open their own when React renders them."
   [form]
-  (emit form))
+  (emit nil form))

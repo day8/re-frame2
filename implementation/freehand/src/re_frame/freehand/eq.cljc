@@ -27,7 +27,13 @@
   `Object.is`, `=` gives the value branch, and a numeric branch supplies
   what JS number semantics give the client for free — NaN self-equality
   and `(rf= 1 1.0)`/`(rf= -0.0 0.0)` being true (JS has one number
-  type). One predicate, one truth table, both hosts.")
+  type). One predicate, one truth table, both hosts.
+
+  Normative owner:
+  [`spec/006-ReactiveSubstrate.md`](../../../../../spec/006-ReactiveSubstrate.md)
+  §Host value model — `rf=` equality and value-keyed caching.")
+
+#?(:clj (set! *warn-on-reflection* true))
 
 (defn rf=
   "The ruled per-slot equality: `Object.is(a,b) OR (= a b)`."
