@@ -74,23 +74,29 @@ choice swaps:
   client-Root API); UIx uses `uix.dom/render-root`.
 - `views.cljs` — the counter view. Reagent uses plain hiccup;
   UIx uses `$` with `defui`.
-- `deps.edn` — only the substrate-adapter coord changes:
-  `day8/re-frame2-reagent` or
-  `day8/re-frame2-uix`. The remaining runtime coords are identical
-  across variants: `day8/re-frame2` (core), `day8/re-frame2-schemas`
-  (so `schema.cljs`'s whole-app-db schema validates rather than
-  soft-passing per Spec 010), and `day8/re-frame2-xray` (the in-app
-  devtools panel — see
-  [002 §Xray devtools](002-Generated-Shape.md#xray-devtools)).
-`shadow-cljs.edn` and `package.json` are **not** substrate-specific
-across the adapter variants — react / react-dom are the only npm deps
-for every variant, and the `:app` build's `:devtools {:preloads …}`
-carries `day8.re-frame2-xray.preload` identically across the adapter
-variants — so they live under `_shared/` and emit once (the only
-per-variant difference is a cosmetic substrate label filled by
-`{{substrate-label}}`). The EXPERIMENTAL `:ui` variant is the one
-exception: it emits its **own** `shadow-cljs.edn` (see below) while
-still riding the shared `package.json`.
+- `deps.edn` — the substrate-adapter coord changes
+  (`day8/re-frame2-reagent` or `day8/re-frame2-uix`), and the Xray
+  coord is **Reagent-only**: `day8/re-frame2` (core) and
+  `day8/re-frame2-schemas` (so `schema.cljs`'s whole-app-db schema
+  validates rather than soft-passing per Spec 010) ride both adapter
+  variants, while `day8/re-frame2-xray` (the in-app devtools panel —
+  see [002 §Xray devtools](002-Generated-Shape.md#xray-devtools))
+  rides the Reagent variant only. Xray's panel shell mounts through
+  the ratom-family substrates today, so the `:uix` scaffold ships no
+  panel it cannot mount (rf2-p6f6u ruling, 2026-07-22; element-substrate
+  support is parked behind a demand trigger).
+`shadow-cljs.edn` and `package.json` still live under `_shared/` and
+emit once for the adapter variants; the per-variant deltas ride flat
+substitution values — the cosmetic substrate label
+(`{{substrate-label}}`) plus the Reagent-only Xray wiring:
+`{{xray-preload}}` fills the `:app` build's `:devtools {:preloads …}`
+slot with `day8.re-frame2-xray.preload` on Reagent (empty for `:uix`),
+and `{{xray-npm-deps}}` carries the `@xyflow/react` + `elkjs` npm deps
+the Xray machine canvas compiles against (empty for `:uix` and `:ui` —
+react / react-dom are the only npm deps everywhere else). The
+EXPERIMENTAL `:ui` variant additionally emits its **own**
+`shadow-cljs.edn` (see below) while still riding the shared
+`package.json`.
 
 The substrate-agnostic shell is emitted identically across every
 variant. It splits across two resource sub-trees (see

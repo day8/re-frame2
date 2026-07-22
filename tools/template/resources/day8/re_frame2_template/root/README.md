@@ -69,26 +69,7 @@ starter app-db, so editing what it writes changes what a **fresh**
 mount (a browser refresh) seeds; to re-seed an already-running app,
 refresh the tab.
 
-## In-app devtools (Xray)
-
-`shadow-cljs.edn` wires `day8.re-frame2-xray.preload` into
-`:devtools/preloads` on the `:app` build — the scaffold ships Xray
-**on by default** for development. `resources/public/index.html`
-includes the `[data-rf-xray-host]` right-side layout host (the
-`<aside>` follows `<main id="app">`, so it lays out to the right), so
-Xray auto-opens beside your app once `rf/init!` runs. Press
-**Ctrl+Shift+C** to hide/show it: per-epoch dispatch log, app-db diff,
-causality graph, time-travel scrubber.
-Release builds drop the preload automatically (shadow only runs
-preloads under `watch` / `compile`, never `release`).
-
-Xray's panel also offers click-to-source: each trace row that carries
-a source coordinate (the `:rf.trace/trigger-handler` that re-frame2
-tags onto view-render trace events, plus the `:source-coord` on event
-/ fx / interceptor rows) renders a jump-to-source link, so you can
-click straight from a dispatch in the log to the form that defined the
-handler. No extra preload or wiring — it ships with the Xray preload
-above.
+{{xray-readme-devtools}}
 
 ## Story playground (if scaffolded with `:include-story? true`)
 
@@ -161,22 +142,13 @@ via `<meta>` (notably **`frame-ancestors`**, which is why the meta tag
 omits it), and a meta CSP can be removed by an upstream proxy that
 rewrites HTML.
 
-**The shipped meta CSP is development-flavoured.** It sets
-`style-src 'self' 'unsafe-inline'` because the generated views use
-inline `:style` props and the default-on Xray devtools surface injects
-`<style>` blocks and inline styles — a strict `style-src 'self'` would
-emit CSP violations on the first page and block Xray styling. The meta
-tag also drops `frame-ancestors` (browsers ignore it from `<meta>`).
+{{xray-readme-csp-note}}
 
 For production, serve the **stricter** policy below as a response
 header. It tightens four things relative to the dev meta tag:
 **drops `'unsafe-eval'`** (shadow's dev watch bundle loads compiled
 namespaces via eval; the release bundle is one static file and never
-evals); **drops `'unsafe-inline'`** (do this only after you have externalised
-all inline styles — move the views' `:style` props to `css/app.css`
-classes, and either drop the dev-only Xray preload from your release
-build [it already is — see "In-app devtools" above] or serve Xray under
-a nonce); **drops `ws: wss:`** (no dev hot-reload in production); and
+evals); **drops `'unsafe-inline'`** ({{xray-readme-inline-styles-note}}); **drops `ws: wss:`** (no dev hot-reload in production); and
 **adds `frame-ancestors 'none'`** — which is where anti-clickjacking
 protection actually takes effect (NOT the meta tag):
 
@@ -236,7 +208,8 @@ header {
 
 Always deploy the `release` build (not `watch`) to production — the
 release build sets `:closure-defines {goog.DEBUG false}` (next
-section), strips the Xray preload, and ships the minified bundle.
+section), never runs `:devtools` preloads (dev-only tooling stays out
+of release), and ships the minified bundle.
 
 ## Production builds
 
@@ -458,9 +431,9 @@ nothing in production hot paths.
 ### Privacy / egress classification — declare it where data is written
 
 re-frame2 makes runtime state highly observable: one trace stream feeds
-Xray (default-on in dev — see above), Story (ships in release if you opt
-in), the dev error sink (logs to the console), and any off-box monitor
-or export you wire later. That observability is a productivity feature
+in-app devtools (see "In-app devtools" above), Story (ships in release
+if you opt in), the dev error sink (logs to the console), and any
+off-box monitor or export you wire later. That observability is a productivity feature
 **and** a privacy surface — an auth token, a session id, a partner
 credential, or a multi-megabyte upload can cross a framework-mediated
 observation boundary and land in a record that is shown in a panel,

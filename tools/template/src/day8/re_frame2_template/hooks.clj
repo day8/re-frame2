@@ -15,8 +15,10 @@
 
    deps-new performs flat `{{key}}` substitution, not conditional template
    syntax. Variants with structural differences therefore use separate
-   source files; small `package.json` differences use the `{{story-tag}}`
-   and `{{test-script}}` substitution values."
+   source files; small textual differences use substitution values
+   (`{{story-tag}}`, `{{test-script}}`, and the `{{xray-*}}` /
+   `{{csp-style-src-note*}}` family carrying the Reagent-only Xray wiring
+   per the rf2-p6f6u ruling)."
   (:require [clojure.set :as set]
             [clojure.string :as string]))
 
@@ -307,7 +309,20 @@
           top-file        (->file-path top)
           main-file       (->file-path main)
           top-ns          (->ns-form top)
-          main-ns         (->ns-form main)]
+          main-ns         (->ns-form main)
+          ;; Xray wiring is REAGENT-ONLY (rf2-p6f6u ruling, 2026-07-22).
+          ;; Xray's panel shell renders through the ratom-family
+          ;; substrates; on the element-shaped React substrates (UIx,
+          ;; re-frame.ui) the panel cannot mount (rf2-qgfo4 made the
+          ;; mount verbs refuse cleanly), so the :uix scaffold stops
+          ;; promising it: no preload, no [data-rf-xray-host] layout
+          ;; host, no day8/re-frame2-xray coord, no Xray npm deps —
+          ;; until real element-substrate support lands (rf2-p6f6u (a),
+          ;; parked behind a demand trigger). The :ui variant already
+          ;; ships no Xray coord/preload but keeps the inert layout
+          ;; host its README documents, so only :uix takes the honest
+          ;; empty values below.
+          uix?            (= substrate :uix)]
       {:substrate           (name substrate)
        :substrate-kw        substrate
        :substrate-label     label
@@ -321,23 +336,182 @@
        ;; shell also loads the Tailwind dev compiler.
        :css-name            (if css (name css) "")
        :story-tag           (if include-story? ", with Story playground" "")
-       ;; Xray rides the dev build of every adapter substrate (the
-       ;; :devtools/preloads entry in the shared shadow-cljs.edn), and its
+       ;; Xray rides the dev build of the REAGENT scaffold only (the
+       ;; {{xray-preload}} slot in the shared shadow-cljs.edn), and its
        ;; machine canvas compiles against two npm packages (@xyflow/react +
        ;; elkjs, required by day8/re-frame2-machines-viz). shadow-cljs
        ;; resolves JS deps from the project-local node_modules at compile
-       ;; time, so the emitted package.json must carry both — omit them and
+       ;; time, so the Reagent package.json must carry both — omit them and
        ;; the scaffold's first `shadow-cljs watch app` fails with a missing
        ;; JS dependency (found by the rf2-b16va G1-G4 external-consumer
        ;; validation; the in-repo emitted-test tier masks it by junctioning
-       ;; implementation/node_modules). The EXPERIMENTAL :ui variant ships
-       ;; no Xray coord (minimal consumer shape) and gets none of this.
-       ;; Pins ride lockstep with implementation/package.json
-       ;; (version_lockstep_test.clj).
-       :xray-npm-deps       (if (= substrate :ui)
-                              ""
+       ;; implementation/node_modules). The :uix variant ships no Xray
+       ;; pieces (rf2-p6f6u — see the `uix?` note above) and the
+       ;; EXPERIMENTAL :ui variant ships no Xray coord (minimal consumer
+       ;; shape), so both emit empty. Pins ride lockstep with
+       ;; implementation/package.json (version_lockstep_test.clj).
+       :xray-npm-deps       (if (= substrate :reagent)
                               (str ",\n    \"@xyflow/react\": \"12.4.2\","
-                                   "\n    \"elkjs\": \"^0.11.1\""))
+                                   "\n    \"elkjs\": \"^0.11.1\"")
+                              "")
+       ;; The shared shadow-cljs.edn's :app-build devtools slot. Reagent
+       ;; wires the Xray preload; :uix wires nothing (the emitted build map
+       ;; simply has no :devtools key). The :ui variant emits its own
+       ;; shadow-cljs.edn and never sees this token.
+       :xray-preload        (if uix?
+                              ""
+                              (str "\n   ;; :devtools/preloads loads Xray in dev watch/compile builds."
+                                   "\n   ;; Once rf/init! installs the adapter, Xray auto-mounts into"
+                                   "\n   ;; resources/public/index.html's [data-rf-xray-host] right-side host."
+                                   "\n   ;; Cut from release builds automatically."
+                                   "\n   :devtools   {:preloads [day8.re-frame2-xray.preload]}"))
+       ;; The [data-rf-xray-host] right-side layout host in both
+       ;; index.html variants (root/ + _css_tailwind/). Dropped from :uix
+       ;; (no panel can fill it); kept on :reagent and :ui (the :ui README
+       ;; documents its inert, collapsed host).
+       :xray-host-aside     (if uix?
+                              ""
+                              (str "\n      <aside class=\"rf2-xray-host\""
+                                   " data-rf-xray-host></aside>"))
+       ;; The .rf2-xray-host sizing rules + rationale comment in both
+       ;; app.css variants. One value serves both files (their blocks are
+       ;; identical); empty for :uix, whose index.html ships no host.
+       :xray-host-css
+       (if uix?
+         ""
+         (str "\n/* The Xray host reserves a RIGHT-side column (the aside follows"
+              "\n * `<main id=\"app\">` in the DOM, so flex flow lays it to the right)."
+              "\n * It only takes up space once Xray has populated it. In dev, the"
+              "\n * `day8.re-frame2-xray.preload` mounts Xray into the"
+              "\n * `[data-rf-xray-host]` aside, making it non-empty and sizing it here."
+              "\n * Release builds drop the preload, so the aside stays empty and"
+              "\n * `:empty` collapses it — `#app` then spans the full viewport instead"
+              "\n * of shipping a blank gutter."
+              "\n *"
+              "\n * `flex-basis` reads `--rf-xray-inline-width` (Xray's host-owned resize"
+              "\n * knob, default 560px) so a persisted drag-resize width and"
+              "\n * cascade-level overrides (`:root`, per-route) take effect — a literal"
+              "\n * width ignores them. `box-sizing: border-box` keeps the 1px"
+              "\n * `border-left` inside the documented width. See the Xray §Layout host"
+              "\n * contract (tools/xray/spec/011-Launch-Modes.md). */"
+              "\n.rf2-xray-host {"
+              "\n  flex: 0 0 var(--rf-xray-inline-width, 560px);"
+              "\n  min-width: 320px;"
+              "\n  box-sizing: border-box;"
+              "\n  border-left: 1px solid #2a2a2a;"
+              "\n}"
+              "\n.rf2-xray-host:empty { display: none; }"))
+       ;; The plain-CSS index.html's CSP-comment style-src bullet. The
+       ;; Reagent text names Xray's inline-style reliance; the :uix text
+       ;; doesn't reference a panel the scaffold doesn't ship.
+       :csp-style-src-note
+       (if uix?
+         (str "- `style-src 'self' 'unsafe-inline'` — the generated views use"
+              "\n           inline `:style` props. Without `'unsafe-inline'` the first"
+              "\n           page would emit CSP violations. (To run with a strict"
+              "\n           `style-src 'self'`, move all inline styles to external CSS /"
+              "\n           a nonce — see README \"Production hardening\".)")
+         (str "- `style-src 'self' 'unsafe-inline'` — the generated views use"
+              "\n           inline `:style` props, and the default-on Xray devtools surface"
+              "\n           injects `<style>` blocks and inline styles. Without"
+              "\n           `'unsafe-inline'` the first page would emit CSP violations and"
+              "\n           Xray's styling would be blocked. (To run with a strict"
+              "\n           `style-src 'self'`, move all inline styles to external CSS /"
+              "\n           a nonce and drop Xray — see README \"Production hardening\".)"))
+       ;; The Tailwind index.html's CSP-comment style-src bullet — same
+       ;; honesty split, with the Tailwind Play-CDN clauses shared.
+       :csp-style-src-note-tailwind
+       (if uix?
+         (str "- `style-src 'self' 'unsafe-inline'` — the generated views use"
+              "\n           inline `:style` props, the inline"
+              "\n           `<style type=\"text/tailwindcss\">` Tailwind SOURCE block below is"
+              "\n           an inline stylesheet, AND the @tailwindcss/browser CDN compiler"
+              "\n           injects a runtime `<style>` block of compiled utilities. Without"
+              "\n           `'unsafe-inline'` the first page would emit CSP violations and"
+              "\n           Tailwind's utilities would be blocked."
+              "\n           (To run with a strict `style-src 'self'`, move to the"
+              "\n           `@tailwindcss/cli` compiled build + external CSS / a nonce"
+              "\n           — see README \"Production hardening\".)")
+         (str "- `style-src 'self' 'unsafe-inline'` — the generated views use"
+              "\n           inline `:style` props, the default-on Xray devtools surface"
+              "\n           injects `<style>` blocks and inline styles, the inline"
+              "\n           `<style type=\"text/tailwindcss\">` Tailwind SOURCE block below is"
+              "\n           an inline stylesheet, AND the @tailwindcss/browser CDN compiler"
+              "\n           injects a runtime `<style>` block of compiled utilities. Without"
+              "\n           `'unsafe-inline'` the first page would emit CSP violations and"
+              "\n           both Xray's styling and Tailwind's utilities would be blocked."
+              "\n           (To run with a strict `style-src 'self'`, move to the"
+              "\n           `@tailwindcss/cli` compiled build + external CSS / a nonce and"
+              "\n           drop Xray — see README \"Production hardening\".)"))
+       ;; README "In-app devtools" section: Reagent documents the shipped
+       ;; panel; :uix notes the devtools story honestly (Xray rides the
+       ;; ratom-family substrates today, so the scaffold doesn't ship a
+       ;; panel it cannot mount).
+       :xray-readme-devtools
+       (if uix?
+         (str "## In-app devtools"
+              "\n"
+              "\nThis scaffold does not wire Xray (re-frame2's in-app devtools"
+              "\npanel). Xray's panel shell renders through the ratom-family"
+              "\n(Reagent) substrates today; on a UIx app — an element-shaped React"
+              "\nsubstrate — the panel cannot mount, so the scaffold ships no"
+              "\npreload, no layout host, and no dependency it cannot honour. The"
+              "\nReagent scaffold ships Xray on by default; UIx support follows once"
+              "\nXray mounts on element substrates."
+              "\n"
+              "\nYou still get re-frame2's instrumentation without the panel: the"
+              "\nerror sink registered at the top of `events.cljs` surfaces every"
+              "\ndispatch-pipeline error on the console, and `dev/scratch.cljs` is"
+              "\nthe REPL on-ramp for driving the running app.")
+         (str "## In-app devtools (Xray)"
+              "\n"
+              "\n`shadow-cljs.edn` wires `day8.re-frame2-xray.preload` into"
+              "\n`:devtools/preloads` on the `:app` build — the scaffold ships Xray"
+              "\n**on by default** for development. `resources/public/index.html`"
+              "\nincludes the `[data-rf-xray-host]` right-side layout host (the"
+              "\n`<aside>` follows `<main id=\"app\">`, so it lays out to the right), so"
+              "\nXray auto-opens beside your app once `rf/init!` runs. Press"
+              "\n**Ctrl+Shift+C** to hide/show it: per-epoch dispatch log, app-db diff,"
+              "\ncausality graph, time-travel scrubber."
+              "\nRelease builds drop the preload automatically (shadow only runs"
+              "\npreloads under `watch` / `compile`, never `release`)."
+              "\n"
+              "\nXray's panel also offers click-to-source: each trace row that carries"
+              "\na source coordinate (the `:rf.trace/trigger-handler` that re-frame2"
+              "\ntags onto view-render trace events, plus the `:source-coord` on event"
+              "\n/ fx / interceptor rows) renders a jump-to-source link, so you can"
+              "\nclick straight from a dispatch in the log to the form that defined the"
+              "\nhandler. No extra preload or wiring — it ships with the Xray preload"
+              "\nabove."))
+       ;; README "Production hardening" — the development-flavoured meta
+       ;; CSP paragraph. The Reagent text explains Xray's inline-style
+       ;; reliance; the :uix text stands on the views' inline :style props.
+       :xray-readme-csp-note
+       (if uix?
+         (str "**The shipped meta CSP is development-flavoured.** It sets"
+              "\n`style-src 'self' 'unsafe-inline'` because the generated views use"
+              "\ninline `:style` props — a strict `style-src 'self'` would emit CSP"
+              "\nviolations on the first page. The meta tag also drops"
+              "\n`frame-ancestors` (browsers ignore it from `<meta>`).")
+         (str "**The shipped meta CSP is development-flavoured.** It sets"
+              "\n`style-src 'self' 'unsafe-inline'` because the generated views use"
+              "\ninline `:style` props and the default-on Xray devtools surface injects"
+              "\n`<style>` blocks and inline styles — a strict `style-src 'self'` would"
+              "\nemit CSP violations on the first page and block Xray styling. The meta"
+              "\ntag also drops `frame-ancestors` (browsers ignore it from `<meta>`)."))
+       ;; README "Production hardening" — the drops-'unsafe-inline'
+       ;; parenthetical. Reagent names the Xray preload/nonce options; :uix
+       ;; needs only the externalise-styles step.
+       :xray-readme-inline-styles-note
+       (if uix?
+         (str "do this only after you have externalised"
+              "\nall inline styles — move the views' `:style` props to `css/app.css`"
+              "\nclasses")
+         (str "do this only after you have externalised"
+              "\nall inline styles — move the views' `:style` props to `css/app.css`"
+              "\nclasses, and either drop the dev-only Xray preload from your release"
+              "\nbuild [it already is — see \"In-app devtools\" above] or serve Xray under"
+              "\na nonce"))
        ;; SSR emits a JVM test instead of the shared CLJS test.
        :test-script         (if include-ssr?
                               "clojure -M:test"

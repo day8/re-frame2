@@ -366,6 +366,17 @@ in-app devtools panel — wired on by default for development: the
 `:devtools {:preloads …}`, and the `[data-rf-xray-host]` layout
 column in `index.html` / `app.css`.
 
+**Amendment (rf2-p6f6u ruling, 2026-07-22).** The decision's scope
+narrowed to the **Reagent** scaffold. Xray's panel shell mounts
+through the ratom-family substrates; on the element-shaped React
+substrates the mount verbs refuse cleanly (rf2-qgfo4), so a `:uix`
+scaffold wired for Xray promised a panel that could never open. The
+`:uix` variant now ships no Xray pieces at all (no coord, no preload,
+no layout host, no npm deps) and its README notes the devtools story
+honestly. Default-on stands unchanged for Reagent and returns to
+`:uix` when element-substrate support lands (option (a) of rf2-p6f6u,
+parked behind a demand trigger).
+
 **Alternatives considered.**
 
 | Option | What it is | Outcome |

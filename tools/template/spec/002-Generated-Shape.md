@@ -97,14 +97,21 @@ example.
 
 ## Xray devtools
 
-Every adapter-substrate app (Reagent / UIx) ships
-[Xray](../../xray/) — the in-app devtools panel — **on by default in
-development**. (The EXPERIMENTAL `:ui` variant is the exception: its
-minimal consumer shape carries no Xray coord and no preload — see
-[001 §EXPERIMENTAL `:ui` variant](001-Substrate-Variants.md#experimental-ui-variant);
-its emitted layout host simply stays empty and collapses via the
-`:empty` rule below.) Three wiring points land, identically across the
-adapter substrates:
+The **Reagent** scaffold ships [Xray](../../xray/) — the in-app
+devtools panel — **on by default in development**. Xray is
+Reagent-only in the emitted matrix (rf2-p6f6u ruling, 2026-07-22):
+Xray's panel shell mounts through the ratom-family substrates today,
+so the `:uix` scaffold ships **no Xray pieces at all** — no preload,
+no `[data-rf-xray-host]` layout host, no `day8/re-frame2-xray` coord,
+no Xray npm deps — rather than promise a panel that cannot mount on an
+element-shaped React substrate (its README notes the devtools story
+honestly; element-substrate support is parked behind a demand
+trigger). The EXPERIMENTAL `:ui` variant carries no Xray coord and no
+preload either — see
+[001 §EXPERIMENTAL `:ui` variant](001-Substrate-Variants.md#experimental-ui-variant) —
+but keeps the inert layout host, which stays empty and collapses via
+the `:empty` rule below. Three wiring points land on the Reagent
+scaffold:
 
 - **deps.edn** carries the `day8/re-frame2-xray` runtime coord at the
   same `{{rf2-version}}` pin as the core coord (Xray publishes in
@@ -257,7 +264,15 @@ the template's own additions.
 | `{{substrate}}` | The chosen substrate name, lower-case | `reagent`, `uix`, `ui` |
 | `{{substrate-label}}` | The chosen substrate's display name (used in the `shadow-cljs.edn` comment + `package.json` description) | `Reagent`, `UIx`, `re-frame.ui` |
 | `{{story-tag}}` | `package.json` `description` suffix that varies by `:include-story?` — lets one shared `package.json` serve both paths | `""`, `", with Story playground"` |
-| `{{xray-npm-deps}}` | `package.json` `devDependencies` fragment carrying the npm packages the Xray preload compiles against (`@xyflow/react` + `elkjs`, required by the machine canvas via `day8/re-frame2-machines-viz`). Empty for the `:ui` variant, which ships no Xray coord. | `""`, `",\n    \"@xyflow/react\": \"12.4.2\",\n    \"elkjs\": \"^0.11.1\""` |
+| `{{xray-npm-deps}}` | `package.json` `devDependencies` fragment carrying the npm packages the Xray preload compiles against (`@xyflow/react` + `elkjs`, required by the machine canvas via `day8/re-frame2-machines-viz`). Reagent-only (rf2-p6f6u): empty for `:uix` (no Xray pieces) and `:ui` (no Xray coord). | `""`, `",\n    \"@xyflow/react\": \"12.4.2\",\n    \"elkjs\": \"^0.11.1\""` |
+| `{{xray-preload}}` | The shared `shadow-cljs.edn`'s `:app`-build devtools slot: Reagent wires `:devtools {:preloads [day8.re-frame2-xray.preload]}` (+ its rationale comment); `:uix` emits nothing, so its `:app` build has no `:devtools` key (rf2-p6f6u). The `:ui` variant emits its own `shadow-cljs.edn` and never sees this token. | `""`, the `:devtools` fragment |
+| `{{xray-host-aside}}` | The `[data-rf-xray-host]` right-side layout host `<aside>` in **both** index.html variants (`root/` + `_css_tailwind/`). Empty for `:uix` (no panel can fill it); present on `:reagent` and `:ui` (the `:ui` README documents its inert host). | `""`, the `<aside class="rf2-xray-host" …>` line |
+| `{{xray-host-css}}` | The `.rf2-xray-host` sizing rules + rationale comment in **both** app.css variants. One value serves both files; empty for `:uix`. | `""`, the `.rf2-xray-host` block |
+| `{{xray-readme-devtools}}` | The README "In-app devtools" section: Reagent documents the shipped panel (preload / host / Ctrl+Shift+C / click-to-source); `:uix` notes honestly that Xray rides the ratom-family substrates today and what instrumentation the scaffold still gives (rf2-p6f6u). | per-substrate section text |
+| `{{xray-readme-csp-note}}` | The README "Production hardening" development-flavoured-CSP paragraph: the Reagent text explains Xray's inline-style reliance; the `:uix` text stands on the views' inline `:style` props alone. | per-substrate paragraph text |
+| `{{xray-readme-inline-styles-note}}` | The README "Production hardening" drops-`'unsafe-inline'` parenthetical: Reagent names the Xray preload / nonce options; `:uix` needs only the externalise-styles step. | per-substrate clause text |
+| `{{csp-style-src-note}}` | The plain-CSS index.html CSP-comment `style-src` bullet: Reagent's names Xray's inline-style reliance; `:uix`'s doesn't reference a panel the scaffold doesn't ship. | per-substrate comment text |
+| `{{csp-style-src-note-tailwind}}` | The Tailwind index.html CSP-comment `style-src` bullet — same honesty split, with the Tailwind Play-CDN clauses shared. | per-substrate comment text |
 | `{{substrate-badge-url}}` | shields.io badge URL by substrate | `https://img.shields.io/badge/substrate-Reagent-1abc9c.svg` |
 | `{{rf2-version}}` | re-frame2 coord version | `0.0.1.alpha` |
 | `{{shadow-version}}` | shadow-cljs pin | `3.4.10` |
@@ -275,6 +290,11 @@ emission is implemented at the file-selection level — `template-fn`
 picks `core_with_stories.cljs` over `core.cljs` and
 `deps_with_story.edn` over `deps.edn` per the `:include-story?` flag.
 The output filename is the same; the source-file selection branches.
+The `{{xray-*}}` / `{{csp-style-src-note*}}` family (rf2-p6f6u)
+follows the same small-delta rule: the Reagent-only Xray wiring rides
+substitution values inside shared sources rather than forking
+near-identical `shadow-cljs.edn` / `index.html` / `app.css` /
+`README.md` files per substrate.
 `package.json` is the exception: its sole per-flag delta (the
 `description` parenthetical) is small enough to carry as the
 `{{story-tag}}` subst var, so one shared source serves both paths

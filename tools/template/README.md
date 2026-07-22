@@ -124,7 +124,7 @@ compiler's input: the Play CDN compiler reads **only** inline
 `<style type="text/tailwindcss">` nodes — it never sees an external
 `<link>` stylesheet — so authoring Tailwind there is what makes it
 compile. `resources/public/css/app.css` stays **ordinary native CSS**
-for the app shell + Xray-host layout (a bare `@import "tailwindcss"`
+for the app-shell layout (a bare `@import "tailwindcss"`
 there would just resolve to a bogus `/css/tailwindcss` request and
 `@theme` would be silently dropped). Omit `:css` (or pass nothing) for
 the plain-CSS default. The flag is substrate-invariant — and composes
