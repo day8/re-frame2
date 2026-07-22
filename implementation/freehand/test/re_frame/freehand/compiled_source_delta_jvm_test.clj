@@ -46,18 +46,33 @@
         (str sym ": the options map is exactly the compiled marker"))
     (concat [head sym] (when docstring [docstring]) (rest more))))
 
+(def ^:private twin-files
+  "Every interpreted/compiled twin PAIR whose sameness this suite holds
+  down. A table, because the claim is about the relationship and not
+  about one fixture: B1's measurement arms need it as much as the
+  `FH-STRUCT` fixtures do — a timing comparison between two arms that are
+  not the same template is a comparison of two templates."
+  [{:what        "the FH-STRUCT fixture views"
+    :interpreted "re_frame/freehand/tree_views.cljc"
+    :compiled    "re_frame/freehand/compiled_views.cljc"}
+   {:what        "the B1 measurement arms"
+    :interpreted "re_frame/freehand/bench/b1/interpreted.cljc"
+    :compiled    "re_frame/freehand/bench/b1/compiled.cljc"}])
+
 (deftest promotion-is-exactly-one-option-map
   (testing "Every compiled twin is its interpreted original plus
             `{:compiled true}`, and nothing else — proven by deleting the
             marker and comparing the declarations as read."
-    (let [interpreted (defviews "re_frame/freehand/tree_views.cljc")
-          compiled    (defviews "re_frame/freehand/compiled_views.cljc")]
-      (is (seq interpreted) "the interpreted fixture declarations were read")
-      (is (= (count interpreted) (count compiled))
-          "the two files declare the same number of views")
-      (doseq [[i c] (map vector interpreted compiled)]
-        (is (= i (strip-compiled-marker c))
-            (str (second i) ": promotion added the marker and changed nothing else"))))))
+    (doseq [{:keys [what] i-file :interpreted c-file :compiled} twin-files]
+      (let [interpreted (defviews i-file)
+            compiled    (defviews c-file)]
+        (is (seq interpreted) (str what ": the interpreted declarations were read"))
+        (is (= (count interpreted) (count compiled))
+            (str what ": the two files declare the same number of views"))
+        (doseq [[i c] (map vector interpreted compiled)]
+          (is (= i (strip-compiled-marker c))
+              (str what " / " (second i)
+                   ": promotion added the marker and changed nothing else")))))))
 
 (deftest the-diff-would-notice-a-second-edit
   (testing "A comparison that cannot fail proves nothing. An altered

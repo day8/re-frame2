@@ -24,6 +24,11 @@
   Normative owner: `docs/design/freehand/decisions/`
   `D021-performance-budgets-and-release-evidence.md`."
   (:require [re-frame.freehand.bench :as bench]
+            ;; The registered workloads. A workload registers itself at
+            ;; load, so the suite the CLI runs is exactly the set of
+            ;; workload namespaces required here — one line per B-slice as
+            ;; it lands, and nothing discovered by scanning.
+            [re-frame.freehand.bench.b1]
             [re-frame.freehand.bench.falsifiability :as falsifiability]
             #?(:clj [clojure.pprint :as pp] :cljs [cljs.pprint :as pp])))
 
