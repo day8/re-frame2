@@ -1,4 +1,4 @@
-(ns re-frame.ui.compiler-build-jvm-test
+(ns re-frame.freehand.compiler-build-jvm-test
   "The ONE build-scoped compiler-state authority (rf2-vxgfnd.16 → rf2-df9873):
   the S1 compiler's build registries are a PURE FUNCTION of the current build
   inputs, keyed PER shadow build id, with explicit begin/commit/abort pass
@@ -7,7 +7,7 @@
   The adversarial cruces:
 
     - MULTI-BUILD ISOLATION (the headline regression): one long-lived JVM
-      compiles `re-frame.ui` for several builds at once; two build ids must
+      compiles `re-frame.freehand` for several builds at once; two build ids must
       NOT wipe each other's registries (the prior global-build-id +
       wipe-on-switch model did — regressing cross-file duplicate detection).
     - PASS BOUNDARIES: an incremental commit replaces only the touched
@@ -22,17 +22,17 @@
 
   The mount-surface macros are client entry points (JVM-host expansion is a
   compile error), so the Layer-1 / descriptor writes are driven the way
-  `re-frame.ui.compiler.root/mount-form` drives them — `mount-site!` runs the
-  REAL assembly path. `defview` and `ui/custom-element` run their real macro
+  `re-frame.freehand.compiler.root/mount-form` drives them — `mount-site!` runs the
+  REAL assembly path. `defview` and `v/custom-element` run their real macro
   bodies under a bound `*ns*` so distinct declaring namespaces (the ledger's
   source key, rf2-df9873) are addressable."
   (:require [cljs.env :as cljs-env]
             [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.ui.compiler :as compiler]
-            [re-frame.ui.compiler.analyze :as ana]
-            [re-frame.ui.compiler.build :as build]
-            [re-frame.ui.compiler.env :as env]
-            [re-frame.ui.compiler.root :as root]))
+            [re-frame.freehand.compiler :as compiler]
+            [re-frame.freehand.compiler.analyze :as ana]
+            [re-frame.freehand.compiler.build :as build]
+            [re-frame.freehand.compiler.env :as env]
+            [re-frame.freehand.compiler.root :as root]))
 
 ;; Every test starts from a clean authority; correctness across a watch
 ;; session comes from per-source replacement on the pass boundaries, but
@@ -63,7 +63,7 @@
      {} vname (list {:id view-id} [] template))))
 
 (defn- declare-element!
-  "Run the real `ui/custom-element` macro body with `ns-sym` bound as the
+  "Run the real `v/custom-element` macro body with `ns-sym` bound as the
   declaring namespace — contributes the compile-time property classification
   for `tag`, owned by `ns-sym`."
   [ns-sym tag properties]
@@ -78,7 +78,7 @@
   `mount-site!` (mirrors root-analysis-cljs-test's stub)."
   (fn [sym]
     (case sym
-      frame-root {:fqn 're-frame.ui/frame-root :meta {}}
+      frame-root {:fqn 're-frame.freehand/frame-root :meta {}}
       app-view   {:fqn 'app.views/app-view
                   :meta {:rf.ui/view true :rf.ui/view-id :app.views/app-view}}
       nil)))
@@ -88,16 +88,16 @@
   `ns-sym` (file only feeds the error coords): analyze the LITERAL root form,
   resolve identity, index the root-id + each EXTRACTED frame plan, and
   contribute the Root Descriptor built by the actual `root/root-descriptor`
-  assembly — exactly the sequence a `ui/mount` expansion performs."
+  assembly — exactly the sequence a `v/mount` expansion performs."
   [ns-sym file root-form opts]
   (binding [*file* file]
     (let [coords {:file file :line 1}
           e (env/make-env {:host :clj :ns-sym 'app.test :resolver resolver})
-          {:keys [ast views plans]} (root/analyze-root e 'ui/mount root-form)
+          {:keys [ast views plans]} (root/analyze-root e 'v/mount root-form)
           {:keys [root-id provenance]} (root/resolve-root-identity
-                                        'ui/mount opts views)]
-      (root/register-root-site! 'ui/mount root-id provenance ns-sym coords)
-      (doseq [p plans] (root/register-plan-site! 'ui/mount p ns-sym coords))
+                                        'v/mount opts views)]
+      (root/register-root-site! 'v/mount root-id provenance ns-sym coords)
+      (doseq [p plans] (root/register-plan-site! 'v/mount p ns-sym coords))
       (root/register-descriptor! root-id
                                  (root/root-descriptor
                                   {:root-id root-id :provenance provenance
@@ -115,7 +115,7 @@
    :elements    (build/aggregate build/elements)})
 
 ;; ---------------------------------------------------------------------------
-;; The pure-transition model itself (re-frame.ui.compiler.build)
+;; The pure-transition model itself (re-frame.freehand.compiler.build)
 ;; ---------------------------------------------------------------------------
 
 (deftest per-source-contribution-replaces-atomically
@@ -246,8 +246,8 @@
                (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? ex)
           "a shadow compiler env with no build id must not use session-build")
-      (is (= :re-frame.ui.compiler.build/shadow-build-id-unresolved
-             (:re-frame.ui.compiler.build/error (ex-data ex)))))))
+      (is (= :re-frame.freehand.compiler.build/shadow-build-id-unresolved
+             (:re-frame.freehand.compiler.build/error (ex-data ex)))))))
 
 (deftest hook-open-plain-cljs-compiler-uses-session-fallback
   ;; A bound cljs compiler atom is not necessarily shadow. An unrelated/open
@@ -260,16 +260,16 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Shadow OUTER-marker drift (rf2-vxgfnd.192): compiler authority must follow
-;; re-frame.ui's OWN private build carrier, not Shadow's implementation-detail
+;; re-frame.freehand's OWN private build carrier, not Shadow's implementation-detail
 ;; outer `:shadow.build.cljs-bridge/state` bridge key. A Shadow rename/removal
 ;; of that outer key while the private carrier stays intact must NOT downgrade
 ;; identity, reads, or writes to the process/session fallback.
 ;; ---------------------------------------------------------------------------
 
 (defn- drifted-env
-  "A compiler-env atom carrying re-frame.ui's private accepted + scratch carrier
+  "A compiler-env atom carrying re-frame.freehand's private accepted + scratch carrier
   for `build-id` but WITHOUT Shadow's outer bridge marker — the exact state a
-  Shadow rename/removal of that outer key produces while re-frame.ui's own
+  Shadow rename/removal of that outer key produces while re-frame.freehand's own
   carrier stays intact."
   [build-id members]
   (atom (:compiler-env (build/prepare-shadow-build {} build-id (set members)
@@ -289,8 +289,8 @@
     (let [ex (try (build/current-build-id) nil
                   (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? ex) "a private carrier missing its build id must not downgrade")
-      (is (= :re-frame.ui.compiler.build/private-build-id-unresolved
-             (:re-frame.ui.compiler.build/error (ex-data ex)))))))
+      (is (= :re-frame.freehand.compiler.build/private-build-id-unresolved
+             (:re-frame.freehand.compiler.build/error (ex-data ex)))))))
 
 (deftest private-carrier-disagreeing-with-present-shadow-id-fails-loud
   (binding [cljs-env/*compiler*
@@ -300,8 +300,8 @@
     (let [ex (try (build/current-build-id) nil
                   (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? ex) "a private/shadow build-id disagreement must fail, not guess")
-      (is (= :re-frame.ui.compiler.build/private-build-id-shadow-disagreement
-             (:re-frame.ui.compiler.build/error (ex-data ex)))))))
+      (is (= :re-frame.freehand.compiler.build/private-build-id-shadow-disagreement
+             (:re-frame.freehand.compiler.build/error (ex-data ex)))))))
 
 (deftest canonical-shadow-marker-still-resolves-to-the-private-build-id
   ;; The current (non-drifted) path: bridge marker present with an AGREEING id.
@@ -358,7 +358,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- ab-carrier
-  "A compiler-env atom carrying re-frame.ui's PRIVATE accepted+scratch carrier
+  "A compiler-env atom carrying re-frame.freehand's PRIVATE accepted+scratch carrier
   for `private-build` AND a still-present Shadow outer bridge naming a DIFFERENT
   `shadow-build` — the exact A/B contradiction the boundary guards reject."
   [private-build shadow-build members]
@@ -388,8 +388,8 @@
         (let [ex (try (read-fn) nil (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex)
               (str (name label) " must reject the A-carrier + B-bridge read"))
-          (is (= :re-frame.ui.compiler.build/private-build-id-shadow-disagreement
-                 (:re-frame.ui.compiler.build/error (ex-data ex)))))))))
+          (is (= :re-frame.freehand.compiler.build/private-build-id-shadow-disagreement
+                 (:re-frame.freehand.compiler.build/error (ex-data ex)))))))))
 
 (deftest write-through-an-a-carrier-with-a-b-bridge-is-rejected-before-mutation
   ;; contribute! (the sole write boundary) must reject the mismatched carrier
@@ -402,8 +402,8 @@
                     (catch clojure.lang.ExceptionInfo e e))]
         (is (some? ex)
             "contribute! must reject a private-A / shadow-B carrier")
-        (is (= :re-frame.ui.compiler.build/private-build-id-shadow-disagreement
-               (:re-frame.ui.compiler.build/error (ex-data ex))))))
+        (is (= :re-frame.freehand.compiler.build/private-build-id-shadow-disagreement
+               (:re-frame.freehand.compiler.build/error (ex-data ex))))))
     (is (nil? (get-in @carrier [build/scratch-key :staged 'app.a]))
         "the rejected write staged nothing — fail BEFORE mutation")))
 
@@ -416,14 +416,14 @@
                     :version 0}})]        ; NO :build-id
     (let [read-ex (try (build/aggregate build/views) nil
                        (catch clojure.lang.ExceptionInfo e e))]
-      (is (= :re-frame.ui.compiler.build/private-build-id-unresolved
-             (:re-frame.ui.compiler.build/error (ex-data read-ex)))
+      (is (= :re-frame.freehand.compiler.build/private-build-id-unresolved
+             (:re-frame.freehand.compiler.build/error (ex-data read-ex)))
           "aggregate must reject a private carrier missing its build id"))
     (let [write-ex (try (build/contribute! build/views 'app.a :b/view ["tfb" "hsb"])
                         nil
                         (catch clojure.lang.ExceptionInfo e e))]
-      (is (= :re-frame.ui.compiler.build/private-build-id-unresolved
-             (:re-frame.ui.compiler.build/error (ex-data write-ex)))
+      (is (= :re-frame.freehand.compiler.build/private-build-id-unresolved
+             (:re-frame.freehand.compiler.build/error (ex-data write-ex)))
           "contribute! must reject the same carrier before mutation"))))
 
 (deftest recognized-bridge-without-build-id-fails-loud-even-with-no-pass-open
@@ -437,8 +437,8 @@
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
           "a recognized bridge with no id must fail even with no pass open")
-      (is (= :re-frame.ui.compiler.build/shadow-build-id-unresolved
-             (:re-frame.ui.compiler.build/error (ex-data ex)))))
+      (is (= :re-frame.freehand.compiler.build/shadow-build-id-unresolved
+             (:re-frame.freehand.compiler.build/error (ex-data ex)))))
     (is (thrown? clojure.lang.ExceptionInfo (build/aggregate build/views))
         "and the ambient read fails closed the same way")))
 
@@ -462,8 +462,8 @@
                     (catch clojure.lang.ExceptionInfo e e))]
         (is (some? ex)
             "finish must reject a supplied id contradicting the accepted carrier")
-        (is (= :re-frame.ui.compiler.build/private-build-id-shadow-disagreement
-               (:re-frame.ui.compiler.build/error (ex-data ex))))
+        (is (= :re-frame.freehand.compiler.build/private-build-id-shadow-disagreement
+               (:re-frame.freehand.compiler.build/error (ex-data ex))))
         (is (= :app-a (:private-build-id (ex-data ex))))
         (is (= :app-b (:shadow-build-id (ex-data ex))))))))
 
@@ -577,7 +577,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest interleaved-builds-do-not-wipe-each-others-registries
-  ;; ONE JVM compiling `re-frame.ui` for two builds. The prior model held a
+  ;; ONE JVM compiling `re-frame.freehand` for two builds. The prior model held a
   ;; single GLOBAL build-id and WIPED on switch, so opening the node-test
   ;; pass BETWEEN app's two root registrations would erase app's first root —
   ;; regressing app's own cross-file duplicate detection. Per-build slices
@@ -585,15 +585,15 @@
   (build/begin-build! :app)
   (build/begin-build! :node-test)
   (binding [build/*build-id* :app]
-    (root/register-root-site! 'ui/mount :page/one :authored 'app.a
+    (root/register-root-site! 'v/mount :page/one :authored 'app.a
                               {:file "app/a.cljs" :line 1}))
   ;; the node-test build compiles the SAME namespaces — its :page/one is a
   ;; different build's row, must not touch app's slice
   (binding [build/*build-id* :node-test]
-    (root/register-root-site! 'ui/mount :page/one :authored 'ntest.x
+    (root/register-root-site! 'v/mount :page/one :authored 'ntest.x
                               {:file "app/a.cljs" :line 1}))
   (binding [build/*build-id* :app]
-    (root/register-root-site! 'ui/mount :page/two :authored 'app.b
+    (root/register-root-site! 'v/mount :page/two :authored 'app.b
                               {:file "app/b.cljs" :line 1}))
   (is (= #{:page/one :page/two}
          (set (keys (build/aggregate build/roots :app))))
@@ -604,7 +604,7 @@
   (testing "app STILL detects its own cross-namespace duplicate"
     (is (thrown? clojure.lang.ExceptionInfo
                  (binding [build/*build-id* :app]
-                   (root/register-root-site! 'ui/mount :page/one :authored 'app.c
+                   (root/register-root-site! 'v/mount :page/one :authored 'app.c
                                              {:file "app/c.cljs" :line 1})))
         "a genuine duplicate in app fires — the interleaved build did not erase :page/one")))
 
@@ -649,7 +649,7 @@
                 (future
                   (binding [build/*build-id* b]
                     (root/register-root-site!
-                     'ui/mount (keyword "page" (str (name b) "-" i))
+                     'v/mount (keyword "page" (str (name b) "-" i))
                      :authored (symbol (str "ns." (name b) "." i))
                      {:file (str (name b) "-" i ".cljs") :line 1})))))]
     (run! deref futs)
@@ -671,7 +671,7 @@
                (future
                  (binding [build/*build-id* :app]
                    (try
-                     (root/register-root-site! 'ui/mount :page/dup :authored
+                     (root/register-root-site! 'v/mount :page/dup :authored
                                                (symbol (str "ns.dup." i))
                                                {:file (str "dup-" i ".cljs") :line 1})
                      :ok
@@ -751,14 +751,14 @@
 (deftest deleted-root-site-does-not-falsely-duplicate-a-later-file
   ;; original: app.a mounts :page/shop
   (build/begin-build! :app)
-  (root/register-root-site! 'ui/mount :page/shop :authored 'app.a {:file "a.cljs" :line 1})
+  (root/register-root-site! 'v/mount :page/shop :authored 'app.a {:file "a.cljs" :line 1})
   (build/commit-build! :app)
   ;; edit app.a: the :page/shop site is DELETED (app.a now mounts :page/cart)
   (build/begin-build! :app)
-  (root/register-root-site! 'ui/mount :page/cart :authored 'app.a {:file "a.cljs" :line 1})
+  (root/register-root-site! 'v/mount :page/cart :authored 'app.a {:file "a.cljs" :line 1})
   ;; app.b legitimately takes over the now-free :page/shop — the deleted
   ;; app.a site must NOT raise a false :rf.error/duplicate-root-id
-  (is (nil? (root/register-root-site! 'ui/mount :page/shop :authored 'app.b
+  (is (nil? (root/register-root-site! 'v/mount :page/shop :authored 'app.b
                                       {:file "b.cljs" :line 1}))
       "a deleted root site cannot fail a later file (rf2-df9873)")
   (build/commit-build! :app)
@@ -766,8 +766,8 @@
 
 (deftest genuine-current-cross-file-duplicate-still-fails
   (build/begin-build! :app)
-  (root/register-root-site! 'ui/mount :page/dup :authored 'app.a {:file "a.cljs" :line 1})
-  (let [ex (try (root/register-root-site! 'ui/mount :page/dup :authored 'app.b
+  (root/register-root-site! 'v/mount :page/dup :authored 'app.a {:file "a.cljs" :line 1})
+  (let [ex (try (root/register-root-site! 'v/mount :page/dup :authored 'app.b
                                           {:file "b.cljs" :line 2})
                 nil (catch clojure.lang.ExceptionInfo e e))]
     (is (some? ex) "two LIVE sites for one root-id still fail the build")
@@ -777,7 +777,7 @@
 (deftest deleted-frame-plan-does-not-falsely-conflict-a-later-file
   ;; original: app.a carries a :shop plan
   (build/begin-build! :app)
-  (root/register-plan-site! 'ui/mount {:frame-id :shop :config-fingerprint "cf1-a"}
+  (root/register-plan-site! 'v/mount {:frame-id :shop :config-fingerprint "cf1-a"}
                             'app.a {:file "a.cljs" :line 1})
   (is (contains? (root/build-plans) :shop))
   (build/commit-build! :app)
@@ -785,11 +785,11 @@
   ;; (it no longer touches the plan registry at all). Re-touching app.a must
   ;; still evict its stale :shop plan (cross-registry sweep at commit).
   (build/begin-build! :app)
-  (root/register-root-site! 'ui/mount :page/a :authored 'app.a {:file "a.cljs" :line 1})
+  (root/register-root-site! 'v/mount :page/a :authored 'app.a {:file "a.cljs" :line 1})
   (is (not (contains? (root/build-plans) :shop))
       "re-touching the recompiled app.a evicted its dropped :shop plan")
   ;; app.b now carries :shop with a DIFFERENT fingerprint — no false conflict
-  (is (nil? (root/register-plan-site! 'ui/mount
+  (is (nil? (root/register-plan-site! 'v/mount
                                       {:frame-id :shop :config-fingerprint "cf1-b"}
                                       'app.b {:file "b.cljs" :line 1}))
       "a deleted plan cannot fail a later file's differing plan (rf2-df9873)")
@@ -798,9 +798,9 @@
 
 (deftest genuine-current-cross-file-plan-conflict-still-fails
   (build/begin-build! :app)
-  (root/register-plan-site! 'ui/mount {:frame-id :shop :config-fingerprint "cf1-a"}
+  (root/register-plan-site! 'v/mount {:frame-id :shop :config-fingerprint "cf1-a"}
                             'app.a {:file "a.cljs" :line 1})
-  (let [ex (try (root/register-plan-site! 'ui/mount
+  (let [ex (try (root/register-plan-site! 'v/mount
                                           {:frame-id :shop :config-fingerprint "cf1-b"}
                                           'app.b {:file "b.cljs" :line 2})
                 nil (catch clojure.lang.ExceptionInfo e e))]

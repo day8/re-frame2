@@ -1,4 +1,4 @@
-(ns re-frame.ui.compiler-macro-resolution-jvm-test
+(ns re-frame.freehand.compiler-macro-resolution-jvm-test
   "Real CLJS-analyzer resolution proofs for the expression macro barrier."
   (:require [cljs.analyzer :as cljs-analyzer]
             [cljs.analyzer.api :as cljs-api]
@@ -8,12 +8,12 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
-            [re-frame.ui.compiler.analyze :as analyze]
-            [re-frame.ui.compiler.emit-cljs :as emit-cljs]
-            [re-frame.ui.compiler.emit-jvm :as emit-jvm]
-            [re-frame.ui.compiler.env :as env]
-            [re-frame.ui.compiler.header :as header]
-            [re-frame.ui.compiler.root :as root]))
+            [re-frame.freehand.compiler.analyze :as analyze]
+            [re-frame.freehand.compiler.emit-cljs :as emit-cljs]
+            [re-frame.freehand.compiler.emit-jvm :as emit-jvm]
+            [re-frame.freehand.compiler.env :as env]
+            [re-frame.freehand.compiler.header :as header]
+            [re-frame.freehand.compiler.root :as root]))
 
 (defmacro user-binder
   [[binding init] then else]
@@ -30,14 +30,14 @@
     ;; that exact authority rather than injecting a synthetic :macro flag.
     (cljs-analyzer/intern-macros 'cljs.core)
     (cljs-analyzer/intern-macros
-     're-frame.ui.compiler-macro-resolution-jvm-test)
+     're-frame.freehand.compiler-macro-resolution-jvm-test)
     (let [cljs-e (cljs-api/empty-env)]
       (cljs-api/analyze cljs-e '(def ordinary-call (fn [x] x)))
       (let [base (env/make-env {:host :cljs :cljs-env cljs-e
                                 :ns-sym 'cljs.user})
             resolve* (fn [sym]
                        (case sym
-                         sub   {:fqn 're-frame.ui/sub :meta {}}
+                         sub   {:fqn 're-frame.freehand/sub :meta {}}
                          (env/resolve-sym base sym)))
             e (env/make-env {:host :cljs :cljs-env cljs-e
                              :ns-sym 'cljs.user
@@ -54,7 +54,7 @@
              (get-in
               (env/resolve-sym
                base
-               're-frame.ui.compiler-macro-resolution-jvm-test/user-binder)
+               're-frame.freehand.compiler-macro-resolution-jvm-test/user-binder)
               [:meta :macro]))))
       (testing "a real analyzed ordinary function is not over-classified"
         (is (not (true? (get-in (env/resolve-sym base 'ordinary-call)
@@ -70,7 +70,7 @@
       ;; step below `->` also stays rejected.
       (doseq [form
               ['[:div {:title
-                       (re-frame.ui.compiler-macro-resolution-jvm-test/user-binder
+                       (re-frame.freehand.compiler-macro-resolution-jvm-test/user-binder
                         [x maybe] (sub [:q x]) nil)}]
                '[:div {:title (-> [:q] sub)}]]]
         (is (= :rf.ui.compile/unsupported-form
@@ -82,7 +82,7 @@
             ast (analyze/analyze e* '[:div {:title (if-let [x maybe] (sub [:q x]) nil)}])]
         (is (= 1 (count (:subs @(:sites e*))))
             "the admitted if-let lowers the branch (sub …) to one manifest site")
-        (is (re-find #"re-frame.ui.reactive/sub-read" (pr-str ast))
+        (is (re-find #"re-frame.freehand.reactive/sub-read" (pr-str ast))
             "the lowered runtime site is present in the desugared let + if"))
       ;; rf2-u53yy.4 audit repair — under REAL CLJS resolution (:host :cljs) the
       ;; some?-variant's generated nil test is the HOST-QUALIFIED core `not=`
@@ -99,7 +99,7 @@
              (compile-error-id
               #(analyze/analyze
                 e '[:div {:title
-                           (re-frame.ui.compiler-macro-resolution-jvm-test/user-binder)}])))
+                           (re-frame.freehand.compiler-macro-resolution-jvm-test/user-binder)}])))
           "an opaque zero-arg invocation cannot inject an invisible site")
       (is (= :rf.ui.compile/unsupported-form
              (compile-error-id
@@ -115,7 +115,7 @@
         (let [e*  (assoc e :sites (atom {:events [] :subs [] :htmls []}))
               ast (analyze/analyze e* form)]
           (is (= 1 (count (:subs @(:sites e*)))) (pr-str form))
-          (is (re-find #"re-frame.ui.reactive/sub-read" (pr-str ast))
+          (is (re-find #"re-frame.freehand.reactive/sub-read" (pr-str ast))
               (pr-str form)))))))
 
 (deftest real-cljs-destructuring-scope-follows-host-evaluation-order
@@ -150,29 +150,29 @@
 ;; spellings only. Neither exercised production `cljs.analyzer.api/resolve` with
 ;; REFERRED / ALIASED spellings, nor the separate CLJS root-entry compiler. This
 ;; harness stands up a REAL CLJS analyzer namespace state where cljs.user refers
-;; re-frame.ui/{sub,frame} (and aliases the ns `ui`), so every spelling
+;; re-frame.freehand/{sub,frame} (and aliases the ns `v`), so every spelling
 ;; resolves through the production resolver — NOT an injected stub — and drives
 ;; both the defview route (analyze) and the root-entry route (root/analyze-root).
 
 (defn- with-referred-cljs-env
-  "Populate a real CLJS compiler state where cljs.user REFERS re-frame.ui/sub,
-  frame (+ frame-root/frame-provider) and aliases the ns as `ui`, then
+  "Populate a real CLJS compiler state where cljs.user REFERS re-frame.freehand/sub,
+  frame (+ frame-root/frame-provider) and aliases the ns as `v`, then
   call `(f aenv)` with a live analyzer env over that ns. Resolution runs through
   production `cljs.analyzer.api/resolve` — there is no injected `:resolver`."
   [f]
   (binding [cljs-env/*compiler* (cljs-env/default-compiler-env)]
     (swap! cljs-env/*compiler* update :cljs.analyzer/namespaces merge
-           {'re-frame.ui  {:name 're-frame.ui
-                           :defs {'sub            {:name 're-frame.ui/sub}
-                                  'frame          {:name 're-frame.ui/frame}
-                                  'frame-root     {:name 're-frame.ui/frame-root}
-                                  'frame-provider {:name 're-frame.ui/frame-provider}}}
+           {'re-frame.freehand  {:name 're-frame.freehand
+                           :defs {'sub            {:name 're-frame.freehand/sub}
+                                  'frame          {:name 're-frame.freehand/frame}
+                                  'frame-root     {:name 're-frame.freehand/frame-root}
+                                  'frame-provider {:name 're-frame.freehand/frame-provider}}}
             'cljs.user    {:name 'cljs.user
-                           ;; `(:require [re-frame.ui :as ui :refer [...]])`
-                           :requires {'ui 're-frame.ui 're-frame.ui 're-frame.ui}
-                           :uses     {'sub 're-frame.ui
-                                      'frame 're-frame.ui 'frame-root 're-frame.ui
-                                      'frame-provider 're-frame.ui}
+                           ;; `(:require [re-frame.freehand :as v :refer [...]])`
+                           :requires {'v 're-frame.freehand 're-frame.freehand 're-frame.freehand}
+                           :uses     {'sub 're-frame.freehand
+                                      'frame 're-frame.freehand 'frame-root 're-frame.freehand
+                                      'frame-provider 're-frame.freehand}
                            :defs {}}})
     (f (assoc (cljs-api/empty-env)
               :ns (get-in @cljs-env/*compiler*
@@ -190,15 +190,15 @@
 (deftest real-cljs-referred-verb-resolution-is-genuine
   ;; Sanity: production cljs.analyzer.api/resolve — not an injected resolver —
   ;; resolves every referred / aliased / fully-qualified spelling to the
-  ;; re-frame.ui authoring vars. The rows below route through THIS resolution.
+  ;; re-frame.freehand authoring vars. The rows below route through THIS resolution.
   (with-referred-cljs-env
     (fn [aenv]
       (let [base (referred-env aenv nil)]
-        (doseq [[sym fqn] '{sub               re-frame.ui/sub
-                            ui/sub            re-frame.ui/sub
-                            re-frame.ui/sub   re-frame.ui/sub
-                            frame             re-frame.ui/frame
-                            re-frame.ui/frame re-frame.ui/frame}]
+        (doseq [[sym fqn] '{sub               re-frame.freehand/sub
+                            v/sub            re-frame.freehand/sub
+                            re-frame.freehand/sub   re-frame.freehand/sub
+                            frame             re-frame.freehand/frame
+                            re-frame.freehand/frame re-frame.freehand/frame}]
           (is (= fqn (:fqn (env/resolve-sym base sym))) (str sym)))
         (is (nil? (env/resolve-sym base 'not-a-thing))
             "an unresolvable spelling is genuinely unresolved (no stub)")))))
@@ -219,8 +219,8 @@
             (is (= (keyword "cljs.user" (name verb)) (:view-id ast)) (str verb)))))
       (testing "aliased / fully-qualified / referred verbs in an unrelated view stay reserved"
         (let [e (referred-env aenv nil)]
-          (doseq [form '[[ui/sub {}] [frame]
-                         [ui/frame {}] [re-frame.ui/sub {}]]]
+          (doseq [form '[[v/sub {}] [frame]
+                         [v/frame {}] [re-frame.freehand/sub {}]]]
             (is (= :rf.ui.compile/unsupported-form
                    (compile-error-id #(analyze/analyze e form)))
                 (pr-str form)))))
@@ -244,13 +244,13 @@
   ;; self-precedence tier never applies here — only the reservation does.)
   (with-referred-cljs-env
     (fn [aenv]
-      (doseq [form '[[sub {}] [re-frame.ui/frame] [frame]]]
+      (doseq [form '[[sub {}] [re-frame.freehand/frame] [frame]]]
         (is (= :rf.ui.compile/unsupported-form
-               (compile-error-id #(root/analyze-root (referred-env aenv nil) 'ui/mount form)))
+               (compile-error-id #(root/analyze-root (referred-env aenv nil) 'v/mount form)))
             (pr-str form)))
       (testing "a legal element root still analyzes through the root compiler"
         (is (= :element
-               (:op (:ast (root/analyze-root (referred-env aenv nil) 'ui/mount '[:div "x"])))))))))
+               (:op (:ast (root/analyze-root (referred-env aenv nil) 'v/mount '[:div "x"])))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-rr26cq — emit a recursive self head against the current-namespace Var
@@ -262,7 +262,7 @@
 ;; view before its def. A self head emitted as the raw authored spelling
 ;; therefore resolves through the same-named `:refer` — cljs.analyzer/resolve-var
 ;; checks `:uses` (refers) BEFORE `:defs` — and captures the public authoring
-;; Var (`re-frame.ui/sub`) in the emitted JavaScript. The fix carries the
+;; Var (`re-frame.freehand/sub`) in the emitted JavaScript. The fix carries the
 ;; canonical `:fqn` (the current-namespace Var) for the self component node and
 ;; forward-`declare`s it. These rows drive the REAL emitters and compile the
 ;; emitted self head to REAL JavaScript through cljs.compiler.
@@ -326,7 +326,7 @@
 
 (deftest real-cljs-self-head-emits-against-current-namespace-var
   ;; rf2-rr26cq accept rows. Reverting the emitter to the raw authored `:sym`
-  ;; re-captures `re-frame.ui/<verb>` in the emitted JavaScript and drops the
+  ;; re-captures `re-frame.freehand/<verb>` in the emitted JavaScript and drops the
   ;; forward declaration, failing every row below.
   (with-referred-cljs-env
     (fn [aenv]
@@ -355,7 +355,7 @@
               (let [js (emit-var-js aenv h)]
                 (is (= (str "cljs.user." (name verb)) js)
                     (str "self head " h " munges to the current-namespace Var"))
-                (is (not (str/includes? js (str "re_frame.ui." (name verb))))
+                (is (not (str/includes? js (str "re_frame.freehand." (name verb))))
                     "zero authoring-Var reference in the emitted JavaScript"))))
           (testing (str "JVM: the self call targets the current-namespace fqn (" verb ")")
             (let [jvm-heads (call-head-syms jvm-form verb)]
@@ -371,7 +371,7 @@
   (with-referred-cljs-env
     (fn [aenv]
       (doseq [verb '[sub frame]]
-        (is (= (str "re_frame.ui." (name verb)) (emit-var-js aenv verb))
+        (is (= (str "re_frame.freehand." (name verb)) (emit-var-js aenv verb))
             (str "a bare " verb " head resolves through the refer to the authoring Var"))
         (is (= (str "cljs.user." (name verb))
                (emit-var-js aenv (symbol "cljs.user" (name verb))))
@@ -384,14 +384,14 @@
 ;; PR #6053 fixed the recursive JSX HEAD (self-fqn) but left the view's own
 ;; declare/def on the raw bare name. The focused rows above compile EXTRACTED
 ;; reference symbols in isolation and check the raw def is bare — a FALSE GREEN:
-;; a bare `(def sub …)` in a ns referring re-frame.ui/sub resolves the def NAME
+;; a bare `(def sub …)` in a ns referring re-frame.freehand/sub resolves the def NAME
 ;; through the same-named `:refer` (cljs.analyzer/resolve-var ranks `:uses` above
 ;; `:defs` and IGNORES `:excludes`), so the WHOLE form both clobbers the public
-;; authoring Var (`re_frame.ui.sub = …`) and leaves the qualified self head
+;; authoring Var (`re_frame.freehand.sub = …`) and leaves the qualified self head
 ;; (`cljs.user.sub`) undefined — the split identity. The row below analyzes AND
 ;; compiles the ENTIRE emitted `(declare/defn/def)` do-form as one unit through
 ;; real cljs.analyzer + cljs.compiler. Against pre-fix output every assertion is
-;; RED (the def targets re-frame.ui/<verb>, the JS assigns re_frame.ui.<verb>).
+;; RED (the def targets re-frame.freehand/<verb>, the JS assigns re_frame.freehand.<verb>).
 
 (defn- analyze-whole-form
   "Analyze the COMPLETE production do-form in the referred cljs.user ns (warnings
@@ -412,8 +412,8 @@
 
 (defn- munged-ref?
   "True iff `js` references the exact munged Var `pre.<verb>` at an identifier
-  boundary (so `re_frame.ui.frame` does not spuriously match
-  `re_frame.ui.frames`, nor `cljs.user.sub` match `cljs.user.sub$render`)."
+  boundary (so `re_frame.freehand.frame` does not spuriously match
+  `re_frame.freehand.frames`, nor `cljs.user.sub` match `cljs.user.sub$render`)."
   [js pre verb]
   (boolean (re-find (re-pattern (str (java.util.regex.Pattern/quote (str pre "." (name verb)))
                                      "(?![A-Za-z0-9_$])"))
@@ -426,7 +426,7 @@
     (fn [aenv]
       (doseq [verb '[sub frame]]
         (let [self-fqn      (symbol "cljs.user" (name verb))
-              authoring-fqn (symbol "re-frame.ui" (name verb))
+              authoring-fqn (symbol "re-frame.freehand" (name verb))
               args          (self-emit-args aenv verb)
               do-form       (emit-cljs/emit-defview args)
               {:keys [def-names js]} (analyze-whole-form aenv do-form)]
@@ -434,17 +434,17 @@
             (is (some #(= self-fqn %) def-names)
                 (str "a def in the whole form targets cljs.user/" verb))
             (is (not-any? #(= authoring-fqn %) def-names)
-                (str "no def targets the authoring Var re-frame.ui/" verb)))
+                (str "no def targets the authoring Var re-frame.freehand/" verb)))
           (testing (str "whole form: emitted JS assigns the current-ns Var, never the authoring Var (" verb ")")
             (is (str/includes? js (str "cljs.user." (name verb) " ="))
                 (str "the emitted JS assigns cljs.user." (name verb)))
-            (is (not (str/includes? js (str "re_frame.ui." (name verb) " =")))
-                (str "the emitted JS never assigns (clobbers) re_frame.ui." (name verb))))
+            (is (not (str/includes? js (str "re_frame.freehand." (name verb) " =")))
+                (str "the emitted JS never assigns (clobbers) re_frame.freehand." (name verb))))
           (testing (str "whole form: def + recursive head share ONE current-ns Var, authoring Var untouched (" verb ")")
             (is (munged-ref? js "cljs.user" verb)
                 (str "the recursive head references cljs.user." (name verb)))
-            (is (not (munged-ref? js "re_frame.ui" verb))
-                (str "zero re_frame.ui." (name verb)
+            (is (not (munged-ref? js "re_frame.freehand" verb))
+                (str "zero re_frame.freehand." (name verb)
                      " reference anywhere in the whole emitted form"))))))))
 
 (deftest a-non-recursive-defview-emits-no-self-declaration

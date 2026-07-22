@@ -1,11 +1,11 @@
-(ns re-frame.ui.reserved-head-reject-cljs-test
-  "re-frame.ui rejects an UNRECOGNISED `:rf/*` hiccup head (rf2-01zvu, the
+(ns re-frame.freehand.reserved-head-reject-cljs-test
+  "re-frame.freehand rejects an UNRECOGNISED `:rf/*` hiccup head (rf2-01zvu, the
   client half of the rf2-j81hs SS4 ruling).
 
   Unlike reagent-slim — whose head classification is a RUNTIME dispatch —
-  re-frame.ui classifies heads at COMPILE time: `analyze` routes every
+  re-frame.freehand classifies heads at COMPILE time: `analyze` routes every
   keyword head to `analyze-element` → `parse-tag`, which already rejected
-  EVERY namespaced keyword with `:rf.ui.compile/bad-tag`. So re-frame.ui
+  EVERY namespaced keyword with `:rf.ui.compile/bad-tag`. So re-frame.freehand
   never painted a phantom; the gap here was the ADVICE. For a reserved
   head the generic message read \"tag keywords carry no namespace (write
   :suspense-boundary)\" — which tells the author to strip the namespace and
@@ -20,8 +20,8 @@
   (the catalogue covers the RUNTIME `:rf.error/*` axis)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.ui.compiler.analyze :as ana]
-            [re-frame.ui.analyze-accept-cljs-test :refer [mk-env]]))
+            [re-frame.freehand.compiler.analyze :as ana]
+            [re-frame.freehand.analyze-accept-cljs-test :refer [mk-env]]))
 
 (defn- reject
   "{:id … :msg …} for a rejected form; nil when accepted."

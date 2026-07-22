@@ -1,4 +1,4 @@
-(ns re-frame.ui.compiler-build-hook-jvm-test
+(ns re-frame.freehand.compiler-build-hook-jvm-test
   "Functional Shadow build-state authority tests for Option C.
 
   These fixtures deliberately thread the build-state returned by the real hook.
@@ -7,9 +7,9 @@
   optimize/check/flush/watch failure."
   (:require [cljs.env :as cljs-env]
             [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.ui.compiler.build :as build]
-            [re-frame.ui.compiler.build-hook :as build-hook]
-            [re-frame.ui.compiler.root :as root]))
+            [re-frame.freehand.compiler.build :as build]
+            [re-frame.freehand.compiler.build-hook :as build-hook]
+            [re-frame.freehand.compiler.root :as root]))
 
 (use-fixtures :each
   (fn [f] (build/reset-build!) (try (f) (finally (build/reset-build!)))))
@@ -21,7 +21,7 @@
    ;; Truthy executor + default parallel-build mirrors Shadow watch. In that
    ;; branch output presence is the exact cache-hit / compile-schedule signal.
    :executor (Object.)
-   ;; As `shadow.build.api/init` seeds it: the seam re-frame.ui installs its
+   ;; As `shadow.build.api/init` seeds it: the seam re-frame.freehand installs its
    ;; per-pass compile witness into.
    :analyzer-passes []
    :build-sources (vec member-nss)
@@ -227,7 +227,7 @@
                    [['app.a :app.a/view ["tf1-a" "hs1-a"]]
                     ['app.b :app.b/view ["tf1-b" "hs1-b"]]])
         ;; app.a remains an authoritative build member but was reset and
-        ;; recompiled after removing its final re-frame.ui declaration. No
+        ;; recompiled after removing its final re-frame.freehand declaration. No
         ;; macro call can mark it touched, so prepare must do so from Shadow's
         ;; missing-output schedule. app.b is an output-present cache hit.
         without-a (pass both '#{app.a app.b} '#{app.a} [])]
@@ -292,8 +292,8 @@
                 nil
                 (catch clojure.lang.ExceptionInfo e e))]
     (is (some? ex) "distinct declarations sharing a view-id must fail the build")
-    (is (= :re-frame.ui.compiler.build/view-id-conflict
-           (:re-frame.ui.compiler.build/error (ex-data ex))))
+    (is (= :re-frame.freehand.compiler.build/view-id-conflict
+           (:re-frame.freehand.compiler.build/error (ex-data ex))))
     (is (= :shared/card (:view-id (ex-data ex))))
     (is (= [['app.new 'card] ['app.old 'card]]
            (:declarations (ex-data ex)))
@@ -437,8 +437,8 @@
         ex (try (finish collision '#{app.old app.new}) nil
                 (catch clojure.lang.ExceptionInfo e e))]
     (is (some? ex) "two live sites for one root-id must fail the build")
-    (is (= :re-frame.ui.compiler.build/duplicate-root-id
-           (:re-frame.ui.compiler.build/error (ex-data ex))))
+    (is (= :re-frame.freehand.compiler.build/duplicate-root-id
+           (:re-frame.freehand.compiler.build/error (ex-data ex))))
     (is (= :shared/root (:root-id (ex-data ex))))
     (is (= 2 (count (:sites (ex-data ex)))) "both sites named with coords")))
 
@@ -450,8 +450,8 @@
         ex (try (finish collision '#{app.a app.b}) nil
                 (catch clojure.lang.ExceptionInfo e e))]
     (is (some? ex) "differing fingerprints for one frame-id must fail the build")
-    (is (= :re-frame.ui.compiler.build/frame-payload-conflict
-           (:re-frame.ui.compiler.build/error (ex-data ex))))
+    (is (= :re-frame.freehand.compiler.build/frame-payload-conflict
+           (:re-frame.freehand.compiler.build/error (ex-data ex))))
     (is (= :shop (:frame-id (ex-data ex))))
     (is (= ["cf-a" "cf-b"] (:fingerprints (ex-data ex))))))
 
@@ -588,7 +588,7 @@
 ;; broadcasts to every runtime on success. `:compile-prepare` points the
 ;; devtools client's ONE `:build-notify` receiver
 ;; (`shadow.cljs.devtools.client.env/custom-notify-fn`) at
-;; `re-frame.ui.rules/shadow-build-notify` — exactly when the delta can exist
+;; `re-frame.freehand.rules/shadow-build-notify` — exactly when the delta can exist
 ;; and land, and never over a consumer's own receiver. The projection itself is
 ;; pinned CLJS-side (rules-cljs-test) and end-to-end by test:ui-warm-watch.
 
@@ -596,13 +596,13 @@
   'shadow.cljs.devtools.client.env/custom-notify-fn)
 
 (def ^:private notify-target
-  "re_frame.ui.rules.shadow_build_notify")
+  "re_frame.freehand.rules.shadow_build_notify")
 
 (defn- notify-define-of [state]
   (get-in state [:compiler-options :closure-defines notify-define]))
 
 (deftest prepare-wires-the-removed-source-notify-for-a-watched-dev-build
-  (let [members '#{re-frame.ui.rules app.main}
+  (let [members '#{re-frame.freehand.rules app.main}
         watched (-> (graph-state :app :compile-prepare members)
                     (assoc :shadow.build/mode :dev
                            :worker-info {:host "localhost" :port 9630}))]

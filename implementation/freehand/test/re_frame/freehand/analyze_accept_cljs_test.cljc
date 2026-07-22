@@ -1,39 +1,39 @@
-(ns re-frame.ui.analyze-accept-cljs-test
+(ns re-frame.freehand.analyze-accept-cljs-test
   "Template-grammar ACCEPT table: the blessed forms lower into the closed
   AST node set, on both hosts (the analyzer is pure — resolution is
   injected, so this suite runs identically under `clojure -M:test` and
-  `npm run test:ui`). Also pins the AST-shape gate (closed op set) and
+  `npm run test:freehand`). Also pins the AST-shape gate (closed op set) and
   the serialisation boundary (AST print/read round-trip)."
   (:require [clojure.test :refer [deftest is testing]]
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
-            [re-frame.ui.compiler.analyze :as ana]
-            [re-frame.ui.compiler.env :as env]
-            [re-frame.ui.fingerprint :as fingerprint]))
+            [re-frame.freehand.compiler.analyze :as ana]
+            [re-frame.freehand.compiler.env :as env]
+            [re-frame.freehand.fingerprint :as fingerprint]))
 
 (def resolver
   "Injected Q5 resolution stub — fqn + var meta per symbol."
   (fn [sym]
     (case sym
       map         {:fqn 'clojure.core/map :meta {}}
-      sub         {:fqn 're-frame.ui/sub :meta {}}
-      frame       {:fqn 're-frame.ui/frame :meta {}}
+      sub         {:fqn 're-frame.freehand/sub :meta {}}
+      frame       {:fqn 're-frame.freehand/frame :meta {}}
       ;; aliased + fully-qualified spellings resolve to the same vars
       ;; (rf2-vxgfnd.266 head reservation must key on the fqn, not the spelling)
-      ui/sub            {:fqn 're-frame.ui/sub :meta {}}
-      ui/frame          {:fqn 're-frame.ui/frame :meta {}}
-      re-frame.ui/sub   {:fqn 're-frame.ui/sub :meta {}}
-      re-frame.ui/frame {:fqn 're-frame.ui/frame :meta {}}
-      raw         {:fqn 're-frame.ui/raw :meta {}}
-      html        {:fqn 're-frame.ui/html :meta {}}
-      raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
-      spread      {:fqn 're-frame.ui/spread :meta {}}
-      spread-safe {:fqn 're-frame.ui/spread-safe :meta {}}
-      event       {:fqn 're-frame.ui/event :meta {}}
-      handler     {:fqn 're-frame.ui/handler :meta {}}
-      render-fn   {:fqn 're-frame.ui/render-fn :meta {}}
-      slot        {:fqn 're-frame.ui/slot :meta {}}
-      error-boundary {:fqn 're-frame.ui/error-boundary :meta {}}
-      client-only    {:fqn 're-frame.ui/client-only :meta {}}
+      v/sub            {:fqn 're-frame.freehand/sub :meta {}}
+      v/frame          {:fqn 're-frame.freehand/frame :meta {}}
+      re-frame.freehand/sub   {:fqn 're-frame.freehand/sub :meta {}}
+      re-frame.freehand/frame {:fqn 're-frame.freehand/frame :meta {}}
+      raw         {:fqn 're-frame.freehand/raw :meta {}}
+      html        {:fqn 're-frame.freehand/html :meta {}}
+      raw-fn      {:fqn 're-frame.freehand/raw-fn :meta {}}
+      spread      {:fqn 're-frame.freehand/spread :meta {}}
+      spread-safe {:fqn 're-frame.freehand/spread-safe :meta {}}
+      event       {:fqn 're-frame.freehand/event :meta {}}
+      handler     {:fqn 're-frame.freehand/handler :meta {}}
+      render-fn   {:fqn 're-frame.freehand/render-fn :meta {}}
+      slot        {:fqn 're-frame.freehand/slot :meta {}}
+      error-boundary {:fqn 're-frame.freehand/error-boundary :meta {}}
+      client-only    {:fqn 're-frame.freehand/client-only :meta {}}
       ..          {:fqn 'clojure.core/.. :meta {:macro true}}
       ;; The if-let binder family (rf2-u53yy.4) — admission is RESOLVER-confirmed,
       ;; so every member resolves to its core var, and a fully-qualified spelling
@@ -44,7 +44,7 @@
       when-some   {:fqn 'clojure.core/when-some :meta {:macro true}}
       clojure.core/if-some {:fqn 'clojure.core/if-some :meta {:macro true}}
       ->          {:fqn 'clojure.core/-> :meta {:macro true}}
-      frame-provider {:fqn 're-frame.ui/frame-provider :meta {}}
+      frame-provider {:fqn 're-frame.freehand/frame-provider :meta {}}
       child-view  {:fqn 'app.views/child-view
                    :meta {:rf.ui/view true :rf.ui/children? true}}
       leaf-view   {:fqn 'app.views/leaf-view
@@ -278,11 +278,11 @@
   (let [el (ana* '[:input {:on-input (event [e] [:form/typed (.. e -target -value)])}])
         h  (first (get-in el [:props :events]))]
     (is (= :ui-event (:classification h))
-        "a ui/event handler is its own compiler-known committed-callback class")
+        "a v/event handler is its own compiler-known committed-callback class")
     (is (false? (:serializable? h)))
     (is (false? (:hoistable? h)))
     (is (= 'fn (first (:form h)))
-        "the ui/event body lowers to a fn the runtime calls with the native event"))
+        "the v/event body lowers to a fn the runtime calls with the native event"))
   (let [el (ana* '[:button {:on-click (if a [:x/a] [:x/b])} "x"])]
     (is (= :dynamic (:classification (first (get-in el [:props :events]))))))
   (let [{:keys [ast sites]}
@@ -292,7 +292,7 @@
         "dynamic handler classification runs at render, so its sub is finite")))
 
 ;; ---------------------------------------------------------------------------
-;; S3 explicit callback boundaries (rf2-vxgfnd.95.3) — ui/handler, and the
+;; S3 explicit callback boundaries (rf2-vxgfnd.95.3) — v/handler, and the
 ;; committed callbacks + C-13a opaque fn-props at component seams
 ;; ---------------------------------------------------------------------------
 
@@ -300,15 +300,15 @@
   (let [el (ana* '[:button {:on-click (handler [e] (.preventDefault e))} "x"])
         h  (first (get-in el [:props :events]))]
     (is (= :handler (:classification h))
-        "ui/handler — the explicit imperative committed callback (bare-fn shorthand)")
+        "v/handler — the explicit imperative committed callback (bare-fn shorthand)")
     (is (false? (:serializable? h)))
     (is (= 'fn (first (:form h)))
         "the body lowers to a fn the runtime calls with the native event"))
-  ;; ui/handler is NOT a controlled-input sync-door class (imperative, not a vector)
+  ;; v/handler is NOT a controlled-input sync-door class (imperative, not a vector)
   (let [el (ana* '[:input {:value v :on-input (handler [e] (do-something e))}])
         h  (first (get-in el [:props :events]))]
     (is (= :handler (:classification h)))
-    (is (not (:sync? h)) "an imperative ui/handler never rides the sync door")))
+    (is (not (:sync? h)) "an imperative v/handler never rides the sync door")))
 
 (deftest c13a-internal-fn-props-are-legal-opaque-values
   (testing "a bare fn between INTERNAL views is a legal opaque value (marker nil)"
@@ -320,31 +320,31 @@
                  (ana* '[ForeignComp {:cb (fn [x] x)}])))))
 
 (deftest committed-callbacks-at-component-seams
-  (testing "ui/event at a foreign prop is a committed event callback"
+  (testing "v/event at a foreign prop is a committed event callback"
     (let [{:keys [ast sites]}
           (ana-full '[ForeignComp {:on-select (event [e] [:sel/pick e])}])
           en (first (get-in ast [:props :entries]))]
       (is (= :ui-event (:marker en)))
       (is (= 'fn (first (:callback-fn en))) "the body lowers to a fn")
       (is (= 1 (count (:events sites))) "it records an event site")))
-  (testing "ui/handler at a foreign prop is an imperative committed callback"
+  (testing "v/handler at a foreign prop is an imperative committed callback"
     (let [en (first (get-in (ana* '[ForeignComp {:on-open (handler [a b] (do-it a b))}])
                             [:props :entries]))]
       (is (= :handler (:marker en)))
       (is (= '[a b] (second (:callback-fn en))) "the full fixed arg list binds through")))
-  (testing "ui/event / ui/handler are equally legal at an INTERNAL-view seam"
+  (testing "v/event / v/handler are equally legal at an INTERNAL-view seam"
     (let [en (first (get-in (ana* '[child-view {:cb (handler [x] (use-it x))}])
                             [:props :entries]))]
       (is (= :handler (:marker en))
           "a per-site stable identity at an internal-view seam (C-13a)")))
-  (testing "ui/event at a foreign prop capturing a loop binding is rejected"
+  (testing "v/event at a foreign prop capturing a loop binding is rejected"
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
                  (ana* '(for [row rows]
                           [ForeignComp {:key (:id row)
                                         :on-select (event [e] [:pick (:id row)])}]))))))
 
 ;; ---------------------------------------------------------------------------
-;; ui/spread at a FOREIGN component call site (rf2-u53yy.5)
+;; v/spread at a FOREIGN component call site (rf2-u53yy.5)
 ;; ---------------------------------------------------------------------------
 
 (deftest foreign-spread-admits-literal-part-plus-opaque-forwarded-map
@@ -363,7 +363,7 @@
           "the literal part's keys are analysed as ordinary call-site props")
       (is (= :handler (:marker (some #(when (= :on-change (:k %)) %)
                                      (get-in ast [:props :entries]))))
-          "a ui/handler in the literal part compiles to a committed callback")
+          "a v/handler in the literal part compiles to a committed callback")
       (is (some #(= :spread (:classification %)) (:events sites))
           (str "the forwarded map records ONE opaque :spread event site — "
                "the manifest marks the call site :dynamic"))))
@@ -393,7 +393,7 @@
                  (ana* '[ForeignComp (spread {:on-select (fn [x] x)} m)])))))
 
 ;; ---------------------------------------------------------------------------
-;; ui/error-boundary + ui/client-only (rf2-vxgfnd.95.3)
+;; v/error-boundary + v/client-only (rf2-vxgfnd.95.3)
 ;; ---------------------------------------------------------------------------
 
 (deftest error-boundary-lowers
@@ -433,13 +433,13 @@
         "a reactive read in the fallback would tear on hydration")))
 
 (deftest deferred-callback-bodies-accept-opaque-host-macros
-  ;; A deferred callback (ui/event / bare fn) is opaque host code: interop and
+  ;; A deferred callback (v/event / bare fn) is opaque host code: interop and
   ;; other non-admitted macros (.. , doto, …) that a RENDER body rejects pass
   ;; through here verbatim, because sub/frame — the only things lexical analysis
-  ;; protects — are already illegal in deferred scope. The canonical ui/event
+  ;; protects — are already illegal in deferred scope. The canonical v/event
   ;; payload `(.. e -target -value)` therefore compiles. (The admitted if-let
   ;; family is analyzed, not passed through — see the admitted-family deftest.)
-  (testing "a ui/event body keeps its interop macro verbatim"
+  (testing "a v/event body keeps its interop macro verbatim"
     (let [el (ana* '[:input {:on-input
                              (event [e] (conj on-value (.. e -target -value)))}])
           h  (first (get-in el [:props :events]))]
@@ -504,7 +504,7 @@
                    [:div {:title (when-some [x (sub [:q])] x)}]]]
       (let [{:keys [ast sites]} (ana-full form)]
         (is (= 1 (count (:subs sites))) (str "prop-value init lowers one site: " form))
-        (is (re-find #"re-frame.ui.reactive/sub-read" (pr-str ast))
+        (is (re-find #"re-frame.freehand.reactive/sub-read" (pr-str ast))
             (str "the lowered runtime site is present: " form)))))
   (testing "the binding pattern is still host-consumed — a reactive escape rejects"
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
@@ -579,7 +579,7 @@
     (is (true? (-> (ana* '[:input {:checked checked?
                                     :on-before-input [:form/check]}])
                    (get-in [:props :events 0 :sync?])))))
-  (testing "a synchronous ui/event body rides the same door as a literal vector"
+  (testing "a synchronous v/event body rides the same door as a literal vector"
     ;; The widening (readiness P0-2): the site proof stays static (literal
     ;; controlled prop co-present); the appended prefix/payload stay runtime.
     (let [{:keys [ast warnings]}
@@ -588,13 +588,13 @@
                                           (conj on-value (.. e -target -value)))}])]
       (is (= :ui-event (get-in ast [:props :events 0 :classification])))
       (is (true? (get-in ast [:props :events 0 :sync?]))
-          "a controlled ui/event site opens the one sync door")
+          "a controlled v/event site opens the one sync door")
       (is (empty? warnings)
-          "a proven ui/event door emits no async-handler fallback warning"))
+          "a proven v/event door emits no async-handler fallback warning"))
     (is (true? (-> (ana* '[:input {:checked checked?
                                    :on-change (event [e] [:prefs/set (.. e -target -checked)])}])
                    (get-in [:props :events 0 :sync?])))))
-  (testing "an uncontrolled ui/event site simply batches, with no diagnostic"
+  (testing "an uncontrolled v/event site simply batches, with no diagnostic"
     (let [{:keys [ast warnings]}
           (ana-full '[:input {:on-input (event [e] [:log (.. e -target -value)])}])]
       (is (= :ui-event (get-in ast [:props :events 0 :classification])))
@@ -612,14 +612,14 @@
           "a fallback site names the exact conditions it failed to prove")
       ;; rf2-r0775 — the recovery guidance must name BOTH sync-door forms
       ;; (#{:vector :ui-event} per controlled-event-sync?): a literal event
-      ;; vector OR a (ui/event …) handler. A reusable control that needs the
+      ;; vector OR a (v/event …) handler. A reusable control that needs the
       ;; native payload may not be expressible as a literal vector, so the
       ;; diagnostic must not prescribe only the vector door.
       (let [msg (:msg (first warnings))]
         (is (re-find #"literal event vector" msg)
             "the diagnostic still names the literal-event-vector door")
-        (is (re-find #"ui/event" msg)
-            "the diagnostic ALSO names the (ui/event …) door")))
+        (is (re-find #"v/event" msg)
+            "the diagnostic ALSO names the (v/event …) door")))
     (testing "a bare fn at a controlled site still batches with the diagnostic"
       (let [{:keys [ast warnings]}
             (ana-full '[:input {:value value :on-input (fn [e] (js/console.log e))}])]
@@ -639,7 +639,7 @@
   ;; so the function/callee position is an ordinary evaluated expression that can
   ;; host a finite render-time (sub …). It must be rewritten + indexed under a
   ;; stable :callee token, never preserved verbatim with an empty manifest (which
-  ;; leaves a public ui/sub as an unlowered call at runtime).
+  ;; leaves a public v/sub as an unlowered call at runtime).
   (testing "an (if …) computed callee with one sub → exactly one indexed site"
     (let [{:keys [sites]} (ana-full '[:div {:title ((if (sub [:op]) inc dec) 1)}])
           site (first (:subs sites))]
@@ -774,7 +774,7 @@
     (let [{:keys [sites]}
           (ana-full '[:div {:title (let [{:keys [sub f] :or {f (sub :fallback)}} m] f)}])]
       (is (empty? (:subs sites))
-          "(sub :fallback) calls the earlier local sub, never re-frame.ui/sub")))
+          "(sub :fallback) calls the earlier local sub, never re-frame.freehand/sub")))
   (testing "an explicit lookup key referencing an earlier-bound local (no site)"
     (let [{:keys [sites]}
           (ana-full '[:div {:title (let [{sub :s x sub} m] x)}])]
@@ -811,7 +811,7 @@
         "site id is projected out, but the semantic query remains")))
 
 (deftest quoted-runtime-sub-lookalikes-are-fingerprint-opaque
-  (let [runtime  're-frame.ui.reactive/sub-read
+  (let [runtime  're-frame.freehand.reactive/sub-read
         quoted   (with-meta
                    (list 'quote (list runtime :quoted/sid [:quoted/query]))
                    {:line 17 :column 9})
@@ -846,7 +846,7 @@
          no bare preorder ordinal can transfer A's ownership to inserted B")))
 
 (deftest lexical-shadowing-never-mints-a-reactive-site
-  (testing "a local named sub is an ordinary call, not re-frame.ui/sub"
+  (testing "a local named sub is an ordinary call, not re-frame.freehand/sub"
     (let [{:keys [ast sites]}
           (ana-full '[:div {:title (let [sub identity] (sub query))}])]
       (is (empty? (:subs sites)))
@@ -874,7 +874,7 @@
           (ana-full '(let [{:keys [frame dispatch]} (frame)]
                        [:div.bridge (str frame)]))]
       (is (= :let (:op ast)))
-      (is (= '(re-frame.ui.frames/frame-ops)
+      (is (= '(re-frame.freehand.frames/frame-ops)
              (second (:bindings ast)))
           "the zero-arg call lowers to the internal frame-ops bridge")
       (is (= 1 (count (:frame-ops sites)))
@@ -884,7 +884,7 @@
   (testing "an expression-position read lowers too"
     (let [{:keys [ast sites]}
           (ana-full '[:div {:data-frame (:frame (frame))} "x"])]
-      (is (= '(:frame (re-frame.ui.frames/frame-ops))
+      (is (= '(:frame (re-frame.freehand.frames/frame-ops))
              (get-in ast [:props :attrs 0 :value])))
       (is (= 1 (count (:frame-ops sites))))))
   (testing "two sites are two manifest rows with distinct sids"
@@ -894,7 +894,7 @@
       (is (= 2 (count (distinct (map :sid (:frame-ops sites)))))))))
 
 (deftest frame-shadowing-never-mints-a-frame-site
-  (testing "a local named frame is an ordinary call, not re-frame.ui/frame"
+  (testing "a local named frame is an ordinary call, not re-frame.freehand/frame"
     (let [{:keys [ast sites]}
           (ana-full '[:div {:title (let [frame identity] (frame))}])]
       (is (empty? (:frame-ops sites)))
@@ -907,7 +907,7 @@
           "exactly the init call is a site; the bound local is a plain symbol"))))
 
 (deftest html-sites-index
-  (testing "ui/html records a manifest site — the profile row's 'manifest
+  (testing "v/html records a manifest site — the profile row's 'manifest
   site recording' sub-assertion: every visible escaping bypass is listed with
   its source/template path and serialisability flag"
     (let [{:keys [sites]} (ana-full '[:div
@@ -934,12 +934,12 @@
   (is (= :raw (:op (ana* '(raw some-element)))))
   (let [el (ana* '[:div.content (html "<b>x</b>")])]
     (is (= :element (:op el)))
-    (is (= "<b>x</b>" (get-in el [:html :form])) "sole-child ui/html rides the element"))
+    (is (= "<b>x</b>" (get-in el [:html :form])) "sole-child v/html rides the element"))
   (let [el (ana* '[:div (spread base {:class "x"})])]
     (is (some? (get-in el [:props :spread])))))
 
 ;; ---------------------------------------------------------------------------
-;; ui/spread-safe — the literal safe-spread policy (S3, rf2-isdqjv)
+;; v/spread-safe — the literal safe-spread policy (S3, rf2-isdqjv)
 ;; ---------------------------------------------------------------------------
 
 (deftest spread-safe-lowers-owned-props-plus-guarded-caller
@@ -969,7 +969,7 @@
           "no compiled per-site handler — the site is opaque")
       (is (not (true? (get-in el [:props :spread :sync?])))
           "a general spread never opens the sync door")))
-  (testing "a ui/event owned handler also keeps the door under the policy form"
+  (testing "a v/event owned handler also keeps the door under the policy form"
     (let [el (ana* '[:input (spread-safe {:checked c
                                           :on-change (event [e] [:set (.. e -target -checked)])}
                                          attr)])]
@@ -999,7 +999,7 @@
 
 (deftest raw-and-raw-fn-props-mark
   (let [v (ana* '[ForeignComp {:el (raw host-el) :cb (raw-fn f)}])]
-    (is (= [:foreign :ui/raw-fn]
+    (is (= [:foreign :v/raw-fn]
            (mapv :marker (get-in v [:props :entries]))))))
 
 ;; ---------------------------------------------------------------------------
@@ -1045,11 +1045,11 @@
       (is (= 1 (count (:subs sites))) "the (sub ...) in the target is a finite site"))))
 
 ;; ---------------------------------------------------------------------------
-;; Compiled render slots (S3, rf2-ri0k6n) — ui/render-fn + ui/slot
+;; Compiled render slots (S3, rf2-ri0k6n) — v/render-fn + v/slot
 ;; ---------------------------------------------------------------------------
 
 (deftest render-fn-prop-lowers-to-a-compiled-slot-callback
-  (testing "a ui/render-fn prop value compiles its body into a slot callback"
+  (testing "a v/render-fn prop value compiles its body into a slot callback"
     (let [v (ana* '[child-view {:row (render-fn [i x] [:li.item i x])}])
           e (first (get-in v [:props :entries]))]
       (is (= :render-fn (:marker e)) "the entry is marked a compiled render slot")
@@ -1063,7 +1063,7 @@
         "a foreign component invokes it at an unknown phase — reject")))
 
 (deftest ui-slot-lowers-and-indexes-its-site
-  (testing "ui/slot over a prop-carried render-fn value"
+  (testing "v/slot over a prop-carried render-fn value"
     (let [{:keys [ast sites]}
           (ana-full '[:ul (slot row-renderer 3 item)])
           slot (first (get-in ast [:children]))]
@@ -1074,7 +1074,7 @@
       (is (= 1 (count (:slots sites))) "the slot site indexes into the manifest")
       (is (false? (:inline? (first (:slots sites)))))
       (is (vector? (:path (first (:slots sites)))) "the site carries its template path")))
-  (testing "ui/slot over an INLINE ui/render-fn compiles the body here"
+  (testing "v/slot over an INLINE v/render-fn compiles the body here"
     (let [{:keys [ast sites]}
           (ana-full '[:ul (slot (render-fn [x] [:li x]) item)])
           slot (first (get-in ast [:children]))]
@@ -1082,7 +1082,7 @@
       (is (= '[x] (get-in slot [:render-fn :params])))
       (is (= :element (get-in slot [:render-fn :body :op])) "inline body is compiled")
       (is (true? (:inline? (first (:slots sites)))))))
-  (testing "nil is a legal ui/slot value (renders nothing)"
+  (testing "nil is a legal v/slot value (renders nothing)"
     (let [ast (ana* '[:ul (slot nil)])]
       (is (= :slot (:op (first (:children ast)))))
       (is (nil? (get-in ast [:children 0 :slot-value]))))))

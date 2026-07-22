@@ -1,4 +1,4 @@
-(ns re-frame.ui.a11y-diagnostics-cljs-test
+(ns re-frame.freehand.a11y-diagnostics-cljs-test
   "The S4-C compile-tier a11y roster (rf2-74vlo; Spec 004 §Compile-tier
   warnings) — host-shared, pure-analyzer.
 
@@ -15,9 +15,9 @@
   loud compile error `:rf.ui.compile/bad-suppress` rather than a silent no-op."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.ui.compiler.a11y :as a11y]
-            [re-frame.ui.compiler.analyze :as ana]
-            [re-frame.ui.compiler.env :as env]))
+            [re-frame.freehand.compiler.a11y :as a11y]
+            [re-frame.freehand.compiler.analyze :as ana]
+            [re-frame.freehand.compiler.env :as env]))
 
 ;; ---------------------------------------------------------------------------
 ;; Injected environment (identical to the frozen-roster suite's)
@@ -25,13 +25,13 @@
 
 (defn- resolver [sym]
   (case sym
-    sub         {:fqn 're-frame.ui/sub :meta {}}
-    spread      {:fqn 're-frame.ui/spread :meta {}}
-    spread-safe {:fqn 're-frame.ui/spread-safe :meta {}}
-    event       {:fqn 're-frame.ui/event :meta {}}
-    handler     {:fqn 're-frame.ui/handler :meta {}}
-    html        {:fqn 're-frame.ui/html :meta {}}
-    presence    {:fqn 're-frame.ui/presence :meta {}}
+    sub         {:fqn 're-frame.freehand/sub :meta {}}
+    spread      {:fqn 're-frame.freehand/spread :meta {}}
+    spread-safe {:fqn 're-frame.freehand/spread-safe :meta {}}
+    event       {:fqn 're-frame.freehand/event :meta {}}
+    handler     {:fqn 're-frame.freehand/handler :meta {}}
+    html        {:fqn 're-frame.freehand/html :meta {}}
+    presence    {:fqn 're-frame.freehand/presence :meta {}}
     child-view  {:fqn 'app.views/child-view
                  :meta {:rf.ui/view true :rf.ui/children? true}}
     ForeignComp {:fqn 'app.interop/ForeignComp :meta {}}
@@ -233,7 +233,7 @@
 ;;
 ;; rf2-0ufty ruled presence DOM-agnostic and timeout-only: the framework stamps
 ;; NO inert/aria-hidden, and the child owns its exit accessibility by reading
-;; (ui/presence-phase). This check is not a style opinion — it fires on the one
+;; (v/presence-phase). This check is not a style opinion — it fires on the one
 ;; shape where that author remedy is STRUCTURALLY unavailable: inline literal
 ;; markup, whose props evaluate in the parent's render, outside the per-child
 ;; phase Provider.
@@ -246,7 +246,7 @@
                      (for [t toasts]
                        [:div {:key (:id t)}
                         [:button {:on-click [:toast/dismiss]} "Dismiss"]]))
-          "(ui/presence-phase) = :unmounting" "keyed child view")
+          "(v/presence-phase) = :unmounting" "keyed child view")
   (testing "an explicitly focusable generic element counts too"
     (is (= [exit-interactive]
            (ids '(presence {:timeout-ms 300}
@@ -255,7 +255,7 @@
 
 (deftest presence-exit-interactive-is-silent-when-the-child-can-remedy-it
   ;; THE headline bound: Spec 004's own presence example must stay silent.
-  (silent! "a child VIEW reads its own (ui/presence-phase) and stamps inert"
+  (silent! "a child VIEW reads its own (v/presence-phase) and stamps inert"
            '(presence {:timeout-ms 300}
                       (for [t toasts] [child-view {:key (:id t) :toast t}])))
   (silent! "a foreign component owns its own exit behaviour"

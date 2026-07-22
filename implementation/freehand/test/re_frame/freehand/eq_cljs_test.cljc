@@ -1,7 +1,7 @@
-(ns re-frame.ui.eq-cljs-test
+(ns re-frame.freehand.eq-cljs-test
   "The ruled rf= truth table (Object.is OR =, per slot) — both hosts."
   (:require [clojure.test :refer [deftest is]]
-            [re-frame.ui.eq :refer [rf= deps-rf=?]]))
+            [re-frame.freehand.eq :refer [rf= deps-rf=?]]))
 
 (deftest value-branch
   (is (true? (rf= {:a [1 2]} {:a [1 2]}))
