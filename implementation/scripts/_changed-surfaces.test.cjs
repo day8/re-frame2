@@ -2074,6 +2074,36 @@ test('implementation/freehand/** arms the freehand JVM + node-test surfaces (rf2
   }
 });
 
+test('the freehand arm is ARTEFACT-ROOT matching, not an enumeration (rf2-drpa3.61)', () => {
+  // The classifier case is `implementation/freehand/*)`. A POSIX `case` glob's
+  // `*` spans `/`, so the whole artefact root is covered at any depth. That is
+  // the point: an enumeration of today's three files rots on the first nested
+  // namespace, and the rot is SILENT — the new file simply classifies as
+  // nothing and its required gates skip.
+  //
+  // These paths do not exist yet. They are the shapes F1b+ will add (nested
+  // compiler/emitter namespaces, a testbed, a README), pinned so a future
+  // narrowing of the case reds here instead of in production.
+  for (const file of [
+    'implementation/freehand/src/re_frame/freehand/compiler/analyze/deeply/nested.cljc',
+    'implementation/freehand/test/re_frame/freehand/emitters/react/deep_nested_cljs_test.cljs',
+    'implementation/freehand/testbed/core.cljs',
+    'implementation/freehand/README.md',
+  ]) {
+    const result = classify(file);
+    assert.equal(
+      result.implementation_jvm,
+      'true',
+      `future nested path must arm implementation_jvm: ${file}`,
+    );
+    assert.equal(
+      result.cljs_node_test,
+      'true',
+      `future nested path must arm cljs_node_test: ${file}`,
+    );
+  }
+});
+
 test('implementation/freehand/** stays OFF the heavy per-feature gates (rf2-drpa3.58)', () => {
   // Scope guard, not an aspiration: Freehand ships no public surface, no
   // *-dom-cljs-test namespace and no production-bundle requirer yet, so the
