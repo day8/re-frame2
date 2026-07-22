@@ -42,6 +42,13 @@ actively-supported adapters; only Helix is removed
 ([EP-0030](../docs/EP/EP-0030-the-compiled-view-substrate-program.md)
 Resolved Decisions, 2026-07-17).
 
+The `freehand/` artefact ([EP-0036](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md))
+sits beside it as the ratified successor: one re-frame-native view substrate with
+an interpreted paved path and a compiled hot tier over one semantic model,
+published through `re-frame.freehand`. It is built by **absorption** — useful
+`ui/` code moves into it slice by slice — so `freehand/` declares no dependency
+on `ui/` and never will; `ui/` is a donor, deleted at the F6 conformance gate.
+
 ```
 implementation/
   deps.edn                   Top-level coordinator: :local/root deps for every artefact.
@@ -164,6 +171,15 @@ implementation/
     src/re_frame/ui/compiler.cljc  Compiler entry stub (AST / analyzer / emitters, S1b).
     src/re_frame/ui/client.cljs    Client-kernel stub (mount surface S1c; reactivity S2).
     test/re_frame/                 Classpath + build-id probe (npm run test:ui).
+
+  freehand/                  day8/re-frame2-freehand — the Freehand view substrate
+                             (EP-0036; F1a skeleton per rf2-drpa3.15 — the paved-path
+                             spine lands from F1b). Declares no dependency on ui/.
+    deps.edn                 :local/root dep on ../core; own :test alias (pre-publication,
+                             so no :clein deploy aliases).
+    src/re_frame/freehand.cljc     Public-door namespace — empty of surface at F1a
+                                   (defview / sub / mount land with the F1 spine).
+    test/re_frame/                 Classpath + build-wiring probe (npm run test:freehand).
 
   ssr-ring/                  day8/re-frame2-ssr-ring — Ring host adapter for the SSR pipeline
                              (rf2-ny6v7).

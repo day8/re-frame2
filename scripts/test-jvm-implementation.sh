@@ -32,6 +32,13 @@ artefacts=(
   # side is exercised from day one; the compiler-slice suites (S1b+,
   # where the .cljc compiler genuinely runs on the JVM) grow here.
   implementation/ui
+  # rf2-drpa3.15 — the Freehand view substrate (EP-0036). F1a skeleton:
+  # the :test alias runs the classpath probe
+  # (re-frame.freehand.skeleton-cljs-test's :clj arm) so the artefact's
+  # JVM side is exercised from day one — the F1 spine needs a JVM tree
+  # emitter alongside the React one, so the JVM arm is load-bearing here
+  # from the first commit rather than bolted on later.
+  implementation/freehand
   # rf2-gj2ae — the adversarial-property security tier is `.cljc` and
   # advertises a cross-runtime contract (e.g. `re-frame.security.gen`'s
   # JVM `:clj` `long`-multiply vs the CLJS `Math.imul` arm, pinned by

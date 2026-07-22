@@ -1,0 +1,108 @@
+# Freehand view-substrate gate (rf2-drpa3.15, EP-0036 slice F1a).
+#
+# # What this covers
+#
+# The JVM arm of `implementation/freehand/`. Freehand's entry namespace is
+# `.cljc` from the first commit because the F1 spine needs BOTH emitters —
+# a JVM tree (which also feeds the ssr artefact) and a React tree — so the
+# JVM side is load-bearing here from day one rather than bolted on later.
+#
+# The CLJS arm needs no job of its own: `freehand/src` + `freehand/test`
+# are on the `:node-test` classpath in implementation/shadow-cljs.edn and
+# `re-frame.freehand.*-cljs-test` namespaces match that build's `cljs-test$`
+# regexp, so test.yml's always-on `cljs` job — which IS in the
+# `all-required-passed` aggregator — compiles and runs them on every PR.
+# `npm run test:freehand` (the focused `:node-test-freehand` build) is the
+# cheap NAMED surface for local + worker iteration, not a second gate.
+#
+# # Why a separate workflow file rather than a job in test.yml
+#
+# `.github/workflows/*` is hot-zone and several EP-0036 slices were adding
+# gates concurrently when this landed, so F1a took the non-colliding route:
+# a self-contained file with its own paths filter. The consequence is that
+# `jvm-freehand` is NOT reachable from test.yml's `all-required-passed`
+# aggregator (`needs:` cannot span workflow files), so it is a visible but
+# advisory check today. Folding this job into test.yml's matrix and that
+# aggregator is tracked as follow-up work, to be done once the workflow
+# hot-zone clears.
+#
+# # NOTE for post-merge-workflow-sanity.yml
+#
+# This workflow deliberately does NOT run on push to main, so it needs no
+# entry on that canary's EXCLUDE list: when this file is edited, the canary
+# dispatches it against the merge commit via `workflow_dispatch` below —
+# which is exactly the verification the canary exists to provide.
+
+name: freehand
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'implementation/freehand/**'
+      # Shared build coordinators: a classpath or build-id edit can break
+      # this artefact without touching a file under freehand/.
+      - 'implementation/deps.edn'
+      - 'implementation/shadow-cljs.edn'
+      # The artefact depends on core (and, on the :test alias, test-quiet).
+      - 'implementation/core/**'
+      - 'implementation/test-quiet/**'
+      - '.github/workflows/freehand.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: freehand-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  jvm-freehand:
+    name: JVM freehand (clojure -M:test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: implementation/freehand
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-freehand-${{ hashFiles('implementation/freehand/deps.edn', 'implementation/core/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-freehand-
+            ${{ runner.os }}-clj-
+
+      - name: Run JVM tests (freehand artefact)
+        run: clojure -M:test
+
+      # The donor boundary is a LAW, not a convention (EP-0036 §Product
+      # topology: "the new package never depends on the donor"), so it is
+      # gated rather than reviewed. Absorbed code must arrive by MOVE under
+      # Freehand ownership — a `re-frame.ui` reference from this artefact,
+      # in source or in deps.edn, fails here.
+      - name: Assert no dependency on the re-frame.ui donor
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if git grep -n -e 're-frame\.ui' -e 're_frame/ui' -e 're-frame2-ui' -- implementation/freehand; then
+            echo "::error::implementation/freehand references the re-frame.ui donor (EP-0036: the new package never depends on the donor)"
+            exit 1
+          fi
+          echo "OK: implementation/freehand names no re-frame.ui dependency"

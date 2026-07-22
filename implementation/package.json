@@ -28,6 +28,7 @@
     "test:cljs-isolation": "shadow-cljs compile node-test && node scripts/check-per-ns-isolation.cjs",
     "test:security": "shadow-cljs compile node-test-security && node out/node-test-security.js",
     "test:testbed-support": "shadow-cljs compile node-test-testbed-support && node out/node-test-testbed-support.js",
+    "test:freehand": "shadow-cljs compile node-test-freehand && node out/node-test-freehand.js",
     "test:ui": "npm run test:ui-isolation && node out/node-test-ui.js",
     "test:ui-isolation": "node scripts/check-ui-adapter-isolation.cjs --self-test && shadow-cljs compile node-test-ui && node scripts/check-ui-adapter-isolation.cjs",
     "test:ui-warm-watch": "node scripts/check-ui-warm-watch.cjs",
