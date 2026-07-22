@@ -22,6 +22,33 @@
    executes the resulting `out/node-test.js` bundle with `node`.
    Asserts exit code 0 and the cljs.test summary line.
 
+   ## The two consumer-realism teeth
+
+   A compile-and-run tier that resolves everything from the monorepo is
+   still blind in two specific ways, and three real defects shipped GREEN
+   through it because of them. Both masks are closed here, in this tier:
+
+     * NODE_MODULES JUNCTION. `link-node-modules!` junctions
+       `implementation/node_modules` into every emitted project, so the
+       emitted `package.json` is never consulted — a scaffold that fails
+       to declare a compile-required npm package still compiles. Closed by
+       `assert-emitted-package-json-complete!`, which reads the `:browser`
+       build's own `manifest.edn` and asserts every npm package the build
+       resolved is one `npm install` would have produced from the EMITTED
+       `package.json`.
+     * NO DEV-PAGE BOOT PROOF. Nothing loaded the emitted `index.html` in
+       a browser: this tier compiles through the pure-JVM route and the
+       only browser proof drives a synthetic SSR page with no `<meta>`
+       CSP. Closed by `run-dev-page-boot-proof!` + its
+       `test-support/dev-page-boot-proof.cjs` driver, which loads the real
+       emitted page and proves it mounts, increments, and raises zero
+       uncaught pageerrors.
+
+   Both ride this file's existing `RF2_TEMPLATE_RUN_EMITTED_TESTS` gate and
+   the compile each variant already pays for; neither is a separate
+   harness. Both must run BEFORE the optional `:advanced` release build,
+   which overwrites the dev bundle and its manifest.
+
    ## Gating
 
    Default off (opt-in via `RF2_TEMPLATE_RUN_EMITTED_TESTS=1`). Two
@@ -295,6 +322,207 @@
         (zero? (.waitFor (.start pb))))
       (catch Throwable _ false))))
 
+;; --- emitted package.json completeness ------------------------------------
+;;
+;; MASK: this tier junctions `<repo>/implementation/node_modules` into every
+;; emitted project (see `link-node-modules!` above). That is what makes the
+;; tier affordable — no `npm install` per variant — but it also means the
+;; emitted `package.json` is NEVER consulted: every npm package the compile
+;; graph reaches resolves out of the monorepo's tree regardless of what the
+;; scaffold declares. An emitted `package.json` that omits a compile-required
+;; package therefore compiles GREEN here and fails on the FIRST
+;; `npx shadow-cljs watch app` a real consumer runs. That is not hypothetical:
+;; the scaffold shipped without `@xyflow/react` + `elkjs` (which the Xray
+;; preload's machine canvas requires) and every adapter variant's first
+;; compile failed for an external consumer while this tier stayed green.
+;;
+;; THE TOOTH: after `shadow compile app`, shadow writes `manifest.edn` into the
+;; build's `:output-dir` listing every source in the build — including the
+;; `node_modules/<pkg>/…` files it resolved. Assert that every npm package in
+;; there is one `npm install` would actually have produced from the EMITTED
+;; `package.json`: declared directly, or pulled in transitively by something
+;; declared. Anything else is a package the scaffold uses but does not declare.
+;;
+;; This is derived from the real compile graph, not a string pin — a future
+;; framework change that adds a new npm requirement to the dev build fails here
+;; without anyone remembering to update a list.
+
+(defn- json-string-map-keys
+  "The keys of the JSON object at top-level `field` in `json-text`
+  (e.g. \"dependencies\"), as a set of strings; nil when the field is
+  absent. Only ever applied to npm dependency maps, whose values are
+  always strings — so the object body contains no nested braces and a
+  non-greedy `[^}]*` body match is exact. The leading quote in the
+  pattern keeps `\"dependencies\"` from matching inside
+  `\"devDependencies\"`."
+  [json-text field]
+  (when-let [[_ body] (re-find (re-pattern (str "\"" field "\"\\s*:\\s*\\{([^}]*)\\}"))
+                               json-text)]
+    (set (map second (re-seq #"\"([^\"]+)\"\s*:" body)))))
+
+(defn- top-level-npm-package
+  "The npm package a shadow manifest resource path belongs to:
+  `node_modules/react/index.js` → `react`,
+  `node_modules/@xyflow/react/dist/esm/index.js` → `@xyflow/react`.
+  Splits on the LAST `node_modules/` so a nested (non-hoisted) install
+  and an absolute resolved path both reduce correctly."
+  [resource-path]
+  (let [tail (last (string/split resource-path #"node_modules/"))
+        segs (string/split tail #"/")]
+    (if (string/starts-with? (first segs) "@")
+      (str (first segs) "/" (second segs))
+      (first segs))))
+
+(defn- manifest-npm-packages
+  "Every npm package the built module graph resolved, read out of the
+  `:browser` build's emitted `manifest.edn`."
+  [^java.io.File manifest]
+  (->> (re-seq #"\"([^\"]*node_modules/[^\"]+)\"" (slurp manifest))
+       (map (comp top-level-npm-package second))
+       set))
+
+(defn- npm-install-closure
+  "Every package `npm install` would materialise from a top-level
+  dependency set, resolved against the monorepo's installed tree: the
+  seeds themselves plus the transitive closure of each package's own
+  `dependencies` + `peerDependencies` (npm 7+ installs peers). A
+  package's `devDependencies` are NOT installed for a dependency, so
+  they are deliberately not followed."
+  [^java.io.File node-modules seeds]
+  (loop [seen #{} queue (vec seeds)]
+    (if-let [pkg (first queue)]
+      (if (seen pkg)
+        (recur seen (subvec queue 1))
+        (let [pj   (io/file node-modules pkg "package.json")
+              next (when (.isFile pj)
+                     (let [t (slurp pj)]
+                       (into (or (json-string-map-keys t "dependencies") #{})
+                             (or (json-string-map-keys t "peerDependencies") #{}))))]
+          (recur (conj seen pkg) (into (subvec queue 1) next))))
+      seen)))
+
+(defn- assert-emitted-package-json-complete!
+  "The completeness tooth. Requires a finished `shadow compile app` (it
+  reads that build's `manifest.edn`) and must run BEFORE any `release`
+  build overwrites it."
+  [^java.io.File root ^java.io.File proj label]
+  (testing (str label " — emitted package.json declares every npm package the "
+                "compile graph resolves")
+    (let [manifest (io/file proj "resources/public/js/manifest.edn")
+          pkg-json (io/file proj "package.json")]
+      (is (.isFile manifest)
+          (str "`shadow compile app` must emit resources/public/js/manifest.edn "
+               "for " label " — without it the emitted-package.json completeness "
+               "assert cannot see the build's resolved npm packages."))
+      (is (.isFile pkg-json)
+          (str "the scaffold must emit a package.json for " label))
+      (when (and (.isFile manifest) (.isFile pkg-json))
+        (let [resolved  (manifest-npm-packages manifest)
+              pj-text   (slurp pkg-json)
+              declared  (into (or (json-string-map-keys pj-text "dependencies") #{})
+                              (or (json-string-map-keys pj-text "devDependencies") #{}))
+              installed (npm-install-closure (io/file root "implementation/node_modules")
+                                             declared)
+              missing   (sort (remove installed resolved))]
+          ;; Vacuous-pass guard: an unparsed / empty manifest would make the
+          ;; set-difference trivially empty and the tooth would prove nothing.
+          ;; Every variant's dev build resolves React at minimum.
+          (is (seq resolved)
+              (str "the " label " build's manifest.edn must list at least one "
+                   "node_modules source — an empty resolved set means the "
+                   "manifest was not parsed and this assert is vacuous. "
+                   "Manifest: " (.getPath manifest)))
+          (is (empty? missing)
+              (str "EMITTED package.json IS INCOMPLETE for " label ": the "
+                   "compile graph resolves " (pr-str missing)
+                   " but the scaffold neither declares it nor pulls it in "
+                   "transitively from something it declares — so a real "
+                   "consumer's `npm install` would NOT install it and their "
+                   "first `npx shadow-cljs watch app` fails with a missing JS "
+                   "dependency. This tier junctions implementation/node_modules "
+                   "into the project, so the compile above resolved it from the "
+                   "monorepo and stayed green — that junction is exactly the "
+                   "mask this assert closes. Declare the package in the emitted "
+                   "package.json (hooks.clj :xray-npm-deps or "
+                   "_shared/package.json) and pin it lockstep with "
+                   "implementation/package.json."
+                   "\n  resolved by the build: " (pr-str (sort resolved))
+                   "\n  declared by the scaffold: " (pr-str (sort declared)))))))))
+
+;; --- loud skips ------------------------------------------------------------
+
+(defn- announce-browser-skip!
+  "Print an unmissable banner when a browser proof does NOT run. Both
+  browser proofs in this tier exit 2 when Chromium isn't launchable and
+  keep the tier green — and a quiet, documented skip is precisely how the
+  missing dev-page boot proof stayed invisible while three defects shipped.
+  A skip that reads like a pass in the run output is a mask; this one
+  shouts."
+  [what out]
+  (println)
+  (println "!!! ================================================================")
+  (println (str "!!! NOT PROVEN — SKIPPED: " what))
+  (println "!!! Chromium is not launchable here, so this browser proof did NOT run.")
+  (println "!!! The tier stays green, but NOTHING about the emitted page is proven.")
+  (when-let [line (first (remove string/blank? (string/split-lines (str out))))]
+    (println (str "!!! driver: " (string/trim line))))
+  (println "!!! ================================================================")
+  (println))
+
+;; --- emitted dev-page boot proof ------------------------------------------
+;;
+;; MASK: no gate anywhere loaded the emitted `index.html` in a browser. The
+;; tier compiles through the pure-JVM route, and the only browser proof drives
+;; a SYNTHETIC `_ssr_proof.html` painted by the SSR server — a page that never
+;; carries the emitted `index.html`'s `<meta>` Content-Security-Policy. So a
+;; dev CSP without `'unsafe-eval'` shipped green even though shadow's `:none`
+;; builds load every namespace via `goog.globalEval`: the documented first run
+;; (`watch app`, open the page) was BLANK on every variant.
+;;
+;; THE TOOTH: serve the emitted `resources/public` and load the REAL
+;; `index.html` in Chromium — CSP meta and all — then prove #app paints the
+;; counter, the click moves it 0 -> 1, and Chromium reports zero uncaught
+;; pageerrors. See `test-support/dev-page-boot-proof.cjs`.
+
+(defn- run-dev-page-boot-proof!
+  "Drive Chromium over the emitted `index.html` + dev bundle. Assumes
+  `shadow compile app` already built the dev bundle into
+  `resources/public/js` — so it must run BEFORE any `release` build
+  replaces it with the `:advanced` output."
+  [^java.io.File root ^java.io.File proj label]
+  (testing (str label " — Chromium dev-page boot proof (emitted index.html + "
+                "dev bundle mounts, zero pageerror)")
+    (if-not @node-available?
+      (do (announce-browser-skip! (str "dev-page boot proof — " label)
+                                  "`node` is not on PATH")
+          (is true
+              "`node` unavailable — skipping the emitted dev-page boot proof"))
+      (let [driver    (.getCanonicalPath
+                        (io/file root "tools/template/test-support/dev-page-boot-proof.cjs"))
+            pub-root  (.getCanonicalPath (io/file proj "resources/public"))
+            impl-root (.getCanonicalPath (io/file root "implementation"))
+            node-path (.getCanonicalPath (io/file root "implementation/node_modules"))
+            {:keys [exit out]}
+            (run-process! ["node" driver pub-root impl-root label]
+                          proj {"NODE_PATH" node-path})]
+        ;; Exit 2 = Chromium not launchable (the PR-time template job installs
+        ;; the playwright PACKAGE but no browser binary). Documented skip, but
+        ;; a LOUD one. Exit 0 = booted clean; anything else = the proof FAILED.
+        (if (= 2 exit)
+          (do (announce-browser-skip! (str "dev-page boot proof — " label) out)
+              (is true
+                  (str "Chromium unavailable — the emitted dev-page boot proof "
+                       "did not run for " label ". Output:\n" out)))
+          (is (zero? exit)
+              (str "the emitted dev-page boot proof exited " exit " for " label
+                   " — the page a newcomer opens after `npx shadow-cljs watch "
+                   "app` did not boot cleanly. Either #app never painted (a "
+                   "BLANK first page: the emitted index.html's <meta> CSP "
+                   "blocks the dev bundle's goog.globalEval, a broken "
+                   ":init-fn, or a namespace that throws on load), the counter "
+                   "did not move 0 -> 1, or Chromium raised an uncaught "
+                   "pageerror. Output:\n" out)))))))
+
 ;; --- SSR DOM-adoption browser proof ---------------------------------------
 ;;
 ;; A short Clojure script that renders the REAL `/` response through the emitted
@@ -359,10 +587,11 @@
           ;; documented skip so the tier stays green. Exit 0 = adopted; any
           ;; other exit = the proof FAILED (fresh mount / dead handler).
           (if (= 2 exit)
-            (is true
-                (str "Chromium unavailable — skipping the SSR DOM-adoption "
-                     "browser proof (the real tooth runs where a browser is "
-                     "provisioned). Output:\n" out))
+            (do (announce-browser-skip! "SSR DOM-adoption browser proof" out)
+                (is true
+                    (str "Chromium unavailable — skipping the SSR DOM-adoption "
+                         "browser proof (the real tooth runs where a browser is "
+                         "provisioned). Output:\n" out)))
             (is (zero? exit)
                 (str "the SSR DOM-adoption browser proof exited " exit
                      " — the generated scaffold did not adopt the server-painted "
@@ -478,6 +707,21 @@
                    (str "`clojure -M:shadow compile "
                         (string/join " " compile-targets) "` exited " exit
                         " for " label ". Output:\n" out))))
+
+           ;; --- emitted package.json completeness ---------------------------
+           ;; Closes the node_modules-junction mask: the compile above resolved
+           ;; every npm package from the monorepo tree, so it cannot tell us
+           ;; whether the EMITTED package.json declares them. Reads the just-
+           ;; written manifest.edn, so it must precede the `release` build
+           ;; (which overwrites it).
+           (assert-emitted-package-json-complete! root proj label)
+
+           ;; --- emitted dev-page boot proof ---------------------------------
+           ;; Closes the no-dev-page-boot mask: load the REAL emitted
+           ;; index.html (CSP meta and all) plus the dev bundle just compiled,
+           ;; and prove the page a newcomer opens actually mounts. Must also
+           ;; precede the `release` build, which replaces the dev bundle.
+           (run-dev-page-boot-proof! root proj label)
 
            ;; --- run ---------------------------------------------------------
            (testing (str label " — node out/node-test.js")
@@ -638,6 +882,13 @@
                        "hydration branch of core.cljc did not compile against "
                        "the in-repo source (reagent/re-frame2-* rewritten to "
                        ":local/root). Output:\n" out))))
+
+          ;; --- emitted package.json completeness ---------------------------
+          ;; Same junction mask as the SPA variants: the compile above resolves
+          ;; npm packages from the monorepo tree, never from the emitted
+          ;; package.json. Reads the manifest the compile just wrote.
+          (assert-emitted-package-json-complete!
+            root proj (str "reagent-ssr-" (if css (name css) "plain")))
 
           ;; --- server gate -------------------------------------------------
           (testing "reagent-ssr — clojure -M:test (headless JVM ssr_test.clj)"
