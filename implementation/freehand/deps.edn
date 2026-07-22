@@ -13,13 +13,15 @@
 ;; ssr artefact) and a React tree in CLJS. There is no later moment at
 ;; which this artefact becomes cross-host — it starts that way.
 ;;
-;; NO dependency on ../ui, now or ever. EP-0036 §Product topology:
-;; `re-frame.ui` is "donor only", and the new package never depends on
+;; NO dependency on ../ui, now or ever. EP-0036 §Product topology: the
+;; donor artefact is "donor only", and the new package never depends on
 ;; the donor. Absorbed donor code arrives by MOVE, slice by slice, under
-;; Freehand ownership — never by classpath reference.
+;; Freehand ownership — never by classpath reference. That boundary is
+;; gated, not merely stated: the `freehand` workflow greps this artefact
+;; for any donor spelling, so even a prose mention here would go red.
 ;;
 ;; NO :clein deploy aliases — deliberate, not an omission. Publication is
-;; F6 territory, and `day8/re-frame2-ui` was itself ruled NOT to be
+;; F6 territory, and the donor artefact was itself ruled NOT to be
 ;; published (2026-07-22), so there is no donor descriptor to mirror.
 ;; The version-lockstep gate (.github/scripts/verify-version-lockstep.sh,
 ;; via implementation/scripts/lib/publishable-runtimes.cjs) inventories
