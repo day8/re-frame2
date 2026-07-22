@@ -125,7 +125,16 @@
                 ran-at-ms elapsed-ms status]} (or summary {})
         status (cond
                  (contains? verdict/statuses status)
-                 (if (= :error status) :fail status)   ; :error reads as :fail on the dot
+                 ;; This slot carries the FIVE dot-facing run statuses
+                 ;; (`test-run-statuses` — `:cannot-run` is the distinct
+                 ;; third). A run-level `:error` verdict lowers to `:fail`
+                 ;; HERE, at write time — the one place the four-verdict
+                 ;; vocabulary (spec/017, `verdict/statuses`) narrows; both
+                 ;; demand attention and wear the danger tint. The
+                 ;; per-assertion `:error` detail stays distinct in the
+                 ;; test-mode pane's result rows (test-mode.pure), per
+                 ;; spec/018 §12.6.
+                 (if (= :error status) :fail status)
                  (zero? (or total 0)) :pending
                  all-passed?          :pass
                  (pos? (or cannot-run 0)) :cannot-run

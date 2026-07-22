@@ -598,9 +598,10 @@ The colour split is intentional:
 
 Testable variants (those carrying `:test` in `:tags` or a non-empty
 `:play-script` sequence) replace the muted glyph with a **`status-dot`**
-that wears the semantic colour from the variant's last
-`run-variant` outcome (`:success` green pass · `:danger` red fail ·
-`:warning` yellow running · transparent ring pending).
+whose paint projects from the variant's last `run-variant` outcome via
+the canonical `theme.status` descriptors (`:success` green pass ·
+`:danger` red fail · `:warning` translucent fill running · `:warning`
+ring cannot-run · neutral ring pending).
 
 ### Cross-references
 

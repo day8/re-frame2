@@ -153,22 +153,17 @@
    :empty        {:color (:text-tertiary colors/tokens)
                   :font-style "italic"
                   :padding "8px 12px"}
-   ;; rf2-q0irb — status dot + chrome-level test widget. The dot tints
-   ;; derive from the SHARED status vocabulary (rf2-ba86n.3 —
-   ;; `theme.status`) so a `:pass` dot is the same green as a `:pass`
-   ;; signal chip / result pill. Pending shows an empty ring (the
-   ;; reserved-but-unrun slot).
+   ;; rf2-q0irb — status dot + chrome-level test widget. Only the dot's
+   ;; GEOMETRY lives here; the per-status paint projects from the
+   ;; canonical `theme.status` descriptors in `sidebar/dot-style`
+   ;; (rf2-ba86n.3 / rf2-wh5to — one source, no duplicate status maps),
+   ;; so a `:pass` dot is the same green as a `:pass` signal chip /
+   ;; result pill and `:cannot-run` stays distinct from `:pending`.
    :dot          {:width "8px"
                   :height "8px"
                   :border-radius "50%"
                   :flex-shrink "0"
                   :display "inline-block"}
-   :dot-pass     {:background (status/fg :pass)}
-   :dot-fail     {:background (status/fg :fail)}
-   :dot-running  {:background (status/fg :running)
-                  :opacity "0.7"}
-   :dot-pending  {:background "transparent"
-                  :border (str "1px solid " (:border-strong colors/tokens))}
    :widget       {:border-top (str "1px solid " (:border-default colors/tokens))
                   :margin-top "auto"
                   :padding "10px 12px"
