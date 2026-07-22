@@ -32,6 +32,13 @@
  :deps  {day8/re-frame2 {:local/root "../core"}}
 
  :aliases
+ ;; TEST-ONLY routing dependency, and deliberately only test-only. The
+ ;; `v/route-link` descriptor reaches routing through core's late-bind
+ ;; registry (`freehand -> core late-bind <- routing`), so the production
+ ;; :paths above stay routing-free; the suites need the real routing
+ ;; artefact loaded so its `:routing/link-model` hook is published and the
+ ;; anchor is proved against the SHIPPING link law rather than a stub.
  {:test {:extra-paths ["test"]
-         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
+         :extra-deps  {day8/re-frame2-routing    {:local/root "../routing"}
+                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

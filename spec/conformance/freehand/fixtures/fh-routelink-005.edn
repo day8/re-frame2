@@ -1,0 +1,35 @@
+;; FH-ROUTELINK-005 — no routing artefact, no silent dead link.
+;;
+;; Routing is optional. The tempting failure is to render the anchor
+;; anyway with an empty or missing href: the page looks finished, the
+;; link does nothing, and the programmer learns about it from a user. So
+;; the missing-hook check happens AT RENDER, before any anchor exists,
+;; and it fails loud with a named id that says which artefact is missing,
+;; where to get it, and which link asked.
+;;
+;; The id is pinned, not the message: a message is stable in meaning,
+;; never in bytes.
+{:fh/id "FH-ROUTELINK-005"
+ :fh/law
+ "Rendering a v/route-link without the routing artefact raises the named :rf.error/routing-artefact-missing at render — naming the view and the link's :to — rather than emitting a dead anchor."
+
+ ;; The unpublished hook that makes the artefact absent.
+ :hook :routing/link-model
+
+ :error
+ {:id       :rf.error/routing-artefact-missing
+  ;; ex-data slots a tool and a reader both need.
+  :where    v/route-link
+  :recovery :no-recovery
+  ;; The link that asked, so the diagnostic points at a site and not just
+  ;; at the framework.
+  :to       :fh.route/cart}
+
+ ;; Substrings the human sentence must carry: the artefact to add and the
+ ;; namespace to require. Substring, not equality — the sentence is prose.
+ :message-mentions ["day8/re-frame2-routing" "re-frame.routing"]
+
+ ;; The greppable trailing token every thrown re-frame2 error carries.
+ :message-token "[:rf.error/routing-artefact-missing]"
+
+ :props {:to :fh.route/cart}}

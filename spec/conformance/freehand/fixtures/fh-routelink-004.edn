@@ -1,0 +1,35 @@
+;; FH-ROUTELINK-004 — the server shell: a real href, and no handler.
+;;
+;; Server-rendered HTML has to carry working links: the crawler, the
+;; no-JavaScript reader and the first paint all navigate by `href` alone.
+;; So the JVM render emits the same real anchor with the same href — in
+;; PATH form, because a server has no address bar and a hash never reaches
+;; it, and the hydrated client re-encodes through the frame's URL strategy.
+;;
+;; And it emits NO click handler. A server tree that carried one would be
+;; carrying a host closure into a serialized document — there is no click
+;; to intercept on the server, and nothing may pretend otherwise.
+{:fh/id "FH-ROUTELINK-004"
+ :fh/law
+ "The JVM/SSR render emits the same real anchor with the path-form href and NO click handler — a server document has no click to intercept."
+
+ :routes
+ {:fh.route/cart    "/cart"
+  :fh.route/article "/articles/:slug"}
+
+ :cases
+ [{:why   "a plain route"
+   :props {:to :fh.route/cart}
+   :href  "/cart"}
+  {:why   "params and query survive into the server shell"
+   :props {:to :fh.route/article :params {:slug "the-intro"} :query {:tab "notes"}}
+   :href  "/articles/the-intro?tab=notes"}]
+
+ ;; Keys that must NOT appear on the server anchor's attribute map.
+ :absent-attrs [:on-click]
+
+ ;; Passthrough attributes still render server-side: the shell is a real
+ ;; anchor, not a placeholder the client replaces.
+ :passthrough
+ {:props {:to :fh.route/cart :class "nav" :aria-label "Cart"}
+  :attrs {:class "nav" :aria-label "Cart"}}}

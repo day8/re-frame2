@@ -1,0 +1,33 @@
+;; FH-ROUTELINK-003 — the caller's :on-click runs first and may veto.
+;;
+;; A route-link with an analytics ping, a confirm dialog, or a
+;; "you have unsaved changes" guard needs two things the framework cannot
+;; guess: to run BEFORE the navigation decision, and to be able to stop
+;; it. So `:on-click` is not merged, wrapped, or run after — it runs
+;; first, and if it prevented the default the framework stands down and
+;; the caller owns the outcome.
+;;
+;; Asserted in a real browser, because "prevented the default" is a
+;; property of a real event object, and the ordering claim is only
+;; meaningful against a real dispatch.
+{:fh/id "FH-ROUTELINK-003"
+ :fh/law
+ "A caller-supplied :on-click runs before the framework's click decision and pre-empts it: if it prevents the default, the framework neither prevents nor dispatches."
+
+ :routes {:fh.route/cart "/cart"}
+
+ :cases
+ [{:why           "a caller :on-click that does not veto — it runs, and the framework still intercepts"
+   :props         {:to :fh.route/cart}
+   :veto?         false
+   :caller-ran?   true
+   :dispatched?   true}
+  {:why           "a caller :on-click that calls preventDefault — the framework stands down"
+   :props         {:to :fh.route/cart}
+   :veto?         true
+   :caller-ran?   true
+   :dispatched?   false}]
+
+ ;; The caller runs before the decision, not after it: at the moment the
+ ;; caller is invoked, nothing has been prevented yet.
+ :ordering {:default-prevented-when-caller-runs false}}

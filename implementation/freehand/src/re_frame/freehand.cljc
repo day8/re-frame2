@@ -30,6 +30,7 @@
   Normative owner: [`spec/004-Views.md`](../../../../spec/004-Views.md)."
   (:require [re-frame.error :as error]
             [re-frame.freehand.events :as events]
+            [re-frame.freehand.route-link-seam :as route-link-seam]
             [re-frame.interop :as interop]
             #?(:clj [re-frame.source-coords :as source-coords]))
   #?(:cljs (:require-macros [re-frame.freehand :refer [defview event handler render-fn]])))
@@ -529,3 +530,56 @@
      Per [Spec 004 §Callback roles and identity](../../../../spec/004-Views.md)."
      [params & body]
      (events/expand-callback :render-fn 'v/render-fn params body)))
+
+;; ---------------------------------------------------------------------------
+;; `route-link` — a framework view, declared the ordinary way
+;; ---------------------------------------------------------------------------
+;;
+;; A framework-supplied view is not a privileged one. `route-link` is
+;; declared with the same `defview` an application uses, holds the same
+;; non-`IFn` descriptor, takes the same one props map, and will be lowered
+;; by the same emitters — there is no route-link intrinsic to teach, to
+;; special-case in the analyzer, or to keep in step with the paved path.
+;;
+;; The body is one call into `route-link-seam`, which owns the anchor and
+;; consumes the two late-bound `:routing/*` hooks. Spec 012 keeps href and
+;; click semantics; Freehand contributes the descriptor and nothing else.
+
+(defview route-link
+  "(v/route-link {:to :route-id …html-attrs} & children) — a navigation
+  anchor.
+
+  Renders a REAL `<a href=…>` carrying the route's strategy-encoded href,
+  so copy-link, open-in-new-tab, keyboard activation and no-JavaScript
+  navigation all work; on a plain in-app left click it dispatches the
+  routing cascade to the frame that rendered it instead of letting the
+  browser reload the page.
+
+      [v/route-link {:to :article :params {:slug slug} :class \"title\"}
+       title]
+
+  `:to` is required (a registered route id). `:params` / `:query` /
+  `:fragment` feed both the href and the dispatch payload. Every OTHER
+  key — `:class`, `:title`, `:id`, `:aria-label`, `:target`, `:download`,
+  `:on-click`, and any further HTML attribute — passes through to the
+  `<a>`.
+
+  A caller `:on-click` runs FIRST and may veto. If it prevents the
+  default — or the anchor is native (`:target` other than `_self`, or
+  `:download`), or the click is a modifier / middle / auxiliary-button
+  click — the framework does NOT intercept and the browser's own `href`
+  behaviour stands. That deferral is the whole reason to use this view
+  rather than hand-rolling one.
+
+  Rendering it without `day8/re-frame2-routing` on the classpath fails
+  loud with `:rf.error/routing-artefact-missing` rather than emitting a
+  dead link; a plain `[:a]` stays available for intentional
+  browser-native navigation. JVM and SSR render the handler-free
+  path-form shell, and the hydrated client re-encodes through the frame's
+  URL strategy.
+
+  The behavioural contract and its conformance rows live in
+  [Spec 012 §The Freehand route-link descriptor](../../../../spec/012-Routing.md)
+  — routing owns the law, this view supplies the descriptor."
+  [props]
+  (route-link-seam/anchor props))

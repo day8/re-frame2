@@ -1,0 +1,50 @@
+;; FH-ROUTELINK-001 — a route-link is a real anchor with a real href.
+;;
+;; The whole reason a routing link is its own parity surface is that the
+;; cheap implementation — a `<div>` or a bare `<a>` with no `href` and a
+;; click handler — LOOKS right and is broken in every way that matters:
+;; no copy-link, no open-in-new-tab, no middle-click, no keyboard
+;; activation, no status-bar preview, nothing without JavaScript, and
+;; nothing for a crawler. So the law is asserted twice over: structurally,
+;; that the rendered head is `:a` and the `:href` is the routing-owned
+;; encoded URL; and in a real browser, that the mounted node is an
+;; `HTMLAnchorElement` whose resolved `.href` is that URL.
+;;
+;; `:cases` also pins that the href is SYNTHESISED from the route, not
+;; echoed from the caller: params, query and fragment all reach it.
+{:fh/id "FH-ROUTELINK-001"
+ :fh/law
+ "v/route-link renders a real <a> element whose href is the route's encoded URL, synthesised from :to plus :params/:query/:fragment."
+
+ ;; The rendered vector head. Not negotiable: an anchor, or the law fails.
+ :head :a
+
+ ;; route-id -> path template, registered before the cases run.
+ :routes
+ {:fh.route/cart    "/cart"
+  :fh.route/article "/articles/:slug"}
+
+ :cases
+ [{:why   "a plain route"
+   :props {:to :fh.route/cart}
+   :href  "/cart"}
+  {:why   "path params reach the href"
+   :props {:to :fh.route/article :params {:slug "the-intro"}}
+   :href  "/articles/the-intro"}
+  {:why   "query params reach the href"
+   :props {:to :fh.route/article :params {:slug "the-intro"} :query {:tab "notes"}}
+   :href  "/articles/the-intro?tab=notes"}
+  {:why   "a fragment reaches the href"
+   :props {:to :fh.route/cart :fragment "totals"}
+   :href  "/cart#totals"}]
+
+ ;; Every key the view does not own is an HTML attribute and reaches the
+ ;; anchor untouched — that is what lets a route-link be styled, labelled
+ ;; and targeted without the view enumerating the HTML attribute space.
+ :passthrough
+ {:props {:to :fh.route/cart :class "nav" :aria-label "Cart" :data-testid "cart"}
+  :attrs {:class "nav" :aria-label "Cart" :data-testid "cart"}}
+
+ ;; The keys the view OWNS. None of them may leak onto the anchor as an
+ ;; attribute — `to="…"` on an `<a>` is not HTML.
+ :control-keys [:to :params :query :fragment :on-click :children]}
