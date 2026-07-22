@@ -589,9 +589,11 @@ CIERR=$(mktemp "${TMPDIR:-/tmp}/rf2-beads-ci-err-XXXXXX")
   git add -A
   git commit -q -m 'seed'
 
-  # Two branches fork HERE, from the same base commit.
+  # Four branches fork HERE, from the same base commit.
   git branch worker/clean
   git branch worker/contaminated
+  git branch worker/renamed-out
+  git branch worker/renamed-to-config
 
   # ...and only THEN does the base advance, with a mayor beads-only
   # checkpoint. This commit is the whole point of the fixture.
@@ -613,6 +615,21 @@ CIERR=$(mktemp "${TMPDIR:-/tmp}/rf2-beads-ci-err-XXXXXX")
     > .beads/issues.jsonl
   git add -A
   git commit -q -m 'worker: real work + bd auto-staged tracker snapshot'
+
+  # An EXACT rename out of the protected tree (rf2-ajbgq). Content is
+  # untouched, so git scores it R100 and `--name-only` reports the
+  # destination alone — the deleted `.beads/issues.jsonl` endpoint simply is
+  # not in the guard's input.
+  git checkout -q worker/renamed-out
+  git mv .beads/issues.jsonl tracker-snapshot.jsonl
+  git commit -q -m 'worker: move the tracker out of .beads/'
+
+  # The same move onto an ALLOW-LISTED beads config path. The destination is
+  # permitted; the source endpoint is still the database leaving its
+  # canonical location.
+  git checkout -q worker/renamed-to-config
+  git mv .beads/issues.jsonl .beads/config.yaml
+  git commit -q -m 'worker: move the tracker onto an allow-listed config path'
 ) >/dev/null 2>&1
 
 run_ci_guard() {
@@ -650,6 +667,58 @@ case "$out" in
       pass "(5b) branch that DID commit the tracker -> refused, names path + remedy"
     else
       fail "(5b) refused, but the diagnostic is missing the path or the remedy"
+      cat "$CIERR" >&2 || true
+    fi
+    ;;
+esac
+
+# 5f: RENAME ENDPOINTS (rf2-ajbgq). A rename presents as a delete plus an add,
+# but git's default rename detection collapses the pair and `--name-only`
+# prints only the destination. An exact rename OUT of `.beads/` therefore
+# reached the classifier as an ordinary top-level file — permitted — while
+# merging the PR deletes the tracker database from its canonical location.
+#
+# Pin the premise first: if git ever stops scoring this R100 the fixture would
+# pass for the wrong reason, and a guard test that cannot fail is not a test.
+rename_premise=$( cd "$CIBOX" \
+  && git checkout -q worker/renamed-out \
+  && git diff --name-status "$(git merge-base origin/main HEAD)" HEAD )
+case "$rename_premise" in
+  *R100*.beads/issues.jsonl*tracker-snapshot.jsonl*)
+    pass "(5f-premise) the fixture really is a git-detected R100 rename" ;;
+  *)
+    fail "(5f-premise) fixture is not a detected rename, so 5f proves nothing"
+    printf '%s\n' "$rename_premise" >&2
+    ;;
+esac
+
+out=$(run_ci_guard worker/renamed-out origin/main)
+case "$out" in
+  EXIT=0)
+    fail "(5f) FALSE GREEN: renaming .beads/issues.jsonl out of the tree was certified"
+    ;;
+  *)
+    if grep -q '\.beads/issues\.jsonl' "$CIERR"; then
+      pass "(5f) rename out of .beads/ -> refused, names the DELETED endpoint"
+    else
+      fail "(5f) refused, but the diagnostic never names the deleted .beads path"
+      cat "$CIERR" >&2 || true
+    fi
+    ;;
+esac
+
+# 5g: the same move onto an ALLOW-LISTED destination. The allow-list covers
+# `.beads/config.yaml`, so only the source endpoint can carry the refusal.
+out=$(run_ci_guard worker/renamed-to-config origin/main)
+case "$out" in
+  EXIT=0)
+    fail "(5g) FALSE GREEN: the tracker was renamed onto an allow-listed path unchallenged"
+    ;;
+  *)
+    if grep -q '\.beads/issues\.jsonl' "$CIERR"; then
+      pass "(5g) rename onto an allow-listed beads path -> refused on the old endpoint"
+    else
+      fail "(5g) refused, but not on the protected source path"
       cat "$CIERR" >&2 || true
     fi
     ;;
