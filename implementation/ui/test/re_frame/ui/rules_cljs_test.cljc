@@ -1174,3 +1174,115 @@
            ;; finds exactly one re-frame.ui producer tagged with the ambient id.
            (set-shadow-build-id! original)
            (rules/install-reload-source-producer!))))))
+
+;; ---------------------------------------------------------------------------
+;; `shadow-build-notify` (rf2-4vm19) — the removed-source projection: shadow's
+;; `:build-complete` broadcast of the authoritative `:build-sources` membership
+;; reconciles the ledger's REMOVED delta through the existing cycle seam. These
+;; pin the projection ALGEBRA; the end-to-end wiring (define injection, a real
+;; watch, a live emitted runtime) is proven by `npm run test:ui-warm-watch`.
+;; ---------------------------------------------------------------------------
+
+#?(:cljs
+   (defn- build-complete-msg
+     "A `:build-complete` notify msg whose `:info :sources` carries exactly
+     `source-maps` — the per-source image shadow's worker broadcasts
+     (`shadow.build/extract-build-info`: each entry has `:ns` and/or
+     `:provides`)."
+     [source-maps]
+     {:type :build-complete :info {:sources source-maps}}))
+
+#?(:cljs
+   (deftest build-notify-evicts-the-removed-membership-delta
+     ;; The headline algebra: a namespace the successful graph no longer
+     ;; contains loses its committed rows; members keep theirs. The eviction
+     ;; runs through the existing cycle protocol and leaves no cycle open.
+     (rules/reset-custom-elements!)
+     (rules/register-custom-element! :keep-el {:properties #{:k}} 'app.keep)
+     (rules/register-custom-element! :gone-el {:properties #{:g}} 'app.gone)
+     (rules/shadow-build-notify (build-complete-msg [{:ns 'app.keep}]))
+     (is (= #{} (rules/custom-element-properties :gone-el))
+         "the namespace that left :build-sources is evicted from the aggregate")
+     (is (= #{:k} (rules/custom-element-properties :keep-el))
+         "a member namespace keeps its classification")
+     (is (= #{[(rules/current-build-id) 'app.keep]} (rules/ledger-sources))
+         "the ledger membership mirrors the broadcast graph")
+     (is (= #{} (rules/in-flight-cycles))
+         "the removal cycle committed and closed — nothing is left open")))
+
+#?(:cljs
+   (deftest build-notify-honours-provides-membership
+     ;; extract-build-info reports `:provides` (a set) alongside `:ns`; a
+     ;; namespace present only via :provides is a member, never a removal.
+     (rules/reset-custom-elements!)
+     (rules/register-custom-element! :p-el {:properties #{:p}} 'app.provided)
+     (rules/shadow-build-notify
+      (build-complete-msg [{:provides #{'app.provided 'app.alias}}]))
+     (is (= #{:p} (rules/custom-element-properties :p-el))
+         "a :provides-only member is not treated as removed")))
+
+#?(:cljs
+   (deftest build-notify-with-unchanged-membership-is-inert
+     ;; The common case — every ledger source still in the graph — must move
+     ;; NOTHING: no cycle churn, no republish (the aggregate watch stays
+     ;; silent), no ledger transition.
+     (rules/reset-custom-elements!)
+     (rules/register-custom-element! :s-el {:properties #{:s}} 'app.stable)
+     (let [publishes (atom 0)]
+       (add-watch rules/custom-elements ::notify-inert (fn [_ _ _ _] (swap! publishes inc)))
+       (try
+         (rules/shadow-build-notify (build-complete-msg [{:ns 'app.stable}]))
+         (is (zero? @publishes)
+             "an unchanged membership publishes nothing — no removal cycle runs")
+         (finally (remove-watch rules/custom-elements ::notify-inert)))
+       (is (= #{:s} (rules/custom-element-properties :s-el)))
+       (is (= #{} (rules/in-flight-cycles))))))
+
+#?(:cljs
+   (deftest build-notify-ignores-every-non-complete-broadcast
+     ;; Only :build-complete carries an accepted graph. A failed build (and the
+     ;; start/init chatter) must leave the last-known-good ledger untouched —
+     ;; that IS the failed-compile/LKG contract at this seam; the successful
+     ;; retry's :build-complete converges it.
+     (rules/reset-custom-elements!)
+     (rules/register-custom-element! :lkg-el {:properties #{:l}} 'app.lkg)
+     (doseq [type [:build-failure :build-start :build-init]]
+       (rules/shadow-build-notify {:type type :info {:sources []}})
+       (is (= #{:l} (rules/custom-element-properties :lkg-el))
+           (str "a " type " broadcast never evicts — last-known-good survives")))
+     ;; the retry's accepted graph then converges the ledger
+     (rules/shadow-build-notify (build-complete-msg []))
+     (is (= #{} (rules/custom-element-properties :lkg-el))
+         "the successful retry's membership is authoritative")))
+
+#?(:cljs
+   (deftest build-notify-reconciles-only-the-addressed-build
+     ;; Rows keyed under ANOTHER build id (a test-state partition token here —
+     ;; see §THE ISOLATION UNIT) are never this projection's to evict: the
+     ;; broadcast is diffed against the ambient build's rows only.
+     (rules/reset-custom-elements!)
+     (rules/register-custom-element! :f-el {:properties #{:f}} 'app.shared :foreign-build)
+     (rules/shadow-build-notify (build-complete-msg []))
+     (is (= #{:f} (rules/custom-element-properties :f-el))
+         "another build's row survives the ambient build's membership diff")
+     (is (= #{[:foreign-build 'app.shared]} (rules/ledger-sources)))))
+
+#?(:cljs
+   (deftest build-notify-supersedes-a-stranded-cycle-and-still-evicts
+     ;; A load task that threw leaves its cycle open forever (shadow skips
+     ;; ^:dev/after-load on a failed chain). The projection's removal cycle
+     ;; performs exactly the supersession the next before-load would — loud,
+     ;; per rf2-84173 — and the removal still commits.
+     (rules/reset-custom-elements!)
+     (rules/register-custom-element! :z-el {:properties #{:z}} 'app.zombie)
+     (rules/notify-reload!)                    ; the stranded cycle opens…
+     (rules/note-reloaded-sources! ['app.other]) ; …and carries evidence
+     (let [warnings (capturing-console-warn
+                     (fn []
+                       (rules/shadow-build-notify (build-complete-msg []))))]
+       (is (= 1 (count warnings))
+           "the supersession is DIAGNOSED, exactly as a before-load's would be"))
+     (is (= #{} (rules/custom-element-properties :z-el))
+         "the removal is projected despite the stranded predecessor cycle")
+     (is (= #{} (rules/in-flight-cycles))
+         "no cycle survives — the zombie was superseded and the removal committed")))

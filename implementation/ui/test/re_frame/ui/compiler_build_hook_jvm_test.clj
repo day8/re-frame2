@@ -579,3 +579,57 @@
                      (declare-descriptor 'app.pending :page/pending :pending))
           ambient-index (read-in-compiler open-a #(root/descriptor-index))]
       (is (= #{:page/a} (set (keys ambient-index)))))))
+
+;; --- rf2-4vm19: the runtime removed-source projection wiring ----------------
+;;
+;; A deleted/renamed-away saved source never re-runs, so the runtime's
+;; SHADOW_NS_RESET producer can never report it; the only authority for that
+;; delta is the compile side's `:build-sources` membership, which shadow itself
+;; broadcasts to every runtime on success. `:compile-prepare` points the
+;; devtools client's ONE `:build-notify` receiver
+;; (`shadow.cljs.devtools.client.env/custom-notify-fn`) at
+;; `re-frame.ui.rules/shadow-build-notify` — exactly when the delta can exist
+;; and land, and never over a consumer's own receiver. The projection itself is
+;; pinned CLJS-side (rules-cljs-test) and end-to-end by test:ui-warm-watch.
+
+(def ^:private notify-define
+  'shadow.cljs.devtools.client.env/custom-notify-fn)
+
+(def ^:private notify-target
+  "re_frame.ui.rules.shadow_build_notify")
+
+(defn- notify-define-of [state]
+  (get-in state [:compiler-options :closure-defines notify-define]))
+
+(deftest prepare-wires-the-removed-source-notify-for-a-watched-dev-build
+  (let [members '#{re-frame.ui.rules app.main}
+        watched (-> (graph-state :app :compile-prepare members)
+                    (assoc :shadow.build/mode :dev
+                           :worker-info {:host "localhost" :port 9630}))]
+    (testing "a watched dev build whose graph carries the runtime ledger is wired"
+      (is (= notify-target (notify-define-of (prepare watched members)))))
+
+    (testing "idempotent across warm passes — the same value every prepare"
+      (let [once (prepare watched members)]
+        (is (= notify-target (notify-define-of (prepare once members))))))
+
+    (testing "a consumer's own :build-notify receiver always wins (shadow has one slot)"
+      (let [claimed (assoc-in watched
+                              [:compiler-options :closure-defines notify-define]
+                              "my_app.build_notify")]
+        (is (= "my_app.build_notify" (notify-define-of (prepare claimed members))))))
+
+    (testing "a release build is never wired — no devtools client to receive"
+      (is (nil? (notify-define-of
+                 (prepare (assoc watched :shadow.build/mode :release) members)))))
+
+    (testing "a dev compile without a watch worker is never wired — nothing hot-reloads"
+      (is (nil? (notify-define-of
+                 (prepare (dissoc watched :worker-info) members)))))
+
+    (testing "a graph without the runtime ledger namespace is never wired"
+      (let [no-rules '#{app.main}
+            state (-> (graph-state :app :compile-prepare no-rules)
+                      (assoc :shadow.build/mode :dev
+                             :worker-info {:host "localhost" :port 9630}))]
+        (is (nil? (notify-define-of (prepare state no-rules))))))))

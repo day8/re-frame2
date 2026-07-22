@@ -1,15 +1,24 @@
 ;; Real Shadow fixture for the warm-watch/file-edit harvest-topology proof
-;; (rf2-tm1xi, Arm 2 of rf2-4vm19; warm disk-cache reuse arm, rf2-u53yy.1 S6).
+;; (rf2-tm1xi, Arm 2 of rf2-4vm19; warm disk-cache reuse arm, rf2-u53yy.1 S6;
+;; runtime removed-source projection arm, rf2-4vm19).
 ;;
 ;; A genuine UI client dev build whose INHERITED re-frame.ui compile hook
 ;; (configured in :build-defaults, so Shadow deep-merges it FIRST) establishes the
-;; custom-element harvest topology, coarse manifest-change invalidation, and
-;; `:build-sources`-keyed eviction; a build-local OBSERVE hook (deep-merged AFTER)
-;; records the accepted topology at :compile-finish so the runner can assert it
-;; survives each real warm edit. Per the rf2-4vm19 Arm-1 ruling this proves ONE
-;; real dev build's identity at the runtime seam (a non-::default build id, the
-;; inherited-hook discovery/order, annotation load-bearingness) — NOT two-build
-;; isolation.
+;; custom-element harvest topology, coarse manifest-change invalidation,
+;; `:build-sources`-keyed eviction, and the runtime removed-source projection
+;; (the injected `:build-notify` define); a build-local OBSERVE hook (deep-merged
+;; AFTER) records the accepted topology at :compile-finish so the runner can
+;; assert it survives each real warm edit. Per the rf2-4vm19 Arm-1 ruling this
+;; proves ONE real dev build's identity at the runtime seam (a non-::default
+;; build id, the inherited-hook discovery/order, annotation load-bearingness) —
+;; NOT two-build isolation.
+;;
+;; `:target :node-script` (rf2-4vm19): the runner LOADS the emitted runtime as a
+;; live node child (no DOM, no browser) connected to this watch's devtools
+;; server, so real hot reloads drive the runtime ledger end-to-end — the saved
+;; delete/rename proof needs a runtime that stays alive across builds, which a
+;; compile-side-only fixture cannot supply. The compile-side observations are
+;; target-independent.
 ;;
 ;; Kept independent of implementation/shadow-cljs.edn on purpose (the same choice
 ;; the sibling final-schedule fixture makes): its defining property is a REAL,
@@ -29,11 +38,16 @@
  :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
  :builds
  {:ui-warm-watch
-  {:target :browser
-   :output-dir "../../../../../../out/ui-warm-watch"
-   :asset-path "."
-   :modules
-   {:main {:entries [re-frame.ui.digest-probe.warm-watch.client]}}
+  {:target :node-script
+   :main re-frame.ui.digest-probe.warm-watch.client/main
+   :output-to "../../../../../../out/ui-warm-watch/main.js"
+   :output-dir "../../../../../../out/ui-warm-watch/js"
+   ;; A dev node fixture needs no externs inference (that is :advanced release
+   ;; machinery), and its warning noise is LOAD-BEARINGLY absent here: shadow's
+   ;; client skips hot-reload autoload while a build carries warnings, and the
+   ;; runtime arm of this proof is exactly that autoload path. Same setting the
+   ;; top-level node-test builds use to silence the class.
+   :compiler-options {:infer-externs false}
    ;; Deep-merged AFTER the inherited re-frame.ui compile hook: this build-local
    ;; OBSERVE hook records the accepted topology at :compile-finish (and the
    ;; consumer-recompile witness at :compile-prepare) without mutating build

@@ -21,7 +21,13 @@
     - opens a disposable pass seeded from the incoming accepted snapshot,
       pre-touching exactly the CLJS sources Shadow scheduled to compile so a
       recompiled source that dropped its final declaration evicts its accepted
-      row, while output-present cache hits keep theirs.
+      row, while output-present cache hits keep theirs;
+    - wires the runtime removed-source projection (rf2-4vm19): points the
+      devtools client's `:build-notify` receiver at
+      `re-frame.ui.rules/shadow-build-notify` (watched dev builds only, and
+      never over a consumer's own receiver), so each successful build's
+      broadcast `:build-sources` membership evicts a deleted/renamed-away
+      source's runtime custom-element rows without a page reload.
 
   `:compile-finish`
     - folds every authoritative member's descriptor — RESTORED from Shadow's disk
@@ -231,6 +237,63 @@
       build-state)))
 
 ;; ---------------------------------------------------------------------------
+;; The runtime removed-source projection (rf2-4vm19)
+;;
+;; A deleted or renamed-away saved source never re-runs, so the runtime's
+;; SHADOW_NS_RESET producer can never report it and its custom-element ledger
+;; rows would persist until a full page load. The ONLY authority for that delta
+;; is the compile side's `:build-sources` membership — which shadow itself
+;; already broadcasts to every connected runtime on each successful watch build
+;; (`:build-complete` `:info :sources`). The pinned client exposes exactly one
+;; receiver seam for that broadcast: the `:build-notify` fn, carried as the
+;; `custom-notify-fn` closure-define and resolved by munged name off `$CLJS` at
+;; call time. Pointing that define at `re-frame.ui.rules/shadow-build-notify`
+;; projects the removed-namespace delta into the existing runtime reload cycle
+;; (notify-reload! -> note-reloaded-sources! -> commit-reload!) with no second
+;; protocol and no consumer configuration — the hook stays the one re-frame.ui
+;; build setting (rf2-u53yy.1 S6).
+;;
+;; Injected only where the delta can exist and land: a WATCHED dev build
+;; (`:worker-info` — the only mode that hot-reloads; release builds carry no
+;; devtools client, so the define would be dead weight there) whose graph
+;; actually contains the runtime ledger namespace. In dev mode the define is
+;; not baked into any cached source — shadow emits the whole define map into
+;; the flushed bootstrap (`CLOSURE_DEFINES`) on every build — so injection at
+;; `:compile-prepare` lands unconditionally, with zero cache interaction.
+;; ---------------------------------------------------------------------------
+
+(def ^:private client-notify-define
+  "The shadow devtools client's ONE `:build-notify` receiver slot
+  (`shadow.cljs.devtools.client.env/custom-notify-fn`), the closure-define
+  `shadow.build.targets.shared/repl-defines` fills from a build's
+  `:devtools {:build-notify …}`."
+  'shadow.cljs.devtools.client.env/custom-notify-fn)
+
+(def ^:private runtime-notify-fn
+  "`re-frame.ui.rules/shadow-build-notify`, munged the way the client resolves
+  the receiver off `$CLJS` (`cljs.compiler/munge` of the fn symbol)."
+  "re_frame.ui.rules.shadow_build_notify")
+
+(defn- wire-removed-source-notify
+  "Point the shadow client's `:build-notify` receiver at
+  `re-frame.ui.rules/shadow-build-notify` for a watched dev build whose graph
+  contains the runtime ledger, unless the build claimed the seam itself — a
+  consumer's own `:devtools {:build-notify …}` (already merged into the
+  closure-defines at configure) always wins; shadow has exactly one receiver
+  slot, and removed-source eviction then degrades to the documented
+  full-reload bound unless that receiver delegates."
+  [build-state members]
+  (if (and (= :dev (:shadow.build/mode build-state))
+           (:worker-info build-state)
+           (contains? members 're-frame.ui.rules)
+           (not (get-in build-state
+                        [:compiler-options :closure-defines client-notify-define])))
+    (assoc-in build-state
+              [:compiler-options :closure-defines client-notify-define]
+              runtime-notify-fn)
+    build-state))
+
+;; ---------------------------------------------------------------------------
 ;; The hook
 ;; ---------------------------------------------------------------------------
 
@@ -252,10 +315,16 @@
     ;; the schedule read so the widened set is scheduled and re-baked this pass.
     (let [fresh-manifest (build/element-manifest build-id
                                                  (harvest-all-seed build-state))
-          build-state    (reconcile-declaration-edits build-state fresh-manifest)]
+          build-state    (reconcile-declaration-edits build-state fresh-manifest)
+          members        (member-nss build-state)
+          ;; Wire the runtime removed-source projection (rf2-4vm19): the
+          ;; client's `:build-notify` receiver becomes the producer that feeds
+          ;; the removed `:build-sources` delta into the runtime ledger — the
+          ;; delta a deleted/renamed-away source can never self-report.
+          build-state    (wire-removed-source-notify build-state members)]
       (-> (build/prepare-shadow-build build-state
                                       build-id
-                                      (member-nss build-state)
+                                      members
                                       (recompiled-member-nss build-state))
           ;; Store the all-members manifest beside the open pass BEFORE any view
           ;; analyzes, so property lowering is a pure function of the build's
