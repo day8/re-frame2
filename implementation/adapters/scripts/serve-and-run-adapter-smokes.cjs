@@ -3,8 +3,10 @@
  * Orchestrator for the adapter-smoke Playwright suite (npm run
  * test:adapter-smokes). The `examples/` tree is TEST-FREE — this
  * orchestrator compiles + stages only the surfaces paired with a
- * `spec.cjs` under the runner's ADAPTER_SMOKE_SPEC_ROOTS, which is just
- * the three adapter smokes at implementation/adapters/<name>/testbed/.
+ * `spec.cjs` under the runner's ADAPTER_SMOKE_SPEC_ROOTS: the three
+ * adapter smokes at implementation/adapters/<name>/testbed/ plus the
+ * re-frame.ui substrate smoke at implementation/ui/testbed/ (the
+ * four-suites rule, rf2-nojiwy).
  *
  * Framework + top-level testbed assertions live as CLJS/JVM unit
  * tests. The testbed surfaces themselves (tools/xray/testbeds/** and
@@ -70,9 +72,12 @@ const {
 //   2. Env var (for CI / scripted use):
 //      ADAPTER_SMOKE_FILTER=adapters node serve-and-run-adapter-smokes.cjs
 //
-// Multi-pattern filter: comma separates alternatives, OR-matched. The
-// single CI invocation today (adapter-testbed-smokes) passes
-// `adapters/` to scope the runner to the 3 adapter smokes.
+// Multi-pattern filter: comma separates alternatives, OR-matched. The two
+// CI invocations today each narrow to their own surface: the
+// adapter-testbed-smokes job passes `adapters/` (exactly the 3 adapter
+// smokes) and the ui-smoke job passes `ui/testbed` (the re-frame.ui
+// substrate smoke, rf2-nojiwy); the nightly sweep + test-rigorous-local.sh
+// run unfiltered and pick up all four.
 //
 // Selection is shared with the runner via adapter-smoke-filter.cjs's
 // `selectEntries`, which matches each pattern against an entry's

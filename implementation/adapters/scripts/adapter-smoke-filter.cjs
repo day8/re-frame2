@@ -56,9 +56,10 @@ const fs = require('fs');
 // __dirname is <repo>/implementation/adapters/scripts. REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 
-// The canonical adapter-smoke set: the three adapter smokes. Each entry
-// pairs a shadow-cljs build id with the hand-written spec.cjs that drives
-// it and the HTML/output staging coordinates the orchestrator needs.
+// The canonical smoke set: the three adapter smokes plus the re-frame.ui
+// substrate smoke (the four-suites rule, rf2-nojiwy). Each entry pairs a
+// shadow-cljs build id with the hand-written spec.cjs that drives it and
+// the HTML/output staging coordinates the orchestrator needs.
 //
 // Policy: the `examples/` tree is TEST-FREE. Every entry here MUST pair a
 // build with an existing spec.cjs under ADAPTER_SMOKE_SPEC_ROOTS; never
@@ -73,21 +74,43 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 // (build, htmlSrc, outDir, specPath) from the standard
 // implementation/adapters/<name>/testbed/ layout, and `specPath` MUST
 // resolve to a spec.cjs that exists on disk. Add a bespoke literal entry
-// only for a non-standard layout.
+// only for a non-standard layout (the re-frame.ui testbed below is the
+// precedent — it is substrate-homed, not adapter-homed).
 const ADAPTERS = ['reagent', 'uix', 'helix'];
 const OUT_ROOT = path.join(REPO_ROOT, 'implementation', 'out', 'examples');
 
-const ADAPTER_SMOKES = ADAPTERS.map((name) => ({
-  build: `adapters/${name}-testbed`,
-  htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', name, 'testbed', 'index.html'),
-  outDir: path.join(OUT_ROOT, 'adapter-testbeds', name),
-  specPath: path.join(REPO_ROOT, 'implementation', 'adapters', name, 'testbed', 'spec.cjs'),
-}));
+const ADAPTER_SMOKES = [
+  ...ADAPTERS.map((name) => ({
+    build: `adapters/${name}-testbed`,
+    htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', name, 'testbed', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'adapter-testbeds', name),
+    specPath: path.join(REPO_ROOT, 'implementation', 'adapters', name, 'testbed', 'spec.cjs'),
+  })),
+  // rf2-nojiwy — the four-suites rule's new-UI smoke. re-frame.ui is a
+  // SUBSTRATE, not an adapter, so its testbed is homed with the substrate
+  // at implementation/ui/testbed/ (bespoke entry; the ADAPTERS .map above
+  // only derives adapters/<name>/testbed/ layouts). It rides this shared
+  // manifest so the orchestrator + runner compile/stage/drive it exactly
+  // like the adapter smokes; the ui-smoke CI job narrows to it with
+  // ADAPTER_SMOKE_FILTER=ui/testbed, and the adapter-testbed-smokes job's
+  // `adapters/` filter deliberately excludes it.
+  {
+    build: 'ui/testbed',
+    htmlSrc: path.join(REPO_ROOT, 'implementation', 'ui', 'testbed', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'ui-testbed'),
+    specPath: path.join(REPO_ROOT, 'implementation', 'ui', 'testbed', 'spec.cjs'),
+  },
+];
 
-// Spec discovery roots — the per-adapter smoke root only (examples/ is
-// test-free). Exported so the runner can keep a discover-then-reconcile
-// sanity check against the declared ADAPTER_SMOKES manifest.
-const ADAPTER_SMOKE_SPEC_ROOTS = [path.join(REPO_ROOT, 'implementation', 'adapters')];
+// Spec discovery roots — the per-adapter smoke root plus the re-frame.ui
+// substrate root (examples/ is test-free). Exported so the runner can keep
+// a discover-then-reconcile sanity check against the declared
+// ADAPTER_SMOKES manifest: a spec.cjs anywhere under these roots that is
+// not declared above (or a declared spec missing on disk) reds the run.
+const ADAPTER_SMOKE_SPEC_ROOTS = [
+  path.join(REPO_ROOT, 'implementation', 'adapters'),
+  path.join(REPO_ROOT, 'implementation', 'ui'),
+];
 
 // Collapse the three cosmetic separators (`_`, `\`, `/`) to a single
 // canonical `-` so build-id form and spec-path form land in the same
