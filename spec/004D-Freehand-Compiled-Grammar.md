@@ -28,10 +28,12 @@
 > emitter and the host-neutral normalizers they share are **owned by Freehand**
 > and live in the Freehand artifact: `re-frame.freehand.compiler` and its
 > `analyze` / `emit-cljs` / `emit-jvm` / `env` / `grammar` / `header` /
-> `binding-plan` / `a11y` / `build` / `build-hook` / `harvest` / `root`
+> `binding-plan` / `a11y` / `build` / `build-hook` / `harvest` / `root` /
+> `check`
 > namespaces, over `re-frame.freehand.rules`, `re-frame.freehand.fingerprint`
 > and `re-frame.freehand.eq`. `grammar` owns the version keyword, the admitted
-> node-kind roster and the recovery roster; `re-frame.freehand.node` — which
+> node-kind roster and the recovery roster; `check` is the analyzer's
+> read-only face (§The read-only checker); `re-frame.freehand.node` — which
 > sits below the public door, not inside the compiler — owns the canonical
 > structural builders BOTH modes construct nodes through.
 > The two emitters remain **separate implementations**
@@ -1512,6 +1514,146 @@ rather than fabricating them (`tools/xray/spec/021` §3.4.1).
   the compiled substrate emits its own versioned evidence schema (integer render-key +
   separate `:view-id` + `occurrence-path`) in the 009 catalogue. (Helix was removed at
   S7/W13 — rf2-d6epb, 2026-07-22.)
+
+## The read-only checker
+
+`{:compiled true}` is a one-line change, which makes it a tempting thing to try
+and see. Trying and seeing is a poor way to learn a finite language. The build
+stops at the first form outside the grammar, so an author who reached that
+failure by editing has already changed the declaration in order to find out
+whether the change was available — and if the answer is no, the edit and its
+diff have to be unwound before anything else can be learned.
+
+The order is therefore inverted. The **checker** runs the same analyzer the
+build runs, against the declaration as it stands *today* — normally an
+interpreted one, before the marker has been added anywhere — and answers in
+data:
+
+```clojure
+{:view-id           :app.people/people-list
+ :source            {:file "src/app/people.cljc" :line 42 :column 1}
+ :current-lowering  :interpreted
+ :target-grammar    :re-frame.freehand/v1
+ :compile-eligible? false
+ :findings          [{:id       :rf.ui.compile/markup-returning-map
+                      :source   {:line 47 :column 5}
+                      :form     (map person-item people)
+                      :reason   :markup-hidden-from-analyzer
+                      :recovery [:make-template-visible
+                                 :extract-declared-child
+                                 :keep-interpreted]}]}
+```
+
+Changing the declaration is then the **final** step, and not the discovery
+mechanism.
+
+### Three laws
+
+**It never writes.** No source is opened for writing, no emitter runs, no
+registry is contributed to, and nothing is printed. Read-only is a property to
+be *proved*, not asserted — the source a run was pointed at is byte-identical
+afterwards. A checker that edited source would make its own advice
+unfalsifiable, and one that emitted code would have stopped answering a
+question about the declaration in front of you.
+
+**It never recommends.** There is no percentage, no ratio, and no "compile the
+hot 5%" heuristic — a promotion recommender is an explicit
+[EP-0036](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md) non-goal.
+Eligibility is a property of the body and the checker answers it. Whether
+compiling an eligible view is *worth* it is a measurement and a judgement, and
+the checker is not entitled to either.
+
+**It invents no diagnostics.** Findings carry the analyzer's OWN ids and the
+recovery ladders `grammar` already serves the build — one roster with two
+consumers, so a build failure and a checker finding cannot drift into
+disagreeing about the same form. A checker with its own id set would be a
+second grammar.
+
+### The report
+
+One report per declaration, six fields, all of them always present:
+
+| Field | Contract |
+|---|---|
+| `:view-id` | the id the declaration registers under — the same one the descriptor, the manifest and the trace surface use |
+| `:source` | `{:file :line :column}` of the declaration |
+| `:current-lowering` | `:interpreted` or `:compiled` — what the declaration says **today**, never a suggestion |
+| `:target-grammar` | the version keyword it was checked against, so a report read later says which language answered |
+| `:compile-eligible?` | exactly "no findings"; it is derived, so a report cannot claim eligibility while carrying a reason it is not |
+| `:findings` | a vector, empty when eligible |
+
+A declaration that already carries `{:compiled true}` is checked the same way
+and reports `:current-lowering :compiled` — "is this still eligible?" is the
+same question, and it is the one asked when a body is edited.
+
+### The finding
+
+| Field | Contract |
+|---|---|
+| `:id` | the analyzer's stable diagnostic id, and the sole machine discriminator |
+| `:source` | `{:line :column}` of the offending form when the reader anchored it, else the declaration's — a finding always carries a position, and the narrowest true one available |
+| `:form` | the offending form, as read; when a diagnostic names no narrower form, the template |
+| `:reason` | an unqualified keyword naming the KIND of defect |
+| `:recovery` | the ladder, most specific first |
+
+`:reason` is not a second id. Ids are what a tool branches on; reasons group
+several ids into the handful of categories an author reasons in — the markup is
+hidden from the analyzer, the head is a runtime value, the reactive site is not
+finite — so ids sharing a reason is the normal case and the roster is
+deliberately smaller than the id roster. It is a projection the checker makes
+for readers, and nothing emits it at runtime.
+
+**The recovery list is the payload, not decoration.** `:id` says which rule
+stopped you and `:reason` says what kind of thing went wrong, but `:recovery`
+is the ordered list of things that can be done to the source in front of you,
+drawn from the closed roster §The finite grammar and its rejections pins —
+whose entries carry the sentence a tool renders. Its last rung is always
+`:keep-interpreted`, because declining to compile is a first-class answer: the
+interpreted mode has no finite grammar, so every body the compiler refuses is a
+body that already runs.
+
+### One refusal at a time
+
+The analyzer is fail-fast — it refuses at the first form outside the grammar,
+which is exactly where the build would stop — so a refused declaration reports
+one finding and an eligible one reports none. Re-run after taking a rung. The
+ladder is walked a step at a time by construction, and the checker is not
+rationing what it knows: there is no second, more forgiving analysis whose
+findings it could have reported and chose not to.
+
+The discovery unit is therefore the **file**, not the view. Pointing the
+checker at a namespace answers one report per declaration in it, in declaration
+order, which is the question an author or an agent actually has — *which of
+these views are already inside the grammar, and for the rest, why not*.
+
+### Where the checker runs
+
+The **analysis is JVM-only**, for the same reason the rest of the compile front
+end is: head classification is resolution, and resolution happens on the JVM
+for both compilation targets. It follows that the file's namespace must be
+**loaded** — which a REPL or a build driving the checker already has. An
+unloaded namespace is refused loudly rather than reported as a wall of
+unresolved heads, because that failure would be about the checker rather than
+about the code.
+
+The **report vocabulary** — the reason roster, the recovery roster, and the
+report and finding shapes — is host-neutral, so a ClojureScript tool can render
+a report it received over the wire without a second copy of the vocabulary to
+drift.
+
+### Finding ids carry no catalogue row
+
+Checker findings are compile-tier diagnostics: they are produced by static
+analysis and nothing is emitted at runtime, so — exactly as with
+§Compile-tier warnings — they carry no [009](009-Instrumentation.md) error
+catalogue row, per the `:rf.ui.compile/*` reservation in
+[Conventions](Conventions.md#the-single-root-reserved-set). The checker mints
+no id of its own, so it adds nothing to catalogue either way. What 009 owns
+here is the *tool* contract — the report is a stable surface tools consume, and
+[009 §The compile checker report](009-Instrumentation.md#the-compile-checker-report)
+records where its ids come from.
+
+Conformance: `FH-DIAG-001`.
 
 ## The JVM structural subset
 
