@@ -76,7 +76,7 @@ red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 | [re-frame.adapter.uix](re-frame.adapter.uix.md) | UIx substrate |
 | [re-frame.test-support](re-frame.test-support.md) | Fixtures, registrar snapshot, poll, sequester |
 | [re-frame.test-helpers](re-frame.test-helpers.md) | Hiccup walkers, testids |
-| [re-frame.freehand.test](re-frame.freehand.test.md) | Freehand structural test surface: headless render + find/find-all/attrs/text, both hosts |
+| [re-frame.freehand.test](re-frame.freehand.test.md) | Freehand structural test surface: headless render + with-render/find/find-all/attrs/text, both hosts |
 | [re-frame.ui.test](re-frame.ui.test.md) | Compiled-view test surface: headless render + find/attrs/text, mounted DOM |
 | [re-frame.performance](re-frame.performance.md) | Compile-time User-Timing flags |
 

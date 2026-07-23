@@ -3,14 +3,13 @@
   (rf2-drpa3.79).
 
   THE HOLE. The Freehand substrate's structural test surface — `render`,
-  `find`, `find-all`, `attrs`, `text` (Spec 008) — shipped as a public
-  authoring surface and was carried by no public-API inventory at all: the
-  generator's `jvm-namespaces` named `re-frame.freehand` but not its test
-  sibling, so the sidecar classified none of the five and the generated
-  manifest rowed none of them. `gen --check` was GREEN the whole time, for the
-  worst reason available: it never looked. A rename, a signature change, a
-  removal, or an accidental sixth export in that namespace moved nothing on
-  the gate.
+  `with-render`, `find`, `find-all`, `attrs`, `text` (Spec 008) — shipped as a
+  public authoring surface and was carried by no public-API inventory at all:
+  the generator's `jvm-namespaces` named `re-frame.freehand` but not its test
+  sibling, so the sidecar classified none of them and the generated manifest
+  rowed none of them. `gen --check` was GREEN the whole time, for the worst
+  reason available: it never looked. A rename, a signature change, a removal,
+  or an accidental extra export in that namespace moved nothing on the gate.
 
   THE CONTROL. Enrolment is only worth having if it BITES, and a gate that
   reads a namespace it did not read yesterday is exactly the kind of change
@@ -43,11 +42,21 @@
   "The enrolled namespace under control."
   "re-frame.freehand.test")
 
-(def ^:private blessed-names
-  "The five names that ARE the surface (Spec 008 §Freehand structural and
-   mounted testing). Everything beneath them is `defn-`, so this set is exact
-   by construction rather than by a `^:no-doc` carve-out."
-  #{"render" "find" "find-all" "attrs" "text"})
+(def ^:private blessed-kinds
+  "The names that ARE the surface, each against the `:kind` the generator must
+   derive from its live Var (Spec 008 §Freehand structural and mounted
+   testing). Five queries are plain `defn`s; `with-render` is the bracket that
+   opens the discardable render a state-reading view needs, and it is a MACRO.
+   Everything beneath them is `defn-`, so this map is exact by construction
+   rather than by a `^:no-doc` carve-out."
+  {"render"      :fn
+   "with-render" :macro
+   "find"        :fn
+   "find-all"    :fn
+   "attrs"       :fn
+   "text"        :fn})
+
+(def ^:private blessed-names (set (keys blessed-kinds)))
 
 ;; ---------------------------------------------------------------------------
 ;; Enrolment + non-vacuity.
@@ -58,16 +67,16 @@
             this, every assertion below would be green over nothing"
     (is (contains? (set gen/jvm-namespaces) (symbol freehand-test-ns)))))
 
-(deftest the-live-surface-is-exactly-the-five-names
-  (testing "the namespace publishes the five blessed names and nothing else,
+(deftest the-live-surface-is-exactly-the-blessed-names
+  (testing "the namespace publishes the blessed names and nothing else,
             so the rows below are the whole surface"
     (require (symbol freehand-test-ns))
     (is (= blessed-names
            (set (map (comp name key) (ns-publics (symbol freehand-test-ns))))))))
 
 (deftest the-manifest-rows-are-classified-testing-tier
-  (testing "each of the five is rowed at the `testing` tier, owned by Spec 008,
-            and derived `:kind :fn` from the live Vars — a test-AUTHORING
+  (testing "each name is rowed at the `testing` tier, owned by Spec 008, and
+            carries the `:kind` DERIVED from its live Var — a test-AUTHORING
             surface, classified the way `re-frame.ui.test` and
             `re-frame.test-support` are, not as a runtime view verb"
     (let [rows (->> (:vars (gen/build-manifest (gen/read-sidecar)))
@@ -75,8 +84,9 @@
       (is (= blessed-names (set (map :var rows))))
       (is (= #{:testing} (set (map :tier rows))))
       (is (= #{"008"} (set (map :owner rows))))
-      (is (= #{:fn} (set (map :kind rows)))
-          "all five are plain `defn`s — none is a mounted descriptor Var")
+      (is (= blessed-kinds (into {} (map (juxt :var :kind)) rows))
+          "the five queries are plain `defn`s and `with-render` is a macro —
+           none is a mounted descriptor Var")
       (is (= #{false} (set (map :facade? rows)))
           "the surface is required directly, never through the re-frame.core facade")
       (is (= #{true} (set (map :runtime-verified? rows)))
