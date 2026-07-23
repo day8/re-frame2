@@ -1321,6 +1321,18 @@
   ;; containment / reset / safe-intent / private-egress contract; the law
   ;; lives in the internal `re-frame.freehand.errors`.
   ["re-frame.freehand" "error-boundary"]    {:tier :advanced    :owner "004" :status "EP-0036"}
+  ;; Registered behaviors (EP-0036 F4f; D013) — the ONE sanctioned imperative
+  ;; boundary, and the pair is a deliberate split. `defbehavior` REGISTERS an
+  ;; implementation under a qualified id and binds the var to that ID, so it is
+  ;; a declaration MACRO whose value is a keyword; `behavior` is the attachment
+  ;; boundary, an ordinary descriptor Var mounted `[v/behavior {…} node]` and
+  ;; never called, which is why it carries no `:arglists` and rows as a Var
+  ;; rather than a fn. Both `advanced`: the paved path needs neither, and an
+  ;; application reaches for them only where a host owns a node. Spec 004
+  ;; §Registered behaviors and commands owns the contract; the runtime lives in
+  ;; the internal `re-frame.freehand.behaviors`.
+  ["re-frame.freehand" "defbehavior"]       {:tier :advanced    :owner "004" :status "EP-0036"}
+  ["re-frame.freehand" "behavior"]          {:tier :advanced    :owner "004" :status "EP-0036"}
 
   ;; =========================================================================
   ;; re-frame.freehand.test — the Freehand substrate's STRUCTURAL TEST
