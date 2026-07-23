@@ -1,0 +1,67 @@
+;; FH-EVENT-005 — the closed key-condition event map (D007).
+;;
+;; A SEPARATE closed form from the options map, legal only on
+;; `:on-key-down` / `:on-key-up`. Its keys are exact `KeyboardEvent.key`
+;; strings and each value is an existing DISPATCHING event form — a
+;; vector, an options map carrying `:event`, `v/event`, or `nil`.
+;; Selection is one level and by exact equality: a missing key is a
+;; no-op, a chord modifier (Ctrl/Alt/Meta) or an in-flight IME
+;; composition matches nothing, and each selected branch runs its OWN
+;; pre-dispatch mechanics before its intent dispatches. A mixed or empty
+;; map, and a non-dispatching branch, are typed authoring errors. The
+;; form ships SUBJECT TO its delete-before-release pilot gate.
+{:fh/id "FH-EVENT-005"
+ :fh/law
+ "A key-condition map on a key listener selects one intent by exact KeyboardEvent.key — a missing key, a chord modifier, or an in-flight composition dispatches nothing — while a mixed or empty map, a non-dispatching branch, and a key map on a non-key listener are rejected."
+
+ ;; Classification: a key-condition map normalizes to a `:key-map` plan
+ ;; whose branches are each a classified dispatching plan. `:form` names a
+ ;; value the suite constructs; `:plan` is the normalized site plan both
+ ;; emitters and the structural host read.
+ :classify
+ [{:form :one-key
+   :plan {:role     :key-map
+          :branches {"Enter" {:role :event-vector :event [:picker/accept]}}}}
+  {:form :many-keys
+   :plan {:role     :key-map
+          :branches {"Enter"     {:role :event-options :event [:picker/accept] :prevent-default true}
+                     "Escape"    {:role :event-vector :event [:picker/close]}
+                     "ArrowDown" {:role :event-options :event [:picker/move 1] :prevent-default true}}}}
+  {:form :nil-branch
+   :plan {:role     :key-map
+          :branches {"Escape" nil}}}]
+
+ ;; A map mixing exact-key strings with listener options, an empty map,
+ ;; and a branch that is not itself one intent (a v/handler, a bare fn, a
+ ;; nested key map) are each rejected — the boundaries the closed form
+ ;; must not blur.
+ :rejected
+ [{:form :mixed-map      :error-id :rf.error/view-bad-event}
+  {:form :empty-map      :error-id :rf.error/view-bad-event}
+  {:form :handler-branch :error-id :rf.error/view-bad-event}
+  {:form :bare-fn-branch :error-id :rf.error/view-bad-event}
+  {:form :nested-key-map :error-id :rf.error/view-bad-event}]
+
+ ;; Site legality: a key-condition map is legal only on a key listener
+ ;; slot. `:slot` is the React event slot the emitter writes.
+ :site-legality
+ [{:slot "onKeyDown" :accepted true}
+  {:slot "onKeyUp"   :accepted true}
+  {:slot "onClick"   :error-id :rf.error/view-bad-event}]
+
+ ;; Selection over one canonical plan — the exact-key law. `:facts` is the
+ ;; host-neutral key-facts map; `:selected` is the branch plan that fires,
+ ;; or `:none` when nothing dispatches.
+ :selection-plan
+ {:role     :key-map
+  :branches {"Enter"     {:role :event-options :event [:picker/accept] :prevent-default true}
+             "Escape"    {:role :event-vector :event [:picker/close]}
+             "ArrowDown" {:role :event-options :event [:picker/move 1] :prevent-default true}}}
+ :selections
+ [{:facts {:key "Enter"}                  :selected {:role :event-options :event [:picker/accept] :prevent-default true}}
+  {:facts {:key "Escape"}                 :selected {:role :event-vector :event [:picker/close]}}
+  {:facts {:key "Tab"}                    :selected :none}
+  {:facts {:key "Enter" :chord? true}     :selected :none}
+  {:facts {:key "Enter" :composing? true} :selected :none}]
+
+ :recovery :select-one-intent-by-exact-key}
