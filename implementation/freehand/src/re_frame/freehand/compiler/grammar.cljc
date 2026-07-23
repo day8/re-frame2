@@ -79,6 +79,13 @@
    :rf.ui.compile/frame-in-loop       [:extract-declared-child]
    :rf.ui.compile/unsupported-form    [:make-template-visible :pass-computed-value
                                        :extract-declared-child]
+   ;; A render slot is admitted, so its rejections are about the CONTENT: a
+   ;; bare fn where the compiler needs a lexically visible `v/render-fn`, a
+   ;; render-fn authored somewhere a slot cannot reach it.
+   :rf.ui.compile/bad-slot            [:make-template-visible :extract-declared-child]
+   :rf.ui.compile/bad-render-fn       [:make-template-visible]
+   :rf.ui.compile/render-fn-misplaced [:make-template-visible]
+   :rf.ui.compile/slot-arity          [:make-template-visible]
    :rf.ui.compile/void-children       [:pass-computed-value]
    :rf.ui.compile/bad-tag             [:use-a-literal-head]
    :rf.ui.compile/duplicate-id-sugar  [:use-a-literal-head]
