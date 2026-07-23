@@ -642,9 +642,156 @@ that preserve it.
 
 ### Semantic controllers
 
-**Lands in:** F4 — data and host lifecycle. Carries caller-supplied semantic
-addressing, generation/reset vocabulary, ownership rules, and the boundary between
-framework laws and component-library widget vocabulary.
+A reusable view is **props-only by default**: it receives values and emits intent,
+and the state lives wherever the application already keeps it.
+
+```clojure
+[disclosure {:open?     (v/sub [:faq/open? question-id])
+             :on-toggle [:faq/toggled question-id]
+             :label     "Why?"}]
+```
+
+A **semantic controller** is the exception, and it has to be earned. Some controls
+own a protocol that spans several interactions and cannot honestly be pushed onto
+every caller: a field that drafts, commits on blur or Enter, cancels on Escape, and
+must survive a cancel racing a late blur; a dropdown holding an open flag and an
+active option; a typeahead holding a typed query beside a settled one. Making every
+caller rebuild those state machines is poor library ergonomics, and hiding them in
+host state would put interaction facts where re-frame cannot see them. So a library
+MAY own the protocol — and the state it owns is still ordinary re-frame data.
+
+A controller is therefore **not a new kind of thing**. It is a `v/defview` plus
+ordinary `reg-sub` and `reg-event` registrations, and the substrate contributes
+exactly one rule: how the record is addressed. There is no controller registry, no
+declaration form, no reducer language, and no second state system. The rulings are
+[D003](../docs/design/freehand/decisions/D003-reusable-control-state-model.md) and
+[D004](../docs/design/freehand/decisions/D004-state-identity-and-addressing.md);
+who owns the event vocabulary is
+[D017](../docs/design/freehand/decisions/D017-framework-control-and-policy-vocabulary.md).
+
+#### Controller identity
+
+A controller record is addressed by one pair:
+
+```text
+(controller kind, caller-supplied :control address)
+```
+
+The **kind** is the library's — which protocol this record obeys — and it is part of
+the key so that a dropdown and a field addressed at the same domain identity read two
+records rather than each other's. The **address** is the caller's, and it arrives as
+the conventional `:control` prop: immutable EDN naming the domain thing that owns the
+state, never a DOM id, a React key, a callback, or a runtime token.
+
+```clojure
+[buffered-field {:control   [:invoice invoice-id :amount]
+                 :value     (v/sub [:invoice/amount invoice-id])
+                 :on-commit [:invoice/amount-committed invoice-id]}]
+```
+
+- **The address is caller-supplied, never derived.** Freehand MUST NOT mint a
+  writable state address from render position, a view's qualified name, a `:key`, or
+  any other occurrence-derived path. A derived anchor makes a sort, a view rename, a
+  parent extraction, an isolated story render, or a virtualized remount into a silent
+  state migration; `[:invoice 42 :amount]` survives all of them. `:key` selects
+  sibling identity and MAY reuse the same domain id, but neither is ever derived from
+  the other.
+- **The address is mandatory for a writable controller.** A control that writes
+  under no address is refused loudly with
+  `:rf.error/view-control-address-missing`, naming the kind and the recovery. There
+  is no default and no synthesised address: every controller that skipped one would
+  otherwise share a single record, which presents as one field editing another and
+  has no local explanation. Asking for the record key IS what makes a controller
+  writable — a props-only view asks for nothing and pays nothing.
+- **The same address twice is deliberate sharing.** Two occurrences passed one
+  `:control` value read and write ONE record, on purpose: the address is the caller's
+  statement about which state this is, so two views onto one draft are spelled by
+  giving them one address. It is a feature of caller-supplied addressing, not an
+  accident of it, and it is not diagnosed. Two occurrences passed different addresses
+  hold independent records for the same reason.
+- **Occurrence identity is evidence, never an address.** The renderer's occurrence
+  identity keeps its own jobs — reconciliation, event-site ownership, presence,
+  connection generations. Development tooling MAY record the join from an occurrence
+  to the controller record it read, so a tool can navigate from a mounted view to its
+  state; that join is evidence only, and no public reader of occurrence identity is
+  exposed for state addressing.
+
+#### Controller state is ordinary frame data
+
+A controller record is frame-scoped re-frame data — normally that frame's app-db. It
+is read by ordinary subscriptions, moved by ordinary events, carried by epochs and
+snapshots, and inspectable by ordinary tools without mounting a host. Freehand fixes
+the identity model and **not** the storage path: the library chooses the root its
+records live under, exactly as it chooses its own event ids, so there is no reserved
+`[:rf/controllers …]` location to migrate later.
+
+Only controllers with live state need a record. An idle buffered field showing its
+external `:value` has none; a record appears on the first real edit and is gone at
+commit or cancel.
+
+#### Semantic transitions and owner cleanup
+
+State moves by **named semantic events**, not by storage verbs. `edited`,
+`committed`, `cancelled`, `opened`, `moved` say what the user did and why the state
+moved; a `put` or a `toggle` records only that a location changed, and a trace of
+storage mechanics cannot explain a protocol. One user action still yields one event
+vector or `nil` (§Event intent and the payload materializer), and the transition's
+own handler returns whatever effects the step needs — including dispatching the
+caller's intent — so a commit and the domain event it causes settle as one epoch.
+
+A decision that depends on changing state is made **in the handler against the
+committed frame**, never by a guard captured during render: that is what lets Escape
+beat a late blur rather than racing it.
+
+Cleanup is the caller's, and it has two layers that must not be confused:
+
+| What | Released by |
+|---|---|
+| the view's subscriptions, callbacks, and host connections | disconnect, automatically |
+| the controller record | a semantic transition, or its causal owner clearing the address |
+| the domain value the commit produced | ordinary domain events |
+
+**There is no lifecycle cleanup hook, and there will not be one.** Freehand exposes
+no unmount callback, no dispose registration, and no per-occurrence teardown slot a
+controller could hang cleanup on — mount and unmount are tool facts, not domain
+events (§Governing laws, law 5). A record therefore persists until a transition
+retires it or its owner clears it: the route, form, workflow, or record whose
+lifetime the state actually follows dispatches an ordinary event that removes the
+addresses it owns. This is deliberate. Unmount-driven cleanup destroys a draft when a
+virtualized row scrolls out of view, and makes retention a property of what is on
+screen rather than of what the work is; the cost is that a forgotten owner leaves an
+orphaned record, so development tooling reports orphaned and stale controller records
+instead of the substrate guessing.
+
+#### Vocabulary and absences
+
+Control families are **first-party library vocabulary, not framework grammar**.
+Freehand owns the laws above — addressing, one-event intent, committed-state
+decisions, evidence — and a component library owns `buffered-field`, its record
+schema, and its `edited` / `committed` / `cancelled` event ids under its own
+namespace. No `:rf.field/*`, `:rf.dropdown/*`, or `:rf.typeahead/*` namespace is
+reserved: a policy graduates into framework vocabulary only when independent
+consumers need identical semantics, and retracting a reserved id from application
+event logs is far more expensive than never promising it.
+
+A Freehand implementation MUST NOT provide:
+
+- **`local`, or any component-local state tier.** The donor's `local` and its
+  placement machinery do not cross; the replacement is this section.
+- **generic storage verbs.** No public `put` / `merge` / `toggle` / `clear` over a
+  controller root. Generic verbs would become `local` in app-db under another name,
+  and they lose the protocol's meaning from the trace.
+- **derived writable anchors, or a public occurrence reader.** No `v/self`, and no
+  automatic address behind an omitted `:control`.
+- **a controller declaration form or DSL.** No `register-kind!`, no
+  `def-control-event`, no reducer language. Controllers stay ordinary re-frame
+  registrations until repeated mechanics across shipped control families justify
+  extracting something, and the extraction is then its own decision.
+- **a lifecycle cleanup hook.** No unmount callback, dispose registration, or
+  per-occurrence teardown slot, in either execution mode.
+
+**Conformance:** [FH-CTRL-001](conformance/freehand/conformance-index.md#fh-ctrl--controllers),
+FH-CTRL-002, FH-CTRL-003, FH-CTRL-004, FH-CTRL-005.
 
 ### Presence
 
