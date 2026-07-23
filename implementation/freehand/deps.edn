@@ -46,6 +46,18 @@
  {:test {:extra-paths ["test"]
          :extra-deps  {day8/re-frame2-routing       {:local/root "../routing"}
                        day8/re-frame2-spec-resource {:local/root "../spec-resource"}
+                       ;; TEST-ONLY, and only test-only. The `v/render-static`
+                       ;; server-render suite exercises the JVM tree -> HTML seam
+                       ;; end-to-end, which folds the structural tree through
+                       ;; `re-frame.ssr/emit-ui-tree`. The PRODUCTION :paths above
+                       ;; take NO require on re-frame.ssr (the Independence wall —
+                       ;; the render reaches the serialiser by LATE resolution at
+                       ;; render time), so the artefact is loaded only here so the
+                       ;; suite can prove the end-to-end render on one classpath.
+                       ;; day8/re-frame2-ssr depends on core alone (never the
+                       ;; donor), so this pulls no donor namespace onto the
+                       ;; classpath.
+                       day8/re-frame2-ssr           {:local/root "../ssr"}
                        day8/re-frame2-test-quiet    {:local/root "../test-quiet"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 

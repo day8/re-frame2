@@ -202,6 +202,58 @@ vacancy, landing with its own EP-0036 slice.
     (v/unmount! root))
   ```
 
+## Server render
+
+### `render-static`
+
+- **Kind**: macro (JVM / server only)
+- **Signature**:
+  ```clojure
+  (render-static root-form) → HTML string
+  ```
+- **Description**: the pure `:server`-phase static render — Freehand's counterpart
+  of React's `renderToStaticMarkup`. It compiles the **literal** root form to the
+  versioned JVM structural tree and folds it to a static HTML string: **non-hydrating**,
+  with no Root Manifest, no hydration payload, and no phase flip. It is the
+  static-page path, not the SSR-then-hydrate path — `v/hydrate-root` +
+  `re-frame.ssr/hydrate!` own that.
+
+  **JVM / server only.** Author it in a `.clj` (or JVM-loaded `.cljc`) server-render
+  namespace; a CLJS expansion is the compile error
+  `:rf.ui.compile/ui-render-static-jvm-only`, because the client emitter targets React
+  directly and there are no structural trees in the browser. Like the mount verbs it
+  is a **macro**, so the root form is literal at the call site — a runtime-assembled
+  vector is the same `:rf.ui.compile/runtime-root-form` compile error every root-form
+  entry raises — and the root-id derives from the **one** mounted view exactly as
+  `v/mount` derives it.
+
+  **No silent elision** (Spec 004C §3, EP-0034 §2): a runtime-requiring capability —
+  a subscription, a committed handler, an effect, a foreign head — anywhere in the
+  root's server-reachable view closure is a loud
+  `:rf.ui.compile/static-root-requires-runtime` build error with source coordinates,
+  never a capability quietly dropped from the static output. `v/client-only` stays
+  legal (only its capability-free fallback is server-reachable) and a deterministic
+  `use-id` is exempt. To server-render a live subtree, mount it in the browser with
+  `v/mount` / `v/hydrate-root`, or move it behind a `v/client-only` with a
+  capability-free fallback.
+
+  `re-frame.freehand` takes **no compile-time require** on `re-frame.ssr`: the render
+  reaches the SSR serialiser through the late-resolution seam
+  `re-frame.freehand.tree/emit-static-html`, so a render-static call in a namespace
+  that requires only `re-frame.freehand` compiles and renders. A missing
+  `day8/re-frame2-ssr` artefact at render time is the ruled
+  `:rf.error/ssr-artefact-missing` naming the coordinate, never a raw host exception.
+  See [spec/011-SSR.md](../../spec/011-SSR.md#the-server-render-on-the-freehand-paved-path).
+- **Example**:
+  ```clojure
+  ;; a .clj / .cljc-on-JVM server-render namespace
+  (:require [re-frame.freehand :as v]
+            [re-frame.ssr])            ; require the artefact at app boot
+
+  (v/render-static [footer {:year 2026}])
+  ;; => "<footer>© 2026</footer>"
+  ```
+
 ## Inspection
 
 ### `view?`

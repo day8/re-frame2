@@ -650,6 +650,21 @@
                 (println (str "WARNING re-frame.freehand [" view-id "] "
                               (:id w) ": " (:msg w)))))
             (let [sites @(:sites e)]
+              ;; The render-static no-silent-elision facts (Spec 004C §3,
+              ;; EP-0034 §2): contribute this view's server-reachable
+              ;; `{:caps :deps}` to the ambient `view-static` build index so
+              ;; `v/render-static` can prove the view's capability closure
+              ;; MID-EXPANSION (its JVM-only read; `re-frame.freehand.compiler.root/
+              ;; static-capability-offender` closes over `build-view-static`).
+              ;; Gated off the Shadow build path — render-static never runs there,
+              ;; so the slice has no consumer — exactly as `defview**` gates its
+              ;; own contribution. Without this the door's compiled `defview`
+              ;; (which lowers through here, not through `defview**`) left the
+              ;; index empty and every render-static proof reported the view
+              ;; UNPROVEN.
+              (when-not (build/shadow-build-pass?)
+                (build/contribute! build/view-static ns-sym view-id
+                                   (view-static-facts ast sites)))
               (cond-> {:body     (emit-jvm/emit-structural-body e params ast)
                        :grammar  grammar/version
                        :manifest (structural-manifest view-id ast sites)

@@ -76,6 +76,17 @@
             [re-frame.freehand.route-link-seam :as route-link-seam]
             [re-frame.interop :as interop]
             #?@(:clj  [[re-frame.freehand.compiler :as compiler]
+                       [re-frame.freehand.compiler.root :as compiler-root]
+                       ;; The JVM tree -> HTML seam `v/render-static` renders
+                       ;; through. Loaded on the JVM (not by the consumer) so a
+                       ;; server namespace that requires only `re-frame.freehand`
+                       ;; can render-static: the emitted call names
+                       ;; `re-frame.freehand.tree/emit-static-html`, which
+                       ;; late-resolves `re-frame.ssr` at render time — the door
+                       ;; still takes NO static require on `re-frame.ssr`
+                       ;; (Spec 011 §wall). `tree` sits BELOW this door and takes
+                       ;; nothing back from it.
+                       [re-frame.freehand.tree]
                        [re-frame.source-coords :as source-coords]]
                 ;; `compiled-react` is required here for the SAME reason `node`
                 ;; and `reactive` are: it is what a COMPILED declaration's
@@ -87,7 +98,8 @@
                 :cljs [[re-frame.freehand.compiled-react]
                        [re-frame.freehand.root :as root]]))
   #?(:cljs (:require-macros [re-frame.freehand
-                             :refer [defbehavior defview event handler render-fn]])))
+                             :refer [defbehavior defview event handler render-fn
+                                     render-static]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -682,6 +694,67 @@
   Per [Spec 004C §The mount grammar](../../../../spec/004C-Roots-and-Mount.md)."
           :arglists '([root])}
      unmount! root/unmount!))
+
+;; ---------------------------------------------------------------------------
+;; Server render — `v/render-static`
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 011 §Freehand server render. The pure `:server`-phase static-HTML
+;; render — the JVM/server counterpart of the client mount verbs. Unlike
+;; `v/mount` / `v/hydrate-root` (runtime functions re-exported from the browser
+;; client), render-static is a MACRO over
+;; `re-frame.freehand.compiler.root/render-static-form`: it needs the LITERAL
+;; root form at the call site (a runtime-assembled vector is not v1 grammar), it
+;; runs the transitive static-capability proof at BUILD time, and it emits into
+;; the `re-frame.freehand.tree` seam that folds the versioned JVM tree to an
+;; inert HTML string through a LATE-resolved `re-frame.ssr` — so the door takes
+;; no static require on the SSR artefact. JVM/server only: a CLJS expansion is
+;; the ruled `:rf.ui.compile/ui-render-static-jvm-only` compile error (there are
+;; no structural trees in the browser).
+
+#?(:clj
+   (defmacro render-static
+     "(v/render-static root-form) => an inert HTML string.
+
+         (v/render-static [app {:route route}])
+
+     The pure `:server`-phase static-HTML render — Freehand's counterpart of
+     React's `renderToStaticMarkup`. It compiles the LITERAL root form to the
+     versioned JVM structural tree and folds it to a static HTML string:
+     NON-hydrating, with NO Root Manifest, NO hydration payload, and NO phase
+     flip. It is the static-page path, not the SSR-then-hydrate path —
+     `v/hydrate-root` + `re-frame.ssr/hydrate!` own that (Spec 011).
+
+     JVM/SERVER ONLY. Author it in a `.clj` (or JVM-loaded `.cljc`) server-render
+     namespace; a CLJS expansion is the compile error
+     `:rf.ui.compile/ui-render-static-jvm-only` (the client emitter targets React
+     directly — there are no structural trees in the browser). Like the mount
+     verbs it is a MACRO, so the root form is LITERAL at the call site: a
+     runtime-assembled vector is the same `:rf.ui.compile/runtime-root-form`
+     compile error every root-form entry raises, and the root-id derives from the
+     ONE mounted view exactly as `v/mount` derives it.
+
+     NO SILENT ELISION (Spec 004C §3, EP-0034 §2): a runtime-requiring capability
+     — a subscription, a committed handler, an effect, a foreign head — anywhere
+     in the root's server-reachable view closure is a LOUD build error
+     (`:rf.ui.compile/static-root-requires-runtime`) with source coordinates,
+     never a capability quietly dropped from the static output. `v/client-only`
+     stays legal (only its capability-free fallback is server-reachable); a
+     deterministic `use-id` is exempt. To server-render a live subtree, mount it
+     in the browser with `v/mount` / `v/hydrate-root`, or move it behind a
+     `v/client-only` with a capability-free fallback.
+
+     `re-frame.freehand` takes NO compile-time require on `re-frame.ssr`: the
+     emitted render reaches the SSR serialiser through the late-resolution seam
+     `re-frame.freehand.tree/emit-static-html`, so a render-static call in a
+     namespace that requires only `re-frame.freehand` compiles and renders. A
+     missing `day8/re-frame2-ssr` artefact at render time is the ruled, typed
+     `:rf.error/ssr-artefact-missing` naming the artefact — never a raw host
+     exception.
+
+     Per [Spec 011 §Freehand server render](../../../../spec/011-SSR.md)."
+     [root-form]
+     (compiler-root/render-static-form &form &env root-form)))
 
 ;; ---------------------------------------------------------------------------
 ;; Event intent and the callback roster

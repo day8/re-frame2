@@ -1288,6 +1288,18 @@
   ;; crossing manifest as plain data (nil for an interpreted one). Tooling
   ;; data alongside `describe`, so it shares its tier.
   ["re-frame.freehand" "manifest"]          {:tier :tooling     :owner "004" :status "EP-0036"}
+  ;; `render-static` (rf2-drpa3.112, EP-0036 F5) is the Freehand server render
+  ;; verb: `(v/render-static [view {…}])` compiles the LITERAL root form to the
+  ;; versioned JVM structural tree and folds it to an inert HTML string through
+  ;; the LATE-resolved `re-frame.ssr/emit-ui-tree` seam. UNLIKE mount /
+  ;; hydrate-root / unmount! (the CLJS-only browser verbs, carried under
+  ;; `:cljs-only` because a DOM node is), render-static is a JVM-only `#?(:clj
+  ;; (defmacro …))` on the `.cljc` door — so the generator owns its kind via
+  ;; `ns-publics` (`:macro`) exactly like `defview`, and it is rowed HERE, in
+  ;; :classification, NOT under :cljs-only. A bare classification key is
+  ;; namespace-qualified, so it never collides with the donor `re-frame.ui`
+  ;; verb of the same name. Spec 011 owns the server render path.
+  ["re-frame.freehand" "render-static"]     {:tier :advanced    :owner "011" :status "EP-0036"}
   ;; The paved path's render-only reactive read. The subscription law lives in
   ;; Spec 006 (D005), so the row is owned there even though the verb rides the
   ;; Freehand door — front-porch, the everyday read primitive paired with
