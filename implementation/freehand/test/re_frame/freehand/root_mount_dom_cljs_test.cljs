@@ -296,7 +296,11 @@
                 (fn [mounted]
                   (reset! root-1 mounted)
                   (reset! uid-1 (text container ".uid"))
-                  (is (str/starts-with? (or @uid-1 "") original)
+                  ;; React namespaces a generated id with the root's prefix
+                  ;; (`_rf2-original-r_0_`), so the prefix is CONTAINED in the
+                  ;; id rather than leading it — the assertion is that the id
+                  ;; carries this root's prefix and no other's.
+                  (is (str/includes? (or @uid-1 "") original)
                       "the authored prefix reached React — use-id emits under it")
                   (is (= original (root/root-identifier-prefix mounted))
                       "and the root claims exactly the prefix it was created with")
@@ -372,7 +376,7 @@
                       "unmount! released the prefix and the successor claimed it")
                   (is (= #{rid} (root/live-root-ids))
                       "the stale handle did not release the successor's claim")
-                  (is (str/starts-with? (or (text container ".uid") "") original)
+                  (is (str/includes? (or (text container ".uid") "") original)
                       "and the successor is on the page, emitting under it")
                   (act #(v/unmount! successor))))
               (.then (fn [_]
