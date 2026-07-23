@@ -16,14 +16,20 @@
 
   ## Two surfaces, and the gap named rather than hidden
 
-  `:events` and `:crossings` are read back through `v/manifest`, the highest
-  public surface there is. The other four cannot reach it today: `slot`,
-  `html` and `frame` are not published vars, and a compiled `(sub …)` lowers to
-  a runtime namespace that has not landed, so no declaration carrying one
-  compiles. They are proven one tier down, over the same analyzer `v/defview`
-  calls — and the gap is asserted, not assumed: an `:analyzer` roster must be
-  EMPTY across the public census, so the day one becomes reachable its fixture
-  row has to move deliberately.
+  `:subscriptions`, `:events` and `:crossings` are read back through
+  `v/manifest`, the highest public surface there is. The other three cannot
+  reach it: `slot`, `html` and `frame` have no published var behind them, so no
+  declaration can carry one. They are proven one tier down, over the same
+  analyzer `v/defview` calls — and the gap is asserted, not assumed: an
+  `:analyzer` roster must be EMPTY across the public census, so the day one
+  becomes reachable its fixture row has to move deliberately.
+
+  `:subscriptions` is the row that moved. It sat on the analyzer tier not
+  because `v/sub` was unpublished — it always was — but because the compiled
+  lowering resolved it against a runtime namespace that did not exist, so no
+  census declaration carrying a subscription could LOAD. The runtime landed,
+  the census gained a sub-bearing declaration, and this suite reddened until
+  the fixture row was moved: the tripwire doing exactly its job.
 
   ## Which host proves which half
 
@@ -62,13 +68,13 @@
 
 (def ^:private resolver
   "The injected resolution stub. `slot`, `html` and `frame` are analyzer-known
-  authoring forms with no published var behind them, and `sub` has one whose
-  compiled lowering targets a runtime namespace that has not landed — which is
-  precisely why these four rosters are proven here rather than through
-  `v/manifest`. The stub resolves them to the vars the door will publish."
+  authoring forms with no published var behind them — which is precisely why
+  those three rosters are proven here rather than through `v/manifest`. The
+  stub resolves them to the vars the door will publish. `sub` is deliberately
+  NOT among them any more: it is public, its compiled lowering runs, and its
+  roster is proven through `v/manifest` over the census like `:events` is."
   (fn [sym]
     (case sym
-      sub   {:fqn 're-frame.freehand/sub :meta {}}
       frame {:fqn 're-frame.freehand/frame :meta {}}
       slot  {:fqn 're-frame.freehand/slot :meta {}}
       html  {:fqn 're-frame.freehand/html :meta {}}
@@ -94,8 +100,7 @@
   "roster -> the site-index key the projection reads it from, and one body
   carrying EXACTLY the number of sites the fixture declares. Hand-countable, so
   a count that moves is an edit someone made rather than a number that drifted."
-  {:subscriptions {:site-key :subs      :template '[:span (sub [:probe/count])]}
-   :frame-ops     {:site-key :frame-ops :template '[:span (str (:frame (frame)))]}
+  {:frame-ops     {:site-key :frame-ops :template '[:span (str (:frame (frame)))]}
    :slots         {:site-key :slots     :template '[:ul (slot row-renderer item)]}
    :html-sites    {:site-key :htmls     :template '[:div (html "<b>probe</b>")]}})
 

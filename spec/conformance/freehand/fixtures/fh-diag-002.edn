@@ -5,15 +5,16 @@
 ;; function of the analyzed sites (EP-0036 D021), so the number of views that
 ;; omit the shell over a census of known cardinality is an exact integer.
 ;;
-;; The census is `re-frame.freehand.manifest-views`: six compiled views, four
-;; without a reactive site (elided) and two with a committed event handler
-;; (present). The count is four, and it is asserted as an integer, never a
-;; threshold.
+;; The census is `re-frame.freehand.manifest-views`: seven compiled views, four
+;; without a reactive site (elided) and three with one (present) — two carrying
+;; a committed event handler, one carrying a subscription. The count is four,
+;; and it is asserted as an integer, never a threshold.
 {:fh/id "FH-DIAG-002"
  :omitted-view-cell-count 4
  :views {:label        :elided
          :card         :elided
          :list-view    :elided
          :mounts-label :elided
+         :basket-total :present
          :button       :present
          :two-buttons  :present}}

@@ -21,28 +21,32 @@
 ;; declaration's position, never omit the field and never invent a line.
 ;;
 ;; `:roster-coverage` is what stops that shape row being VACUOUS. A key contract
-;; asserted over zero entries passes loudest of all, and four of the six rosters
-;; are empty across the census, so the shape row was reading green on two of
-;; them. Each roster therefore declares how many entries the proof actually
+;; asserted over zero entries passes loudest of all, and three of the six
+;; rosters are still empty across the census, so the shape row would read green
+;; over nothing for them. Each roster therefore declares how many entries the proof actually
 ;; inspects — a positive integer, never a lower bound — and the SURFACE it
 ;; inspects them through:
 ;;
 ;;   :public   — reachable through the public door: a `v/defview` census
 ;;               declaration, read back with `v/manifest`.
 ;;   :analyzer — NOT reachable through the public door today, and named as a gap
-;;               rather than quietly omitted. `slot`, `html` and `frame` are not
-;;               published vars, and a compiled `(sub …)` lowers to a runtime
-;;               namespace that does not exist yet, so no census declaration
-;;               carrying one can compile. These rosters are proven one tier
-;;               down, over the same analyzer the door will call once those
-;;               forms are public.
+;;               rather than quietly omitted. `slot`, `html` and `frame` have no
+;;               published var behind them, so no census declaration can carry
+;;               one. These rosters are proven one tier down, over the same
+;;               analyzer the door will call once those forms are public.
+;;               `:subscriptions` used to sit here too — not because `v/sub` was
+;;               unpublished (it always was) but because the compiled lowering
+;;               resolved it against a runtime namespace that did not exist, so
+;;               no census declaration carrying one could LOAD. That runtime
+;;               landed and the row moved to `:public` — which is exactly the
+;;               deliberate move the split below exists to force.
 ;;
 ;; The split is ASSERTED, not assumed: an `:analyzer` roster must be empty across
 ;; the public census, so the day one becomes reachable its row has to move here
 ;; deliberately instead of drifting.
 {:fh/id "FH-STRUCT-010"
  :roster-coverage
- {:subscriptions {:surface :analyzer :entries 1}
+ {:subscriptions {:surface :public   :entries 1}
   :events        {:surface :public   :entries 3}
   :slots         {:surface :analyzer :entries 1}
   :html-sites    {:surface :analyzer :entries 1}
@@ -70,6 +74,9 @@
   {:events 0 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 1
    :capabilities #{} :view-cell :elided :reactive? false
    :crossing {:view-id :re-frame.freehand.manifest-views/label :lowering :compiled}}
+  :basket-total
+  {:events 0 :subscriptions 1 :slots 0 :frame-ops 0 :crossings 0
+   :capabilities #{:sub} :view-cell :present :reactive? true}
   :button
   {:events 1 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 0
    :capabilities #{:event} :view-cell :present :reactive? true}
