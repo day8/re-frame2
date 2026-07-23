@@ -44,6 +44,8 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.freehand :as v]
+            #?(:clj [clojure.java.io :as io])
+            #?(:clj [re-frame.freehand.compiler.check :as check])
             [re-frame.freehand.cell :as cell]
             [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.control :as control]
@@ -402,6 +404,38 @@
         (is (= [displayed-after-external-change] (shown form)))
         (is (not= changed-value (first (shown form)))
             "non-vacuous: the caller's new value is NOT what is displayed")))))
+
+#?(:clj
+   (deftest fh-ctrl-007-the-controller-shape-is-not-interpreted-only
+     (testing "Per FH-CTRL-006…010, applicability `common`: the laws bind
+               BOTH execution modes, and almost nothing about the fence
+               could differ between them — `control/reset-revision` and
+               `control/current?` are ordinary functions, the second of
+               them called from a `reg-sub` that no view mode ever sees,
+               and the record is ordinary frame data. What promotion
+               COULD move is the SHAPE the pilot renders, so what is
+               asserted is that the compiled grammar ACCEPTS that shape
+               unchanged: the control below is checked, as it stands, by
+               the compiled tier's own analyzer, and is eligible with
+               nothing to say. Pointed at THIS file, so the declaration
+               checked is the one every law above renders — there is no
+               copy to drift.
+
+               JVM-only because the checker resolves heads against a
+               loaded namespace, which only the JVM has."
+       (let [path    (.getPath (io/file (io/resource
+                                          "re_frame/freehand/buffered_controller_cljs_test.cljc")))
+             reports (check/check-file path)
+             report  (first (filter #(= ::buffered-field (:view-id %)) reports))]
+         (is (<= 3 (count reports))
+             "non-vacuous: the checker really read this file's declarations")
+         (is (some? report) "and found the pilot control among them")
+         (is (true? (:compile-eligible? report))
+             "the buffered controller's shape is inside the compiled grammar")
+         (is (= [] (:findings report))
+             "with nothing to change on the way — promotion is a keyword, not a rewrite")
+         (is (= :interpreted (:current-lowering report))
+             "checked as it stands, before any promotion")))))
 
 ;; ===========================================================================
 ;; FH-CTRL-008 — the fence: superseded work lands in neither direction
