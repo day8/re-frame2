@@ -23,7 +23,7 @@
 ;; author extracts a view — a refactor that is supposed to change nothing.
 {:fh/id "FH-STRUCT-009"
  :fh/law
- "The interpreted React emitter spells attributes as React's canonical props, identically at every depth and across declared-view boundaries; the structural tree keeps author-space names; and the reserved and rejected spellings — `:children`, `:ref`, the raw-markup aliases — are refused by both emitters rather than reaching React."
+ "The interpreted React emitter spells attributes as React's canonical props, identically at every depth and across declared-view boundaries; the structural tree keeps author-space names; the reserved and rejected spellings — `:children`, `:ref`, `:key`, the raw-markup aliases — are refused by both emitters rather than reaching React; and an alias of an accepted slot-owning key (`:class`, `:style`) is routed to that key's slot, composing with the `.class#id` sugar rather than replacing it."
 
  :view :props-page
 
@@ -161,7 +161,20 @@
   {:note "one spelling per name holds under a namespace too"
    :form [:div {:x/class-name "a"}] :error-id :rf.error/ui-tree-malformed}
   {:note "and under a symbol"
-   :form [:label {html-for "n"}] :error-id :rf.error/ui-tree-malformed}]
+   :form [:label {html-for "n"}] :error-id :rf.error/ui-tree-malformed}
+
+  ;; React's `key` is not a prop. The reconciler consumes it and it never
+  ;; reaches the DOM, so an alias routed into that slot would not misspell
+  ;; an attribute — it would change which element React considers the SAME
+  ;; element across renders. Preserved DOM state landing on the wrong row,
+  ;; or a remount where none was intended, is `:children`'s hazard class,
+  ;; so `:key` keeps its one spelling and every alias of it is refused.
+  {:note "a namespaced :key would address reconciliation identity through a spelling the grammar never declared"
+   :form [:div {:x/key "k"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "the string spelling reaches the same slot"
+   :form [:div {"key" "k"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "and so does the symbol one"
+   :form [:div {key "k"}] :error-id :rf.error/ui-tree-malformed}]
 
  ;; The control that makes the rows above mean something. Refusing by
  ;; emitted prop name is only correct if it refuses the names that ARE
@@ -169,23 +182,79 @@
  ;; qualified attribute away would be a worse defect than the bypass it
  ;; closed, and would look identical in a table of rejections. These keys
  ;; project onto ordinary props and are accepted, qualified or not.
+ ;;
+ ;; Two of the accepted names own a SLOT rather than a place in the
+ ;; attribute map — `:class`, which composes with the `.class#id` sugar,
+ ;; and `:style`, which carries the CSS grammar — and an alias of either is
+ ;; ROUTED to that slot rather than refused, because they are ordinary
+ ;; props that reach the DOM and the substrate already routes an aliased
+ ;; spelling of an accepted key (`v/spread-safe`). Those rows carry a
+ ;; `:props` map as well: the structural tree says where the value landed
+ ;; in author space, and `:props` says what the React emitter wrote, which
+ ;; is where a router that ASSIGNED over the sugar instead of composing
+ ;; into it would show up.
  :accepted-keys
  [{:note "a namespaced attribute whose name is an ordinary prop passes"
    :form [:div {:x/title "ok"}]
-   :tree {:tag :div :attrs {:x/title "ok"} :rf.ui/tree-version 1}}
+   :tree {:tag :div :attrs {:x/title "ok"} :rf.ui/tree-version 1}
+   :props {"title" "ok"}}
   {:note "including one whose name React canonicalises"
    :form [:div {:x/tab-index 3}]
-   :tree {:tag :div :attrs {:x/tab-index "3"} :rf.ui/tree-version 1}}
+   :tree {:tag :div :attrs {:x/tab-index "3"} :rf.ui/tree-version 1}
+   :props {"tabIndex" "3"}}
   {:note "data-* is untouched by the refusal, qualified or not"
    :form [:div {:x/data-priority "high" :data-priority "high"}]
    :tree {:tag :div :attrs {:x/data-priority "high" :data-priority "high"}
-          :rf.ui/tree-version 1}}
+          :rf.ui/tree-version 1}
+   :props {"data-priority" "high"}}
   {:note ":class is React's className and is NOT the rejected :class-name"
    :form [:div {:class "a"}]
-   :tree {:tag :div :attrs {:class "a"} :rf.ui/tree-version 1}}
+   :tree {:tag :div :attrs {:class "a"} :rf.ui/tree-version 1}
+   :props {"className" "a"}}
   {:note "and :for is htmlFor, not the rejected :html-for"
    :form [:label {:for "n"}]
-   :tree {:tag :label :attrs {:for "n"} :rf.ui/tree-version 1}}]
+   :tree {:tag :label :attrs {:for "n"} :rf.ui/tree-version 1}
+   :props {"htmlFor" "n"}}
+
+  ;; The routed slots. `:class` is the one that carries an obligation: the
+  ;; tag shorthand and an authored class are MERGED, so a routed alias that
+  ;; assigned would silently drop `.a.b` — an element that still renders,
+  ;; with the wrong classes, which is why the shorthand is in every row.
+  {:note "an aliased :class composes into the shorthand exactly as :class does"
+   :form [:div.a.b {:x/class "c"}]
+   :tree {:tag :div :attrs {:class "a b c"} :rf.ui/tree-version 1}
+   :props {"className" "a b c"}}
+  {:note "and it keeps the whole class grammar — a flag map renders its truthy entries in lexicographic order"
+   :form [:div.a.b {:x/class {:open true :busy false}}]
+   :tree {:tag :div :attrs {:class "a b open"} :rf.ui/tree-version 1}
+   :props {"className" "a b open"}}
+  {:note "a string key spells the same slot, and composes the same way"
+   :form [:div.a.b {"class" ["c" "d"]}]
+   :tree {:tag :div :attrs {:class "a b c d"} :rf.ui/tree-version 1}
+   :props {"className" "a b c d"}}
+  {:note "and so does a symbol key"
+   :form [:div.a.b {class "c"}]
+   :tree {:tag :div :attrs {:class "a b c"} :rf.ui/tree-version 1}
+   :props {"className" "a b c"}}
+  {:note "an aliased :style reaches the CSS grammar, so a number still gains px"
+   :form [:div {:x/style {:color "red" :width 4}}]
+   :tree {:tag :div :attrs {:style {:color "red" :width "4px"}} :rf.ui/tree-version 1}
+   :props {"style" {"color" "red" "width" "4px"}}}
+  {:note "the canonical :class is untouched by the routing — the shorthand still merges"
+   :form [:div.a.b {:class "c"}]
+   :tree {:tag :div :attrs {:class "a b c"} :rf.ui/tree-version 1}
+   :props {"className" "a b c"}}
+  {:note "and so is the canonical :style"
+   :form [:div {:style {:color "red" :width 4}}]
+   :tree {:tag :div :attrs {:style {:color "red" :width "4px"}} :rf.ui/tree-version 1}
+   :props {"style" {"color" "red" "width" "4px"}}}
+  ;; `:key` carries no `:props` row and that is the point: React lifts a key
+  ;; onto the ELEMENT and strips it from props, which is exactly why an
+  ;; alias of it is refused rather than routed — there is no prop to land in.
+  {:note "the canonical :key is still lifted onto the node and is never an attribute"
+   :form [:div {:key "k"}]
+   :tree {:tag :div :key "k" :rf.ui/tree-version 1}
+   :react-key "k"}]
 
  ;; The BEHAVIOURAL control for the reserved `children` slot: React really
  ;; does render a `children` prop as content. Mounted through

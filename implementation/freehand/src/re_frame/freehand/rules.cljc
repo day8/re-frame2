@@ -2102,6 +2102,52 @@
   `\"ref\"`, `'ref` — reduces to it."
   (caller-key-slot :ref))
 
+(def reserved-key-slot
+  "The emitted SLOT React reserves for an element's reconciliation KEY,
+  derived from `:key` through the same `caller-key-slot` projection.
+
+  `key` is not a prop. The reconciler consumes it and it never reaches the
+  DOM, so a key routed into this slot does not spell an attribute — it
+  decides which element React considers the SAME element across renders.
+  That is why `:key` has exactly one spelling and every alias of the name is
+  refused: the failure mode of a silent alias is not a wrong attribute but
+  wrong element reuse — preserved DOM state landing on the wrong row, or a
+  remount where none was intended."
+  (caller-key-slot :key))
+
+(def ^:private slot-owning-attr-keys
+  "The author-space attribute keys that OWN a slot of their own in both
+  walks — `:class`, which composes with the `.class#id` sugar, and `:style`,
+  which carries the CSS grammar — indexed by the React prop slot each
+  projects onto.
+
+  An authored key that reduces to one of these slots is that key SPELLED
+  differently, whatever its namespace or representation, so it belongs in
+  the slot rather than beside it."
+  (into {} (map (juxt caller-key-slot identity)) [:class :style]))
+
+(defn canonical-attr-key
+  "Attribute key `k` in the canonical author spelling the walks discriminate
+  on: an alias of a slot-owning key answers that key, and every other key
+  answers itself.
+
+      (canonical-attr-key :x/class)  ;=> :class
+      (canonical-attr-key \"style\")   ;=> :style
+      (canonical-attr-key :x/title)  ;=> :x/title
+
+  This is the ACCEPTED-key half of the same law
+  [[re-frame.freehand.conversion/attr-key-refusal]] applies to the refused
+  ones, and it is the rule `assert-safe-caller!` already applies to a
+  forwarded caller map: a key is classified by the slot it is about to be
+  written into, so an alias of an accepted key routes to that key's slot
+  rather than around it. Only the slot-owning keys are canonicalized —
+  `:x/title` is an ordinary `title` attribute either way, and rewriting it
+  would edit author space for no gain (rf2-drpa3.93)."
+  [k]
+  (if-some [canonical (get slot-owning-attr-keys (caller-key-slot k))]
+    canonical
+    k))
+
 (def ^:private spread-safe-denied-structural-slots
   "The canonical emitted SLOTS of the denied structural/controlled keys — the
   form both host converters reduce a caller key to via `caller-key-slot`. The

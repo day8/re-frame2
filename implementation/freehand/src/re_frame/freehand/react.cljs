@@ -120,7 +120,13 @@
       (gobj/set o "className" c))
     (when sugar-id
       (gobj/set o "id" sugar-id))
-    (doseq [[k raw] attrs]
+    ;; The key is read in its canonical author spelling: an alias of a
+    ;; slot-owning key is that key written differently, so `:x/class`
+    ;; composes into `className` beside the sugar rather than overwriting
+    ;; it, and a namespaced `:style` reaches the style grammar rather than
+    ;; the flat attribute path (rf2-drpa3.93).
+    (doseq [[k raw] attrs
+            :let    [k (conv/attr-key k)]]
       (when-some [refusal (conv/attr-key-refusal k)]
         (malformed! (str "The element " tag " carries " k ". " refusal)
                     {:attr k}))

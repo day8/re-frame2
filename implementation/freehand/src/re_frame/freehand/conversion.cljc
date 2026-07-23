@@ -439,11 +439,22 @@
 
 (defn- attr-key-refusal* [k]
   (let [slot (rules/caller-key-slot k)]
-    (if (= rules/reserved-ref-slot slot)
+    (cond
+      (and (= rules/reserved-key-slot slot) (not= :key k))
+      (str "It projects onto React's key, and :key is that slot's one spelling. A key is "
+           "not a prop at all — the reconciler consumes it and it never reaches the DOM — "
+           "so an alias routed into it would not misspell an attribute, it would change "
+           "which element React considers the SAME element across renders: preserved DOM "
+           "state landing on the wrong row, or a remount where none was intended. Write "
+           ":key. " by-emitted-name)
+
+      (= rules/reserved-ref-slot slot)
       (str "It projects onto React's reserved ref prop, and the interpreted walk has no "
            "ref machinery — React would consume it as a reserved prop while the structural "
            "tree carried it as an ordinary attribute, which is two answers for one "
            "declaration. Refs land with the host-lifecycle slice. " by-emitted-name)
+
+      :else
       (if-some [replacement (rules/rejected-slot-replacement slot)]
         (str "It is not a prop — one spelling per name, ambiguities removed. Use "
              replacement ". " by-emitted-name)
@@ -486,6 +497,14 @@
     exactly the divergence two emitters over one semantic value exist to
     rule out, so the interpreted walk says so instead. Refs land with the
     host-lifecycle slice.
+  - React's `key` is refused for a third reason, and it is the reason the
+    two ACCEPTED structural slots are not (see [[attr-key]]). `key` is not
+    a prop: React consumes it and it never reaches the DOM, so an alias
+    routed into it changes RECONCILIATION IDENTITY rather than an
+    attribute. That is the `:children` hazard class — a structural
+    divergence with no visible spelling — not the misspelled-attribute
+    class, so `:key` keeps its single spelling and every alias of it is
+    refused (rf2-drpa3.93).
 
   A key that is not nameable at all has no slot and no refusal here; the
   walks report a malformed key through their own channel.
@@ -497,6 +516,53 @@
   [k]
   (let [answer (remembered refusal-cache k attr-key-refusal*)]
     (when-not (= ::no-refusal answer) answer)))
+
+;; ---------------------------------------------------------------------------
+;; Attribute keys the grammar canonicalizes
+;; ---------------------------------------------------------------------------
+
+(def ^:private attr-key-cache (atom {}))
+
+(defn attr-key
+  "The authored attribute key in the CANONICAL author spelling both walks
+  discriminate on — the ACCEPTED-key twin of [[attr-key-refusal]].
+
+  Two attribute keys own a SLOT rather than a place in the attribute map:
+  `:class`, which composes with the `.class#id` sugar, and `:style`, which
+  carries the CSS grammar. Every representation of those names — `:x/class`,
+  `\"class\"`, `'style` — projects onto the SAME React prop the exact
+  spelling does, so an alias is that key written differently and belongs in
+  its slot:
+
+      (attr-key :x/class)  ;=> :class
+      (attr-key \"style\")   ;=> :style
+      (attr-key :x/title)  ;=> :x/title
+
+  Routing them rather than refusing them is the ruled answer, and the reason
+  is that they are ordinary props. They reach the DOM, and
+  `re-frame.freehand.rules/assert-safe-caller!` already accepts an aliased
+  spelling of an accepted key and routes it to that key's slot — so refusing
+  an alias on the DIRECT attribute path would make it stricter than the
+  spread path for the same key, which an author would experience as
+  arbitrary. React's `key` is the case that goes the other way, because it
+  is not a prop at all; [[attr-key-refusal]] says why.
+
+  Routing `:class` carries one obligation: the value COMPOSES into the class
+  string beside the tag shorthand, exactly as the exact spelling does. An
+  alias that assigned instead would silently drop `:div.a.b`'s classes,
+  which is a worse bug than the one being fixed. Both walks compose because
+  both route the canonical key through the one composition they already had.
+
+  Only the slot-owning keys are canonicalized. An ordinary namespaced
+  attribute is left in author space — `:x/title` is a `title` attribute in
+  React either way, and the structural tree carries authored names, so
+  rewriting it would edit the tree for no gain.
+
+  Remembered per key — see §Remembered projections above. This is asked on
+  every attribute of every element, so the slot projection is paid once per
+  distinct authored key rather than once per attribute per render."
+  [k]
+  (remembered attr-key-cache k rules/canonical-attr-key))
 
 (defn- react-event-name* [k]
   (str "on" (upper-first (camelize (subs (name k) 3)))))
