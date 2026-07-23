@@ -164,7 +164,15 @@
   attribute and the grammar removes that ambiguity rather than ranking it.
   Asked only when there IS sugar: with no sugar there is no second
   spelling, and `:x/id` is an ordinary qualified attribute that keeps its
-  authored name."
+  authored name.
+
+  PRESENCE decides it, never truth. The authored key IS the second
+  spelling — the generic nil-attribute law says what an id VALUE of nil
+  emits, and it cannot say whether the element was given an id twice. The
+  compiled analyzer reads `(keys m)` and has no value to consult, so a
+  truth test here would accept `[:div#sugar {:id nil}]` that
+  `{:compiled true}` refuses, and adding one word to a declaration would
+  turn a rendering element into a compile error."
   [m tag sugar-id attrs]
   (reduce-kv
     (fn [m k raw]
@@ -172,7 +180,7 @@
         (malformed!
           (str "The element " tag " carries " k ". " refusal)
           {:attr k}))
-      (when (and sugar-id (some? raw) (conv/id-slot-key? k))
+      (when (and sugar-id (conv/id-slot-key? k))
         (malformed!
           (str "The element " tag " spells its id twice — once as #" sugar-id
                " sugar and once as " k ". Two id spellings on one element is an "

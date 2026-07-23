@@ -197,8 +197,12 @@
       ;; raw key — and this walk is where the raw comparison SHOWED: React
       ;; writes `:id` and `:x/id` into one JavaScript property, so the
       ;; aliased pair silently replaced the sugar while the structural tree
-      ;; reported both. Asked only when there IS sugar to conflict with.
-      (when (and sugar-id (some? raw) (conv/id-slot-key? k))
+      ;; reported both. Asked only when there IS sugar to conflict with,
+      ;; and by PRESENCE: the authored key is the second spelling, and the
+      ;; compiled analyzer that reads `(keys m)` has no value to consult,
+      ;; so a truth test here would accept a declaration `{:compiled true}`
+      ;; refuses.
+      (when (and sugar-id (conv/id-slot-key? k))
         (malformed! (str "The element " tag " spells its id twice — once as #" sugar-id
                          " sugar and once as " k ". Two id spellings on one element is an "
                          "ambiguity; keep one."

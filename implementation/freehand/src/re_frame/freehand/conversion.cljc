@@ -575,8 +575,11 @@
 
   The question both walks ask when — and only when — an element carries
   `#id` sugar, because two spellings of one id on one element is an
-  ambiguity the grammar removes rather than ranks (Spec 004B). It is asked
-  of the emitted SLOT, through
+  ambiguity the grammar removes rather than ranks (Spec 004B). It is a
+  question about the KEY alone, so it is asked of PRESENCE and never of
+  the value: the compiled analyzer scans `(keys m)` and has no value to
+  consult, and an authored id spelled `nil` is still the element's second
+  id spelling. It is asked of the emitted SLOT, through
   [[re-frame.freehand.rules/caller-key-slot]], for the reason
   [[attr-key-refusal]] asks about the same projection: a key is classified
   by the name it is about to be written under, so `:x/id`, `\"id\"` and

@@ -517,7 +517,7 @@ unexercised — Stage 1 confirms.
 | Row | Rule |
 |---|---|
 | `.class` + `:class` | **merge**, sugar-first (above) |
-| `#id` + `:id` | **compile error**, didactic — two id spellings on one element is an ambiguity, and this grammar removes ambiguities rather than ranking them |
+| `#id` + `:id` | **compile error**, didactic — two id spellings on one element is an ambiguity, and this grammar removes ambiguities rather than ranking them. Judged on the **emitted `id` slot**, so every spelling that reaches it (`:x/id`, `"id"`, `'id`) is the same second spelling; and judged on **presence, not truth** — the authored key *is* the second spelling, so `{:id nil}` beside `#id` sugar is the same ambiguity. Truth cannot be the test: the compiled analyzer reads the props map's keys, so a value-sensitive guard would accept in one mode what the other refuses, and adding `{:compiled true}` to a view would turn a rendering element into a compile error |
 
 ### Children, text, and escaping
 

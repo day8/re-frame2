@@ -297,6 +297,47 @@
                  (:rf.ui.compile/error (ex-data (or (ex-cause ex) ex))))
               (str (pr-str body) " — reusing the existing compile diagnostic")))))))
 
+(def id-nil-rows
+  "The same ambiguity, spelled with a `nil` VALUE. The authored key is what
+  makes the id a second time; what the key holds is the ordinary attribute
+  question and cannot answer the identity one."
+  ['[:div#sugar {:id nil}]
+   '[:div#sugar {:x/id nil}]])
+
+(deftest a-nil-authored-id-beside-id-sugar-is-the-same-ambiguity-in-both-modes
+  (testing "PRESENCE decides the conflict, never truth. The compiled
+            analyzer scans the props map's KEYS and has no value to
+            consult, so it always refused these two; the structural and
+            React walks guarded on `(some? raw)` and accepted them. That
+            split is the sharpest shape the defect can take — adding
+            `{:compiled true}` to a working view turns a rendering element
+            into a compile error, and nothing in the declaration changed."
+    (doseq [body id-nil-rows]
+      (let [ex (try (interpreted-tree body) nil (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex) (str (pr-str body) " is refused by the interpreted walk"))
+        (when ex
+          (is (= :rf.error/ui-tree-malformed (:rf.error/id (ex-data ex)))
+              (str (pr-str body) " — the walk's existing diagnostic id, not a new one"))
+          (is (str/includes? (ex-message ex) "twice")
+              (str (pr-str body) " — the message says the id is spelled twice"))))
+      (let [ex (try (compiled-tree body) nil (catch Exception e e))]
+        (is (some? ex) (str (pr-str body) " is refused at compile time"))
+        (when ex
+          (is (= :rf.ui.compile/id-sugar-conflict
+                 (:rf.ui.compile/error (ex-data (or (ex-cause ex) ex))))
+              (str (pr-str body) " — reusing the existing compile diagnostic")))))))
+
+(deftest a-nil-id-with-no-sugar-is-still-an-ordinary-dropped-attribute
+  (testing "The presence rule belongs to the SHORTHAND's ambiguity and
+            nowhere else. With no `#id` sugar there is no second spelling,
+            so a nil id is the ordinary nil attribute the generic law
+            drops — a guard that refused every nil id would be a worse
+            defect than the bypass it closed, because a conditional id is
+            an ordinary thing to write."
+    (doseq [body '[[:div {:id nil}] [:div {:x/id nil}]]]
+      (is (= {:tag :div} (interpreted-tree body)) (str (pr-str body) " — interpreted"))
+      (is (= {:tag :div} (compiled-tree body)) (str (pr-str body) " — compiled")))))
+
 (def id-control-rows
   "The control that makes the refusals above mean something. A guard that
   turned every id away — or every qualified attribute — would look
