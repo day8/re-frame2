@@ -243,7 +243,9 @@
              "a keyword, a vector of them in order, or a flag map whose truthy entries "
              "name classes.")
         {:attr :class :value (shape v)}))
-    (conv/class-string (into (vec sugar) parts))))
+    ;; An element with sugar and no authored `:class` is the common case,
+    ;; and composing it with nothing produced a copy of the sugar vector.
+    (conv/class-string (if (zero? (count parts)) sugar (into (vec sugar) parts)))))
 
 (defn classify-event
   "One `:events` entry value, classified BY THE VALUE PRESENT AT RENDER
