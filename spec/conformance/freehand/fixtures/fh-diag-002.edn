@@ -1,0 +1,19 @@
+;; FH-DIAG-002 — capability elision: the exact omitted-ViewCell count.
+;;
+;; A compiled declaration with no reactive site omits the reactive ViewCell
+;; shell; one with a reactive site retains it. The verdict is a deterministic
+;; function of the analyzed sites (EP-0036 D021), so the number of views that
+;; omit the shell over a census of known cardinality is an exact integer.
+;;
+;; The census is `re-frame.freehand.manifest-views`: six compiled views, four
+;; without a reactive site (elided) and two with a committed event handler
+;; (present). The count is four, and it is asserted as an integer, never a
+;; threshold.
+{:fh/id "FH-DIAG-002"
+ :omitted-view-cell-count 4
+ :views {:label        :elided
+         :card         :elided
+         :list-view    :elided
+         :mounts-label :elided
+         :button       :present
+         :two-buttons  :present}}

@@ -1,0 +1,34 @@
+;; FH-STRUCT-010 — the compiled manifest's finite rosters match the sites the
+;; declaration actually carries.
+;;
+;; Each compiled view in the `re-frame.freehand.manifest-views` census reports
+;; a manifest whose subscription / event / slot / frame-op / crossing rosters
+;; and capability set are a function of its body's lexical sites. This fixture
+;; pins the cardinality of each roster, the capability set, and the
+;; ViewCell-elision verdict against the hand-countable bodies — so a manifest
+;; that over-reported (a claim to evidence it lacks) or under-reported (a
+;; hidden reactive site) fails a specific row.
+;;
+;; `:crossing` names the one crossing `mounts-label` records, marked with the
+;; mode it enters — the manifest half of D010.
+{:fh/id "FH-STRUCT-010"
+ :views
+ {:label
+  {:events 0 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 0
+   :capabilities #{} :view-cell :elided :reactive? false}
+  :card
+  {:events 0 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 0
+   :capabilities #{} :view-cell :elided :reactive? false}
+  :list-view
+  {:events 0 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 0
+   :capabilities #{} :view-cell :elided :reactive? false}
+  :mounts-label
+  {:events 0 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 1
+   :capabilities #{} :view-cell :elided :reactive? false
+   :crossing {:view-id :re-frame.freehand.manifest-views/label :lowering :compiled}}
+  :button
+  {:events 1 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 0
+   :capabilities #{:event} :view-cell :present :reactive? true}
+  :two-buttons
+  {:events 2 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 0
+   :capabilities #{:event} :view-cell :present :reactive? true}}}
