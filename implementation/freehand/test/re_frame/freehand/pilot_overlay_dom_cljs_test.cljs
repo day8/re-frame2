@@ -80,6 +80,14 @@
   []
   (js/Promise. (fn [resolve] (js/setTimeout resolve 0))))
 
+(defn- settle
+  "A generous macrotask boundary. A top-layer state change costs a
+  microtask flush, a queued `toggle` task, the dispatch it causes, and the
+  re-render that dispatch schedules — four hops, so a row that observes
+  the END of that chain waits for it rather than for one task."
+  []
+  (js/Promise. (fn [resolve] (js/setTimeout resolve 60))))
+
 ;; ---------------------------------------------------------------------------
 ;; Views. Module-level: a declared view cannot close over a test's locals.
 ;; ---------------------------------------------------------------------------
@@ -115,10 +123,21 @@
 ;; Harness
 ;; ---------------------------------------------------------------------------
 
-(defn- mount! []
-  (let [container (js/document.createElement "div")]
-    (.appendChild js/document.body container)
-    [container (rdc/createRoot container)]))
+(defn- mount!
+  "Mount into a fresh container. `at-origin?` pins the container to the
+  viewport's top-left, which the geometry rows need: the runner's own
+  output pushes an ordinary container far down a long page, where a
+  measured coordinate is outside the viewport and `elementFromPoint`
+  answers about nothing."
+  ([] (mount! false))
+  ([at-origin?]
+   (let [container (js/document.createElement "div")]
+     (when at-origin?
+       (set! (.. container -style -position) "fixed")
+       (set! (.. container -style -top) "0px")
+       (set! (.. container -style -left) "0px"))
+     (.appendChild js/document.body container)
+     [container (rdc/createRoot container)])))
 
 (defn- teardown! [container root]
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
@@ -166,7 +185,7 @@
       (skip! "the browser job runs the placement assertions")
       (async done
         (setup!)
-        (let [[container root] (mount!)
+        (let [[container root] (mount! true)
               render (fn [] (act #(.render root (element [ui/toolbar {:id doc-id}]))))
               seen   (atom nil)]
           (-> (render)
@@ -194,53 +213,71 @@
                        (done)))
               (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
 
-(deftest r-b2-the-panel-escapes-a-clipping-transformed-ancestor-and-a-fixed-sibling-does-not
+(deftest r-b2-the-panel-escapes-a-clipping-transformed-ancestor
   (testing "R-B2 (mounted). The toolbar's ancestor carries `overflow:
             hidden` AND a transform — the two things that defeat
-            `position: fixed` emulation, because a transform makes the
-            ancestor the containing block for a fixed descendant.
+            `position: fixed` emulation, because a transform makes an
+            ancestor the containing block for every fixed descendant.
 
-            The panel lands at the measured VIEWPORT coordinate. A control
-            element in the same ancestor, `position: fixed` at the SAME
-            coordinates, lands displaced by exactly the transform — which
-            is the wart, measured, in the same document, in the same
-            commit. The panel does not have it because the browser gives a
-            top-layer element the viewport as its containing block, and no
-            z-index was involved in either direction."
+            Three measurements, and the middle one is what makes the other
+            two mean something. A `position: fixed` probe inside the same
+            ancestor resolves against the ANCESTOR, displaced by the
+            transform — so the containing-block capture is real in this
+            document, in this commit, and not merely asserted from the
+            spec. The panel, at the same moment, sits exactly at the
+            viewport coordinate the behavior measured, and paints outside
+            the ancestor's clipping box. No z-index was involved in either
+            direction."
     (if-not (browser?)
       (skip! "the browser job runs the containing-block assertions")
       (async done
         (setup!)
-        (let [[container root] (mount!)
-              render (fn [] (act #(.render root (element [ui/toolbar {:id doc-id}]))))]
+        (let [[container root] (mount! true)
+              render (fn [] (act #(.render root (element [ui/toolbar {:id doc-id}]))))
+              clip-id (str "toolbar-clip-" (name doc-id))]
           (-> (render)
               (.then (fn [_]
                        (send! [:acme.ui.dropdown/anchor-clicked k])
                        (render)))
+              (.then (fn [_] (settle)))
               (.then (fn [_]
-                       ;; A control at the same coordinates, inside the same
-                       ;; transformed ancestor, but not in the top layer.
-                       (let [host (by-id (str "toolbar-clip-" (name doc-id)))
-                             ctrl (js/document.createElement "div")]
-                         (set! (.-id ctrl) "clip-control")
-                         (set! (.. ctrl -style -position) "fixed")
-                         (set! (.. ctrl -style -inset) "auto")
-                         (set! (.. ctrl -style -top) "var(--acme-anchor-y)")
-                         (set! (.. ctrl -style -left) "var(--acme-anchor-x)")
-                         (.appendChild host ctrl))
+                       ;; THE PROBE: an ordinary fixed element at the
+                       ;; viewport origin, inside the transformed ancestor.
+                       (let [host  (by-id clip-id)
+                             probe (js/document.createElement "div")]
+                         (set! (.-id probe) "clip-probe")
+                         (set! (.. probe -style -position) "fixed")
+                         (set! (.. probe -style -inset) "auto")
+                         (set! (.. probe -style -top) "0px")
+                         (set! (.. probe -style -left) "0px")
+                         (set! (.. probe -style -width) "1px")
+                         (set! (.. probe -style -height) "1px")
+                         (.appendChild host probe))
                        (let [panel  (rect (panel-id))
                              anchor (rect (anchor-id))
-                             ctrl   (rect "clip-control")]
+                             clip   (rect clip-id)
+                             probe  (rect "clip-probe")
+                             hit    (js/document.elementFromPoint
+                                      (+ (.-left panel) 2) (+ (.-top panel) 2))]
                          (is (true? (open? (panel-id))) "the panel is in the top layer")
+
+                         (is (> (.-left probe) 0.5)
+                             (str "non-vacuous: a fixed probe declared at viewport 0 is NOT "
+                                  "at viewport 0 — the ancestor's transform captured it "
+                                  "(probe left " (.-left probe) ")"))
+                         (is (< (js/Math.abs (- (.-left probe) (.-left clip))) 1.5)
+                             "it resolved against the TRANSFORMED ancestor's box instead")
+
                          (is (< (js/Math.abs (- (.-left panel) (.-left anchor))) 1.5)
-                             "and sits exactly at the measured viewport coordinate")
-                         (is (> (js/Math.abs (- (.-left ctrl) (.-left panel))) 5)
-                             (str "non-vacuous: an ordinary fixed sibling at the SAME "
-                                  "declared coordinates is displaced by the ancestor "
-                                  "transform (panel " (.-left panel) " vs control "
-                                  (.-left ctrl) ")"))
-                         (is (> (.-bottom panel) (.-bottom (rect (str "toolbar-clip-" (name doc-id)))))
-                             "and the panel extends past the clipping ancestor's box"))
+                             "the panel, at the same moment, is at the measured VIEWPORT coordinate")
+                         (is (> (.-top panel) (.-bottom clip))
+                             (str "and paints below the clipping ancestor's box entirely "
+                                  "(panel top " (.-top panel) ", clip bottom " (.-bottom clip) ")"))
+                         (is (or (= hit (by-id (panel-id)))
+                                 (and (some? hit) (.contains (by-id (panel-id)) hit)))
+                             (str "and it is really there: the point paints the panel, not "
+                                  "whatever the clip would have left behind (hit "
+                                  (some-> hit .-id) ")")))
                        (teardown! container root)
                        (done)))
               (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
@@ -336,14 +373,23 @@
               (.then (fn [_]
                        (send! [:acme.ui.dropdown/anchor-clicked k])
                        (render)))
-              (.then (fn [_] (next-task)))
+              (.then (fn [_] (settle)))
               (.then (fn [_]
                        (is (true? (open? (panel-id))) "open")
                        (is (true? (:acked? (record)))
                            "the platform's opening report reached the handshake")
-                       ;; The browser closing it of its own accord.
+                       ;; Let every render the acknowledgement scheduled
+                       ;; commit BEFORE the browser dismisses: a render
+                       ;; still in flight would re-assert the desired state
+                       ;; after the dismissal and re-open the node, which is
+                       ;; a race about test sequencing rather than about the
+                       ;; handshake.
+                       (act (fn [] nil))))
+              (.then (fn [_]
+                       ;; The browser closing it of its own accord — what
+                       ;; Escape and a light dismiss both come down to.
                        (.hidePopover (by-id (panel-id)))
-                       (next-task)))
+                       (settle)))
               (.then (fn [_]
                        (is (nil? (record))
                            "the dismissal report closed the control's own state")
@@ -359,38 +405,53 @@
 ;; R-B9 — nesting: stacked, and dismissed innermost-first
 ;; ===========================================================================
 
-(deftest r-b9-a-nested-panel-stacks-and-dismissing-it-leaves-the-outer-up
+(def ^:private outer-k [ui/dropdown-kind [:menu doc-id :format]])
+(def ^:private inner-k [ui/dropdown-kind [:menu doc-id :scope]])
+(defn- outer-panel [] (str "acme-dropdown-outer-" (name doc-id) "-panel"))
+(defn- inner-panel [] (str "acme-dropdown-inner-" (name doc-id) "-panel"))
+
+(defn- open-record [] {:open? true :active 0})
+
+(deftest r-b9-a-nested-panel-opened-in-one-commit-stacks-and-dismisses-innermost-first
   (testing "R-B9 (mounted). The inner control is ordinary children of the
             outer panel, so its popover is a DOM descendant of the outer
             one — which is what makes the browser stack them rather than
-            treat the inner as a sibling that closes the outer. Dismissing
-            the inner leaves the outer up; that is the LIFO property, and
-            it is the platform's, not the library's."
+            treat the inner as a sibling that closes the outer.
+
+            Both desired states are true at the FIRST commit, which is the
+            arrangement the top layer's document-order flush was built for:
+            the ancestor is shown before the descendant, so the descendant
+            is genuinely nested. Dismissing the inner then leaves the outer
+            up — the LIFO property, and it is the platform's, not the
+            library's."
     (if-not (browser?)
       (skip! "the browser job runs the nesting assertions")
       (async done
         (setup!)
+        ;; Both open BEFORE the first render, so one commit carries both.
+        (frame/replace-app-db! fid {ui/records-root {outer-k (open-record)
+                                                     inner-k (open-record)}})
         (let [[container root] (mount!)
-              render  (fn [] (act #(.render root (element [ui/menu-bar {:id doc-id}]))))
-              outer-k [ui/dropdown-kind [:menu doc-id :format]]
-              inner-k [ui/dropdown-kind [:menu doc-id :scope]]
-              outer   (str "acme-dropdown-outer-" (name doc-id) "-panel")
-              inner   (str "acme-dropdown-inner-" (name doc-id) "-panel")]
+              render (fn [] (act #(.render root (element [ui/menu-bar {:id doc-id}]))))
+              outer  (outer-panel)
+              inner  (inner-panel)]
           (-> (render)
-              (.then (fn [_]
-                       (send! [:acme.ui.dropdown/anchor-clicked outer-k])
-                       (send! [:acme.ui.dropdown/anchor-clicked inner-k])
-                       (render)))
-              (.then (fn [_] (next-task)))
+              (.then (fn [_] (settle)))
               (.then (fn [_]
                        (is (true? (open? outer)) "the outer panel is open")
                        (is (true? (open? inner))
                            "and the nested one is open TOO — document order beat React's bottom-up refs")
                        (is (.contains (by-id outer) (by-id inner))
                            "non-vacuous: the inner really is a DOM descendant of the outer")
+                       ;; A re-commit must not collapse them.
+                       (render)))
+              (.then (fn [_] (settle)))
+              (.then (fn [_]
+                       (is (true? (open? outer)) "a further commit left the pair alone")
+                       (is (true? (open? inner)) "both halves")
                        ;; The browser dismissing the INNER.
                        (.hidePopover (by-id inner))
-                       (next-task)))
+                       (settle)))
               (.then (fn [_]
                        (is (false? (open? inner)) "the inner closed")
                        (is (true? (open? outer)) "and the outer stayed up")
@@ -398,6 +459,58 @@
                            "the inner's state closed with it")
                        (is (some? (get-in (frame/frame-app-db-value fid) [ui/records-root outer-k]))
                            "and the outer's did not")
+                       (teardown! container root)
+                       (done)))
+              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+
+(deftest a-nested-panel-opened-in-a-LATER-commit-collapses-the-pair
+  (testing "R-B9, and a FINDING. The document-order flush repairs nesting
+            WITHIN one commit. It cannot repair it ACROSS commits, and
+            across commits is the shape a user produces: open the menu,
+            then reach into it for the submenu.
+
+            What happens is total. Showing the inner popover in a commit
+            after its ancestor was already open does not nest — the browser
+            light-dismisses the outer, and hiding the outer takes the
+            just-shown inner down with it because the inner is inside a
+            subtree that is no longer rendered. The pilot's own dismissal
+            handshake then correctly reconciles both records to closed. So
+            the control does not lie about its state; it simply cannot be
+            opened this way.
+
+            This row asserts the collapse rather than describing it,
+            because a pilot's job is evidence. It is not a defect in the
+            pilot's composition: the same declarations nest perfectly when
+            both open in one commit (the row above)."
+    (if-not (browser?)
+      (skip! "the browser job runs the nesting assertions")
+      (async done
+        (setup!)
+        (let [[container root] (mount!)
+              render (fn [] (act #(.render root (element [ui/menu-bar {:id doc-id}]))))
+              outer  (outer-panel)
+              inner  (inner-panel)]
+          (-> (render)
+              (.then (fn [_]
+                       (send! [:acme.ui.dropdown/anchor-clicked outer-k])
+                       (render)))
+              (.then (fn [_] (settle)))
+              (.then (fn [_]
+                       (is (true? (open? outer)) "the outer panel opened, alone, first")
+                       (is (.contains (by-id outer) (by-id inner))
+                           "and the inner popover is inside it in the DOM, closed")
+                       ;; The second commit — the user reaching into the menu.
+                       (send! [:acme.ui.dropdown/anchor-clicked inner-k])
+                       (render)))
+              (.then (fn [_] (settle)))
+              (.then (fn [_]
+                       (is (false? (open? outer))
+                           "THE FINDING: the ancestor was light-dismissed by its own descendant")
+                       (is (false? (open? inner))
+                           "and the descendant went down with the subtree that stopped rendering")
+                       (is (nil? (get-in (frame/frame-app-db-value fid) [ui/records-root outer-k]))
+                           "the handshake reconciled the outer's state to closed — the control
+                            does not claim to be open")
                        (teardown! container root)
                        (done)))
               (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
