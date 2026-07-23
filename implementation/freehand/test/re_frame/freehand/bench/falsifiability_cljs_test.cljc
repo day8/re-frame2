@@ -3,14 +3,20 @@
 
   This is the deterministic property the harness itself is judged on, and
   it is the stable subset that runs in PR smoke — it needs no browser, no
-  pinned worker and no calibration, because it asserts about EXIT CODES
-  rather than about milliseconds.
+  pinned worker and no calibration, because it asserts about EXIT CODES,
+  ROUTING and exact COUNTS, and never about milliseconds. Not one
+  assertion in this namespace reads a wall clock, which is the same rule
+  the harness enforces on everyone else, held to here.
 
-  Criterion 3 is the one that gets skipped, so it is asserted twice here:
-  once that a wildly moved wall-clock distribution still exits 0, and
-  once that the distribution really did move. A harness that fails on a
-  slow run has silently become a threshold, which D021 forbids; a proof
-  that an unchanged timing did not red the build proves nothing."
+  Criterion 3 is the one that gets skipped, so it is asserted three ways:
+  that a wildly moved wall-clock distribution still exits 0; that the
+  fixture genuinely did more work, so that result is not vacuous; and
+  that the reading which moved was routed as evidence rather than judged
+  as a property. A harness that fails on a slow run has silently become a
+  threshold, which D021 forbids — and a control that policed that with a
+  wall-clock threshold of its own would be the same mistake, one level
+  up. The second of the three is therefore read off the fixture's
+  workload size, which is exact on any host under any load."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.freehand.bench :as bench]
             [re-frame.freehand.bench.falsifiability :as falsifiability]
@@ -72,12 +78,39 @@
 
 (deftest the-moved-timing-really-moved
   (testing "criterion 3's non-vacuity. Without this the assertion above
-            is satisfied by a timing that did not change."
+            is satisfied by a timing that had no reason to change.
+
+            Proven on the fixture's WORKLOAD SIZE — the nodes the arm
+            actually rendered, which the repeat knob scales by exactly its
+            own factor — and not on the wall-clock ratio. A numeric
+            wall-clock threshold here would be the shape D021 forbids
+            everywhere else, sitting inside the harness that mechanises the
+            ban, and it flaked for the reason D021 gives: under concurrent
+            load a 50x workload returned an 8.79x ratio."
     (let [proof (falsifiability/prove provenance)]
       (is (number? (:move proof)))
       (is (<= 10 (:move proof))
-          (str "the moved arm's p50 was only " (:move proof)
-               "x the baseline's — nothing was proven about a wildly changed timing")))))
+          (str "the moved arm rendered only " (:move proof)
+               "x the baseline's nodes — nothing was proven about a moved timing, "
+               "because the fixture gave it no reason to move"))
+      (is (number? (:timing-ratio proof))
+          "the wall-clock ratio is still reported — as evidence, deciding nothing"))))
+
+(deftest the-moved-arms-timing-is-evidence-and-not-a-gate
+  (testing "what makes the arm above a control at all: the reading that
+            moved must be ROUTED as evidence. A `:duration-ms` published
+            as a distribution has no path to a verdict; the same reading
+            judged as a property would turn runner noise into a red build,
+            which is the mis-wiring criterion 3 exists to catch."
+    (let [record (first (:results (bench/run [falsifiability/moved-timing] provenance)))]
+      (is (contains? (:distribution record) :falsifiability/render-ms)
+          "the moved arm's wall-clock reading is a published distribution")
+      (is (not (contains? (:properties record) :falsifiability/render-ms))
+          "and never a judged property — only deterministic properties gate")
+      (is (contains? (:properties record) :falsifiability/render-nodes)
+          "while the workload size, being deterministic, IS a gated property")
+      (is (not (contains? (:distribution record) :falsifiability/render-nodes))
+          "and has no distribution: a correct run answers it once"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Both directions at once — the harness's own gate
