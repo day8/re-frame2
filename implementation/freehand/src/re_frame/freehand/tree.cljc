@@ -156,7 +156,15 @@
 
   Every value here is only known now, so they all ride `:dyn` — the
   interpreted front end has no compile step in which to settle one.
-  `:key` is structural and `:class` composes after the sugar classes."
+  `:key` is structural and `:class` composes after the sugar classes.
+
+  The `#id` conflict is judged by the emitted SLOT
+  ([[re-frame.freehand.conversion/id-slot-key?]]) rather than by the raw
+  key, because the sugar and an authored id are two spellings of one
+  attribute and the grammar removes that ambiguity rather than ranking it.
+  Asked only when there IS sugar: with no sugar there is no second
+  spelling, and `:x/id` is an ordinary qualified attribute that keeps its
+  authored name."
   [m tag sugar-id attrs]
   (reduce-kv
     (fn [m k raw]
@@ -164,17 +172,19 @@
         (malformed!
           (str "The element " tag " carries " k ". " refusal)
           {:attr k}))
+      (when (and sugar-id (some? raw) (conv/id-slot-key? k))
+        (malformed!
+          (str "The element " tag " spells its id twice — once as #" sugar-id
+               " sugar and once as " k ". Two id spellings on one element is an "
+               "ambiguity; keep one." (when (not= :id k)
+                                        (str " " k " is :id written differently: a "
+                                             "namespace is dropped on the way to the DOM, "
+                                             "so both land in the same attribute.")))
+          {:attr k :value (shape raw)}))
       (cond
         (= :key k)   m
         (= :class k) (assoc m :class raw)
         (= :style k) (assoc m :style raw)
-        (= :id k)    (do (when (and sugar-id (some? raw))
-                           (malformed!
-                             (str "The element " tag " spells its id twice — once as #"
-                                  sugar-id " sugar and once as :id. Two id spellings on "
-                                  "one element is an ambiguity; keep one.")
-                             {:attr :id :value (shape raw)}))
-                         (update m :dyn assoc :id raw))
         :else        (update m :dyn assoc k raw)))
     m
     attrs))

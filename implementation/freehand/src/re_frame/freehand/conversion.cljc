@@ -76,8 +76,8 @@
 ;;     cache stops accepting entries and the projection costs what it
 ;;     always cost — a bounded loss, never a leak.
 ;;
-;; A projection here always answers a map or a string, never nil, so a
-;; miss and a remembered nil are not confusable.
+;; A projection here always answers a map, a string, a keyword or a
+;; boolean, never nil, so a miss and a remembered nil are not confusable.
 
 (def ^:private cache-limit
   "The most entries one remembered projection will hold."
@@ -563,6 +563,35 @@
   distinct authored key rather than once per attribute per render."
   [k]
   (remembered attr-key-cache k rules/canonical-attr-key))
+
+(defn- id-slot-key?* [k]
+  (= rules/sugar-id-slot (rules/caller-key-slot k)))
+
+(def ^:private id-slot-cache (atom {}))
+
+(defn id-slot-key?
+  "Does attribute key `k` project onto the slot the tag parser's `#id`
+  shorthand already occupies?
+
+  The question both walks ask when — and only when — an element carries
+  `#id` sugar, because two spellings of one id on one element is an
+  ambiguity the grammar removes rather than ranks (Spec 004B). It is asked
+  of the emitted SLOT, through
+  [[re-frame.freehand.rules/caller-key-slot]], for the reason
+  [[attr-key-refusal]] asks about the same projection: a key is classified
+  by the name it is about to be written under, so `:x/id`, `\"id\"` and
+  `'id` are `:id` written differently and reach React's `id` all the same.
+  Comparing the raw key let an aliased spelling through, and the tree then
+  carried the sugar id beside an authored one that overwrote it in the DOM.
+
+  This does NOT canonicalize the key. An `:x/id` on an element with no
+  sugar is an ordinary qualified attribute and keeps its authored name —
+  the structural tree carries author space, and the ambiguity being ruled
+  out is the one the sugar creates.
+
+  Remembered per key — see §Remembered projections above."
+  [k]
+  (remembered id-slot-cache k id-slot-key?*))
 
 (defn- react-event-name* [k]
   (str "on" (upper-first (camelize (subs (name k) 3)))))

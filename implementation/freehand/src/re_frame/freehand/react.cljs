@@ -131,6 +131,20 @@
       (when-some [refusal (conv/attr-key-refusal k)]
         (malformed! (str "The element " tag " carries " k ". " refusal)
                     {:attr k}))
+      ;; The `#id` conflict, judged by the emitted SLOT rather than by the
+      ;; raw key — and this walk is where the raw comparison SHOWED: React
+      ;; writes `:id` and `:x/id` into one JavaScript property, so the
+      ;; aliased pair silently replaced the sugar while the structural tree
+      ;; reported both. Asked only when there IS sugar to conflict with.
+      (when (and sugar-id (some? raw) (conv/id-slot-key? k))
+        (malformed! (str "The element " tag " spells its id twice — once as #" sugar-id
+                         " sugar and once as " k ". Two id spellings on one element is an "
+                         "ambiguity; keep one."
+                         (when (not= :id k)
+                           (str " " k " is :id written differently: a namespace is dropped "
+                                "on the way to the DOM, so both land in the same "
+                                "attribute.")))
+                    {:attr k :value (shape raw)}))
       (cond
         (= :key k)   nil
         (nil? raw)   nil
@@ -160,14 +174,6 @@
 
         (= :style k)
         (gobj/set o "style" (react-style tag raw))
-
-        (= :id k)
-        (do (when (and sugar-id (some? raw))
-              (malformed! (str "The element " tag " spells its id twice — once as #" sugar-id
-                               " sugar and once as :id. Two id spellings on one element is an "
-                               "ambiguity; keep one.")
-                          {:attr :id :value (shape raw)}))
-            (put-attr! o tag k raw))
 
         :else (put-attr! o tag k raw)))
     ;; Key PRESENCE, not key truth. React string-coerces whatever key it is
