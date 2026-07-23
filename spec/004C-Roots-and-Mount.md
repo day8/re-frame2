@@ -442,6 +442,7 @@ prefix-uniqueness backstop share the roster:
 | `:rf.error/root-container-missing` | hydration locator resolves to no element (§4) |
 | `:rf.error/root-container-in-use` | `create-root`/`mount` on a node already owned by a different live or tearing-down root |
 | `:rf.error/duplicate-identifier-prefix` | `create-root`/`mount`/`hydrate-root` whose effective `identifierPrefix` is already claimed by a different live root — backstops authored `:identifier-prefix` aliasing, and hydrating roots that share React's effective empty prefix `""` when the manifest omits `:identifier-prefix` (the derived mount default is injective over root-id, §1) |
+| `:rf.error/root-identifier-prefix-immutable` | a same-root/same-container re-mount — the idempotent reload path, which RE-RENDERS the live host root — whose effective `identifierPrefix` differs from the one that root was created under. Host root options are fixed at creation, so the running root cannot adopt the new value; the drift is refused before preflight and before any render, and the live root keeps its prefix claim |
 | `:rf.error/root-not-live` | `render!` on a `Root` whose id is no longer live — `unmount!`ed, tearing-down, or superseded by a newer root claiming the same id (guarded like `unmount!`, but fails loud rather than no-op, before any side effect) |
 | `:rf.error/root-manifest-invalid` | manifest missing/unreadable at hydrate, schema-version incompatible, identity opts passed client-side, unserialisable props at emit, prefix conflict |
 | `:rf.error/frame-payload-conflict` | below |
@@ -688,6 +689,22 @@ the host already mounted.** The emitter caches one boundary per qualified view
 id — the same id the root's identity derives from — and a redefinition
 publishes its new body through that boundary rather than replacing it. The
 reloaded body renders and the occurrence beneath it survives.
+
+**Reuse is exactly why the `identifierPrefix` cannot move.** A host root's
+options are fixed when it is created, so the running root a reload re-renders
+has no way to adopt a new effective prefix. A re-mount that authors a
+different one is therefore refused —
+`:rf.error/root-identifier-prefix-immutable`, recovery
+`:unmount-before-changing-identifier-prefix` — at the same admission gate the
+three claims of §7 are asserted at: **before preflight and before any render**,
+with the live root's prefix claim, its frame and its committed DOM untouched.
+Silently accepting it would be the worst of the three outcomes available: the
+registry would record a prefix `use-id` never emits, and would treat the old
+one as free for a second root the live root is in fact still rendering under —
+manufacturing the very cross-root `use-id` collision the prefix claim exists
+to prevent. What is refused is **drift**, never the re-mount: a re-mount
+offering the same effective prefix — authored verbatim, or derived because
+neither site authored one — is the ordinary idempotent reload.
 
 ### Compatible shell versus clean remount
 
