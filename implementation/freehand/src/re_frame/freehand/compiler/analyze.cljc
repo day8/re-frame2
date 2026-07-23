@@ -1839,7 +1839,14 @@
               on?        (fn [k] (str/starts-with? (name k) "on-"))
               handler-ks (filter on? (keys m*))
               attr-ks    (remove on? (keys m*))
-              controlled? (or (contains? m :value) (contains? m :checked))
+              ;; The element half of the door, ASKED not restated — the same
+              ;; normalized-slot rule the interpreted emitter asks over the
+              ;; props it just wrote. A raw `:value`/`:checked` comparison
+              ;; judged a SPELLING while the emitter judged a SLOT, so
+              ;; `:x/value` reached React's `value` prop and made the node
+              ;; controlled while the compiled site stayed batched — the one
+              ;; promotion-parity break D009 names (rf2-drpa3.119).
+              controlled? (controlled/controlled-props? (keys m))
               events0    (mapv #(analyze-handler e % (get m* %)) handler-ks)
               events     (mapv (fn [handler]
                                  (let [sync? (controlled-event-sync?
