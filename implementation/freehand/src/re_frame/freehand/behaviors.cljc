@@ -78,6 +78,7 @@
             [re-frame.freehand.eq :as eq]
             [re-frame.fx :as fx]
             #?@(:cljs [["react" :as react]
+                       [re-frame.freehand.refs :as refs]
                        [re-frame.freehand.shell :as shell]
                        [re-frame.router :as router]])))
 
@@ -687,9 +688,17 @@
 
   `cloneElement` rather than a wrapper node, deliberately: a behavior owns
   a node the AUTHOR declared, so inserting one of the substrate's own would
-  change the document the stylesheet and the host library both address."
+  change the document the stylesheet and the host library both address.
+
+  The ref is CHAINED onto whatever the element already carries rather than
+  written over it. An element may declare a top-layer desired state and
+  carry a behavior at once — the two are orthogonal in intent, and Spec
+  004 says so — and a bare write would silently disable whichever
+  mechanism wrote first. The behavior is a decoration applied OVER the
+  element, so it takes the node after the element's own intrinsics and
+  releases before them ([[re-frame.freehand.refs]])."
   [element ref]
-  (react/cloneElement element #js {:ref ref}))
+  (react/cloneElement element #js {:ref (refs/chain (refs/element-ref element) ref)}))
 
    ))
 

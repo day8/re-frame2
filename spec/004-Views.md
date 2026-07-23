@@ -1382,6 +1382,56 @@ pretending to reach a host. A structural test therefore asserts the command's
 DATA — the effect an event handler returned — and the mounted tier proves the
 host action.
 
+#### Sharing one node
+
+A behavior and a top-layer desired state are orthogonal in intent — one runs
+bounded imperative work over a node, the other expresses a desired-state DOM
+affordance — and nothing about either says they cannot describe the same
+element. A measured popover is the ordinary case: the platform promotes it, and
+a behavior places or sizes it.
+
+Both mechanisms need the live node, and React holds ONE ref per element. An
+implementation that wrote a bare ref would therefore not fail on such an element
+— it would CLOBBER, silently, and the symptom would be a popover that never
+opens or a behavior that never connects. A conforming implementation COMPOSES
+instead: when more than one mechanism needs one node, every participant receives
+it and every participant is released. Refusing the combination would forbid a
+legitimate authoring shape and would have to be re-litigated the first time a
+third mechanism wanted a node — refusal scales with the number of pairs,
+composition does not.
+
+**The order is defined, and it is inside-out.** Participants receive the node in
+the order they were added, and they are added from the element outward: the
+element's own intrinsics first, then each decorating boundary in the order it
+encloses the node. Release runs in the exact reverse, as a stack unwinds. An
+intrinsic is a property OF the element and a behavior is a decoration applied
+OVER it, so this is the declaration's own containment order rather than a
+convention — and leaving it to map iteration, or to whichever mechanism happened
+to install first, would promote an implementation detail to a semantic one.
+
+Composition orders registration on ONE element and nothing else. It is not the
+mechanism that orders host operations ACROSS elements: the top layer's commit
+batch owns that, in document order, precisely because ref order is bottom-up
+(§Commit, order, and the declared tracking frequency). A chain that tried to be
+both would re-introduce the nesting failure the batch exists to remove.
+
+**Composing must not change any participant's attach frequency.** A mechanism
+whose ref is deliberately fresh at each commit stays fresh, and one whose ref is
+deliberately stable stays stable — a composition memoised into stability would
+silence the first, and one allocated for a lone participant would make the
+second tear its node down every commit.
+
+**Release is total, and it is asserted as an absence.** Every participant is
+released when the node goes, under whichever release protocol it uses, and after
+teardown the substrate retains nothing for that element — measured against a
+control mount carrying neither mechanism, so the host's own bookkeeping cannot
+be mistaken for the substrate's.
+
+None of this is new surface. There is no ref an author may declare, no verb for
+composing one, and no way for an application to hold a node: composition is how
+the substrate's own mechanisms coexist, and an author reaches it by writing the
+two declarations that already exist.
+
 ### The DOM top layer
 
 An overlay used to mean a pile of machinery: a portal to escape a clipping
@@ -1486,7 +1536,8 @@ Positioning is a separate concern with a separate answer — CSS anchor
 positioning where it suits, or a registered behavior with an explicit update
 contract (§Registered behaviors and commands). The pair does not consume a node's
 behavior slot, so measured placement and top-layer control coexist on one
-element; and nothing here implies per-frame tracking.
+element — the two refs compose, in the order §Sharing one node defines; and
+nothing here implies per-frame tracking.
 
 #### Browser dismissal, and what the substrate never does
 

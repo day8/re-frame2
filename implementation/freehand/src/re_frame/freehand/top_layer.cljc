@@ -86,7 +86,8 @@
   §Reserved `:rf.ui/*` keys."
   (:require [re-frame.error :as error]
             [re-frame.freehand.conversion :as conv]
-            #?@(:cljs [[goog.object :as gobj]])))
+            #?@(:cljs [[goog.object :as gobj]
+                       [re-frame.freehand.refs :as refs]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -423,14 +424,23 @@
   cost nothing. A detach enqueues nothing — a node leaving the document
   takes its top-layer state with it, and a superseded generation must
   never act on its replacement. `ref` returns `js/undefined` so React 19
-  reads it as \"no cleanup\" rather than as a cleanup value."
+  reads it as \"no cleanup\" rather than as a cleanup value.
+
+  The install CHAINS onto whatever ref the props already carry rather than
+  writing over it. Nothing else writes one today — the walk refuses an
+  authored `:ref` outright — but a bare write is the shape of the bug this
+  namespace and the behavior boundary would otherwise have on an element
+  carrying both, and one rule at every writer is what keeps the substrate
+  composable by default ([[re-frame.freehand.refs]]). An intrinsic is a
+  property of the ELEMENT, so it takes the node first and releases last."
   [props tag attrs]
   (if-let [fact (desired tag attrs)]
     (do (advise-unreconciled! tag attrs fact)
         (gobj/set props "ref"
-                  (fn top-layer-ref [node]
-                    (when (some? node) (enqueue! node fact))
-                    js/undefined))
+                  (refs/chain (gobj/get props "ref")
+                              (fn top-layer-ref [node]
+                                (when (some? node) (enqueue! node fact))
+                                js/undefined)))
         props)
     props))
 
