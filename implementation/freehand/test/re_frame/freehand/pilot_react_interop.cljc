@@ -130,7 +130,7 @@
       node, paints itself into it, installs ONE host listener, and answers an
       opaque instance handle."
      [node {:keys [rows read-only?]}]
-     (let [state    (atom {:rows (or rows []) :cursor [0 0] :read-only? read-only?})
+     (let [state    (atom {:rows (or rows []) :cursor nil :read-only? read-only?})
            inst     {:node node :state state :sink (atom nil)}
            listener (fn [e]
                       (let [td (.-target e)]
