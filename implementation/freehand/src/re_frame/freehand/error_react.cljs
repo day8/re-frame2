@@ -17,15 +17,36 @@
     - **`getDerivedStateFromError`** flips React state `:caught` so the very
       next render shows the fallback. It is static and cannot reach the
       instance, so it captures nothing itself.
-    - **`componentDidCatch`** runs in the commit phase — the place a stateful
-      side effect is safe — and CAPTURES the failure onto the boundary
-      ([[re-frame.freehand.errors/capture!]]): a fresh failure
-      advances the generation, a repeat (StrictMode's double-invoke) is a
-      no-op.
-    - **`componentDidUpdate`** reconciles the caller-owned `:reset-key` (a
-      change clears the failure and re-mounts the child) and PROMOTES the
-      failure — the safe `:on-error` intent and the private egress record —
-      once per generation, after the fallback has committed.
+    - **`componentDidCatch`** runs in the layout phase of the commit that
+      put the FALLBACK on screen — the place a stateful side effect is safe
+      — and both CAPTURES the failure onto the boundary
+      ([[re-frame.freehand.errors/capture!]]) and PROMOTES it: a fresh
+      failure advances the generation and fires the safe `:on-error` intent
+      and the private egress record, a repeat (StrictMode's double-invoke)
+      is a no-op.
+    - **`componentDidUpdate`** promotes anything still unreported and THEN
+      reconciles the caller-owned `:reset-key` (a change clears the failure
+      and re-mounts the child).
+
+  ## Why capture and promotion are the same lifecycle
+
+  React's commit runs `componentDidMount` / `componentDidUpdate` BEFORE the
+  update queue's callbacks, and `componentDidCatch` IS one of those
+  callbacks. So on the commit that contains a failure the mount/update hooks
+  see a boundary that has captured NOTHING; the capture arrives afterwards,
+  and it schedules no render of its own. A driver that captured in
+  `componentDidCatch` and promoted from the other two therefore stranded
+  every first-generation failure: the fallback on screen, the machine in
+  `:failed`, and no record anywhere — until some UNRELATED later render of
+  the parent happened to run `componentDidUpdate` and flush it. On an
+  initial mount that render may never come, and a reset reconciled before
+  the promotion would clear the capture permanently.
+
+  Promoting where the capture happens is what makes the report prompt, and
+  it is still \"after the fallback commits\": the layout phase runs after the
+  mutation phase has put the fallback in the DOM. Ordering the update hook's
+  promotion BEFORE its reset reconcile is the second half — an unpromoted
+  generation can never be erased by the retry that follows it.
 
   Frame context is read through `contextType`, so the safe intent dispatches
   into the frame the boundary was mounted under. The interpreted emitter
@@ -56,7 +77,7 @@
 (defn- promote!
   "Fire the two failure channels once per captured generation, after the
   fallback commit. Guarded by the law's once-per-generation gate, so calling
-  it from `componentDidMount` and every `componentDidUpdate` is safe."
+  it from the capture itself and from every `componentDidUpdate` is safe."
   [^js this]
   (let [b (.-boundary this)]
     (when (eb/failed? b)
@@ -94,6 +115,10 @@
     ;; React-19 requires this static method for the boundary to catch; it
     ;; flips the render-phase marker only. The capture is the commit phase's.
     (set! (.-getDerivedStateFromError ^js ctor) (fn [_error] #js {:caught true}))
+    ;; The fallback is already in the DOM here — this callback runs in the
+    ;; layout phase of the commit that put it there — so capture and
+    ;; promotion belong together. Nothing else in the lifecycle is
+    ;; guaranteed to run for a first-generation failure.
     (set! (.-componentDidCatch proto)
           (fn [error info]
             (this-as ^js this
@@ -102,17 +127,19 @@
                             :phase           :render
                             :view-id         eb/boundary-view-id
                             :frame-id        (context-frame-id this)
-                            :component-stack (some-> info (gobj/get "componentStack"))}))))
-    (set! (.-componentDidMount proto)
-          (fn [] (this-as ^js this (promote! this))))
+                            :component-stack (some-> info (gobj/get "componentStack"))})
+              (promote! this))))
     (set! (.-componentDidUpdate proto)
           (fn [_prev-props _prev-state _snapshot]
             (this-as ^js this
+              ;; Promote BEFORE reconciling: a reset clears the captured
+              ;; failure, and a generation that has not been reported yet
+              ;; would be erased with nothing left to report it.
+              (promote! this)
               ;; A changed :reset-key clears the captured failure and
               ;; re-mounts the child; the render below then retries it.
               (when (eb/reset-to! (.-boundary this) (:reset-key (eb/read-opts (props-map this))))
-                (.setState this #js {:caught false}))
-              (promote! this))))
+                (.setState this #js {:caught false})))))
     (set! (.-render proto)
           (fn []
             (this-as ^js this
