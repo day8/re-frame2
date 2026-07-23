@@ -217,8 +217,8 @@
             the use site authored. On the structural host there is no live
             connection, so the command performs no host work.
 
-            THREE things an adopter has to discover the hard way, and all
-            three are reported as findings:
+            TWO things an adopter has to discover the hard way, and both are
+            reported as findings:
 
             1. An fx refusal does NOT propagate out of `dispatch-sync` —
                re-frame catches it and routes it to the always-on error axis.
@@ -231,13 +231,21 @@
                dug out of the record's `:exception`. An operator surface
                that wanted to show `your command was refused, and why` has to
                know to unwrap.
-            3. On the JVM there is no refusal to observe AT ALL. The command
-               fx is registered `{:platforms #{:client}}`, so the structural
-               host SKIPS it (a `:rf.fx/skipped-on-platform` trace) and the
-               JVM refusal `command!` carries is never reached through the
-               documented `{:fx [[…]]}` path. Spec 004 §The structural marker
-               says a command there `is refused with the same channel
-               diagnostic`; through the data path it is silently skipped."
+
+            Both are properties of the fx boundary rather than of this
+            channel, and both are asserted here because they cost an adopter
+            a wrong test: `(is (thrown? …))` around the dispatch is green and
+            proves nothing.
+
+            THE THIRD FINDING WAS A DEFECT AND IS FIXED. The channel used to
+            register `{:platforms #{:client}}`, so the structural host SKIPPED
+            it — a `:rf.fx/skipped-on-platform` warning trace and nothing on
+            the error axis at all — while Spec 004 §The structural marker says
+            a command there `is refused with the same channel diagnostic
+            rather than pretending to reach a host`. The well-written JVM
+            refusal `command!` carries was unreachable through the documented
+            `{:fx [[…]]}` path. The gate is gone; the channel now answers on
+            BOTH hosts, with the arm each host can honestly offer."
     (is (some? (rf/handler-meta :fx :re-frame.freehand.host/command))
         "the command channel is an ordinary registered effect")
     (let [seen (atom [])]
@@ -249,20 +257,29 @@
                (pilot/ledger-snapshot))
             "a command with no live connection performs NO host work")
         (let [ids   (mapv :error @seen)
-              inner (mapv #(:rf.error/id (ex-data (:exception %))) @seen)]
-          #?(:cljs
-             (do
-               (is (= [:rf.error/fx-handler-exception] ids)
-                   (str "the error axis sees the GENERIC fx wrapper, not the "
-                        "command's own id — finding (2) above; got " (pr-str ids)))
-               (is (= [:rf.error/behavior-command-refused] inner)
-                   (str "and the typed refusal is one unwrap deeper, inside the "
-                        "record's :exception; got " (pr-str inner))))
-             :clj
-             (is (empty? ids)
-                 (str "on the STRUCTURAL host the client-only fx is skipped, so "
-                      "there is no refusal record to observe — finding (3) above; "
-                      "got " (pr-str ids)))))
+              datas (mapv #(ex-data (:exception %)) @seen)]
+          (is (= [:rf.error/fx-handler-exception] ids)
+              (str "the error axis sees the GENERIC fx wrapper, not the "
+                   "command's own id — finding (2) above; got " (pr-str ids)))
+          (is (= [:rf.error/behavior-command-refused]
+                 (mapv :rf.error/id datas))
+              (str "and the typed refusal is one unwrap deeper, inside the "
+                   "record's :exception — on EVERY host; got "
+                   (pr-str (mapv :rf.error/id datas))))
+          (is (= ['re-frame.freehand.host/command] (mapv :where datas))
+              "attributed to the command channel, not to the fx registrar")
+          (is (= [fid] (mapv :frame datas))
+              (str "and naming the frame the originating event ran in; got "
+                   (pr-str (mapv :frame datas))))
+          ;; The RECOVERY is what tells the two hosts apart, and it is the
+          ;; assertion that would have caught the defect: a skipped fx
+          ;; produces no record to carry one.
+          (is (= [#?(:clj  :assert-the-command-data-on-the-structural-host
+                     :cljs :connect-the-target-or-drive-the-host-through-config)]
+                 (mapv :recovery datas))
+              (str "each host offers the recovery it can honour — the "
+                   "structural host says assert the DATA, the browser says "
+                   "connect the target; got " (pr-str (mapv :recovery datas)))))
         (finally
           (rf/unregister-listener! :errors ::commands))))))
 
