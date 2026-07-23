@@ -1,0 +1,24 @@
+;; FH-PRESENCE-003 — presence retention, timeout and accessibility in a REAL
+;; browser.
+;;
+;; FH-PRESENCE-001 pins what the tree SAYS about presence and FH-PRESENCE-002
+;; the pure transition algebra. Neither can prove what REACT DOES with a
+;; retained subtree: that a departed key's child stays MOUNTED in the document
+;; while exiting, that the child's own `(v/presence-phase)` read reaches
+;; `:unmounting` so it can hide itself from assistive technology, that the
+;; terminal timeout finally unmounts it exactly once, and that a re-entry
+;; before the timeout cancels the removal. Those are facts about a live
+;; `react-dom/client` mount, read back off `document`, driven by the
+;; deterministic `flush-presence!` clock with no wall-clock sleep.
+;;
+;; The child owns its exit accessibility (the boundary is DOM-agnostic): the
+;; `toast` view reads its phase and stamps `aria-hidden` while `:unmounting`,
+;; which is exactly what this row asserts is present on the retained node and
+;; absent again after re-entry.
+{:fh/id "FH-PRESENCE-003"
+ :fh/law
+ "In a real browser a departed key's child is RETAINED in the DOM while :unmounting and owns its exit accessibility (aria-hidden read from (v/presence-phase)); flush-presence! removes it terminally and exactly once; a re-entry before the flush cancels the removal and restores :present."
+
+ :timeout-ms 3000
+ :exit-aria {"aria-hidden" "true"}
+ :exit-class "exiting"}
