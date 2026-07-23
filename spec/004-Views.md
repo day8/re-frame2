@@ -1686,6 +1686,16 @@ Within a commit the operations are ordered and then performed at the microtask
 checkpoint the commit opens — before the browser paints, so the ordering costs no
 frame and no frame is ever painted in the wrong state.
 
+An operation waiting in that checkpoint belongs to the **generation that queued
+it**, and a generation that retires before the checkpoint runs withdraws it.
+Ownership is the fence here, not connectivity: a commit that removes the
+intrinsic without removing the element retires the generation while the node
+stays in the document, and a checkpoint that read only the node's connectedness
+would open a node nothing controls any more on behalf of a generation that had
+already let go. Withdrawal is exact for the same reason — a successor's claim on
+the same node has already replaced the entry, so a predecessor's retirement
+cannot take it down with it, in whichever order the host runs attach and detach.
+
 The **tracking frequency is the commit, and nothing between commits.** The
 desired state is diffed against the node's LIVE state, so a repeated equal value
 is a no-op however many renders pass, and the substrate arms nothing that

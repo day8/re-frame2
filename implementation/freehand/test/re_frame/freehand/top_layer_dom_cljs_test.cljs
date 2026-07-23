@@ -344,6 +344,102 @@
               "a disconnected node was skipped, not asked to open")
           (is (zero? (top-layer/pending-count)) "and the batch drained whole"))))))
 
+(deftest fh-toplayer-004-a-retired-generation-is-cancelled-while-its-node-stays-connected
+  (testing "Per FH-TOPLAYER-004: a queued operation belongs to the ref
+            OCCURRENCE that queued it, not to the node. A generation that
+            retires before the flush withdraws its own operation even though
+            the node is still in the document — connectivity is not
+            ownership — and a retirement never takes a NEWER generation's
+            claim on the same node down with it."
+    (if-not (browser?)
+      (skip! "the browser job owns the host-operation counter")
+      (let [before (top-layer/operation-count)
+            node   (js/document.createElement "div")
+            ref!   (fn []
+                     (gobj/get (top-layer/install! #js {} :div
+                                                   {:popover            :auto
+                                                    :on-toggle          identity
+                                                    ::web/popover-open? true})
+                               "ref"))]
+        (.setAttribute node "popover" "auto")
+        (.appendChild js/document.body node)
+        (try
+          ;; The seam: a commit removes the intrinsic without removing the
+          ;; element, so the ref retires while the node stays connected and
+          ;; no successor replaces the queued fact.
+          (let [retiring (ref!)]
+            (retiring node)
+            (is (= 1 (top-layer/pending-count)) "the generation queued its operation")
+            (retiring nil)
+            (is (zero? (top-layer/pending-count))
+                "and withdrew it on retirement, node still connected")
+            (top-layer/flush-top-layer!)
+            (is (= before (top-layer/operation-count))
+                "a retired generation performed zero host operations")
+            (is (false? (.matches node ":popover-open"))
+                "and the node it no longer speaks for was left closed"))
+
+          ;; A successor's claim outlives the predecessor's retirement,
+          ;; whichever order the host runs attach and detach in.
+          (let [older (ref!)
+                newer (ref!)]
+            (older node)
+            (newer node)
+            (older nil)
+            (is (= 1 (top-layer/pending-count))
+                "the successor's entry survived the predecessor's retirement")
+            (top-layer/flush-top-layer!)
+            (is (true? (.matches node ":popover-open"))
+                "and it is the successor's desired state the node landed in"))
+          (finally
+            (.remove node)))))))
+
+(deftest fh-toplayer-004-a-generation-retires-through-a-composed-release
+  (testing "Per FH-TOPLAYER-004: retirement survives ref COMPOSITION. On an
+            element sharing its node with another mechanism the install
+            chains, so React holds the chain rather than this generation —
+            and the chain releases a participant that answered no cleanup of
+            its own by calling it with nil, which is exactly the retiring
+            call. The generation is the closure either way, so an entry is
+            withdrawn through a composed release as surely as through a bare
+            detach."
+    (if-not (browser?)
+      (skip! "the browser job owns the host-operation counter")
+      (let [before (top-layer/operation-count)
+            node   (js/document.createElement "div")
+            seen   (atom [])
+            ;; The other mechanism on this node — a behavior-shaped ref
+            ;; already installed on the props, which the install must chain
+            ;; onto rather than clobber.
+            earlier (fn earlier-ref [n] (swap! seen conj (if (some? n) :attach :release)) nil)
+            props   (top-layer/install! (doto #js {} (gobj/set "ref" earlier))
+                                        :div
+                                        {:popover            :auto
+                                         :on-toggle          identity
+                                         ::web/popover-open? true})
+            chained (gobj/get props "ref")]
+        (.setAttribute node "popover" "auto")
+        (.appendChild js/document.body node)
+        (try
+          (is (not (identical? chained earlier))
+              "the install composed rather than clobbering the ref already there")
+          (let [cleanup (chained node)]
+            (is (= [:attach] @seen) "the earlier participant took the node first")
+            (is (= 1 (top-layer/pending-count)) "and the generation queued its operation")
+            ;; React 19 releases a ref that answered a cleanup by CALLING it.
+            (is (fn? cleanup) "a composed ref answers a cleanup function")
+            (cleanup)
+            (is (= [:attach :release] @seen) "the earlier participant was released too")
+            (is (zero? (top-layer/pending-count))
+                "the generation retired through the composed release"))
+          (top-layer/flush-top-layer!)
+          (is (= before (top-layer/operation-count))
+              "so the retired generation performed zero host operations")
+          (is (false? (.matches node ":popover-open"))
+              "and the node was left closed")
+          (finally
+            (.remove node)))))))
+
 (deftest fh-toplayer-004-an-unchanged-desired-state-costs-nothing-and-lands-before-paint
   (testing "Per FH-TOPLAYER-004: the operation happens before the first
             frame after the commit, and re-committing an unchanged desired

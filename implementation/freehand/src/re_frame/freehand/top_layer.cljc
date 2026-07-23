@@ -55,9 +55,10 @@
   COMMITTED — the same law [[re-frame.freehand.cell]] states for the
   reactive bundle. A render the host abandons runs no ref, so its desired
   state never reaches the host; building elements performs no host work at
-  all. A detach (`nil` node) does nothing: a node leaving the document
-  leaves the top layer by itself, and a superseded generation must never
-  act on its replacement.
+  all. A detach (`nil` node) RETIRES that generation: it withdraws
+  whatever the generation still had pending, and nothing else — a
+  superseded generation must never act, and must never act on its
+  successor either.
 
   What the ref enqueues, the commit's microtask checkpoint performs — in
   DOCUMENT ORDER, so an ancestor overlay is shown before the overlay
@@ -344,13 +345,40 @@
   (if-some [^js m @pending] (.-size m) 0))
 
 (defn- enqueue!
-  [node fact]
+  [node fact owner]
   (let [^js m (or @pending (let [m (js/Map.)] (reset! pending m) m))]
     ;; Keyed by NODE, so a node enqueued twice in one commit keeps the last
-    ;; desired state rather than performing two calls for one commit.
-    (.set m node fact))
+    ;; desired state rather than performing two calls for one commit. The
+    ;; OWNER rides with the fact: an entry belongs to the ref generation
+    ;; that queued it, and a later generation claiming the same node takes
+    ;; ownership along with the value.
+    (.set m node #js [fact owner]))
   (when (compare-and-set! flush-scheduled? false true)
     (js/queueMicrotask flush-top-layer!))
+  nil)
+
+(defn- retire!
+  "Withdraw whatever `owner` still has pending — what a detach performs.
+
+  OWNERSHIP, not connectivity, is what retires a queued operation. A ref
+  generation retires while its node stays in the document every time a
+  commit removes the intrinsic without removing the element, and the
+  microtask would then open a node nothing controls any more, on behalf
+  of a generation that had already let go. `isConnected` cannot see that:
+  the node is still there. So the batch fences an entry the way the
+  reactive commit fences a candidate — by asking whether the generation
+  that staged it is still the one that speaks.
+
+  The identity check is equally what stops a retirement taking a
+  SUCCESSOR down with it: a newer generation's enqueue has already
+  replaced the entry and its owner, so the retiring one finds an entry
+  that is not its own and leaves it exactly where it is — in whichever
+  order the host runs attach and detach."
+  [owner]
+  (when-some [^js m @pending]
+    (.forEach m (fn [entry node]
+                  (when (identical? owner (aget entry 1))
+                    (.delete m node)))))
   nil)
 
 (defn- doc-order
@@ -371,13 +399,15 @@
 
   A node that left the document before the flush is SKIPPED: it took its
   top-layer state with it when it left, and asking a disconnected node to
-  open is the one call the browser refuses outright."
+  open is the one call the browser refuses outright. An entry whose
+  generation retired is not here to skip at all — [[retire!]] withdrew it
+  when the generation let go."
   []
   (reset! flush-scheduled? false)
   (when-some [^js m @pending]
     (reset! pending nil)
     (let [entries (array)]
-      (.forEach m (fn [fact node] (.push entries #js [node fact])))
+      (.forEach m (fn [entry node] (.push entries #js [node (aget entry 0)])))
       (.sort entries (fn [a b] (doc-order (aget a 0) (aget b 0))))
       (.forEach entries
                 (fn [entry]
@@ -418,13 +448,14 @@
 
   The call rides `ref`, which is the one React position that runs at
   COMMIT with the real node in hand and never runs for an abandoned
-  render. A fresh closure per render is deliberate: React then detaches
-  and re-attaches, which re-enters the batch on every commit, and the
-  diff against the live node is what makes a repeated equal desired state
-  cost nothing. A detach enqueues nothing — a node leaving the document
-  takes its top-layer state with it, and a superseded generation must
-  never act on its replacement. `ref` returns `js/undefined` so React 19
-  reads it as \"no cleanup\" rather than as a cleanup value.
+  render. A fresh closure per render is deliberate twice over: React
+  detaches and re-attaches on a new identity, which re-enters the batch
+  on every commit — the diff against the live node is what makes a
+  repeated equal desired state cost nothing — and that closure IS the
+  generation, so the batch can record who queued an operation without a
+  registry, a token or a counter. A detach [[retire!]]s it. `ref` returns
+  `js/undefined` so React 19 reads it as \"no cleanup\" rather than as a
+  cleanup value.
 
   The install CHAINS onto whatever ref the props already carry rather than
   writing over it. Nothing else writes one today — the walk refuses an
@@ -432,14 +463,25 @@
   namespace and the behavior boundary would otherwise have on an element
   carrying both, and one rule at every writer is what keeps the substrate
   composable by default ([[re-frame.freehand.refs]]). An intrinsic is a
-  property of the ELEMENT, so it takes the node first and releases last."
+  property of the ELEMENT, so it takes the node first and releases last.
+
+  Chaining and the generation compose without either knowing about the
+  other, which is the point of both. A chain of ONE is that participant
+  IDENTICALLY, so the ordinary element's ref IS `top-layer-ref` and React
+  retires it by calling it with nil. A longer chain answers a cleanup
+  function, and the release arm for a participant that returned no
+  cleanup of its own — which this one does not — is to call it with nil.
+  Either way the retiring call reaches this exact closure, which is what
+  makes it the generation."
   [props tag attrs]
   (if-let [fact (desired tag attrs)]
     (do (advise-unreconciled! tag attrs fact)
         (gobj/set props "ref"
                   (refs/chain (gobj/get props "ref")
                               (fn top-layer-ref [node]
-                                (when (some? node) (enqueue! node fact))
+                                (if (some? node)
+                                  (enqueue! node fact top-layer-ref)
+                                  (retire! top-layer-ref))
                                 js/undefined)))
         props)
     props))
