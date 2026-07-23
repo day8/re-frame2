@@ -55,6 +55,7 @@
             [goog.object :as gobj]
             [re-frame.error :as error]
             [re-frame.freehand.cell :as cell]
+            [re-frame.freehand.controlled :as controlled]
             [re-frame.freehand.conversion :as conv]
             [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.error-react :as error-react]
@@ -116,7 +117,14 @@
   not depend on one — which is what stops a declared-view boundary from
   changing which attribute reaches the DOM."
   [cand tag sugar-classes sugar-id attrs]
-  (let [o (js-obj)]
+  (let [o (js-obj)
+        ;; The controlled-input door is a property of the WHOLE element,
+        ;; so its element half is settled once, before any handler site is
+        ;; recorded. Presence of a `value`/`checked` SLOT is the test —
+        ;; values are irrelevant (an explicit nil is still controlled), and
+        ;; the slot is what an alias resolves to, so `:x/value` counts
+        ;; exactly as `:value` does.
+        controlled? (controlled/controlled-props? (keys attrs))]
     (when-let [c (conv/class-string sugar-classes)]
       (gobj/set o "className" c))
     (when sugar-id
@@ -139,7 +147,11 @@
         (if (some? cand)
           (when-some [proxy (events/site (cell/candidate-events cand)
                                          (cell/next-site-key! cand)
-                                         raw)]
+                                         raw
+                                         events/default-payload
+                                         {:tag         tag
+                                          :controlled? controlled?
+                                          :slot        (conv/react-event-name k)})]
             (gobj/set o (conv/react-event-name k) proxy))
           ;; No boundary above this element, so no commit can own the
           ;; site. A plain function is still the caller's own callback and

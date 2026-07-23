@@ -410,16 +410,84 @@
   [^ViewCell cell]
   (some? (:dirty @(st cell))))
 
+(defn- flush-scope!
+  "The scoped-flush PRIMITIVE: close the pending window for exactly the
+  cells `in-scope?` accepts, advancing each ONCE and notifying its host
+  listeners. Cells outside the scope STAY pending, so no scope can force
+  another scope's work and none is lost.
+
+  Reentrancy-safe by construction: the matching cells leave the pending
+  set ATOMICALLY, before any listener runs, so a notification that
+  re-enters finds them already drained and cannot advance one twice.
+  Returns the number flushed."
+  [in-scope?]
+  (let [[before _] (swap-vals! pending-cells #(into #{} (remove in-scope?) %))
+        drained    (filterv in-scope? before)]
+    (doseq [c drained]
+      (when-not (= :disconnected (lifecycle c))
+        (advance-revision! c)))
+    (count drained)))
+
 (defn flush!
   "Close the pending window: advance each marked cell's revision ONCE and
   notify its host listeners. Idempotent when nothing is pending."
   []
   #?(:cljs (reset! flush-scheduled? false))
-  (let [[marked _] (reset-vals! pending-cells #{})]
-    (doseq [c marked]
-      (when-not (= :disconnected (lifecycle c))
-        (advance-revision! c))))
+  (flush-scope! (constantly true))
   nil)
+
+(defn- observed-frames
+  "The frames `cell`'s COMMITTED dependency set actually observes.
+
+  A committed record carries the target its site resolved to, and a
+  `:subscription` target names the frame it resolved in. A cell that owns
+  no dependency observes no frame — which is exactly right: such a cell
+  is never marked, so there is nothing for a frame scope to reach."
+  [^ViewCell cell]
+  (into #{}
+        (keep (fn [{:keys [target handle]}]
+                (when (and (some? handle) (= :subscription (:kind target)))
+                  (:frame-id target))))
+        (vals (:deps @(st cell)))))
+
+(defn observes-frame?
+  "Does `cell`'s committed dependency set include a site resolved in frame
+  `frame-id`? The frame-scope membership test — the thing that makes the
+  synchronous flush FRAME-scoped rather than global."
+  [^ViewCell cell frame-id]
+  (contains? (observed-frames cell) frame-id))
+
+(defn flush-frame!
+  "The FRAME-SCOPED SYNCHRONOUS FLUSH — close the pending window NOW, for
+  every marked cell observing frame `frame-id`, and for no other cell.
+  Returns the number flushed.
+
+  This is the second half of the controlled-input round trip (D009). A
+  keystroke's event has already been dispatched and drained; the sources
+  those cells observe have already moved and marked them. What is left is
+  the host notification, and the ordinary window would deliver it at the
+  microtask checkpoint — AFTER React has finished the discrete event and
+  restored the controlled node from the props it last rendered, which is
+  where a character is lost and a caret jumps. Advancing the revision
+  HERE, still inside the native listener, puts the new state in front of
+  React while the event is still being processed, so the same discrete
+  batch renders it.
+
+  The scope is the frame, and deliberately not the whole registry: a
+  keystroke in one frame must not force another frame's pending work to
+  settle inside a native listener it has nothing to do with. It is
+  deliberately not narrower than the frame either — a single occurrence
+  scope would let a sibling observing the same frame commit an older
+  snapshot of state the flushed cell has already advanced past, and D009
+  ruled that trade explicitly. Cells on the same frame that were dirty
+  for unrelated reasons DO ride this flush; that coupling is honest,
+  measurable, and reducible with ordinary boundary granularity.
+
+  Safe on both hosts, and meaningful on both: the headless JVM has no
+  paint and therefore no checkpoint, so an explicit scoped close is the
+  only kind of close it has."
+  [frame-id]
+  (flush-scope! #(observes-frame? % frame-id)))
 
 (defn snapshot
   "The scalar the host snapshots to decide whether to re-render — the
@@ -518,6 +586,38 @@
   (if (some? frame-id)
     (fn dispatch-into-frame [event] (router/dispatch! event {:frame frame-id :source :ui}))
     (fn dispatch-ambient [event] (router/dispatch! event {:source :ui}))))
+
+(defn- frame-door-dispatcher
+  "The SYNCHRONOUS dispatcher a controlled-input site fires through,
+  bound to the exact frame this commit publishes (D009).
+
+  One sequence, and it completes before the native listener returns:
+
+      dispatch against the exact committed frame
+        → drain re-frame to quiescence
+        → flush the cells observing that frame
+        → return to the host's event processing
+
+  `dispatch-sync!` is what makes the first two steps one step: it
+  processes the event end to end and then drains whatever that handler
+  queued, so by the time it returns the frame has settled and every cell
+  reading the moved state has been marked. [[flush-frame!]] then closes
+  the pending window for exactly those cells — still inside the listener,
+  which is the whole point.
+
+  A boundary under NO frame in scope gets no door dispatcher at all
+  rather than a nameless synchronous one: with no frame to scope it, a
+  flush could only be global, and a keystroke that force-settles every
+  root in the process is not a narrower promise than batching — it is a
+  wider one. Such a site takes the ordinary lane, where a firing site
+  raises re-frame's own `:rf.error/no-frame-context`, exactly as the
+  batched dispatcher does."
+  [frame-id]
+  (when (some? frame-id)
+    (fn dispatch-through-door [event]
+      (router/dispatch-sync! event {:frame frame-id :source :ui})
+      (flush-frame! frame-id)
+      nil)))
 
 (defn- release-all!
   [handles]
@@ -648,7 +748,9 @@
                    :frame     fid
                    :deps      staged
                    :evidence  bundle)
-            (events/commit! (.-events cand) (frame-dispatcher fid))
+            (events/commit! (.-events cand)
+                            (frame-dispatcher fid)
+                            (frame-door-dispatcher fid))
             ;; Only now: the prior set's superseded handles. Acquire
             ;; before release is what keeps a shared node off its
             ;; zero-owner disposal edge mid-reconciliation.

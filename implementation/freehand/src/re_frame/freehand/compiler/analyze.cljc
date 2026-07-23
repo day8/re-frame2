@@ -16,6 +16,7 @@
             [re-frame.freehand.compiler.binding-plan :as bp]
             [re-frame.freehand.compiler.build :as build]
             [re-frame.freehand.compiler.env :as env]
+            [re-frame.freehand.controlled :as controlled]
             [re-frame.freehand.fingerprint :as fingerprint]
             [re-frame.freehand.rules :as rules]
             #?@(:clj [[re-frame.freehand.compiler.harvest :as harvest]])))
@@ -1388,19 +1389,36 @@
   (env/add-site! e :events (merge identity site))
   identity)
 
+(defn- door-slot
+  "This handler's FINAL-NORMALIZED prop slot — the form the door reads, so
+  every spelling of one emitted handler prop is judged alike."
+  [handler]
+  (rules/caller-key-slot (:k handler)))
+
 (defn- controlled-event-sync?
-  "The deliberately narrow controlled-input sync door.  It is a property of
-  the whole native element, not of the handler in isolation, so it is applied
-  after every prop has been classified.  The SITE proof is static: a literal
-  vector handler, or a `v/event` handler whose runtime result the invocation
-  classifies as an event vector.  Both ride the one synchronous drain; the
-  prefix/payload stay runtime values."
-  [controlled? handler]
-  (boolean
-   (and controlled?
-        (contains? #{"on-input" "on-change" "on-before-input"}
-                   (:name handler))
-        (contains? #{:vector :ui-event} (:classification handler)))))
+  "Is this site inside the controlled-input synchronous door?
+
+  ASKED, never restated: the rule is
+  [[re-frame.freehand.controlled/door?]], the ONE predicate the
+  interpreted walk also asks at render time. That is what makes promotion
+  parity a structural fact rather than a pair of lists someone has to keep
+  in step — a field cannot silently change from synchronous to batched by
+  gaining `{:compiled true}`, because there is nothing to diverge.
+
+  It is a property of the whole native element, not of the handler in
+  isolation, so it is applied after every prop has been classified. The
+  SITE proof is static: the compiled classification names the callback's
+  roster role, and the door takes the roles whose outcome is
+  synchronously known to be one event vector or `nil` — a literal vector,
+  an options map carrying one, or a `v/event` body. The prefix and
+  payload stay runtime values."
+  [tag controlled? handler]
+  (controlled/door? {:tag         tag
+                     :controlled? controlled?
+                     :slot        (door-slot handler)
+                     :role        (controlled/compiled-role (:classification handler))
+                     :capture?    (:capture? handler)
+                     :passive?    (:passive? handler)}))
 
 (defn- record-event-sync!
   [e sid sync?]
@@ -1812,12 +1830,18 @@
               events0    (mapv #(analyze-handler e % (get m* %)) handler-ks)
               events     (mapv (fn [handler]
                                  (let [sync? (controlled-event-sync?
-                                              controlled? handler)]
+                                              tag controlled? handler)]
                                    (record-event-sync! e (:sid handler) sync?)
+                                   ;; The advisory fires only where the door
+                                   ;; COULD have opened — a controlled native
+                                   ;; input, on a door attribute — so the one
+                                   ;; thing left to fix is the handler's own
+                                   ;; shape. A site the door can never admit
+                                   ;; (`:on-before-input`, a `:div`) gets no
+                                   ;; unactionable nag.
                                    (when (and controlled?
-                                              (contains? #{"on-input" "on-change"
-                                                           "on-before-input"}
-                                                         (:name handler))
+                                              (contains? controlled/controlled-tags tag)
+                                              (controlled/door-slot? (door-slot handler))
                                               (not sync?))
                                      (env/warn!
                                       e
@@ -1825,13 +1849,15 @@
                                        :msg (str (:k handler)
                                                  " is paired with a controlled "
                                                  ":value/:checked prop, but its "
-                                                 "handler is neither a literal event "
-                                                 "vector nor a (v/event …) handler, "
-                                                 "so it stays on the ordinary batched "
-                                                 "path. Open the controlled-input sync "
-                                                 "door with a literal event vector, or "
-                                                 "a (v/event …) handler when the "
-                                                 "native payload must flow")
+                                                 "handler outcome is not synchronously "
+                                                 "known, so it stays on the ordinary "
+                                                 "batched path. Open the controlled-input "
+                                                 "sync door with a literal event vector, "
+                                                 "an options map carrying one, or a "
+                                                 "(v/event …) handler when the native "
+                                                 "payload must flow — and not behind a "
+                                                 ":capture/:passive listener, which is a "
+                                                 "different native attachment lane")
                                        :form (:form handler)}))
                                    (assoc handler :sync? sync?)))
                                events0)
