@@ -28,17 +28,24 @@
   (mapv :op @transcript))
 
 (defn- record!
-  [op {:keys [behavior target config memory]}]
+  [op {:keys [behavior target config prev-config memory]}]
   (swap! transcript conj {:behavior behavior :op op :target target
-                          :config config :memory memory})
+                          :config config :prev-config prev-config
+                          :memory memory})
   nil)
 
 (def dispatches
-  "Every outward dispatch a behavior's fenced context ACCEPTED, plus the
-  boolean the context answered. `[event accepted?]`."
+  "Every outward dispatch a behavior's fenced context attempted, paired with
+  the boolean the context answered. `[event accepted?]`."
   (atom []))
 
 (defn reset-dispatches! [] (reset! dispatches []) nil)
+
+(def last-dispatch
+  "The `:dispatch` fn of the most recent connection — kept so a suite can
+  hold a context PAST its teardown, which is the only way to prove the
+  generation fence makes it inert rather than merely unused."
+  (atom nil))
 
 ;; ---------------------------------------------------------------------------
 ;; The behaviors
@@ -50,7 +57,10 @@
   memory survives an update and reaches a command without the memory ever
   being visible in the tree."
   {:timing     :passive
-   :connect    (fn [ctx] (record! :connect ctx) {:updates 0})
+   :connect    (fn [{:keys [dispatch] :as ctx}]
+                 (record! :connect ctx)
+                 (reset! last-dispatch dispatch)
+                 {:updates 0})
    :update     (fn [{:keys [memory] :as ctx}]
                  (record! :update ctx)
                  (update memory :updates inc))
@@ -129,6 +139,19 @@
     [:div.node {:data-id "one"}]]
    [v/behavior {:use probe :target :probe/same :config {:label "two"}}
     [:div.node {:data-id "two"}]]])
+
+(v/defview mixed-timing
+  "A `:passive` behavior FIRST in document order and a `:layout` behavior
+  second. React attaches refs bottom-up and runs every layout effect before
+  any passive one, so if the declared timing were ignored the transcript
+  would read in document order; honouring it puts the layout connection
+  first, which is exactly what `before the browser paints` buys."
+  [_]
+  [:section.host
+   [v/behavior {:use probe :target :probe/passive}
+    [:div.node {:data-id "passive"}]]
+   [v/behavior {:use measure :target :probe/layout}
+    [:div.node {:data-id "layout"}]]])
 
 (v/defview control-mount
   "The CONTROL: the same markup with no behavior at all. A cleanup

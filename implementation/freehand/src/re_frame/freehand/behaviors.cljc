@@ -599,25 +599,66 @@
 ;; passive one, so a declaration whose timing changed would otherwise have the
 ;; passive arm's cleanup release the layout arm's fresh connection.
 
+(defn- release!
+  "Release whatever connection this arm holds, naming its exact generation."
+  [state]
+  (when-some [generation (.-current state)]
+    (set! (.-current state) nil)
+    (disconnect! generation))
+  nil)
+
+(defn- reconcile-arm!
+  "Bring this arm's connection up to date with the committed use site:
+  connect when it holds none, RE-OPEN when the connection's identity moved,
+  and otherwise let the config diff decide whether the host is touched at
+  all.
+
+  The identity comparison lives here, in Clojure, rather than in a React
+  deps array. A deps array is compared with `Object.is`, and a ClojureScript
+  keyword rebuilt by each render is a different object — so a `:use` or a
+  `:target` in a dep slot would make every commit a teardown and a fresh
+  connection, which is precisely the churn `:update` exists to avoid."
+  [state node opts frame-id]
+  (let [generation (.-current state)
+        rec        (when generation (get @connections generation))]
+    (cond
+      (nil? rec)
+      (set! (.-current state) (connect! opts node frame-id))
+
+      (or (not= (:use opts) (:behavior rec))
+          (not= (:target opts) (:target rec))
+          (not= frame-id (:frame rec))
+          (not (identical? node (:node rec))))
+      (do (release! state)
+          (set! (.-current state) (connect! opts node frame-id)))
+
+      :else
+      (reconcile! generation (:config opts))))
+  nil)
+
 (defn- use-arm!
-  "One timing arm — connect/disconnect keyed on the connection's identity,
-  and a config reconcile on every commit."
+  "One timing arm.
+
+  TWO effects, and the split is the contract. The first owns RELEASE and
+  nothing else — its dep array holds one boolean, so it re-runs only when
+  this arm stops being the one that owns the behavior, and React runs its
+  cleanup on unmount whatever the deps say. The second runs on EVERY commit
+  and decides, in Clojure, whether that commit is a connection, a
+  re-connection or a config reconcile.
+
+  Each arm keeps its OWN generation. React runs every layout cleanup and
+  effect before any passive one, so two arms sharing one slot would let the
+  passive arm's cleanup release the layout arm's fresh connection the moment
+  a declaration's timing changed."
   [use-effect active? node-ref opts frame-id]
   (let [state (react/useRef nil)]
     (use-effect
-      (fn []
-        (when active?
-          (set! (.-current state) (connect! opts (.-current node-ref) frame-id)))
-        (fn []
-          (when-some [generation (.-current state)]
-            (set! (.-current state) nil)
-            (disconnect! generation))))
-      #js [active? (:use opts) (:target opts) frame-id])
+      (fn [] (fn [] (release! state)))
+      #js [active?])
     (use-effect
       (fn []
         (when active?
-          (when-some [generation (.-current state)]
-            (reconcile! generation (:config opts))))
+          (reconcile-arm! state (.-current node-ref) opts frame-id))
         js/undefined))))
 
 (defn use-attachment!
