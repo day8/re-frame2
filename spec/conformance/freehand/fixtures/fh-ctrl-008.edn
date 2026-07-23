@@ -12,16 +12,19 @@
  :next-revision 5
 
  ;; Where an accepted draft goes — the caller's own domain event, at the
- ;; caller's own path.
- :on-commit      [:invoice/amount-committed 42]
- :committed-path [:invoice 42 :amount]
+ ;; caller's own path. Every case below reads the amount back there: a
+ ;; commit that landed moved it, and a commit that was fenced left the
+ ;; caller's baseline exactly where it was.
+ :on-commit   [:invoice/amount-committed 42]
+ :amount-path [:invoice 42 :amount]
 
  ;; --- The current commit: the control, so nothing below is green for
  ;; --- want of a working commit at all.
  :ordinary
- {:typed            "12."
-  :committed-value  "12."
-  :record-after     nil}
+ {:typed         "12."
+  :amount-after  "12."
+  :caller-events 1
+  :record-after  nil}
 
  ;; --- A commit whose generation the caller has replaced.
  ;;
@@ -31,10 +34,11 @@
  ;; the node carries speaks for generation 5 while the record still
  ;; speaks for 4. It is a no-op: no caller intent, no record change.
  :superseded-commit
- {:typed                  "12."
-  :committed-value        nil
-  :record-after           {:reset-key 4 :draft "12."}
-  :displayed-after        "10.00"}
+ {:typed           "12."
+  :amount-after    "10.00"
+  :caller-events   0
+  :record-after    {:reset-key 4 :draft "12."}
+  :displayed-after "10.00"}
 
  ;; --- An edit made under a generation the caller has already replaced.
  ;;
@@ -45,10 +49,11 @@
  ;; wins — which is the safe direction, because a keystroke aimed at a
  ;; baseline the caller has withdrawn must not reinstate it.
  :superseded-edit
- {:typed             "!!"
-  :record-after      {:reset-key 4 :draft "!!"}
-  :displayed-after   "10.00"
-  :committed-value   nil}
+ {:typed           "!!"
+  :record-after    {:reset-key 4 :draft "!!"}
+  :displayed-after "10.00"
+  :amount-after    "10.00"
+  :caller-events   0}
 
  ;; --- Cancel, and the blur that was already on its way.
  ;;
@@ -56,10 +61,11 @@
  ;; state, finds no live edit, and produces nothing — Escape beats a late
  ;; blur rather than racing it.
  :cancel
- {:typed            "12."
-  :record-after     nil
-  :committed-value  nil
-  :displayed-after  "10.00"}
+ {:typed           "12."
+  :record-after    nil
+  :amount-after    "10.00"
+  :caller-events   0
+  :displayed-after "10.00"}
 
  ;; --- Repeated commits.
  ;;
@@ -67,7 +73,7 @@
  ;; is a no-op, so a double blur does not dispatch the caller's event
  ;; twice.
  :repeated
- {:typed             "12."
-  :commits           2
-  :committed-value   "12."
-  :caller-events     1}}
+ {:typed         "12."
+  :commits       2
+  :amount-after  "12."
+  :caller-events 1}}
