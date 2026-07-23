@@ -160,9 +160,16 @@
   "Join class-name parts with single spaces; nil when there are none.
   Duplicates are deliberately NOT removed — class order and duplication
   have no CSS meaning, and the pinned order exists for fingerprints and
-  exact-string tests (Spec 004B §`:class`)."
+  exact-string tests (Spec 004B §`:class`).
+
+  A single part joins to itself, so the one-class case — `.panel`, by far
+  the most common element in real markup — answers the string it was
+  given instead of building an equal one."
   [parts]
-  (when (seq parts) (str/join " " parts)))
+  (case (count parts)
+    0 nil
+    1 (nth parts 0)
+    (str/join " " parts)))
 
 ;; ---------------------------------------------------------------------------
 ;; `:style`
