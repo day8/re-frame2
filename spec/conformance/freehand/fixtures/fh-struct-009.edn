@@ -174,7 +174,24 @@
   {:note "the string spelling reaches the same slot"
    :form [:div {"key" "k"}] :error-id :rf.error/ui-tree-malformed}
   {:note "and so does the symbol one"
-   :form [:div {key "k"}] :error-id :rf.error/ui-tree-malformed}]
+   :form [:div {key "k"}] :error-id :rf.error/ui-tree-malformed}
+
+  ;; The `#id` shorthand OWNS the emitted id slot, so an authored key that
+  ;; projects onto it spells the element's id a SECOND time — the
+  ;; ambiguity this grammar removes rather than ranks. The exact `:id` was
+  ;; always refused here; the aliases were not, because that guard also
+  ;; compared the raw key. React writes every one of these pairs into the
+  ;; same JavaScript property, so the authored id replaced the shorthand's
+  ;; while the structural tree went on reporting both — a selector or a
+  ;; label reading the tree would target an id the browser does not have.
+  {:note "the shorthand and an :id prop are two spellings of one attribute"
+   :form [:div#sugar {:id "alias"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "a namespaced id reaches the shorthand's slot all the same"
+   :form [:div#sugar {:x/id "alias"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "as does the string spelling"
+   :form [:div#sugar {"id" "alias"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "and the symbol one"
+   :form [:div#sugar {id "alias"}] :error-id :rf.error/ui-tree-malformed}]
 
  ;; The control that makes the rows above mean something. Refusing by
  ;; emitted prop name is only correct if it refuses the names that ARE
@@ -254,7 +271,29 @@
   {:note "the canonical :key is still lifted onto the node and is never an attribute"
    :form [:div {:key "k"}]
    :tree {:tag :div :key "k" :rf.ui/tree-version 1}
-   :react-key "k"}]
+   :react-key "k"}
+
+  ;; The id rows, and the reason they carry a `:props` map: the tree's id
+  ;; and React's `id` must be the SAME id. That is what the shorthand
+  ;; conflict guard buys, and these are the forms it must not have touched
+  ;; — a guard that turned every id away would look identical in a table of
+  ;; rejections. Each carries exactly one id, spelled one way.
+  {:note "the .class#id shorthand alone — the tree's id is the one React receives"
+   :form [:div#sugar]
+   :tree {:tag :div :attrs {:id "sugar"} :rf.ui/tree-version 1}
+   :props {"id" "sugar"}}
+  {:note "an :id prop with no shorthand to collide with is untouched"
+   :form [:div {:id "plain"}]
+   :tree {:tag :div :attrs {:id "plain"} :rf.ui/tree-version 1}
+   :props {"id" "plain"}}
+  {:note "and a QUALIFIED id with no shorthand stays in author space, carrying the value React writes into id — one id, two vocabularies"
+   :form [:div {:x/id "alias"}]
+   :tree {:tag :div :attrs {:x/id "alias"} :rf.ui/tree-version 1}
+   :props {"id" "alias"}}
+  {:note "the shorthand beside an unrelated qualified attribute is no conflict at all"
+   :form [:div#sugar {:x/title "ok"}]
+   :tree {:tag :div :attrs {:id "sugar" :x/title "ok"} :rf.ui/tree-version 1}
+   :props {"id" "sugar" "title" "ok"}}]
 
  ;; The BEHAVIOURAL control for the reserved `children` slot: React really
  ;; does render a `children` prop as content. Mounted through

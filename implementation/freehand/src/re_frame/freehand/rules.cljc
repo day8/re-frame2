@@ -2115,6 +2115,22 @@
   remount where none was intended."
   (caller-key-slot :key))
 
+(def sugar-id-slot
+  "The emitted SLOT the tag parser's `#id` shorthand writes into, DERIVED
+  from `:id` through the same `caller-key-slot` projection an authored key
+  takes rather than spelled as a literal.
+
+  `#id` sugar and an authored id are two spellings of ONE emitted
+  attribute, and Spec 004B removes that ambiguity rather than ranking it.
+  The guard that says so compared the raw key `:id`, so it saw one
+  spelling of the name and missed the rest: `:x/id`, `\"id\"` and `'id`
+  all project HERE, and the sugar id therefore survived into the
+  structural tree while React — which writes both pairs into one JavaScript
+  property — kept only the authored one. One declaration, two ids, and a
+  selector or a label targeting the tree's answer would miss the DOM's
+  (rf2-drpa3.101)."
+  (caller-key-slot :id))
+
 (def ^:private slot-owning-attr-keys
   "The author-space attribute keys that OWN a slot of their own in both
   walks — `:class`, which composes with the `.class#id` sugar, and `:style`,

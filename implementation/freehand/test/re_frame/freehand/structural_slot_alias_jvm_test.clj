@@ -3,12 +3,12 @@
   slots, ruled — and ruled two different ways, which is why it is proved
   here rather than assumed.
 
-  Three authored keys reduce to a slot the walks own rather than to an
-  ordinary attribute: `:key`, `:class` and `:style`. Every representation
-  of those names reaches the SAME slot, because both emitters classify an
-  attribute key by its `name` — so `:x/class`, `\"class\"` and `'class` are
-  one key spelled three ways, and a guard or a router that compared the raw
-  map key would see three.
+  Four authored keys reduce to a slot the walks own rather than to an
+  ordinary attribute: `:key`, `:class`, `:style` — and `:id`, whenever the
+  tag carries `#id` sugar. Every representation of those names reaches the
+  SAME slot, because both emitters classify an attribute key by its `name`
+  — so `:x/class`, `\"class\"` and `'class` are one key spelled three ways,
+  and a guard or a router that compared the raw map key would see three.
 
   The ruling SPLITS them, because they are not the same kind of thing:
 
@@ -23,6 +23,14 @@
       `v/spread-safe` already accepts an aliased spelling of an accepted key
       and routes it. Refusing them on the direct path would make it stricter
       than the spread path for the same key.
+    - `:id` is neither, and is the third answer: an id is an ordinary prop,
+      but `#id` sugar has ALREADY written it, so an authored one is a
+      SECOND spelling of an attribute the element already has. Two id
+      spellings on one element is an ambiguity the grammar removes rather
+      than ranks, and it was already refused for the exact `:id` — the
+      alias just walked round the guard, because the guard compared the raw
+      key. With no sugar there is no second spelling and nothing to rule
+      on, so `:x/id` there stays an ordinary qualified attribute.
 
   Routing `:class` carries the obligation this file exists to hold down: the
   routed value must COMPOSE into the class string beside the tag shorthand,
@@ -235,6 +243,93 @@
                  :body            ['[:div {:key "k"}]]
                  :children-policy :optional}))
         "while the exact :key spelling still compiles — the refusal is about the ALIAS")))
+
+;; ---------------------------------------------------------------------------
+;; The slot the TAG already occupies — `#id` sugar
+;; ---------------------------------------------------------------------------
+
+(def id-aliases
+  "Every representation of an authored id an element can carry beside `#id`
+  sugar. All four reduce to the emitted `id` slot the sugar already wrote,
+  so all four are the one ambiguity."
+  ['[:div#sugar {:id "alias"}]
+   '[:div#sugar {:x/id "alias"}]
+   '[:div#sugar {"id" "alias"}]
+   '[:div#sugar {id "alias"}]])
+
+(deftest an-authored-id-beside-id-sugar-is-refused-however-it-is-spelled
+  (testing "`#sugar` already wrote the emitted id, so an authored key that
+            projects onto that slot spells the element's id a second time.
+            The exact `:id` was always refused; the ALIASES were not,
+            because the guard compared the raw key — and React writes both
+            pairs into one JavaScript property, so the authored one
+            silently replaced the sugar while the structural tree went on
+            reporting both. A selector, a label or a debug tool reading the
+            tree would target an id the browser does not have."
+    (doseq [body id-aliases]
+      (let [ex (try (tree/render body)
+                    nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex) (str (pr-str body) " is refused"))
+        (when ex
+          (is (= :rf.error/ui-tree-malformed (:rf.error/id (ex-data ex)))
+              (str (pr-str body) " — the walk's existing diagnostic id, not a new one"))
+          (is (str/includes? (ex-message ex) "twice")
+              (str (pr-str body) " — the message says the id is spelled twice")))))))
+
+(deftest the-compiled-analyzer-refuses-the-same-four-spellings
+  (testing "The compiled tier reaches the same verdict through its own
+            diagnostic, `:rf.ui.compile/id-sugar-conflict` — the id
+            already had one, so the alias needs no new id. A declaration
+            the interpreted walk refuses and the compiler accepted would be
+            the two-answers-for-one-declaration split the guard exists to
+            close.
+
+            The string and symbol spellings are refused at the compiled
+            tier by the prior non-keyword-prop rule, so only the keyword
+            pair is asserted here — a compiled props map's keys are literal
+            keywords by grammar."
+    (doseq [body '[[:div#sugar {:id "alias"}] [:div#sugar {:x/id "alias"}]]]
+      (let [ex (try (compiled-tree body) nil (catch Exception e e))]
+        (is (some? ex) (str (pr-str body) " is refused at compile time"))
+        (when ex
+          (is (= :rf.ui.compile/id-sugar-conflict
+                 (:rf.ui.compile/error (ex-data (or (ex-cause ex) ex))))
+              (str (pr-str body) " — reusing the existing compile diagnostic")))))))
+
+(def id-control-rows
+  "The control that makes the refusals above mean something. A guard that
+  turned every id away — or every qualified attribute — would look
+  identical in a table of rejections and would be a worse defect than the
+  bypass it closed. These forms carry exactly ONE id and are accepted."
+  [{:note "the shorthand alone is the ordinary case"
+    :body '[:div#sugar]
+    :tree {:tag :div :attrs {:id "sugar"}}}
+
+   {:note "an :id prop with no sugar is untouched — the ambiguity is the shorthand's"
+    :body '[:div {:id "plain"}]
+    :tree {:tag :div :attrs {:id "plain"}}}
+
+   {:note "and a qualified id with no sugar keeps its authored name, as every ordinary qualified attribute does"
+    :body '[:div {:x/id "alias"}]
+    :tree {:tag :div :attrs {:x/id "alias"}}}
+
+   {:note "the shorthand beside an unrelated attribute is not a conflict"
+    :body '[:div#sugar {:x/title "ok"}]
+    :tree {:tag :div :attrs {:id "sugar" :x/title "ok"}}}
+
+   {:note "nor is a handler whose name merely contains id"
+    :body '[:div#sugar {:data-id "d"}]
+    :tree {:tag :div :attrs {:id "sugar" :data-id "d"}}}])
+
+(deftest one-id-is-accepted-in-both-modes-however-it-is-spelled
+  (testing "The guard fires on the SECOND spelling, not on the name. An
+            element with one id — from the shorthand, from a prop, or from
+            a qualified prop with no shorthand to collide with — renders
+            exactly as it did, in both modes."
+    (doseq [{:keys [note body tree]} id-control-rows]
+      (is (= tree (interpreted-tree body)) (str note " — interpreted"))
+      (is (= tree (compiled-tree body)) (str note " — compiled")))))
 
 ;; ---------------------------------------------------------------------------
 ;; The scope fence
