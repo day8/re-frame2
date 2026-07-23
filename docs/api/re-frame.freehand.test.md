@@ -2,8 +2,9 @@
 
 `re-frame.freehand.test` is the **structural test surface** of the Freehand view
 substrate (EP-0036; artefact `day8/re-frame2-freehand`, conventionally aliased `t`).
-Five names query semantic **values** over the versioned structural tree; none
-simulates behaviour.
+Five names query semantic **values** over the versioned structural tree and one
+**bracket** opens the discardable render a state-reading view needs; none simulates
+behaviour.
 
 ```clojure
 (:require [re-frame.core :as rf]
@@ -27,6 +28,18 @@ answers the same tree on the JVM and in the ClojureScript runtime, so a `.cljc`
 structural test is a cross-host claim rather than a JVM claim wearing a `.cljc`
 extension.
 
+**A view that reads state renders inside `with-render`.** `v/sub` is legal only
+during an active declared render, and `render` is a walk rather than a host, so it
+opens none of its own — wrap the render and the view under test runs **as written**,
+with nothing published:
+
+```clojure
+(rf/dispatch-sync [:basket/add 42])
+
+(let [tree (t/with-render (t/render [basket-total {}]))]
+  (is (= "1 item" (t/text tree))))
+```
+
 **Frame scope is your ordinary bracket**, not a `t` concept: mint and establish a
 frame with `rf/with-new-frame` (eval-bind-run-destroy) or pin one you already hold
 with `rf/with-frame`, drive state with `rf/dispatch-sync`, and assert on a **fresh**
@@ -37,7 +50,7 @@ firing into the DOM, focus, presence timing, error recovery) belongs to the moun
 browser tier, not this one.
 
 **Dev/test scope, public surface.** Nothing in a production bundle may `:require`
-this namespace. That is a bundling rule, not a privacy one: the five names below are
+this namespace. That is a bundling rule, not a privacy one: the six names below are
 a published surface rowed in the API manifest at the `testing` tier, so a rename, a
 signature change or an accidental export turns the public-API gate red on both hosts.
 
@@ -66,6 +79,39 @@ signature change or an accidental export turns the public-API gate red on both h
   ;;                 :events   {:on-click [:article/save 42]}
   ;;                 :children ["Save"]}]
   ;;     :rf.ui/tree-version 1}
+  ```
+
+### `with-render`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (with-render body…) → the body's value
+  ```
+- **Description**: run `body` inside a **discardable render**, and answer its value —
+  the bracket a view that reads state is rendered in. `v/sub` is legal only during an
+  active declared render
+  ([spec/006-ReactiveSubstrate.md](../../spec/006-ReactiveSubstrate.md#the-subscription-law)),
+  and `render` is a walk rather than a host, so a view whose body reads state is
+  refused outside this bracket with `:rf.error/view-read-outside-render`. Inside it,
+  the view renders **as written** — rewriting it to take a one-shot read would be
+  testing something other than the view.
+
+  **It publishes nothing.** The render it opens is never committed, which is the
+  substrate's own abandoned-render path: the reads inside resolve and probe but
+  acquire nothing, so no ref-count, no watch, no cache node and no disposal obligation
+  survives the bracket. Render as often as you like; each `render` is a fresh reading
+  of current state.
+
+  **It takes no frame.** Frame scope is your ordinary bracket — `rf/with-new-frame`
+  for a fresh owned frame, `rf/with-frame` to pin one you hold — exactly as it is for
+  a `render` that reads nothing.
+- **Example**:
+  ```clojure
+  (deftest the-badge-shows-the-basket-count
+    (rf/dispatch-sync [:basket/add 42])
+    (let [tree (t/with-render (t/render [basket-badge {}]))]
+      (is (= "1" (t/text tree)))))
   ```
 
 ## Finding nodes
