@@ -39,9 +39,13 @@ so the single-root common case stays one-liner clean:
    (fragment of two views) make derivation impossible → compile error with the
    didactic message *"root form has no single mounted view — author `:root-id`"*.
 4. **Provenance is recorded** (dev only): the descriptor carries
-   `:root-id-provenance :authored | :derived` so duplicate diagnostics can say *"both
-   ids derived from `:shop/app` — add `:disambiguator` or author `:root-id`"*. Stripped
-   from shipped manifests.
+   `:root-id-provenance :authored | :derived | :manifest` so duplicate diagnostics can
+   say *"both ids derived from `:shop/app` — add `:disambiguator` or author
+   `:root-id`"*. `:manifest` is a **hydrating** root, whose id came off the wire in the
+   server's Root Manifest rather than out of any client-side rule
+   ([011 §Root Manifest v1](011-SSR.md#root-manifest-v1)) — a third case, and reporting
+   it as `:derived` would be a false statement about where a colliding id came from.
+   Stripped from shipped manifests.
 
 **Root-id slug** (one deterministic, **injective** function, used by the
 identifier-prefix default and synthesised locators — distinct valid root-ids ALWAYS

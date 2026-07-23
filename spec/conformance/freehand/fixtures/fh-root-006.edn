@@ -1,4 +1,14 @@
-;; FH-ROOT-006 — hydration adopts, and a divergence is reported.
+;; FH-ROOT-006 — hydration takes its identity from the wire, adopts, and
+;; reports a divergence.
+;;
+;; IDENTITY IS READ, NOT DERIVED. The server knows what it rendered and says
+;; so in the Root Manifest it emits as the container's immediately following
+;; element sibling; the client adopts that name rather than deriving one and
+;; hoping the two agree. So the fixture's manifest deliberately names an id
+;; this root form would NEVER derive — a manifest agreeing with derivation
+;; would satisfy every assertion by coincidence and prove nothing. The
+;; `:derived-root-id` below is that coincidence, written down so the
+;; assertions can rule it out.
 ;;
 ;; ADOPTION is proven by NODE IDENTITY, not by text. The server's markup is
 ;; put into the container, the exact DOM nodes it created are captured, and
@@ -22,11 +32,25 @@
 ;; a surprise.
 {:fh/id "FH-ROOT-006"
  :fh/law
- "v/hydrate-root ADOPTS server-rendered markup — the server's own DOM nodes survive the mount — and a divergence React recovers from is REPORTED as :rf.ssr/hydration-mismatch carrying the root-id, composed over any host :on-recoverable-error and bounded to the adoption window, while identity opts supplied client-side are refused with :rf.error/root-manifest-invalid."
+ "v/hydrate-root takes its :root-id and its identifierPrefix from the Root Manifest the server emits as the container's immediately following element sibling — never from a derivation — and ADOPTS the server-rendered markup, the server's own DOM nodes surviving the mount, while a divergence React recovers from is REPORTED as :rf.ssr/hydration-mismatch carrying that root-id, composed over any host :on-recoverable-error and bounded to the adoption window. Identity opts supplied client-side are refused with :rf.error/root-manifest-invalid; server markup with no manifest adjacent is the same diagnostic with {:missing :manifest}; and no SSR artefact on the classpath at all is :rf.error/ssr-artefact-missing naming day8/re-frame2-ssr."
 
  :view  :greeting
  :props {:name "world"}
- :root-id :re-frame.freehand.root-views/greeting
+
+ ;; The identity the root ends up with — the manifest's, and NOT the id
+ ;; `[greeting {…}]` would derive.
+ :root-id :fh.root/from-the-wire
+ :derived-root-id :re-frame.freehand.root-views/greeting
+ :provenance :manifest
+
+ ;; The manifest the server emits beside the container. `:identifier-prefix`
+ ;; is a string the client could not have synthesised: the derived default
+ ;; is a function of the root-id, so a `srv6-` prefix can only have come
+ ;; from this content.
+ :manifest {:rf.root/schema-version 1
+            :root-id           :fh.root/from-the-wire
+            :identifier-prefix "srv6-"}
+ :identifier-prefix "srv6-"
 
  ;; The server's bytes for `[greeting {:name "world"}]`.
  :server-html "<section id=\"greeting\"><h1 id=\"title\">Hello</h1><p id=\"who\">world</p></section>"
@@ -59,4 +83,17 @@
  :identity-opts-refused
  [{:opts {:root-id :fh.root/other}          :error :rf.error/root-manifest-invalid}
   {:opts {:identifier-prefix "mine-"}       :error :rf.error/root-manifest-invalid}
-  {:opts {:disambiguator :left}             :error :rf.error/root-manifest-invalid}]}
+  {:opts {:disambiguator :left}             :error :rf.error/root-manifest-invalid}]
+
+ ;; ... and a container the server DID render, with nothing adjacent to say
+ ;; what it rendered it as, has no identity to hydrate under. That is a
+ ;; broken server render rather than a client-only load, and it fails loud
+ ;; rather than falling back on a guess.
+ :no-manifest {:error :rf.error/root-manifest-invalid
+               :missing :manifest}
+
+ ;; The other absence, and a DIFFERENT one: discovery itself is unreachable
+ ;; because the optional SSR artefact is not on the classpath. The
+ ;; diagnostic names the coordinate to add.
+ :no-ssr-artefact {:error :rf.error/ssr-artefact-missing
+                   :maven "day8/re-frame2-ssr"}}

@@ -89,10 +89,38 @@
   already using it are untouched: a bad plan affects exactly the roots
   carrying it.
 
-  ## Hydration — adopt the server's DOM, and say so when it diverges
+  ## Hydration — identity from the wire, then adopt the server's DOM
 
-  [[hydrate-root]] adopts server-rendered markup instead of replacing it.
-  Verification is React's own adoption: React diffs the client's first
+  A hydrating root does not derive its identity; it READS it. The server
+  knows what it rendered and says so on the wire, in the **Root Manifest**
+  it emits as the container's immediately following element sibling, and
+  [[hydrate-root]] takes its `:root-id` and its `identifierPrefix` from
+  that manifest's CONTENT (Spec 011 §Root Manifest v1). Guessing an
+  identity and hoping it matches is exactly what breaks `use-id`
+  hydration when the guess is wrong, and a client-side identity opt is
+  refused here for the same reason.
+
+  Discovery lives in the optional SSR artefact and is reached through the
+  `:ssr/discover-root-manifest` late-bind hook — `freehand → core
+  late-bind ← ssr`, the same shape [[re-frame.freehand.route-link-seam]]
+  uses against routing. A direct require would drag server code into
+  every client bundle and fail to compile every app that renders nothing
+  on a server. Two failures, and neither is a new diagnostic: the
+  artefact ABSENT is `:rf.error/ssr-artefact-missing` naming the
+  `day8/re-frame2-ssr` coordinate; the artefact present and nothing
+  adjacent is `:rf.error/root-manifest-invalid` `{:missing :manifest}`.
+
+  **The empty-container fallback precedes discovery**, and it has to. A
+  container with nothing to adopt is the client-only first load, and a
+  page the server never rendered carries no manifest either — asking for
+  one first would turn every client-only first load into a hard failure
+  and delete the fallback outright. So the one input recognisable before
+  React is involved is recognised first, and only a container that DOES
+  carry server markup is required to carry the manifest that says what
+  the server rendered it as. Markup without a manifest is a broken server
+  render, not a client-only load.
+
+  Verification is then React's own adoption: React diffs the client's first
   render against the server DOM and reports the divergences it RECOVERS
   from — a text mismatch, a missing/extra/wrong-type element — through
   the root's `onRecoverableError`. The framework surfaces that as
@@ -143,6 +171,7 @@
             [re-frame.freehand.root-id :as root-id]
             [re-frame.freehand.shell :as shell]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.live-frame :as live-frame]
             [re-frame.trace :as trace]))
 
@@ -319,7 +348,13 @@
 
 (defn- descriptor-for
   "The Root Descriptor for a resolved identity (Spec 004C §2). Every field
-  is a static fact of the mount site."
+  is a static fact of the mount site.
+
+  `:root-id-provenance` is one of `:authored`, `:derived` or `:manifest`
+  — the third being a hydrating root, whose id came off the wire rather
+  than out of a derivation. It is a dev-only field, and it earns its place
+  by making a duplicate diagnostic able to say WHERE the colliding id came
+  from instead of leaving the reader to work it out."
   [{:keys [root-id view-id provenance]}]
   (cond-> {:rf.root/schema-version 1
            :root-id                root-id
@@ -386,6 +421,25 @@
             rid))
         @live-roots))
 
+(defn- require-container!
+  "Assert `dom-node` is a live DOM element, and answer it.
+
+  Separated from [[claim!]] because a HYDRATING root has to make this
+  check before it knows its `root-id` at all: identity arrives in the
+  manifest, discovery walks the container's `nextElementSibling`, and a
+  nil container walked that way answers nil — so the honest \"you handed
+  me no container\" fault would masquerade as \"no manifest here\"."
+  [where root-id dom-node]
+  (when (or (nil? dom-node) (nil? (.-nodeType dom-node)))
+    (error/throw-error!
+      :rf.error/root-container-missing where
+      (str where ": the container is not a DOM element. A root mounts INTO a "
+           "live node — check the lookup that was meant to produce it.")
+      {:recovery :supply-a-live-container
+       :extra    (cond-> {:value (error/diag-value-summary dom-node)}
+                   (some? root-id) (assoc :root-id root-id))}))
+  dom-node)
+
 (defn- claim!
   "Assert the three admission claims and answer the live root this mount
   RE-RENDERS, or nil when it is a fresh root.
@@ -395,13 +449,7 @@
   found it — the existing roots keep rendering, and nothing has to be
   rolled back because nothing was written."
   [where dom-node root-id prefix]
-  (when (or (nil? dom-node) (nil? (.-nodeType dom-node)))
-    (error/throw-error!
-      :rf.error/root-container-missing where
-      (str where ": the container is not a DOM element. A root mounts INTO a "
-           "live node — check the lookup that was meant to produce it.")
-      {:recovery :supply-a-live-container
-       :extra    {:root-id root-id :value (error/diag-value-summary dom-node)}}))
+  (require-container! where root-id dom-node)
   (let [^Root existing (get @live-roots root-id)]
     (when (and (some? existing) (not (identical? dom-node (.-container existing))))
       (error/throw-error!
@@ -642,6 +690,20 @@
   (release-frame! frame-id root-id)
   (throw thrown))
 
+(defn- client-render!
+  "Allocate a host root, render `element` into it, and register the result
+  — the shared tail of a fresh [[mount]] and of [[hydrate-root]]'s
+  fallback. Both are ordinary client renders, and both must give back the
+  host root they just allocated if the render throws."
+  [desc dom-node prefix opts frame-id element]
+  (let [root-id    (:root-id desc)
+        react-root (rdc/createRoot dom-node (root-options prefix opts nil))]
+    (try
+      (.render react-root element)
+      (register! root-id (->Root desc dom-node react-root prefix frame-id false))
+      (catch :default e
+        (abort! react-root frame-id root-id e)))))
+
 (defn mount
   "Mount the declared view at `root-form`'s head into `dom-node`, and
   return the [[Root]] host handle.
@@ -681,12 +743,7 @@
                                 (.-hydrated existing))]
          (.render react-root element)
          (register! root-id root))
-       (let [react-root (rdc/createRoot dom-node (root-options prefix opts nil))]
-         (try
-           (.render react-root element)
-           (register! root-id (->Root desc dom-node react-root prefix frame-id false))
-           (catch :default e
-             (abort! react-root frame-id root-id e))))))))
+       (client-render! desc dom-node prefix opts frame-id element)))))
 
 ;; ---------------------------------------------------------------------------
 ;; hydrate-root
@@ -701,23 +758,124 @@
   (boolean (or (pos? (.-childElementCount dom-node))
                (not (str/blank? (.-textContent dom-node))))))
 
+(def ^:private ssr-artefact
+  ;; The optional-artefact identity the hook-absent diagnostic reports.
+  ;; Freehand carries its own copy exactly as `re-frame.freehand.route-link-seam`
+  ;; carries its own routing copy: the hydrate site names the artefact that is
+  ;; missing without reaching into core internals, and without a compile-time
+  ;; reference to a namespace a client-only app never has on its classpath.
+  {:error-keyword :rf.error/ssr-artefact-missing
+   :maven         "day8/re-frame2-ssr"
+   :require-ns    "re-frame.ssr"})
+
+(defn- discover-manifest!
+  "The Root Manifest for `dom-node` — the validated manifest, or nil when
+  there is none adjacent.
+
+  Resolved through the `:ssr/discover-root-manifest` late-bind hook, which
+  the SSR artefact publishes at namespace load: `freehand → core late-bind
+  ← ssr`. `hydrate-root` is a BOOT-TIME caller, so this is the plain
+  unmemoised resolution — no cached hook, because this is not a hot path —
+  and `require-fn!` supplies the hook-absent throw, which names the
+  `day8/re-frame2-ssr` coordinate an app that hydrates without the SSR
+  artefact needs to add.
+
+  Absence is not an error at the discovery layer (Spec 011 §Discovery): nil
+  means \"no manifest here\", and the caller decides what that means."
+  [dom-node]
+  ((late-bind/require-fn! :ssr/discover-root-manifest
+                          'v/hydrate-root
+                          ssr-artefact)
+   dom-node))
+
+(defn- require-fresh-root!
+  "A hydrating root must be the FIRST root on its container. Hydration
+  adopts server markup, and a live client root has already replaced it."
+  [^Root existing root-id]
+  (when (some? existing)
+    (error/throw-error!
+      :rf.error/duplicate-root-id 'v/hydrate-root
+      (str "root-id " (pr-str root-id) " is already live in this container. "
+           "Hydration ADOPTS server markup, and a live client root has already "
+           "replaced it — re-render through v/mount, or unmount first.")
+      {:recovery :make-root-ids-unique
+       :extra    {:root-id root-id}}))
+  nil)
+
+(defn- hydrate-fallback!
+  "The FALLBACK: an ordinary client mount, spelled as a hydration.
+
+  Nothing in the container means nothing to adopt — the client-only first
+  load of a page whose server never rendered this root. Identity therefore
+  derives exactly as [[mount]]'s does: there is no server render here, so
+  there is no server identity to read."
+  [dom-node root-form opts]
+  (let [ident    (resolve-identity 'v/hydrate-root root-form opts)
+        root-id  (:root-id ident)
+        prefix   (root-id/default-identifier-prefix root-id)
+        plan     (plan-for 'v/hydrate-root (:frame opts))
+        existing (claim! 'v/hydrate-root dom-node root-id prefix)]
+    ;; Before preflight, because a rejected root must not have run one.
+    (require-fresh-root! existing root-id)
+    (let [frame-id (preflight! 'v/hydrate-root plan root-id)]
+      (client-render! (descriptor-for ident) dom-node prefix opts frame-id
+                      (root-element root-form frame-id nil)))))
+
+(defn- adopt!
+  "The ADOPTION path: `manifest` is the server's own account of what it
+  rendered into `dom-node`, and this root renders under it.
+
+  `:root-id` and `:identifier-prefix` come from the manifest's CONTENT and
+  from nowhere else — not from the element that carried it, and not from a
+  derivation that would have to agree with the server by coincidence.
+  `:view-id` stays the client's own fact: it records which declared view
+  this site mounted, which is how a tool gets from a root back to a
+  declaration."
+  [dom-node root-form opts manifest]
+  (let [root-id  (:root-id manifest)
+        ident    (cond-> {:root-id root-id :provenance :manifest}
+                   (head-view root-form)
+                   (assoc :view-id (:view-id (descriptor/describe (head-view root-form)))))
+        prefix   (:identifier-prefix manifest)
+        plan     (plan-for 'v/hydrate-root (:frame opts))
+        existing (claim! 'v/hydrate-root dom-node root-id prefix)]
+    (require-fresh-root! existing root-id)
+    (let [frame-id   (preflight! 'v/hydrate-root plan root-id)
+          adoption   #js {:adopting true}
+          reporter   (hydration-reporter adoption root-id (:on-recoverable-error opts))
+          closer     (react/createElement adoption-window-closer
+                                          #js {:key "rf-adoption" :rfAdoption adoption})
+          element    (root-element root-form frame-id [closer])
+          react-root (rdc/hydrateRoot dom-node element
+                                      (root-options prefix opts reporter))]
+      (register! root-id (->Root (descriptor-for ident) dom-node react-root
+                                 prefix frame-id true)))))
+
 (defn hydrate-root
   "Adopt the server-rendered markup already in `dom-node` for the declared
   view at `root-form`'s head, and return the [[Root]] host handle.
 
       (v/hydrate-root (js/document.getElementById \"app\") [app {}])
 
-  Identity resolves exactly as [[mount]]'s derived case does, and identity
-  opts are REFUSED here (`:rf.error/root-manifest-invalid`): a hydrating
-  root renders under the identity the server already fixed, and a client
-  that picks its own `identifierPrefix` breaks `use-id` hydration.
+  Identity comes FROM THE WIRE. The server emits a Root Manifest as the
+  container's immediately following element sibling, and this root takes
+  its `:root-id` and its `identifierPrefix` from that manifest's content
+  (Spec 011 §Root Manifest v1) — so identity opts are REFUSED here
+  (`:rf.error/root-manifest-invalid`): a client that picks its own
+  `identifierPrefix` breaks `use-id` hydration.
+
+  A container carrying nothing to adopt takes the FALLBACK first, before
+  any manifest is asked for: the root mounts client-side under a DERIVED
+  identity, and [[hydrated?]] answers false. A container that DOES carry
+  server markup must carry the manifest that says what the server rendered
+  it as — nothing adjacent is `:rf.error/root-manifest-invalid`
+  `{:missing :manifest}`, and no SSR artefact at all is
+  `:rf.error/ssr-artefact-missing`.
 
   A divergence React recovers from — a text mismatch, a missing, extra or
   wrong-type element — is reported as `:rf.ssr/hydration-mismatch` and
   React replaces the offending DOM. An ATTRIBUTE-only divergence is
-  outside that signal by React's own contract. A container carrying
-  nothing to adopt takes the fallback: the root mounts client-side, and
-  [[hydrated?]] answers false."
+  outside that signal by React's own contract."
   ([dom-node root-form] (hydrate-root dom-node root-form {}))
   ([dom-node root-form opts]
    ;; Identity opts FIRST. They are outside the closed key set too, so the
@@ -727,46 +885,24 @@
    ;; purpose.
    (check-identity-opts! opts)
    (check-opt-keys! 'v/hydrate-root opts hydrate-opt-keys)
-   (let [ident    (resolve-identity 'v/hydrate-root root-form opts)
-         root-id  (:root-id ident)
-         desc     (descriptor-for ident)
-         ;; The server rendered under ITS prefix, and the manifest that
-         ;; carries that prefix across the wire lands with the SSR-manifest
-         ;; slice. Until then the hydrating root derives the SAME prefix the
-         ;; server's own render of this root-id derives — one function, both
-         ;; ends — which is what makes the two sides agree today.
-         prefix   (root-id/default-identifier-prefix root-id)
-         plan     (plan-for 'v/hydrate-root (:frame opts))
-         existing (claim! 'v/hydrate-root dom-node root-id prefix)]
-     ;; Before preflight, because a rejected root must not have run one.
-     (when (some? existing)
+   ;; The container, before anything reads through it. At a hydrating root
+   ;; the root-id is unknown until the manifest is read, so a nil container
+   ;; reported any later would masquerade as "no manifest here".
+   (require-container! 'v/hydrate-root nil dom-node)
+   (if-not (server-rendered? dom-node)
+     (hydrate-fallback! dom-node root-form opts)
+     (if-let [manifest (discover-manifest! dom-node)]
+       (adopt! dom-node root-form opts manifest)
        (error/throw-error!
-         :rf.error/duplicate-root-id 'v/hydrate-root
-         (str "root-id " (pr-str root-id) " is already live in this container. "
-              "Hydration ADOPTS server markup, and a live client root has already "
-              "replaced it — re-render through v/mount, or unmount first.")
-         {:recovery :make-root-ids-unique
-          :extra    {:root-id root-id}}))
-     (let [frame-id (preflight! 'v/hydrate-root plan root-id)]
-       (if-not (server-rendered? dom-node)
-         ;; The FALLBACK. Nothing to adopt, so this is an ordinary client
-         ;; mount that happened to be spelled as a hydration — the
-         ;; client-only first load of a page whose server never rendered
-         ;; this root.
-         (let [react-root (rdc/createRoot dom-node (root-options prefix opts nil))]
-           (try
-             (.render react-root (root-element root-form frame-id nil))
-             (register! root-id (->Root desc dom-node react-root prefix frame-id false))
-             (catch :default e
-               (abort! react-root frame-id root-id e))))
-         (let [adoption   #js {:adopting true}
-               reporter   (hydration-reporter adoption root-id (:on-recoverable-error opts))
-               closer     (react/createElement adoption-window-closer
-                                               #js {:key "rf-adoption" :rfAdoption adoption})
-               element    (root-element root-form frame-id [closer])
-               react-root (rdc/hydrateRoot dom-node element
-                                           (root-options prefix opts reporter))]
-           (register! root-id (->Root desc dom-node react-root prefix frame-id true))))))))
+         :rf.error/root-manifest-invalid 'v/hydrate-root
+         (str "this container carries server-rendered markup but no Root "
+              "Manifest follows it. A hydrating root takes its root-id and its "
+              "identifierPrefix from the manifest the server emits as the "
+              "container's immediately following element sibling, and nothing "
+              "was found there — so there is no identity to hydrate AS. Emit "
+              "the manifest with the render, or mount client-side with v/mount.")
+         {:recovery :emit-the-root-manifest-or-use-v-mount
+          :extra    {:missing :manifest}})))))
 
 ;; ---------------------------------------------------------------------------
 ;; unmount!

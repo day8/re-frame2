@@ -570,15 +570,22 @@
   ATTRIBUTE-only divergence is outside that signal by React's own
   contract, which makes no guarantee to patch attribute mismatches.
 
-  Identity comes from the server, so identity opts (`:root-id`,
-  `:disambiguator`, `:identifier-prefix`) are REFUSED here
+  Identity comes from the server — READ, not derived. The server emits a
+  **Root Manifest** as the container's immediately following element
+  sibling, and the hydrating root takes its `:root-id` and its
+  `identifierPrefix` from that manifest's content. So identity opts
+  (`:root-id`, `:disambiguator`, `:identifier-prefix`) are REFUSED here
   (`:rf.error/root-manifest-invalid`) — a client that renders under its
   own prefix breaks `use-id` hydration. `:frame` and the host error
   callbacks are accepted, exactly as at [[mount]].
 
-  A container carrying nothing to adopt takes the FALLBACK: the root
-  mounts client-side instead, which is the client-only first load of a
-  page whose server never rendered this root.
+  A container carrying nothing to adopt takes the FALLBACK, and takes it
+  BEFORE any manifest is asked for: that is the client-only first load of
+  a page whose server never rendered this root, and such a page carries no
+  manifest either. A container that DOES carry server markup must carry
+  the manifest that says what it was rendered as — nothing adjacent is
+  `:rf.error/root-manifest-invalid`, and no SSR artefact on the classpath
+  at all is `:rf.error/ssr-artefact-missing` naming `day8/re-frame2-ssr`.
 
   Per [Spec 011 §Hydration](../../../../spec/011-SSR.md)."
           :arglists '([dom-node root-form] [dom-node root-form opts])}
