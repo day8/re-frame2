@@ -36,6 +36,7 @@
   Normative owner: [`spec/004-Views.md`](../../../../spec/004-Views.md);
   the published roster is [`spec/API.md`](../../../../spec/API.md)."
   (:require [re-frame.error :as error]
+            [re-frame.freehand.behaviors :as behaviors]
             [re-frame.freehand.cell :as cell]
             [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.errors :as errors]
@@ -53,7 +54,8 @@
             #?@(:clj  [[re-frame.freehand.compiler :as compiler]
                        [re-frame.source-coords :as source-coords]]
                 :cljs [[re-frame.freehand.root :as root]]))
-  #?(:cljs (:require-macros [re-frame.freehand :refer [defview event handler render-fn]])))
+  #?(:cljs (:require-macros [re-frame.freehand
+                             :refer [defbehavior defview event handler render-fn]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -974,3 +976,163 @@
                        [:fallback :any]
                        [:reset-key {:optional true} :any]
                        [:on-error {:optional true} [:maybe :vector]]]}))
+
+;; ---------------------------------------------------------------------------
+;; Registered behaviors — the one sanctioned imperative boundary
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §Registered behaviors and commands (D013). Two names, and the
+;; split between them is the design: `defbehavior` REGISTERS code under a
+;; qualified id, and `behavior` attaches that id — as DATA — to one node.
+;; Nothing else crosses. There is no neutral hook, ref, effect, portal or
+;; mount callback, and there is no host handle an application can hold.
+;;
+;; `behavior` is a declared boundary like `v/error-boundary`: a descriptor
+;; mounted in a vector head, never called. Its private entry carries the
+;; reserved `:behavior` marker, and the browser emitter routes it to the
+;; lifecycle realisation instead of walking an ordinary body — the same
+;; shape the error boundary uses for its React class. The JVM has no such
+;; realisation and needs none: the render body below hands the decorated
+;; node straight back, so the structural tree records an INERT MARKER —
+;; the boundary, its behavior id, its target and its public config — and
+;; nothing runs.
+
+#?(:clj
+   (defmacro defbehavior
+     "Register an imperative host **behavior** — the ONE sanctioned way to
+     own DOM or opaque host state, bounded to a single node.
+
+         (v/defbehavior autosize
+           \"Grow the textarea to fit its content.\"
+           {:timing     :layout
+            :connect    (fn [{:keys [node config]}] (fit! node config))
+            :update     (fn [{:keys [node config]}] (fit! node config))
+            :disconnect (fn [{:keys [node memory]}] (.disconnect memory))
+            :commands   {:refit (fn [{:keys [node config]}] (fit! node config))}})
+
+     The var it binds holds the **registered id** — the qualified keyword
+     `:my.ns/autosize` — not the implementation. That is what keeps a use
+     site data: `[v/behavior {:use autosize …} …]` records the id, the
+     target and the config in the structural tree, while the code stays in
+     the registry where a tool can neither serialize nor invoke it.
+
+     The definition roster is CLOSED, and every key is optional except that
+     a behavior must declare at least one of them:
+
+       `:timing`      `:passive` (default) or `:layout` — the CLOSED set of
+                      moments the lifecycle may run at. `:layout` runs
+                      before the browser paints, which is the only honest
+                      home for measure-then-place work; `:passive` runs
+                      after paint. There is no third value, because the set
+                      of moments host state can move at is part of the
+                      contract rather than an implementation detail.
+       `:connect`     runs once, at the COMMIT that mounts the node — never
+                      from a render the host abandons. Its return value
+                      becomes the connection's PRIVATE memory.
+       `:update`      runs when the committed `:config` MOVES by `rf=`, with
+                      `:prev-config` alongside. Equal config is not
+                      movement, so a re-render that changes nothing touches
+                      no host state. Its return replaces the memory.
+       `:disconnect`  runs exactly once per committed connection, on
+                      unmount. The connection is already released when it
+                      runs, so its context is inert — a teardown reports
+                      nothing and simply lets go.
+       `:commands`    a finite map of operation keyword to function, reached
+                      through the `:re-frame.freehand.host/command` effect.
+       `:opaque`      `true` when the behavior owns the node's descendants,
+                      which makes Freehand children on that node an error
+                      rather than content the host will silently overwrite.
+
+     Every lifecycle entry takes ONE context map: `:node` (the live host
+     node), `:config`, `:memory`, `:behavior`, `:target`, `:generation`, and
+     `:dispatch` — a generation-fenced outward dispatch into the frame the
+     connection committed under. There is no frame query function: state a
+     behavior needs arrives as `:config`, so a host cannot read application
+     state at a moment nobody chose.
+
+     Per [Spec 004 §Registered behaviors and commands](../../../../spec/004-Views.md#registered-behaviors-and-commands)."
+     [sym & more]
+     (let [[docstring definition]
+           (if (string? (first more))
+             [(first more) (second more)]
+             [nil (first more)])]
+       (when (or (nil? definition)
+                 (seq (if docstring (nnext more) (next more))))
+         (error/throw-error!
+           :rf.error/behavior-bad-args
+           'v/defbehavior
+           (str "v/defbehavior is spelled (v/defbehavior name docstring? "
+                "{:timing … :connect … :update … :disconnect … :commands …}) — a "
+                "name, an optional docstring, and exactly one definition map. "
+                sym "'s declaration does not match.")
+           {:recovery :fix-the-declaration
+            :extra    {:behavior sym}}))
+       `(def ~(cond-> (vary-meta sym assoc :re-frame.freehand/behavior true)
+                docstring (vary-meta assoc :doc docstring))
+          (behaviors/register!
+            ~(keyword (str (ns-name *ns*)) (str sym))
+            ~definition)))))
+
+(def ^{:doc "(v/behavior {:use behavior-id :target … :config …} node) — attach
+  a registered behavior to ONE node.
+
+      [v/behavior {:use    autosize
+                   :target :composer/body
+                   :config {:max-rows 8}}
+       [:textarea.composer {:value draft :on-input [:composer/typed ::v/value]}]]
+
+  A declared boundary, mounted in a vector head and never called. The option
+  roster is CLOSED — `:use` (required, the qualified id a `v/defbehavior`
+  declaration binds), `:target` (the caller-authored semantic id a command
+  addresses), `:config` (the public configuration) — and the child is exactly
+  ONE element: a behavior owns one node, so a declared view, a fragment or a
+  presence boundary there is refused rather than guessed at.
+
+  `:config` is DATA through and through. A callback, a node, a ref or a
+  preconstructed host instance is refused at the door on BOTH hosts — a
+  configuration the structural tree cannot record is a use site a test and a
+  tool cannot read. Something the host should report leaves as an event intent
+  the behavior dispatches; something the host needs built is `:connect`'s to
+  build.
+
+  `:target` is what a command addresses, and it is caller-authored on purpose:
+  Freehand derives no address from render position, so a sort, a rename, a
+  parent extraction or a virtualized remount does not move it. It must be
+  unique among live connections — a command reaching an ambiguous target is
+  REFUSED rather than delivered to whichever mounted last.
+
+  CONNECTION IS COMMIT-ONLY. The lifecycle rides a ref and an effect, both of
+  which React runs only for a render it SELECTED, so a candidate the host
+  abandons performs no host work at all. `:disconnect` runs exactly once per
+  committed connection, and the connection is released before it runs — after
+  teardown there is nothing left to leak, which a test asserts as an ABSENCE.
+
+  On the JVM this is an INERT MARKER: the boundary node records the behavior
+  id, the target and the config, the decorated element renders as itself, and
+  nothing connects. Commands are refused there with the same reason.
+
+  Per [Spec 004 §Registered behaviors and commands](../../../../spec/004-Views.md#registered-behaviors-and-commands)."}
+  behavior
+  (descriptor/declare-view
+    {:view-id         behaviors/behavior-view-id
+     :lowering        :interpreted
+     :children-policy :required
+     :behavior        true
+     ;; The option roster this boundary documents as CLOSED, said once as
+     ;; data so a catalogue and a tool read the same contract the prose
+     ;; states. `:use` is required; the decorated node arrives as children
+     ;; under `:children-policy :required`, never as a prop. The schema
+     ;; states the SHAPE — that `:config` is data all the way down, and that
+     ;; the child is one element, are laws a schema cannot express and
+     ;; `re-frame.freehand.behaviors/read-opts` enforces.
+     :props-schema    [:map
+                       [:use :qualified-keyword]
+                       [:target {:optional true} :any]
+                       [:config {:optional true} [:maybe :map]]]
+     ;; The STRUCTURAL realisation, and the common validation gate. The
+     ;; browser emitter routes this descriptor to its own component (which
+     ;; runs exactly the same `read-opts`), so this body is the JVM's — it
+     ;; validates the call and hands the decorated node straight back, which
+     ;; is what makes the structural projection an inert marker wrapping the
+     ;; author's own element.
+     :render          (fn behavior-render [props] (:child (behaviors/read-opts props)))}))

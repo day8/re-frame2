@@ -190,6 +190,21 @@
   [view]
   (true? (:error-boundary (.-entry ^ViewDescriptor view))))
 
+(defn behavior?
+  "True when `view` is the framework's `v/behavior` attachment boundary — a
+  declared boundary whose PRIVATE entry carries the reserved `:behavior`
+  marker.
+
+  Like [[error-boundary?]] the marker is deliberately NOT projected by
+  [[describe]]: a browser emitter routes a behavior to its lifecycle
+  realisation (a React component owning the node's ref and the connection's
+  timing arms) rather than walking an ordinary body, and the presence of the
+  entry — not a flag on the public projection — is what decides that. It
+  classifies as `:view` like any other internal boundary, so
+  `[v/behavior {…} node]` is mounted, never called."
+  [view]
+  (true? (:behavior (.-entry ^ViewDescriptor view))))
+
 (defn describe
   "The descriptor's public **inspection / registry projection** — a plain
   map, distinct from the runtime value (per the Freehand descriptor ABI):
