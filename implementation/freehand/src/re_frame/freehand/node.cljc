@@ -316,8 +316,19 @@
                               es events)
         el-ns      (conv/element-ns ctx)
         kids       (when children
-                     (binding [*ns-context* (conv/child-ns ctx tag attrs)]
-                       (children)))]
+                     ;; Pushing a thread binding costs a frame and a map
+                     ;; assoc, and an HTML element under HTML — every
+                     ;; element in an ordinary page — would push the value
+                     ;; that is already there. So the push happens only
+                     ;; when the context actually CHANGES, which is at
+                     ;; `<svg>`, `<math>`, `<foreignObject>` and the HTML
+                     ;; island inside `<annotation-xml>`. Measured on B1 at
+                     ;; 752 bytes per element with children.
+                     (let [kid-ctx (conv/child-ns ctx tag attrs)]
+                       (if (= kid-ctx *ns-context*)
+                         (children)
+                         (binding [*ns-context* kid-ctx]
+                           (children)))))]
     (when (and (seq kids) (contains? conv/children-rejected-tags tag))
       (malformed!
         're-frame.freehand/render
