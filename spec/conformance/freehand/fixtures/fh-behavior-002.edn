@@ -41,8 +41,11 @@
   {:note "two occurrences under distinct semantic ids"
    :view :pair :outcome :renders}
 
-  {:note "an option outside the closed roster is refused"
-   :view :unknown-option :outcome :rf.error/behavior-bad-args}
+  {:note "an option outside the closed roster is refused — by the boundary's own
+          CLOSED props schema, which is where a published view states its roster
+          once as data (FH-PROPS-005); the behavior door's roster check is the
+          same closure said again, and is what answers for an unpublished caller"
+   :view :unknown-option :outcome :rf.error/view-bad-props}
 
   {:note "`:use` is required — there is no default behavior"
    :view :missing-use :outcome :rf.error/behavior-bad-args}

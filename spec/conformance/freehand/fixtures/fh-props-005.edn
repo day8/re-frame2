@@ -34,4 +34,7 @@
    :why "the option roster its own docstring calls closed, said once as data"}
   :re-frame.freehand/route-link
   {:closed? false
-   :why "every unrecognised key forwards to the anchor, so open is the truthful declaration"}}}
+   :why "every unrecognised key forwards to the anchor, so open is the truthful declaration"}
+  :re-frame.freehand/behavior
+  {:closed? true
+   :why "the attachment roster is `:use` / `:target` / `:config` and nothing else; a key outside it would name an option the behavior protocol has no meaning for"}}}
