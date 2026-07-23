@@ -2032,8 +2032,17 @@
                  {:form props-form}))
     (cond
       spread?
-      (let [[_ base overrides & extra] props-form]
-        (when (or (nil? base) (seq extra))
+      ;; The shape is judged by ARITY, exactly as `analyze-foreign-spread`
+      ;; judges its own. Testing `(nil? base)` instead read a present
+      ;; literal nil as an ABSENT first argument, so `(v/spread nil)` —
+      ;; which the public function answers `{}` and which §Props
+      ;; forwarding defines as an element with no attributes — failed to
+      ;; compile, while a binding whose runtime value is nil compiled and
+      ;; rendered. Adding an otherwise unnecessary local changed whether
+      ;; the same value was accepted.
+      (let [args             (rest props-form)
+            [base overrides] args]
+        (when-not (<= 1 (count args) 2)
           (env/fail! e :rf.ui.compile/bad-spread
                      "(v/spread base) or (v/spread base overrides)"
                      {:form props-form}))
