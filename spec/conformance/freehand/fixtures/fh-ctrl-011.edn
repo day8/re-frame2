@@ -25,7 +25,7 @@
  {:note           "a character typed mid-string leaves the caret after it, through the draft"
   :at             2
   :ch             "9"
-  :expected       "1090.00"
+  :expected       "109.00"
   :expected-caret 3}
 
  ;; The rejection: the caller stands by the value it already had and
