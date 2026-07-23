@@ -1113,9 +1113,161 @@ component boundary and its structural/SSR policy.
 
 ### Registered behaviors and commands
 
-**Lands in:** F4 — data and host lifecycle. Carries the connect/update/disconnect
-protocol, the closed timing set, node opacity, the bounded command map, and the
-structural marker.
+Some integrations are not honestly described by immutable props. A chart
+renderer, a spreadsheet, a code editor, a resize observer, a measurement pass —
+each creates opaque host state, mutates it in place, listens for host events, and
+has to release what it took. A **behavior** is Freehand's answer: one registered
+lifecycle over one node, and the only sanctioned imperative boundary in the
+substrate.
+
+```clojure
+(v/defbehavior autosize
+  {:timing     :layout
+   :connect    (fn [{:keys [node config]}] (fit! node config))
+   :update     (fn [{:keys [node config]}] (fit! node config))
+   :disconnect (fn [{:keys [memory]}] (.disconnect memory))
+   :commands   {:refit (fn [{:keys [node config]}] (fit! node config))}})
+
+[v/behavior {:use autosize :target :composer/body :config {:max-rows 8}}
+ [:textarea.composer {:value draft :on-input [:composer/typed ::v/value]}]]
+```
+
+Three properties carry the design, and each one closes an escape hatch that would
+otherwise make the substrate unanalysable: the timing is a CLOSED set, the
+commands are a BOUNDED roster, and a command's target is a SEMANTIC ID the caller
+authored. What follows fixes each.
+
+#### The registration and the closed timing set
+
+`v/defbehavior` registers an implementation under a qualified id derived from the
+declaring namespace and the declared name, and binds the var to **that id** — a
+plain keyword, not the implementation. That split is what keeps a use site data:
+the tree records an id, the registry holds the code, and nothing serializable
+ever carries a function.
+
+The definition roster is CLOSED to `:timing`, `:connect`, `:update`,
+`:disconnect`, `:commands` and `:opaque`. A key outside it is refused at
+registration rather than ignored, and a declaration carrying none of them at all
+is refused too — a behavior that can never run is a declaration that means
+something other than it says.
+
+- **`:timing` is `:passive` or `:layout`, and there is no third value.**
+  `:layout` runs before the browser paints, which is the only honest home for
+  measure-then-place work; `:passive` (the default) runs after paint. An
+  arbitrary "run whenever" hook is refused: the set of moments at which host
+  state may move is part of the contract, not an implementation detail, and a
+  substrate whose lifecycle moments are open cannot be reasoned about by a test,
+  a tool, or a reader.
+- **`:connect` runs once per committed connection**, with the live node in hand.
+  Its return value becomes the connection's PRIVATE memory.
+- **`:update` runs when the committed `:config` MOVES by `rf=`**, receiving
+  `:prev-config` alongside the new one. Equal config is not movement, so a
+  re-render that changes nothing touches no host state. Its return replaces the
+  memory.
+- **`:disconnect` runs exactly once per committed connection.** The connection is
+  released BEFORE it runs, so its context is inert and a teardown that throws
+  still leaves nothing behind.
+- **`:opaque`** declares that the behavior owns the node's descendants, which
+  makes Freehand children on that node an error rather than content the host will
+  silently overwrite.
+
+Every entry receives ONE context map: `:node`, `:config`, `:memory`,
+`:behavior`, `:target`, `:generation`, and `:dispatch`. There is no frame query
+function and no subscription read — state a behavior needs arrives as `:config`,
+so a host can never read application state at a moment nobody chose.
+
+#### The use site is data
+
+`[v/behavior {…} node]` is a declared boundary, mounted in a vector head and
+never called. Its option roster is CLOSED to `:use`, `:target` and `:config`.
+
+- **`:use`** names a registered behavior. An unregistered id is refused at the
+  use site, on both hosts, rather than mounting a node nothing will ever connect
+  to.
+- **`:config` is data through and through.** A callback, a node, a ref, a cleanup
+  function or a preconstructed host instance is refused at any depth. Something
+  the host should report leaves as an ordinary event intent the behavior
+  dispatches; something the host needs built is `:connect`'s to build. This is
+  what makes a use site readable by a structural test and a tool without holding
+  the implementation.
+- **One node, exactly.** The boundary takes exactly one child and that child is
+  ONE element. A declared view, a fragment, a presence boundary or text denotes a
+  group or a value rather than a node, and there is nothing for the behavior to
+  own. The behavior addresses the node the host hands it and has no way to reach
+  any other — there is no selector, no document query, and no ref an application
+  can hold.
+- **`:target` is caller-authored.** It is the semantic id a command addresses,
+  and Freehand derives it from nothing: not from render position, not from a key
+  path, not from the DOM. A derived address would move when a view was sorted,
+  renamed, extracted or virtualized; a domain address survives all of them. It is
+  optional, because a behavior nothing commands needs none, and it must be unique
+  among live connections.
+
+#### Commit-only connection and total cleanup
+
+A behavior connects from the host's own commit, never from a render. A candidate
+the host abandons — a suspended transition, a superseded render — performs no
+host work at all, which is the same law the atomic shell states for the reactive
+bundle (§Passive render and atomic selection): building elements is free of
+consequence, and only a SELECTED commit reaches the host.
+
+Connect and disconnect may be REPLAYED — StrictMode, hot reload, a host
+recovery — so an implementation tolerates a later fresh connection and must not
+assume its first connection is its only one. Each connection carries a monotone
+GENERATION, and every release names the exact generation it opened: a teardown
+arriving after a replacement has connected cannot clear the replacement, and an
+outward callback the host kept past a disconnect is inert rather than firing into
+a successor.
+
+Cleanup is TOTAL, and it is asserted as an absence: after the last behavior
+unmounts, the substrate holds no connection record, no target claim, no node and
+no memory. Lifecycle facts are tool evidence, not domain events — there is no
+mount event, no unmount event, and no per-occurrence teardown slot on the public
+surface.
+
+#### The bounded command channel
+
+Desired state normally flows through `:config` and `:update`. A one-shot
+operation — export, focus a cell, print, scroll to a location — is different:
+modelled as a sticky prop it would invent edge detection, acknowledgement and
+replay rules. So a behavior may register a finite roster of named operations, and
+an application reaches them through ONE reserved effect returned by an ordinary
+event handler:
+
+```clojure
+{:fx [[:re-frame.freehand.host/command
+       {:target :invoice/sheet :op :export :args {:filename "invoice.xlsx"}}]]}
+```
+
+- **It resolves against the LIVE index and runs synchronously**, against the
+  currently committed connection, on the operation the behavior registered.
+- **It is never queued and never replayed.** A command that finds no live
+  connection claiming its target is REFUSED. A future mount is driven by state
+  and config, or by a fresh event — a retained imperative request would arrive at
+  a node the application has since changed its mind about.
+- **Every failure is typed and visible**: an absent target, an ambiguous target
+  (two live connections claiming one id), an unregistered operation, and a
+  malformed command each refuse with a stable diagnostic id and perform no host
+  work.
+- **It returns no handle.** A result that matters to domain state comes back as
+  an event the behavior dispatches through its generation-fenced context.
+
+A command is not a request/response layer and not a second event system. The
+split is taught plainly: state changed → an event updates app state → the view
+supplies new config → `:update` reconciles the host; the host emitted something →
+the behavior dispatches a configured intent; perform this one-shot operation now
+→ one data command; React owns the protocol → use a wrapper, not a behavior.
+
+#### The structural marker
+
+The JVM has no live node, so a behavior there is an INERT MARKER and says so. The
+boundary renders as an ordinary view-boundary node carrying `:view-id`
+`:re-frame.freehand/behavior` and recording its `:use`, `:target` and `:config`
+as props, with the decorated element as its child. Nothing connects, no memory
+exists, and a command is refused with the same channel diagnostic rather than
+pretending to reach a host. A structural test therefore asserts the command's
+DATA — the effect an event handler returned — and the mounted tier proves the
+host action.
 
 ### The DOM top layer
 
@@ -1328,6 +1480,17 @@ A Freehand implementation MUST NOT provide:
   one.
 - **positional view arguments.** A view takes one props map; there is no
   positional arity to declare or to call.
+- **neutral hooks, refs, effects and lifecycle callbacks.** The donor's `local`,
+  `ref`, `effect` and its compiled React hook tier do not cross. Bounded
+  imperative work is a registered behavior over one node
+  ([§Registered behaviors and commands](#registered-behaviors-and-commands)); a
+  React-owned protocol lives behind an explicit wrapper. There is no neutral form
+  in between, because a neutral form is one whose timing, ownership and cleanup
+  the substrate cannot state.
+- **host handles and instance registries.** No public value carries a live host
+  object, and no lookup returns one. A behavior's memory is private to its
+  connection, and an application reaches a live connection only through the
+  bounded command channel, addressed by a semantic id it authored.
 
 ### Absent at the event surface
 

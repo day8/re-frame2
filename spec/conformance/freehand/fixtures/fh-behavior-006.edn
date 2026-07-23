@@ -1,0 +1,74 @@
+;; FH-BEHAVIOR-006 — a command reaches its explicit semantic target and NOTHING
+;; else, and every other outcome is a visible refusal.
+;;
+;; The decoy is the point of the delivery case. Two behaviors of the same
+;; registered type are live at once, under DISTINCT caller-authored target ids;
+;; the command names one. If addressing were derived from render position, from
+;; the behavior id, or from a document query, the decoy would be reachable —
+;; so the assertion is symmetric: the named node carries the mark, and the decoy
+;; carries nothing at all.
+;;
+;; The refusals are the bounded half. A command is never queued for a target
+;; that is absent, never delivered to whichever of two claimants mounted last,
+;; and never forwarded to an operation the behavior did not register. Each is a
+;; typed refusal that performs NO host work — the transcript is unchanged and
+;; the DOM is unchanged after every one of them.
+;;
+;; `:after-teardown` closes the loop with FH-BEHAVIOR-005: once the connection is
+;; released the same command that worked a moment ago is refused, because the
+;; index holds nothing. A future mount is driven by state and config, or by a
+;; fresh event — never by a retained imperative request.
+{:fh/id "FH-BEHAVIOR-006"
+ :fh/law
+ "A `:re-frame.freehand.host/command` effect reaches the ONE live connection claiming its explicit semantic target and nothing else — a live decoy under a different id is untouched — and an absent target, an ambiguous target, an unregistered operation and a malformed command are each refused with a typed diagnostic, performing no host work and queueing nothing."
+
+ :fx-id :re-frame.freehand.host/command
+
+ :delivered
+ {:view      :pair
+  :command   {:target :probe/one :op :mark :args {:label "hit"}}
+  :marked    {:selector ".node[data-id='one']" :attribute "data-mark" :value "hit"}
+  :untouched {:selector ".node[data-id='two']" :attribute "data-mark"}
+  :lifecycle [:connect :connect :mark]}
+
+ :refusals
+ [{:note    "no live connection claims the target — refused, never queued for a future mount"
+   :view    :pair
+   :command {:target :probe/nobody :op :mark}
+   :outcome :rf.error/behavior-command-refused}
+
+  {:note    "the behavior registered no such operation — the roster is finite"
+   :view    :pair
+   :command {:target :probe/one :op :teleport}
+   :outcome :rf.error/behavior-command-refused}
+
+  {:note    "two live connections claim one id — refused rather than delivered to the last mounted"
+   :view    :twins
+   :command {:target :probe/same :op :mark}
+   :outcome :rf.error/behavior-command-refused}
+
+  {:note    "a command names its target"
+   :view    :pair
+   :command {:op :mark}
+   :outcome :rf.error/behavior-command-refused}
+
+  {:note    "and its operation"
+   :view    :pair
+   :command {:target :probe/one}
+   :outcome :rf.error/behavior-command-refused}
+
+  {:note    "a command is a map"
+   :view    :pair
+   :command "mark it"
+   :outcome :rf.error/behavior-command-refused}]
+
+ :after-teardown
+ {:command {:target :probe/one :op :mark :args {:label "late"}}
+  :outcome :rf.error/behavior-command-refused}
+
+ ;; The outward half: the context a behavior keeps is fenced to the connection
+ ;; that minted it, so a host callback that outlives its node is inert.
+ :fenced-dispatch
+ {:event      [:probe/announced "live"]
+  :while-live true
+  :after-teardown false}}

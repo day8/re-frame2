@@ -1,0 +1,83 @@
+;; FH-BEHAVIOR-001 — the registration roster is CLOSED, and the timing set is
+;; closed with it.
+;;
+;; A behavior's registration is where the substrate's one imperative boundary
+;; is bounded. Two closures do the work: the definition key roster (so a key
+;; outside it is refused rather than ignored — an accepted-and-ignored key is a
+;; declaration that means something other than it says) and the `:timing` set
+;; (so the moments at which host state may move are part of the contract rather
+;; than an implementation detail). This row pins both, plus the refusal of a
+;; declaration that could never run at all.
+;;
+;; `:definition` is DATA — a lifecycle entry spelled `:fn` is substituted for a
+;; real function by the suite, and any other value is passed through verbatim so
+;; the non-function arm is exercised honestly. `:outcome` is `:registered` or
+;; the `:rf.error/id` the registration must raise.
+{:fh/id "FH-BEHAVIOR-001"
+ :fh/law
+ "A behavior registration is closed in both directions: `:timing` is `:passive` or `:layout` and nothing else, a definition key outside the roster is refused rather than ignored, a non-function lifecycle entry is refused, and a declaration carrying no lifecycle and no commands is refused because it could never run."
+
+ :timings [:passive :layout]
+
+ :definition-keys [:timing :opaque :connect :update :disconnect :commands]
+
+ :cases
+ [{:note "the ordinary declaration — the full lifecycle at the default timing"
+   :definition {:connect :fn :update :fn :disconnect :fn}
+   :outcome :registered}
+
+  {:note "`:layout` is the other member of the closed timing set"
+   :definition {:timing :layout :connect :fn}
+   :outcome :registered}
+
+  {:note "`:passive` named explicitly is the default named explicitly"
+   :definition {:timing :passive :connect :fn}
+   :outcome :registered}
+
+  {:note "a command-only behavior is legal — a one-shot operation needs no lifecycle"
+   :definition {:commands {:go :fn}}
+   :outcome :registered}
+
+  {:note "an opaque behavior owns the node's descendants"
+   :definition {:opaque true :connect :fn}
+   :outcome :registered}
+
+  {:note "a timing outside the closed set is refused — there is no third moment"
+   :definition {:timing :idle :connect :fn}
+   :outcome :rf.error/behavior-bad-args}
+
+  {:note "and neither is an arbitrary 'run whenever' spelling"
+   :definition {:timing :always :connect :fn}
+   :outcome :rf.error/behavior-bad-args}
+
+  {:note "a definition key outside the roster is REFUSED, never ignored"
+   :definition {:connect :fn :on-mount :fn}
+   :outcome :rf.error/behavior-bad-args}
+
+  {:note "a mistyped lifecycle key is that same refusal, which is the point of closing it"
+   :definition {:conect :fn}
+   :outcome :rf.error/behavior-bad-args}
+
+  {:note "a lifecycle entry that is not a function is refused at registration"
+   :definition {:connect 42}
+   :outcome :rf.error/behavior-bad-args}
+
+  {:note "so is a command roster that is not a map"
+   :definition {:commands [:go]}
+   :outcome :rf.error/behavior-bad-args}
+
+  {:note "and a command operation that is not named by a keyword"
+   :definition {:commands {"go" :fn}}
+   :outcome :rf.error/behavior-bad-args}
+
+  {:note "a declaration with no lifecycle and no commands could never run, so it is refused"
+   :definition {}
+   :outcome :rf.error/behavior-bad-args}
+
+  {:note "a timing alone is still nothing to run"
+   :definition {:timing :layout}
+   :outcome :rf.error/behavior-bad-args}
+
+  {:note "a definition that is not a map at all"
+   :definition :connect
+   :outcome :rf.error/behavior-bad-args}]}
