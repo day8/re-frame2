@@ -58,14 +58,14 @@
 
   [[anchor-box]] is attached to the dropdown's ROOT element, and the
   desired-state property is declared on the PANEL element inside it. That
-  split is load-bearing rather than stylistic: a behavior attaches through
-  `cloneElement` with its own ref, and the top layer installs its
-  idempotent host call on a ref of its own, so one element carrying both
-  would have one ref silently overwrite the other. The arrangement here
-  needs no such element — the measurement is of the anchor, the promotion
-  is of the panel, and they were never the same node — but the collision
-  is real and `pilot-overlay-dom-cljs-test` reproduces it deliberately
-  rather than leaving it to be rediscovered.
+  split is a modelling choice: the measurement is of the anchor's box and
+  the promotion is of the panel, and those are different things. It is not
+  an avoidance — a behavior attaches through `cloneElement` with its own
+  ref and the top layer installs its idempotent host call on a ref of its
+  own, and ref composition chains the two, so one element carrying both
+  hands the node to both. `pilot-overlay-dom-cljs-test` mounts exactly
+  that element and reads both back rather than leaving the combination to
+  be rediscovered.
 
   ## How the measurement reaches the panel
 
