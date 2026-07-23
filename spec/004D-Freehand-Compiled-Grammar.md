@@ -530,14 +530,25 @@ the schema, where the rest of its props contract already is:
 ```
 
 An **opaque** schema — one behind a registry reference or a runtime expression,
-whose top-level keys cannot be read — closes nothing. A guess about keys nobody
-can see would be worse than the open map it replaced.
+whose top-level keys cannot be read — closes nothing, and closes nothing at
+every surface. A guess about keys nobody can see would be worse than the open
+map it replaced, and an opacity honoured at build time and forgotten at render
+would be the cross-mode divergence the closure rule exists to forbid. What a
+declaration publishes to the descriptor and to its Var is therefore the schema
+as AUTHORED, held inert: evaluating the expression would hand the boundary a
+literal `[:map …]` that closes the very map the compiler, which can only ever
+see the expression, had just left open.
 
 **`:key` and `:children` are never schema entries.** `:key` selects sibling
 identity and is stripped by the call ABI before props are delivered;
 children arrive as trailing forms and are governed by `:children-policy`, which
 is descriptor metadata. Either one encoded as an ordinary prop would have two
-contracts that could disagree.
+contracts that could disagree. A literal schema naming either is refused at the
+**declaration** — `:rf.error/defview-bad-args`, naming the view, the offending
+slot and the ABI that already delivers it — rather than at a call, because the
+breach is in the contract itself and no call could repair it: the schema would
+advertise to a catalogue, an editor and an agent a prop that a caller and a view
+body can never exchange.
 
 **Absence is reported as absence.** A declaration without `:props` carries no
 `:props-schema` in its [inspection projection](004-Views.md#the-inspection-projection)

@@ -359,8 +359,11 @@
            [:options [:vector :any]]
            [:selected {:optional true} :any]
            [:on-change :vector]
-           [:gap {:optional true} :int]
-           [:children {:optional true} :any]]
+           [:gap {:optional true} :int]]
+   ;; Children are governed HERE and only here. They arrive as the trailing
+   ;; forms of a call, so a `[:children …]` schema entry would be a second
+   ;; contract for the same thing — and one no caller could satisfy, since a
+   ;; map-carried `:children` is refused at the boundary.
    :children-policy :optional}
   [{:keys [name label options selected on-change gap children] :as props}]
   (let [k      (control/record-key dropdown-kind props)

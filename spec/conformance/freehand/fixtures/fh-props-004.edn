@@ -30,7 +30,21 @@
 ;; `:reserved` pins the two keys no schema may govern. `:key` is stripped by the
 ;; call ABI before props are delivered and `:children` arrives as trailing forms
 ;; under `:children-policy`; a schema that had to name them would be a second
-;; contract for something that already has one.
+;; contract for something that already has one. Governing them is therefore not
+;; merely ignored — `:reserved-declarations` are the literal schemas a
+;; DECLARATION refuses, under `:declaration-reject-id`, because a schema that
+;; named a reserved slot would advertise to a catalogue a prop the call ABI can
+;; never deliver.
+;;
+;; `:opaque` is the other half of the closure rule, and the half that is easiest
+;; to lose: a schema behind a registry reference or a runtime expression closes
+;; NOTHING, and closes nothing at EVERY surface. A guess about keys nobody can
+;; see would be worse than the open map it replaced, and an opacity honoured
+;; where the schema is read as a form and forgotten where it is read as a value
+;; would be exactly the cross-mode divergence the parity matrix above exists to
+;; forbid. What the declaration publishes is therefore the AUTHORED schema, as
+;; inert data — evaluating it would hand one consumer a literal `[:map …]` the
+;; other one cannot see.
 {:fh/id "FH-PROPS-004"
 
  :schema             [:map [:id :int] [:label :string]]
@@ -57,6 +71,21 @@
   {:props {:anything 1}          :verdict :accept}]
 
  :reserved #{:key :children}
+
+ :declaration-reject-id :rf.error/defview-bad-args
+
+ ;; Literal schemas a declaration must REFUSE, each with the reserved slot it
+ ;; names. Refused at declaration rather than at a call, because the breach is
+ ;; in the contract itself and no call could repair it.
+ :reserved-declarations
+ [{:schema [:map [:key :string] [:id :int]]         :reserved :key}
+  {:schema [:map [:children [:vector :any]] [:id :int]] :reserved :children}]
+
+ ;; An opaque schema, and the surfaces its openness must survive. Every row of
+ ;; `:calls` above is `:accept` against one, in both modes, at build time as
+ ;; much as at the boundary.
+ :opaque {:closes-nothing-at-every-surface?    true
+          :describe-carries-the-authored-form? true}
 
  ;; The declaration that carries no schema at all — the optional half.
  :schema-less {:describe-omits-props-schema? true}}

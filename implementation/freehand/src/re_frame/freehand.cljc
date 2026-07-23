@@ -57,6 +57,11 @@
             ;; the interpreted front end of a fold the canonicaliser owns.
             [re-frame.freehand.node :as node]
             [re-frame.freehand.presence-runtime :as presence-runtime]
+            ;; The whole meaning of a `:props` schema, in one host-neutral
+            ;; namespace both execution modes already consult. The declaration
+            ;; consults it too, so what a schema may SAY and what it then
+            ;; DECIDES are one statement rather than two that could disagree.
+            [re-frame.freehand.props-schema :as props-schema]
             ;; The compiled tier's render-time reactive runtime — what an
             ;; authored `(v/sub …)` inside a `{:compiled true}` body lowers to.
             ;; Required here for the SAME reason `node` is: promotion is a
@@ -188,6 +193,25 @@
                 " declares " (pr-str policy) ".")
            {:recovery :fix-the-declaration
             :extra    {:view sym :children-policy policy}}))
+       ;; A schema may not govern a RESERVED slot. `:key` is stripped by the
+       ;; call ABI before props are delivered and `:children` arrives as
+       ;; trailing forms under `:children-policy`, so a schema naming either
+       ;; would be a second contract for something that already has one — and
+       ;; an impossible one, since no call can deliver the prop it advertises
+       ;; to a catalogue. It is refused at the declaration, where the breach
+       ;; is, rather than at a call site that could not repair it.
+       ;;
+       ;; Only a LITERAL `[:map …]` is read: an opaque schema's entries are
+       ;; nobody's to see, and inventing a rejection from a guess would be the
+       ;; same error as inventing a closing roster from one.
+       (let [reserved (props-schema/reserved-declared (get opts :props))]
+         (when (seq reserved)
+           (error/throw-error!
+             :rf.error/defview-bad-args
+             'v/defview
+             (props-schema/reserved-declaration-message sym reserved)
+             {:recovery :fix-the-declaration
+              :extra    {:view sym :reserved reserved}})))
        ;; The two lowerings differ in ONE entry. Everything a caller can see —
        ;; the descriptor, the view id, the source coordinates, the children
        ;; policy, the props contract, the boundary node a structural render
@@ -202,15 +226,25 @@
              ;; `describe`, so a tool can tell an undeclared contract from a
              ;; deliberately permissive one — a distinction an `:any` default
              ;; would erase.
-             schema? (contains? opts :props)
-             schema  (get opts :props)
+             ;;
+             ;; Inert means the AUTHORED schema reaches the entry and the Var,
+             ;; not the value an expression would evaluate to. The compiled
+             ;; front end below can only ever see the authored form, so an
+             ;; opaque `:props` leaves the map open there; had the same
+             ;; declaration evaluated its way to a literal `[:map …]` at the
+             ;; runtime descriptor, the boundary would close the map the
+             ;; compiler had just left open, and the schema would mean two
+             ;; different things in one declaration.
+             schema?     (contains? opts :props)
+             schema      (get opts :props)
+             schema-form (props-schema/inert-form schema)
              entry   (cond-> {:view-id         view-id
                               :source          `(if interop/debug-enabled?
                                                   ~(source-coords/coords-form form-meta file ns-sym)
                                                   ~(source-coords/prod-coords-form form-meta file ns-sym))
                               :lowering        (if compiled? :compiled :interpreted)
                               :children-policy policy}
-                       schema? (assoc :props-schema schema))
+                       schema? (assoc :props-schema schema-form))
              entry   (if compiled?
                        (let [{:keys [body manifest]}
                              (compiler/compile-structural-view
@@ -254,8 +288,9 @@
                   ;; parent resolves this var at build time and derives the
                   ;; closing keys through the same function the boundary
                   ;; uses, so the two modes cannot drift on what a schema
-                  ;; admits.
-                  schema?   (vary-meta assoc :re-frame.freehand/props-schema schema)
+                  ;; admits. It is the same inert form the entry carries —
+                  ;; one representation, published once, read by both.
+                  schema?   (vary-meta assoc :re-frame.freehand/props-schema schema-form)
                   docstring (vary-meta assoc :doc docstring))
             (descriptor/declare-view ~entry)))))))
 
@@ -311,7 +346,9 @@
      modes: it CLOSES the props map to the keys it names. A view that
      really does forward arbitrary props says so in the schema itself,
      `[:map {:closed false} …]`, rather than by silent tolerance. `:key`
-     and `:children` are reserved slots and never schema entries.
+     and `:children` are reserved slots and never schema entries, and a
+     literal schema naming either is REFUSED here, at the declaration —
+     it would advertise a prop the call ABI can never deliver.
 
      The modes differ only in WHEN a breach is reported: a compiled call
      site's keys are literal, so the analyzer names them at build time; a
@@ -320,6 +357,12 @@
      which props are legal. The runtime check is development-only — a
      schema is a compile-time and tooling fact, and production renders
      the same tree either way.
+
+     A schema behind a reference or an expression is OPAQUE, and an
+     opaque schema closes nothing — at every surface. The declaration
+     publishes it as AUTHORED, inert and unevaluated, so the compiled
+     analyzer and the boundary read one schema rather than an expression
+     and the literal it happened to evaluate to.
 
      A declaration WITHOUT `:props` reports its schema as absent from
      [[describe]], never as `:any`: an undeclared contract and a
@@ -406,7 +449,10 @@
        :props-schema           <schema>}      ; absent when none declared
 
   `:props-schema` is **absent** when no schema was declared — absence is
-  reported as absence, never as `:any`. The descriptor's render body, its
+  reported as absence, never as `:any` — and a declared one is projected
+  as AUTHORED, inert and unevaluated, so a schema behind a reference or
+  an expression reaches a catalogue as that reference or expression and
+  closes nothing anywhere. The descriptor's render body, its
   compiled structural body, and its host `mount` and structural `tree`
   entries are private and are deliberately NOT projected: an emitter
   resolves through them, and none of their shapes is a contract an
