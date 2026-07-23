@@ -34,6 +34,7 @@
             [clojure.walk :as walk]
             [re-frame.freehand :as v]
             [re-frame.freehand.compiler :as compiler]
+            [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.slot-views :as views]
             [re-frame.freehand.slot-views-compiled :as compiled]
             [re-frame.freehand.tree :as tree]))
@@ -65,6 +66,35 @@
   "The one element a corpus view renders, reached past its own boundary node."
   [tree]
   (first (:children tree)))
+
+;; ---------------------------------------------------------------------------
+;; The pinned laws — FH-CALL-006 and FH-PROPS-006
+;; ---------------------------------------------------------------------------
+;;
+;; The parity table below compares mode against mode, which is the sharper
+;; oracle for DRIFT: it needs no expectation to be written twice. What it
+;; cannot catch is the two modes moving TOGETHER, so the conformance fixtures
+;; pin the values as well — one address, one committed expectation, both modes
+;; asserted against it.
+
+(def call-006 (conf/fixture :FH-CALL-006))
+(def props-006 (conf/fixture :FH-PROPS-006))
+
+(deftest fh-call-006-and-fh-props-006-pin-what-a-slot-and-a-spread-render
+  (testing "Per FH-CALL-006 and FH-PROPS-006: the committed fixture value is
+            what BOTH modes render, so neither can drift and the pair cannot
+            drift together."
+    (doseq [[id fixture] [["FH-CALL-006" call-006] ["FH-PROPS-006" props-006]]]
+      (is (seq (:cases fixture)) (str id " — the case table loaded"))
+      (doseq [{:keys [note view args tree]} (:cases fixture)]
+        (let [interpreted (get views/by-name view)
+              promoted    (get compiled/by-name view)]
+          (is (some? interpreted) (str id " names an interpreted view: " view))
+          (is (some? promoted) (str id " names a promoted twin: " view))
+          (is (= tree (tree/render (into [interpreted] args)))
+              (str id " — " note " (interpreted)"))
+          (is (= tree (as-interpreted-ids (tree/render (into [promoted] args))))
+              (str id " — " note " (compiled — the same value, from the same call)")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The parity table
@@ -187,20 +217,6 @@
 ;; The bounded half of the bargain
 ;; ---------------------------------------------------------------------------
 
-(def denied-caller-keys
-  "Keys a `v/spread-safe` caller may not carry against
-  [[re-frame.freehand.slot-views/safe-input]] — the structural / controlled
-  identity keys, plus the component's OWN handler family in both phases, plus
-  the alternate spellings that reach the same emitted slot."
-  [{:note "the structural key" :caller {:key "k"}}
-   {:note "the reserved ref slot" :caller {:ref "r"}}
-   {:note "the controlled value the sync door proves" :caller {:value "hijacked"}}
-   {:note "the controlled checked flag" :caller {:checked true}}
-   {:note "the component's own handler" :caller {:on-change [:hijack]}}
-   {:note "its capture phase" :caller {:on-change-capture [:hijack]}}
-   {:note "an already-camel spelling of it" :caller {"onChange" [:hijack]}}
-   {:note "a namespaced spelling of a structural key" :caller {:consumer/ref "r"}}])
-
 (deftest a-safe-spread-forwards-only-permitted-keys
   (testing "The bound is what lets a component keep a promise about the
             element it renders: a controlled input stays controlled and an
@@ -208,12 +224,14 @@
             refusal rather than a silent drop — an author who meant to
             override learns that they cannot, in both modes and in every
             build."
-    (doseq [{:keys [note caller]} denied-caller-keys]
+    (is (seq (:denied props-006)) "the fixture's denial table loaded")
+    (doseq [{:keys [note view caller attrs refused]} (:denied props-006)]
       (doseq [[mode by-name] [["interpreted" views/by-name]
                               ["compiled" compiled/by-name]]]
-        (let [outcome (try (tree/render [(get by-name :safe-input) {:caller caller}])
+        (let [props   (if (some? attrs) {:attrs attrs} {:caller caller})
+              outcome (try (tree/render [(get by-name view) props])
                            (catch clojure.lang.ExceptionInfo ex (ex-data ex)))]
-          (is (= :rf.error/ui-tree-malformed (:rf.error/id outcome))
+          (is (= refused (:rf.error/id outcome))
               (str note " is denied — " mode))
           (is (not (str/includes? (pr-str outcome) "hijacked"))
               (str note " — the denied VALUE never reaches the tree (" mode ")")))))))

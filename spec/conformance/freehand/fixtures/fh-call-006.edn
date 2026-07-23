@@ -1,0 +1,100 @@
+;; FH-CALL-006 — a render slot renders the CALLER's content, one value in both
+;; execution modes.
+;;
+;; A component that renders a list knows the list; it does not know what a row
+;; looks like. `v/render-fn` declares the content and `v/slot` invokes it, and
+;; the pair is COMMON grammar — seq forms the compiled analyzer lowers, an
+;; ordinary macro and function call an interpreted body runs. This fixture pins
+;; what a slot renders, so neither mode can drift and neither can drift with the
+;; other.
+;;
+;; It is rendered against BOTH the interpreted views in
+;; `re-frame.freehand.slot-views` and their `{:compiled true}` twins in
+;; `re-frame.freehand.slot-views-compiled` — same call sites, same pinned trees
+;; — so an interpreted slot and a compiled one are proven to render the SAME
+;; content. The expected `:view-id`s are the interpreted namespace's, and the
+;; compiled arm rewrites them onto the twin namespace.
+;;
+;; The two spellings the corpus deliberately covers TOGETHER are the INLINE
+;; render-fn — lexically visible at the invocation, which is what the compiled
+;; tier can lower — and the PROP-CARRIED one, which is the library seam: the
+;; caller supplies content, the component decides where it goes.
+;;
+;; `:view` names a declaration in the slot-views namespaces; `:args` is the
+;; boundary call's argument tail.
+{:fh/id "FH-CALL-006"
+ :fh/law
+ "A `v/slot` renders the `v/render-fn` content its caller supplied, with the arguments the component supplies, identically in the interpreted and compiled modes: the output participates in the surrounding children like any other child with no slot node or wrapper, a nil slot renders nothing while its siblings close over the gap, and a slot-carrying prop is recorded on the boundary as the `:v/render-fn` opaque marker."
+
+ :cases
+ [{:note "an inline render-fn renders the slot's argument, with no wrapper node around its output"
+   :view :inline-slot
+   :args [{:label "a"}]
+   :tree {:view-id :re-frame.freehand.slot-views/inline-slot
+          :props {:label "a"}
+          :children [{:tag :tbody
+                      :children [{:tag :tr
+                                  :children [{:tag :td :children ["a"]}]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "a slot with NO parameters is content rather than a function of anything"
+   :view :inline-slot-nullary
+   :args [{}]
+   :tree {:view-id :re-frame.freehand.slot-views/inline-slot-nullary
+          :children [{:tag :div
+                      :children [{:tag :span :attrs {:class "static"}
+                                  :children ["static"]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "a two-argument slot passes both, in order"
+   :view :inline-slot-binary
+   :args [{:label "one"}]
+   :tree {:view-id :re-frame.freehand.slot-views/inline-slot-binary
+          :props {:label "one"}
+          :children [{:tag :div
+                      :children [{:tag :span :children ["one-tail"]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "the rendered output sits among its siblings exactly like any other child"
+   :view :inline-slot-among-siblings
+   :args [{:label "mid"}]
+   :tree {:view-id :re-frame.freehand.slot-views/inline-slot-among-siblings
+          :props {:label "mid"}
+          :children [{:tag :ul
+                      :children [{:tag :li :children ["first"]}
+                                 {:tag :li :children ["mid"]}
+                                 {:tag :li :children ["last"]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "an ABSENT slot renders nothing and the siblings close over the gap — a component may offer content it does not require"
+   :view :inline-slot-absent
+   :args [{:row nil}]
+   :tree {:view-id :re-frame.freehand.slot-views/inline-slot-absent
+          :props {:row nil}
+          :children [{:tag :tr
+                      :children [{:tag :td :children ["before"]}
+                                 {:tag :td :children ["after"]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "the library seam: content arrives as a PROP, renders once per keyed row with that row's value, and the prop records as the `:v/render-fn` marker"
+   :view :table
+   :args [{:rows ["r1" "r2"]}]
+   :tree {:view-id :re-frame.freehand.slot-views/table
+          :props {:rows ["r1" "r2"]}
+          :children
+          [{:view-id :re-frame.freehand.slot-views/seam
+            :props {:rows ["r1" "r2"] :row {:rf.ui/opaque :v/render-fn}}
+            :children
+            [{:tag :tbody
+              :children
+              [{:tag :tr :key "r1"
+                :children [{:view-id :re-frame.freehand.slot-views/cell
+                            :props {:label "r1"}
+                            :children [{:tag :td :attrs {:class "cell"}
+                                        :children ["r1"]}]}]}
+               {:tag :tr :key "r2"
+                :children [{:view-id :re-frame.freehand.slot-views/cell
+                            :props {:label "r2"}
+                            :children [{:tag :td :attrs {:class "cell"}
+                                        :children ["r2"]}]}]}]}]}]
+          :rf.ui/tree-version 1}}]}
