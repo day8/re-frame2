@@ -367,7 +367,7 @@
                       (try
                         (behaviors/attach (emit cand (:child opts)) set-node)
                         (catch :default e
-                          (eb/note-failing-view! view-id)
+                          (eb/note-failing-view! e view-id)
                           (throw e)))))))))]
     (gobj/set c "displayName" (str view-id))
     c))
