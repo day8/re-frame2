@@ -25,7 +25,8 @@
   (`:re-frame.freehand.host/command`) carrying data. There is no host
   handle, no instance registry, no service locator, and no queue — a
   command that finds no live connection is REFUSED, never retained for a
-  future mount.
+  future mount. It resolves in the FRAME its event ran in, so a command
+  reaches nothing a sibling frame owns.
 
   **SEMANTIC-ID TARGETS.** A command addresses a caller-authored id
   declared at the use site — never a render position, a key path, a DOM
@@ -467,12 +468,33 @@
   nil)
 
 (defn- claims-for
-  "The live `[generation record]` claims on `target`, in generation order.
-  A target is unique among live connections, so this answers zero or one
-  pair in every well-formed use — and a longer answer is exactly the
-  ambiguity a command must refuse rather than resolve."
-  [target]
-  (into [] (sort-by key (filter (fn [[_ r]] (= target (:target r))) @connections))))
+  "The live `[generation record]` claims on `target` WITHIN `frame`, in
+  generation order.
+
+  The frame is half the address. A connection is committed under the frame
+  its view was mounted in, and a command resolves in the frame the effect
+  was produced in, so a claim in another frame is not a claim a command can
+  see — frame isolation is the same law that stops a subscription reaching
+  into a sibling frame, and a host command is no different. Two frames
+  legitimately mounting the same library's target are therefore two
+  addresses rather than one ambiguity.
+
+  A target is unique among live connections IN ONE FRAME, so this answers
+  zero or one pair in every well-formed use — and a longer answer is
+  exactly the ambiguity a command must refuse rather than resolve. A
+  connection committed under no frame boundary at all carries `nil`, and is
+  addressable only from a command issued under no frame."
+  [frame target]
+  (into [] (sort-by key (filter (fn [[_ r]] (and (= target (:target r))
+                                                 (= frame (:frame r))))
+                                @connections))))
+
+(defn- targets-in
+  "The semantic ids live connections in `frame` claim — what an absent-target
+  refusal can honestly offer as the alternatives it CAN see. Listing the
+  whole process would name ids the command could never have reached."
+  [frame]
+  (into #{} (comp (filter #(= frame (:frame %))) (keep :target)) (vals @connections)))
 
 (defn- advise!
   [reason]
@@ -536,12 +558,13 @@
         rec        {:behavior use :target target :node node
                     :config config :memory nil :frame frame-id}]
     (swap! connections assoc generation rec)
-    (when (and target (< 1 (count (claims-for target))))
+    (when (and target (< 1 (count (claims-for frame-id target))))
       (advise!
-        (str "two live connections claim the target " (pr-str target)
-             ". A command target is unique among live connections, so a command "
-             "addressed to it is REFUSED rather than delivered to whichever "
-             "mounted last. Give each occurrence its own semantic id.")))
+        (str "two live connections in frame " (pr-str frame-id) " claim the target "
+             (pr-str target) ". A command target is unique among the live "
+             "connections of ONE frame, so a command addressed to it is REFUSED "
+             "rather than delivered to whichever mounted last. Give each "
+             "occurrence its own semantic id.")))
     (when-let [f (:connect (definition use))]
       (remember! generation (f (context generation rec nil))))
     generation))
@@ -713,11 +736,18 @@
 ;; never replayed after a reconnect: a target that is absent is a REFUSAL, and
 ;; a future mount is driven by state and config, not by an old imperative
 ;; request.
+;;
+;; It resolves IN ONE FRAME — the frame the effect was produced in, which the
+;; binary fx-handler contract supplies in its context. That is not a filter
+;; applied to a global answer: the frame is half the address, so a target live
+;; only in a sibling frame is as absent as one nothing ever mounted.
 
 (defn command!
-  "Perform one `:re-frame.freehand.host/command` effect. Browser-only — a
-  command crosses into a live host object, and the JVM has none."
-  [args]
+  "Perform one `:re-frame.freehand.host/command` effect, resolving `args`'
+  `:target` among the live connections of `frame` — the frame the
+  originating event ran in. Browser-only: a command crosses into a live
+  host object, and the JVM has none."
+  [frame args]
   #?(:clj
      (refused!
        (str "The behavior command channel is a browser capability: a command "
@@ -725,7 +755,7 @@
             "structural test asserts the command's DATA — the effect an event "
             "handler returned — and the mounted tier proves the host action.")
        :assert-the-command-data-on-the-structural-host
-       {:args (shape args)})
+       {:frame frame :args (shape args)})
      :cljs
      (do
        (when-not (map? args)
@@ -733,7 +763,7 @@
            (str "A behavior command is a map {:target … :op … :args …}; got a "
                 (type-name args) ".")
            :supply-a-command-map
-           {:args (shape args)}))
+           {:frame frame :args (shape args)}))
        (let [{:keys [target op]} args]
          (when (nil? target)
            (refused!
@@ -743,25 +773,28 @@
                   "the substrate invented would move when a view was renamed, "
                   "sorted or extracted.")
              :name-the-use-sites-target
-             {:args (shape args)}))
+             {:frame frame :args (shape args)}))
          (when-not (keyword? op)
            (refused!
              (str "A behavior command names its :op — one of the operations the "
                   "behavior registered; got "
                   (if (nil? op) "nothing" (str "a " (type-name op))) ".")
              :name-a-registered-operation
-             {:op (shape op)}))
-         (let [claims (claims-for target)]
+             {:frame frame :op (shape op)}))
+         (let [claims (claims-for frame target)]
            (case (count claims)
              0 (refused!
-                 (str "No live behavior connection claims the target "
-                      (pr-str target) ". A command is never retained for a "
-                      "target that is absent — a future mount is driven by state "
-                      "and config, or by a fresh event, and a queued imperative "
-                      "request would arrive at a node the application has since "
-                      "changed its mind about.")
+                 (str "No live behavior connection in frame " (pr-str frame)
+                      " claims the target " (pr-str target) ". A command resolves "
+                      "in the frame its event ran in — a connection another frame "
+                      "committed is another frame's to command — and it is never "
+                      "retained for a target that is absent: a future mount is "
+                      "driven by state and config, or by a fresh event, and a "
+                      "queued imperative request would arrive at a node the "
+                      "application has since changed its mind about.")
                  :connect-the-target-or-drive-the-host-through-config
-                 {:target target :live (vec (sort-by str (target-ids)))})
+                 {:frame frame :target target
+                  :live (vec (sort-by str (targets-in frame)))})
              1 (let [[generation rec] (first claims)
                      f                (get (:commands (definition (:behavior rec))) op)]
                  (when (nil? f)
@@ -771,24 +804,25 @@
                           "with the behavior; an unregistered operation is refused "
                           "rather than reaching a host that has no answer for it.")
                      :name-a-registered-operation
-                     {:target target :behavior (:behavior rec) :op op
+                     {:frame frame :target target :behavior (:behavior rec) :op op
                       :operations (vec (sort (keys (:commands (definition (:behavior rec))))))}))
                  (remember! generation
                             (f (context generation rec {:op op :args (:args args)})))
                  nil)
              (refused!
-               (str (count claims) " live behavior connections claim the target "
-                    (pr-str target) ". A command target is unique among live "
-                    "connections, so the command is refused rather than delivered "
+               (str (count claims) " live behavior connections in frame "
+                    (pr-str frame) " claim the target " (pr-str target)
+                    ". A command target is unique among the live connections of "
+                    "ONE frame, so the command is refused rather than delivered "
                     "to whichever mounted last. Give each occurrence its own "
                     "semantic id.")
                :give-each-occurrence-its-own-target
-               {:target target :claims (count claims)})))))))
+               {:frame frame :target target :claims (count claims)})))))))
 
 (fx/reg-fx
   command-fx-id
   {:doc       (str "Perform one bounded operation on the live behavior connection "
-                   "claiming :target. Refused — never queued — when no live "
-                   "connection claims it.")
+                   "claiming :target IN THE EFFECT'S OWN FRAME. Refused — never "
+                   "queued — when that frame holds no live connection claiming it.")
    :platforms #{:client}}
-  (fn [_ctx args] (command! args)))
+  (fn [ctx args] (command! (:frame ctx) args)))

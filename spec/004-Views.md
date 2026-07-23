@@ -1435,7 +1435,7 @@ never called. Its option roster is CLOSED to `:use`, `:target` and `:config`.
   path, not from the DOM. A derived address would move when a view was sorted,
   renamed, extracted or virtualized; a domain address survives all of them. It is
   optional, because a behavior nothing commands needs none, and it must be unique
-  among live connections.
+  among the live connections of ITS FRAME (§The bounded command channel).
 
 #### Commit-only connection and total cleanup
 
@@ -1475,6 +1475,15 @@ event handler:
 
 - **It resolves against the LIVE index and runs synchronously**, against the
   currently committed connection, on the operation the behavior registered.
+- **It resolves in the frame its event ran in.** A connection is committed under
+  the frame its view was mounted in, and the frame is half a command's address —
+  so a target live only in a sibling frame is as absent as one nothing ever
+  mounted, and the refusal says so. This is the frame isolation the rest of the
+  substrate already holds: a subscription does not reach into a sibling frame,
+  and a command into a sibling frame's node would be the same breach with a
+  host object on the end of it. Two frames mounting the same declaration
+  therefore claim the same target legitimately — two addresses, not one
+  ambiguity — and uniqueness is a claim about ONE frame.
 - **It is never queued and never replayed.** A command that finds no live
   connection claiming its target is REFUSED. A future mount is driven by state
   and config, or by a fresh event — a retained imperative request would arrive at

@@ -51,6 +51,13 @@
 
 (def ^:private frame-id :dom/behaviors)
 
+(def ^:private decoy-frame-id
+  "A SECOND live frame, mounted with the same declaration under the same
+  semantic target. Frame isolation is not observable with one frame: the
+  decoy is what makes `the command stayed in its own frame` an assertion
+  rather than a description."
+  :dom/behaviors-other)
+
 (defn- browser? []
   (and (exists? js/document) (some? (.-createElement js/document))))
 
@@ -83,12 +90,18 @@
   (bv/reset-dispatches!)
   (reset! bv/last-dispatch nil)
   (live-frame/make-frame {:id frame-id})
+  (live-frame/make-frame {:id decoy-frame-id})
   (rf/reg-event :probe/announced (fn [db _] db))
   (rf/reg-event :probe/command   (fn [_ [_ cmd]] {:fx [[behaviors/command-fx-id cmd]]}))
   nil)
 
+(defn- element-in
+  "The form, mounted under `fid`'s frame boundary."
+  [fid form]
+  (shell/provide-frame fid (fr/element form)))
+
 (defn- element [form]
-  (shell/provide-frame frame-id (fr/element form)))
+  (element-in frame-id form))
 
 (defn- attr [container selector name*]
   (some-> (.querySelector container selector) (.getAttribute name*)))
@@ -378,6 +391,88 @@
                         (teardown! container root)
                         (done)))))))))
 
+(deftest fh-behavior-006-a-command-does-not-cross-into-another-frame
+  (testing "Per FH-BEHAVIOR-006: a connection is committed under the frame its
+            view was mounted in, and a command resolves its target in the frame
+            the effect was produced in. Here the ONLY live connection claiming
+            the target belongs to the decoy frame, so the command — issued from
+            a frame that owns no such connection — must be refused exactly as if
+            the target were absent, and the decoy's node must be untouched. A
+            channel that filtered nothing would find the sole global claimant
+            and mutate a node another frame owns."
+    (if-not (browser?)
+      (skip! "the browser job runs the frame-scope assertions")
+      (async done
+        (setup!)
+        (let [[container root] (mount!)
+              {:keys [command outcome untouched lifecycle]}
+              (:crossing (:frame-scope fh-006))]
+          (-> (act #(.render root (element-in decoy-frame-id [bv/plain {}])))
+              (.then (fn [_]
+                       (is (= 1 (behaviors/connection-count))
+                           "the decoy frame really holds the only live claim")
+                       (is (= outcome
+                              (conf/caught-id
+                                #(behaviors/command! frame-id command)))
+                           "a command from the origin frame is refused")
+                       (is (nil? (attr container (:selector untouched)
+                                       (:attribute untouched)))
+                           "and the other frame's node was not touched")
+                       (is (= lifecycle (bv/ops))
+                           "no host work ran at all")
+                       (teardown! container root)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "mount rejected: " e))
+                        (teardown! container root)
+                        (done)))))))))
+
+(deftest fh-behavior-006-one-target-per-frame-is-not-ambiguous
+  (testing "Per FH-BEHAVIOR-006: uniqueness is a claim about ONE frame. Two
+            independent frames mounting the same declaration legitimately claim
+            the same library target — that is two addresses, not one ambiguity —
+            so each frame's command reaches its own connection and neither is
+            refused. A process-global target index would collapse the pair and
+            refuse both. Both commands travel the real effect path, so the frame
+            they are scoped by is the one the fx context supplied."
+    (if-not (browser?)
+      (skip! "the browser job runs the per-frame delivery assertions")
+      (async done
+        (setup!)
+        (let [[container-a root-a] (mount!)
+              [container-b root-b] (mount!)
+              {:keys [per-frame lifecycle]} (:frame-scope fh-006)
+              [origin decoy]                per-frame]
+          (-> (act #(.render root-a (element-in frame-id [bv/plain {}])))
+              (.then (fn [_] (act #(.render root-b (element-in decoy-frame-id
+                                                               [bv/plain {}])))))
+              (.then (fn [_]
+                       (is (= 2 (behaviors/connection-count))
+                           "two live connections, one per frame")
+                       (is (= #{:probe/one} (behaviors/target-ids))
+                           "claiming the SAME semantic target")
+                       (act #(rf/dispatch-sync [:probe/command (:command origin)]
+                                               {:frame frame-id}))))
+              (.then (fn [_] (act #(rf/dispatch-sync [:probe/command (:command decoy)]
+                                                     {:frame decoy-frame-id}))))
+              (.then (fn [_]
+                       (doseq [[container {:keys [note marked]}]
+                               [[container-a origin] [container-b decoy]]]
+                         (is (= (:value marked)
+                                (attr container (:selector marked)
+                                      (:attribute marked)))
+                             note))
+                       (is (= lifecycle (bv/ops))
+                           "each command ran exactly once, and neither was refused")
+                       (teardown! container-a root-a)
+                       (teardown! container-b root-b)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "mount rejected: " e))
+                        (teardown! container-a root-a)
+                        (teardown! container-b root-b)
+                        (done)))))))))
+
 (deftest fh-behavior-006-every-other-outcome-is-a-visible-refusal
   (testing "Per FH-BEHAVIOR-006: an absent target, an ambiguous target, an
             unregistered operation and a malformed command are each refused
@@ -399,7 +494,7 @@
                           (.then (fn [_]
                                    (let [before (bv/ops)
                                          got    (conf/caught-id
-                                                  #(behaviors/command! command))]
+                                                  #(behaviors/command! frame-id command))]
                                      (is (= outcome got) note)
                                      (is (= before (bv/ops))
                                          (str note " — and no host work ran")))
@@ -430,11 +525,13 @@
               (.then (fn [_]
                        (is (= conf/no-throw
                               (conf/caught-id
-                                #(behaviors/command! {:target :probe/one :op :mark})))
+                                #(behaviors/command!
+                                   frame-id {:target :probe/one :op :mark})))
                            "the command works while the connection is live")
                        (act #(teardown! container root))))
               (.then (fn [_]
-                       (is (= outcome (conf/caught-id #(behaviors/command! command)))
+                       (is (= outcome (conf/caught-id
+                                        #(behaviors/command! frame-id command)))
                            "and is refused the moment the connection is gone")
                        (is (zero? (behaviors/connection-count)))
                        (done)))

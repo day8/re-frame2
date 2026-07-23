@@ -171,13 +171,12 @@
             that is categorical (the channel is a browser capability); in a
             node runtime with nothing mounted it is the absent-target arm.
             One diagnostic id either way, which is what a caller branches on."
-    (is (= (:outcome (:command fh-003))
-           (conf/caught-id #(behaviors/command! (:args (:command fh-003)))))
-        "a command that can reach no live connection is refused")
-    (is (= (:outcome (:command fh-003))
-           (conf/caught-id
-             #(behaviors/command! (assoc (:args (:command fh-003)) :op :unknown))))
-        "and so is one naming an operation nothing registered")))
+    (let [{:keys [frame args outcome]} (:command fh-003)]
+      (is (= outcome (conf/caught-id #(behaviors/command! frame args)))
+          "a command that can reach no live connection is refused")
+      (is (= outcome
+             (conf/caught-id #(behaviors/command! frame (assoc args :op :unknown))))
+          "and so is one naming an operation nothing registered"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The absence — no neutral hook, ref or effect crossed with the behavior
