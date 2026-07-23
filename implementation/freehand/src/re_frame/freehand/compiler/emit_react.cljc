@@ -68,6 +68,7 @@
             [re-frame.freehand.compiler.env :as env]
             [re-frame.freehand.controlled :as controlled]
             [re-frame.freehand.conversion :as conv]
+            [re-frame.freehand.events :as events]
             [re-frame.freehand.top-layer :as top-layer]))
 
 (declare emit-node)
@@ -356,6 +357,39 @@
            (.push ~a ~(emit-node e st body*))))
        ~a)))
 
+;; ---------------------------------------------------------------------------
+;; Render slots
+;; ---------------------------------------------------------------------------
+
+(defn- emit-slot
+  "A `v/slot` invocation — the BROWSER half of the lowering
+  [[re-frame.freehand.compiler.emit-jvm/emit-slot]] states structurally,
+  and the same three runtime calls in the same order: the carrier is
+  gated (nil renders nothing), its declared arity is checked against the
+  argument count, and its body is invoked with the runtime arguments.
+
+  Only the render-fn's BODY differs, and it differs the way every other
+  arm does: it is emitted through this emitter, so an inline slot builds
+  React elements while its structural twin builds nodes. The carrier
+  itself is [[re-frame.freehand.events/callback]]'s — the very value the
+  interpreted `v/render-fn` macro expands to — so the arity contract, the
+  slot gate and the boundary's opaque prop record are one implementation
+  across both modes and both hosts (rf2-ckviw).
+
+  The arguments are inlined at the CALL rather than collected into a
+  sequence, so a slot that does not render evaluates none of them."
+  [e st node]
+  (let [rf      (gensym "rf-fh-slot")
+        slotval (if-let [{:keys [params body]} (:render-fn node)]
+                  `(events/callback :render-fn
+                                    (fn [~@params] ~(emit-node e st body))
+                                    ~(count params))
+                  (:slot-value node))]
+    `(let [~rf ~slotval]
+       (when (events/slot-ready? ~rf)
+         (events/check-slot-arity! ~rf ~(count (:args node)))
+         ((events/callback-fn ~rf) ~@(:args node))))))
+
 (defn- emit-presence
   [e st node]
   `(re-frame.freehand.presence-runtime/presence-boundary
@@ -384,6 +418,7 @@
     :fragment (emit-fragment e st node)
     :view     (emit-view e st node)
     :for      (emit-for e st node)
+    :slot     (emit-slot e st node)
     :presence (emit-presence e st node)
     :if       `(if ~(:test node)
                  ~(emit-node e st (:then node))
