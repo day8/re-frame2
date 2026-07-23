@@ -93,6 +93,43 @@
           "then, retried, the child"))))
 
 ;; ===========================================================================
+;; The exact-one-child grammar — the interpreted half of the table the
+;; compiled analyzer already refuses (`analyze-reject-cljs-test`
+;; `error-boundary-grammar`).
+;; ===========================================================================
+
+(deftest an-error-boundary-guards-exactly-one-child
+  (testing "`v/error-boundary` guards ONE region, so the interpreted mount
+            refuses zero children and refuses several — it never keeps the
+            first and discards the rest. A dropped subtree is the failure
+            mode that produces a program which looks like it worked: nothing
+            on screen and nothing in the console says a declared child was
+            thrown away. The compiled analyzer refuses the same zero / one /
+            many table, so a declaration means the same thing in both modes."
+    ;; ZERO — the declared children policy is the one that speaks first.
+    (is (= :rf.error/view-children-policy
+           (conf/caught-id
+             #(tree/render [v/error-boundary {:fallback (:fallback error-001)}])))
+        "a boundary guarding nothing is refused")
+    ;; ONE — accepted, and the guarded child renders.
+    (let [tree (tree/render
+                 [v/error-boundary {:fallback (:fallback error-001)} [ok-child {}]])]
+      (is (= [{:tag :span :children ["ok"]}]
+             (:children (first (:children tree))))
+          "exactly one guarded child is the accepted shape"))
+    ;; MANY — refused, naming how many were declared.
+    (is (= :rf.error/error-boundary-bad-args
+           (conf/caught-id
+             #(tree/render [v/error-boundary {:fallback (:fallback error-001)}
+                            [:span "first"] [:span "second"]])))
+        "a second declared child is REFUSED, not dropped")
+    (is (= :rf.error/error-boundary-bad-args
+           (conf/caught-id
+             #(tree/render [v/error-boundary {:fallback (:fallback error-001)}
+                            [ok-child {}] [ok-child {}] [ok-child {}]])))
+        "and so is a third")))
+
+;; ===========================================================================
 ;; Non-vacuity probe — the containment is doing REAL work.
 ;; ===========================================================================
 

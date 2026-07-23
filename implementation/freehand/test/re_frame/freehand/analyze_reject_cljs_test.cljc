@@ -675,6 +675,11 @@
   (is (= :rf.ui.compile/bad-error-boundary
          (reject-id '(error-boundary {:fallback child-view :on-error [oops]} [:p "x"])))
       ":on-error is a literal event vector [:domain/event …]")
+  ;; The zero/one/many table the interpreted mount refuses identically
+  ;; (`errors-tree-cljs-test` `an-error-boundary-guards-exactly-one-child`).
+  (is (= :rf.ui.compile/bad-error-boundary
+         (reject-id '(error-boundary {:fallback child-view})))
+      "zero guarded children is refused — the boundary guards a region")
   (is (= :rf.ui.compile/bad-error-boundary
          (reject-id '(error-boundary {:fallback child-view} [:p "a"] [:p "b"])))
       "exactly ONE guarded child"))
