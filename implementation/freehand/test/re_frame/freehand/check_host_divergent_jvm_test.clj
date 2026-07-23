@@ -40,12 +40,12 @@
               the finding names the CLJS-branch form the JVM reader elides —
               so the report can only be right by having analyzed that branch"
       (is (= {:view-id           :re-frame.freehand.check-host-divergent-views/host-divergent
-              :source            {:file fixture-path :line 25 :column 1}
+              :source            {:file fixture-path :line 27 :column 1}
               :current-lowering  :interpreted
               :target-grammar    :re-frame.freehand/v1
               :compile-eligible? false
               :findings          [{:id       :rf.ui.compile/dynamic-head
-                                   :source   {:line 25 :column 1}
+                                   :source   {:line 27 :column 1}
                                    :form     '[tag {} "the CLJS branch has a dynamic head - ineligible"]
                                    :reason   :head-is-a-runtime-value
                                    :recovery [:use-a-literal-head
@@ -57,7 +57,7 @@
               eligible, even though the two branches are not textually equal —
               reading both branches never invents a refusal"
       (is (= {:view-id           :re-frame.freehand.check-host-divergent-views/host-uniform
-              :source            {:file fixture-path :line 32 :column 1}
+              :source            {:file fixture-path :line 34 :column 1}
               :current-lowering  :interpreted
               :target-grammar    :re-frame.freehand/v1
               :compile-eligible? true
