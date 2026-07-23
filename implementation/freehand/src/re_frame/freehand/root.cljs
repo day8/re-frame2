@@ -40,9 +40,18 @@
   rather than allocating a second one. A second `createRoot` on one
   container is a React error and would tear the whole tree down and
   re-seed it; the registry here is what turns the guide-01 reload path —
-  re-run the mount, find the root live, re-render — into the default. The
-  reloaded body renders; the host root, and everything downstream that
-  hangs off it, is not reseeded.
+  re-run the mount, find the root live, re-render — into the default.
+
+  Reusing the host root is HALF of not reseeding, and the weaker half.
+  What hangs below the root is a React component, and React reconciles on
+  component identity: a fresh component type under a reused root unmounts
+  the boundary and mounts a new one, so the reloaded body appears on top
+  of an occurrence that was thrown away. The other half is therefore
+  [[re-frame.freehand.react]]'s boundary cache, keyed on the same
+  qualified view id this registry keys on, so a compatible redefinition
+  renders through the boundary React already mounted. Together: the
+  reloaded body renders, and neither the host root nor the occurrence
+  beneath it is reseeded.
 
   ## Not this slice
 

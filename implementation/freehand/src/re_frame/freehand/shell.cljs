@@ -100,16 +100,29 @@
   view body under `cell/with-capture` and walks the result, recording
   reads and event sites on that candidate and on nothing else.
 
-  Hot reload in the interpreted mode goes through boundary IDENTITY: a
-  redeclared view is a new descriptor value, so the emitter mints a new
-  component, React remounts the boundary, and this shell's lifecycle
-  cleanup disconnects the OLD cell — releasing exactly the ownership the
-  old body had. A cell therefore never publishes a body it did not
-  execute."
-  [view-id render-candidate]
+  `body-revision` is the emitter's current BODY REVISION for this view —
+  the counter a COMPATIBLE hot reload advances when it publishes a new
+  body through the boundary React already mounted. A compatible reload
+  keeps this Fiber and therefore this cell, so the cell is brought up to
+  that revision BEFORE the candidate opens: this render's candidate
+  carries the revision it actually executed, and a candidate opened
+  against the PREVIOUS body is stale at both commit checkpoints and
+  publishes no dependencies, no events and no evidence. A cell therefore
+  never publishes a body it did not execute.
+
+  An INCOMPATIBLE redefinition — one whose hook skeleton moved — is a new
+  component type instead, so React remounts and this shell's lifecycle
+  cleanup disconnects the old cell, releasing exactly the ownership the
+  old body had. The two arms are decided by
+  `re-frame.freehand.react/shell-signature`, which is where the rule is
+  stated."
+  [view-id body-revision render-candidate]
   (let [frame-id (frame-context-frame)
         c        (use-cell view-id)
         _        (use-revision! c)
+        ;; The fence, before the candidate exists — monotone, so an
+        ;; occurrence mounted mid-session catches up rather than fighting.
+        _        (cell/advance-generation! c body-revision)
         cand     (cell/candidate c frame-id)
         element  (render-candidate cand)]
     ;; Reconcile after every committed render, with this render's exact

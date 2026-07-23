@@ -24,8 +24,9 @@
       key, children passed as varargs so React needs no synthetic keys for
       a literal run;
     - **view boundaries** — a real React function component per declared
-      view, memoized by descriptor identity, so React sees a boundary and
-      DevTools sees a name;
+      view, cached under that view's QUALIFIED ID, so React sees a
+      boundary, DevTools sees a name, and a compatible hot reload keeps
+      the boundary React already mounted;
     - **fragments**, **text**, spliced seqs, and the same dropped
       `nil`/`false`/`true`.
 
@@ -174,57 +175,159 @@
 (declare element)
 
 (def ^:private components
-  "Descriptor -> React component. Keyed by descriptor IDENTITY, so a
-  redeclared view (a reload) mints a new component and React remounts the
-  boundary rather than reusing a stale body."
+  "Qualified view id -> the ONE stable React boundary this emitter mounts
+  that view through:
+
+      {:signature <the shell signature below>
+       :component <the React component type React reconciles on>
+       :slot      #<volatile {:body <render body> :revision <int>}>}
+
+  Keyed by the QUALIFIED VIEW ID, deliberately, and not by descriptor
+  identity. A declared view is a VALUE, so a hot reload mints a fresh
+  descriptor object; keying on that object would mint a fresh React
+  component TYPE for every redefinition, and a changed type is React's
+  instruction to unmount the old boundary and mount a new one. The reload
+  would then reseed everything below it — an uncontrolled input's text,
+  a scroll offset, focus — which is precisely the occurrence `v/mount`
+  reuses the host root to preserve. The view id is what `v/mount` already
+  keys root identity on, and it is what \"the same view\" means.
+
+  ONE entry per view id, REPLACED rather than appended to: a long dev
+  session's reload generations retain one component, one render body and
+  two small values, never one set per generation."
   (atom {}))
+
+(defn- shell-signature
+  "The React HOOK SKELETON this emitter will give `view` — the axis on
+  which a redefinition is COMPATIBLE, and so the axis that decides
+  stable shell versus clean remount.
+
+  An interpreted view body calls no React hooks. It is unrestricted
+  Clojure that produces markup, and every hook a Freehand boundary owns
+  belongs to [[re-frame.freehand.shell/render]] — one `useContext`, one
+  `useRef`, one `useSyncExternalStore`, two `useLayoutEffect`s — in a
+  fixed order no edit to a body can move. An interpreted body edit,
+  however large, therefore cannot change the hook skeleton, and reusing
+  the boundary across it is not a bet: it is the only answer that does
+  not throw away state React was willing to keep.
+
+  What DOES change the skeleton is a change of LOWERING. The compiled
+  tier renders through its own shell, and its capability-elision verdict
+  omits the ViewCell — and with it every hook above — for a view with no
+  reactive site; a containment boundary is not a function component at
+  all but the React CLASS the error-boundary law drives. Promotion
+  between modes is a real authoring edit (`{:compiled true}` added to a
+  declaration, then a reload), so those static declaration facts are the
+  whole signature. A signature change mints a new component and React
+  remounts the boundary ONCE, cleanly, rather than running a different
+  hook order against the old Fiber's hook state."
+  [view]
+  [(if (descriptor/error-boundary? view)
+     :error-boundary
+     (:lowering (descriptor/describe view)))
+   (:view-cell (descriptor/manifest view))])
+
+(defn- publish-body!
+  "Publish `view`'s render body into a stable boundary's `slot`, and
+  advance that slot's BODY REVISION when the body is genuinely new.
+
+  Identity is the test, because a redefinition mints a new body closure
+  and re-walking an unchanged tree does not. So one render pass that
+  reaches the same boundary at several call sites republishes nothing and
+  advances nothing — the revision moves at the RELOAD seam, and a live
+  candidate is never made stale by an ordinary walk."
+  [slot view]
+  (let [body (descriptor/render-body view)]
+    (when-not (identical? body (:body @slot))
+      (vswap! slot (fn [s] (-> s (assoc :body body) (update :revision inc)))))
+    nil))
+
+(defn- interpreted-component
+  "The React function component an INTERPRETED declaration lowers to: one
+  atomic shell around whatever body the boundary's `slot` currently holds.
+
+  The body is read from the slot on every render rather than closed over,
+  which is what lets a compatible reload publish a new body through a
+  component React is already reconciling."
+  [view view-id slot]
+  (when (descriptor/structural-body view)
+    ;; A compiled declaration has no interpreted body to walk. Its React
+    ;; lowering — direct jsx calls over the same analyzed template — is the
+    ;; compiled tier's other emitter, and it lands with the slice that owns
+    ;; the ViewCell it renders inside. Until then this path is a LOUD
+    ;; refusal rather than a walk of `nil`: a compiled view that quietly
+    ;; rendered nothing in a browser would be the worst possible way to
+    ;; learn the lowering is missing.
+    (error/throw-error!
+      :rf.error/view-lowering-unavailable
+      're-frame.freehand.react/element
+      (str view-id " is declared {:compiled true} and the compiled tier's "
+           "React lowering is not built yet — the structural lowering is. "
+           "Render it structurally, or drop the marker to mount it "
+           "interpreted; the declaration is the only thing that changes.")
+      {:recovery :render-structurally-or-drop-the-compiled-marker
+       :extra    {:view-id view-id}}))
+  (let [c (fn freehand-view [js-props]
+            (let [{:keys [body revision]} @slot]
+              (shell/render
+                view-id
+                revision
+                (fn [cand]
+                  (cell/with-capture
+                    cand
+                    (fn []
+                      (emit cand
+                            (body (conv/forward-children
+                                    (gobj/get js-props "props"))))))))))]
+    (gobj/set c "displayName" (str view-id))
+    c))
 
 (defn- component-for
   [view]
-  (or (get @components view)
-      ;; An error boundary is not an ordinary function component — a function
-      ;; component cannot catch a descendant's render throw. It lowers to the
-      ;; React class boundary the error-boundary law drives (capture, the
-      ;; once-per-generation intent, reset, the private egress), built once
-      ;; and memoised like any other declared view's component.
-      (when (descriptor/error-boundary? view)
-        (let [c (error-react/boundary-component element)]
-          (swap! components assoc view c)
-          c))
-      (let [view-id (:view-id (descriptor/describe view))
-            _       (when (descriptor/structural-body view)
-                      ;; A compiled declaration has no interpreted body to walk.
-                      ;; Its React lowering — direct jsx calls over the same
-                      ;; analyzed template — is the compiled tier's other
-                      ;; emitter, and it lands with the slice that owns the
-                      ;; ViewCell it renders inside. Until then this path is a
-                      ;; LOUD refusal rather than a walk of `nil`: a compiled
-                      ;; view that quietly rendered nothing in a browser would
-                      ;; be the worst possible way to learn the lowering is
-                      ;; missing.
-                      (error/throw-error!
-                        :rf.error/view-lowering-unavailable
-                        're-frame.freehand.react/element
-                        (str view-id " is declared {:compiled true} and the compiled tier's "
-                             "React lowering is not built yet — the structural lowering is. "
-                             "Render it structurally, or drop the marker to mount it "
-                             "interpreted; the declaration is the only thing that changes.")
-                        {:recovery :render-structurally-or-drop-the-compiled-marker
-                         :extra    {:view-id view-id}}))
-            body    (descriptor/render-body view)
-            c       (fn freehand-view [js-props]
-                      (shell/render
-                        view-id
-                        (fn [cand]
-                          (cell/with-capture
-                            cand
-                            (fn []
-                              (emit cand
-                                    (body (conv/forward-children
-                                            (gobj/get js-props "props")))))))))]
-        (gobj/set c "displayName" (str view-id))
-        (swap! components assoc view c)
-        c)))
+  (let [view-id (:view-id (descriptor/describe view))
+        sig     (shell-signature view)
+        entry   (get @components view-id)]
+    (if (and (some? entry) (= sig (:signature entry)))
+      ;; The COMPATIBLE reload. React is handed the component type it
+      ;; already mounted, so the Fiber — and the ViewCell, the DOM nodes
+      ;; and the uncommitted browser state below it — survives; what
+      ;; changes is the body the next render runs.
+      (do (publish-body! (:slot entry) view)
+          (:component entry))
+      (let [slot (volatile! {:body (descriptor/render-body view) :revision 0})
+            c    (if (descriptor/error-boundary? view)
+                   ;; An error boundary is not an ordinary function component
+                   ;; — a function component cannot catch a descendant's
+                   ;; render throw. It lowers to the React class boundary the
+                   ;; error-boundary law drives (capture, the
+                   ;; once-per-generation intent, reset, the private egress),
+                   ;; built once and cached like any other declared view's
+                   ;; component.
+                   (error-react/boundary-component element)
+                   (interpreted-component view view-id slot))]
+        (swap! components assoc view-id {:signature sig :component c :slot slot})
+        c))))
+
+(defn ^:no-doc boundary-cache
+  "The stable-boundary cache projected as `{view-id {:signature :revision}}`
+  — a RETENTION and reload seam for tests, never application API. One entry
+  per view id, whatever a session's reload count, is the invariant; the
+  revision is what the hot-reload fence rides on."
+  []
+  (persistent!
+    (reduce-kv (fn [m view-id {:keys [signature slot]}]
+                 (assoc! m view-id {:signature signature :revision (:revision @slot)}))
+               (transient {})
+               @components)))
+
+(defn ^:no-doc reset-boundaries!
+  "Drop every cached boundary — a test-isolation seam only, mirroring
+  [[re-frame.freehand.root/reset-registry!]]. A suite that mounts a view
+  id another suite also uses calls this between runs so a boundary from
+  the earlier run cannot masquerade as this one's reload."
+  []
+  (reset! components {})
+  nil)
 
 ;; ---------------------------------------------------------------------------
 ;; The walk

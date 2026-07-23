@@ -446,11 +446,20 @@
 ;; ---------------------------------------------------------------------------
 
 (defn advance-generation!
-  "Record that `cell`'s view BODY was replaced — the hot-reload seam. Any
-  candidate rendered against the previous revision is now stale and
-  publishes nothing, at both commit checkpoints."
-  [^ViewCell cell]
-  (swap! (st cell) update :generation inc)
+  "Bring `cell` up to `revision` — the BODY REVISION its view's emitter is
+  currently publishing. The hot-reload seam: any candidate rendered
+  against a lower revision is now stale and publishes nothing, at both
+  commit checkpoints.
+
+  The revision is passed in rather than incremented here because a
+  compatible reload replaces the body ONCE for the view and every live
+  occurrence of it must land on the same number. MONOTONE, so an
+  occurrence whose cell was minted after the reload — starting at zero
+  and catching up on its first render — converges with one that lived
+  through it, and a stale call can never walk a cell backwards."
+  [^ViewCell cell revision]
+  (when (> revision (:generation @(st cell)))
+    (swap! (st cell) assoc :generation revision))
   nil)
 
 ;; ---------------------------------------------------------------------------
