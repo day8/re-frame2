@@ -472,7 +472,9 @@
 
   ;; R-A9. An asynchronous normalisation of the committed text. The
   ;; request carries a token; only the settle that names the CURRENT token
-  ;; may land, so a superseded reply is inert rather than racing.
+  ;; may land, so a superseded reply is inert rather than racing. The token
+  ;; IS the outstanding request's identity: a terminal outcome retires it,
+  ;; and a settle that does not name the current token does nothing.
   (rf/reg-event :acme.invoice/reference-submitted
     (fn [{:keys [db]} [_ id text token]]
       {:db (-> db
@@ -480,24 +482,36 @@
                (assoc-in [:invoice id :normalise-token] token)
                (assoc-in [:invoice id :submitted-reference] text))}))
 
+  ;; A SUCCESS settles the request it names. It retires the token — so a
+  ;; late or duplicate reply for the same request finds no match and is
+  ;; inert — and clears any prior reference-error, because a current
+  ;; success is the new baseline decision that supersedes an earlier
+  ;; refusal.
   (rf/reg-event :acme.invoice/reference-normalised
     (fn [{:keys [db]} [_ id token normalised]]
       (if (= token (get-in db [:invoice id :normalise-token]))
         {:db (-> db
                  (assoc-in [:invoice id :normalising?] false)
+                 (assoc-in [:invoice id :normalise-token] nil)
                  (assoc-in [:invoice id :reference] normalised)
+                 (assoc-in [:invoice id :reference-error] nil)
                  (update-in [:invoice id :reference-revision] inc)
                  (update ::normalised (fnil conj []) normalised))}
         {})))
 
-  ;; THE REJECTION. The caller refuses the committed draft and stands by
-  ;; the value it already had — advancing the revision is what says "this
-  ;; is a NEW baseline decision" in the one case value-equality cannot
-  ;; see.
+  ;; THE REJECTION, and the other terminal outcome. The caller refuses the
+  ;; committed draft and stands by the value it already had — advancing the
+  ;; revision is what says "this is a NEW baseline decision" in the one case
+  ;; value-equality cannot see. It also retires any outstanding token, so a
+  ;; success still in flight for the refused request cannot land afterwards
+  ;; and overwrite the refusal. With no request outstanding (the direct
+  ;; same-value rejection R-A3 exercises) the token is already nil and this
+  ;; is a no-op.
   (rf/reg-event :acme.invoice/reference-refused
     (fn [{:keys [db]} [_ id reason]]
       {:db (-> db
                (assoc-in [:invoice id :normalising?] false)
+               (assoc-in [:invoice id :normalise-token] nil)
                (assoc-in [:invoice id :reference-error] reason)
                (update-in [:invoice id :reference-revision] inc)
                (update ::refused (fnil inc 0)))}))

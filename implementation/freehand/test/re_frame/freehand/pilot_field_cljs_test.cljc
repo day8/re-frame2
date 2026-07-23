@@ -763,6 +763,57 @@
           (is (= "REF-DRAFT" (first results))
               "non-vacuous: what they agreed on is the live draft"))))))
 
+(deftest r-a9-terminal-outcomes-are-mutually-exclusive
+  (testing "rf2-drpa3.135. A submitted request settles exactly once. The
+            token IS the request's identity, so whichever terminal outcome —
+            success or refusal — lands FIRST retires it, and any later or
+            duplicate settle for that request is inert. A success also
+            clears a prior refusal's message, because it is the newer
+            baseline decision. These are the terminal-order seams a token
+            protocol that only GUARDS the winner, without RETIRING the
+            request, leaves open."
+    (each-mode
+      (fn [mode]
+        (testing "a refusal retires the request: a success still in flight
+                  for it cannot land afterwards and overwrite the refusal"
+          (seed-line! 1)
+          (send! [:acme.invoice/reference-submitted 1 "ref-x" :req-1])
+          (send! [:acme.invoice/reference-refused 1 "That reference is not on file."])
+          (send! [:acme.invoice/reference-normalised 1 :req-1 "REF-LATE"])
+          (is (= "REF-1" (get-in (app-db) [:invoice 1 :reference]))
+              "the late success did not move the refused baseline")
+          (is (nil? (::pilot/normalised (app-db)))
+              "and settled nothing at all")
+          (is (= "That reference is not on file."
+                 (get-in (app-db) [:invoice 1 :reference-error]))
+              "the refusal's message still stands"))
+
+        (testing "a current success clears a prior refusal's error as it
+                  stores the normalised value"
+          (seed-line! 1)
+          (send! [:acme.invoice/reference-refused 1 "That reference is not on file."])
+          (is (= "That reference is not on file."
+                 (get-in (app-db) [:invoice 1 :reference-error]))
+              "the refusal set an error")
+          (send! [:acme.invoice/reference-submitted 1 "ref-y" :req-2])
+          (send! [:acme.invoice/reference-normalised 1 :req-2 "REF-Y"])
+          (is (= "REF-Y" (get-in (app-db) [:invoice 1 :reference]))
+              "the fresh request's success lands")
+          (is (nil? (get-in (app-db) [:invoice 1 :reference-error]))
+              "and the stale rejection message is gone, not retained"))
+
+        (testing "a duplicate success for an already-settled request is
+                  inert — the first outcome retired it"
+          (seed-line! 1)
+          (send! [:acme.invoice/reference-submitted 1 "ref-z" :req-3])
+          (send! [:acme.invoice/reference-normalised 1 :req-3 "REF-Z"])
+          (let [after-first (app-db)]
+            (send! [:acme.invoice/reference-normalised 1 :req-3 "REF-Z"])
+            (is (= after-first (app-db))
+                "the duplicate settle moved no state at all")
+            (is (= ["REF-Z"] (::pilot/normalised (app-db)))
+                "non-vacuous: the success was recorded exactly once")))))))
+
 ;; ===========================================================================
 ;; R-A10 — busy from the in-flight write's own state
 ;; ===========================================================================
