@@ -114,8 +114,36 @@
       (is (java.util.Arrays/equals ^bytes before ^bytes after)))))
 
 ;; ---------------------------------------------------------------------------
-;; The two ways to be pointed at something that cannot be checked
+;; The three ways to be pointed at something that cannot be checked
 ;; ---------------------------------------------------------------------------
+
+(deftest a-pure-cljs-source-is-refused-and-names-the-workflows-that-answer
+  (testing "a .cljs namespace is never loaded on the JVM and a real
+            ClojureScript analyzer environment exists only inside a running
+            compile, so there is no build context to resolve heads through.
+            The checker refuses rather than resolving through a stand-in
+            namespace, which would report confidently about code nobody
+            wrote."
+    (let [tmp (java.io.File/createTempFile "fh-check" ".cljs")]
+      (try
+        (spit tmp "(ns re-frame.freehand.check-cljs-probe)\n")
+        (let [ex  (try (check/check-file (.getPath tmp))
+                       nil
+                       (catch clojure.lang.ExceptionInfo e e))
+              msg (str (ex-message ex))]
+          (is (some? ex) "a .cljs source is refused, not checked")
+          (is (= :cljs (:target (ex-data ex)))
+              "the refusal is discriminable as the CLJS-target one rather than
+               the unloaded-namespace one — the file is refused before it is
+               even read")
+          (is (re-find #"ClojureScript source" msg))
+          (is (re-find #"\.cljc" msg)
+              "and it names the workflow that DOES answer a CLJS-target
+               question — a .cljc declaration, whose :cljs branch is analyzed")
+          (is (not (re-find #"\(require" msg))
+              "never the unloaded-namespace advice: requiring a .cljs
+               namespace on the JVM is not a thing an author can do"))
+        (finally (.delete tmp))))))
 
 (deftest a-file-that-cannot-be-checked-says-so
   (testing "no (ns …) form means no namespace to resolve heads against"
