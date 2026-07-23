@@ -2094,6 +2094,14 @@
       (react-event-name n false)
       (react-prop-name n))))
 
+(def reserved-ref-slot
+  "The emitted SLOT React reserves for a ref, DERIVED from `:ref` through the
+  same `caller-key-slot` projection an authored key takes rather than spelled
+  as a literal. A guard that compares against this constant cannot drift from
+  what the emitters write, and every representation of the name — `:x/ref`,
+  `\"ref\"`, `'ref` — reduces to it."
+  (caller-key-slot :ref))
+
 (def ^:private spread-safe-denied-structural-slots
   "The canonical emitted SLOTS of the denied structural/controlled keys — the
   form both host converters reduce a caller key to via `caller-key-slot`. The
@@ -2139,7 +2147,7 @@
 (defn- spread-safe-denial-reason [slot owned-slots]
   (cond
     (= "key" slot)                        "a structural identity slot (keys are literal at the site)"
-    (= "ref" slot)                        "a reserved React ref slot"
+    (= reserved-ref-slot slot)            "a reserved React ref slot"
     (contains? #{"value" "checked"} slot) "the controlled-input contract the sync door proves"
     (contains? owned-slots slot)          "an owned event handler the component controls"
     :else                                 "owned by the component"))
@@ -2244,6 +2252,22 @@
                 (when-some [slot (caller-key-slot k)] [slot replacement])))
         rejected-prop-spellings))
 
+(defn rejected-slot-replacement
+  "The didactic replacement `rejected-prop-spellings` names for a canonical
+  emitted SLOT — nil when the slot is an ordinary prop. This is the ONE reader
+  of the rejected roster in slot space, and every tier consults it: the runtime
+  spread deny below, and the DIRECT attribute-key refusals both interpreted
+  walks and the compiled analyzer apply
+  ([[re-frame.freehand.conversion/attr-key-refusal]]).
+
+  Taking a SLOT rather than a key is what keeps refusal and emission in step by
+  construction: the caller reduces the authored key with `caller-key-slot` — the
+  same projection it is about to emit through — and asks about the answer, so
+  there is no second place where a spelling could be classified differently
+  from the way it is written (rf2-2bg4t)."
+  [slot]
+  (get rejected-prop-slots slot))
+
 (defn spread-rejected-key?
   "Is runtime prop key `k` a rejected spelling — the runtime twin of the
   analyzer's literal `check-rejected-spelling!`? Compares `k`'s canonical
@@ -2251,7 +2275,7 @@
   non-nameable key has no slot and is not 'rejected' here (the converters
   report it through their own channel)."
   [k]
-  (contains? rejected-prop-slots (caller-key-slot k)))
+  (some? (rejected-slot-replacement (caller-key-slot k))))
 
 (defn assert-spread-prop-key!
   "EVERY-BUILD deny for ONE prop key arriving through a RUNTIME prop map — a
@@ -2275,7 +2299,7 @@
   `re-frame.freehand` sanitises NOTHING: the fix is not to clean the markup but to
   require it be asserted at a visible site."
   [k]
-  (when-some [replacement (get rejected-prop-slots (caller-key-slot k))]
+  (when-some [replacement (rejected-slot-replacement (caller-key-slot k))]
     (error/throw-error!
      :rf.error/ui-tree-malformed 're-frame.freehand/spread
      (str "a runtime spread prop map may not carry " (pr-str k)
