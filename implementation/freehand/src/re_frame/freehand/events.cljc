@@ -485,7 +485,10 @@
 ;; SEPARATE closed form from the options map, legal only on `:on-key-down` /
 ;; `:on-key-up`. Its keys are exact `KeyboardEvent.key` strings and each value
 ;; is an existing DISPATCHING event form — a vector, an options map carrying
-;; `:event`, `v/event`, or `nil`. Selection is one level and by exact equality:
+;; `:event` and at most the two PRE-DISPATCH mechanics, `v/event`, or `nil`.
+;; The three whole-listener facts (`:once`, `:capture`, `:passive`) are refused
+;; inside a branch, because a branch is chosen after the keystroke and all three
+;; are settled before it. Selection is one level and by exact equality:
 ;; a missing key is a no-op, an in-flight IME composition or a chord modifier
 ;; matches nothing, and each selected branch runs its OWN pre-dispatch mechanics
 ;; before its intent dispatches. Everything richer — modifier chords, ordering,
@@ -501,17 +504,67 @@
   emitter writes for `:on-key-down` and `:on-key-up`."
   #{"onKeyDown" "onKeyUp"})
 
+(def branch-options
+  "The CLOSED option roster a SELECTED key branch may carry — its `:event`
+  vector plus the two PRE-DISPATCH browser mechanics.
+
+  It is [[event-options]] minus the three WHOLE-LISTENER facts, and the
+  subtraction states WHEN each option is read rather than a taste in
+  vocabulary. `:capture` and `:passive` are native attachment facts, settled
+  when the listener goes on the node; `:once` retires the SITE, which is a
+  property of the site and not of one key. All three are decided before any
+  keystroke has been looked at, so a branch — chosen only once the key has
+  arrived — cannot honour one. Accepting them here and then dropping them is
+  the exact failure the closed listener roster exists to refuse, so the branch
+  roster refuses them too.
+
+  ONE roster, asked by both front ends: the compiled analyzer validates a
+  literal branch against this set rather than restating it, so the interpreted
+  and compiled tiers cannot accept different branch grammars."
+  #{:event :prevent-default :stop-propagation})
+
 (defn- branch-plan
   "Classify one key branch's value into its dispatching site plan, or `nil`. A
   branch names exactly ONE intent, so only the dispatching roster — an event
   vector, an options map carrying `:event`, or `v/event` — and `nil` are legal;
   a `v/handler`, a bare function, a render/raw callback, and a NESTED key map
-  are refused, which is precisely what keeps the form one level deep."
+  are refused, which is precisely what keeps the form one level deep.
+
+  An options-map branch is additionally held to [[branch-options]]: the three
+  whole-listener facts are refused HERE rather than normalized into a plan that
+  nothing downstream can read, because a branch that accepts `:once` and fires
+  every time is worse than one that says it cannot."
   [k v]
   (let [plan (event-plan v)]
-    (if (or (nil? plan)
-            (contains? #{:event-vector :event-options :event} (:role plan)))
+    (cond
+      (or (nil? plan)
+          (contains? #{:event-vector :event} (:role plan)))
       plan
+
+      (= :event-options (:role plan))
+      (let [whole-listener (remove branch-options (keys v))]
+        (when (seq whole-listener)
+          (bad-event!
+            'v/event-site
+            (str "The key-condition branch " (pr-str k) " carries the whole-listener "
+                 "option" (when (next whole-listener) "s") " "
+                 (pr-str (vec (sort whole-listener)))
+                 ". A branch is selected AFTER the keystroke arrives, and "
+                 (pr-str (vec (sort branch-options))) " is all that can still be honoured "
+                 "then: :capture and :passive are decided when the listener is attached to "
+                 "the node, and :once retires the whole SITE — every one of them is settled "
+                 "before a key has been read. Freehand refuses them here rather than "
+                 "accepting them and doing nothing. Drop the option: one-shot acceptance is "
+                 "state the receiving re-frame handler owns better than a listener does, and "
+                 "an attachment lane belongs to the whole listener — write that listener as "
+                 "one options map, or as a (v/event [e] …) that reads the key itself.")
+            :keep-whole-listener-options-off-key-branches
+            {:key k
+             :whole-listener-keys (vec (sort whole-listener))
+             :legal-keys          (vec (sort branch-options))}))
+        plan)
+
+      :else
       (bad-event!
         'v/event-site
         (str "The key-condition branch " (pr-str k) " is a " (name (:role plan))

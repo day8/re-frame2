@@ -3,16 +3,18 @@
 ;; A SEPARATE closed form from the options map, legal only on
 ;; `:on-key-down` / `:on-key-up`. Its keys are exact `KeyboardEvent.key`
 ;; strings and each value is an existing DISPATCHING event form — a
-;; vector, an options map carrying `:event`, `v/event`, or `nil`.
+;; vector, an options map carrying `:event` and at most the two
+;; pre-dispatch mechanics, `v/event`, or `nil`.
 ;; Selection is one level and by exact equality: a missing key is a
 ;; no-op, a chord modifier (Ctrl/Alt/Meta) or an in-flight IME
 ;; composition matches nothing, and each selected branch runs its OWN
 ;; pre-dispatch mechanics before its intent dispatches. A mixed or empty
-;; map, and a non-dispatching branch, are typed authoring errors. The
-;; form ships SUBJECT TO its delete-before-release pilot gate.
+;; map, a non-dispatching branch, and a branch naming a whole-listener
+;; option are typed authoring errors. The form ships SUBJECT TO its
+;; delete-before-release pilot gate.
 {:fh/id "FH-EVENT-005"
  :fh/law
- "A key-condition map on a key listener selects one intent by exact KeyboardEvent.key — a missing key, a chord modifier, or an in-flight composition dispatches nothing — while a mixed or empty map, a non-dispatching branch, and a key map on a non-key listener are rejected."
+ "A key-condition map on a key listener selects one intent by exact KeyboardEvent.key — a missing key, a chord modifier, or an in-flight composition dispatches nothing — while a mixed or empty map, a non-dispatching branch, a branch naming a whole-listener option, and a key map on a non-key listener are rejected."
 
  ;; Classification: a key-condition map normalizes to a `:key-map` plan
  ;; whose branches are each a classified dispatching plan. `:form` names a
@@ -41,6 +43,33 @@
   {:form :handler-branch :error-id :rf.error/view-bad-event}
   {:form :bare-fn-branch :error-id :rf.error/view-bad-event}
   {:form :nested-key-map :error-id :rf.error/view-bad-event}]
+
+ ;; The CLOSED branch option roster. `:prevent-default` and
+ ;; `:stop-propagation` are pre-dispatch mechanics the SELECTED branch
+ ;; runs, so a branch may name them. `:once`, `:capture` and `:passive`
+ ;; are whole-listener facts — the first retires the site, the other two
+ ;; decide native attachment — and every one of them is settled before a
+ ;; keystroke has been read, so a branch cannot honour them. Each is
+ ;; therefore REJECTED inside a branch rather than accepted and silently
+ ;; discarded. One row per option, so no option can quietly change side.
+ :branch-options
+ [{:option :prevent-default  :accepted true}
+  {:option :stop-propagation :accepted true}
+  {:option :once             :error-id :rf.error/view-bad-event}
+  {:option :capture          :error-id :rf.error/view-bad-event}
+  {:option :passive          :error-id :rf.error/view-bad-event}]
+
+ ;; The repeated-Enter counterexample the branch roster exists to make
+ ;; impossible to write: a committed key-map site invoked TWICE with the
+ ;; same key dispatches its intent twice, once per keystroke. A branch
+ ;; that could carry `:once` would read as a promise the site never keeps,
+ ;; so the grammar refuses the option and this row pins what the site
+ ;; actually does.
+ :repeated-key
+ {:branch      {:event [:picker/accept]}
+  :key         "Enter"
+  :invocations 2
+  :dispatched  [[:picker/accept] [:picker/accept]]}
 
  ;; Site legality: a key-condition map is legal only on a key listener
  ;; slot. `:slot` is the React event slot the emitter writes.
