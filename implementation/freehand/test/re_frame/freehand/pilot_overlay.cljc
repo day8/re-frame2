@@ -228,9 +228,11 @@
   ;; `ToggleEvent`, and the useful field is `newState` — "open" or
   ;; "closed". There is no reserved projection for it: the closed roster
   ;; is `::v/value` / `::v/checked` / `::v/key`, so the report cannot ride
-  ;; a declarative event vector, and `v/event` (the sanctioned conversion
-  ;; seam) is refused by the STRUCTURAL host, which would cost this
-  ;; component its server render.
+  ;; a declarative event vector at all. `v/event` (the sanctioned
+  ;; conversion seam) would take it, at the cost the data-intent idiom
+  ;; exists to avoid: the site records as the OPAQUE marker, so what this
+  ;; component dispatches on a dismissal would stop being comparable data
+  ;; and no headless test could assert it.
   ;;
   ;; So the library counts instead of reading. Every open session produces
   ;; exactly one open-toggle followed by at most one close-toggle, in that
