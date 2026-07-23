@@ -706,6 +706,27 @@ to prevent. What is refused is **drift**, never the re-mount: a re-mount
 offering the same effective prefix — authored verbatim, or derived because
 neither site authored one — is the ordinary idempotent reload.
 
+**The host error callbacks move the opposite way, and honestly.** The same
+`createRoot`-fixes-the-options fact governs `:on-uncaught-error`,
+`:on-caught-error` and `:on-recoverable-error`, but their correct lifetime is
+the inverse of the prefix's. Identity must not move, so a drifting prefix is
+refused; a callback is *meant* to move — a hot reload's fresh closure is the
+ordinary case, and refusing it would make HMR needlessly brittle. So the
+callbacks are **late-bound**: rather than pass the opts' closures straight to
+React — where the first mount's would be fixed and every later one silently
+ignored — the root installs one **stable delegate per key** that reads the
+live callback off a per-root cell, and an accepted re-mount **advances** that
+cell. React holds the delegate for the root's lifetime; the delegate's target
+is what the reload moves. The effective callback for each key is the one from
+the **most recent accepted mount**; a re-mount that omits a key it earlier
+supplied restores React's own default reporting for that error kind (an
+uncaught or recoverable error to `reportError`, a boundary-caught one to
+`console.error`), so a stale closure is never silently retained and a newly
+supplied one is never dropped. The delegate is installed for all three keys
+regardless of the first mount's opts, so a callback a reload *adds* takes
+effect too. A rejected re-mount — a prefix drift, a superseded incumbent —
+advances nothing: the cell moves only on the accepted reload's own re-render.
+
 ### Compatible shell versus clean remount
 
 A redefinition is **compatible** when it does not move the boundary's *hook
