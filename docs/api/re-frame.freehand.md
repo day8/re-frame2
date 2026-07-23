@@ -411,6 +411,109 @@ vacancy, landing with its own EP-0036 slice.
   ;; => [:account/email-edited "mike@example.com"]
   ```
 
+## Render slots
+
+Parameterized content the **caller** supplies and the component renders where it
+chooses. `v/render-fn` declares it, `v/slot` invokes it, and the pair is common
+grammar: seq forms the compiled analyzer recognises, an ordinary macro and an
+ordinary function call in an interpreted body.
+
+### `slot`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (slot render-fn-value arg…) → content
+  ```
+- **Description**: render the content the caller supplied, with the arguments the
+  component supplies. The value is a `v/render-fn`, or `nil` — an absent slot
+  renders nothing, so a component may offer content it does not require. The
+  rendered output participates in the surrounding children exactly like any other
+  child: there is no slot node and no wrapper in the tree.
+
+  The arity is a **contract**, not a convention. A render-fn declares a fixed
+  parameter vector and a slot passes exactly that many arguments, checked before the
+  call — because the two hosts disagree about what a mismatch does, and neither
+  JavaScript's silent `undefined` nor the JVM's raw `ArityException` is a
+  diagnostic.
+
+  One thing differs by mode, deliberately: an **interpreted** slot also accepts an
+  ordinary pure function of the same arguments, because it has nothing to prove
+  about what it invokes. A **compiled** one does not — the compiled tier's whole
+  claim is that it can see what it lowers, so a bare fn is refused at build time,
+  naming `v/render-fn`.
+
+- **Example**:
+  ```clojure
+  (v/defview data-table [{:keys [rows row]}]
+    [:tbody (for [r rows] [:tr {:key (:id r)} (v/slot row r)])])
+
+  [data-table {:rows rows
+               :row  (v/render-fn [r] [:td (:name r)])}]
+  ```
+
+## Props forwarding
+
+Two forms, because forwarding a consumer's attribute map onto an element you own is
+two different bargains and the grammar makes the author pick one at the site.
+
+### `spread`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (spread base) / (spread base overrides) → attribute map
+  ```
+- **Description**: forward a runtime attribute map onto an element, in its props
+  position. `overrides` wins every collision. Every key is judged by the rule a
+  literal attribute key is judged by — the same refusals, read off the same emitted
+  slot — so a map assembled at run time cannot smuggle in a spelling the grammar
+  refuses at a visible site. `:key` is refused outright: it is not an attribute, and
+  it is literal at the element that carries it.
+
+  This is the **visible-cost** forward. Whatever the map carries lands on the
+  element, and the author said so at the site. A component library forwarding a
+  consumer's attrs wants `v/spread-safe` instead.
+
+- **Example**:
+  ```clojure
+  [:div.card (v/spread attrs {:class "is-open"})]
+  ```
+
+### `spread-safe`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (spread-safe owned caller) → attribute map
+  ```
+- **Description**: forward a **consumer's** attribute map onto an element the
+  component owns, bounded. `owned` is the component's own props map; `caller` the
+  forwarded runtime one.
+
+  The deny law runs in **every** build, not just dev: `:key`, `:ref`, `:value`,
+  `:checked` and the component's own `on-*` handler families — both the bubble and
+  capture phases — may not appear in `caller`, and an offender is a loud refusal
+  rather than a silent drop. Alternate spellings do not route around it: a key is
+  judged by the slot it is about to be written into, so a namespaced, string, symbol
+  or already-camel spelling of a denied name is denied with it.
+
+  Everything that survives folds **under** the owned props, with `:class` the one
+  exception — the two class values compose, owned first, because a caller passing a
+  utility class is adding to the element and not replacing what the component put
+  there.
+
+  That bound is what lets a component keep a promise about the element it renders. A
+  controlled input stays controlled, an owned handler stays the one that fires, and
+  the consumer still gets to pass `aria-*`, `data-*` and a class.
+
+- **Example**:
+  ```clojure
+  (v/defview text-field [{:keys [value attrs]}]
+    [:input (v/spread-safe {:value value :on-change [:field/changed]}
+                           attrs)])
+  ```
+
 ## Presence
 
 ### `presence`

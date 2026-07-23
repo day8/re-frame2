@@ -1297,6 +1297,24 @@
   ["re-frame.freehand" "handler"]           {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "render-fn"]         {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "raw-fn"]            {:tier :advanced    :owner "004" :status "EP-0036"}
+  ;; Render slots (EP-0036 F5a). `render-fn` above declares the content and
+  ;; `slot` invokes it, and the pair is COMMON grammar: a seq form the compiled
+  ;; analyzer recognises, an ordinary macro / function call an interpreted body
+  ;; runs. `slot` is a real function on the door rather than a resolution-only
+  ;; stub, because the interpreted mode genuinely invokes it — and the compiled
+  ;; analyzer discriminates the grammar BY RESOLUTION, so the var has to exist
+  ;; for a compiled body to spell it at all. Advanced: an application composes
+  ;; views, and reaches for a slot when it is writing a component OTHERS pass
+  ;; content into. Spec 004 §Render slots owns the contract.
+  ["re-frame.freehand" "slot"]              {:tier :advanced    :owner "004" :status "EP-0036"}
+  ;; Props forwarding (EP-0036 F5a) — two forms because forwarding a
+  ;; consumer's attrs onto an element you own is two different bargains, and
+  ;; the grammar makes the author pick one at the site. `spread` is the
+  ;; visible-cost merge; `spread-safe` is the bounded one whose owned-key deny
+  ;; runs in EVERY build, which is what lets a component library keep a promise
+  ;; about the element it renders. Spec 004 §Props forwarding owns the law.
+  ["re-frame.freehand" "spread"]            {:tier :advanced    :owner "004" :status "EP-0036"}
+  ["re-frame.freehand" "spread-safe"]       {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "projections"]       {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "materialize-event"] {:tier :advanced    :owner "004" :status "EP-0036"}
   ;; Presence — keyed enter/exit retention (Spec 004 §Presence). `presence` is
