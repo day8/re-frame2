@@ -335,19 +335,22 @@
                          (children)
                          (binding [*ns-context* kid-ctx]
                            (children)))))]
-    (when (and (seq kids) (contains? conv/children-rejected-tags tag))
+    (when (and (contains? conv/children-rejected-tags tag) (pos? (count kids)))
       (malformed!
         're-frame.freehand/render
         (str "The element " tag " cannot have children — it is a void element, and React "
              "throws rather than render one. Put the content in an attribute, or use an "
              "element that takes children.")
         {:tag tag :children-count (count kids)}))
+    ;; `pos? count` rather than `seq`: asking a collection for a seq
+    ;; ALLOCATES one, and these five questions are asked of every node in
+    ;; the tree only to be thrown away. Measured on B1 at 40 bytes each.
     (cond-> {:tag tag}
-      el-ns       (assoc :ns el-ns)
-      (seq attrs) (assoc :attrs attrs)
-      (seq es)    (assoc :events es)
-      key?        (assoc :key key-val)
-      (seq kids)  (assoc :children kids))))
+      el-ns                (assoc :ns el-ns)
+      (pos? (count attrs)) (assoc :attrs attrs)
+      (pos? (count es))    (assoc :events es)
+      key?                 (assoc :key key-val)
+      (pos? (count kids))  (assoc :children kids))))
 
 ;; ---------------------------------------------------------------------------
 ;; Fragment nodes
@@ -414,9 +417,9 @@
                    (vec (:children (first kids)))
                    (vec kids))]
     (cond-> {:view-id view-id}
-      (seq recorded) (assoc :props recorded)
-      (some? key)    (assoc :key key)
-      (seq kids)     (assoc :children kids))))
+      (pos? (count recorded)) (assoc :props recorded)
+      (some? key)             (assoc :key key)
+      (pos? (count kids))     (assoc :children kids))))
 
 ;; ---------------------------------------------------------------------------
 ;; The mount seam
