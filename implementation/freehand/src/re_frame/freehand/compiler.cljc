@@ -531,23 +531,32 @@
 
       {:view-id       :app.people/people-list
        :grammar       :re-frame.freehand/v1
-       :subscriptions [{:sid \"…\" :query [:person/by-id 7] :path [0]}]
+       :subscriptions [{:sid \"…\" :query [:person/by-id 7]
+                        :source-coord {…} :path [0]}]
        :events        [{:sid \"…\" :source-coord {…} :path [1 0]}]
-       :slots         [{:sid \"…\" :inline? true :path [2]}]
+       :slots         [{:sid \"…\" :inline? true :source-coord {…} :path [2]}]
        :html-sites    []
        :frame-ops     []
        :capabilities  #{:sub :event}
        :reactive?     true
        :view-cell     :present
-       :crossings     [{:view-id :app.people/person-row
-                        :lowering :compiled    :path [0 :for]}
-                       {:view-id :re-frame.freehand/markup
-                        :lowering :interpreted :path [1]}]}
+       :crossings     [{:view-id :app.people/person-row  :lowering :compiled
+                        :source-coord {…} :path [0 :for]}
+                       {:view-id :re-frame.freehand/markup :lowering :interpreted
+                        :source-coord {…} :path [1]}]}
 
   - `:subscriptions` / `:events` / `:slots` / `:html-sites` / `:frame-ops`
     are the view's finite reactive, intent, render-slot, trusted-markup
     and committed-frame site rosters — the same lexical sites the
     analyzer indexed, projected to their statically knowable facts.
+  - EVERY roster entry carries a `:source-coord` — `{:file :line :column}`
+    of the form that produced it, or of the enclosing declaration when the
+    reader anchored no narrower position (see
+    [[re-frame.freehand.compiler.analyze]]). Total and never invented, so a
+    manifest fact and a build-log line name the same lexical position, and
+    a diagnostic can say which SITE a capability came from rather than only
+    which view. The `:path` beside it is the deterministic occurrence
+    coordinate and answers a different question.
   - `:capabilities` is the union of the structural and reactive
     capability bits ([[compiled-capabilities]]).
   - `:reactive?` and `:view-cell` carry the **capability-elision** verdict
@@ -570,15 +579,16 @@
   (let [elided? (view-cell-elided? sites)]
     {:view-id       view-id
      :grammar       grammar/version
-     :subscriptions (mapv #(select-keys % [:sid :query :path]) (:subs sites))
+     :subscriptions (mapv #(select-keys % [:sid :query :source-coord :path]) (:subs sites))
      :events        (mapv #(select-keys % [:sid :source-coord :path]) (:events sites))
      :slots         (mapv #(select-keys % [:sid :inline? :source-coord :path]) (:slots sites))
-     :html-sites    (mapv #(select-keys % [:path]) (:htmls sites))
-     :frame-ops     (mapv #(select-keys % [:sid :path]) (:frame-ops sites))
+     :html-sites    (mapv #(select-keys % [:source-coord :path]) (:htmls sites))
+     :frame-ops     (mapv #(select-keys % [:sid :source-coord :path]) (:frame-ops sites))
      :capabilities  (compiled-capabilities ast sites)
      :reactive?     (not elided?)
      :view-cell     (if elided? :elided :present)
-     :crossings     (vec (:views sites))}))
+     :crossings     (mapv #(select-keys % [:view-id :lowering :source-coord :path])
+                          (:views sites))}))
 
 (defn compile-structural-view
   "Lower a `{:compiled true}` declaration's body to its STRUCTURAL

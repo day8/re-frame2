@@ -343,17 +343,26 @@
       (v/manifest people-list)
       ;; => {:view-id       :app.people/people-list
       ;;     :grammar       :re-frame.freehand/v1
-      ;;     :subscriptions [{:sid … :query [:person 7] :path [0]}]
+      ;;     :subscriptions [{:sid … :query [:person 7]
+      ;;                      :source-coord {:file … :line 42 :column 12}
+      ;;                      :path [0]}]
       ;;     :events [] :slots [] :html-sites [] :frame-ops []
       ;;     :capabilities  #{:sub}
       ;;     :reactive?     true
       ;;     :view-cell     :present
       ;;     :crossings     [{:view-id :re-frame.freehand/markup
-      ;;                      :lowering :interpreted :path [1]}]}
+      ;;                      :lowering :interpreted
+      ;;                      :source-coord {:file … :line 44 :column 3}
+      ;;                      :path [1]}]}
 
   The `:subscriptions` / `:events` / `:slots` / `:html-sites` /
   `:frame-ops` rosters are the view's finite lexical sites and
-  `:capabilities` their union with the structural capability bits.
+  `:capabilities` their union with the structural capability bits. EVERY
+  roster entry carries a `:source-coord` — the coordinates of the form
+  that produced it, or of the enclosing declaration where the reader
+  anchored no narrower position — so a manifest fact is traceable to the
+  source that made it, and never a position the source would not agree
+  with.
   `:reactive?` / `:view-cell` carry the **capability-elision** verdict: a
   view with no reactive site (no `sub`, no committed handler, no
   `dispatch-fn`, no `(frame)`) omits the reactive ViewCell shell, which is

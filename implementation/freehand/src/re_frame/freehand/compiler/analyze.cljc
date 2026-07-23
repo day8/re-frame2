@@ -434,6 +434,29 @@
    [1 (:self-id e) kind (relative-source-anchor e form)
     (:path e) (vec expr-path)]))
 
+(defn- site-source-coord
+  "The authored `{:file :line :column}` for a manifest site whose form is
+  `form` — its OWN reader position when the reader anchored it, else the
+  declaration's.
+
+  TOTAL and never invented. Every roster entry carries a coordinate, so a
+  manifest fact and a build-log line can name the same lexical position;
+  and the coordinate is always one a reader really produced. The reader
+  anchors lists on both hosts and macro-generated templates carry no
+  metadata at all, so a site whose form was not anchored inherits its
+  enclosing DECLARATION's position — the widest true statement available —
+  rather than a fabricated line the source would not agree with.
+
+  It is the AUTHORED coordinate and nothing else. The template `:path`
+  beside it is the deterministic occurrence coordinate and answers a
+  different question; neither is derivable from the other."
+  [e form]
+  (let [m    (meta form)
+        base (:source e)]
+    (cond-> (select-keys base [:file :line :column])
+      (:line m)   (assoc :line (:line m))
+      (:column m) (assoc :column (:column m)))))
+
 (declare rewrite-expr)
 
 (defn- map-path-token [x]
@@ -943,6 +966,7 @@
                      (let [sid   (lexical-site-id e :sub f p)
                            query (rw (second f) locals (conj p :query))]
                        (env/add-site! e :subs {:sid sid :query (second f)
+                                               :source-coord (site-source-coord e f)
                                                :path (:path e) :expr-path (vec p)})
                        (with-same-meta f (list runtime-sub-fqn sid query))))
 
@@ -970,6 +994,7 @@
                                      {:form f})))
                       (let [sid (lexical-site-id e :frame f p)]
                         (env/add-site! e :frame-ops {:sid sid
+                                                     :source-coord (site-source-coord e f)
                                                      :path (:path e)
                                                      :expr-path (vec p)})
                         (with-same-meta f (list runtime-frame-ops-fqn))))
@@ -1350,23 +1375,12 @@
                               "ordinary keywords")
                     :form vec-form}))))
 
-(defn- event-source-coord
-  "Best available authored coordinate for an event site. Reader metadata on
-  the handler wins; macro-generated forms fall back to the defview anchor.
-  The template path remains a separate, deterministic occurrence coordinate."
-  [e form]
-  (let [m    (meta form)
-        base (:source e)]
-    (cond-> (select-keys base [:file :line :column])
-      (:line m)   (assoc :line (:line m))
-      (:column m) (assoc :column (:column m)))))
-
 (defn- event-site-identity
   [e k form]
   {:sid          (lexical-site-id e :event form [:handler k])
    :site-index   (count (:events @(:sites e)))
    :view-id      (:self-id e)
-   :source-coord (event-source-coord e form)
+   :source-coord (site-source-coord e form)
    :path         (:path e)})
 
 (defn- add-event-site!
@@ -2093,6 +2107,8 @@
                        (env/add-site! e :htmls {:form s*
                                                 :static? (string? s)
                                                 :serializable? (string? s)
+                                                :source-coord (site-source-coord
+                                                               e (first child-fs))
                                                 :path (:path e)})
                        {:op :html :form s* :static? (string? s)})))
           node     {:op :element
@@ -2458,9 +2474,10 @@
     ;; not the AST node, deliberately: a child's promotion is not an edit to
     ;; this template and must not move this template's fingerprint.
     (when (= :view (:kind info))
-      (env/add-site! e :views {:view-id  (:view-id info)
-                               :lowering (:lowering info)
-                               :path     (:path e)}))
+      (env/add-site! e :views {:view-id      (:view-id info)
+                               :lowering     (:lowering info)
+                               :source-coord (site-source-coord e form)
+                               :path         (:path e)}))
     (cond-> {:op (if (= :view (:kind info)) :view :foreign)
              :sym head
              :fqn (:fqn info)
@@ -2533,7 +2550,7 @@
                                                     (walk-expr e [:slot :value] slotval))))]
       (env/add-site! e :slots {:sid sid
                                :path (:path e)
-                               :source-coord (event-source-coord e form)
+                               :source-coord (site-source-coord e form)
                                :inline? inline?})
       node)))
 
