@@ -299,8 +299,26 @@ one would be silence a reader could not distinguish from an un-analyzed view. Th
 rosters whose authoring forms land with a later slice (presence, top-layer, error
 boundaries, and the reactive-read forms themselves) are declared here and
 populate as those forms become part of the grammar; a manifest never reports a
-site it could not have seen. Source coordinates ride each site so a manifest fact
-and a build-log line name the same lexical position.
+site it could not have seen.
+
+**Source coordinates ride each site**, so a manifest fact and a build-log line
+name the same lexical position. Every roster entry carries a `:source-coord` —
+`{:file :line :column}` — beside the deterministic template `:path`, and the two
+answer different questions: the path says *which occurrence*, the coordinate
+says *which line an author would edit*. A roster that could name a capability
+but not the site it came from is a count rather than a fact, and a diagnostic
+built on it can only say that a view has a capability somewhere.
+
+The coordinate is **total, and never invented**. A site whose form the reader
+anchored reports its own position; one the reader anchored nowhere — Clojure's
+reader anchors lists and not vectors, and a macro-generated template carries no
+metadata at all — inherits its enclosing declaration's position. "Somewhere in
+this declaration" is a place the site really is; a fabricated line is not, and an
+omitted field would make every consumer branch on absence. It follows that the
+coordinate is the one the **compiling reader** produced: the same `.cljc` site
+can report a narrower position under a ClojureScript build than under a JVM one,
+which is correct rather than drift — the build-log line it must agree with came
+from that same reader.
 
 ### The capability-elision verdict
 

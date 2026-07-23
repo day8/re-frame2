@@ -11,7 +11,23 @@
 ;;
 ;; `:crossing` names the one crossing `mounts-label` records, marked with the
 ;; mode it enters — the manifest half of D010.
+;;
+;; `:required-keys` pins the per-entry SHAPE beside the cardinality. A count is
+;; only half the promise: a roster of three entries that cannot say which three
+;; lines is a fact nothing can act on, so every entry of every roster carries
+;; the keys named here — including the `:source-coord` that traces it back to
+;; the form that produced it. `:source-coord-keys` pins that coordinate's own
+;; shape, which is total: absent reader metadata makes a site inherit its
+;; declaration's position, never omit the field and never invent a line.
 {:fh/id "FH-STRUCT-010"
+ :required-keys
+ {:subscriptions #{:sid :query :source-coord :path}
+  :events        #{:sid :source-coord :path}
+  :slots         #{:sid :inline? :source-coord :path}
+  :html-sites    #{:source-coord :path}
+  :frame-ops     #{:sid :source-coord :path}
+  :crossings     #{:view-id :lowering :source-coord :path}}
+ :source-coord-keys #{:file :line :column}
  :views
  {:label
   {:events 0 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 0

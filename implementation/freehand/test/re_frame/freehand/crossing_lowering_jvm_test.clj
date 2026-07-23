@@ -228,7 +228,7 @@
         (is (= :re-frame.freehand/v1 (:grammar manifest)))
         (is (= [{:view-id ::an-interpreted-child :lowering :interpreted :path [0]}
                 {:view-id ::a-compiled-child     :lowering :compiled    :path [1]}]
-               (:crossings manifest))
+               (mapv #(dissoc % :source-coord) (:crossings manifest)))
             "both crossings, in source order, each marked and separately addressed")
         (is (= (count (:crossings manifest)) (count (boundary-calls body)))
             "one manifest crossing per emitted boundary — the two halves agree"))))
@@ -240,4 +240,4 @@
     (let [{:keys [manifest]} (lower '[{:keys [items]}]
                                     '[:ul (for [i items] [subject {:key i}])])]
       (is (= [{:view-id ::subject :lowering :compiled :path [0 :for]}]
-             (:crossings manifest))))))
+             (mapv #(dissoc % :source-coord) (:crossings manifest)))))))

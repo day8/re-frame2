@@ -193,7 +193,7 @@
           "the manifest names the grammar that produced it")
       (is (= [{:view-id (view-id compiled/row) :lowering :compiled}
               {:view-id (:view-id call-005)    :lowering :interpreted}]
-             (mapv #(dissoc % :path) (:crossings m)))
+             (mapv #(dissoc % :path :source-coord) (:crossings m)))
           "both crossings, in source order, each marked with the mode it enters")
       (is (= 2 (count (distinct (map :path (:crossings m)))))
           "and the two sites are separately addressable"))))

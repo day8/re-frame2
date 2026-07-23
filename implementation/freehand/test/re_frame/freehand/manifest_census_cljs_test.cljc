@@ -11,13 +11,20 @@
   ViewCell shell. The interpreted shell always observes context; compiled
   elision is earned by proof, and the proof is the manifest.
 
-  Two claims, on both hosts:
+  Three claims, on both hosts:
 
   1. **The rosters match the sites** — `FH-STRUCT-010`. Each census view's
      manifest reports exactly the sites its body carries; a manifest that
      over-reported would be claiming evidence it lacks, and one that
      under-reported would hide a reactive site.
-  2. **The omitted count is an integer** — `FH-DIAG-002`. Over the census,
+  2. **Every entry is source-locatable** — `FH-STRUCT-010` again. A count
+     of three subscriptions that cannot say which three lines is a fact
+     nothing can act on, so each entry carries the required keys and a
+     whole `:source-coord`. The coordinate is TOTAL — a site the reader
+     anchored nowhere inherits its declaration's position — which is why
+     this half is host-neutral even though the exact positions are not
+     (`re-frame.freehand.manifest-source-coord-jvm-test` pins those).
+  3. **The omitted count is an integer** — `FH-DIAG-002`. Over the census,
      the number of views that omit the ViewCell is exactly four — asserted
      as an integer, never a threshold (EP-0036 D021: elision is a
      deterministic gate, not timing evidence)."
@@ -86,8 +93,44 @@
         (is (= (:reactive? expected) (:reactive? m))
             (str k " — reactive? flag"))
         (when-let [crossing (:crossing expected)]
-          (is (= crossing (dissoc (first (:crossings m)) :path))
+          (is (= crossing (dissoc (first (:crossings m)) :path :source-coord))
               (str k " — the one crossing is marked with the mode it enters")))))))
+
+(deftest every-roster-entry-is-source-locatable
+  (testing "Per FH-STRUCT-010: cardinality is only half the promise. Every
+            entry of every roster carries the keys the fixture requires —
+            including the `:source-coord` that names the form which produced
+            it — so a manifest fact traces back to a line rather than only to
+            a view. The coordinate is TOTAL: a site the reader anchored
+            nowhere inherits its declaration's position, so the field is
+            present on every entry on every host."
+    (let [required (:required-keys struct-010)
+          coord-ks (:source-coord-keys struct-010)]
+      (is (= (set (keys required))
+             (set (keys (dissoc (v/manifest (census-view :label))
+                                :view-id :grammar :capabilities
+                                :reactive? :view-cell))))
+          "the fixture names every roster the manifest carries and no other")
+      (doseq [[nm view] mv/by-name
+              [roster ks] required
+              entry       (get (v/manifest view) roster)]
+        (is (= ks (set (keys entry)))
+            (str nm " — every " roster " entry carries exactly the required keys"))
+        (is (= coord-ks (set (keys (:source-coord entry))))
+            (str nm " — its :source-coord is a whole {:file :line :column}"))
+        (is (pos-int? (:line (:source-coord entry)))
+            (str nm " — with a real line, never a placeholder"))))))
+
+(deftest the-per-entry-gate-is-not-vacuous
+  (testing "A key contract asserted over zero entries would pass loudest of
+            all. The census reaches two of the six rosters through the public
+            door, and those two are named here so an emptied census cannot
+            read green."
+    (let [rosters (fn [k] (mapcat #(get (v/manifest %) k) (vals mv/by-name)))]
+      (is (= 3 (count (rosters :events)))
+          "three event sites across the census")
+      (is (= 1 (count (rosters :crossings)))
+          "one crossing across the census"))))
 
 (deftest reactive-and-elided-are-mutually-exclusive-and-agree
   (testing "The two facets of the verdict cannot disagree: :view-cell
