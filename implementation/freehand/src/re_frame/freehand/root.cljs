@@ -231,7 +231,7 @@
   server already fixed this root's id and prefix, and a client that
   renders under a different prefix breaks `use-id` hydration outright."
   [opts]
-  (when-let [bad (seq (filter identity-opt-keys (keys opts)))]
+  (when-let [bad (and (map? opts) (seq (filter identity-opt-keys (keys opts))))]
     (error/throw-error!
       :rf.error/root-manifest-invalid
       'v/hydrate-root
@@ -720,8 +720,13 @@
   [[hydrated?]] answers false."
   ([dom-node root-form] (hydrate-root dom-node root-form {}))
   ([dom-node root-form opts]
-   (check-opt-keys! 'v/hydrate-root opts hydrate-opt-keys)
+   ;; Identity opts FIRST. They are outside the closed key set too, so the
+   ;; generic unknown-key refusal would otherwise answer the specific
+   ;; question — and "unknown opt :root-id" is a much worse sentence than
+   ;; "identity comes from the server" for a reader who supplied it on
+   ;; purpose.
    (check-identity-opts! opts)
+   (check-opt-keys! 'v/hydrate-root opts hydrate-opt-keys)
    (let [ident    (resolve-identity 'v/hydrate-root root-form opts)
          root-id  (:root-id ident)
          desc     (descriptor-for ident)

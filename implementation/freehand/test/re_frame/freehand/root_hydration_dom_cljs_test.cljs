@@ -290,7 +290,12 @@
               node       (server-node! (:html divergent))
               mismatches (atom [])
               k          (listen! mismatches)
-              mounted    (v/hydrate-root node [views/greeting (:props root-007)])]
+              ;; A host callback, because with none the framework reporter
+              ;; replicates React's own default and re-throws the recoverable
+              ;; error at the window — correct behaviour, and an uncaught
+              ;; page error the browser runner fails the whole suite on.
+              mounted    (v/hydrate-root node [views/greeting (:props root-007)]
+                                         {:on-recoverable-error (fn [_ _] nil)})]
           (poll-until
             #(seq @mismatches)
             (fn []

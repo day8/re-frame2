@@ -211,13 +211,17 @@
                                 focus to <body>")))
                        (is (= (:root-id root-002) (:root-id (root/root-descriptor remounted)))
                            "the root-id did not move across the redefinition")
-                       ;; non-vacuity: a DIFFERENT container is a genuinely new root
-                       (act #(v/mount [after {}] fresh))))
+                       ;; non-vacuity: a SECOND root is a genuinely new one. It
+                       ;; carries a :disambiguator because it has to — root-ids
+                       ;; are page-unique identity, so the same derived id in a
+                       ;; second container is the duplicate-root-id refusal
+                       ;; rather than a second root.
+                       (act #(v/mount [after {}] fresh (:fresh-container-opts root-002)))))
               (.then (fn [elsewhere]
                        (is (not (identical? (.-react-root ^root/Root @root-1)
                                             (.-react-root ^root/Root elsewhere)))
-                           "mounting into a different container is a distinct host root
-                            — the reuse above is a real decision, not a tautology")
+                           "a second root is a distinct host root — the reuse above is
+                            a real decision, not a tautology")
                        (is (= (:after root-002) (text fresh "#label")))
                        (is (= (:entries (:boundary root-002))
                               (count (fr/boundary-cache)))
