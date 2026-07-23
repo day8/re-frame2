@@ -322,8 +322,50 @@
   the browser build compiles is elided before the analyzer can see it, and
   the checker false-greens it. Preserving the conditionals instead hands
   BOTH branches to [[resolve-conditionals]], which selects each target's
-  branch itself — a selection the platform feature cannot override."
+  branch itself — a selection the platform feature cannot override.
+
+  It buys one blind spot, which is REPORTED rather than crashed on: see
+  [[refuse-preserved-read!]]."
   {:eof ::eof :read-cond :preserve})
+
+(defn- refuse-preserved-read!
+  "Re-throw reader exception `ex` from `path` as a checker REFUSAL when the
+  checker's own read mode is what caused it.
+
+  Clojure's map reader counts the forms it read BEFORE any splicing is
+  applied, and a PRESERVED `#?@` is one form. So a map literal containing a
+  splicing conditional reads for every compile and not here:
+
+      {:a 1 #?@(:clj [:b 2])}   ; :read-cond :allow -> {:a 1 :b 2}
+                                ; :read-cond :preserve -> refused, odd forms
+
+  Recovering it would mean reading maps as flat form sequences and pairing
+  them after selection — a reader of the checker's own, which is the
+  general-purpose source analyzer this namespace is not. So the limitation is
+  named instead. A refusal that says which shape stopped it and how to write
+  the shape differently is an answer; a reader stack trace is not, and it says
+  the wrong thing besides — that the declaration is broken rather than that
+  the checker cannot see it.
+
+  Any OTHER read failure is re-thrown untouched, for the reason
+  [[findings-for-branch]] re-throws a non-grammar exception: a file that does
+  not read at all was not made unreadable by the checker, and the reader's own
+  message about it is already the best answer — the same one the compile gives."
+  [^clojure.lang.LispReader$ReaderException ex path]
+  (if (= "Map literal must contain an even number of forms"
+         (some-> (.getCause ex) .getMessage))
+    (let [{:clojure.error/keys [line column]} (ex-data ex)]
+      (throw (ex-info (str "re-frame.freehand check: " path " could not be read at line " line
+                           ", column " column ". The checker reads with reader conditionals "
+                           "PRESERVED so it can select each target's branch itself, and "
+                           "Clojure's map reader counts forms BEFORE splicing — so a map "
+                           "literal containing a SPLICING conditional, {:a 1 #?@(:clj [:b 2])}, "
+                           "reads for a compile and not here. Write the conditional around the "
+                           "whole map, #?(:clj {:a 1 :b 2} :cljs {:a 1}), or around each entry's "
+                           "value, and check again. (If that map has no splicing conditional, it "
+                           "really does have an odd number of forms.)")
+                      {:file (str path) :read-cond :preserve :line line :column column})))
+    (throw ex)))
 
 (defn- source-namespace
   "The namespace symbol declared by the file's leading `(ns …)` form."
@@ -526,20 +568,26 @@
   way to answer the question. Reader conditionals are PRESERVED rather than
   resolved by the reader (see [[read-opts]]) so the `:cljs` branch survives
   to be analyzed. Forms are read in the file's own namespace so `::keyword`
-  aliases resolve."
+  aliases resolve.
+
+  The one shape that read mode cannot read is answered as a refusal rather
+  than raised as a reader exception — see [[refuse-preserved-read!]]."
   [path]
   (with-open [rdr (LineNumberingPushbackReader. (io/reader (io/file path)))]
-    (binding [*read-eval* false]
-      (let [ns-sym (source-namespace (read read-opts rdr) path)
-            ns-obj (live-namespace ns-sym path)]
-        (binding [*ns* ns-obj]
-          (loop [declarations []]
-            (let [form (read read-opts rdr)]
-              (if (= ::eof form)
-                declarations
-                (recur (if-let [declaration (declaration-for path ns-sym ns-obj form)]
-                         (conj declarations declaration)
-                         declarations))))))))))
+    (try
+      (binding [*read-eval* false]
+        (let [ns-sym (source-namespace (read read-opts rdr) path)
+              ns-obj (live-namespace ns-sym path)]
+          (binding [*ns* ns-obj]
+            (loop [declarations []]
+              (let [form (read read-opts rdr)]
+                (if (= ::eof form)
+                  declarations
+                  (recur (if-let [declaration (declaration-for path ns-sym ns-obj form)]
+                           (conj declarations declaration)
+                           declarations))))))))
+      (catch clojure.lang.LispReader$ReaderException ex
+        (refuse-preserved-read! ex path)))))
 
 (defn- refuse-cljs-source!
   "Refuse a pure `.cljs` `path`, naming the two workflows that answer.
