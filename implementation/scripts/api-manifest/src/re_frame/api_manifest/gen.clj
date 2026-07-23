@@ -111,11 +111,11 @@
     ;; The Freehand substrate's STRUCTURAL TEST surface (EP-0036 F1e;
     ;; contract in Spec 008). A public authoring surface like its
     ;; `re-frame.ui.test` sibling — dev/test SCOPE is not privacy — and
-    ;; `.cljc` and headless, so `ns-publics` is authoritative for its five
-    ;; names (render / find / find-all / attrs / text). The projections and
-    ;; the node discrimination beneath them are `defn-`, so the supported
-    ;; five are the whole namespace by construction rather than by
-    ;; carve-out. Its CLJS surface is reconciled by the probe.
+    ;; `.cljc` and headless, so `ns-publics` is authoritative for its six
+    ;; names (render / with-render / find / find-all / attrs / text). The
+    ;; projections and the node discrimination beneath them are `defn-`, so
+    ;; the supported six are the whole namespace by construction rather than
+    ;; by carve-out. Its CLJS surface is reconciled by the probe.
     re-frame.freehand.test
     ;; Optional feature artefacts (public home namespaces).
     re-frame.schemas
