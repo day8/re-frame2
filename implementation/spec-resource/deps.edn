@@ -1,0 +1,29 @@
+;; day8/re-frame2-spec-resource — the build-time reader for committed
+;; spec-side data.
+;;
+;; Several macros inline a committed file from `spec/` at
+;; macro-expansion time (the Freehand conformance fixtures; the
+;; api-manifest sidecar). Inlining by itself HIDES that file from the
+;; ClojureScript build, so the read has to go through shadow-cljs's
+;; recording reader — and resolving that reader is a concurrency
+;; problem, not a one-liner (see the namespace docstring). This artefact
+;; is the ONE place that solves it, so two consumers cannot solve it two
+;; ways and race each other.
+;;
+;; Not a published artefact and not a runtime dependency of anything: it
+;; is build/test-time only, and it declares no dependency on shadow-cljs
+;; (the reader is resolved lazily, so the JVM lanes — which need none of
+;; it — stay loadable without it). Lives flat under `implementation/` so
+;; it shares the per-artefact deps.edn / shadow-cljs.edn layout, the same
+;; placement rationale as day8/re-frame2-test-quiet.
+{:paths ["src"]
+ :deps  {org.clojure/clojure {:mvn/version "1.12.0"}}
+
+ :aliases
+ ;; The deterministic race control. It drives the shipped resolver and
+ ;; the pre-fix `requiring-resolve` shape from two threads against a
+ ;; namespace that is still loading, so a regression to the racy shape
+ ;; goes RED on the assertion rather than on the weather.
+ {:test {:extra-paths ["test"]
+         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

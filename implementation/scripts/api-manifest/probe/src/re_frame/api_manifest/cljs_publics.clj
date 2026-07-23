@@ -37,7 +37,7 @@
   (:require [cljs.analyzer.api :as ana-api]
             [cljs.env :as env]
             [clojure.edn :as edn]
-            [clojure.java.io :as io]))
+            [re-frame.build.spec-resource :as spec-resource]))
 
 (defn- kind-of
   "Derive the manifest `:kind` for a CLJS analyzer var-info map. Mirrors
@@ -151,29 +151,33 @@
 ;; filesystem, so the sidecar is read from the JVM side of the macro and
 ;; the relevant rows are emitted as a literal into the ClojureScript.
 ;;
-;; WHY THE READ GOES THROUGH SHADOW-CLJS (rf2-ze3ai). Inlining at
-;; macro-expansion time by itself HIDES the sidecar from the build: a
-;; compile that caches this probe's namespace has no dependency edge back
-;; to the `.edn` whose bytes it froze, so a SIDECAR-ONLY edit — the
-;; common "reconcile the drift report" edit — does not invalidate the
+;; WHY THE READ GOES THROUGH THE SHARED BUILD-TIME READER (rf2-ze3ai).
+;; Inlining at macro-expansion time by itself HIDES the sidecar from the
+;; build: a compile that caches this probe's namespace has no dependency
+;; edge back to the `.edn` whose bytes it froze, so a SIDECAR-ONLY edit —
+;; the common "reconcile the drift report" edit — does not invalidate the
 ;; cache and the compiled probe keeps reconciling the PREVIOUS rows. A
 ;; warm-cache green over rows nobody checked is the worst answer a drift
 ;; guard can give.
 ;;
-;; `shadow.resource/slurp-resource` records the sidecar's classpath path
-;; and last-modified against the compiling namespace, and shadow re-checks
-;; both before reusing that namespace's cache: edit the sidecar, the probe
-;; recompiles, no cache clearing. It resolves through `io/resource`, so
+;; `re-frame.build.spec-resource` is the one reader for committed `spec/`
+;; data. Under a ClojureScript compile it reads through shadow-cljs, which
+;; records the sidecar's classpath path and last-modified against the
+;; compiling namespace and re-checks both before reusing that namespace's
+;; cache: edit the sidecar, the probe recompiles, no cache clearing.
 ;; `spec/` is a shadow-cljs `:source-path` (the one classpath root for
 ;; committed spec-side data) and the sidecar is the resource
 ;; `api-manifest-metadata.edn`.
 ;;
-;; The JVM lanes were never affected and keep a filesystem read. The
-;; manifest generator re-reads the sidecar on every `clojure -M -m
-;; re-frame.api-manifest.gen --check`, so it has no cache to invalidate;
-;; the fallback below is for any expansion outside a ClojureScript
-;; compile (a REPL, a tool), and locates the sidecar by walking up from
-;; the compile CWD rather than requiring `spec/` on that classpath.
+;; That reader is SHARED rather than reimplemented here because resolving
+;; shadow's reader is a cold-load race, and two independent resolvers race
+;; each other however carefully each one guards itself — see the reader's
+;; namespace docstring. The JVM lanes were never affected: the manifest
+;; generator re-reads the sidecar on every `clojure -M -m
+;; re-frame.api-manifest.gen --check`, so it has no cache to invalidate,
+;; and the reader's non-ClojureScript path locates the same file by
+;; walking up from the compile CWD rather than requiring `spec/` on that
+;; classpath.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private sidecar-resource
@@ -181,36 +185,10 @@
    `:source-path` root the ClojureScript lane resolves against."
   "api-manifest-metadata.edn")
 
-(defn- find-sidecar
-  "Walk up from the build's `user.dir` looking for
-   `spec/api-manifest-metadata.edn` — the non-ClojureScript locator, where
-   `spec/` is not on the classpath. Throws an actionable error when the
-   sidecar cannot be located."
-  []
-  (loop [dir (io/file (System/getProperty "user.dir"))]
-    (when (nil? dir)
-      (throw (ex-info (str "api-manifest CLJS probe: could not locate "
-                           "spec/api-manifest-metadata.edn walking up from "
-                           (System/getProperty "user.dir"))
-                      {})))
-    (let [candidate (io/file dir "spec" sidecar-resource)]
-      (if (.exists candidate)
-        candidate
-        (recur (.getParentFile dir))))))
-
 (defn- read-sidecar
-  "The parsed sidecar, read in the macro-expansion environment `env`.
-
-   Under a ClojureScript compile (`&env` carries the compiling `:ns`) the
-   read goes through shadow-cljs, which registers the sidecar as a build
-   dependency of that namespace — the edge that makes a sidecar-only edit
-   invalidate the cached probe. Anywhere else there is no cache to
-   invalidate and the file is read from the tree directly."
+  "The parsed sidecar, read in the macro-expansion environment `env`."
   [env]
-  (edn/read-string
-    (if (:ns env)
-      ((requiring-resolve 'shadow.resource/slurp-resource) env sidecar-resource)
-      (slurp (find-sidecar)))))
+  (edn/read-string (spec-resource/slurp-resource env sidecar-resource)))
 
 (defmacro emit-cljs-only-rows
   "Expand to a literal vector of the sidecar's `:cljs-only` manifest rows
