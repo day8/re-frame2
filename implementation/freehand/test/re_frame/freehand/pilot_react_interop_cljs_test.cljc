@@ -26,6 +26,8 @@
             [re-frame.freehand.cell :as cell]
             [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.pilot-react-interop :as pilot]
+            [re-frame.freehand.pilot-react-interop-compiled :as compiled]
+            #?(:clj [re-frame.freehand.compiler :as compiler])
             [re-frame.freehand.test :as t]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
@@ -334,7 +336,7 @@
       (is (= ["Ada" "9"] (mapv t/text (:children (nth rows 1))))
           "sorted by the core, rendered by Freehand")
       (is (= [:ledger/sorted :name]
-             (:on-click (t/attrs (t/find tree #(= :th (:tag %))))))
+             (:on-click (t/attrs (t/find tree #(= :button (:tag %))))))
           "and the sort control is ordinary event intent"))))
 
 (deftest the-headless-core-is-the-same-value-on-both-hosts
@@ -349,6 +351,125 @@
       (is (= [2 1] (mapv :id (:rows model)))
           "sorted rows, in the order the core decided")
       (is (= "a" (-> model :rows first :cells first :value))))))
+
+;; ===========================================================================
+;; The COMPILED arm — newly answerable, and the answer is two-sided
+;; ===========================================================================
+;;
+;; Compiled views became browser-mountable, so `can a compiled page host a
+;; React library?` stopped being academic. It has two halves and the pilot
+;; reports both.
+
+#?(:clj
+   (defn- compile-body
+     "Run the compiled front end over `body`, as the macro does, and answer
+     the diagnostic it is refused with — or `::accepted`."
+     [body]
+     (try
+       (compiler/compile-structural-view
+         {:form            (list 'v/defview 'subject '[props] body)
+          :menv            nil
+          :ns-sym          're-frame.freehand.pilot-react-interop-cljs-test
+          :vname           'subject
+          :view-id         ::subject
+          :params          '[props]
+          :body            [body]
+          :children-policy :optional})
+       ::accepted
+       (catch clojure.lang.ExceptionInfo ex
+         (assoc (select-keys (ex-data ex) [:rf.ui.compile/error :op :recovery])
+                :message (ex-message ex))))))
+
+#?(:clj
+   (deftest a-compiled-body-cannot-attach-the-one-reachable-host-shape
+     (testing "The compiled tier refuses `[v/behavior …]` at BUILD time. So
+               the ONLY host shape Freehand offers today is unavailable in
+               the compiled mode, and any view that owns a chart, a grid or
+               an editor is interpreted-forever — no promotion, ever, for
+               precisely the views whose neighbours most want it.
+
+               The refusal also MISNAMES what it refused. `v/behavior` is a
+               FRAMEWORK-supplied boundary declared on the public door, and
+               the analyzer classifies it `:op :foreign` — `a foreign
+               component boundary`. An author reading that goes looking for
+               the third-party component they did not write. Two sibling
+               framework boundaries declared the ordinary way, `v/route-link`
+               and `v/markup`, compile without comment, which is what makes
+               the misclassification legible as one."
+       (let [d (compile-body '[v/behavior {:use :x/y :target :t} [:div]])]
+         (is (= :rf.ui.compile/unsupported-form (:rf.ui.compile/error d))
+             (str "the compiled grammar refuses the attachment; got " (pr-str d)))
+         (is (= :foreign (:op d))
+             "classified as a FOREIGN component — the misnaming")
+         (is (str/includes? (:message d) "foreign component boundary")
+             "and the sentence says so to the author")
+         (is (= :extract-declared-child (first (:recovery d)))
+             "naming the recovery this pilot then takes"))
+       (is (= ::accepted (compile-body '[v/route-link {:to :x} "t"]))
+           "a sibling FRAMEWORK boundary compiles without comment")
+       (is (= ::accepted (compile-body '[v/markup {:value nil}]))
+           "and so does the other one"))))
+
+(deftest a-compiled-parent-can-contain-the-interpreted-integration
+  (testing "The refusal's own recovery works, and this is the half worth
+            saying as plainly as the gap: a COMPILED page mounts the
+            interpreted view that owns the React library as an ordinary
+            declared child. The hot markup is lowered, the integration is
+            not, and the boundary between them is one line of source.
+
+            The manifest MARKS the crossing rather than quietly claiming the
+            subtree — so `where does the compiled tier stop` is a fact a tool
+            can read, not something an author has to remember."
+    (seed! {:invoice {:rows [["Widget" 10]]}})
+    (let [m (v/manifest compiled/hot-list)]
+      (is (some? m) "the page really is compiled")
+      (is (= :re-frame.freehand/v1 (:grammar m)))
+      (is (= [{:view-id :re-frame.freehand.pilot-react-interop/invoice-sheet
+               :lowering :interpreted}]
+             (mapv #(select-keys % [:view-id :lowering]) (:crossings m)))
+          (str "one crossing, MARKED interpreted — the integration; got "
+               (pr-str (:crossings m)))))
+    (let [tree (render! [compiled/hot-list {:title "Invoices"}])
+          [b]  (behavior-nodes tree)]
+      (is (= "Invoices" (t/text (t/find tree #(= :h1 (:tag %)))))
+          "the compiled parent's own markup rendered")
+      (is (some? b) "and the interpreted child's host boundary is in the tree")
+      (is (= :invoice/sheet (:target (t/attrs b)))
+          "carrying the same semantic target it has interpreted"))))
+
+(deftest the-headless-integration-promotes-but-not-in-one-line
+  (testing "The library that needed no host shape in the interpreted mode
+            needs none in the compiled mode either — the LIBRARY cost
+            nothing to promote. What cost something was the view around it:
+            the compiled grammar refused `[:th {:on-click [:ledger/sorted
+            key]}]` because the event vector captures a `for` binding, and
+            refused `^{:key k}` metadata because a compiled list row carries
+            a literal `:key` PROP. Both refusals are right and both messages
+            are excellent. Neither is a one-line change.
+
+            The trees are therefore text-equal rather than shape-equal: the
+            recovery introduced child boundaries the interpreted twin does
+            not have. That is the honest result of taking the compiler's
+            advice, and it is what an adopter's diff looks like.
+
+            One more thing promotion surfaced: the compiled tier's a11y
+            analyzer refused `:on-click` on a bare `<th>`
+            (`:rf.ui.compile/a11y-click-non-interactive`). The interpreted
+            twin carried the identical mistake in silence. Promotion does not
+            only move WHEN a mistake surfaces — for a11y it decides WHETHER."
+    (seed! {:ledger {:rows [{:id 1 :name "Zoe" :owed 5}
+                            {:id 2 :name "Ada" :owed 9}]
+                     :sort {:sort-by-key :name}}})
+    (let [interpreted (render! [pilot/headless-table {}])
+          promoted    (render! [compiled/compiled-headless-table {}])
+          rows        (fn [tree] (mapv #(mapv t/text (:children %))
+                                       (t/find-all tree #(= :tr (:tag %)))))]
+      (is (some? (v/manifest compiled/compiled-headless-table))
+          "the promoted twin really is compiled")
+      (is (empty? (behavior-nodes promoted))
+          "and still needs no host shape")
+      (is (= (rows interpreted) (rows promoted))
+          "the two modes render the same table from the same core"))))
 
 ;; ===========================================================================
 ;; The inherited finding, reproduced

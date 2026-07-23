@@ -36,6 +36,7 @@
             [re-frame.freehand :as v]
             [re-frame.freehand.behaviors :as behaviors]
             [re-frame.freehand.pilot-react-interop :as pilot]
+            [re-frame.freehand.pilot-react-interop-compiled :as compiled]
             [re-frame.freehand.pilot-react-interop-react :as rpilot]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.root :as root]
@@ -374,6 +375,56 @@
                            "and the nested root closed on unmount")
                        (is (nil? (q container ".react-flow"))
                            "leaving no React Flow DOM behind")
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "mount rejected: " e))
+                        (done)))))))))
+
+;; ===========================================================================
+;; 4 — a COMPILED page containing the integration, on a real page
+;; ===========================================================================
+;;
+;; Newly answerable: compiled views became browser-mountable. The headless
+;; sibling proves the compiled tier REFUSES to attach the integration and
+;; that its recovery type-checks; this proves the recovery actually runs.
+
+(deftest a-compiled-page-hosts-the-interpreted-integration-in-one-react-tree
+  (testing "The shape an adopter ends up with once they meet the compiled
+            tier's refusal: a `{:compiled true}` page whose hot markup is
+            lowered, mounting the interpreted view that owns the widget as
+            an ordinary declared child.
+
+            It is ONE React tree — the compiled parent's lowered elements
+            and the interpreted child's boundary render into the same root,
+            the widget connects from the same commit, and a command
+            addressed to the child's semantic target reaches it from an
+            event dispatched by the COMPILED parent's own button. Nothing
+            about the crossing is visible at runtime, which is the promise."
+    (if-not (browser?)
+      (skip! "the browser job runs the compiled-crossing mount")
+      (async done
+        (setup! {:invoice {:rows [["Widget" 10] ["Gasket" 4]]}})
+        (let [container (host-node!)]
+          (-> (act #(mount! container [compiled/hot-list {:title "Invoices"}]))
+              (.then (fn [mounted]
+                       (is (= "Invoices" (.-textContent (q container "h1.title")))
+                           "the COMPILED parent's own markup is on the page")
+                       (is (some? (q container "table.acme-sheet"))
+                           "and the interpreted child's widget really connected")
+                       (is (= 1 (pilot/live-instances)))
+                       (is (= #{:invoice/sheet} (behaviors/target-ids)))
+                       ;; the compiled parent's button, the interpreted
+                       ;; child's widget, one command between them
+                       (act (fn [] (send! [:invoice/export-requested ","]) mounted))))
+              (.then (fn [mounted]
+                       (is (= "Widget,10\nGasket,4" (read* [:invoice/last-export]))
+                           "a command dispatched from the compiled parent reached
+                            the widget the interpreted child owns")
+                       (act #(teardown! container mounted))))
+              (.then (fn [_]
+                       (is (= 0 (pilot/live-instances))
+                           "and teardown across the crossing is still total")
+                       (is (= 0 (behaviors/connection-count)))
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
