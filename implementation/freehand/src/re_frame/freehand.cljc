@@ -46,8 +46,10 @@
             ;; promotion is a one-line change to the declaration: adding
             ;; `{:compiled true}` must not oblige a namespace to acquire a
             ;; require it did not need a moment earlier. `node` sits BELOW this
-            ;; namespace and takes nothing back from it.
-            [re-frame.freehand.node]
+            ;; namespace and takes nothing back from it. Aliased because the
+            ;; door reaches it DIRECTLY too: `v/spread` / `v/spread-safe` are
+            ;; the interpreted front end of a fold the canonicaliser owns.
+            [re-frame.freehand.node :as node]
             [re-frame.freehand.presence-runtime :as presence-runtime]
             ;; The compiled tier's render-time reactive runtime — what an
             ;; authored `(v/sub …)` inside a `{:compiled true}` body lowers to.
@@ -735,6 +737,122 @@
      Per [Spec 004 §Callback roles and identity](../../../../spec/004-Views.md)."
      [params & body]
      (events/expand-callback :render-fn 'v/render-fn params body)))
+
+;; ---------------------------------------------------------------------------
+;; Render slots — parameterized content supplied by the caller
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §Render slots. `v/render-fn` declares the content and `v/slot`
+;; invokes it, and both are COMMON grammar: in a COMPILED body they are seq
+;; forms the analyzer recognises and lowers; in an INTERPRETED body they are
+;; the ordinary macro and the ordinary function call below. One spelling, one
+;; contract, two front ends — the `v/presence` shape.
+;;
+;; The asymmetry the two modes DO keep is deliberate and is D010's. An
+;; interpreted slot also accepts an ordinary pure function, because it has
+;; nothing to prove about the content it invokes; a compiled one accepts only
+;; a render-fn, because the compiled tier's whole claim is that it can SEE
+;; what it lowers.
+
+(defn slot
+  "(v/slot render-fn-value arg…) — render the parameterized content a
+  CALLER supplied, at the site the component chooses, with the arguments
+  the component supplies.
+
+      (v/defview data-table [{:keys [rows row]}]
+        [:tbody (for [r rows] ^{:key (:id r)} (v/slot row r))])
+
+      [data-table {:rows rows
+                   :row  (v/render-fn [r] [:tr [:td (:name r)]])}]
+
+  `render-fn-value` is a [[render-fn]] value, or `nil` — an absent slot
+  renders nothing, so a component may offer content it does not require.
+  An INTERPRETED body additionally accepts an ordinary pure function of
+  the same arguments; a compiled one does not (see above). Anything else
+  is a loud diagnostic naming the render-fn recovery.
+
+  The arity is a CONTRACT, not a convention: a render-fn declares a fixed
+  parameter vector and a slot passes exactly that many arguments, checked
+  before the call so the answer is the same on both hosts rather than
+  JavaScript's silent `undefined` or the JVM's raw `ArityException`.
+
+  The rendered output participates in the surrounding children exactly
+  like any other child — there is no slot node and no wrapper in the
+  structural tree.
+
+  Per [Spec 004 §Render slots](../../../../spec/004-Views.md#render-slots)."
+  [render-fn-value & args]
+  (events/invoke-slot render-fn-value args))
+
+;; ---------------------------------------------------------------------------
+;; Props forwarding — `v/spread` and `v/spread-safe`
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §Props forwarding. Two forms, because forwarding a consumer's
+;; attribute map onto an element you own is two different bargains and the
+;; grammar makes the author pick one at the site. `v/spread` is the visible
+;; cost — whatever the map carries lands, later-arg-wins. `v/spread-safe` is
+;; the bounded one, and the bound is what a component library needs: the
+;; structural/controlled keys and its OWN handler families are denied to the
+;; caller in every build, so a forwarded map can add to the element but never
+;; clobber what the component promised about it.
+;;
+;; Both are functions HERE and seq forms to the compiled analyzer, which is
+;; the same one-spelling/two-front-ends arrangement `v/presence` has. The fold
+;; itself belongs to neither: it is `re-frame.freehand.node`'s, so a promoted
+;; declaration forwards through the identical rule.
+
+(defn spread
+  "(v/spread base) / (v/spread base overrides) — forward a runtime
+  attribute map onto an element, in its props position.
+
+      [:div.card (v/spread attrs {:class \"is-open\"})]
+
+  Both maps are author-space attribute maps; `overrides` wins every
+  collision. Every key is judged by the rule a LITERAL attribute key is
+  judged by — the same refusals, read off the same emitted slot — so a
+  map assembled at run time cannot smuggle in a spelling the grammar
+  refuses at a visible site. `:key` is refused outright: it is not an
+  attribute, and it is literal at the element that carries it.
+
+  This is the VISIBLE-COST forward. Whatever the map carries lands on the
+  element, and the author said so at the site. A component library
+  forwarding a consumer's attrs wants [[spread-safe]] instead.
+
+  Per [Spec 004 §Props forwarding](../../../../spec/004-Views.md#props-forwarding)."
+  ([base] (node/spread-attrs base nil))
+  ([base overrides] (node/spread-attrs base overrides)))
+
+(defn spread-safe
+  "(v/spread-safe owned caller) — forward a CONSUMER's attribute map onto
+  an element the component owns, bounded.
+
+      (v/defview text-field [{:keys [value attrs]}]
+        [:input (v/spread-safe {:value value :on-change [:field/changed]}
+                               attrs)])
+
+  `owned` is the component's own props map; `caller` the forwarded
+  runtime one. The deny law runs in EVERY build, not just dev: `:key`,
+  `:ref`, `:value`, `:checked` and the component's own `on-*` handler
+  families — both the bubble and capture phases — may not appear in
+  `caller`, and an offender is a loud diagnostic rather than a silent
+  drop. Alternate spellings do not route around it: a key is judged by
+  the slot it is about to be written into, so a namespaced, string,
+  symbol or already-camel spelling of a denied name is denied with it.
+
+  Everything that survives folds UNDER the owned props — owned wins — with
+  `:class` the one exception: the two class values COMPOSE, owned first,
+  because a caller passing a utility class is adding to the element and
+  not replacing what the component put there.
+
+  That bound is what lets a component keep a promise about the element it
+  renders. A controlled input stays controlled, an owned handler stays the
+  one that fires, and the consumer still gets to pass `aria-*`, `data-*`
+  and a class.
+
+  Per [Spec 004 §Props forwarding](../../../../spec/004-Views.md#props-forwarding)."
+  [owned caller]
+  (node/spread-safe-attrs owned caller))
 
 ;; ---------------------------------------------------------------------------
 ;; Presence — keyed enter/exit retention
