@@ -21,14 +21,19 @@
   ## What is proven structurally, and what is not yet
 
   Every claim below is asserted against the **structural tree** — the
-  host-neutral render both hosts run. The compiled React lowering is not
-  landed (it waits on the ViewCell slice), so nothing here is a claim
-  about React elements, and the mount COUNT in
-  [[one-interp-slot-mounts-once-per-row]] is read off the structural tree
-  rather than off an occurrence evidence record, which does not exist
-  yet. That is the honest extent of the proof today: the manifest half of
-  the `:interp-slots` contract is complete, and the evidence half is
-  counted from the tree that the evidence record will later count from."
+  host-neutral render both hosts run — so nothing here is a claim about
+  React elements. The compiled tier's browser lowering has since landed
+  and `compiled-mount-dom-cljs-test` makes the crossing claim there, in a
+  real browser; this file deliberately stays on the tree, because the
+  structural render is the host-neutral half and it is what runs on the
+  JVM.
+
+  The mount COUNT in [[one-interp-slot-mounts-once-per-row]] is still
+  read off the structural tree rather than off an occurrence evidence
+  record, which does not exist yet. That is the honest extent of the
+  proof today: the manifest half of the `:interp-slots` contract is
+  complete, and the evidence half is counted from the tree that the
+  evidence record will later count from."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
             [re-frame.freehand :as v]

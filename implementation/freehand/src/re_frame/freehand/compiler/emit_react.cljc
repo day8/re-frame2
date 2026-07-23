@@ -43,6 +43,16 @@
   child sequence, and neither introduces an array boundary the other
   does not have.
 
+  That splice is why every element is built through `createElement` with
+  VARARG children rather than through the `jsx` / `jsxs` runtime. React
+  treats a vararg run and a single array child differently — identity,
+  and the dev-time key expectation — so an element whose children came
+  from a forwarded run would acquire a key expectation its interpreted
+  twin does not have, on markup neither author wrote. Specializing the
+  wholly-static arms to `jsxs`, where no splice is possible and the
+  question does not arise, is a separable optimisation over exactly the
+  subtrees this emitter already proves constant.
+
   There is no unknown-node arm. `re-frame.freehand.compiler.grammar/check!`
   refuses every node kind outside `:re-frame.freehand/v1` before emission,
   so escaping is structural rather than defensive and there is nowhere
