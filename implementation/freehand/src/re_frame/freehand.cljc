@@ -77,7 +77,15 @@
             [re-frame.interop :as interop]
             #?@(:clj  [[re-frame.freehand.compiler :as compiler]
                        [re-frame.source-coords :as source-coords]]
-                :cljs [[re-frame.freehand.root :as root]]))
+                ;; `compiled-react` is required here for the SAME reason `node`
+                ;; and `reactive` are: it is what a COMPILED declaration's
+                ;; emitted browser body calls, and promotion is a one-line
+                ;; change to the declaration — adding `{:compiled true}` must
+                ;; not oblige a namespace to acquire a require it did not need
+                ;; a moment earlier. It sits BELOW this namespace and takes
+                ;; nothing back from it.
+                :cljs [[re-frame.freehand.compiled-react]
+                       [re-frame.freehand.root :as root]]))
   #?(:cljs (:require-macros [re-frame.freehand
                              :refer [defbehavior defview event handler render-fn]])))
 
@@ -246,7 +254,7 @@
                               :children-policy policy}
                        schema? (assoc :props-schema schema-form))
              entry   (if compiled?
-                       (let [{:keys [body manifest]}
+                       (let [{:keys [body react manifest]}
                              (compiler/compile-structural-view
                                {:form            &form
                                 :menv            &env
@@ -269,7 +277,16 @@
                          ;; of value — a form to evaluate — so only the manifest
                          ;; is quoted. (The JVM emitter's own `register-view!`
                          ;; call has always quoted it, for exactly this reason.)
-                         (assoc entry :structural body :manifest (list 'quote manifest)))
+                         ;;
+                         ;; `:react` is the BROWSER realisation of the same
+                         ;; analysis, present only on a ClojureScript expansion.
+                         ;; One declaration, one analysis, two emitted bodies —
+                         ;; each host runs the one it can, and neither is derived
+                         ;; from the other.
+                         (cond-> (assoc entry
+                                        :structural body
+                                        :manifest (list 'quote manifest))
+                           react (assoc :react react)))
                        (assoc entry :render
                               `(fn ~(symbol (str sym "-render")) ~params ~@body)))]
          ;; The var metadata is what a COMPILE-TIME head classifier reads: a

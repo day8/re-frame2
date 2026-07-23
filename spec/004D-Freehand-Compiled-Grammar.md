@@ -64,9 +64,9 @@ A compiled view is a **pure function `(props) → template`**, authored with
    two emitter implementations is **normalized structural equivalence**
    (fingerprinted), not byte-identical output.
 4. **Client markup is compiled, never interpreted.** Literal templates lower to
-   `jsx`/`jsxs` calls; conversion is compile-time; static subtrees hoist. No hiccup
-   walker, tag parser, camelizer, or component-shape detector ships in a browser
-   bundle.
+   `createElement` calls with vararg children; conversion is compile-time; static
+   subtrees hoist. No hiccup walker, tag parser, camelizer, or component-shape
+   detector ships in a browser bundle.
 5. **Handlers observe committed values.** Event callbacks are per-site stable and read
    committed slots + the committed frame; the canonical handler is an **event vector**
    — data.
@@ -194,8 +194,33 @@ an interpretation entry point.
 The compiled tier has the same two emitters the substrate has, over one analyzed
 template: a **structural** lowering, which builds the versioned structural tree
 and is host-neutral, and a **React** lowering, which generates direct
-`jsx`/`jsxs` calls for the browser. They are separate implementations over one
-normalized AST; neither consumes the other's output.
+`createElement` calls with vararg children for the browser. They are separate
+implementations over one normalized AST; neither consumes the other's output.
+
+The React lowering emits `createElement` with a VARARG child run rather than the
+`jsx`/`jsxs` runtime, deliberately. React treats a vararg run and a single array
+child differently — element identity, and the dev-time key expectation — so a
+compiled element whose children came from a forwarded run would acquire a key
+expectation its interpreted twin does not have, on markup neither author wrote.
+The vararg form keeps a compiled parent and its interpreted twin handing React
+the SAME child sequence; specializing the wholly-static subtrees, where no splice
+is possible and the question does not arise, to `jsxs` is a separable
+optimisation, not a requirement.
+
+The React lowering restates no conversion rule. It emits into ONE closed
+Freehand-native runtime, `re-frame.freehand.compiled-react` — `el` / `fragment` /
+`class!` / `style!` / `attr!` / `handler!` / `child` / `push!` / `root` / `mount` /
+`check-key!` — and each of those is a doorway back into the interpreted walk's own
+conversion (class composition, the style canonicaliser, the attribute-value
+grammar, child classification, boundary-call normalization, and mount), so a
+compiled view and its interpreted twin SHARE conversion rather than agree about it.
+Two further seams complete the tier. `re-frame.freehand.reactive/event-site` is the
+compiled `:on-*` lowering; it reaches the one committed `events/site` constructor,
+so the sync/controlled lane is still decided at commit and is never baked into the
+emitted form. `re-frame.freehand.cell/current-candidate` is the ambient-candidate
+seam bound by `cell/with-capture` that lets a straight-line compiled body read the
+same render candidate an interpreted walk threads. These namespaces name this
+grammar as their normative owner.
 
 Cross-host parity of a compiled view is asserted the way the interpreted
 corpus's is: one conformance fixture value, the same declaration, both hosts.
@@ -399,8 +424,9 @@ be host-native and need not themselves be serialisable.**
   `cljs.core/map` here and `clojure.core/map` there lands differently), so the two
   hosts' ASTs are not guaranteed equal values, let alone one value, and the hosts never
   meet as ASTs.
-- **Two emitters.** The browser emitter generates direct React code (`jsx`/`jsxs`
-  calls, hoisted static subtrees, compile-time prop conversion). The JVM emitter
+- **Two emitters.** The browser emitter generates direct React code (`createElement`
+  calls with vararg children, hoisted static subtrees, compile-time prop conversion).
+  The JVM emitter
   generates the canonical serialisable structural render tree consumed by the existing
   `day8/re-frame2-ssr` artifact (per [011](011-SSR.md)) — no second server product.
   That tree's **versioned public node schema** (v1: element / fragment / view-boundary /

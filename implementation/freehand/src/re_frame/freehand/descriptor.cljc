@@ -265,6 +265,25 @@
   [view]
   (:structural (.-entry ^ViewDescriptor view)))
 
+(defn react-body
+  "A COMPILED view's private BROWSER realisation — the one-argument fn the
+  `:re-frame.freehand/v1` React lowering built, from the props map to the
+  React element it renders — or `nil` when the declaration has none.
+
+  It sits BESIDE [[structural-body]] rather than replacing it, because
+  the two answer different hosts and a compiled declaration owes both an
+  answer: the JVM (and a browser test rendering structurally) runs the
+  structural body, and a real React mount runs this one. Only a
+  ClojureScript expansion can build it — there is no React to emit calls
+  into on the JVM — so a compiled descriptor produced by a JVM expansion
+  carries `nil` here, which is exactly what the browser emitter's refusal
+  reports.
+
+  Private for the same reason [[render-body]] is: an emitter runs a
+  declared view by calling it, and nothing else does."
+  [view]
+  (:react (.-entry ^ViewDescriptor view)))
+
 (defn manifest
   "A COMPILED declaration's manifest — what its analysis makes statically
   knowable about it, as plain data — or `nil` for an interpreted one,

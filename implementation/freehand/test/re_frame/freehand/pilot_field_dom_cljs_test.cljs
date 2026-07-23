@@ -34,13 +34,16 @@
   holds and then fires a real bubbling `input` event, so a character the
   host restored away is visible as a loss rather than papered over.
 
-  ## The coverage this suite does NOT have
+  ## Compiled mode
 
-  Interpreted mode only. No compiled view is browser-mountable today —
-  `re-frame.freehand.react` refuses every compiled declaration with
-  `:rf.error/view-lowering-unavailable` — so the compiled arm of every row
-  below is BLOCKED, not passing and not failing. The compiled tier's
-  cross-mode evidence is the JVM structural parity in
+  The row-by-row keystroke, caret and IME behaviours below run the
+  INTERPRETED mount — they exercise the substrate's discrete-event
+  handling, which is mode-independent. The pilot's compiled twin is
+  browser-mountable as of the compiled React lowering (rf2-drpa3.113): the
+  final test mounts `pilot-field-compiled/invoice-line` into a real DOM and
+  reads the same public fields back at the same part addresses. The
+  compiled tier's exhaustive cross-mode DOM parity lives in
+  `compiled-mount-dom-cljs-test`; its JVM structural parity lives in
   `pilot-field-cljs-test`."
   (:require ["react" :as react]
             ["react-dom/client" :as rdc]
@@ -572,25 +575,43 @@
                         (done)))))))))
 
 ;; ===========================================================================
-;; The blocked cell, stated rather than skipped quietly
+;; The compiled cell, re-opened — the pilot's compiled twin mounts
 ;; ===========================================================================
 
-(deftest the-compiled-arm-of-every-row-above-is-blocked
-  (testing "No compiled view is browser-mountable today: the React
-            lowering refuses a compiled declaration outright. So every row
-            in this file covers interpreted mode ONLY, and the compiled
-            browser cell of the pilot's matrix is BLOCKED rather than
-            passing. Asserting the refusal here keeps that honest — the
-            day it stops refusing, this row goes red and the matrix is
-            re-opened."
+(deftest the-compiled-arm-of-every-row-above-mounts-in-a-browser
+  (testing "The pilot's COMPILED twin is browser-mountable: the React
+            lowering builds `pilot-field-compiled/invoice-line` into real
+            DOM through the same public part addresses its interpreted
+            original uses, holding the same seeded values. This is the
+            matrix cell the refusal used to hold BLOCKED — re-opened by the
+            compiled React lowering (rf2-drpa3.113). The compiled tier's
+            exhaustive cross-mode DOM parity lives in
+            `compiled-mount-dom-cljs-test`; this row keeps the pilot itself
+            honest that its own compiled declaration reaches the browser."
     (if-not (browser?)
-      (skip! "the browser job runs the lowering-refusal assertion")
+      (skip! "the browser job runs the compiled-mount assertion")
       (async done
         (seed!)
-        (let [thrown (try
-                       (fr/element [promoted/invoice-line {:id line-id}])
-                       nil
-                       (catch :default e (:rf.error/id (ex-data e))))]
-          (is (= :rf.error/view-lowering-unavailable thrown)
-              "a compiled declaration cannot be lowered to React")
-          (done))))))
+        (let [[container root] (mount!)]
+          (-> (act #(.render root (shell/provide-frame
+                                    fid (fr/element [promoted/invoice-line
+                                                     {:id line-id}]))))
+              (.then
+                (fn [_]
+                  (doseq [[nm v] [["description" "Consulting"]
+                                  ["quantity" "2"]
+                                  ["unit-price" "150"]
+                                  ["account" "4000"]
+                                  ["reference" "REF-1"]]]
+                    (let [node (control container nm)]
+                      (is (some? node)
+                          (str "the compiled twin mounted the " nm " control"))
+                      (is (= v (.-value node))
+                          (str nm " holds its seeded value"))))
+                  (teardown! container root)
+                  (done)))
+              (.catch
+                (fn [e]
+                  (is false (str "the compiled pilot rejected: " e))
+                  (teardown! container root)
+                  (done)))))))))
