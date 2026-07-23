@@ -119,6 +119,25 @@
   []
   (js/Promise. (fn [resolve] (js/queueMicrotask #(resolve nil)))))
 
+(defn- unmount-outside-act!
+  "Unmount `mounted` in the CURRENT synchronous turn, with no `act` boundary
+  around it.
+
+  `act` awaits, and awaiting drains the microtask queue — which is exactly
+  the queue the nested root's deferred `.unmount()` is sitting in. So every
+  other assertion in this file runs after the gap has already closed, and
+  the gap is the thing one test here has to measure. Stepping outside `act`
+  is the only way to read the instant BETWEEN the substrate's release and
+  React's, and `IS_REACT_ACT_ENVIRONMENT` is lowered across the call so
+  React does not report the missing boundary it was deliberately denied."
+  [mounted]
+  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+  (try
+    (v/unmount! mounted)
+    (finally
+      (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)))
+  nil)
+
 ;; ===========================================================================
 ;; 1 — the SpreadJS-class widget: THE behavior shape, used as designed
 ;; ===========================================================================
@@ -410,6 +429,76 @@
                             later — see the ABI case above)")
                        (is (nil? (q container ".react-flow"))
                            "leaving no React Flow DOM behind")
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "mount rejected: " e))
+                        (done)))))))))
+
+(deftest the-nested-roots-release-is-the-one-that-is-not-synchronous
+  (testing "The workaround's sharpest edge, MEASURED rather than described.
+
+            React 19 refuses to unmount a root from inside a render, and a
+            behavior's `:disconnect` runs from the outer tree's own unmount —
+            so `close-root!` defers the `.unmount()` by a microtask. That
+            makes the nested root the ONE resource in the substrate whose
+            release is not synchronously assertable, and an application
+            counting live instances (or a leak check in CI) has to know to
+            wait a tick for exactly this one kind of resource.
+
+            This test reads the instant BETWEEN the two releases, which the
+            rest of the file cannot: `act` awaits, awaiting drains the
+            microtask queue, and the gap is closed by the time any `.then`
+            runs. So the unmount happens outside `act`, in one synchronous
+            turn, and both halves are read before control returns to the
+            event loop.
+
+            WHAT THIS CAN ASSERT: that the substrate's own absence is TOTAL
+            and SYNCHRONOUS at the instant of unmount, and that the author's
+            nested root — with the foreign component's `window` listener
+            still on it — is measurably still open at that same instant, and
+            closed one microtask later.
+
+            WHAT IT CANNOT ASSERT, and no test can while the nested root is
+            the integration path: that the foreign component was released
+            synchronously. It was not. That is the cost, and it disappears
+            the day a qualified host leaf lands, because a leaf renders
+            inside the Freehand tree's own React root and has no second root
+            to close."
+    (if-not (browser?)
+      (skip! "the browser job runs the deferred-release measurement")
+      (async done
+        (setup!)
+        (let [container (host-node!)]
+          (-> (act #(mount! container [rpilot/widget-page {:label "alpha"}]))
+              (.then (fn [mounted]
+                       (is (= 1 (rpilot/live-roots))
+                           "the nested root is open before the unmount")
+                       (is (= 1 (behaviors/connection-count))
+                           "and the substrate holds its one connection")
+                       ;; ONE synchronous turn. Nothing awaits between the
+                       ;; unmount and the two reads below, so the microtask
+                       ;; `close-root!` queued has not run yet.
+                       (unmount-outside-act! mounted)
+                       (is (= 0 (behaviors/connection-count))
+                           "the SUBSTRATE's release is synchronous — the
+                            connection table is empty the instant the node goes")
+                       (is (= 1 (rpilot/live-roots))
+                           "and the nested React root is NOT: it is still open
+                            in the same turn, because React refuses a
+                            synchronous unmount from inside a render")
+                       (is (= 1 (rpilot/live-probe-listeners))
+                           "so the foreign component's window listener is still
+                            installed at the moment the substrate's own absence
+                            is already true — this is the leak a naive check
+                            would report")
+                       (tick)))
+              (.then (fn [_]
+                       (is (= 0 (rpilot/live-roots))
+                           "one microtask later the nested root has closed")
+                       (is (= 0 (rpilot/live-probe-listeners))
+                           "and the foreign listener came back off — the release
+                            is total, it is simply one tick behind")
+                       (.remove container)
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
