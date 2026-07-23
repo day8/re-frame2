@@ -46,6 +46,31 @@
   view. Without it, `:view-id` naming the behavior boundary would be
   indistinguishable from the boundary claiming every failure beneath it.
 
+  ## Which assertions carry the discrimination
+
+  Worth saying plainly, because it is the whole reason this file exists.
+  \"SOMETHING THREW\" PASSES AGAINST THE DEFECT. The seam's failure mode is
+  not a suppressed throw — the throw still arrives, the boundary still
+  catches it, the fallback still commits. What is destroyed is WHO it is
+  attributed to. So every assertion here that merely counts a contained
+  failure — the fallback text, the one-record and one-intent counts, the
+  identity of the promoted exception — is a PASSENGER against a broken note:
+  true, worth stating, and green either way.
+
+  The assertions that discriminate are the ones that name the failing view:
+  `:view-id`, its two negative twins (`unknown-view` and the catcher), the
+  evidence completeness that follows from a note being found, and the
+  fingerprint derived from the id. A revert of the one-arg call reds exactly
+  those and nothing else — which is what proves the file covers the defect
+  class rather than merely visiting it.
+
+  The identity assertion is a passenger HERE and a guard ELSEWHERE: in
+  ClojureScript a wrong-arity call to a single-arity `defn` does not raise,
+  so the seam stays quiet by accident rather than by design. It guards
+  against a seam that raises anything of its own inside that catch — which is
+  what the same mistake does on a host that checks arity, and what any future
+  work inside that catch could do on any host.
+
   This file rides the browser lane through its `-dom-cljs-test` namespace
   suffix. It also matches the node suites' broader regex, where there is no
   DOM to mount and no React to render a component through, and it says so

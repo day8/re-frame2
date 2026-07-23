@@ -249,6 +249,61 @@
                             [ok-child {}] [ok-child {}] [ok-child {}]])))
         "and so is a third")))
 
+(deftest the-rest-of-the-error-boundary-grammar-is-refused-arm-by-arm
+  (testing "The other arms of the same closed grammar, each driven so the
+            refusal that owns it actually RUNS.
+
+            The compiled analyzer's counterpart table is asserted arm by arm
+            (`analyze-reject-cljs-test` `error-boundary-grammar`); the
+            interpreted tier's was asserted for the child count alone. So
+            three of `read-opts`' four refusals, and the closed-roster
+            refusal the props schema owns, were code that no test in the
+            corpus executed — the same shape of hole as an occurrence seam
+            whose catch nothing ever entered. Two modes that must agree about
+            one declaration cannot be checked for agreement on arms only one
+            of them ever runs, and a refusal nothing runs is a refusal that
+            can be broken silently.
+
+            The ids differ by arm because the ROSTER is the schema's to close
+            and the SHAPE rules are the boundary's own, and each is pinned as
+            it actually fires rather than as a reader might assume."
+    ;; The option roster is CLOSED — a one-character typo must not produce a
+    ;; boundary that quietly means something other than it says.
+    (is (= :rf.error/view-bad-props
+           (conf/caught-id
+             #(tree/render [v/error-boundary {:fallback (:fallback error-001)
+                                              :catch    true}
+                            [ok-child {}]])))
+        "an option outside the roster is refused, not ignored")
+    ;; A boundary with no fallback would show NOTHING on failure — the one
+    ;; outcome worse than the failure itself.
+    (is (= :rf.error/error-boundary-bad-args
+           (conf/caught-id #(tree/render [v/error-boundary {} [ok-child {}]])))
+        "a boundary with no :fallback is refused")
+    ;; `:on-error` is ONE event prefix. The safe summary is appended to it and
+    ;; dispatched, so a value that is not an event vector has nowhere to go.
+    (is (= :rf.error/error-boundary-bad-args
+           (conf/caught-id
+             #(tree/render [v/error-boundary {:fallback (:fallback error-001)
+                                              :on-error "telemetry/failed"}
+                            [ok-child {}]])))
+        "an :on-error that is not a vector is refused")
+    (is (= :rf.error/error-boundary-bad-args
+           (conf/caught-id
+             #(tree/render [v/error-boundary {:fallback (:fallback error-001)
+                                              :on-error ["telemetry/failed"]}
+                            [ok-child {}]])))
+        "and so is a vector whose head is not the event id keyword")
+    ;; The accepted shape, so the four refusals above are refusals of
+    ;; something and not of everything.
+    (is (= conf/no-throw
+           (conf/caught-id
+             #(tree/render [v/error-boundary {:fallback  (:fallback error-001)
+                                              :reset-key :r1
+                                              :on-error  [:telemetry/failed]}
+                            [ok-child {}]])))
+        "the whole roster, correctly spelled, is accepted")))
+
 ;; ===========================================================================
 ;; Non-vacuity probe — the containment is doing REAL work.
 ;; ===========================================================================
