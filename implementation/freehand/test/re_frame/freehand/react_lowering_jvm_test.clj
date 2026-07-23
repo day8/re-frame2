@@ -85,8 +85,9 @@
    {:op :case     :body '[:div (case (:kind props) :a [:i "a"] [:b "z"])]}
    {:op :presence :body '(v/presence {:timeout-ms 120} [:div {:key "a"} "x"])}
    ;; The row this file was written for: an inline render-fn, whose body is
-   ;; lowered by THIS emitter, and a prop-carried one, whose carrier is a
-   ;; runtime value.
+   ;; lowered by THIS emitter. The prop-carried half — the render-fn authored
+   ;; at a CALL SITE, which the analyzer records as an analysed template
+   ;; rather than a value — has its own claim below.
    {:op :slot     :body '[:div (v/slot (v/render-fn [r] [:span r]) (:label props))]}])
 
 (deftest the-react-emitter-lowers-every-admitted-node-kind
@@ -123,3 +124,21 @@
             (str "the emitted body calls " call)))
       (is (.contains emitted "re-frame.freehand.compiled-react/el")
           "and the render-fn's own body was lowered through the React emitter"))))
+
+(deftest a-call-site-render-fn-prop-carries-the-slot-across-the-boundary
+  (testing "The library seam — content authored at the CALL SITE and
+            invoked by the callee through `v/slot`. The analyzer records
+            such a prop as an analysed TEMPLATE, so the entry carries no
+            plain value at all: an emitter that reads only `:value` puts
+            `nil` on the props map, the seam's slot gates as absent, and
+            the crossing renders nothing while every declaration compiles
+            and every mount resolves. Assert the carrier and its lowered
+            body are really on the emitted props map."
+    (let [[e ast] (analyzed '[:div [leaf {:row (v/render-fn [r] [:span r])}]])
+          emitted (pr-str (emit-react/emit-react-body e '[props] ast))]
+      (is (.contains emitted "re-frame.freehand.events/callback")
+          "the prop carries the same roster callback an interpreted v/render-fn expands to")
+      (is (.contains emitted "re-frame.freehand.compiled-react/el")
+          "and the slot body was lowered through the React emitter")
+      (is (not (.contains emitted ":row nil"))
+          "so the boundary is not handed an absent slot"))))
