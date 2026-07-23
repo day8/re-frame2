@@ -90,6 +90,38 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
 - *Checkpoint tracker state on the heartbeat.* Many trackers auto-stage but never
   commit; commit + push the tracker file each cycle so a long session's state
   isn't stranded locally.
+- *The exit code is the verdict; the summary is decoration.* Piping a gate into
+  `tail` or `grep` returns the pipe's status, not the runner's, so a worker reads
+  "0 failures" and reports green on a failed run. Require capture to a file, an
+  explicit echo of the exit code, and that code in the report.
+- *Concurrent workers share the machine's temp directory.* Two workers writing the
+  same `/tmp/gate.log` overwrite each other, and the loser reads a green belonging
+  to someone else's run — plausible numbers, wrong code. This defeats the rule
+  above, since the captured exit code is also theirs. Use worktree-local log paths
+  and have workers confirm a log is their own before believing it.
+- *A test pinning current broken behaviour and the fix for it are mutually
+  invalidating.* Validation work legitimately records today's defect as a live
+  assertion. Each is green alone, and whichever merges second turns the trunk red.
+  Before merging a fix, search the tests for one asserting the defect; the flip
+  belongs in the same change. Flip and rename it — never delete it, and never
+  loosen it to accept both outcomes, which discards the only coverage of the case.
+- *Key destructive operations on identity, never on a name.* Branch and worktree
+  names repeat across sessions, so a cleanup that matches a name will eventually
+  match a historical artefact and delete live work. Require the merged PR's head
+  commit to equal the worktree's HEAD, and read the worktree ↔ branch mapping from
+  the tool rather than deriving either from the other. Beware that zero commits,
+  clean tree, no PR describes both an abandoned worker and one that started a
+  minute ago; the discriminator is freshness, not shape.
+- *Pushed commits are the only durable worker state.* Workers die mid-run for
+  reasons unrelated to their work, so put "commit and push as you go, not at the
+  end" in every brief, with the reason. The mayor may push a worker's existing
+  commits, which is pure durability — but never build a commit from someone else's
+  uncommitted work, because only that worker knows whether it forms a coherent change.
+- *An audit that reopens an issue may already be stale.* It describes the tree as
+  of the change it reviewed, and a later commit may have fixed the finding, often
+  bundled under an unrelated subject where no search for the symptom or the issue
+  id will find it. Read the current source at the named site before dispatching.
+  A verified "nothing to do" is a good outcome; an assumed one is not.
 
 **Set up loops.** If they don't exist already, create:
 - 60m — reread this file + siblings; reassert posture to operator
