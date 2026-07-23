@@ -1,0 +1,41 @@
+;; FH-INPUT-002 — the two lanes, and the SCOPE of the synchronous one.
+;;
+;; The door decides membership; this row is about what membership BUYS,
+;; and — just as load-bearing — what it does not reach.
+;;
+;; A door site dispatches synchronously into the exact frame its commit
+;; published, and then closes the pending window for the cells observing
+;; THAT frame. Not the registry: a keystroke in one frame must never
+;; force another frame's pending work to settle inside a listener it has
+;; nothing to do with. The two-frame arrangement below is the whole
+;; point — one frame is edited, the other is left pending, and the row
+;; fails if either half moves.
+{:fh/id "FH-INPUT-002"
+ :fh/law
+ "A door site dispatches SYNCHRONOUSLY into the exact frame its commit published and then flushes the cells observing that frame; a site outside the door takes the ordinary batched dispatcher into the same frame. The flush is frame-scoped: a pending cell observing a different frame is left pending, and no revision of it advances."
+
+ :frames {:edited   :fh-input/frame-a
+          :bystander :fh-input/frame-b}
+
+ :query [:fh-input/field]
+ :event :fh-input/edited
+ :seed  {:field "re-"}
+ :typed "re-frame"
+
+ ;; The element half of the door verdict, as the walk supplies it.
+ :door-site      {:tag :input :controlled? true :slot "onInput"}
+ ;; One fact different, and the site falls out of the door — the same
+ ;; event, the same frame, the ordinary lane.
+ :batched-site   {:tag :input :controlled? true :slot "onBeforeInput"}
+
+ :expected
+ {:door-lane    :sync
+  :batched-lane :async
+  :dispatch-opts {:source :ui}
+
+  ;; After the door site fires, still inside the call:
+  :edited-frame-app-db {:field "re-frame"}
+
+  ;; The scope, stated as the two halves that must BOTH hold.
+  :edited-cell    {:dirty? false :revision-advanced? true}
+  :bystander-cell {:dirty? true  :revision-advanced? false}}}

@@ -1,0 +1,49 @@
+;; FH-INPUT-003 — the controlled round trip as a user-visible fact.
+;;
+;; Caret position, IME composition and dropped characters are DOM
+;; behaviours. A structural assertion cannot see one — an element tree
+;; can be perfectly shaped around a value the browser has already
+;; restored out from under the user. So every row here is read back off a
+;; live node in a real browser, after real events.
+;;
+;; The control row is what makes the rest non-vacuous. It is the SAME
+;; field, wired through a handler one fact outside the door, typed at
+;; exactly the same way; the browser drops characters from it. If the
+;; control ever stops dropping, the suite says so rather than reporting a
+;; confident green over a hazard that has quietly moved.
+{:fh/id "FH-INPUT-003"
+ :fh/law
+ "In a real browser the controlled round trip holds as a user-visible fact: rapid typing yields a final value equal to the typed string character for character, the caret and a range selection survive the round trip unmoved, an IME composition completes intact, and none of it degrades while sibling cells on the same frame are dirty."
+
+ :frame :fh-input/browser
+ :query [:fh-input/text]
+ :event :fh-input/typed
+ :sibling-count 12
+
+ :rapid
+ {:note  "a fast typist outruns a batched round trip; the door does not"
+  :seed  ""
+  :typed "the quick brown fox"}
+
+ :caret
+ {:note      "a character inserted mid-string leaves the caret after it"
+  :seed      "hello world"
+  :at        5
+  :ch        "X"
+  :expected  "helloX world"
+  :expected-caret 6}
+
+ :selection
+ {:note           "typing over a range replaces it and collapses the caret after the insert"
+  :seed           "hello world"
+  :from           0
+  :to             5
+  :ch             "J"
+  :expected       "J world"
+  :expected-caret 1}
+
+ :composition
+ {:note   "an IME builds one character over several composition updates"
+  :seed   ""
+  :steps  ["に" "にほ" "にほん"]
+  :final  "にほん"}}
