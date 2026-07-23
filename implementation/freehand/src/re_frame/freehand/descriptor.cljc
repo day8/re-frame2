@@ -400,8 +400,9 @@
   call vector — the props map followed by any trailing children.
 
       [panel {:key panel-id :title \"Details\"} [details {:id panel-id}]]
-      ;; => {:key panel-id
-      ;;     :props {:title \"Details\" :children [[details {:id panel-id}]]}}
+      ;; => {:key    panel-id
+      ;;     :keyed? true
+      ;;     :props  {:title \"Details\" :children [[details {:id panel-id}]]}}
 
   The laws it enforces, identically in both execution modes:
 
@@ -413,7 +414,11 @@
     yields the smallest props map that can compare equal;
   - **`:key` is stripped** — it selects sibling identity for
     reconciliation and the view body never sees it. It is returned
-    separately, and it is not part of the props map's equality;
+    separately, and it is not part of the props map's equality.
+    `:keyed?` reports whether the call supplied one AT ALL: React
+    string-coerces a supplied key, so an explicit `nil` is the legal
+    identity `\"null\"` and a different authored fact from no key —
+    a distinction `:key` alone cannot carry, since both read `nil`;
   - **the declared children policy holds** — children against a `:none`
     view, or none against a `:required` view, is
     `:rf.error/view-children-policy`."
@@ -456,7 +461,8 @@
            :extra    {:view-id         view-id
                       :children-policy policy
                       :children-count  (count children)}}))
-      {:key   (:key props)
-       :props (cond-> (dissoc props :key)
-                children (assoc :children children))})))
+      {:key    (:key props)
+       :keyed? (contains? props :key)
+       :props  (cond-> (dissoc props :key)
+                 children (assoc :children children))})))
 

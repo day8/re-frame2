@@ -163,7 +163,14 @@
             (put-attr! o tag k raw))
 
         :else (put-attr! o tag k raw)))
-    (when (some? (:key attrs))
+    ;; Key PRESENCE, not key truth. React string-coerces whatever key it is
+    ;; given, so an explicit `nil` is the ordinary identity "null" — and a
+    ;; different authored fact from no key at all, which matters wherever a
+    ;; keyed reconciler is watching (`(v/presence …)` DROPS a keyless child).
+    ;; `(:key attrs)` answers nil for both, so the question is `contains?`.
+    ;; A key whose value is `js/undefined` stays absent, which is React's own
+    ;; rule and what the presence keyless advisory describes.
+    (when (contains? attrs :key)
       (gobj/set o "key" (:key attrs)))
     o))
 
@@ -373,18 +380,22 @@
 (defn- fragment-node
   [cand args]
   (let [attrs? (map? (first args))
-        k      (when attrs? (:key (first args)))
+        attrs  (when attrs? (first args))
         kids   (children cand (if attrs? (rest args) args))]
     (apply react/createElement
            react/Fragment
-           (when (some? k) #js {:key k})
+           ;; Key PRESENCE — see `react-props`.
+           (when (contains? attrs :key) #js {:key (:key attrs)})
            kids)))
 
 (defn- boundary-node
   [view args]
-  (let [{:keys [key props]} (descriptor/normalize-call view args)
+  (let [{:keys [key keyed? props]} (descriptor/normalize-call view args)
         js-props (js-obj "props" props)]
-    (when (some? key)
+    ;; Key PRESENCE — see `react-props`. `normalize-call` reports it, because
+    ;; the stripped `:key` value alone cannot tell an explicit nil from an
+    ;; absent key.
+    (when keyed?
       (gobj/set js-props "key" key))
     (react/createElement (component-for view) js-props)))
 
