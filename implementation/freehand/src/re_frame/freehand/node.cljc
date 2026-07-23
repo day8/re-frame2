@@ -91,11 +91,21 @@
            (contains? x :children))))
 
 (defn- conj-text
-  "Append text, coalescing it into the preceding run when there is one."
+  "Append text, coalescing it into the preceding run when there is one.
+
+  An EMPTY string is dropped on arrival rather than collected and removed
+  at the end. That is the same canonical form by a shorter route: `\"\"`
+  contributes nothing to a coalesced run, so a run containing it and a run
+  without it are the same string, and a body of nothing but empties
+  accumulates nothing instead of accumulating strings to discard. The
+  pass that removed them afterwards rebuilt every children vector in the
+  tree — measured on B1 at 456 bytes per node, on nodes whose children
+  were almost never empty."
   [acc s]
-  (if (string? (peek acc))
-    (conj (pop acc) (str (peek acc) s))
-    (conj acc s)))
+  (cond
+    (= "" s)              acc
+    (string? (peek acc))  (conj (pop acc) (str (peek acc) s))
+    :else                 (conj acc s)))
 
 (defn- opaque-child!
   "The rejection every child value that is not content lands on. `vector?`
@@ -140,24 +150,18 @@
     (and walk (vector? form)) (conj acc (walk form))
     :else                  (opaque-child! where form)))
 
-(defn- finish
-  "Drop the empty strings left by coalescing and answer the canonical
-  children vector."
-  [acc]
-  (into [] (remove #(and (string? %) (= "" %))) acc))
-
 (defn children
   "The canonical children vector for already-evaluated child VALUES — the
   compiled front end's entry (no walker, so a vector is rejected). Empty
   when the values carry no content."
   [& xs]
-  (finish (reduce #(collect nil 're-frame.freehand/render %1 %2) [] xs)))
+  (reduce #(collect nil 're-frame.freehand/render %1 %2) [] xs))
 
 (defn walked-children
   "The canonical children vector for markup FORMS, walked by `walk` — the
   interpreted front end's entry."
   [walk where forms]
-  (finish (reduce #(collect walk where %1 %2) [] forms)))
+  (reduce #(collect walk where %1 %2) [] forms))
 
 ;; ---------------------------------------------------------------------------
 ;; Runs
