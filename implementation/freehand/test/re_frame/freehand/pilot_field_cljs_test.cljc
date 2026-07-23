@@ -763,6 +763,57 @@
           (is (= "REF-DRAFT" (first results))
               "non-vacuous: what they agreed on is the live draft"))))))
 
+(deftest r-a9-terminal-outcomes-are-mutually-exclusive
+  (testing "rf2-drpa3.135. A submitted request settles exactly once. The
+            token IS the request's identity, so whichever terminal outcome —
+            success or refusal — lands FIRST retires it, and any later or
+            duplicate settle for that request is inert. A success also
+            clears a prior refusal's message, because it is the newer
+            baseline decision. These are the terminal-order seams a token
+            protocol that only GUARDS the winner, without RETIRING the
+            request, leaves open."
+    (each-mode
+      (fn [mode]
+        (testing "a refusal retires the request: a success still in flight
+                  for it cannot land afterwards and overwrite the refusal"
+          (seed-line! 1)
+          (send! [:acme.invoice/reference-submitted 1 "ref-x" :req-1])
+          (send! [:acme.invoice/reference-refused 1 "That reference is not on file."])
+          (send! [:acme.invoice/reference-normalised 1 :req-1 "REF-LATE"])
+          (is (= "REF-1" (get-in (app-db) [:invoice 1 :reference]))
+              "the late success did not move the refused baseline")
+          (is (nil? (::pilot/normalised (app-db)))
+              "and settled nothing at all")
+          (is (= "That reference is not on file."
+                 (get-in (app-db) [:invoice 1 :reference-error]))
+              "the refusal's message still stands"))
+
+        (testing "a current success clears a prior refusal's error as it
+                  stores the normalised value"
+          (seed-line! 1)
+          (send! [:acme.invoice/reference-refused 1 "That reference is not on file."])
+          (is (= "That reference is not on file."
+                 (get-in (app-db) [:invoice 1 :reference-error]))
+              "the refusal set an error")
+          (send! [:acme.invoice/reference-submitted 1 "ref-y" :req-2])
+          (send! [:acme.invoice/reference-normalised 1 :req-2 "REF-Y"])
+          (is (= "REF-Y" (get-in (app-db) [:invoice 1 :reference]))
+              "the fresh request's success lands")
+          (is (nil? (get-in (app-db) [:invoice 1 :reference-error]))
+              "and the stale rejection message is gone, not retained"))
+
+        (testing "a duplicate success for an already-settled request is
+                  inert — the first outcome retired it"
+          (seed-line! 1)
+          (send! [:acme.invoice/reference-submitted 1 "ref-z" :req-3])
+          (send! [:acme.invoice/reference-normalised 1 :req-3 "REF-Z"])
+          (let [after-first (app-db)]
+            (send! [:acme.invoice/reference-normalised 1 :req-3 "REF-Z"])
+            (is (= after-first (app-db))
+                "the duplicate settle moved no state at all")
+            (is (= ["REF-Z"] (::pilot/normalised (app-db)))
+                "non-vacuous: the success was recorded exactly once")))))))
+
 ;; ===========================================================================
 ;; R-A10 — busy from the in-flight write's own state
 ;; ===========================================================================
@@ -916,6 +967,74 @@
               (is (not= before after) "the line's tree moved")
               (is (= (field-node before "account") (field-node after "account"))
                   "while three of the four fields render byte-identical output"))))))))
+
+;; ===========================================================================
+;; D007 — CASE A's datum: one data event, and the cost it pays
+;; ===========================================================================
+
+(deftest d007-case-a-wants-suppression-not-prevent-default
+  (testing "rf2-drpa3.124, evidence for D007. The gate asks whether the
+            closed key-condition map earns its place. CASE A's datum is
+            that it did NOT use one, and the reason is the useful part.
+
+            (1) Its two key intents — Enter commits, Escape reverts — ride
+            ONE registered event that branches on the live key string, so
+            the key map buys CASE A nothing on the per-key preventDefault
+            grounds D007 argues from. (2) The one preventDefault CASE A
+            wants is form-level submission, and the options map already
+            carries it — no keyboard site asks for one. (3) The cost a key
+            map WOULD pay for is dispatch SUPPRESSION: the data site fires
+            on every key, so an unmatched key still settles a no-op that a
+            closed map would elide. That argument applies to every
+            keyboard-bearing control, not only the ones that preventDefault,
+            and it is the one to weigh on its own. The MEASURED per-keystroke
+            cost lives in `r-a12-the-per-keystroke-cost-of-a-four-field-form`;
+            this row records the datum as a decision input."
+    (each-mode
+      (fn [mode]
+        (seed-line! 1)
+        (let [tree      (render! (line-form mode 1))
+              form-node (component-node tree "acme/invoice-line")
+              c         (control-of (buffered-node tree "reference"))
+              down      (:on-key-down (t/attrs c))]
+
+          (testing "the keys are ONE data event, not a closed key map"
+            (is (= :acme.ui.buffered/key-pressed (first down))
+                "every key routes through one registered event")
+            (is (= ::v/key (last down))
+                "carrying the live key as data — a JVM test drives it by equality")
+            (is (empty? (filter #{"Enter" "Escape" "Tab" "ArrowUp"} down))
+                "no key literal sits at the site: the branch is in the handler,
+                 so there is no closed key MAP here for D007 to weigh"))
+
+          (testing "the one preventDefault CASE A wants is form submission,
+                    and it rides the options map"
+            (let [submit (:on-submit (t/attrs form-node))]
+              (is (map? submit) "submission is declared as an options map")
+              (is (true? (:prevent-default submit))
+                  "which is where the single preventDefault lives")
+              (is (vector? (:event submit)) "carrying the caller's own intent"))
+            (is (not (contains? (t/attrs c) :prevent-default))
+                "the keyboard site itself asks for no preventDefault — what
+                 CASE A wants there is suppression, not browser mechanics"))
+
+          (testing "the ONE event decides Enter, Escape and everything else —
+                    and an unmatched key still DISPATCHES, which is the no-op
+                    a key map would suppress"
+            (fire! c :on-input "REF-DRAFT")
+            (is (some? (record [:invoice 1 :reference])) "a live draft exists to settle")
+            (let [seen (atom [])]
+              (rf/register-listener! :events ::key-probe #(swap! seen conj (:event-id %)))
+              (let [before (app-db)]
+                (send! (v/materialize-event down {::v/key "a"}))
+                (is (= before (app-db))
+                    "an unmatched key moves NO state — 'a missing key is a no-op'")
+                (is (= [:acme.ui.buffered/key-pressed] @seen)
+                    "yet it DID dispatch: exactly the traffic a key map would elide"))
+              (rf/unregister-listener! :events ::key-probe))
+            (send! (v/materialize-event down {::v/key "Escape"}))
+            (is (nil? (record [:invoice 1 :reference]))
+                "and Escape reverts through that same one event")))))))
 
 ;; ===========================================================================
 ;; Promotion parity — the same suite, and the same trees
