@@ -139,6 +139,8 @@ emission, hydration.
 
 | Id | Law | Canonical paragraph | Applicability | Fixture | Status |
 |---|---|---|---|---|---|
+| `FH-ROOT-001` | The minimal one-root mount `(v/mount [app {…}] node)` derives the root's identity from the mounted view's registered id (root-id and view-id that id, provenance `:derived`) and renders that declared view — the same root form putting real DOM on a browser page and answering one versioned structural tree on the JVM | [004C-Roots-and-Mount.md#the-minimal-one-root-mount](../../004C-Roots-and-Mount.md#the-minimal-one-root-mount) | interpreted jvm browser | `spec/conformance/freehand/fixtures/fh-root-001.edn` | active |
+| `FH-ROOT-002` | A root's occurrence identity is its derived root-id — the mounted view's qualified id, which a redefinition does not move — so re-mounting the same root into the same container re-renders the existing host root rather than allocating a second one: the reloaded body renders and the host root is not reseeded | [004C-Roots-and-Mount.md#hot-reload-keeps-the-root-identity](../../004C-Roots-and-Mount.md#hot-reload-keeps-the-root-identity) | interpreted browser | `spec/conformance/freehand/fixtures/fh-root-002.edn` | active |
 
 ### FH-ROUTELINK — Routing link
 
