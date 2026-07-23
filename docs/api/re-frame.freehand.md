@@ -566,6 +566,147 @@ two different bargains and the grammar makes the author pick one at the site.
                            attrs)])
   ```
 
+## Semantic controllers
+
+A reusable view is **props-only by default** — value in, intent out — and needs
+nothing in this section. A **semantic controller** is the exception a component
+library earns when a control owns a protocol spanning several interactions: a field
+that drafts and commits on blur or Enter, a dropdown holding an open flag beside an
+active option, a typeahead holding a typed query beside a settled one. Making every
+caller rebuild those state machines is poor library ergonomics; hiding them in host
+state puts interaction facts where re-frame cannot see them.
+
+A controller is **not a new kind of thing**. It is a `v/defview` plus ordinary
+`reg-sub` and `reg-event` registrations — no registry, no reducer language, no second
+state tier — and its state is ordinary frame data an epoch, a snapshot and a JVM test
+all see. What the substrate contributes is the three verbs below, and they answer two
+questions a library would otherwise answer twice and differently: **where** the record
+lives, and **when** it is still the one the caller means.
+
+The two are separable on purpose. Asking for the *key* is what makes a controller
+writable; asking for the *revision* is what makes it buffered. A dropdown that holds
+an open flag is writable and not buffered, so it takes the key and no generation.
+
+### `controller-key`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (controller-key kind props) → [kind address]
+  ```
+- **Description**: the key a **writable** controller's record lives under — the pair
+  of the library's controller `kind` and the caller-supplied `:control` address
+  carried by `props`.
+
+  **Asking for the key is what makes a controller writable.** A props-only view never
+  calls it and pays nothing, so reach for it only when a control genuinely owns a
+  protocol spanning several interactions.
+
+  The `kind` is the library's own keyword and is half the key, so a dropdown and a
+  field addressed at the same domain identity read two records rather than each
+  other's. The address is the **caller's**: immutable EDN naming the domain thing that
+  owns the state, never a DOM id, a React key, or anything derived from render
+  position — a derived anchor turns a sort, a view rename or a parent extraction into
+  a silent state migration, while `[:invoice 42 :amount]` survives all of them.
+
+  An absent `:control` is refused with `:rf.error/view-control-address-missing` rather
+  than defaulted: every controller that skipped the address would otherwise share one
+  record keyed by `nil`, which presents as one field editing another and has no local
+  explanation. Two occurrences passed the **same** address share one record on purpose
+  — that is how two views onto one draft are spelled — and it is not diagnosed.
+
+  Where the record then lives is the library's choice, not the substrate's. Freehand
+  fixes the identity model and no storage path, so there is no reserved app-db root to
+  migrate off later.
+
+- **Example**:
+  ```clojure
+  (v/defview buffered-field
+    {:props [:map [:control :any] [:reset-key :any] [:value :string] …]}
+    [props]
+    (let [k (v/controller-key ::buffered-field props)]
+      ;; k => [::buffered-field [:invoice 42 :amount]]
+      …))
+  ```
+
+### `controller-revision`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (controller-revision kind props) → revision
+  ```
+- **Description**: the **generation** a buffered controller is rendering under — the
+  caller's `:reset-key`, taken from `props`. It is any EDN the caller likes (a
+  counter, a timestamp, the id of the decision that set the baseline), because the
+  fence only ever asks whether two of them are equal.
+
+  What it must **not** be is the value. The case this exists for is a caller
+  *rejecting* an edit by reasserting what it already had: the accepted value is
+  `"10"`, the user drafts `"bad"`, the caller refuses and stands by `"10"`. The value
+  before that decision and the value after it are identical, so value-equality sees
+  nothing happen and the refused draft survives on screen — the bug every hand-rolled
+  buffered input eventually acquires.
+
+  **Required.** An absent `:reset-key` is refused with
+  `:rf.error/view-control-reset-revision-missing`. Optional would be worse than
+  absent: a control with no generation buffers perfectly well right up to the first
+  rejection, so omission ships a defect development never reproduces. A caller that
+  genuinely never resets says so with a stable literal — `:reset-key 0` reads as *do
+  not externally reset an active edit*, which is a statement rather than a silence.
+
+- **Example**:
+  ```clojure
+  (let [k (v/controller-key ::buffered-field props)
+        g (v/controller-revision ::buffered-field props)]
+    …)
+  ```
+
+### `controller-current?`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (controller-current? stamped revision) → boolean
+  ```
+- **Description**: the **generation fence**. Is work `stamped` with one generation
+  still current against `revision`, the caller's generation now?
+
+  One predicate, asked at **both** of a buffered controller's boundaries — the read,
+  where a draft is displayed only while it is current, and the write, where only a
+  current record may produce the caller's intent. They are the same question through
+  the same function, because a control whose display and whose commit disagreed about
+  which generation is live would commit something the user could not see.
+
+  **Total, and safe in the missing direction.** An absent stamp is not current,
+  whatever `revision` is — work that cannot prove its currency does not have it. That
+  is the half a hand-rolled `(= a b)` gets wrong, since two `nil`s compare equal and
+  an unstamped record would read as current. It is also what makes a draft written
+  from a superseded render *born stale*: it carries the generation its own render
+  displayed, so if the caller has moved on it is neither shown nor committed.
+
+  Comparison is the corpus's own equality, so a revision may be a collection without a
+  controller having to remember that. The function is a pure comparison over two
+  generations and reads no record shape, so the record stays the library's.
+
+  A superseded draft is **invisible, not erased** — which is why a reset costs no
+  render-time dispatch, no render-phase mutation and no remount.
+
+- **Example**:
+  ```clojure
+  ;; the READ — display the draft only while it is current
+  (rf/reg-sub :acme.buffered/text
+    (fn [db [_ k revision baseline]]
+      (let [record (get-in db [records-root k])]
+        (if (v/controller-current? (:reset-key record) revision)
+          (:draft record)
+          baseline))))
+
+  ;; the WRITE — only a current record may produce the caller's intent
+  (when (v/controller-current? (:reset-key record) revision)
+    {:fx [[:dispatch (conj on-commit (:draft record))]]})
+  ```
+
 ## Presence
 
 ### `presence`

@@ -771,6 +771,40 @@ declaration form, no reducer language, and no second state system. The rulings a
 who owns the event vocabulary is
 [D017](../docs/design/freehand/decisions/D017-framework-control-and-policy-vocabulary.md).
 
+#### The published surface — three verbs, and no more
+
+Everything the substrate contributes to a controller is reachable from the ordinary
+`re-frame.freehand` door, and it is exactly three functions:
+
+| Verb | The question it answers |
+|---|---|
+| `v/controller-key` | **where** — the `(kind, :control address)` pair this record lives under |
+| `v/controller-revision` | **which generation** this render is under — the caller's `:reset-key` |
+| `v/controller-current?` | **is this work still that generation** — the fence itself |
+
+They are **published**, at the `advanced` tier, and that is a deliberate reversal of
+the natural instinct to keep an authoring verb off the porch. A component library is
+consumer code by construction — §Vocabulary and absences gives it `buffered-field`,
+its record schema and its event ids outright — so an unpublished mechanism does not
+prevent controllers, it merely obliges every library that ships one to reach into a
+substrate-internal namespace to write an ordinary field, with no public-API gate
+watching the signature it depends on. The advertising cost is real and it is carried
+by the **tier** instead: the Guide and the skills load front-porch only, so the three
+are reachable by the library author who needs them and out of the way of the app
+author who does not. They ride the one door rather than a controller-specific sibling
+namespace, per [Conventions §Freehand — one public namespace](Conventions.md#freehand--one-public-namespace-one-alias-one-reserved-root).
+
+The split between the first verb and the second is the split between this section and
+§The buffered controller and the reset generation, and it is load-bearing: asking for
+the **key** is what makes a controller writable, and asking for the **revision** is
+what makes it buffered. A dropdown holding an open flag is writable and not buffered,
+so it takes the key and no generation. One combined verb would either force every
+writable controller to be buffered, or make the revision optional — and optional is
+ruled the worse design below.
+
+None of the three writes anything. They form a key, read a prop, and compare two
+values; the state still moves only through the library's own registered events.
+
 #### Controller identity
 
 A controller record is addressed by one pair:
@@ -804,7 +838,9 @@ state, never a DOM id, a React key, a callback, or a runtime token.
   is no default and no synthesised address: every controller that skipped one would
   otherwise share a single record, which presents as one field editing another and
   has no local explanation. Asking for the record key IS what makes a controller
-  writable — a props-only view asks for nothing and pays nothing.
+  writable — a props-only view asks for nothing and pays nothing. The verb is
+  `v/controller-key`, and it forms the pair and raises the refusal in one call, so a
+  controller cannot half-implement the rule.
 - **The same address twice is deliberate sharing.** Two occurrences passed one
   `:control` value read and write ONE record, on purpose: the address is the caller's
   statement about which state this is, so two views onto one draft are spelled by
@@ -902,7 +938,8 @@ So a buffered control is **generation-fenced**, and its generation is the caller
   it, which is a defect that reaches production because development never rejects
   anything. Requiring it puts the obligation at every call site, and a caller that
   genuinely never resets says so — `:reset-key 0` reads as *do not externally reset
-  an active edit*, which is a statement rather than a silence.
+  an active edit*, which is a statement rather than a silence. The verb is
+  `v/controller-revision`, which takes the caller's revision and raises the refusal.
 - **It is a revision, never the value.** It is any immutable EDN the caller advances
   when it establishes a new baseline decision, compared only for `rf=` equality. A
   caller that passed the value as its own reset key would have written the bug above.
@@ -926,9 +963,12 @@ One predicate decides currency, and both of a buffered control's boundaries ask 
 | the **write**, in the handler | does the committed record's generation still match the intent's? If not, produce nothing |
 
 They are the same question because a control whose display and whose commit disagreed
-about which generation is live would commit something the user could not see. A
-missing stamp is **not** current, whatever the generation is: work that cannot prove
-its currency does not have it.
+about which generation is live would commit something the user could not see. They are
+therefore asked through ONE published function, `v/controller-current?`, so the two
+boundaries cannot drift into two spellings. A missing stamp is **not** current,
+whatever the generation is: work that cannot prove its currency does not have it — the
+half a hand-rolled equality check gets wrong, since two absent stamps compare equal and
+an unstamped record would read as current.
 
 **A superseded draft is invisible, not erased.** That is the whole mechanism, and it
 is why this needs no new machinery. The fence is a comparison over ordinary frame
