@@ -150,7 +150,7 @@ in a per-file table. The file rows below inherit them.
 | callable JVM view values | a declared view that is invocable as a function | REPLACE | F1 | done |
 | placeholder provenance | donor event-payload placeholder spellings and general dispatch payload arity | REPLACE | F2 | done |
 | compiled parent to interpreted child crossing | the one emitted descriptor boundary that lets a single declaration be promoted | MOVE | F3 | done |
-| controlled scheduling | the final-normalized native input predicate and one frame-scoped synchronous scheduler shared by both modes | MOVE | F2 | pending |
+| controlled scheduling | the final-normalized native input predicate and one frame-scoped synchronous scheduler shared by both modes | MOVE | F2 | done |
 | key-condition event maps | the closed exact-key `:on-key-down`/`:on-key-up` form with existing event values and pre-dispatch mechanics | MOVE | F2 | pending |
 | `spread-safe`/`spread` and `render-fn`/`slot` | forwarding and parameterized-content grammar, absorbed without the donor hook tier | MOVE | F5 | pending |
 | presence runtime | keyed enter/exit retention, made common to both modes | MOVE | F4 | done |
