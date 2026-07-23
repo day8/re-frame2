@@ -585,7 +585,10 @@
   `:rf.error/view-forked-capture`. Non-reactive callers use the
   frame-explicit one-shot [`rf/subscribe-once`](../../../../spec/006-ReactiveSubstrate.md#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value),
   which resolves, probes, returns and releases without installing a
-  dependency — deliberately a `re-frame.core` verb, not a Freehand one.
+  dependency — deliberately a `re-frame.core` verb, not a Freehand one. A
+  STRUCTURAL TEST is the one caller that wants neither: it renders the view
+  AS WRITTEN, inside `re-frame.freehand.test`'s `t/with-render` bracket,
+  which opens a discardable render and publishes nothing.
 
   The value is STABILIZED: an `rf=`-equal recompute returns the exact prior
   value object, so an equal value is not movement. The rule is one sentence

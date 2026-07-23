@@ -115,9 +115,12 @@
     (str "A reactive read happened outside an active declared render. A Freehand view "
          "records the reads its OWN render makes, so the selected commit can own exactly "
          "them; a read with no render to belong to has no owner and would leak. Read state "
-         "inside a v/defview body, or — in a REPL, a test, a timer or a foreign callback — "
-         "use the frame-explicit one-shot read, which resolves, probes, returns and "
-         "releases without installing a view dependency.")
+         "inside a v/defview body. In a STRUCTURAL TEST, render inside the bracket "
+         "(t/with-render (t/render form)) — it opens a discardable render and publishes "
+         "nothing, so the view under test runs AS WRITTEN rather than being rewritten to "
+         "suit the test. In a REPL, a timer, a v/event or v/handler callback or a foreign "
+         "listener, use the frame-explicit one-shot read, which resolves, probes, returns "
+         "and releases without installing a view dependency.")
     {:recovery :read-inside-a-declared-render-or-use-a-one-shot-read
      :extra    {:query (error/diag-value-summary query)}}))
 

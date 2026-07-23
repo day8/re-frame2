@@ -11,9 +11,10 @@
       ;;                 :children [\"Save\"]}]
       ;;     :rf.ui/tree-version 1}
 
-  Five names query semantic VALUES; none simulates behaviour. Handler sites
-  are event vectors as data, so 'what does this button do' is an equality
-  check — no click simulation, no DOM, no flake:
+  Five names query semantic VALUES and one BRACKET makes a state-reading
+  view renderable; none simulates behaviour. Handler sites are event
+  vectors as data, so 'what does this button do' is an equality check — no
+  click simulation, no DOM, no flake:
 
       (deftest save-button-carries-intent
         (let [tree   (t/render [save-button {:article-id 42}])
@@ -29,6 +30,9 @@
                            (an interpreted body is walked, a compiled body's
                            structural realisation is run — the call spelling
                            and the tree are identical either way).
+    (with-render body…)    open a DISCARDABLE render for the duration of
+                           `body`, so a view that reads state with `v/sub`
+                           renders.
     (find tree pred)       the FIRST node the predicate matches, or nil.
     (find-all tree pred)   every matching node, in document order.
     (attrs node)           the MERGED attribute projection of a node.
@@ -49,6 +53,17 @@
   re-frame discipline. Host-bearing behaviour (real listeners firing into
   the DOM, focus, presence timing, error recovery) is the mounted browser
   tier's, not this one.
+
+  ## Rendering a view that reads state
+
+  `v/sub` is legal only during an active declared render, and `render` runs
+  the walk without opening one — in production the host is what opens a
+  render. So a view that reads state renders inside [[with-render]], which
+  opens a DISCARDABLE render for the walk and drops it afterwards:
+
+      (rf/dispatch-sync [:basket/add 42])
+      (let [tree (t/with-render (t/render [basket-total {}]))]
+        (is (= \"1 item\" (t/text tree))))
 
   ## Reading a node
 
@@ -71,7 +86,12 @@
   [`spec/004B-UI-Tree-and-Conversion.md`](../../../../../spec/004B-UI-Tree-and-Conversion.md)."
   (:refer-clojure :exclude [find])
   (:require [re-frame.error :as error]
-            [re-frame.freehand.tree :as tree]))
+            ;; The atomic shell, for [[with-render]] alone. INTERNAL, and it
+            ;; sits BELOW this namespace and takes nothing back from it — the
+            ;; bracket exists precisely so a test never has to name it.
+            [re-frame.freehand.cell :as cell]
+            [re-frame.freehand.tree :as tree])
+  #?(:cljs (:require-macros [re-frame.freehand.test :refer [with-render]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -107,6 +127,62 @@
   claim rather than a JVM claim with a `.cljc` extension."
   [form]
   (tree/render form))
+
+;; ---------------------------------------------------------------------------
+;; with-render — the discardable render a state-reading view needs
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 006 §The subscription law makes `v/sub` legal ONLY during an active
+;; declared render, and the thing that opens one in production is the host.
+;; `render` is a walk, not a host, so without this bracket the blessed
+;; structural surface worked on props-only views and refused every
+;; state-reading one — which is most of an application.
+;;
+;; The bracket opens exactly what the host opens and keeps exactly the
+;; property that makes a speculative render safe: a candidate publishes
+;; NOTHING until it is committed, and this one is never committed. So the
+;; reads inside resolve and probe, the view under test runs unmodified, and
+;; when the bracket returns there is no dependency, no watch, no cache node
+;; and no disposal obligation left behind — the abandoned-render path the
+;; shell already guarantees, reached deliberately.
+;;
+;; It takes no frame, on purpose: the candidate binds no ambient frame of its
+;; own, so frame scope stays the programmer's ordinary `rf/with-frame` /
+;; `rf/with-new-frame` bracket and this surface keeps its one law about
+;; frames rather than acquiring a second.
+
+#?(:clj
+   (defmacro with-render
+     "Run `body` inside a DISCARDABLE render, and answer its value — the
+     bracket a view that reads state is rendered in.
+
+         (rf/dispatch-sync [:basket/add 42])
+         (let [tree (t/with-render (t/render [basket-total {}]))]
+           (is (= \"1 item\" (t/text tree))))
+
+     `v/sub` is legal only during an active declared render (Spec 006 §The
+     subscription law), and [[render]] is a walk rather than a host, so a
+     view whose body reads state is refused outside this bracket with
+     `:rf.error/view-read-outside-render`. `with-render` opens the render
+     the host would have opened, so the view under test is rendered AS
+     WRITTEN — rewriting it to take a one-shot read would be testing
+     something other than the view.
+
+     PUBLISHES NOTHING. The render it opens is never committed, which is
+     the shell's own abandoned-render path: the reads inside resolve and
+     probe but acquire nothing, so when the bracket returns there is no
+     dependency, no watch and no disposal obligation left behind. Render it
+     as often as you like; each `render` is a fresh reading of current
+     state.
+
+     It takes NO frame. Frame scope is the programmer's ordinary bracket —
+     `rf/with-new-frame` for a fresh owned frame, `rf/with-frame` to pin one
+     you hold — exactly as it is for a `render` that reads nothing.
+
+     Per [`spec/008-Testing.md`](../../../../../spec/008-Testing.md#freehand-structural-and-mounted-testing)."
+     [& body]
+     `(cell/with-capture (cell/candidate (cell/cell ::probe) nil)
+        (fn [] ~@body))))
 
 ;; ---------------------------------------------------------------------------
 ;; Finders — conveniences over (tree-seq map? :children tree)
