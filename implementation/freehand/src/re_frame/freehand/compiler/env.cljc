@@ -28,7 +28,8 @@
     - locals shadowing a view name classify as neither (the analyzer
       treats a local-bound head as a dynamic head -> compile error, since
       dynamic tag/component heads are rejected)."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [re-frame.freehand.props-schema :as props-schema]))
 
 (defn make-env
   "host :clj|:cljs; cljs-env = &env when :cljs; ns-sym = consuming ns;
@@ -187,6 +188,21 @@
   (if-let [policy (:re-frame.freehand/children-policy m)]
     (not= :none policy)
     (boolean (:rf.ui/children? m))))
+
+(defn closed-prop-keys
+  "The key roster a declared view whose var metadata is `m` closes its props
+  map against, or `nil` when it closes none.
+
+  Freehand stamps the SCHEMA itself on the var, and the roster is derived
+  from it here through the same function the boundary calls — so a compiled
+  parent checking a literal call site and a render checking a delivered
+  props map cannot disagree about what a schema admits. `:rf.ui/closed-prop-
+  keys` is the donor-era spelling, a precomputed roster the transplanted
+  suites still resolve through; it goes when the donor artifact does."
+  [m]
+  (if (contains? m :re-frame.freehand/props-schema)
+    (props-schema/closing-keys (:re-frame.freehand/props-schema m))
+    (:rf.ui/closed-prop-keys m)))
 
 (def lowerings
   "The closed roster of answers [[view-lowering]] gives.

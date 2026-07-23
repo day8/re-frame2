@@ -18,6 +18,7 @@
             [re-frame.freehand.compiler.env :as env]
             [re-frame.freehand.controlled :as controlled]
             [re-frame.freehand.fingerprint :as fingerprint]
+            [re-frame.freehand.props-schema :as props-schema]
             [re-frame.freehand.rules :as rules]
             #?@(:clj [[re-frame.freehand.compiler.harvest :as harvest]])))
 
@@ -2537,18 +2538,16 @@
       ;; must be declared
       (let [meta*  (:meta (env/resolve-sym e head))
             self?  (and (:self e) (= head (:self e)))
-            closed (if self? (:self-closed-keys e) (:rf.ui/closed-prop-keys meta*))]
+            closed (if self? (:self-closed-keys e) (env/closed-prop-keys meta*))]
         (when closed
-          (let [allowed (set closed)
-                bad     (remove #(or (allowed %) (= :key %)) (map :k (:entries props)))]
+          ;; The SAME roster and the SAME sentence the boundary uses. This
+          ;; arm reports at BUILD time because a compiled call site's keys
+          ;; are literal and therefore knowable then — static knowledge moves
+          ;; when a breach surfaces, never which props are legal (D011).
+          (let [bad (props-schema/undeclared closed (map :k (:entries props)))]
             (when (seq bad)
               (env/fail! e :rf.ui.compile/undeclared-prop
-                         (str "undeclared prop" (when (next bad) "s") " "
-                              (str/join ", " (map pr-str bad)) " passed to "
-                              (:view-id info) " — its :props schema closes the "
-                              "map (declared: " (str/join ", " (map pr-str closed))
-                              "). Q2 pin: absent :props = open, present :props "
-                              "= closed")
+                         (props-schema/violation-message (:view-id info) closed bad)
                          {:head head :undeclared (vec bad)}))))))
     ;; The CROSSING index (D010). An internal boundary is where a compiled
     ;; body hands rendering to another declaration, and the child's mode is

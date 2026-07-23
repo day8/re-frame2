@@ -82,14 +82,14 @@
   semantics have LANDED, and nothing else.
 
   A key outside it is rejected at macro expansion, and that includes a
-  RESERVED option a later slice owns: the props-schema options are not
-  accepted until the schema surface exists. A reserved option
+  RESERVED option a later slice owns. A reserved option
   accepted-and-ignored is the worst of the outcomes available — the
   declaration reads as one thing and reports itself as another, and a
   one-character typo produces valid code with different semantics. The
   slice that implements an option adds it here, in the same change, as
-  `:compiled` did when the compiled tier landed."
-  #{:children-policy :compiled})
+  `:compiled` did when the compiled tier landed and `:props` did when the
+  schema surface did."
+  #{:children-policy :compiled :props})
 
 #?(:clj
    (defn ^:no-doc expand-defview
@@ -127,9 +127,9 @@
            'v/defview
            (str "v/defview options are the closed roster " (pr-str (vec (sort defview-option-keys)))
                 "; " sym " declares " (pr-str unknown) ". An option key is never discarded — "
-                "a reserved option whose owning slice has not landed (the props-schema "
-                "options) is rejected until it does, because an accepted-and-ignored option "
-                "is a declaration that quietly means something other than it says.")
+                "a reserved option whose owning slice has not landed is rejected until it "
+                "does, because an accepted-and-ignored option is a declaration that quietly "
+                "means something other than it says.")
            {:recovery :fix-the-declaration
             :extra    {:view sym :unknown-options unknown}}))
        (when-not (contains? #{true false} compiled?)
@@ -176,12 +176,20 @@
        ;; tier reuses the interpreted tier's whole surface and replaces only the
        ;; body that builds the markup.
        (let [view-id (keyword (str ns-sym) (str sym))
-             entry   {:view-id         view-id
-                      :source          `(if interop/debug-enabled?
-                                          ~(source-coords/coords-form form-meta file ns-sym)
-                                          ~(source-coords/prod-coords-form form-meta file ns-sym))
-                      :lowering        (if compiled? :compiled :interpreted)
-                      :children-policy policy}
+             ;; The schema is held as INERT DATA on the entry, present iff the
+             ;; declaration named it. Absence stays absence all the way to
+             ;; `describe`, so a tool can tell an undeclared contract from a
+             ;; deliberately permissive one — a distinction an `:any` default
+             ;; would erase.
+             schema? (contains? opts :props)
+             schema  (get opts :props)
+             entry   (cond-> {:view-id         view-id
+                              :source          `(if interop/debug-enabled?
+                                                  ~(source-coords/coords-form form-meta file ns-sym)
+                                                  ~(source-coords/prod-coords-form form-meta file ns-sym))
+                              :lowering        (if compiled? :compiled :interpreted)
+                              :children-policy policy}
+                       schema? (assoc :props-schema schema))
              entry   (if compiled?
                        (let [{:keys [body manifest]}
                              (compiler/compile-structural-view
@@ -192,6 +200,7 @@
                                 :view-id         view-id
                                 :params          params
                                 :body            body
+                                :props-schema    schema
                                 :children-policy policy})]
                          (assoc entry :structural body :manifest manifest))
                        (assoc entry :render
@@ -208,6 +217,12 @@
                                    :re-frame.freehand/view true
                                    :re-frame.freehand/lowering (if compiled? :compiled :interpreted)
                                    :re-frame.freehand/children-policy policy)
+                  ;; The SCHEMA, not a precomputed key roster: a compiled
+                  ;; parent resolves this var at build time and derives the
+                  ;; closing keys through the same function the boundary
+                  ;; uses, so the two modes cannot drift on what a schema
+                  ;; admits.
+                  schema?   (vary-meta assoc :re-frame.freehand/props-schema schema)
                   docstring (vary-meta assoc :doc docstring))
             (descriptor/declare-view ~entry)))))))
 
@@ -786,6 +801,17 @@
   The behavioural contract and its conformance rows live in
   [Spec 012 §The Freehand route-link descriptor](../../../../spec/012-Routing.md)
   — routing owns the law, this view supplies the descriptor."
+  ;; A shipped reusable view, so it carries a schema — and an HONEST one.
+  ;; Every unrecognised key really does pass through to the `<a>`, so the
+  ;; map is declared OPEN rather than listing a closed roster it would
+  ;; then have to break. `{:closed false}` states the forwarding once,
+  ;; where the rest of the props contract is.
+  {:props [:map {:closed false}
+           [:to :keyword]
+           [:params {:optional true} [:maybe :map]]
+           [:query {:optional true} [:maybe :map]]
+           [:fragment {:optional true} [:maybe :string]]
+           [:on-click {:optional true} :any]]}
   [props]
   (route-link-seam/anchor props))
 
@@ -839,7 +865,11 @@
   cannot see through.
 
   Per [Spec 004 §Cross-mode children](../../../../spec/004-Views.md)."
-  {:children-policy :none}
+  {:children-policy :none
+   ;; The whole props contract is one key, so the closed default is exactly
+   ;; right: a caller who reaches for a second one has misread the boundary,
+   ;; and meets that at the call rather than in a value silently ignored.
+   :props           [:map [:value :any]]}
   [{:keys [value]}]
   value)
 
@@ -902,4 +932,12 @@
     {:view-id         errors/boundary-view-id
      :lowering        :interpreted
      :children-policy :required
-     :error-boundary  true}))
+     :error-boundary  true
+     ;; The option roster this boundary documents as CLOSED, said once as
+     ;; data so a catalogue and a tool read the same contract the prose
+     ;; states. `:fallback` is required; the guarded child arrives as
+     ;; children under `:children-policy :required`, never as a prop.
+     :props-schema    [:map
+                       [:fallback :any]
+                       [:reset-key {:optional true} :any]
+                       [:on-error {:optional true} [:maybe :vector]]]}))

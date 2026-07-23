@@ -26,7 +26,8 @@
     declaring it (React 19 ref-as-prop).
   - `:strs`/`:syms` are outside the props ABI (slots are keywords)."
   (:require [re-frame.freehand.compiler.binding-plan :as bp]
-            [re-frame.freehand.compiler.env :as env]))
+            [re-frame.freehand.compiler.env :as env]
+            [re-frame.freehand.props-schema :as props-schema]))
 
 (defn- fail [id msg data]
   (throw (env/compile-error id msg data)))
@@ -245,14 +246,13 @@
   "Top-level prop keys of a LITERAL Malli [:map ...] :props schema; nil
   when the schema is absent or not a literal :map vector (no closed-map
   enforcement then — an opaque schema cannot be introspected at compile
-  time)."
+  time).
+
+  The parse itself lives in [[re-frame.freehand.props-schema]], which owns
+  the schema's meaning for both execution modes; slot layout reads it
+  through here so a schema is never parsed two ways."
   [schema]
-  (when (and (vector? schema) (= :map (first schema)))
-    (let [entries (rest schema)
-          entries (if (map? (first entries)) (rest entries) entries)]
-      (into []
-            (keep #(when (and (vector? %) (keyword? (first %))) (first %)))
-            entries))))
+  (props-schema/declared-keys schema))
 
 (defn declared-slots
   "Comparator/manifest slot order: header slots first, then schema-only
