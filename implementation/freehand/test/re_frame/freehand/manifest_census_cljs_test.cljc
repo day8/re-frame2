@@ -1,0 +1,128 @@
+(ns re-frame.freehand.manifest-census-cljs-test
+  "WHAT COMPILATION BUYS, MADE COUNTABLE — the static manifest and the
+  capability-elision verdict, proven over a census of known cardinality on
+  BOTH hosts.
+
+  A compiled declaration carries a manifest: the finite rosters its
+  analysis makes statically knowable — its subscription, event, slot,
+  frame-op and crossing sites, and the capability set they union to. From
+  those rosters follows the one thing compilation buys that interpretation
+  cannot: a view proven to carry no reactive site OMITS the reactive
+  ViewCell shell. The interpreted shell always observes context; compiled
+  elision is earned by proof, and the proof is the manifest.
+
+  Two claims, on both hosts:
+
+  1. **The rosters match the sites** — `FH-STRUCT-010`. Each census view's
+     manifest reports exactly the sites its body carries; a manifest that
+     over-reported would be claiming evidence it lacks, and one that
+     under-reported would hide a reactive site.
+  2. **The omitted count is an integer** — `FH-DIAG-002`. Over the census,
+     the number of views that omit the ViewCell is exactly four — asserted
+     as an integer, never a threshold (EP-0036 D021: elision is a
+     deterministic gate, not timing evidence)."
+  (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.freehand :as v]
+            [re-frame.freehand.conformance :as conf]
+            [re-frame.freehand.manifest-views :as mv]))
+
+(def struct-010 (conf/fixture :FH-STRUCT-010))
+(def diag-002 (conf/fixture :FH-DIAG-002))
+
+(defn- census-view
+  "The declared census view a fixture names by keyword, or a failing
+  assertion — a fixture that names a view the census does not hold would
+  otherwise pass vacuously."
+  [k]
+  (get mv/by-name k))
+
+(deftest the-fixtures-cover-the-whole-census
+  (testing "Neither fixture asserts over a subset: the worst failure a
+            table-driven gate has is an empty or partial table that passes
+            confidently. Both fixtures name exactly the census."
+    (is (= (set (keys mv/by-name)) (set (keys (:views struct-010))))
+        "FH-STRUCT-010 names every census view and no other")
+    (is (= (set (keys mv/by-name)) (set (keys (:views diag-002))))
+        "FH-DIAG-002 names every census view and no other")))
+
+;; ---------------------------------------------------------------------------
+;; FH-STRUCT-010 — the manifest rosters match the declared sites
+;; ---------------------------------------------------------------------------
+
+(deftest every-compiled-view-carries-a-manifest-and-an-interpreted-one-does-not
+  (testing "A compiled declaration MUST carry a manifest — it has an
+            analysis to report — and it is grammar-stamped so a reader
+            knows which grammar produced it."
+    (doseq [[nm view] mv/by-name]
+      (let [m (v/manifest view)]
+        (is (some? m) (str nm " carries a manifest"))
+        (is (= :re-frame.freehand/v1 (:grammar m))
+            (str nm " names the grammar that produced it"))
+        (is (= (:view-id (v/describe view)) (:view-id m))
+            (str nm " manifest view-id matches the descriptor"))))))
+
+(deftest manifest-rosters-match-the-declared-sites
+  (testing "Per FH-STRUCT-010: each roster's cardinality, the capability
+            set, and the elision verdict are a function of the body's
+            lexical sites — pinned against hand-countable declarations."
+    (doseq [[k expected] (:views struct-010)]
+      (let [view (census-view k)
+            m    (v/manifest view)]
+        (is (some? view) (str k " — the fixture names a declared census view"))
+        (is (= (:events expected) (count (:events m)))
+            (str k " — event site count"))
+        (is (= (:subscriptions expected) (count (:subscriptions m)))
+            (str k " — subscription site count"))
+        (is (= (:slots expected) (count (:slots m)))
+            (str k " — slot site count"))
+        (is (= (:frame-ops expected) (count (:frame-ops m)))
+            (str k " — frame-op site count"))
+        (is (= (:crossings expected) (count (:crossings m)))
+            (str k " — crossing site count"))
+        (is (= (:capabilities expected) (:capabilities m))
+            (str k " — capability set"))
+        (is (= (:view-cell expected) (:view-cell m))
+            (str k " — ViewCell verdict"))
+        (is (= (:reactive? expected) (:reactive? m))
+            (str k " — reactive? flag"))
+        (when-let [crossing (:crossing expected)]
+          (is (= crossing (dissoc (first (:crossings m)) :path))
+              (str k " — the one crossing is marked with the mode it enters")))))))
+
+(deftest reactive-and-elided-are-mutually-exclusive-and-agree
+  (testing "The two facets of the verdict cannot disagree: :view-cell
+            :elided is exactly :reactive? false, on every view."
+    (doseq [[nm view] mv/by-name]
+      (let [m (v/manifest view)]
+        (is (= (= :elided (:view-cell m)) (not (:reactive? m)))
+            (str nm " — :view-cell and :reactive? are one verdict"))))))
+
+;; ---------------------------------------------------------------------------
+;; FH-DIAG-002 — the exact omitted-ViewCell count
+;; ---------------------------------------------------------------------------
+
+(deftest each-view-earns-the-verdict-the-fixture-declares
+  (testing "Per FH-DIAG-002: each census view omits or retains the ViewCell
+            exactly as declared — a per-view fact before it is a count."
+    (doseq [[k verdict] (:views diag-002)]
+      (let [view (census-view k)]
+        (is (some? view) (str k " — a declared census view"))
+        (is (= verdict (:view-cell (v/manifest view)))
+            (str k " — ViewCell verdict"))))))
+
+(deftest the-omitted-view-cell-count-is-exactly-the-declared-integer
+  (testing "Per FH-DIAG-002: the number of census views that omit the
+            reactive ViewCell shell is an EXACT integer. A threshold would
+            pass a census that silently stopped eliding one view; the
+            integer does not."
+    (let [omitted (count (filter #(= :elided (:view-cell (v/manifest %)))
+                                 (vals mv/by-name)))
+          present (count (filter #(= :present (:view-cell (v/manifest %)))
+                                 (vals mv/by-name)))]
+      (is (= (:omitted-view-cell-count diag-002) omitted)
+          "exactly four census views omit the ViewCell shell")
+      (is (= (count mv/by-name) (+ omitted present))
+          "every view is decidable — omitted or present, never neither")
+      (is (pos? present)
+          "the census is not degenerate: some views DO keep the shell, so
+           the omitted count is a discrimination, not a tautology"))))

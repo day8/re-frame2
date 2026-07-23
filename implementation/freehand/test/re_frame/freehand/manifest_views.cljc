@@ -1,0 +1,89 @@
+(ns re-frame.freehand.manifest-views
+  "A census of `{:compiled true}` declarations with KNOWN cardinality — the
+  fixture the static-manifest and capability-elision laws are proven over.
+
+  Every declaration below carries an obvious, hand-countable set of
+  lexical sites, so the manifest each one reports and the ViewCell-elision
+  verdict each one earns are facts a reader can check against the source
+  without running anything. Four declarations carry no reactive site and
+  OMIT the reactive ViewCell shell; two carry an event site and RETAIN it.
+  The exact omitted count is therefore four — an integer, not a threshold
+  — and that is what `FH-DIAG-002` asserts, while `FH-STRUCT-010` asserts
+  each declaration's finite manifest rosters against these bodies.
+
+  `sub` and `(frame)` reads are not part of the census: the reactive-read
+  authoring forms are recognised by the analyzer but are not yet public
+  vars on the door, so a census that must compile through the ordinary
+  `v/defview` uses the publicly reachable reactive discriminator — a
+  committed event handler. The manifest's `:subscriptions` and
+  `:frame-ops` rosters are exercised at the analyzer tier in
+  `viewcell-elision-oracle-jvm-test`, which injects the resolver the
+  reactive forms need."
+  (:require [re-frame.freehand :as v]))
+
+;; ---------------------------------------------------------------------------
+;; Elided — no reactive site, so the ViewCell shell is omitted.
+;; ---------------------------------------------------------------------------
+
+(v/defview label
+  "Pure text under one element — the smallest elidable body."
+  {:compiled true}
+  [{:keys [text]}]
+  [:span.label text])
+
+(v/defview card
+  "Structure that forwards children beneath an owned heading. Forwarding
+  children is not a reactive read, so this stays elidable."
+  {:compiled true}
+  [{:keys [title children]}]
+  [:section.card [:h3.card__title title] children])
+
+(v/defview list-view
+  "A keyed list. A `for` run is finite structure, not a reactive site, so
+  a list of static rows omits the ViewCell like any other inert body."
+  {:compiled true}
+  [{:keys [items]}]
+  [:ul.list
+   (for [i items]
+     [:li.item {:key i} i])])
+
+(v/defview mounts-label
+  "Mounts a compiled child. A crossing is a boundary the body OWNS, not a
+  reactive read, so mounting a child never forces a ViewCell — the
+  manifest records the crossing and still reports the shell elided."
+  {:compiled true}
+  [{:keys [text]}]
+  [:div.host [label {:text text}]])
+
+;; ---------------------------------------------------------------------------
+;; Present — a committed event handler is a reactive site, so the ViewCell
+;; shell is retained.
+;; ---------------------------------------------------------------------------
+
+(v/defview button
+  "One committed event handler. An `:on-*` intent reads the committed
+  frame, so the view observes context and keeps its ViewCell."
+  {:compiled true}
+  [{:keys [caption]}]
+  [:button.btn {:on-click [:census/pressed]} caption])
+
+(v/defview two-buttons
+  "Two committed event handlers in one body — two event sites, one
+  retained ViewCell. Site count and shell presence are different facts:
+  many sites, one shell."
+  {:compiled true}
+  [_]
+  [:div.pair
+   [:button.a {:on-click [:census/a]} "A"]
+   [:button.b {:on-click [:census/b]} "B"]])
+
+(def by-name
+  "Census view-name keyword -> the declared view. The fixtures name views
+  by these short keywords; this is where the name becomes the value, so a
+  fixture cannot assert a fact about a view it did not actually load."
+  {:label        label
+   :card         card
+   :list-view    list-view
+   :mounts-label mounts-label
+   :button       button
+   :two-buttons  two-buttons})
