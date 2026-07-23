@@ -89,10 +89,11 @@
 
   Where selection leaves source the TARGET's own reader would refuse — a map
   entry with one side elided, two entries selecting the same key, two set
-  members selecting the same value — the checker refuses too (see
-  [[resolve-entries]] and [[resolve-members]]). A branch that does not READ
-  cannot be eligible, and normalising it into something readable would be a
-  green about a literal nobody wrote.
+  members selecting the same value, a `#?@` whose selected branch is a set or
+  map rather than a list or vector — the checker refuses too (see
+  [[resolve-entries]], [[resolve-members]] and [[resolve-children]]). A branch
+  that does not READ cannot be eligible, and normalising it into something
+  readable would be a green about a literal nobody wrote.
 
   A PURE `.cljs` source is the case that has no answer, and it is refused
   rather than approximated (see [[refuse-cljs-source!]]). Resolution needs
@@ -493,6 +494,33 @@
                        "are written as themselves. The set, as preserved: " (pr-str s))
                   {::unreadable true :target (first features) :set s :member member})))
 
+(defn- refuse-unspliceable-branch!
+  "Refuse a `#?@` whose selected `branch` is not a list or vector.
+
+  A `#?@` splices its selected branch by copying that branch's members into the
+  surrounding form — a thing only a list or vector can be. The target reader
+  requires the branch to implement `java.util.List` and refuses anything else
+  (\"Spliced form list in read-cond-splicing must implement java.util.List.\"),
+  so a `#?@` that selects a SET or a MAP does not read. [[resolve-children]]
+  once called `(seq branch)` on the selection regardless, sequencing a set into
+  its members and a map into its entries and reporting the view ELIGIBLE — a
+  green about a splice the compiler cannot read. So the selection is refused at
+  the boundary the reader draws.
+
+  Thrown WITHOUT the file, for the reason [[refuse-unreadable-set!]] is, and
+  marked the same way so [[read-declarations]] prefixes the path."
+  [branch features]
+  (throw (ex-info (str "a #?@ splice whose conditional selects a "
+                       (cond (set? branch) "SET" (map? branch) "MAP" :else "non-list")
+                       ", " (pr-str branch) ", cannot be read for the " (first features)
+                       " target, so the checker will not answer for a declaration "
+                       "containing it. A #?@ copies its branch's members into the "
+                       "surrounding form, so only a list or vector may be spliced — a "
+                       "set or map does not implement java.util.List. Write the "
+                       "conditional around the WHOLE collection — #?(:clj […] :cljs #{…}) "
+                       "— or make the spliced branch a list or vector.")
+                  {::unreadable true :target (first features) :branch branch})))
+
 (defn- resolve-entries
   "Resolve conditionals across a map's entries, at the refusal boundary the
   TARGET's reader draws.
@@ -547,7 +575,14 @@
 (defn- resolve-children
   "Resolve conditionals across a sequence of sibling forms, SPLICING a
   matched `#?@` and dropping an elided conditional — the two things a
-  conditional does that a plain form cannot. Returns a vector."
+  conditional does that a plain form cannot. Returns a vector.
+
+  A `#?@` splices only a list or vector: the target reader copies the selected
+  branch's members into the surrounding form and requires that branch to
+  implement `java.util.List`, refusing a SET or MAP branch outright. So a
+  selected non-list branch is refused at that boundary
+  ([[refuse-unspliceable-branch!]]) rather than sequenced — sequencing it would
+  green a splice the compiler cannot read."
   [xs features]
   (into []
         (mapcat
@@ -556,7 +591,9 @@
              (let [branch (select-branch x features)]
                (cond
                  (= ::elide branch) []
-                 (:splicing? x)     (resolve-children (seq branch) features)
+                 (:splicing? x)     (if (sequential? branch)
+                                      (resolve-children (seq branch) features)
+                                      (refuse-unspliceable-branch! branch features))
                  :else              [(resolve-conditionals branch features)]))
              [(resolve-conditionals x features)])))
         xs))
