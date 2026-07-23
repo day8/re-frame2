@@ -130,4 +130,72 @@
   {:note "one spelling per name: :class-name is not a second way to write :class"
    :form [:div {:class-name "a"}] :error-id :rf.error/ui-tree-malformed}
   {:note "nor :html-for a second way to write :for"
-   :form [:label {:html-for "n"}] :error-id :rf.error/ui-tree-malformed}]}
+   :form [:label {:html-for "n"}] :error-id :rf.error/ui-tree-malformed}
+
+  ;; The refusal reads the prop name the emitters WRITE, not the raw map
+  ;; key. A key is classified and projected by its `name`, so a namespace,
+  ;; a string or a symbol changes the spelling at the site and nothing at
+  ;; all about where the value lands — which is exactly how a guard that
+  ;; compared the raw key let one declaration render content the
+  ;; structural tree does not carry.
+  {:note "a namespaced :children reaches React's reserved children slot all the same"
+   :form [:div {:x/children "ghost"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "and on a void element it is the same throw the exact spelling was refused for"
+   :form [:img {:x/children "ghost"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "a string key spells the same prop"
+   :form [:div {"children" "ghost"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "and so does a symbol key"
+   :form [:div {children "ghost"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "a namespaced :ref is still the commit-phase host hook the walk has no machinery for"
+   :form [:div {:x/ref "node"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "as is the string spelling"
+   :form [:div {"ref" "node"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "and the symbol one"
+   :form [:div {ref "node"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "React's raw-markup prop is the same slot however the key is qualified"
+   :form [:div {:x/dangerouslySetInnerHTML "<b>x</b>"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "and its kebab alias carries no namespace escape either"
+   :form [:div {:x/dangerously-set-inner-html "<b>x</b>"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "nor the shorter alias, spelled as a string"
+   :form [:div {"inner-html" "<b>x</b>"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "one spelling per name holds under a namespace too"
+   :form [:div {:x/class-name "a"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "and under a symbol"
+   :form [:label {html-for "n"}] :error-id :rf.error/ui-tree-malformed}]
+
+ ;; The control that makes the rows above mean something. Refusing by
+ ;; emitted prop name is only correct if it refuses the names that ARE
+ ;; spoken for and no others — an over-broad guard that turned every
+ ;; qualified attribute away would be a worse defect than the bypass it
+ ;; closed, and would look identical in a table of rejections. These keys
+ ;; project onto ordinary props and are accepted, qualified or not.
+ :accepted-keys
+ [{:note "a namespaced attribute whose name is an ordinary prop passes"
+   :form [:div {:x/title "ok"}]
+   :tree {:tag :div :attrs {:x/title "ok"} :rf.ui/tree-version 1}}
+  {:note "including one whose name React canonicalises"
+   :form [:div {:x/tab-index 3}]
+   :tree {:tag :div :attrs {:x/tab-index "3"} :rf.ui/tree-version 1}}
+  {:note "data-* is untouched by the refusal, qualified or not"
+   :form [:div {:x/data-priority "high" :data-priority "high"}]
+   :tree {:tag :div :attrs {:x/data-priority "high" :data-priority "high"}
+          :rf.ui/tree-version 1}}
+  {:note ":class is React's className and is NOT the rejected :class-name"
+   :form [:div {:class "a"}]
+   :tree {:tag :div :attrs {:class "a"} :rf.ui/tree-version 1}}
+  {:note "and :for is htmlFor, not the rejected :html-for"
+   :form [:label {:for "n"}]
+   :tree {:tag :label :attrs {:for "n"} :rf.ui/tree-version 1}}]
+
+ ;; The BEHAVIOURAL control for the reserved `children` slot: React really
+ ;; does render a `children` prop as content. Mounted through
+ ;; `createElement` DIRECTLY, around the emitter, so the consequence the
+ ;; refusal prevents is proved live in the same browser and the same build
+ ;; — otherwise "the alias is refused" would be a claim about a table
+ ;; rather than about the DOM.
+ :react-children-control
+ {:note  "a children prop handed to React renders as content — which is what an attribute-path alias would have produced, with nothing in the structural tree to match it"
+  :tag   "div"
+  :prop  "children"
+  :value "ghost"
+  :text  "ghost"}}

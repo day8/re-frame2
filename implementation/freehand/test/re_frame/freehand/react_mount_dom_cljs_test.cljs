@@ -180,3 +180,44 @@
                        (is false (str "mount rejected: " e))
                        (.remove container)
                        (done)))))))))
+
+(deftest fh-struct-009-no-attribute-alias-can-create-dom-children
+  (testing "Per FH-STRUCT-009: the refusal reads the prop name the emitter
+            WRITES, so an aliased attribute key cannot put content in the
+            DOM that the structural tree does not carry. The control
+            mounts a `children` prop through `createElement` DIRECTLY,
+            around the emitter, and requires React to render it as
+            content — which is precisely what an attribute-path alias
+            would have produced. Then the same declaration goes through
+            the emitter and is refused, so the browser proves both halves:
+            the consequence is real, and the emitter never reaches it."
+    (let [control (:react-children-control struct-009)]
+      (is (map? control) "the fixture's children control loaded")
+      (doseq [k [:x/children "children" 'children]]
+        (is (= :rf.error/ui-tree-malformed
+               (conf/caught-id #(fr/element [:div {k (:value control)}])))
+            (str "the React emitter refuses " (pr-str k)
+                 " — it spells React's reserved children prop")))
+      (if-not (browser?)
+        (is true "a real React mount needs a DOM host — the browser job runs the assertions")
+        (async done
+          (let [container (js/document.createElement "div")
+                _         (.appendChild js/document.body container)
+                root      (rdc/createRoot container)]
+            (-> (act #(.render root
+                               (react/createElement
+                                 (:tag control)
+                                 (doto (js-obj)
+                                   (aset (:prop control) (:value control))))))
+                (.then (fn [_]
+                         (is (= (:text control) (.-textContent container))
+                             (str (:note control) " — React rendered nothing here, which "
+                                  "would make the refusal above prove nothing"))
+                         (act #(.unmount root))))
+                (.then (fn [_]
+                         (.remove container)
+                         (done))
+                       (fn [e]
+                         (is false (str "mount rejected: " e))
+                         (.remove container)
+                         (done))))))))))

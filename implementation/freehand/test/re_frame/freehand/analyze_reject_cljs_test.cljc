@@ -723,6 +723,39 @@
   (is (nil? (reject-id '[:div some-expr "x"]))
       "a non-map expression after the tag is a dynamic child, not props"))
 
+;; The rejected-spelling check reads the prop name the emitter WRITES —
+;; `:react-name` is `(rules/react-prop-name (name k))` — so a namespace on the
+;; key changes the spelling at the site and nothing about where the value
+;; lands. Checking the raw keyword let `:x/children` compile straight into
+;; React's reserved `children` slot, so a compiled declaration rendered content
+;; its structural twin did not carry.
+(deftest element-prop-keys-are-read-by-their-emitted-name
+  (testing "an alias of a rejected spelling is rejected with it"
+    (doseq [k '[:x/class-name :x/html-for :x/dangerouslySetInnerHTML
+                :x/dangerously-set-inner-html :x/inner-html :x/children]]
+      (is (= :rf.ui.compile/rejected-prop-spelling (reject-id [:div {k "x"}]))
+          (str k " projects onto the same prop its exact spelling does"))))
+
+  (testing ":ref has ONE accepted spelling; an alias would reach the reserved
+            ref slot around the ref contract entirely"
+    (is (= :rf.ui.compile/rejected-prop-spelling (reject-id '[:div {:x/ref r}]))
+        ":x/ref is not a second spelling of :ref")
+    (is (nil? (reject-id '[:div {:ref object-ref}]))
+        "and the exact :ref spelling still routes through the ref contract"))
+
+  (testing "the rule is not over-broad: a qualified key whose name projects
+            onto an ORDINARY prop keeps its current semantics, and so does
+            every legitimate key that neighbours a rejected one"
+    (doseq [form '[[:div {:x/title "ok"}]
+                   [:div {:x/tab-index 3}]
+                   [:div {:x/data-priority "high"}]
+                   [:div {:data-priority "high"}]
+                   [:div {:aria-hidden true}]
+                   [:div {:class "a"}]
+                   [:label {:for "n"}]
+                   [:div {:x/on-click [:e]}]]]
+      (is (nil? (reject-id form)) (str (pr-str form) " is an ordinary declaration")))))
+
 (deftest void-elements
   (doseq [tag [:br :hr :img :input :param :keygen]]
     (is (= :rf.ui.compile/void-children (reject-id [tag "child"]))
