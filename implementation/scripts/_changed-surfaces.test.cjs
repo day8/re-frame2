@@ -1465,6 +1465,55 @@ for (const file of TEST_QUIET_FILES) {
   });
 }
 
+// implementation/spec-resource is the ONE build-time reader for committed
+// spec/ data: the Freehand conformance fixture loader and the api-manifest
+// CLJS probe both expand through it. Its own suite is the deterministic
+// control for a cold-load race that has shipped twice behind fully green
+// lanes — which is exactly why the routing has to be pinned. If the
+// classifier leaves every output false, the one job in CI that goes red
+// when the racy shape returns simply SKIPS, and the aggregator passes.
+
+for (const file of [
+  'implementation/spec-resource/src/re_frame/build/spec_resource.clj',
+  'implementation/spec-resource/test/re_frame/build/spec_resource_test.clj',
+  'implementation/spec-resource/deps.edn',
+  // Artefact-ROOT matching, not an enumeration: a future nested namespace
+  // must route too, and the rot would otherwise be silent.
+  'implementation/spec-resource/src/re_frame/build/deeply/nested.clj',
+]) {
+  test(`${file} arms implementation_jvm + cljs_node_test (shared spec/ reader)`, () => {
+    const result = classify(file);
+    assert.equal(
+      result.implementation_jvm,
+      'true',
+      'the reader change must run its own race control (jvm-spec-resource) and the fixture loader lane (jvm-freehand)',
+    );
+    assert.equal(
+      result.cljs_node_test,
+      'true',
+      'the consolidated :node-test build is where both consumers macro-expand through this reader',
+    );
+  });
+}
+
+test('jvm-spec-resource is job-level gated on implementation_jvm', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'jvm-spec-resource');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
+  );
+});
+
+test('all-required-passed aggregator needs jvm-spec-resource', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
+  assert.match(
+    block,
+    /- jvm-spec-resource\r?\n/,
+    'the race control must be reachable from the single required context',
+  );
+});
+
 test('test-quiet routing does NOT broaden docs/spec-only or unrelated surfaces (rf2-am7grp scope)', () => {
   // Scoped to src/test/deps.edn under test-quiet; a generic spec/docs
   // change stays off the implementation gates entirely.

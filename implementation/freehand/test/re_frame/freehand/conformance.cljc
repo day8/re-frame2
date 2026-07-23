@@ -17,7 +17,7 @@
   a table-driven test whose table is empty is the worst failure mode
   available, so it is made impossible here.
 
-  ## Why the ClojureScript read goes through shadow-cljs
+  ## Why the read goes through the shared build-time reader
 
   Inlining at macro-expansion time hides the fixture from the build: a
   ClojureScript compile that caches a test namespace has no edge back to
@@ -26,94 +26,31 @@
   green over an expectation nobody is checking, which is the worst
   failure a table-driven gate can have.
 
-  So the ClojureScript read goes through `shadow.resource/slurp-resource`,
-  which records the fixture's classpath path and last-modified against
-  the compiling namespace; shadow-cljs re-checks both before reusing that
-  namespace's cache. Edit a fixture and the suites that read it
-  recompile — no cache clearing, no ritual. `spec/` is a shadow-cljs
-  `:source-path` (the one classpath root under which every committed
-  spec-side data file a build inlines is resolvable — data, no sources)
-  so `:FH-PROPS-001` resolves as
-  `conformance/freehand/fixtures/fh-props-001.edn`.
+  `re-frame.build.spec-resource` is the one reader that closes that gap,
+  shared with every other macro that inlines committed `spec/` data. It
+  reads through shadow-cljs under a ClojureScript compile, which records
+  the fixture as a build dependency of the compiling namespace, and walks
+  up from the compile CWD everywhere else. Edit a fixture and the suites
+  that read it recompile — no cache clearing, no ritual. The reader is
+  shared rather than copied because resolving shadow's reader is a
+  cold-load race, and a per-consumer solution only makes ONE consumer
+  safe with itself; that namespace carries the whole argument.
 
-  The JVM lane needs no such edge — `clojure -M:test` has no persistent
-  analyzer cache, so every run re-reads the file — and it does not carry
-  the fixture root on its classpath, so it locates the same file by
-  walking up from the compile CWD to the repository root."
+  Fixtures resolve below the `spec/` root, so `:FH-PROPS-001` is
+  `conformance/freehand/fixtures/fh-props-001.edn`."
   #?(:clj (:require [clojure.edn :as edn]
-                    [clojure.java.io :as io]
-                    [clojure.string :as str]))
+                    [clojure.string :as str]
+                    [re-frame.build.spec-resource :as spec-resource]))
   #?(:cljs (:require-macros [re-frame.freehand.conformance :refer [fixture]])))
 
 #?(:clj
-   (def ^:private classpath-root
-     "The directory that is the classpath ROOT for fixture lookups, as path
-     segments below the repository root — the shadow-cljs `:source-path`
-     the ClojureScript lane resolves resource paths against, and what the
-     JVM lane walks up the tree looking for."
-     ["spec"]))
-
-#?(:clj
    (defn ^:private fixture-resource-path
-     "The fixture for `id` as a path below [[classpath-root]] — e.g.
+     "The fixture for `id` as a path below the `spec/` root — e.g.
      `conformance/freehand/fixtures/fh-props-001.edn`. The filename
      mirrors the id in lower case, per the fixture convention in
      `spec/conformance/freehand/README.md`."
      [id]
      (str "conformance/freehand/fixtures/" (str/lower-case (name id)) ".edn")))
-
-#?(:clj
-   (defn ^:private fixture-file
-     "Locate the fixture at `path` by walking up from the compile CWD
-     looking for [[classpath-root]] — the JVM lane's locator, where that
-     root is not on the classpath. Throws an actionable error rather than
-     yielding an absent table."
-     [path]
-     (loop [dir (io/file (System/getProperty "user.dir"))]
-       (when (nil? dir)
-         (throw (ex-info (str "Freehand conformance fixture " path " not found: no "
-                              (str/join "/" classpath-root) " directory walking up from "
-                              (System/getProperty "user.dir") ".")
-                         {:path path :root classpath-root})))
-       (let [candidate (apply io/file dir (conj classpath-root path))]
-         (if (.exists candidate)
-           candidate
-           (recur (.getParentFile dir)))))))
-
-#?(:clj
-   (def ^:private slurp-resource
-     "shadow-cljs's recording classpath reader, resolved ONCE.
-
-     Resolved rather than required: shadow-cljs is on the classpath of the
-     ClojureScript lane and of no other, so naming it in this namespace's
-     `:require` would make the JVM suite — which needs none of it —
-     unloadable without it.
-
-     Resolved once because resolving it per call races. `requiring-resolve`
-     tries `resolve` BEFORE it takes the require lock, and Clojure interns
-     a Var when it ANALYSES a `def` and binds its root only when it
-     EVALUATES it, so there is a window in which `shadow.resource` exists
-     and `slurp-resource` is interned but has no value. shadow-cljs
-     macroexpands namespaces in PARALLEL, and nine suites reach [[fixture]]
-     in the same wave: the second one into that window resolves the
-     unbound var and calls it, failing the compile on thread scheduling
-     rather than on anything in the tree. A `delay` closes the window —
-     one thread performs the resolution, every other waits on its result."
-     (delay (requiring-resolve 'shadow.resource/slurp-resource))))
-
-#?(:clj
-   (defn ^:private slurp-fixture
-     "Return the text of the fixture at `path`.
-
-     Under a ClojureScript compile (`&env` carries the compiling `:ns`)
-     the read goes through shadow-cljs, which registers `path` as a build
-     dependency of that namespace — the edge that makes a fixture edit
-     invalidate the cached suite. Under the JVM there is no cache to
-     invalidate, and the file is read from the tree directly."
-     [env path]
-     (if (:ns env)
-       (@slurp-resource env path)
-       (slurp (fixture-file path)))))
 
 #?(:clj
    (defn ^:no-doc read-fixture
@@ -122,7 +59,7 @@
      absent or declares a different `:fh/id`."
      [env id]
      (let [path  (fixture-resource-path id)
-           value (edn/read-string (slurp-fixture env path))]
+           value (edn/read-string (spec-resource/slurp-resource env path))]
        (when-not (= (name id) (:fh/id value))
          (throw (ex-info (str "Freehand conformance fixture " id " declares :fh/id "
                               (pr-str (:fh/id value)) " — the file and the id disagree.")

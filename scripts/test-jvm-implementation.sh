@@ -39,6 +39,15 @@ artefacts=(
   # emitter alongside the React one, so the JVM arm is load-bearing here
   # from the first commit rather than bolted on later.
   implementation/freehand
+  # The build-time reader for committed spec/ data
+  # (day8/re-frame2-spec-resource). Its `:test` alias is the DETERMINISTIC
+  # control for the cold-load race that reader exists to close: it holds
+  # the interned-but-unbound window open and drives two independent
+  # resolver sites into it, so the racy shape fails on an assertion rather
+  # than on thread scheduling. This is the one suite in the repo whose
+  # green is evidence about that defect — the surrounding lanes were all
+  # green while it shipped, twice.
+  implementation/spec-resource
   # rf2-gj2ae — the adversarial-property security tier is `.cljc` and
   # advertises a cross-runtime contract (e.g. `re-frame.security.gen`'s
   # JVM `:clj` `long`-multiply vs the CLJS `Math.imul` arm, pinned by

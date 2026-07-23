@@ -663,6 +663,28 @@ else
         implementation_jvm=true
         cljs_node_test=true
         ;;
+      implementation/spec-resource/*)
+        # day8/re-frame2-spec-resource is the ONE build-time reader for
+        # committed spec/ data — the Freehand conformance fixture loader
+        # and the api-manifest CLJS probe both expand through it, so a
+        # change here can break either macro's compile.
+        #
+        # implementation_jvm fires this artefact's own `:test` alias, which
+        # is the deterministic control for the cold-load race the reader
+        # exists to close (jvm-spec-resource), plus jvm-freehand, whose
+        # `:test` alias carries the fixture loader. cljs_node_test fires
+        # the consolidated `:node-test` build, where the reader is actually
+        # exercised — that is the lane whose macro expansion reaches
+        # shadow-cljs's recording read, in parallel, from both consumers at
+        # once. cljs_browser for the same reason the freehand case gives:
+        # the `-dom-cljs-test$` suites inline fixtures too.
+        #
+        # No production bundle requires any of this (build-time only), so
+        # cljs_prod / bundle_isolation stay off.
+        implementation_jvm=true
+        cljs_node_test=true
+        cljs_browser=true
+        ;;
       implementation/test-quiet/src/*|implementation/test-quiet/test/*|implementation/test-quiet/deps.edn)
         # rf2-am7grp — implementation/test-quiet is the test-runtime
         # quiet-reporter artefact (day8/re-frame2-test-quiet, rf2-try1x):

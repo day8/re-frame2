@@ -1561,6 +1561,58 @@ jobs:
           fi
           echo "OK: implementation/freehand names no re-frame.ui dependency"
 
+  jvm-spec-resource:
+    name: JVM spec-resource (clojure -M:test)
+    # The build-time reader for committed spec/ data
+    # (day8/re-frame2-spec-resource) — the ONE resolver for shadow-cljs's
+    # recording classpath read, shared by the Freehand fixture loader and
+    # the api-manifest CLJS probe.
+    #
+    # Its suite is the deterministic control for the cold-load race that
+    # reader exists to close: `requiring-resolve` resolves BEFORE it takes
+    # the require lock, so a second macro-expansion thread can reach a Var
+    # its own `def` has interned but not yet bound. The suite holds that
+    # window open — a generated namespace whose `def` blocks inside its
+    # initializer — and drives two independent resolver sites into it, so
+    # the racy shape fails on an assertion rather than on the weather.
+    #
+    # This job exists because ordinary lanes cannot carry that evidence.
+    # The defect shipped twice behind fully green JVM / CLJS / browser
+    # suites; a rerun wins the coin toss as often as not. Nothing else in
+    # CI goes red when the racy shape returns.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation/spec-resource
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-spec-resource-${{ hashFiles('implementation/spec-resource/deps.edn', 'implementation/test-quiet/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-spec-resource-
+            ${{ runner.os }}-clj-
+
+      - name: Run JVM tests (spec-resource reader)
+        run: clojure -M:test
+
   jvm-reply-conformance:
     name: JVM reply-conformance (clojure -M:test)
     # rf2-dxndhc — the EP-0011 cross-family reply-VOCABULARY-consistency
@@ -3927,6 +3979,7 @@ jobs:
       # `needs:` cannot span workflow files, so until this line the freehand
       # JVM lane was visible but ADVISORY.
       - jvm-freehand
+      - jvm-spec-resource
       - jvm-reply-conformance
       - jvm-derivation-conformance
       - jvm-event-conformance

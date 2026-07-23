@@ -38,9 +38,15 @@
  ;; :paths above stay routing-free; the suites need the real routing
  ;; artefact loaded so its `:routing/link-model` hook is published and the
  ;; anchor is proved against the SHIPPING link law rather than a stub.
+ ;;
+ ;; day8/re-frame2-spec-resource is the build-time reader the conformance
+ ;; fixture loader reads through (`re-frame.freehand.conformance`, under
+ ;; test/). Test-only for the same reason the loader is: fixtures are read
+ ;; at macro-expansion time, and nothing under :paths above reads a file.
  {:test {:extra-paths ["test"]
-         :extra-deps  {day8/re-frame2-routing    {:local/root "../routing"}
-                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
+         :extra-deps  {day8/re-frame2-routing       {:local/root "../routing"}
+                       day8/re-frame2-spec-resource {:local/root "../spec-resource"}
+                       day8/re-frame2-test-quiet    {:local/root "../test-quiet"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
   ;; The B-spine measurement harness (D021). No extra paths and no extra

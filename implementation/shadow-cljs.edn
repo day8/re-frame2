@@ -142,6 +142,18 @@
                 ;; `ui/` donor above.
                 "freehand/src"
                 "freehand/test"
+                ;; The build-time reader for committed `spec/` data
+                ;; (day8/re-frame2-spec-resource). Both macros named under
+                ;; the `../spec` root below go through it, and it is on
+                ;; this classpath so they can: it owns the shadow-cljs
+                ;; recording read, the non-ClojureScript walk-up fallback,
+                ;; and — the reason it is ONE namespace rather than a
+                ;; helper copied into each consumer — the cold-load
+                ;; resolution of `shadow.resource/slurp-resource`, which
+                ;; two independent resolvers race however carefully each
+                ;; one guards itself. JVM-only source; nothing compilable
+                ;; into a bundle.
+                "spec-resource/src"
                 ;; `spec/` as a classpath ROOT — the one root under which
                 ;; every committed spec-side DATA file a build inlines is
                 ;; resolvable. Data only: no sources, nothing compilable,
@@ -157,7 +169,9 @@
                 ;; checking. Reading through `shadow.resource/slurp-resource`
                 ;; instead records the file's classpath path and
                 ;; last-modified against the compiling namespace, so the
-                ;; data participates in that namespace's cache key.
+                ;; data participates in that namespace's cache key. Both
+                ;; consumers reach that reader through the one namespace
+                ;; above, never directly.
                 ;;
                 ;;   conformance/freehand/fixtures/*.edn — inlined by
                 ;;     `re-frame.freehand.conformance/fixture`.
