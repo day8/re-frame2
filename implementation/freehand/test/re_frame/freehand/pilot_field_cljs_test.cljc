@@ -405,9 +405,13 @@
         (is (= 1.5 (rf/subscribe-once [:acme.invoice/quantity-canonical 1] {:frame fid})))
         (is (= 225.0 (rf/subscribe-once [:acme.invoice/line-total 1] {:frame fid}))
             "and the derived total follows")
-        (is (= "225.0" (t/text (part-node (render! (line-form mode 1))
-                                          "acme/invoice-line" "total")))
-            "which the view reads as an ordinary value")))))
+        (is (= (str (rf/subscribe-once [:acme.invoice/line-total 1] {:frame fid}))
+               (t/text (part-node (render! (line-form mode 1))
+                                  "acme/invoice-line" "total")))
+            "which the view reads as an ordinary value — compared against the
+             derived read rather than a literal, because `(str 225.0)` is
+             \"225.0\" on the JVM and \"225\" in ClojureScript, and a `.cljc`
+             view that prints a raw double is host-sensitive by construction")))))
 
 ;; ===========================================================================
 ;; R-A5 — validation display gated by touch or submit-attempt
