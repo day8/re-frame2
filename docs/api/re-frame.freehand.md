@@ -346,7 +346,10 @@ vacancy, landing with its own EP-0036 slice.
   a value nobody owns; a read conveyed to a child thread fails with
   `:rf.error/view-forked-capture`. Non-reactive callers use the frame-explicit
   one-shot `rf/subscribe-once`, deliberately a `re-frame.core` verb and not a
-  Freehand one.
+  Freehand one. A **structural test** is the one caller that wants neither: it
+  renders the view as written, inside
+  [`re-frame.freehand.test`](re-frame.freehand.test.md)'s `t/with-render` bracket,
+  which opens a discardable render and publishes nothing.
 
   The value is **stabilized**: an `rf=`-equal recompute returns the exact prior value
   object, so an equal value is not movement. The rule holds in both execution modes —

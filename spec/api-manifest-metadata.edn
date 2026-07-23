@@ -1418,16 +1418,25 @@
   ;; `:require` it, and it is still a published surface a rename or an
   ;; accidental export must not move silently — so it is JVM-INTROSPECTED
   ;; (generator `jvm-namespaces`) and reconciled by the CLJS probe,
-  ;; FULLY-ROWED in both directions. `render` / `find` / `find-all` / `attrs`
-  ;; / `text` are the whole surface; everything beneath them (`node-kind`,
-  ;; `text*`, the diagnostic helpers) is `defn-`, so the five are exact by
-  ;; construction rather than by a `^:no-doc` carve-out.
+  ;; FULLY-ROWED in both directions. `render` / `with-render` / `find` /
+  ;; `find-all` / `attrs` / `text` are the whole surface; everything beneath
+  ;; them (`node-kind`, `text*`, the diagnostic helpers) is `defn-`, so the
+  ;; six are exact by construction rather than by a `^:no-doc` carve-out.
+  ;;
+  ;; `with-render` is the ONE non-query name, and it is a MACRO: it opens the
+  ;; declared render `v/sub` requires and never commits it, so a view that
+  ;; reads state renders through the public door AS WRITTEN instead of
+  ;; obliging a test to compose the internal `re-frame.freehand.cell`
+  ;; candidate + capture pair. Same `:testing` tier and same "008" owner as
+  ;; the queries — it is the same surface's bracket, not a runtime verb, and
+  ;; it deliberately takes NO frame (frame scope stays `rf/with-frame`).
   ;; =========================================================================
-  ["re-frame.freehand.test" "render"]   {:tier :testing :owner "008" :status "EP-0036"}
-  ["re-frame.freehand.test" "find"]     {:tier :testing :owner "008" :status "EP-0036"}
-  ["re-frame.freehand.test" "find-all"] {:tier :testing :owner "008" :status "EP-0036"}
-  ["re-frame.freehand.test" "attrs"]    {:tier :testing :owner "008" :status "EP-0036"}
-  ["re-frame.freehand.test" "text"]     {:tier :testing :owner "008" :status "EP-0036"}
+  ["re-frame.freehand.test" "render"]      {:tier :testing :owner "008" :status "EP-0036"}
+  ["re-frame.freehand.test" "with-render"] {:tier :testing :owner "008" :status "EP-0036"}
+  ["re-frame.freehand.test" "find"]        {:tier :testing :owner "008" :status "EP-0036"}
+  ["re-frame.freehand.test" "find-all"]    {:tier :testing :owner "008" :status "EP-0036"}
+  ["re-frame.freehand.test" "attrs"]       {:tier :testing :owner "008" :status "EP-0036"}
+  ["re-frame.freehand.test" "text"]        {:tier :testing :owner "008" :status "EP-0036"}
 
   ["re-frame.ui.test" "render"]    {:tier :testing :owner "008" :status "Spec-004 S1"}
   ["re-frame.ui.test" "text"]      {:tier :testing :owner "008" :status "Spec-004 S1"}

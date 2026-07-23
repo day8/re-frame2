@@ -683,11 +683,13 @@ contract here is the paved path — `re-frame.freehand.test`, conventionally ali
 
 ### The structural surface — headless, both hosts, both modes
 
-Five names query semantic **values**; none simulates behaviour.
+Five names query semantic **values** and one **bracket** opens the render a
+state-reading view needs; none simulates behaviour.
 
 | Name | Answers |
 |---|---|
 | `(t/render form)` | the versioned structural tree for a declared-view call (`[view props & children]`, in either mode) or arbitrary markup — the ROOT node, a map carrying `:rf.ui/tree-version` |
+| `(t/with-render body…)` | the value of `body`, run inside a **discardable render** — the bracket a view that reads state is rendered in |
 | `(t/find tree pred)` | the first node the predicate matches, or nil |
 | `(t/find-all tree pred)` | every matching node, in document order |
 | `(t/attrs node)` | the merged attribute projection — `:attrs` + `:events` on an element, `:props` on a view boundary, `{}` on a fragment, nil on nil |
@@ -703,6 +705,20 @@ simulation, no flake. Projections are owned by
 [004B §Projections](004B-UI-Tree-and-Conversion.md#projections--how-nodes-are-read); a
 projection over a malformed value fails loud with `:rf.error/ui-tree-malformed` rather
 than reading a plausible answer off a broken tree.
+
+**A view that reads state renders inside the bracket.** `v/sub` is legal only during
+an active declared render ([006 §The subscription
+law](006-ReactiveSubstrate.md#the-subscription-law)) and `t/render` is a walk rather
+than a host, so it opens none of its own; `t/with-render` opens the render the host
+would have opened and **never commits it**. That is the substrate's own
+abandoned-render path, so the reads inside resolve and probe but acquire nothing — no
+ref-count, no watch, no cache node and no disposal obligation survives the bracket,
+however many times a test renders. The view under test therefore renders **as
+written**: rewriting it to take a frame-explicit one-shot read would be testing
+something other than the view, and it is the recovery the read-outside-render
+diagnostic names for a test caller. The bracket takes **no frame** — frame scope is
+the ordinary programmer's bracket below, so this surface keeps its one law about
+frames rather than acquiring a second.
 
 The single most consequential difference from the donor surface: **the structural
 tree is cross-host in both modes.** The donor's compiled emitter targeted React

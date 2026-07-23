@@ -68,11 +68,11 @@
     STRUCTURAL TEST surface (`t`), enrolled on the same terms as the door and
     as `re-frame.ui.test`: `.cljc`, JVM-introspected for its manifest rows,
     its live CLJS surface reconciled here. FULLY-ROWED, both directions —
-    `render` / `find` / `find-all` / `attrs` / `text` are the whole surface
-    (everything beneath them is `defn-`), so a sixth public var added on
-    either host, or one of the five renamed away, goes RED. Dev/test SCOPE is
-    not privacy: this is a published authoring surface and the gate treats it
-    like one.
+    `render` / `with-render` / `find` / `find-all` / `attrs` / `text` are the
+    whole surface (everything beneath them is `defn-`), so one more public var
+    added on either host, or one of the six renamed away, goes RED. Dev/test
+    SCOPE is not privacy: this is a published authoring surface and the gate
+    treats it like one.
 
   The pair-MCP server (`re-frame2-pair-mcp.server`) is the third
   CLJS-only surface the keystone names. It compiles under the pair-MCP
@@ -204,7 +204,7 @@
     ;; come from :classification (JVM lane), fed in via `freehand-rows` below.
     "re-frame.freehand"
     ;; rf2-drpa3.79 — direction-2 completeness for the Freehand structural
-    ;; test surface: the five names ARE the surface, so a sixth public var
+    ;; test surface: the rowed names ARE the surface, so one more public var
     ;; added on either host without a manifest row → RED. Its rows likewise
     ;; come from :classification, fed in via `freehand-test-rows` below.
     "re-frame.freehand.test"})
@@ -280,7 +280,7 @@
 ;; ---------------------------------------------------------------------------
 ;; re-frame.freehand.test ENROLMENT — the focused negative control (rf2-drpa3.79).
 ;;
-;; The five-name structural test surface shipped as a public authoring surface
+;; The structural test surface shipped as a public authoring surface
 ;; and was invisible to every public-API inventory: the generator did not
 ;; enumerate it, the probe did not reconcile it, so `gen --check` and this
 ;; probe were both green while a rename, a removal or an accidental export in
@@ -293,22 +293,24 @@
 (def ^:private freehand-test-ns "re-frame.freehand.test")
 
 (def ^:private freehand-test-names
-  "The five blessed names. Spelled once, here, as the non-vacuity anchor —
-   `render` / `find` / `find-all` / `attrs` / `text` (Spec 008)."
-  #{"render" "find" "find-all" "attrs" "text"})
+  "The six blessed names. Spelled once, here, as the non-vacuity anchor — the
+   five queries `render` / `find` / `find-all` / `attrs` / `text` plus the
+   `with-render` bracket that opens the discardable render a state-reading
+   view needs (Spec 008)."
+  #{"render" "with-render" "find" "find-all" "attrs" "text"})
 
-(deftest freehand-test-surface-is-exactly-the-five-names
+(deftest freehand-test-surface-is-exactly-the-six-names
   (testing "non-vacuity: the probe really analysed the namespace, the sidecar
-            really carries its rows, and the two are the same five names — so a
+            really carries its rows, and the two are the same six names — so a
             green below cannot mean 'nothing was compared'"
     (is (= freehand-test-names
            (set (map first (get live-publics freehand-test-ns))))
-        "the live CLJS surface is exactly the five blessed names")
+        "the live CLJS surface is exactly the six blessed names")
     (is (= freehand-test-names (set (map :var freehand-test-rows)))
-        "and the sidecar :classification rows are exactly the same five")))
+        "and the sidecar :classification rows are exactly the same six")))
 
 (deftest freehand-test-added-public-var-goes-red
-  (testing "DIRECTION 2: a sixth public var on the structural test surface with
+  (testing "DIRECTION 2: one more public var on the structural test surface with
             no manifest row fails completeness — the drift an unenrolled
             namespace made invisible"
     (let [result (probe/reconcile
