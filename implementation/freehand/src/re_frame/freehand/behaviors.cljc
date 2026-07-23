@@ -839,8 +839,13 @@
 (defn command!
   "Perform one `:re-frame.freehand.host/command` effect, resolving `args`'
   `:target` among the live connections of `frame` — the frame the
-  originating event ran in. Browser-only: a command crosses into a live
-  host object, and the JVM has none."
+  originating event ran in.
+
+  The CAPABILITY is browser-only — a command crosses into a live host
+  object, and the JVM has none — but the effect is not gated off the
+  structural host. It runs there and REFUSES, on the same diagnostic id,
+  because a command that silently evaporates is the one outcome a bounded
+  channel cannot afford."
   [frame args]
   #?(:clj
      (refused!
@@ -937,10 +942,29 @@
              :give-each-occurrence-its-own-target
              {:frame frame :target target :claims (count claims)}))))))
 
+;; The channel declares NO `:platforms`, deliberately — it is universal, and
+;; the JVM arm of [[command!]] above is the reason.
+;;
+;; `:platforms #{:client}` would be the reflex for a browser-only capability,
+;; and it is the wrong answer here. The generic gate SKIPS a barred effect and
+;; emits a `:rf.fx/skipped-on-platform` warning trace, so a command reaching
+;; the structural host through the documented `{:fx [[…]]}` path would perform
+;; no host work AND say nothing an application can observe — the one outcome
+;; Spec 004 §The structural marker rules out. Declaring the gate would also
+;; make the JVM refusal unreachable except by calling this namespace's own
+;; `command!`, which is not a door an application has.
+;;
+;; So the effect runs on every platform and REFUSES itself where it cannot be
+;; honoured, with the diagnostic that names the fix (assert the command's DATA
+;; structurally; prove the host action on the mounted tier). Spec 011 asks a
+;; browser-only effect to declare the gate; it does not ask an effect to
+;; declare it in place of a better diagnostic, and a typed refusal is strictly
+;; more visible than a skip.
 (fx/reg-fx
   command-fx-id
-  {:doc       (str "Perform one bounded operation on the live behavior connection "
-                   "claiming :target IN THE EFFECT'S OWN FRAME. Refused — never "
-                   "queued — when that frame holds no live connection claiming it.")
-   :platforms #{:client}}
+  {:doc (str "Perform one bounded operation on the live behavior connection "
+             "claiming :target IN THE EFFECT'S OWN FRAME. Refused — never "
+             "queued — when that frame holds no live connection claiming it, "
+             "and refused on the structural host, which owns no live "
+             "connection at all.")}
   (fn [ctx args] (command! (:frame ctx) args)))
