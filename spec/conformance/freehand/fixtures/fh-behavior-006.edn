@@ -18,9 +18,16 @@
 ;; released the same command that worked a moment ago is refused, because the
 ;; index holds nothing. A future mount is driven by state and config, or by a
 ;; fresh event — never by a retained imperative request.
+;;
+;; `:frame-scope` is the other half of "and nothing else". A connection is
+;; committed under the frame its view was mounted in, and a command resolves in
+;; the frame its event ran in, so the frame is half the address: a target live
+;; only in a sibling frame is as absent as one nothing ever mounted, and two
+;; frames legitimately claiming one library target are two addresses rather than
+;; one ambiguity.
 {:fh/id "FH-BEHAVIOR-006"
  :fh/law
- "A `:re-frame.freehand.host/command` effect reaches the ONE live connection claiming its explicit semantic target and nothing else — a live decoy under a different id is untouched — and an absent target, an ambiguous target, an unregistered operation and a malformed command are each refused with a typed diagnostic, performing no host work and queueing nothing."
+ "A `:re-frame.freehand.host/command` effect reaches the ONE live connection claiming its explicit semantic target in the effect's OWN frame and nothing else — a live decoy under a different id, and a connection a sibling frame committed, are both untouched, while two frames claiming one target are two addresses rather than one ambiguity — and an absent target, an ambiguous target, an unregistered operation and a malformed command are each refused with a typed diagnostic, performing no host work and queueing nothing."
 
  :fx-id :re-frame.freehand.host/command
 
@@ -65,6 +72,28 @@
  :after-teardown
  {:command {:target :probe/one :op :mark :args {:label "late"}}
   :outcome :rf.error/behavior-command-refused}
+
+ ;; The FRAME is part of the address. A connection is committed under the frame
+ ;; its view was mounted in, and a command resolves its target in the frame the
+ ;; effect was produced in. Two consequences, and the pair is the law: a command
+ ;; cannot reach a node another frame owns, and two frames that legitimately
+ ;; reuse one library's target id are two addresses rather than one ambiguity.
+ :frame-scope
+ {:crossing
+  {:note      "a command cannot reach a connection committed under another frame"
+   :command   {:target :probe/one :op :mark :args {:label "crossed"}}
+   :outcome   :rf.error/behavior-command-refused
+   :untouched {:selector ".node" :attribute "data-mark"}
+   :lifecycle [:connect]}
+
+  :per-frame
+  [{:note    "the origin frame's connection answers the origin frame's command"
+    :command {:target :probe/one :op :mark :args {:label "from-origin"}}
+    :marked  {:selector ".node" :attribute "data-mark" :value "from-origin"}}
+   {:note    "and the decoy frame's identically-targeted connection answers its own"
+    :command {:target :probe/one :op :mark :args {:label "from-decoy"}}
+    :marked  {:selector ".node" :attribute "data-mark" :value "from-decoy"}}]
+  :lifecycle [:connect :connect :mark :mark]}
 
  ;; The outward half: the context a behavior keeps is fenced to the connection
  ;; that minted it, so a host callback that outlives its node is inert.

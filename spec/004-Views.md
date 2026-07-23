@@ -1435,7 +1435,7 @@ never called. Its option roster is CLOSED to `:use`, `:target` and `:config`.
   path, not from the DOM. A derived address would move when a view was sorted,
   renamed, extracted or virtualized; a domain address survives all of them. It is
   optional, because a behavior nothing commands needs none, and it must be unique
-  among live connections.
+  among the live connections of ITS FRAME (§The bounded command channel).
 
 #### Commit-only connection and total cleanup
 
@@ -1475,6 +1475,15 @@ event handler:
 
 - **It resolves against the LIVE index and runs synchronously**, against the
   currently committed connection, on the operation the behavior registered.
+- **It resolves in the frame its event ran in.** A connection is committed under
+  the frame its view was mounted in, and the frame is half a command's address —
+  so a target live only in a sibling frame is as absent as one nothing ever
+  mounted, and the refusal says so. This is the frame isolation the rest of the
+  substrate already holds: a subscription does not reach into a sibling frame,
+  and a command into a sibling frame's node would be the same breach with a
+  host object on the end of it. Two frames mounting the same declaration
+  therefore claim the same target legitimately — two addresses, not one
+  ambiguity — and uniqueness is a claim about ONE frame.
 - **It is never queued and never replayed.** A command that finds no live
   connection claiming its target is REFUSED. A future mount is driven by state
   and config, or by a fresh event — a retained imperative request would arrive at
@@ -1491,6 +1500,40 @@ split is taught plainly: state changed → an event updates app state → the vi
 supplies new config → `:update` reconciles the host; the host emitted something →
 the behavior dispatches a configured intent; perform this one-shot operation now
 → one data command; React owns the protocol → use a wrapper, not a behavior.
+
+#### The tool plane
+
+A behavior is the one place in the substrate where opaque host state lives, so
+it is the one place a reader most needs to see into — and the one place a
+careless inspection surface would hand out exactly what the contract refuses.
+Both halves are settled by making the tool plane a pair of read-only
+projections over the live table, published by the behavior namespace itself
+rather than through the public door:
+
+- **the active connections** — one entry per live connection, carrying its
+  generation, its registered behavior id, the frame it was committed under, the
+  semantic target it claims and its public config; and
+- **the command traffic** — a bounded window of the recent commands, each row
+  carrying what the command named and what the channel decided (`:delivered` or
+  `:refused`), plus the behavior and generation wherever the channel actually
+  resolved a connection. Refusals are recorded as faithfully as deliveries: a
+  projection that only saw the successes would be evidence for the one case
+  nobody debugs.
+
+Both answer VALUES. Neither answers a node, a private memory, or anything a
+caller could reach one through — the omission is by construction, because a
+projection is built from a connection's public half, not filtered out of its
+whole. A tool that could be handed a host object would be the instance registry
+the behavior contract exists to refuse, reached through the inspection door
+instead of the front one.
+
+Neither is an event stream. Lifecycle facts are tool evidence, so a tool ASKS
+and is not called back: there is no mount event, no unmount event, no command
+event, and nothing on this plane dispatches. The traffic window is bounded for
+the same reason a trace ring is — an unbounded log is a retention leak dressed
+up as evidence — and a delivered row is written before the operation runs, so a
+command that crashes its host appears in the traffic rather than vanishing from
+it.
 
 #### The structural marker
 

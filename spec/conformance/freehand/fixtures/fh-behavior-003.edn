@@ -24,7 +24,8 @@
  :lifecycle []
 
  :command
- {:args    {:target :probe/one :op :mark}
+ {:frame   :structural/behaviors
+  :args    {:target :probe/one :op :mark}
   :outcome :rf.error/behavior-command-refused}
 
  :cases

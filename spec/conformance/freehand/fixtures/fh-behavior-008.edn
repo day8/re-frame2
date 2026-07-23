@@ -1,0 +1,78 @@
+;; FH-BEHAVIOR-008 — the tool plane is two READ-ONLY projections, and what they
+;; omit is the law.
+;;
+;; A behavior is the one place in the substrate where opaque host state lives,
+;; so it is the one place a reader most needs to see into — and the one place a
+;; careless inspection surface would hand out exactly what the contract refuses.
+;; The answer is a pair of projections over the live table: the active
+;; connections, and a bounded window of command traffic.
+;;
+;; `:connection-keys` and `:log-keys` are pinned in BOTH directions. The present
+;; roster is what a tool may rely on; the absent roster is the real assertion —
+;; no node, no memory, no closure, no handle. A projection that leaked one would
+;; be the instance registry the behavior contract exists to refuse, reached
+;; through the inspection door instead of the front one.
+;;
+;; The traffic rows pin the other half: a refusal is recorded as faithfully as a
+;; delivery (a projection that only saw the successes would be evidence for the
+;; one case nobody debugs), `:behavior` and `:generation` appear exactly where
+;; the channel RESOLVED a connection — `:resolved?` below — and a malformed
+;; command records only what it named. The window is BOUNDED — an unbounded log
+;; is a retention leak dressed up as evidence.
+{:fh/id "FH-BEHAVIOR-008"
+ :fh/law
+ "The test/tool plane reads two read-only projections over the live behavior table — the active connections (generation, behavior id, frame, semantic target, public config) and a bounded window of command traffic (what the command named, and whether the channel delivered or refused it) — and neither exposes a node, a private memory or any route to a host instance, adds an application event, or calls a tool back."
+
+ ;; The active-connection projection, pinned in both directions.
+ :connection-keys
+ {:present [:generation :behavior :frame :target :config]
+  :absent  [:node :memory :dispatch :commands :timing]}
+
+ ;; One mounted connection under a named frame — the projection's whole content
+ ;; for the `plain` use site.
+ :connected
+ {:behavior :re-frame.freehand.behavior-views/probe
+  :target   :probe/one
+  :config   {:label "a"}}
+
+ ;; A behavior nothing commands declares no target, so the projection records
+ ;; none — absent, never nil.
+ :no-target
+ {:behavior :re-frame.freehand.behavior-views/probe
+  :config   {:label "quiet"}}
+
+ ;; The command-traffic projection, pinned in both directions.
+ :log-keys
+ {:present [:frame :target :op :behavior :generation :outcome]
+  :absent  [:args :memory :node :result]}
+
+ :traffic
+ [{:note    "a delivered command records what it named and the connection it reached"
+   :command {:target :probe/one :op :mark :args {:label "logged"}}
+   :row     {:target :probe/one :op :mark :outcome :delivered}
+   :resolved? true}
+
+  {:note    "an absent target is refused, and the refusal is recorded too"
+   :command {:target :probe/nobody :op :mark}
+   :row     {:target :probe/nobody :op :mark :outcome :refused}
+   :resolved? false}
+
+  {:note    "an unregistered operation DID resolve a connection, so the row names it"
+   :command {:target :probe/one :op :teleport}
+   :row     {:target :probe/one :op :teleport :outcome :refused}
+   :resolved? true}
+
+  {:note    "a malformed command records only what it named"
+   :command "mark it"
+   :row     {:outcome :refused}
+   :resolved? false}]
+
+ ;; The window is bounded: past the limit the log holds the most recent rows and
+ ;; nothing older. `:evicted` is issued FIRST and is the only refusal in the
+ ;; run, so its absence afterwards proves the OLDEST rows were dropped — a cap
+ ;; that discarded the newest would keep it and lose the marks.
+ :bounded
+ {:overflow-by 5
+  :op          :mark
+  :target      :probe/one
+  :evicted     {:target :probe/nobody :op :mark}}}
