@@ -1,0 +1,46 @@
+{:fh/id  "FH-CTRL-010"
+ :fh/law "Many buffered controllers in one view carry independent generations and reset independently in ONE render pass, deterministically and in any combination; and the discard is attributable from ordinary frame data alone — the caller's reset is one ordinary event that moves one location, every superseded record keeps the generation stamp that explains why it was orphaned, and the substrate publishes no controller reset channel of its own."
+
+ :kind :my.ui/buffered-field
+
+ ;; Three controls, one view, one address and one generation each.
+ :invoice-ids [1 2 3]
+ :controls    [[:invoice 1 :amount] [:invoice 2 :amount] [:invoice 3 :amount]]
+ :baselines   ["10.00" "20.00" "30.00"]
+ :revision    4
+
+ :drafts                  ["1x" "2x" "3x"]
+ :displayed-while-editing ["1x" "2x" "3x"]
+
+ ;; The caller's event: reassert a baseline and advance that ONE
+ ;; control's generation. Ordinary, registered, and the caller's own.
+ :reset-event-id :invoice/baseline-replaced
+ :next-revision  5
+
+ ;; One reset. In a single pass the reset control falls back to its
+ ;; baseline and the other two keep drafting — the whole point of the
+ ;; generation being per-control rather than per-view.
+ :reset-one                 1
+ :displayed-after-one-reset ["1x" "20.00" "3x"]
+
+ ;; Two more, together. Order does not enter into it: each control reads
+ ;; its own pair, so one pass settles all of them.
+ :reset-rest                 [0 2]
+ :displayed-after-all-resets ["10.00" "20.00" "30.00"]
+
+ ;; Determinism: rendering the same state again yields the same display.
+ :passes 2
+
+ ;; The evidence. Rejecting invoice 2 with the value it already had moves
+ ;; exactly one location in the whole frame — the caller's generation —
+ ;; so the event that orphaned the draft is named by an ordinary app-db
+ ;; diff, and no record is silently deleted to hide it.
+ :evidence
+ {:invoice-id        2
+  :reasserted-value  "20.00"
+  :moved-paths       [[:invoice 2 :amount-revision]]
+  :stale-record      {:reset-key 4 :draft "2x"}}
+
+ ;; And no published door var is a reset / discard channel: the reset is
+ ;; the caller's event, not a substrate call.
+ :reset-channel-spellings ["reset" "discard" "revert" "invalidate"]}

@@ -1,0 +1,54 @@
+;; FH-CTRL-011 — the reject-and-restore cycle as a user-visible fact.
+;;
+;; The cross-host rows prove what the fence DECIDES. This one proves what
+;; the browser DOES to a live node while the decision is taken, and the
+;; two are not the same claim. The disqualified alternatives fail exactly
+;; here and nowhere else: a key-remount restores the right text on a
+;; DIFFERENT node, destroying focus, selection and any composition in
+;; flight; an effect-based reset commits one stale frame first and takes
+;; the caret with it. Both would pass every structural row above.
+;;
+;; So: a real react-dom root, a real reactive substrate, real input and
+;; composition events at a real node, and every claim read back off
+;; `document` — including the identity of the node itself, which is what
+;; separates "restored" from "replaced".
+{:fh/id "FH-CTRL-011"
+ :fh/law
+ "In a real browser a caller's rejection restores the baseline through the controlled-input path rather than by remounting: the input node is the same node before and after, focus and the caret survive the cycle, editing resumes at the new generation with the caret where the user put it, and an IME composition through the buffered draft completes intact on the node it started on."
+
+ :frame     :fh-ctrl/browser
+ :control   [:invoice 42 :amount]
+ :baseline  "10.00"
+ :revision  4
+
+ :edit
+ {:note           "a character typed mid-string leaves the caret after it, through the draft"
+  :at             2
+  :ch             "9"
+  :expected       "1090.00"
+  :expected-caret 3}
+
+ ;; The rejection: the caller stands by the value it already had and
+ ;; advances the generation. The draft must leave the screen without the
+ ;; node leaving the document.
+ :reject
+ {:note              "the same value, a new generation — the case equality is blind to"
+  :reasserted-value  "10.00"
+  :next-revision     5
+  :displayed         "10.00"}
+
+ ;; Editing resumes under the new generation, on the same node, with the
+ ;; caret where the user placed it.
+ :resume
+ {:note           "the next edit belongs to the new generation and behaves normally"
+  :at             0
+  :ch             "9"
+  :expected       "910.00"
+  :expected-caret 1}
+
+ ;; An IME builds one word over several composition updates, into the
+ ;; draft rather than into application state directly.
+ :composition
+ {:note  "the in-flight text survives every update, on one node"
+  :steps ["に" "にほ" "にほん"]
+  :final "にほん"}}
