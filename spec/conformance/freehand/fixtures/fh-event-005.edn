@@ -71,6 +71,80 @@
   :invocations 2
   :dispatched  [[:picker/accept] [:picker/accept]]}
 
+ ;; ---------------------------------------------------------------------
+ ;; ONE grammar, two front ends
+ ;; ---------------------------------------------------------------------
+ ;;
+ ;; The compiled tier reads the SAME closed form at BUILD time that the
+ ;; normalizer reads at render — a declaration that meant one thing
+ ;; interpreted and another under `{:compiled true}` is the promotion break
+ ;; the compiled tier exists to make impossible. `:template` is the
+ ;; declaration body the analyzer lowers and `:prop` names the event
+ ;; position inside it, so one row states the authored value once: the
+ ;; suite reads it back out of the template and holds the compiled lowering
+ ;; to the plan the interpreted front end classifies from it.
+ ;;
+ ;; A branch that is DATA lowers to itself, which is what makes the two
+ ;; tiers comparable at all; a `v/event` branch lowers to the roster
+ ;; callback constructor the interpreted macro expands to, so the site is
+ ;; opaque to the manifest exactly as a whole-handler `v/event` is.
+ :compiled-accepted
+ [{:note "one exact key on :on-key-down"
+   :prop :on-key-down
+   :template [:input {:on-key-down {"Enter" [:picker/accept]}}]
+   :serializable? true}
+  {:note "several branches — an options map, a bare vector, and an explicit nil — on :on-key-up"
+   :prop :on-key-up
+   :template [:input {:on-key-up {"Enter"  {:event [:picker/accept] :prevent-default true}
+                                  "Escape" [:picker/close]
+                                  "Tab"    nil}}]
+   :serializable? true}
+  {:note "a v/event branch is a legal intent, and it makes the site opaque"
+   :prop :on-key-down
+   :template [:input {:on-key-down {"Enter" (event [ev] [:picker/typed ev])}}]
+   :serializable? false
+   :callback-branches ["Enter"]}]
+
+ ;; The compiled tier raises the SAME boundaries before a keystroke exists,
+ ;; under its own build-time id rather than the render one. Each row is a
+ ;; boundary the one-level exact-key form must not blur — and, crucially,
+ ;; none of them may be reported as an unknown LISTENER OPTION, which is
+ ;; what a map read as the wrong closed form produces.
+ :compiled-rejected
+ [{:note "an empty map is neither form"
+   :template [:input {:on-key-down {}}]
+   :error-id :rf.ui.compile/bad-handler-options}
+  {:note "exact keys mixed with a listener option"
+   :template [:input {:on-key-down {"Enter" [:picker/accept] :prevent-default true}}]
+   :error-id :rf.ui.compile/bad-handler-options}
+  {:note "a nested key map — the form is ONE level deep"
+   :template [:input {:on-key-down {"Enter" {"Escape" [:picker/close]}}}]
+   :error-id :rf.ui.compile/bad-handler-options}
+  {:note "an empty branch names no intent"
+   :template [:input {:on-key-down {"Enter" {}}}]
+   :error-id :rf.ui.compile/bad-handler-options}
+  {:note "a branch options map with no :event vector"
+   :template [:input {:on-key-down {"Enter" {:prevent-default true}}}]
+   :error-id :rf.ui.compile/bad-handler-options}
+  {:note "a v/handler branch is imperative work, not an intent"
+   :template [:input {:on-key-down {"Enter" (handler [ev] ev)}}]
+   :error-id :rf.ui.compile/bad-handler-options}
+  {:note "a bare fn branch is not an intent either"
+   :template [:input {:on-key-down {"Enter" (fn [ev] ev)}}]
+   :error-id :rf.ui.compile/bad-handler-options}
+  {:note "a branch may not carry :once — it retires the whole SITE"
+   :template [:input {:on-key-down {"Enter" {:event [:picker/accept] :once true}}}]
+   :error-id :rf.ui.compile/bad-handler-options}
+  {:note "a branch may not carry :capture — an attachment lane"
+   :template [:input {:on-key-down {"Enter" {:event [:picker/accept] :capture true}}}]
+   :error-id :rf.ui.compile/bad-handler-options}
+  {:note "a branch may not carry :passive — an attachment lane"
+   :template [:input {:on-key-down {"Enter" {:event [:picker/accept] :passive true}}}]
+   :error-id :rf.ui.compile/bad-handler-options}
+  {:note "a key-condition map on a listener that carries no key"
+   :template [:button {:on-click {"Enter" [:picker/accept]}}]
+   :error-id :rf.ui.compile/bad-handler-options}]
+
  ;; Site legality: a key-condition map is legal only on a key listener
  ;; slot. `:slot` is the React event slot the emitter writes.
  :site-legality

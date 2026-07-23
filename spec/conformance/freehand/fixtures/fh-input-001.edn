@@ -135,6 +135,8 @@
  :compiled-role-rows
  [{:classification :vector   :role :event-vector}
   {:classification :options  :role :event-options}
+  {:note "the exact-key form is asked in the roster's own vocabulary, so the door weighs the value it actually names"
+   :classification :key-map  :role :key-map}
   {:classification :ui-event :role :event}
   {:classification :handler  :role :handler}
   {:classification :fn       :role :bare-fn}
