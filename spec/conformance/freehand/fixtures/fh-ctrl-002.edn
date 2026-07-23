@@ -1,0 +1,30 @@
+{:fh/id  "FH-CTRL-002"
+ :fh/law "Two occurrences of one view given the SAME :control address share ONE record deliberately — an edit at either occurrence is read by both, no diagnostic fires, and the sharing is a consequence of the caller supplying the address rather than an accident of render position."
+
+ :kind :my.ui/buffered-field
+
+ ;; ONE address, passed to BOTH occurrences, ON PURPOSE. This is how two
+ ;; views onto one draft are spelled: the address is the caller's
+ ;; statement about WHICH state this is, so passing it twice is a claim
+ ;; that these two sites edit the same thing. A derived anchor could not
+ ;; express it at all — two occurrences would necessarily differ.
+ :control [:invoice 42 :amount]
+
+ ;; Both occurrences are given the same external baseline, as two views
+ ;; onto one value would be.
+ :value "100.00"
+
+ ;; The edit is made at occurrence A. Occurrence B is a passive reader
+ ;; of the same record and does nothing.
+ :typed "99."
+
+ ;; Both occurrences display the draft: one record, two readers.
+ :displayed-after-edit ["99." "99."]
+
+ ;; Exactly ONE record exists — sharing is one record read twice, not two
+ ;; records kept in step.
+ :record-keys-after-edit [[:my.ui/buffered-field [:invoice 42 :amount]]]
+
+ ;; Sharing is a FEATURE. Nothing about a second occurrence at the same
+ ;; address is diagnosed: the render of both occurrences raises nothing.
+ :diagnosed? false}

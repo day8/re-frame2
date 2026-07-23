@@ -1,0 +1,41 @@
+{:fh/id  "FH-CTRL-004"
+ :fh/law "The causal owner's ordinary event clears the addresses it owns and the records are gone, while a record whose owner has not cleared it survives; the substrate exposes NO lifecycle cleanup hook — no unmount callback, dispose registration or per-occurrence teardown slot on the public surface or in the declared-view ABI — so retention follows the owner, never the render."
+
+ :kind :my.ui/buffered-field
+
+ ;; Two invoices are open and both have a live draft. Invoice 1 is the
+ ;; one whose owner closes.
+ :owned-control    [:invoice 1 :amount]
+ :unrelated-control [:invoice 2 :amount]
+ :owned-draft      "12."
+ :unrelated-draft  "34."
+
+ ;; The record table before the owner clears: two records, one per
+ ;; address, each under the (kind, address) pair.
+ :record-keys-before [[:my.ui/buffered-field [:invoice 1 :amount]]
+                      [:my.ui/buffered-field [:invoice 2 :amount]]]
+
+ ;; The owner's ORDINARY event. Nothing about it is controller
+ ;; machinery: it is the domain event for the thing whose lifetime the
+ ;; state actually follows, and it names the address it owns.
+ :owner-event [:invoice/closed [:invoice 1 :amount]]
+
+ ;; Afterwards only the unrelated record survives. Cleanup is scoped to
+ ;; the addresses the owner named — never "everything this kind holds".
+ :record-keys-after [[:my.ui/buffered-field [:invoice 2 :amount]]]
+
+ ;; THE NEGATIVE HALF. The absence is part of the contract, so it is
+ ;; asserted rather than assumed. No published var on the Freehand door,
+ ;; and no key of the declared-view inspection ABI, carries a lifecycle
+ ;; or cleanup callback surface a controller could hang teardown on.
+ ;; Matching is by SUBSTRING over the name, so a differently-spelled
+ ;; sibling (`on-unmount`, `use-effect`, `component-will-unmount`) is
+ ;; caught by the same roster.
+ :cleanup-hook-spellings ["unmount" "did-mount" "will-mount" "cleanup" "clean-up"
+                          "dispose" "teardown" "tear-down" "destroy" "on-remove"
+                          "effect" "lifecycle" "local"]
+
+ ;; The declared-view ABI is closed and carries no lifecycle entry: what
+ ;; a tool reads off a view is identity, source, lowering and policy —
+ ;; nothing invocable at teardown.
+ :view-abi-keys #{:re-frame.freehand/view :view-id :source :lowering :children-policy}}

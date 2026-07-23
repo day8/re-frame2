@@ -144,8 +144,8 @@ in a per-file table. The file rows below inherit them.
 
 | Donor row | What it is | Disposition | Slice | Status |
 |---|---|---|---|---|
-| `local` and its placement machinery | component-local state and the anchors that place it | DELETE | F1 | pending |
-| instance state and generic storage verbs | `local`-adjacent generic component storage and derived writable anchors | DELETE | F1 | pending |
+| `local` and its placement machinery | component-local state and the anchors that place it | DELETE | F4a | done |
+| instance state and generic storage verbs | `local`-adjacent generic component storage and derived writable anchors | DELETE | F4a | done |
 | refs, effects, and the React hook tier | the neutral imperative forms; one-node behaviors own bounded DOM lifecycle and wrappers own React protocols | DELETE | F4 | pending |
 | callable JVM view values | a declared view that is invocable as a function | REPLACE | F1 | done |
 | placeholder provenance | donor event-payload placeholder spellings and general dispatch payload arity | REPLACE | F2 | done |

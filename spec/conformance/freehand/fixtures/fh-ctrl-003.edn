@@ -1,0 +1,29 @@
+{:fh/id  "FH-CTRL-003"
+ :fh/law "A writable controller rendered with no :control address is refused loudly with :rf.error/view-control-address-missing naming the kind and the recovery — no default address, no synthesised one — while the same view given an address renders, and a props-only view that never asks for a record key is untouched."
+
+ :kind :my.ui/buffered-field
+
+ ;; The refusal. An absent :control is not defaulted: every controller
+ ;; that skipped one would otherwise share a record keyed by nil.
+ :missing-address-error-id :rf.error/view-control-address-missing
+ :recovery                 :supply-a-control-address
+
+ ;; The ex-data a programmer needs to locate the site: WHICH controller
+ ;; family refused, and a bounded SHAPE summary of the props it was given
+ ;; — never the props themselves.
+ :extra-keys [:kind :props :reason :recovery]
+
+ ;; The message names the prop and the recovery, so the fix is visible
+ ;; without a debugger. Stable in MEANING, not in bytes — these are
+ ;; substrings, not the message.
+ :message-mentions [":control" "kind"]
+
+ ;; The control for the refusal: the SAME view, given an address, renders.
+ ;; Without this the rejection could be green because nothing renders.
+ :control [:invoice 7 :amount]
+ :value   "100.00"
+
+ ;; And a props-only view never asks for a record key, so it has no
+ ;; address to omit — the cost of controller addressing is paid only by
+ ;; controls that actually write.
+ :props-only-renders? true}

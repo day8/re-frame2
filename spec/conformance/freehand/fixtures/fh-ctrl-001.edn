@@ -1,0 +1,27 @@
+{:fh/id  "FH-CTRL-001"
+ :fh/law "A controller record is keyed by the controller kind plus the caller-supplied :control address, so two occurrences of one view given DIFFERENT addresses hold independent records: an edit at one occurrence moves only its own record, and the other keeps showing its baseline."
+
+ ;; The library's controller family. The KIND is the library's — which
+ ;; protocol this record obeys — and it is half of every record key.
+ :kind    :my.ui/buffered-field
+
+ ;; Two occurrences of ONE view, mounted side by side, each given the
+ ;; domain identity that owns its state. Nothing here is derived from
+ ;; render position: these are the addresses the CALL SITES pass.
+ :control-a [:invoice 1 :amount]
+ :control-b [:invoice 2 :amount]
+
+ ;; The external baseline each occurrence shows while it holds no record.
+ :value-a "100.00"
+ :value-b "250.00"
+
+ ;; One edit, at occurrence A only.
+ :typed "12."
+
+ ;; What the two occurrences display afterwards: A shows its draft, B is
+ ;; untouched. Independence is the whole claim.
+ :displayed-after-edit ["12." "250.00"]
+
+ ;; And the record table holds exactly ONE record — A's — under the pair
+ ;; key. B never acquired one, because nothing wrote to B.
+ :record-keys-after-edit [[:my.ui/buffered-field [:invoice 1 :amount]]]}

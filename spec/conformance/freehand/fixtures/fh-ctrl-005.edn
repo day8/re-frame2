@@ -1,0 +1,38 @@
+{:fh/id  "FH-CTRL-005"
+ :fh/law "Controller state is ordinary frame data: the record a controller wrote is read back through the normal re-frame path — a plain subscription over app-db, with no view mounted and no controller-specific reader — and a semantic transition is an ordinary registered event."
+
+ :kind    :my.ui/buffered-field
+ :control [:invoice 42 :amount]
+
+ ;; The library's own root. Freehand fixes the IDENTITY model and not the
+ ;; storage path: there is no reserved [:rf/controllers …] location, so
+ ;; the library chooses where its records live exactly as it chooses its
+ ;; own event ids.
+ :records-root :my.ui/controllers
+
+ ;; The whole exchange runs with NO view mounted: dispatch the library's
+ ;; semantic transition, then read the frame. A controller is ordinary
+ ;; re-frame, so a test that never renders can drive and inspect one —
+ ;; which is also why a story, a fixture or an SSR preparation can seed a
+ ;; controller by name instead of mounting a tree to discover an address.
+ :typed "12."
+
+ ;; Read back through the NORMAL path — a plain subscription over app-db,
+ ;; not a controller-specific reader.
+ :inspection-query [:my.ui/record]
+
+ ;; The record is plain, comparable, printable data.
+ :record {:draft "12."}
+
+ ;; And it sits at an ordinary app-db path, so an epoch, a snapshot, a
+ ;; schema and a tool see it the way they see any other frame data.
+ :record-path [:my.ui/controllers [:my.ui/buffered-field [:invoice 42 :amount]]]
+
+ ;; A semantic transition is an ordinary registered event, and one
+ ;; transition may both retire the session and produce the caller's
+ ;; intent as effects of the SAME event — so the commit and the domain
+ ;; event it causes settle together rather than as two racing steps.
+ :on-commit          [:invoice/amount-committed 42]
+ :committed-event    [:my.ui.field/committed]
+ :committed-path     [:invoice 42 :amount]
+ :committed-value    "12."}
