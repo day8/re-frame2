@@ -717,13 +717,54 @@ dropped, the caret and selection do not move, and composition survives. A host
 may flush additional pending work; that is a performance fact, and it belongs in
 the trace rather than in the contract.
 
-**One predicate, both modes.** The compiled tier applies the same predicate at
-compile time over statically proved facts; the interpreted walk applies it at
-render time over the props it just normalized. Neither owns a copy, so promotion
-cannot silently move a field from synchronous to batched. Where the compiled
-grammar cannot prove the facts — a handler expression whose class is decided at
-runtime — the verdict belongs to the common predicate at render time, never to
+**One predicate, both modes.** There is one copy of the predicate and one moment
+it is asked. The interpreted walk asks it over the props it just normalized. The
+compiled tier bakes **no verdict** into its emission: a compiled element's props
+map is lexically visible, so the tag, the controlled-ness and each handler's final
+slot are emitted as compile-time constants and the same predicate decides from them
+at commit. That is what makes promotion parity structural rather than a pair of
+lists someone keeps in step — there is no second decision to diverge. The analyzer
+does ask the predicate at build as well, over the facts it can statically prove, but
+what it does with that answer is **evidence**: the site's manifest fact, and the
+near-miss advisory below. So where the compiled grammar cannot prove a handler's
+class, the lane verdict still belongs to the common predicate at commit, never to
 an unconditionally batched lowering.
+
+**A reusable library input owns its event site.** A library control receives the
+caller's intent as an event *prefix* through props, and it has two places to put it.
+Forwarding the prefix straight into the controlled position is the obvious spelling
+and the wrong one:
+
+```clojure
+(v/defview field [{:keys [value on-input]}]
+  [:input {:value value :on-input on-input}])   ;; the caller's vector, forwarded
+```
+
+Nothing static pins that handler's class, so the site is opaque: its intent is
+absent from the compiled manifest, no structural test or tool can say what the field
+dispatches before it fires, and the build reports the near-miss with
+`:rf.ui.compile/controlled-input-async-handler` — the advisory that fires exactly
+where the door could have opened and the handler's shape is the one fact left
+unproven. A control whose whole promise is that its behaviour is inspectable has
+given that promise away at its most important site.
+
+The paved spelling is for the library to own a **literal** site and carry the
+caller's prefix as an argument inside it:
+
+```clojure
+[:input {:value    value
+         :on-input [:acme.ui.field/changed on-input ::v/value]}]
+```
+
+The site's proof stays static, the prefix stays a runtime value, and the library's
+own registered handler appends the live payload and dispatches the caller's event.
+That costs one more dispatch per keystroke, and the hop rides inside the synchronous
+drain the door already opened, so it costs correctness nothing — the component pilot
+proves it in a real browser under sustained typing, with no character dropped and no
+caret moved. Where the payload must be *converted* rather than appended,
+`(v/event [e] …)` is inside the door too, at the price of an opaque site: the intent
+is no longer assertable as data before it fires. All three spellings work; only the
+literal one keeps the site's intent readable.
 
 **Forwarding preserves the proof.** A component library that forwards a
 consumer's attributes onto its own controlled element does so through
