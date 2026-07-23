@@ -18,25 +18,44 @@
 ;; real hydration with a real mismatch — falling back there would throw away
 ;; the adoption the server render was paid for on the strength of one wrong
 ;; character, and would hide the disagreement while doing it.
+;; THE FALLBACK PRECEDES MANIFEST DISCOVERY, and that ordering is part of
+;; the law rather than an implementation detail. A hydrating root reads its
+;; identity from the Root Manifest the server emits beside the container
+;; (FH-ROOT-006) — but a page the server never rendered emits no manifest
+;; either. Asking for one FIRST would make every client-only first load a
+;; hard failure and delete this row outright. So the empty container is
+;; recognised first, and the root that comes up carries the DERIVED
+;; identity an ordinary mount would give it. Only a container that DOES
+;; carry server markup is required to carry the manifest saying what it was
+;; rendered as.
 {:fh/id "FH-ROOT-007"
  :fh/law
- "A hydrating root whose container carries nothing to adopt takes the FALLBACK — an ordinary client mount, reported as the mount kind rather than as adoption errors — while a container carrying markup that merely disagrees stays on the adoption path and takes the mismatch."
+ "A hydrating root whose container carries nothing to adopt takes the FALLBACK — an ordinary client mount under the DERIVED identity, recognised BEFORE any Root Manifest is asked for and reported as the mount kind rather than as adoption errors — while a container carrying markup that merely disagrees stays on the adoption path, reads its identity from the manifest, and takes the mismatch."
 
  :view  :greeting
  :props {:name "world"}
 
- ;; The fallback: an empty container. The root comes up, correct, and says
- ;; it did not hydrate.
+ ;; The fallback: an empty container, with NO manifest beside it — the
+ ;; state a client-only first load is actually in. The root comes up,
+ ;; correct, says it did not hydrate, and carries the derived identity.
  :empty-container {:hydrated false
                    :text     "world"
-                   :mismatches 0}
+                   :mismatches 0
+                   :manifest-present false
+                   :root-id    :re-frame.freehand.root-views/greeting
+                   :provenance :derived}
 
  ;; Whitespace-only is the same case — a formatted page skeleton is empty.
  :whitespace-container {:html "\n  " :hydrated false}
 
- ;; The boundary: markup that DISAGREES is still a hydration.
+ ;; The boundary: markup that DISAGREES is still a hydration — so it still
+ ;; reads its identity from the manifest beside it.
  :divergent-container
  {:html "<section id=\"greeting\"><h1 id=\"title\">Hello</h1><p id=\"who\">stale</p></section>"
+  :manifest {:rf.root/schema-version 1
+             :root-id           :fh.root/still-a-hydration
+             :identifier-prefix "srv7-"}
+  :root-id  :fh.root/still-a-hydration
   :hydrated true
   :mismatches-at-least 1
   :final-text "world"}

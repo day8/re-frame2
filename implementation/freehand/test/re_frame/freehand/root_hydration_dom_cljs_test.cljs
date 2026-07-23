@@ -2,7 +2,15 @@
   "FH-ROOT-006 and FH-ROOT-007 in a real browser — hydration, the mismatch
   report, and the fallback.
 
-  Two things about this file are deliberate and load-bearing.
+  A hydrating root reads its identity off the wire, so every container
+  here that carries server markup also carries the Root Manifest the
+  server would have emitted beside it — that pairing is what a hydrating
+  page actually looks like, and `re-frame.freehand.root-manifest-dom-cljs-test`
+  is where the identity read itself is proved. The fixture's manifest names
+  an id this root form would never derive, so the `:root-id` assertions
+  below are reading the wire rather than a coincidence.
+
+  Two further things about this file are deliberate and load-bearing.
 
   FIRST, adoption is proven by NODE IDENTITY. The server's markup is put
   into the container, the exact DOM node objects it created are captured,
@@ -31,6 +39,12 @@
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.root :as root]
             [re-frame.freehand.root-views :as views]
+            ;; The SSR artefact's manifest namespace: it publishes the
+            ;; `:ssr/discover-root-manifest` hook at ns-load and owns the wire
+            ;; form these tests plant. A TEST-tree require of the seam being
+            ;; exercised — nothing under `implementation/freehand/src` requires
+            ;; it, and nothing ever will.
+            [re-frame.ssr.manifest :as ssr-manifest]
             [re-frame.trace.tooling :as trace-tooling]))
 
 (def root-006 (conf/fixture :FH-ROOT-006))
@@ -53,12 +67,24 @@
 
 (defn- server-node!
   "A container carrying `html` — the server's bytes, already in the
-  document, exactly as a hydrating page presents them."
-  [html]
-  (let [container (js/document.createElement "div")]
-    (set! (.-innerHTML container) html)
-    (.appendChild js/document.body container)
-    container))
+  document — and, when `manifest` is given, that root's Root Manifest as
+  the container's IMMEDIATELY FOLLOWING element sibling, in the wire form
+  the shipped emitter produces. That adjacency is the discovery rule, so
+  the pair is planted inside its own host element where nothing can come
+  between them.
+
+  Answers the container. A hydrating page presents exactly this shape."
+  ([html] (server-node! html nil))
+  ([html manifest]
+   (let [host (js/document.createElement "div")]
+     (set! (.-innerHTML host)
+           (str "<div>" html "</div>"
+                (when manifest (ssr-manifest/script-html manifest))))
+     (.appendChild js/document.body host)
+     (.-firstElementChild host))))
+
+(defn- remove-node! [container]
+  (some-> container .-parentElement .remove))
 
 (defn- skip! [why]
   (is true (str "a real React mount needs a DOM host — " why)))
@@ -116,7 +142,7 @@
       (skip! "the browser job runs the hydration assertions")
       (async done
         (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-        (let [node       (server-node! (:divergent-html root-006))
+        (let [node       (server-node! (:divergent-html root-006) (:manifest root-006))
               divergent  (:divergent root-006)
               mismatches (atom [])
               host-calls (atom [])
@@ -151,7 +177,7 @@
                   "a disagreeing container is still a hydration — it did not take the
                    fallback")
               (v/unmount! mounted)
-              (.remove node)
+              (remove-node! node)
               (done))))))))
 
 ;; ===========================================================================
@@ -169,7 +195,7 @@
       (skip! "the browser job runs the hydration assertions")
       (async done
         (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-        (let [node       (server-node! (:server-html root-006))
+        (let [node       (server-node! (:server-html root-006) (:manifest root-006))
               match      (:match root-006)
               before     (into {} (map (juxt identity #(.querySelector node %)))
                                (:same-nodes match))
@@ -188,9 +214,10 @@
                   (str "a clean adoption reports nothing. Saw: " (pr-str @mismatches)))
               (is (= (:adopted match) (root/hydrated? mounted)))
               (is (= (:root-id root-006) (:root-id (root/root-descriptor mounted)))
-                  "identity is derived from the mounted view, exactly as at mount")
+                  "and the adopted root carries the MANIFEST's identity — not the
+                   id this root form would have derived")
               (v/unmount! mounted)
-              (.remove node)
+              (remove-node! node)
               (done))))))))
 
 ;; ===========================================================================
@@ -207,10 +234,10 @@
       (skip! "the browser job runs the hydration assertions")
       (do
         (doseq [{:keys [opts error]} (:identity-opts-refused root-006)]
-          (let [node (server-node! (:server-html root-006))]
+          (let [node (server-node! (:server-html root-006) (:manifest root-006))]
             (is (= error (error-id #(v/hydrate-root node greeting-form opts)))
                 (str (pr-str opts) " is refused client-side"))
-            (.remove node)))
+            (remove-node! node)))
         (is (empty? (root/live-root-ids))
             "and every refusal happened before anything was claimed")))))
 
@@ -250,7 +277,7 @@
               (v/unmount! mounted)
               (is (= (:live-roots-after-unmount root-007) (count (root/live-root-ids)))
                   "a fallback root is an ordinary root — it tears down the same way")
-              (.remove node)
+              (remove-node! node)
               (done))))))))
 
 (deftest fh-root-007-a-whitespace-only-container-is-the-same-case
@@ -272,7 +299,7 @@
               (is (= (:name (:props root-007)) (text node "#who"))
                   "and it rendered")
               (v/unmount! mounted)
-              (.remove node)
+              (remove-node! node)
               (done))))))))
 
 (deftest fh-root-007-markup-that-merely-disagrees-is-still-a-hydration
@@ -287,7 +314,7 @@
       (async done
         (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
         (let [divergent  (:divergent-container root-007)
-              node       (server-node! (:html divergent))
+              node       (server-node! (:html divergent) (:manifest divergent))
               mismatches (atom [])
               k          (listen! mismatches)
               ;; A host callback, because with none the framework reporter
@@ -308,5 +335,5 @@
               (is (= (:final-text divergent) (text node "#who"))
                   "React replaced the divergent DOM with the client's truth")
               (v/unmount! mounted)
-              (.remove node)
+              (remove-node! node)
               (done))))))))
