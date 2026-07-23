@@ -119,10 +119,37 @@
     (.render root element)
     root))
 
+;; ---------------------------------------------------------------------------
+;; Closing the nested root — the workaround's sharpest edge
+;; ---------------------------------------------------------------------------
+;;
+;; A behavior's `:disconnect` runs from the OUTER tree's own unmount. Calling
+;; `root.unmount()` there synchronously is calling into React while React is
+;; already rendering, and React 19 says so:
+;;
+;;   Attempted to synchronously unmount a root while React was already
+;;   rendering. React cannot finish unmounting the root until the current
+;;   render has completed, which may lead to a race condition.
+;;
+;; React's own documented remedy is to defer the unmount out of the current
+;; render — a microtask is enough. That is what this does, and it is a REAL
+;; cost of the nested-root shape rather than a detail: it means the second
+;; React tree's teardown is ASYNCHRONOUS while every other release the
+;; substrate performs is synchronous and assertable at the instant of
+;; unmount. A test (or an application counting instances, or a leak check in
+;; CI) has to know to wait a tick.
+;;
+;; Nothing an application author writes can avoid this while the nested root
+;; IS the integration path — which is the argument for the qualified host
+;; leaf, made in the currency of a warning in the console.
+
 (defn- close-root!
   [root]
-  (.unmount root)
-  (swap! ledger (fn [l] (-> l (update :roots dec) (update :roots-closed inc))))
+  (js/queueMicrotask
+    (fn []
+      (.unmount root)
+      (swap! ledger (fn [l] (-> l (update :roots dec) (update :roots-closed inc))))
+      nil))
   nil)
 
 ;; ===========================================================================

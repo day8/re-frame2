@@ -41,12 +41,17 @@
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.root :as root]
             [re-frame.live-frame :as live-frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            ;; The REACT substrate adapter, not `plain-atom`. A subscription
+            ;; that moves has to repaint a mounted occurrence, and only the
+            ;; React adapter schedules that — a pilot on the atom adapter
+            ;; would assert reconciliation against a tree that never
+            ;; re-rendered.
+            [re-frame.adapter.uix :as react-substrate]
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter       plain-atom/adapter
+    {:adapter       react-substrate/adapter
      :ambient-frame nil
      :async?        true
      :init-fn       (fn []
@@ -105,6 +110,14 @@
   nil)
 
 (defn- q [container selector] (.querySelector container selector))
+
+(defn- tick
+  "One microtask turn. Needed ONLY around the nested-React-root workaround,
+  whose teardown React forces to be asynchronous — see
+  `pilot-react-interop-react/close-root!`. Every release the SUBSTRATE
+  performs is synchronous and is asserted without this."
+  []
+  (js/Promise. (fn [resolve] (js/queueMicrotask #(resolve nil)))))
 
 ;; ===========================================================================
 ;; 1 — the SpreadJS-class widget: THE behavior shape, used as designed
@@ -302,7 +315,14 @@
             no Suspense participation, no SSR — and the boundary is one-way:
             the `{:opaque true}` rule that makes the nested root safe is the
             same rule that forbids interleaving Freehand content into the
-            foreign component's children."
+            foreign component's children.
+
+            And it costs one more thing, asserted below rather than described:
+            the nested root's TEARDOWN cannot be synchronous. React refuses to
+            unmount a root from inside a render, and a behavior's
+            `:disconnect` runs inside the outer tree's unmount, so the second
+            React tree is still open at the instant the substrate's own
+            release has finished."
     (if-not (browser?)
       (skip! "the browser job runs the nested-root assertions")
       (async done
@@ -332,8 +352,21 @@
                             back as an ordinary event")
                        (act #(teardown! container mounted))))
               (.then (fn [_]
+                       (is (= 0 (behaviors/connection-count))
+                           "the substrate's own release is synchronous")
+                       ;; The nested root's is NOT: React refuses a
+                       ;; synchronous unmount from inside a render, so
+                       ;; `close-root!` defers it a microtask. `act` drains
+                       ;; microtasks, so the intermediate open state is not
+                       ;; observable from here — the deferral is evidenced
+                       ;; instead by the ABSENCE of React's
+                       ;; `Attempted to synchronously unmount a root while
+                       ;; React was already rendering` error, which the
+                       ;; browser runner fails the whole lane on.
+                       (tick)))
+              (.then (fn [_]
                        (is (= 0 (rpilot/live-roots))
-                           "the nested root closed with the behavior")
+                           "and the nested root has closed")
                        (is (= 0 (rpilot/live-probe-mounts))
                            "the foreign component's cleanup ran")
                        (is (= 0 (rpilot/live-probe-listeners))
@@ -370,9 +403,11 @@
                        (is (= 2 (.-length (.querySelectorAll container ".react-flow__node")))
                            "with the two nodes the config named")
                        (act #(teardown! container mounted))))
+              (.then (fn [_] (tick)))
               (.then (fn [_]
                        (is (= 0 (rpilot/live-roots))
-                           "and the nested root closed on unmount")
+                           "and the nested root closed on unmount (one microtask
+                            later — see the ABI case above)")
                        (is (nil? (q container ".react-flow"))
                            "leaving no React Flow DOM behind")
                        (done)))
@@ -454,6 +489,7 @@
               (.then (fn [mounted]
                        (is (= 1 (:roots-opened (rpilot/ledger-snapshot))))
                        (act #(v/unmount! mounted))))
+              (.then (fn [_] (tick)))
               (.then (fn [_]
                        (let [l (rpilot/ledger-snapshot)]
                          (is (= 1 (:roots-opened l)))
