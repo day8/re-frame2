@@ -115,6 +115,55 @@
       (scan ast))
     @caps))
 
+(defn- compiled-capabilities
+  "The full capability roster a compiled declaration carries: the
+  STRUCTURAL capabilities its AST names (`:raw` / `:html` / `:foreign` /
+  `:render-slot` / `:render-fn` / `:custom-element` / `:spread` /
+  `:spread-safe`) unioned with the REACTIVE and host-hook capabilities its
+  lexical `sites` own. The reactive four — `:sub`, `:event`, `:frame`,
+  `:dispatch-fn` — are exactly the set whose emptiness proves the ViewCell
+  shell elidable ([[view-cell-elided?]]); `:local` / `:effect` and the
+  folded interop-hook kinds are ordinary React machinery that ride a plain
+  component, not the reactive shell."
+  [ast sites]
+  (-> (capabilities ast)
+      (into (cond-> #{}
+              (seq (:subs sites))         (conj :sub)
+              (seq (:events sites))       (conj :event)
+              (seq (:frame-ops sites))    (conj :frame)
+              (seq (:dispatch-fns sites)) (conj :dispatch-fn)
+              (seq (:locals sites))       (conj :local)
+              (seq (:effects sites))      (conj :effect)))
+      ;; the re-frame.freehand.react interop hooks fold onto the static-root
+      ;; capability vocabulary — v/ref/use-*-effect -> :effect, use-context
+      ;; -> :context (use-id is exempt, an inert deterministic id).
+      (into (keep {:ref :ref :effect :effect :layout-effect :effect
+                   :effect-event :effect :context :context})
+            (map :kind (:react sites)))))
+
+(defn view-cell-elided?
+  "True when a compiled view's analysis PROVES it carries no reactive
+  capability — no `sub`, no committed event handler, no `dispatch-fn`, and
+  no `(frame)` read — so the reactive ViewCell shell is OMITTED and the
+  view lowers to a plain memoized component.
+
+  This is the exact predicate the React emitter's host-render selection
+  turns on: a view with none of the reactive four never observes context,
+  so it needs neither a `useSyncExternalStore` bridge nor an event owner.
+  The verdict is DETERMINISTIC — a static function of the analyzed sites,
+  never a timing measurement (EP-0036 D021) — which is why the omitted-cell
+  COUNT over a fixture is an assertion on an exact integer.
+
+  The asymmetry with the interpreted shell is deliberate and load-bearing:
+  the interpreted shell ALWAYS observes frame context, because it has no
+  finite grammar and cannot prove a body sub-free; compiled elision is
+  earned only by that proof."
+  [sites]
+  (not (boolean (or (seq (:subs sites))
+                    (seq (:events sites))
+                    (seq (:dispatch-fns sites))
+                    (seq (:frame-ops sites))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Per-view static-render facts (Spec 004C §3 / EP-0034 §2 — the render-static
 ;; no-silent-elision proof)
@@ -475,35 +524,61 @@
 
 (defn structural-manifest
   "The manifest a `{:compiled true}` declaration carries — what its
-  analysis makes statically knowable about it, as plain data.
+  analysis makes statically knowable about it, as plain data. Every
+  roster is FINITE, in source order, and derived from the analyzer's
+  lexical site index, so a reader learns what a view does without running
+  it and a tool inventories a codebase without mounting it.
 
-      {:view-id   :app.people/people-list
-       :grammar   :re-frame.freehand/v1
-       :crossings [{:view-id :app.people/person-row
-                    :lowering :compiled    :path [0 :for]}
-                   {:view-id :re-frame.freehand/markup
-                    :lowering :interpreted :path [1]}]}
+      {:view-id       :app.people/people-list
+       :grammar       :re-frame.freehand/v1
+       :subscriptions [{:sid \"…\" :query [:person/by-id 7] :path [0]}]
+       :events        [{:sid \"…\" :source-coord {…} :path [1 0]}]
+       :slots         [{:sid \"…\" :inline? true :path [2]}]
+       :html-sites    []
+       :frame-ops     []
+       :capabilities  #{:sub :event}
+       :reactive?     true
+       :view-cell     :present
+       :crossings     [{:view-id :app.people/person-row
+                        :lowering :compiled    :path [0 :for]}
+                       {:view-id :re-frame.freehand/markup
+                        :lowering :interpreted :path [1]}]}
 
-  `:crossings` is the roster of internal-view boundaries the body mounts,
-  in source order, one entry per LEXICAL site — a site inside a keyed list
-  is one crossing that mounts many times. Each entry is MARKED with the
-  mode it crosses into, which is the manifest half of D010: a compiled
-  parent may mount an interpreted child, and the manifest says so rather
-  than letting a reader infer that everything under a compiled declaration
-  is compiled.
+  - `:subscriptions` / `:events` / `:slots` / `:html-sites` / `:frame-ops`
+    are the view's finite reactive, intent, render-slot, trusted-markup
+    and committed-frame site rosters — the same lexical sites the
+    analyzer indexed, projected to their statically knowable facts.
+  - `:capabilities` is the union of the structural and reactive
+    capability bits ([[compiled-capabilities]]).
+  - `:reactive?` and `:view-cell` carry the **capability-elision** verdict
+    ([[view-cell-elided?]]): a view with no reactive site omits the
+    reactive ViewCell shell (`:view-cell :elided`, `:reactive? false`),
+    which is what the compiled tier buys and the omitted-cell count
+    asserts exactly. The verdict is a deterministic function of the
+    sites, never a measurement.
+  - `:crossings` is the roster of internal-view boundaries the body
+    mounts, one entry per LEXICAL site — a site inside a keyed list is one
+    crossing that mounts many times — each MARKED with the mode it crosses
+    into (the manifest half of D010). The crossings marked `:interpreted`
+    are the view's **interp slots**; the manifest names sites, a render
+    counts mounts, and neither is derivable from the other.
 
-  The crossings marked `:interpreted` are the view's **interp slots**.
-  Their mounts are what occurrence evidence counts as `:interp-slots`; the
-  manifest names the sites, a render counts the mounts, and neither is
-  derivable from the other — a site in a list mounts once per row.
-
-  Deliberately small. Subscription ownership, capability elision and the
-  rest of the compiled tier's evidence land with their own slices; what
-  F3c owes is that the crossing is marked."
-  [view-id sites]
-  {:view-id   view-id
-   :grammar   grammar/version
-   :crossings (vec (:views sites))})
+  Sites and mounts are different quantities and MUST NOT be conflated:
+  every roster here is a per-declaration STATIC fact, and occurrence
+  evidence counts per-occurrence MOUNTS separately."
+  [view-id ast sites]
+  (let [elided? (view-cell-elided? sites)]
+    {:view-id       view-id
+     :grammar       grammar/version
+     :subscriptions (mapv #(select-keys % [:sid :query :path]) (:subs sites))
+     :events        (mapv #(select-keys % [:sid :source-coord :path]) (:events sites))
+     :slots         (mapv #(select-keys % [:sid :inline? :source-coord :path]) (:slots sites))
+     :html-sites    (mapv #(select-keys % [:path]) (:htmls sites))
+     :frame-ops     (mapv #(select-keys % [:sid :path]) (:frame-ops sites))
+     :capabilities  (compiled-capabilities ast sites)
+     :reactive?     (not elided?)
+     :view-cell     (if elided? :elided :present)
+     :crossings     (vec (:views sites))}))
 
 (defn compile-structural-view
   "Lower a `{:compiled true}` declaration's body to its STRUCTURAL
@@ -557,7 +632,7 @@
             (let [sites @(:sites e)]
               {:body     (emit-jvm/emit-structural-body e params ast)
                :grammar  grammar/version
-               :manifest (structural-manifest view-id sites)
+               :manifest (structural-manifest view-id ast sites)
                :sites    sites})))))))
 
 ;; ---------------------------------------------------------------------------

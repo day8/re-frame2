@@ -235,17 +235,25 @@
   which has no analysis to report. Re-exported on the door as
   `v/manifest`.
 
-      {:view-id   :app.people/people-list
-       :grammar   :re-frame.freehand/v1
-       :crossings [{:view-id :re-frame.freehand/markup
-                    :lowering :interpreted :path [1]}]}
+      {:view-id       :app.people/people-list
+       :grammar       :re-frame.freehand/v1
+       :subscriptions [{:sid … :query [:person 7] :path [0]}]
+       :events        [] :slots [] :html-sites [] :frame-ops []
+       :capabilities  #{:sub}
+       :reactive?     true
+       :view-cell     :present
+       :crossings     [{:view-id :re-frame.freehand/markup
+                        :lowering :interpreted :path [1]}]}
 
-  `:crossings` is the roster of internal-view boundaries the body mounts,
-  one entry per lexical site, each MARKED with the mode it crosses into.
-  A compiled view that mounts an interpreted child is the ordinary case
-  — promotion is per declaration and not transitive — so the manifest
-  says where the compiled tier stops rather than letting a reader assume
-  it does not.
+  The `:subscriptions` / `:events` / `:slots` / `:html-sites` /
+  `:frame-ops` rosters are the view's finite lexical sites; `:capabilities`
+  is their union with the structural capability bits; `:reactive?` /
+  `:view-cell` carry the **capability-elision** verdict — a view with no
+  reactive site omits the ViewCell shell (`:view-cell :elided`). `:crossings`
+  is the roster of internal-view boundaries the body mounts, one entry per
+  lexical site, each MARKED with the mode it crosses into — a compiled view
+  that mounts an interpreted child is the ordinary case, so the manifest
+  says where the compiled tier stops.
 
   Nil for an interpreted declaration is the honest answer, not an
   omission: the interpreted mode has no finite grammar and no analysis
