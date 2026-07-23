@@ -9,7 +9,11 @@
 ;;
 ;; `:fh/fn` is the fixture's stand-in for a function value — EDN carries
 ;; no functions, so the suite substitutes a real one and the fixture pins
-;; what the tree records for it.
+;; what the tree records for it. The stand-in appears in both tables on
+;; purpose: a handler that IS a function records as the opaque marker,
+;; while one nested inside an event intent or an options map is refused,
+;; because the marker occupies a SITE and there is no site vocabulary
+;; below a handler key.
 {:fh/id "FH-STRUCT-002"
  :fh/law
  "An element node carries :tag verbatim, sugar merged sugar-first, disjoint :attrs and :events, :key iff keyed, :ns absent for HTML, and every optional field absent when empty."
@@ -62,7 +66,14 @@
    :tree {:tag :div :attrs {:online "yes"} :rf.ui/tree-version 1}}]
 
  :rejected
- [{:note "two id spellings on one element is an ambiguity, not a precedence question"
+ [{:note "the opaque marker occupies a SITE — a fn inside an event intent is refused, not marked"
+   :form [:button {:on-click [:app/go :fh/fn]}] :error-id :rf.error/ui-tree-malformed}
+  {:note "the same rule at depth — an intent is data all the way down"
+   :form [:button {:on-click [:app/go {:opts [:fh/fn]}]}] :error-id :rf.error/ui-tree-malformed}
+  {:note "an options map is recorded verbatim, so it too is data all the way down"
+   :form [:form {:on-submit {:event [:cart/checkout] :after :fh/fn}}]
+   :error-id :rf.error/ui-tree-malformed}
+  {:note "two id spellings on one element is an ambiguity, not a precedence question"
    :form [:div#a {:id "b"}] :error-id :rf.error/ui-tree-malformed}
   {:note "a void element rejects children — React throws rather than render one"
    :form [:br "x"] :error-id :rf.error/ui-tree-malformed}

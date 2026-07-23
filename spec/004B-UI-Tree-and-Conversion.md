@@ -245,6 +245,25 @@ namespace is reserved (Conventions), so author data can never collide with the m
 the one the interpreted walk produces; the members naming a specific authoring form
 arrive with the slice that lands the form.
 
+**The marker occupies a site, never a value inside one.** Three slots record a value
+the tree did not itself build — a view boundary's `:props`, and an element's `:events`
+entry when it holds an event vector or an options map — and each is recorded
+**verbatim**, so each is a way a host value could walk into a tree that promises to
+print and read back. The rule is one rule at every depth: a prop or handler value that
+**is** a function records as the marker, because the grammar names that site and the
+site's existence and spelling are what a structural test asserts on. A non-data value
+**nested inside** a recorded value is **rejected** — `:rf.error/ui-tree-malformed`,
+raised at the recording site, naming the prop or handler key and the path to the
+offender. Below a prop or handler key the grammar names no sites, so a marker written
+there would claim one that does not exist and would silently replace a value the author
+will go looking for; and an event vector is dispatched as data at run time as well as
+compared as data in a test, so an intent carrying a marker would no longer mean what
+its site does. "Data" here is the **EDN value grammar** exactly — nil, booleans,
+strings, keywords, symbols, numbers, `#uuid`, `#inst`, and collections of those; the
+grammar the round-trip promise is stated in. Ordinary nested EDN is untouched, and the
+check is read-only: nothing is rewritten, so a prop that passes is the value the author
+passed.
+
 `:v/render-fn` is the compiled render-slot member ([004D §Compiled render slots](004D-Freehand-Compiled-Grammar.md#compiled-render-slots--render-fn-and-slot)):
 a `v/render-fn` value carried as a component-call-site prop is recorded on that
 view-boundary's `:props` as `{:rf.ui/opaque :v/render-fn}`. The render-fn's *rendered
