@@ -18,8 +18,10 @@
   Loaded on the JVM (a `.cljc` namespace, required by
   `re-frame.freehand.check-host-divergent-jvm-test`); the JVM reader sees
   the `:clj` branch at load time, so both views mount interpreted without
-  incident. The checker reaches the `:cljs` branch by RE-READING the
-  source with the reader's `:features #{:cljs}`."
+  incident. The checker reaches the `:cljs` branch by re-reading the source
+  with the conditionals PRESERVED and selecting the branch itself — handing
+  the reader `:features #{:cljs}` would not do it, because the JVM reader's
+  `:clj` platform feature is always present and wins."
   (:require [re-frame.freehand :as v]))
 
 (v/defview host-divergent
