@@ -80,6 +80,18 @@
       (thunk))
     @seen))
 
+(defn- mock-fn
+  "Wrap a single-argument observation-port mock `f` as a genuinely
+  multi-arity replacement (calling `f` on the FIRST argument at both
+  arities). A bare single-arity `(fn [x] …)` closure lacks the
+  `cljs$core$IFn$_invoke$arity$N` methods ClojureScript's `:static-fns`
+  dispatch calls the port vars through — including the two-argument
+  `obs/acquire!` — so a `with-redefs` replacement must carry them, which a
+  multi-arity fn does. The JVM reaches the same value through ordinary var
+  indirection."
+  [f]
+  (fn ([a] (f a)) ([a _b] (f a))))
+
 ;; ===========================================================================
 ;; FH-SUB-001 — the selected commit publishes ONE bundle
 ;; ===========================================================================
@@ -228,6 +240,85 @@
           (is (= (:prior-ref-count rollback) (ref-count fid query)))
           (is (= (:rolled-back-ref-count rollback) (ref-count fid other-query))
               "the staged handle the failed reconcile acquired was released"))))))
+
+(deftest fh-sub-002-a-commit-side-read-failure-releases-every-staged-handle
+  (testing "Per FH-SUB-002 (hazard: abandoned render, the commit-side-read
+            half): the pre-publication phase is transactional THROUGH the
+            commit-side reads, not merely through acquisition. `obs/read` is a
+            fail-loud port op that may deref application subscription code, so
+            a read that throws before publication must release every handle
+            THIS candidate freshly acquired — exactly once, in reverse
+            acquisition order — leave the prior committed set installed, and
+            rethrow the ORIGINAL failure unwrapped. A candidate that publishes
+            nothing must OWN nothing: a stranded handle is a dependency nobody
+            will ever release. The port is fully mocked so the failure is
+            deterministic on both hosts."
+    (let [q1       [:read-fail/a]
+          q2       [:read-fail/b]
+          acquired (atom [])
+          released (atom [])
+          boom     (ex-info "commit-side read blew up" {:probe :read})]
+      (with-redefs [obs/resolve-target (mock-fn (fn [{:keys [query-v]}] {:query-v query-v}))
+                    obs/probe          (mock-fn (fn [_target] {:value :probed}))
+                    obs/acquire!       (mock-fn (fn [target]
+                                                  (let [h {:handle-for (:query-v target)}]
+                                                    (swap! acquired conj h)
+                                                    h)))
+                    obs/read           (mock-fn (fn [_handle] (throw boom)))
+                    obs/release!       (mock-fn (fn [h] (swap! released conj h) nil))]
+        (let [c      (cell/cell :shell/panel)
+              cand   (cell/candidate c nil)
+              caught (atom nil)]
+          (cell/with-capture cand (fn [] (mapv cell/observe! [q1 q2])))
+          (try (cell/commit! cand)
+               (catch #?(:clj Throwable :cljs :default) e (reset! caught e)))
+          (is (identical? boom @caught)
+              "the original observation failure escapes, unwrapped")
+          (is (= 2 (count @acquired)) "staging acquired both fresh handles")
+          (is (= 2 (count @released)) "and released exactly two — neither stranded")
+          (is (= (vec (rseq (vec @acquired))) @released)
+              "every staged handle was released exactly once, in REVERSE
+               acquisition order")
+          (is (= :new (cell/lifecycle c)) "the cell published nothing")
+          (is (= 0 (count (cell/dependencies c))))
+          (is (= 0 (cell/generation c)))
+          (is (nil? (cell/evidence c))))))))
+
+(deftest fh-sub-002-a-commit-side-read-that-advances-authority-abandons
+  (testing "Per FH-SUB-002 (hazard: abandoned render, the re-entrancy half):
+            a commit-side `obs/read` can RE-ENTER application subscription code
+            that advances the cell's authority — a hot reload of the body
+            landing mid-read. The final currency boundary is therefore AFTER
+            every commit-side read: a read that advances the body revision
+            makes the candidate stale, so it rolls back its fresh staging and
+            returns `:abandoned` rather than publishing stale ownership.
+            Nothing from that candidate publishes."
+    (let [q1       [:reentrant/a]
+          acquired (atom [])
+          released (atom [])
+          c        (cell/cell :shell/panel)]
+      (with-redefs [obs/resolve-target (mock-fn (fn [{:keys [query-v]}] {:query-v query-v}))
+                    obs/probe          (mock-fn (fn [_target] {:value :probed}))
+                    obs/acquire!       (mock-fn (fn [target]
+                                                  (let [h {:handle-for (:query-v target)}]
+                                                    (swap! acquired conj h)
+                                                    h)))
+                    ;; The read re-enters and advances the body revision — a hot
+                    ;; reload landing mid-read, AFTER the first currency check.
+                    obs/read           (mock-fn (fn [_handle]
+                                                  (cell/advance-generation! c)
+                                                  {:value :probed}))
+                    obs/release!       (mock-fn (fn [h] (swap! released conj h) nil))]
+        (let [cand (cell/candidate c nil)]
+          (cell/with-capture cand (fn [] (cell/observe! q1)))
+          (is (= :abandoned (cell/commit! cand))
+              "the re-check at the narrowest boundary — now AFTER the reads —
+               sees the advanced authority and abandons")
+          (is (= 1 (count @acquired)))
+          (is (= @acquired @released) "the fresh staging was released")
+          (is (= :new (cell/lifecycle c)) "nothing from that candidate published")
+          (is (= 0 (count (cell/dependencies c))))
+          (is (nil? (cell/evidence c))))))))
 
 ;; ===========================================================================
 ;; FH-SUB-003 — HAZARD 2: hot reload across a LIVE cell

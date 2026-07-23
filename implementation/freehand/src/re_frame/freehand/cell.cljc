@@ -45,10 +45,14 @@
      dependency sets never falls through its zero-owner disposal edge.
      An acquisition failure releases the staged handles in reverse order
      and leaves the PRIOR committed set installed.
-  3. **Re-check.** Currency is re-read at the narrowest boundary — after
-     all callback-capable work, with nothing callback-capable between it
-     and the publish — so a hot reload landing mid-commit cannot publish
-     a stale body.
+  3. **Read and re-check.** Every staged handle's commit-time evidence is
+     read — a fail-loud, callback-capable operation that runs INSIDE the
+     pre-publication transaction, so a read that throws rolls the fresh
+     staging back exactly as an acquisition failure does. Currency is then
+     re-read at the narrowest boundary — after ALL callback-capable work,
+     the reads included, with nothing callback-capable between it and the
+     publish — so a hot reload (or a read that re-entered and advanced
+     authority) landing mid-commit cannot publish a stale body.
   4. **Publish.** Frame, dependencies, evidence and the event site table
      become live with no host yield between them. Nothing can observe a
      partial bundle.
@@ -538,6 +542,24 @@
         (release-all! (rseq @acquired))
         (throw e)))))
 
+(defn- fresh-handles
+  "The handles THIS candidate freshly acquired — the render `order`
+  restricted to the sites [[stage!]] acquired rather than RETAINED from
+  the prior committed set — in ACQUISITION order.
+
+  Its reverse is the release order for any pre-publication rollback (a
+  read failure or a lost currency re-check): layered acquisitions unwind
+  symmetrically, and a retained prior handle — untouched by this
+  candidate and still owned by the installed set — is never in it, so a
+  rollback releases exactly what this candidate acquired and nothing the
+  prior bundle still needs."
+  [order staged]
+  (into []
+        (keep (fn [site-key]
+                (let [record (get staged site-key)]
+                  (when (and record (not (:retained? record))) (:handle record)))))
+        order))
+
 (defn- superseded-handles
   "The handles the PRIOR committed set owned that the new one does not —
   a dropped site's handle, and a retargeted site's OLD handle. Compared
@@ -570,18 +592,35 @@
       (let [{:keys [order by-site]} @(.-reads cand)
             prior  (:deps s0)
             fid    (.-frame cand)
-            staged (stage! owner-cell prior order by-site)]
-        ;; The narrowest publication boundary: acquisition ran cache
-        ;; installs and disposal hooks, any of which can synchronously
-        ;; advance the cell's authority. Re-read it here, with nothing
-        ;; callback-capable between this check and the publish.
+            staged (stage! owner-cell prior order by-site)
+            ;; The commit-side reads are part of the pre-publication
+            ;; TRANSACTION, not a step past it. `obs/read` is a fail-loud
+            ;; port op that may deref application subscription code — it can
+            ;; throw, and it can synchronously advance the cell's authority.
+            ;; So it runs inside the rollback guard: a read that throws
+            ;; releases every handle THIS candidate freshly acquired, in
+            ;; reverse acquisition order, leaves the prior committed set
+            ;; installed, and rethrows the ORIGINAL failure untranslated.
+            readings (try
+                       (into {}
+                             (map (fn [[k {:keys [handle]}]] [k (obs/read handle)]))
+                             staged)
+                       (catch #?(:clj Throwable :cljs :default) e
+                         (release-all! (rseq (fresh-handles order staged)))
+                         (throw e)))]
+        ;; The narrowest publication boundary: acquisition AND the
+        ;; commit-side reads ran cache installs, disposal hooks and
+        ;; application recompute, any of which can synchronously advance the
+        ;; cell's authority. Re-read it here — AFTER every callback-capable
+        ;; or fail-loud pre-publication operation, with nothing
+        ;; callback-capable between this check and the publish — so a read
+        ;; that advanced body or frame authority rolls back its fresh
+        ;; staging and publishes nothing rather than publishing stale
+        ;; ownership.
         (if-not (current? cand @(st owner-cell))
-          (do (release-all! (into [] (comp (remove :retained?) (map :handle)) (vals staged)))
+          (do (release-all! (rseq (fresh-handles order staged)))
               :abandoned)
-          (let [readings (into {}
-                               (map (fn [[k {:keys [handle]}]] [k (obs/read handle)]))
-                               staged)
-                bundle   {:frame        fid
+          (let [bundle   {:frame        fid
                           :generation   (.-generation cand)
                           :observations (mapv (fn [k]
                                                 (let [r (get staged k)]

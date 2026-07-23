@@ -1428,11 +1428,13 @@ generation, checked at **two points**:
 1. **Render→commit (step 1).** Commit entry samples the authority once and rejects a
    stale capture before touching any ownership — the host simply re-renders.
 2. **Final publication boundary.** Step 1 samples *once*, but the staging window between
-   it and publication — the acquire/cache callbacks — can each synchronously advance the
-   authoritative revision (a same-shell re-registration mid-commit). So commit **re-reads**
-   the authority at the narrowest boundary — after all callback-capable work, with nothing
-   callback-capable between it and the publish swap — and refuses to publish a stale
-   capture: it releases **only the newly-staged handles** (reverse acquisition order),
+   it and publication — the acquire/cache callbacks **and the commit-side evidence
+   reads**, both callback-capable — can each synchronously advance the authoritative
+   revision (a same-shell re-registration mid-commit). So commit **re-reads** the
+   authority at the narrowest boundary — after all callback-capable work, `read`
+   included, with nothing callback-capable between it and the publish swap — and refuses
+   to publish a stale capture: it releases **only the newly-staged handles** (reverse
+   acquisition order),
    leaves the prior committed set, published values, and lifecycle untouched, and returns
    `:stale`. No revision advances, because the re-registration already notified the shell
    and a fresh render at the new body is inbound.
@@ -1855,8 +1857,13 @@ double render, and a time-sliced tear-off ordinary rather than special.
 A candidate whose reconcile **fails** publishes nothing either. Acquisition failure
 unwinds per [§Transactional multi-acquire](#transactional-multi-acquire--staging-and-rollback):
 the staged handles are released in reverse order, the prior committed set stays installed
-with its published values, and the typed error propagates. A partly-owned cell — one
-whose dependencies came from two different renders — is not a state the shell can reach.
+with its published values, and the typed error propagates. The same rollback covers a
+failure in the **commit-side evidence reads**: `read` is a fail-loud port operation that
+may re-enter application subscription code, so it runs inside the pre-publication
+transaction, and a read that throws before the publish swap releases every handle this
+candidate freshly acquired — reverse acquisition order — leaves the prior committed set
+untouched, and rethrows the original failure unchanged. A partly-owned cell — one whose
+dependencies came from two different renders — is not a state the shell can reach.
 
 ### Body authority across a live cell
 
