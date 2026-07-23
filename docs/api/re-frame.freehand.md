@@ -277,6 +277,55 @@ compiled tier are declared vacancies that land with their own EP-0036 slices.
   ;; => [:account/email-edited "mike@example.com"]
   ```
 
+## Presence
+
+### `presence`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (presence {:timeout-ms n} & keyed-children)
+  ```
+- **Description**: declarative enter/exit retention over keyed children —
+  deliberately bounded, and not an animation system. Every keyed child passes
+  `:mounting → :present`; when a key leaves the incoming set its child is RETAINED
+  `:unmounting` until the mandatory `:timeout-ms` fires, then removal is terminal
+  and exactly-once. Re-entry before the timeout interrupts the exit and returns the
+  child to `:present`. Children hold first-appearance order; an incoming reorder is
+  ignored. One contract, both modes: a seq form to the compiler, an ordinary
+  function call to the interpreter. DOM-agnostic — the boundary stamps nothing; a
+  presence-aware child owns its own exit styling and accessibility by reading
+  `v/presence-phase`. See
+  [spec/004-Views.md](../../spec/004-Views.md#presence).
+- **Example**:
+  ```clojure
+  (v/presence {:timeout-ms 300}
+    (for [t toasts]
+      [toast-card {:key (:id t) :toast t}]))
+  ```
+
+### `presence-phase`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (presence-phase) → :mounting | :present | :unmounting
+  ```
+- **Description**: the single presence-phase read — the current phase inside a
+  `v/presence` boundary, and `:present` outside one, so a presence-aware child
+  stays reusable anywhere. A render-time read (a React context read on
+  ClojureScript); the JVM structural render always yields `:present`. A child reads
+  it to stamp its exit class and accessibility (`inert` / `aria-hidden`) while
+  `:unmounting`.
+- **Example**:
+  ```clojure
+  (v/defview toast-card [{:keys [toast]}]
+    (let [exiting? (= :unmounting (v/presence-phase))]
+      [:div.toast {:class       (when exiting? "toast--exit")
+                   :aria-hidden (when exiting? true)}
+       (:message toast)]))
+  ```
+
 ## Framework views
 
 ### `route-link`

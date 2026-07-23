@@ -153,7 +153,7 @@ in a per-file table. The file rows below inherit them.
 | controlled scheduling | the final-normalized native input predicate and one frame-scoped synchronous scheduler shared by both modes | MOVE | F2 | pending |
 | key-condition event maps | the closed exact-key `:on-key-down`/`:on-key-up` form with existing event values and pre-dispatch mechanics | MOVE | F2 | pending |
 | `spread-safe`/`spread` and `render-fn`/`slot` | forwarding and parameterized-content grammar, absorbed without the donor hook tier | MOVE | F5 | pending |
-| presence runtime | keyed enter/exit retention, made common to both modes | MOVE | F4 | pending |
+| presence runtime | keyed enter/exit retention, made common to both modes | MOVE | F4 | done |
 | `route-link` | the ordinary routing-aware view over the late-bound routing seam, crossing by rename | MOVE | F5 | done |
 | analyzer, both emitters, ViewCell reactor, manifest/elision, diagnostic taxonomy, structural test surface | the useful donor machinery named by the programme as absorbed | MOVE | F3 | pending |
 
@@ -182,7 +182,7 @@ Every tracked file under `implementation/ui/src/`.
 | `implementation/ui/src/re_frame/ui/fingerprint.cljc` | template fingerprint and hook-signature digests; the hook-signature arm goes with the hook tier | MOVE | F3 | done |
 | `implementation/ui/src/re_frame/ui/frames.cljc` | preflight ENSURE executor, plan-install registry, frame-scope elements, ambient frame resolution | MOVE | F2 | pending |
 | `implementation/ui/src/re_frame/ui/hooks.cljc` | the host-hook lowering targets `local` / `effect` / `dispatch-fn` / `use-ref` lower to | DELETE | F1 | pending |
-| `implementation/ui/src/re_frame/ui/presence_runtime.cljc` | the three-phase keyed retention machine and its terminal timeout bound | MOVE | F4 | pending |
+| `implementation/ui/src/re_frame/ui/presence_runtime.cljc` | the three-phase keyed retention machine and its terminal timeout bound | MOVE | F4 | done |
 | `implementation/ui/src/re_frame/ui/react.cljc` | the six-wrapper neutral React tier: effect, layout-effect, effect-event, context, id, lazy | DELETE | F5 | pending |
 | `implementation/ui/src/re_frame/ui/reactive.cljc` | the ViewCell, the render-side probe/record protocol, the layout-commit reconciler, the lifecycle | MOVE | F2 | pending |
 | `implementation/ui/src/re_frame/ui/route_link_seam.cljc` | runtime helpers consuming the late-bound routing link-model and activate hooks | MOVE | F5 | pending |

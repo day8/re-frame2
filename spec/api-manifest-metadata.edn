@@ -1286,6 +1286,13 @@
   ["re-frame.freehand" "raw-fn"]            {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "projections"]       {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "materialize-event"] {:tier :advanced    :owner "004" :status "EP-0036"}
+  ;; Presence — keyed enter/exit retention (Spec 004 §Presence). `presence` is
+  ;; the authoring form (a seq form to the compiler, a function call to the
+  ;; interpreter), `presence-phase` the single phase read; both `.cljc` and
+  ;; host-neutral, so the JVM generator owns their kind and the CLJS probe
+  ;; reconciles the same rows.
+  ["re-frame.freehand" "presence"]          {:tier :advanced    :owner "004" :status "EP-0036"}
+  ["re-frame.freehand" "presence-phase"]    {:tier :advanced    :owner "004" :status "EP-0036"}
   ;; A framework-supplied view is not a privileged one: `route-link` is an
   ;; ORDINARY declaration, so its manifest row is an ordinary descriptor Var.
   ;; Routing owns the href / click law (Spec 012); Freehand supplies the
