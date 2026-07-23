@@ -26,7 +26,7 @@
 
   ## Four fences, and every one of them is a comparison over frame data
 
-  1. **The GENERATION fence** (`control/current?`, D016). The draft belongs
+  1. **The GENERATION fence** (`v/controller-current?`, D016). The draft belongs
      to the caller's `:reset-key`; a superseded draft is INVISIBLE rather
      than erased, so a caller that rejects a selection by reasserting the
      value it already had is still seen.
@@ -84,8 +84,7 @@
   end state."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.freehand :as v]
-            [re-frame.freehand.control :as control]))
+            [re-frame.freehand :as v]))
 
 ;; ===========================================================================
 ;; THE COMPONENT LIBRARY — `acme.ui`
@@ -140,7 +139,7 @@
   (rf/reg-sub :acme.ui.typeahead/text
     (fn [db [_ k revision baseline]]
       (let [r (record db k)]
-        (if (control/current? (:reset-key r) revision)
+        (if (v/controller-current? (:reset-key r) revision)
           (:query r)
           baseline))))
 
@@ -151,7 +150,7 @@
   (rf/reg-sub :acme.ui.typeahead/status
     (fn [db [_ k revision]]
       (let [r        (record db k)
-            current? (control/current? (:reset-key r) revision)]
+            current? (v/controller-current? (:reset-key r) revision)]
         {:open?    (boolean (and current? (:open? r)))
          :active   (:active r 0)
          :pending? (boolean (and current? (some? (:in-flight r))))
@@ -246,7 +245,7 @@
   (rf/reg-event :acme.ui.typeahead/chosen
     (fn [{:keys [db]} [_ k revision i on-select]]
       (let [r (record db k)]
-        (if (control/current? (:reset-key r) revision)
+        (if (v/controller-current? (:reset-key r) revision)
           (let [opt (get (visible-results r) i)]
             (cond-> {:db (update db records-root dissoc k)}
               opt (assoc :fx [[:dispatch (conj (vec on-select) (:value opt))]])))
@@ -317,8 +316,8 @@
            [:on-select :vector]
            [:debounce-ms {:optional true} :int]]}
   [{:keys [name label value on-search on-select debounce-ms] :as props}]
-  (let [k    (control/record-key typeahead-kind props)
-        g    (control/reset-revision typeahead-kind props)
+  (let [k    (v/controller-key typeahead-kind props)
+        g    (v/controller-revision typeahead-kind props)
         st   (v/sub [:acme.ui.typeahead/status k g])
         text (v/sub [:acme.ui.typeahead/text k g value])
         ms   (or debounce-ms default-debounce-ms)]

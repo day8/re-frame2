@@ -68,8 +68,7 @@
   async status, and N instances with no coordination."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.freehand :as v]
-            [re-frame.freehand.control :as control]))
+            [re-frame.freehand :as v]))
 
 ;; ===========================================================================
 ;; THE COMPONENT LIBRARY — `acme.ui`
@@ -118,7 +117,7 @@
   which generation is live would commit something the user cannot see."
   [db record-key revision on-commit]
   (let [record (get-in db [records-root record-key])]
-    (if (control/current? (:reset-key record) revision)
+    (if (v/controller-current? (:reset-key record) revision)
       {:db (update db records-root dissoc record-key)
        :fx [[:dispatch (conj (vec on-commit) (:draft record))]]}
       {})))
@@ -128,7 +127,7 @@
   on its way consults committed state and finds no live edit. Escape
   BEATS a late blur rather than racing it."
   [db record-key revision]
-  (if (control/current? (:reset-key (get-in db [records-root record-key])) revision)
+  (if (v/controller-current? (:reset-key (get-in db [records-root record-key])) revision)
     {:db (update db records-root dissoc record-key)}
     {}))
 
@@ -148,7 +147,7 @@
   (rf/reg-sub :acme.ui.buffered/text
     (fn [db [_ record-key revision baseline]]
       (let [record (get-in db [records-root record-key])]
-        (if (control/current? (:reset-key record) revision)
+        (if (v/controller-current? (:reset-key record) revision)
           (:draft record)
           baseline))))
 
@@ -310,8 +309,8 @@
            [:error {:optional true} [:maybe :string]]
            [:busy? {:optional true} :boolean]]}
   [{:keys [name label value on-commit error busy?] :as props}]
-  (let [k        (control/record-key buffered-kind props)
-        g        (control/reset-revision buffered-kind props)
+  (let [k        (v/controller-key buffered-kind props)
+        g        (v/controller-revision buffered-kind props)
         ;; The `:control` address already names this instance uniquely
         ;; across the whole app (D004), so the error region borrows it and
         ;; two lines' reference fields never share an id.

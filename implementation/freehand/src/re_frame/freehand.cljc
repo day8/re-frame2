@@ -44,6 +44,13 @@
   (:require [re-frame.error :as error]
             [re-frame.freehand.behaviors :as behaviors]
             [re-frame.freehand.cell :as cell]
+            ;; The whole of the semantic-controller infrastructure — the
+            ;; record key, the reset generation and the fence. An INTERNAL
+            ;; namespace that sits BELOW this door and takes nothing back
+            ;; from it; the three verbs cross here (§Semantic controllers,
+            ;; below) because a component library is a first-class author
+            ;; and has no other supported way to build a writable control.
+            [re-frame.freehand.control :as control]
             [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.errors :as errors]
             [re-frame.freehand.events :as events]
@@ -995,6 +1002,159 @@
   Per [Spec 004 §Props forwarding](../../../../spec/004-Views.md#props-forwarding)."
   [owned caller]
   (node/spread-safe-attrs owned caller))
+
+;; ---------------------------------------------------------------------------
+;; Semantic controllers — the writable-controller surface
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §Semantic controllers (D003, D004, D016). A reusable view is
+;; props-only by default and needs NOTHING here. A SEMANTIC CONTROLLER is the
+;; exception a component library earns when a control owns a protocol spanning
+;; several interactions, and its state is still ordinary re-frame data moved by
+;; ordinary registered events — there is no controller registry, no reducer
+;; language and no second state tier.
+;;
+;; What the substrate contributes is two questions a library would otherwise
+;; answer twice and differently, and the three verbs below are the whole of it:
+;;
+;;   IDENTITY   `controller-key`      — WHERE the record lives.
+;;   CURRENCY   `controller-revision` — WHICH generation this render is under,
+;;              `controller-current?` — and whether some work still belongs to
+;;                                      it.
+;;
+;; The split between the first and the second is D004 vs D016 and is
+;; load-bearing: asking for the KEY is what makes a controller writable, and
+;; asking for the REVISION is what makes it buffered. A dropdown holding an
+;; open flag is writable and not buffered, so it takes the key and no
+;; generation; folding the two into one verb would either force every writable
+;; controller to be buffered or make the revision optional, and D016 rules
+;; optional to be the worse design.
+;;
+;; They cross the door DESPITE the advertising cost, and the cost is real: a
+;; published authoring verb risks reading as an invitation to hold state in a
+;; control. Three facts settle it the other way. A component library is
+;; consumer code by construction (D017 gives it the widget vocabulary
+;; outright), so an unpublished mechanism means an author must reach into an
+;; internal namespace to write an ordinary field. Conventions §Freehand — one
+;; public namespace fixes `re-frame.freehand.host` and `re-frame.freehand.test`
+;; as the ONLY sanctioned siblings, so a `re-frame.freehand.controller` door
+;; is not available. And the `advanced` tier is exactly the instrument for
+;; this: the Guide and the skills load front-porch only, so the verbs are
+;; reachable by the library author who needs them and invisible to the app
+;; author who does not.
+;;
+;; The mechanics live in the internal [[re-frame.freehand.control]], which owns
+;; the two refusals and their diagnostics; the door names them for the author.
+
+(def ^{:doc "The key a writable controller's record lives under: the PAIR of
+  the controller `kind` and the `:control` address carried by `props`.
+
+      (v/defview buffered-field
+        {:props [:map [:control :any] …]}
+        [props]
+        (let [k (v/controller-key ::buffered-field props)]
+          …))
+      ;; k => [::buffered-field [:invoice 42 :amount]]
+
+  ASKING FOR THE KEY IS WHAT MAKES A CONTROLLER WRITABLE. A props-only view
+  — value in, intent out — never calls this and pays nothing; reach for it
+  only when a control genuinely owns a protocol spanning several
+  interactions.
+
+  The `kind` is the library's own keyword and is half the key, so a dropdown
+  and a field addressed at the same domain identity read two records rather
+  than each other's. The address is the CALLER's: immutable EDN naming the
+  domain thing that owns the state (`[:invoice 42 :amount]`), never a DOM id,
+  a React key or anything derived from render position — a derived anchor
+  turns a sort, a view rename or a parent extraction into a silent state
+  migration.
+
+  An absent `:control` is refused with
+  `:rf.error/view-control-address-missing` rather than defaulted: every
+  controller that skipped the address would otherwise share ONE record keyed
+  by `nil`, which presents as one field editing another and has no local
+  explanation. Two occurrences passed the SAME address share one record on
+  purpose — that is how two views onto one draft are spelled — and it is not
+  diagnosed.
+
+  Where the record then LIVES is the library's choice, not the substrate's:
+  Freehand fixes the identity model and no storage path, so there is no
+  reserved app-db root to migrate off later.
+
+  Per [Spec 004 §Controller identity](../../../../spec/004-Views.md#controller-identity)."
+       :arglists '([kind props])}
+  controller-key control/record-key)
+
+(def ^{:doc "The GENERATION a buffered controller is rendering under: the
+  caller's `:reset-key`, taken from `props`.
+
+      (let [k (v/controller-key ::buffered-field props)
+            g (v/controller-revision ::buffered-field props)]
+        …)
+
+  A BUFFERED controller — one holding a draft the user is editing and
+  committing later — belongs to a generation, and the generation is the
+  CALLER's. It is any EDN the caller likes (a counter, a timestamp, the id of
+  the decision that set the baseline), because the fence only ever asks
+  whether two of them are equal.
+
+  What it must NOT be is the value. The case this exists for is a caller
+  REJECTING an edit by reasserting what it already had: the accepted value is
+  `\"10\"`, the user drafts `\"bad\"`, the caller refuses and stands by `\"10\"`.
+  The value before the decision and the value after it are identical, so
+  value-equality sees nothing happen and the refused draft survives on
+  screen — the bug every hand-rolled buffered input eventually acquires.
+
+  REQUIRED, and refused with
+  `:rf.error/view-control-reset-revision-missing` when absent. Optional would
+  be worse than absent: a control with no generation buffers perfectly well
+  right up to the first rejection, so omission ships a defect development
+  never reproduces. A caller that genuinely never resets says so with a stable
+  literal — `:reset-key 0` reads as \"do not externally reset an active edit\",
+  which is a statement rather than a silence.
+
+  Per [Spec 004 §The buffered controller and the reset generation](../../../../spec/004-Views.md#the-buffered-controller-and-the-reset-generation)."
+       :arglists '([kind props])}
+  controller-revision control/reset-revision)
+
+(def ^{:doc "THE GENERATION FENCE. Is work `stamped` with one generation
+  still current against `revision`, the caller's generation now?
+
+      ;; the READ — display the draft only while it is current
+      (rf/reg-sub :acme.buffered/text
+        (fn [db [_ k revision baseline]]
+          (let [record (get-in db [records-root k])]
+            (if (v/controller-current? (:reset-key record) revision)
+              (:draft record)
+              baseline))))
+
+      ;; the WRITE — only a current record may produce the caller's intent
+      (when (v/controller-current? (:reset-key record) revision)
+        {:fx [[:dispatch (conj on-commit (:draft record))]]})
+
+  ONE predicate, asked at BOTH of a buffered controller's boundaries,
+  because a control whose display and whose commit disagreed about which
+  generation is live would commit something the user could not see.
+
+  TOTAL, AND SAFE IN THE MISSING DIRECTION. An absent stamp is not current,
+  whatever `revision` is — work that cannot prove its currency does not have
+  it. That is also what makes a draft written from a superseded render BORN
+  STALE rather than quietly authoritative: it carries the generation its own
+  render displayed, so if the caller has moved on it is neither shown nor
+  committed. This is the half a hand-rolled `(= a b)` gets wrong: two
+  `nil`s compare equal, so an unstamped record would read as current.
+
+  Comparison is the corpus's own equality, so a revision may be a collection
+  without a controller having to remember that. It is a pure comparison over
+  two generations and nothing else — it reads no record shape, so the record
+  stays the library's.
+
+  A superseded draft is INVISIBLE rather than erased, which is why a reset
+  costs no render-time dispatch, no render-phase mutation and no remount.
+
+  Per [Spec 004 §The generation fence](../../../../spec/004-Views.md#the-generation-fence)."
+       :arglists '([stamped revision])}
+  controller-current? control/current?)
 
 ;; ---------------------------------------------------------------------------
 ;; Presence — keyed enter/exit retention

@@ -20,7 +20,6 @@
   know nothing about execution mode, which is itself part of what
   promotion parity means."
   (:require [re-frame.freehand :as v]
-            [re-frame.freehand.control :as control]
             [re-frame.freehand.pilot-field :refer [buffered-kind error-region-id]]))
 
 (v/defview field
@@ -66,8 +65,8 @@
               [:error {:optional true} [:maybe :string]]
               [:busy? {:optional true} :boolean]]}
   [{:keys [name label value on-commit error busy?] :as props}]
-  (let [k        (control/record-key buffered-kind props)
-        g        (control/reset-revision buffered-kind props)
+  (let [k        (v/controller-key buffered-kind props)
+        g        (v/controller-revision buffered-kind props)
         error-id (error-region-id "acme-buffered" (:control props))]
     [:label {:data-component "acme/buffered-field"
              :data-part      "root"

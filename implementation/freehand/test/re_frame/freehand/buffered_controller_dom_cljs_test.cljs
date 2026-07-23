@@ -40,7 +40,6 @@
             [re-frame.frame :as frame]
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
-            [re-frame.freehand.control :as control]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.shell :as shell]
             [re-frame.live-frame :as live-frame]
@@ -68,7 +67,7 @@
   (rf/reg-sub :my.ui.field/text
     (fn [db [_ record-key revision baseline]]
       (let [record (get-in db [records-root record-key])]
-        (if (control/current? (:reset-key record) revision)
+        (if (v/controller-current? (:reset-key record) revision)
           (:draft record)
           baseline))))
 
@@ -96,8 +95,8 @@
 
 (v/defview buffered-field
   [{:keys [value] :as props}]
-  (let [k (control/record-key kind props)
-        g (control/reset-revision kind props)]
+  (let [k (v/controller-key kind props)
+        g (v/controller-revision kind props)]
     [:input {:id       "buffered"
              :value    (v/sub [:my.ui.field/text k g value])
              :on-input [:my.ui.field/edited k g ::v/value]}]))
