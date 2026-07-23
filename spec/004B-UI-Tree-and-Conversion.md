@@ -161,8 +161,9 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
   `:class`/`:id`. Values are normalized to **semantic form** (§Attr value normalization
   below). Final DOM *name* conversion (`tabindex`, `for`, `viewBox`, `className`) is the
   serialiser's/React emitter's half of the table and is **not** stored in the tree —
-  tests and selectors match what the author wrote. Nil-valued entries never appear;
-  the map is absent when empty.
+  tests and selectors match what the author wrote. Nil-valued entries never appear —
+  except the one controlled-slot row below, which records the *controlled empty* value
+  rather than the author's nil; the map is absent when empty.
 - **`:events`** — handler-position keys (`:on-*`, spelled as authored; **no
   `-capture` name suffixes** — capture is a listener *option* per the handler grammar)
   mapped to exactly one of:
@@ -227,7 +228,18 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
 - booleans stay **booleans** in the tree — the boolean/booleanish/overloaded emission
   decision is the serialisation row's job, and tests get the semantic truth
   (`{:disabled false}` is present-false, distinguishable from absent).
-- `nil` → the entry is dropped (canonical trees carry no present-nil attrs).
+- `nil` → the entry is dropped (canonical trees carry no present-nil attrs) — absent is
+  what an author means by writing nothing. **One exception**: a `value` or `checked`
+  slot on a supported native control (`input`, `textarea`, `select`) is a **controlled**
+  slot, and there *absence is the host's own signal for uncontrolled*. An explicitly
+  present nil is a controlled field with nothing in it — the door has already put the
+  element's sites on the synchronous lane for it ([004 §Controlled
+  inputs](004-Views.md#controlled-inputs), fact 2) — so the entry is **kept**, carrying
+  the **controlled empty** value the host emitters write: `""` for `value`, `false` for
+  `checked`. One projection, so the structural tree and the React props describe one
+  declaration the same way, and a server render and its client hydration agree rather
+  than differing by exactly this attribute. Scoped as the door is, and read through the
+  same normalized slot, so `:x/value` clears the field precisely as `:value` does.
 - collection values outside `:class`/`:style` (e.g. `:data-foo {:a 1}`) → rejected,
   didactic (React would render `"[object Object]"` garbage) — at the declaration in
   compiled mode, at the walk in interpreted mode.

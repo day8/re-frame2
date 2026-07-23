@@ -53,6 +53,20 @@
 ;; Element parts
 ;; ---------------------------------------------------------------------------
 
+(defn- build-time-attr?
+  "Can this attribute be settled at BUILD time?
+
+  A literal value can — that is the emitter's real work, and the reason a
+  wholly-literal element's `:attrs` map is a constant. A literal `nil`
+  cannot, and deliberately so: whether a nil entry is DROPPED or kept as a
+  controlled input's empty value is one rule, and it belongs to the one
+  canonicaliser both structural modes reach ([[node/element]]) rather than
+  to an emitter that would have to re-state it. So a literal nil rides the
+  `:dyn` slot beside the values only the render knows, and the compiled
+  tree answers what the interpreted tree answers by construction."
+  [{:keys [literal? value]}]
+  (and literal? (some? value)))
+
 (defn- static-attr-entries
   "Compile-time semantic normalization of literal attr values — the
   emitter's real work, and the reason a wholly-literal element costs
@@ -64,8 +78,8 @@
   rather than surviving to the first render that reaches it."
   [e attrs]
   (into {}
-        (keep (fn [{:keys [k value literal?]}]
-                (when (and literal? (some? value))
+        (keep (fn [{:keys [k value] :as attr}]
+                (when (build-time-attr? attr)
                   (let [v (conv/attr-value value)]
                     (when (= ::conv/reject v)
                       (env/fail! e :rf.ui.compile/collection-attr-value
@@ -78,13 +92,15 @@
         attrs))
 
 (defn- dyn-attr-entries
-  "Per-prop attribute values only known at render, in author space. They
+  "Attribute values `node/element` settles at RENDER, in author space —
+  everything [[build-time-attr?]] leaves: the per-prop values only known
+  then, and the literal nils whose verdict is the canonicaliser's. They
   fold through `node/element`'s `:dyn` slot, which applies exactly the
   normalization `static-attr-entries` applied at build time."
   [attrs]
   (into {}
-        (keep (fn [{:keys [k value literal?]}]
-                (when-not literal? [k value])))
+        (keep (fn [{:keys [k value] :as attr}]
+                (when-not (build-time-attr? attr) [k value])))
         attrs))
 
 (defn- class-slots
