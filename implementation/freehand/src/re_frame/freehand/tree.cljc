@@ -98,12 +98,20 @@
 ;; Element nodes
 ;; ---------------------------------------------------------------------------
 
-(defn- split-attrs
-  "Split one authored attribute map into the parts [[re-frame.freehand.node/element]]
-  takes. Every value here is only known now, so they all ride `:dyn` —
-  the interpreted front end has no compile step in which to settle one.
+(defn- with-attrs
+  "Fold one authored attribute map INTO `m` — the argument map
+  [[re-frame.freehand.node/element]] takes, already carrying everything
+  the walk knew before it read the attributes.
+
+  Folding into that map rather than building a second one and merging is
+  the difference between one map and nine: `merge` conjes entry by entry,
+  so a six-slot literal merged onto a one-slot map allocated the whole
+  ladder of intermediate maps on every element in the tree.
+
+  Every value here is only known now, so they all ride `:dyn` — the
+  interpreted front end has no compile step in which to settle one.
   `:key` is structural and `:class` composes after the sugar classes."
-  [tag sugar-classes sugar-id attrs]
+  [m tag sugar-id attrs]
   (reduce-kv
     (fn [m k raw]
       (when-some [refusal (conv/attr-key-refusal k)]
@@ -120,9 +128,9 @@
                                   sugar-id " sugar and once as :id. Two id spellings on "
                                   "one element is an ambiguity; keep one.")
                              {:attr :id :value (shape raw)}))
-                         (assoc-in m [:dyn :id] raw))
-        :else        (assoc-in m [:dyn k] raw)))
-    {:dyn {}}
+                         (update m :dyn assoc :id raw))
+        :else        (update m :dyn assoc k raw)))
+    m
     attrs))
 
 (defn- element-node
@@ -139,16 +147,16 @@
                       {:value (shape tag-kw)}))
         attrs?    (map? (first args))
         authored  (if attrs? (first args) nil)
-        kid-forms (if attrs? (rest args) args)
-        parts     (split-attrs tag classes id (or authored {}))]
+        kid-forms (if attrs? (rest args) args)]
     (node/element
-      (merge parts
-             {:tag      tag
-              :sugar    classes
-              :attrs    (cond-> {} id (assoc :id id))
-              :key?     (contains? authored :key)
-              :key-val  (:key authored)
-              :children (when (seq kid-forms) #(children kid-forms))}))))
+      (with-attrs {:tag      tag
+                   :sugar    classes
+                   :attrs    (cond-> {} id (assoc :id id))
+                   :dyn      {}
+                   :key?     (contains? authored :key)
+                   :key-val  (:key authored)
+                   :children (when (seq kid-forms) #(children kid-forms))}
+                  tag id authored))))
 
 ;; ---------------------------------------------------------------------------
 ;; Presence — the keyed enter/exit structural node
