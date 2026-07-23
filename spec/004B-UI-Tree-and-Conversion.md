@@ -264,6 +264,15 @@ grammar the round-trip promise is stated in. Ordinary nested EDN is untouched, a
 check is read-only: nothing is rewritten, so a prop that passes is the value the author
 passed.
 
+A **template option is not a prop at all.** A reserved internal view whose option holds
+*markup* rather than a value — `v/error-boundary`'s `:fallback` — has that option
+dropped from the record, for the same reason `:children` is dropped: a form is
+structural, and it is visible as the expansion it produces (a contained boundary's
+children *are* the walked fallback). Recorded verbatim it would put an unwalked
+template — whose head is a view **descriptor** in the documented `{:fallback
+[broken-page {}]}` spelling — into a slot the schema says holds data. Nothing is lost:
+the option is required, so its presence proves nothing.
+
 `:v/render-fn` is the compiled render-slot member ([004D §Compiled render slots](004D-Freehand-Compiled-Grammar.md#compiled-render-slots--render-fn-and-slot)):
 a `v/render-fn` value carried as a component-call-site prop is recorded on that
 view-boundary's `:props` as `{:rf.ui/opaque :v/render-fn}`. The render-fn's *rendered

@@ -16,6 +16,7 @@
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
+            [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.tree :as tree]
             [re-frame.freehand.tree-views :as views]))
@@ -86,6 +87,24 @@
                           ["a callback AT the prop site records as the marker"
                            {:title "Details" :on-pick (fn [_] nil)}]]]
       (let [t (tree/render [views/panel props])]
+        (is (= t (edn/read-string (pr-str t)))
+            (str note " — the tree prints and reads back losslessly"))))))
+
+(deftest fh-struct-006-a-template-option-is-structural-not-recorded
+  (testing "Per FH-STRUCT-006: `v/error-boundary`'s `:fallback` is a markup
+            FORM, and a form is not a value. Recorded verbatim the
+            documented `{:fallback [broken-page {}]}` shape would put a
+            view DESCRIPTOR into a slot the node schema says holds data,
+            and the tree would stop reading back — so the template option
+            is dropped from the record for the reason `:children` is, and
+            every documented fallback spelling round-trips."
+    (doseq [[note fallback] [["a declared-view fallback — the documented shape"
+                              [views/panel {:title "sorry"}]]
+                             ["plain markup" [:p.fallback "sorry"]]
+                             ["a bare declared view" views/panel]]]
+      (let [t (tree/render [v/error-boundary {:fallback fallback}
+                            [views/panel {:title "ok"}]])]
+        (is (nil? (:props t)) (str note " — the template is not recorded as a prop"))
         (is (= t (edn/read-string (pr-str t)))
             (str note " — the tree prints and reads back losslessly"))))))
 
