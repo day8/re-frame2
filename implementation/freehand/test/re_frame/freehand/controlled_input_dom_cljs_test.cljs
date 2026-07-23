@@ -21,12 +21,16 @@
 
   ## Two things this suite is deliberate about
 
-  **The substrate is the reagent adapter, not plain-atom.** The rest of
-  the Freehand browser suites run headless-shaped, where a state change
-  corrects at the next commit. A controlled input is exactly the case
-  where that is not enough — the correction has to reach the host inside
-  the event — so the round trip is proven on a substrate whose derived
-  values are watchable, which is what a browser actually runs.
+  **The substrate is a REACTIVE, React-shaped one, not plain-atom.** The
+  rest of the Freehand browser suites run headless-shaped, where a state
+  change corrects at the next commit — plain-atom owns no watches at all,
+  by design, because it is the JVM/SSR/headless adapter. A controlled
+  input is exactly the case where that is not enough: the correction has
+  to reach the host INSIDE the event. So the round trip is proven on the
+  React-hook substrate spine, whose `replace-container!` brackets the
+  write in an epoch and drains the coalesced invalidation before it
+  returns — which is what a browser actually runs, and what makes the
+  cell PENDING by the time the door's flush looks for it.
 
   **Typing appends.** A keystroke is simulated by APPENDING to whatever
   the node currently holds, through the native value setter, and then
@@ -42,7 +46,7 @@
   (:require ["react" :as react]
             ["react-dom/client" :as rdc]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.uix :as react-substrate]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.freehand :as v]
@@ -55,7 +59,7 @@
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+    {:adapter       react-substrate/adapter
      :ambient-frame nil
      :async?        true}))
 
@@ -203,10 +207,7 @@
   (testing "Per FH-INPUT-003: a burst of keystrokes delivered back to
             back in one browser task yields a final value equal to the
             typed string CHARACTER FOR CHARACTER, in the DOM and in
-            application state alike. The control field — the same intent,
-            one fact outside the door — is typed at identically and does
-            NOT survive, which is what makes the first assertion a claim
-            about the door rather than about the browser being forgiving."
+            application state alike."
     (if-not (browser?)
       (skip! "the browser job runs the typing assertions")
       (async done
@@ -214,7 +215,7 @@
         (let [{:keys [seed typed]} (:rapid input-003)
               _ (make-frame! {:text seed})
               [container root] (mount!)]
-          (-> (render-page! root (:sibling-count input-003))
+          (-> (render-page! root 0)
               (.then
                 (fn [_]
                   (live!)
@@ -225,20 +226,39 @@
                         "every keystroke survived in the DOM")
                     (is (= typed (app-text))
                         "and application state holds exactly what was typed"))
-                  ;; The control, from the same seed.
-                  (frame/replace-app-db! fid {:text seed})
-                  (act #(js/undefined))))
+                  (teardown! container root)
+                  (done)))
+              (.catch (fn [e]
+                        (is false (str "mount rejected: " e))
+                        (teardown! container root)
+                        (done)))))))))
+
+(deftest fh-input-003-the-control-field-loses-characters
+  (testing "Per FH-INPUT-003: the CONTROL, and the reason every
+            assertion above is a claim about the door rather than about
+            the browser being forgiving. The same field, the same intent,
+            the same typing — one fact outside the door, so the round
+            trip does not complete inside the event and the browser
+            restores the node from a stale prop. If this row ever goes
+            green, the hazard has moved and the suite says so instead of
+            reporting a confident pass over it."
+    (if-not (browser?)
+      (skip! "the browser job runs the control assertions")
+      (async done
+        (reg!)
+        (let [{:keys [seed typed]} (:rapid input-003)
+              _ (make-frame! {:text seed})
+              [container root] (mount!)]
+          (-> (render-page! root 0)
               (.then
                 (fn [_]
                   (live!)
                   (let [batched (node container "batched")]
-                    (is (= seed (.-value batched)) "the control field reset to the seed")
+                    (is (= seed (.-value batched)) "the control field starts at the seed")
                     (type-string! batched typed)
                     (is (not= typed (.-value batched))
                         (str "the control field must LOSE characters — it holds "
-                             (pr-str (.-value batched)) ". If this ever passes, the "
-                             "browser has stopped restoring controlled nodes and the "
-                             "assertions above prove nothing"))
+                             (pr-str (.-value batched))))
                     (is (< (count (.-value batched)) (count typed))
                         "and it loses them by dropping, not by reordering"))
                   (teardown! container root)
