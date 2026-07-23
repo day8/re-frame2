@@ -1327,6 +1327,37 @@
   ;; about the element it renders. Spec 004 §Props forwarding owns the law.
   ["re-frame.freehand" "spread"]            {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "spread-safe"]       {:tier :advanced    :owner "004" :status "EP-0036"}
+  ;; The writable-controller surface (rf2-drpa3.122; Spec 004 §Semantic
+  ;; controllers, D004 + D016). THREE verbs, and three is the whole of what
+  ;; the substrate contributes to a semantic controller: `controller-key`
+  ;; forms the (kind, :control address) pair a record lives under — asking
+  ;; for it is what makes a controller WRITABLE — `controller-revision`
+  ;; takes the caller's `:reset-key`, which is what makes one BUFFERED, and
+  ;; `controller-current?` is the generation fence both the read side and
+  ;; the write side ask. The key/revision split is D004-vs-D016 and is
+  ;; load-bearing: a writable-but-unbuffered control (a dropdown holding an
+  ;; open flag) takes the key and no generation, so folding the two into one
+  ;; verb would either force every writable controller to be buffered or
+  ;; make the revision optional — which D016 rules the worse design.
+  ;;
+  ;; ADVANCED, deliberately, and the tier is the instrument that carries the
+  ;; advertising cost: a published authoring verb can read as an invitation
+  ;; to hold state in a control, so these must NOT reach the front porch the
+  ;; Guide and the skills load by default. They are equally not
+  ;; `implementation` — a component library is consumer code by construction
+  ;; (D017 gives it the widget vocabulary outright) and this is precisely
+  ;; the "library authors" case the advanced tier names. Unpublished was the
+  ;; prior state and it obliged a library to `:require` an internal
+  ;; namespace to write an ordinary field.
+  ;;
+  ;; They ride the DOOR rather than a `re-frame.freehand.controller`
+  ;; sibling because Conventions §Freehand — one public namespace fixes
+  ;; `re-frame.freehand.host` and `re-frame.freehand.test` as the only
+  ;; sanctioned siblings. The mechanics stay in the internal
+  ;; `re-frame.freehand.control`, which is not rowed.
+  ["re-frame.freehand" "controller-key"]      {:tier :advanced  :owner "004" :status "EP-0036"}
+  ["re-frame.freehand" "controller-revision"] {:tier :advanced  :owner "004" :status "EP-0036"}
+  ["re-frame.freehand" "controller-current?"] {:tier :advanced  :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "projections"]       {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "materialize-event"] {:tier :advanced    :owner "004" :status "EP-0036"}
   ;; Presence — keyed enter/exit retention (Spec 004 §Presence). `presence` is
