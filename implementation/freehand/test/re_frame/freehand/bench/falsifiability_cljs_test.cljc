@@ -62,10 +62,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-wildly-moved-timing-still-exits-zero
-  (testing "the same work done 50x over: the wall-clock distribution
-            moves by that multiple and the run still exits 0. D021 sets
-            no numeric threshold on timing — an adverse trend is
-            attributed and dispositioned, never failed automatically."
+  (testing "the same work done 50x over — exactly 50x by node count,
+            roughly 50x by the clock, and the run still exits 0 either
+            way. D021 sets no numeric threshold on timing: an adverse
+            trend is attributed and dispositioned by a human, never
+            failed automatically. `roughly` is why."
     (let [{:keys [exit-code gate-failures results]} (bench/run [falsifiability/moved-timing] provenance)
           record (first results)]
       (is (= 0 exit-code))
