@@ -7,8 +7,12 @@
 ;;   1. Building elements performs ZERO host operations. The host call rides
 ;;      a React ref, and React runs a ref only for a render it committed, so
 ;;      an abandoned candidate's desired state cannot reach the browser. A
-;;      detach performs zero as well: a superseded generation never acts on
-;;      its replacement.
+;;      detach performs zero as well, and does more than nothing: it RETIRES
+;;      that generation, withdrawing the operation it still had waiting in
+;;      the checkpoint. Ownership is the fence, not connectivity — a
+;;      generation retires while its node stays in the document whenever a
+;;      commit removes the intrinsic without removing the element — and a
+;;      retirement never withdraws a SUCCESSOR's claim on the same node.
 ;;   2. Re-committing an UNCHANGED desired state performs zero further
 ;;      operations. The diff is read from the live node, so a repeated equal
 ;;      value is a no-op however many times the parent re-renders — and a
@@ -26,7 +30,7 @@
 ;; than as a coincidence.
 {:fh/id "FH-TOPLAYER-004"
  :fh/law
- "Host work happens only at a selected commit and only when the desired state differs from the node's live state: building elements and detaching perform zero operations, N re-commits of an unchanged desired state perform zero further operations, and a full mount/open/close/unmount cycle leaves exactly zero retained listeners, observers, intervals and pending batch entries."
+ "Host work happens only at a selected commit and only when the desired state differs from the node's live state: building elements and detaching perform zero operations, a detach RETIRES its generation — withdrawing that generation's pending operation even while its node stays connected, and never a successor's — N re-commits of an unchanged desired state perform zero further operations, and a full mount/open/close/unmount cycle leaves exactly zero retained listeners, observers, intervals and pending batch entries."
 
  :menu-id "account-menu"
  :renders 3
