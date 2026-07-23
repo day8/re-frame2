@@ -1,0 +1,42 @@
+;; FH-ROOT-001 — the minimal one-root mount, one spelling on both hosts.
+;;
+;; The minimal one-root spelling is `(v/mount [app {…}] dom-node)`: a bare
+;; declared view at the head, no opts. Its identity — the `:root-id` — is
+;; DERIVED from the mounted view's registered id, so the single-root page
+;; authors nothing. This row proves the two halves of that one spelling:
+;;
+;;   - on the browser, `v/mount` puts the declared view on a real page and
+;;     derives the Root Descriptor — read back off `document` and off the
+;;     returned root handle (the `-dom-cljs-test` sibling);
+;;   - on the JVM, the IDENTICAL `[app {…}]` form answers a structural tree
+;;     through the tree emitter — there is no second mount spelling to learn
+;;     for the host with no DOM (the `-jvm-test` sibling).
+;;
+;; `:view` names a declaration in `re-frame.freehand.root-views`; `:tree` is
+;; the structural value the JVM pins; `:root-descriptor` is the minimal
+;; `:rf.root/*` identity the mount derives; `:dom` is what must be true of
+;; the mounted document.
+{:fh/id "FH-ROOT-001"
+ :fh/law
+ "The minimal one-root mount derives the root's identity from the mounted view's registered id and renders that declared view — the same root form putting real DOM on a browser page and answering a structural tree on the JVM."
+
+ :view  :app
+ :props {:label "hello"}
+
+ :root-descriptor {:rf.root/schema-version 1
+                   :root-id            :re-frame.freehand.root-views/app
+                   :view-id            :re-frame.freehand.root-views/app
+                   :root-id-provenance :derived}
+
+ ;; the root form is a declared view, so its structural tree is the view's
+ ;; boundary node — its qualified id, its props, and the expansion beneath
+ ;; it — not a bare element. The boundary IS the root's occurrence in the
+ ;; tree.
+ :tree {:view-id  :re-frame.freehand.root-views/app
+        :props    {:label "hello"}
+        :children [{:tag :main :attrs {:id "app"} :children ["hello"]}]
+        :rf.ui/tree-version 1}
+
+ :dom
+ [{:note "the mounted view is real DOM under the host node, addressed by its derived id"
+   :selector "#app" :tag "MAIN" :text "hello"}]}

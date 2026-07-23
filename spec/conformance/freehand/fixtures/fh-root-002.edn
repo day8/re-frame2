@@ -1,0 +1,38 @@
+;; FH-ROOT-002 — hot reload keeps the root's identity, and does not reseed.
+;;
+;; A declared view is a descriptor VALUE, so a hot reload mints a NEW
+;; descriptor object for the redefined view. But the value it carries holds
+;; the same qualified `:view-id`, and the root's identity — its `:root-id` —
+;; is derived from that id, so the reload's root-id is unchanged. The
+;; body/generation churn is an internal fact of the descriptor object,
+;; never part of the identity.
+;;
+;; So re-mounting the same root into the same container is idempotent: it
+;; RE-RENDERS the existing host root instead of allocating a second one. A
+;; second host root on one container is a React error and would tear the
+;; whole tree down and reseed it; reusing the live one is what makes the
+;; reload preserve identity. This is the donor's known-hard case — the
+;; hot-reload matrix's frame-non-reseed / body-advance cells — recast for
+;; the interpreted root: same identity, new body, host root preserved.
+;;
+;; The reload is SIMULATED by two descriptors that share one view-id and
+;; differ only in their body — exactly how a redefinition presents (the
+;; same qualified identity, a fresh body generation), and how the donor's
+;; `register-view-generation!` models a reload without redefining a var.
+{:fh/id "FH-ROOT-002"
+ :fh/law
+ "A root's occurrence identity is its derived root-id — the mounted view's qualified id, which a redefinition does not move — so re-mounting the same root into the same container re-renders the existing host root, and the reloaded body renders without reseeding the host root."
+
+ :root-id :re-frame.freehand.root-hmr/app
+
+ ;; the two body generations of the reloaded view — same view-id, different text
+ :before "before"
+ :after  "after"
+
+ ;; the reload re-renders the EXISTING host root (identity preserved, no reseed)
+ :same-host-root true
+
+ ;; non-vacuity control: a mount into a DIFFERENT container is a genuinely
+ ;; new root, so its host root is NOT the reloaded one — the reuse above is
+ ;; a real decision, not an always-true tautology.
+ :fresh-container-host-root :distinct}
