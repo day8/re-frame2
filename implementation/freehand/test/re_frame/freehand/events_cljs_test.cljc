@@ -565,6 +565,55 @@
         (is (= error-id (conf/caught-id #(events/event-plan (get forms form))))
             (str "rejects " form))))))
 
+(deftest fh-event-005-a-branch-may-not-carry-a-whole-listener-option
+  (testing "Per FH-EVENT-005: a key branch carries its intent plus the two
+            PRE-DISPATCH mechanics, and nothing else. `:once`, `:capture` and
+            `:passive` are whole-listener facts — the first retires the site,
+            the other two decide native attachment — and all three are settled
+            before a keystroke is read, so a branch naming one is a typed
+            reject rather than a branch that accepts the option and then
+            discards it."
+    (is (seq (:branch-options event-005)) "the fixture's branch-option table loaded")
+    (doseq [{:keys [option accepted error-id]} (:branch-options event-005)]
+      (let [value {"Enter" {:event [:picker/accept] option true}}
+            run   #(events/event-plan value)]
+        (if accepted
+          (is (= {:role :event-options :event [:picker/accept] option true}
+                 (get (:branches (run)) "Enter"))
+              (str option " is a pre-dispatch mechanic a branch may carry"))
+          (is (= error-id (conf/caught-id run))
+              (str option " is a whole-listener fact a branch may not carry")))))))
+
+(defn- keystroke
+  "One keystroke argument for `k`, in the shape THIS host's `key-facts` seam
+  reads — a real event object in the browser, the structural payload map on the
+  JVM. The seam is named rather than hidden, exactly as `default-payload` is,
+  so one body of test code proves the law on both hosts."
+  [k]
+  #?(:cljs #js {:key k}
+     :clj  {:re-frame.freehand/key k}))
+
+(deftest fh-event-005-a-key-map-site-fires-once-per-keystroke
+  (testing "Per FH-EVENT-005: the counterexample the branch roster exists to
+            make unwritable. A committed key-map site invoked twice with the
+            same key dispatches its intent BOTH times — one firing per
+            keystroke — so a branch that could carry `:once` would be reading
+            back a promise the site never keeps."
+    (let [{:keys [branch key invocations dispatched]} (:repeated-key event-005)
+          {:keys [dispatch seen]} (recorder)
+          owner (events/owner :app/picker)
+          cand  (events/candidate owner)
+          proxy (events/site cand :on-key-down {key branch} events/default-payload
+                             {:tag :div :slot "onKeyDown"})]
+      (events/commit! cand dispatch)
+      (dotimes [_ invocations]
+        (proxy (keystroke key)))
+      (is (= dispatched @seen)
+          "every keystroke fires — the site retires nothing per branch")
+      (is (= :rf.error/view-bad-event
+             (conf/caught-id #(events/event-plan {key (assoc branch :once true)})))
+          "and asking for :once on that branch is refused rather than ignored"))))
+
 (deftest fh-event-005-a-key-map-is-legal-only-on-a-key-listener
   (testing "Per FH-EVENT-005: a key-condition map selects an intent by
             KeyboardEvent.key, so it is legal only on `:on-key-down` /
