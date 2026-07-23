@@ -140,7 +140,16 @@
         kids    (case (:status outcome)
                   :ok        (:result outcome)
                   :contained (children [fallback]))]
-    (node/boundary eb/boundary-view-id props key kids)))
+    ;; `:fallback` is dropped from the record for the reason `:children` is
+    ;; (see [[re-frame.freehand.node/boundary]]): it is a markup FORM, not a
+    ;; value. Recorded verbatim it would put an unwalked template — whose head
+    ;; is a view DESCRIPTOR in the documented `{:fallback [broken-page {}]}`
+    ;; shape — into a slot the node schema says holds data, and the tree would
+    ;; stop printing and reading back. Nothing is lost: `read-opts` REQUIRES a
+    ;; fallback, so its presence proves nothing a test could not already
+    ;; assume, and a contained boundary shows the walked fallback subtree as
+    ;; its children.
+    (node/boundary eb/boundary-view-id (dissoc props :fallback) key kids)))
 
 ;; ---------------------------------------------------------------------------
 ;; Element nodes
