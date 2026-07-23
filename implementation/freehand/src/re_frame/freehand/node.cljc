@@ -29,6 +29,7 @@
   (the compiled tier that emits calls to these builders)."
   (:require [clojure.string :as str]
             [re-frame.error :as error]
+            [re-frame.freehand.controlled :as controlled]
             [re-frame.freehand.conversion :as conv]
             [re-frame.freehand.events :as events]
             [re-frame.freehand.rules :as rules]
@@ -340,9 +341,29 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- attr-entry
-  "One author-space `:attrs` entry, or nil when the entry is dropped."
+  "One author-space `:attrs` entry, or nil when the entry is dropped.
+
+  A nil value is an ABSENT attribute — the law an author relies on to
+  write a conditional value — with the ONE exception the controlled-input
+  contract already states. On a supported native control, absence of a
+  `value` / `checked` slot is the HOST's own signal that the node is
+  UNCONTROLLED, so an explicitly present nil there is not nothing: it is a
+  controlled field with nothing in it, and the door has already put the
+  element's event sites on the synchronous lane for it. Dropping the entry
+  would leave the structural tree saying the opposite of what the React
+  emitter says about the same declaration, and would put a server render
+  that omits the attribute against a client render that sets it — a
+  hydration seam, from one authored word.
+
+  So the entry is KEPT, carrying the same controlled-empty value the React
+  emitter writes ([[re-frame.freehand.controlled/empty-control-slot]]) —
+  one projection, so the two hosts describe one declaration the same way.
+  Read as an ENTRY and not as a value, because the empty `checked` IS
+  `false`: a truth test here would drop exactly the unchecked case."
   [tag k v]
-  (when (some? v)
+  (if (nil? v)
+    (when-some [empty-slot (controlled/empty-control-slot tag k)]
+      [k (val empty-slot)])
     (let [semantic (conv/attr-value v)]
       (when (= :re-frame.freehand.conversion/reject semantic)
         (malformed!
