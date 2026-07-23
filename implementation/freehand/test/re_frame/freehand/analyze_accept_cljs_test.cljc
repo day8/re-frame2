@@ -8,6 +8,7 @@
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [re-frame.freehand.compiler.analyze :as ana]
             [re-frame.freehand.compiler.env :as env]
+            [re-frame.freehand.controlled :as controlled]
             [re-frame.freehand.fingerprint :as fingerprint]))
 
 (def resolver
@@ -652,6 +653,75 @@
         (is (false? (get-in ast [:props :events 0 :sync?])))
         (is (= [:rf.ui.compile/controlled-input-async-handler]
                (mapv :id warnings)))))))
+
+;; ---------------------------------------------------------------------------
+;; The door reads the SLOT it is about to emit into (rf2-drpa3.119)
+;; ---------------------------------------------------------------------------
+
+(def ^:private controlled-spellings
+  "Every authored key below reaches the SAME React prop the exact spelling
+  reaches. A namespace is dropped on the way to the DOM, so `:x/value` IS
+  `value`: the node it sits on is controlled, and both modes have to say
+  so or `{:compiled true}` would move a field between the two dispatch
+  lanes."
+  [{:note "the exact spelling"                        :k :value         :controlled? true}
+   {:note "a namespaced alias reaches the same prop"  :k :x/value       :controlled? true}
+   {:note "checked is the second controlled slot"     :k :checked       :controlled? true}
+   {:note "and its aliased spelling counts too"       :k :x/checked     :controlled? true}
+   {:note ":default-value seeds an UNCONTROLLED input" :k :default-value :controlled? false}
+   {:note "and an aliased :default-value is still it"  :k :x/default-value :controlled? false}
+   {:note "an ordinary attribute is not a control"    :k :title         :controlled? false}])
+
+(defn- door-form [k v]
+  [:input {k v :on-input [:form/typed :rf.ui/value]}])
+
+(deftest the-compiled-door-judges-normalized-prop-slots
+  (testing "The compiled analyzer decides CONTROLLED through the shared
+            normalized-slot rule, not by comparing raw keys. An aliased
+            `:x/value` is written into React's own `value` prop and makes
+            the node controlled; judging the authored keyword instead left
+            the site batched while the emitted prop said otherwise."
+    (doseq [{:keys [note k controlled?]} controlled-spellings]
+      (is (= controlled?
+             (-> (ana* (door-form k 'v)) (get-in [:props :events 0 :sync?])))
+          (str note " — " k))))
+  (testing "PRESENCE, not truth: an explicit nil on an aliased controlled
+            slot is a controlled empty value, exactly as the exact spelling
+            is."
+    (is (true? (-> (ana* (door-form :x/value nil))
+                   (get-in [:props :events 0 :sync?])))))
+  (testing "the emitted prop slot and the verdict are ONE decision — the
+            analyzer judged the very name it then writes"
+    (let [ast (ana* (door-form :x/value 'v))]
+      (is (= "value" (get-in ast [:props :attrs 0 :react-name])))
+      (is (true? (get-in ast [:props :events 0 :sync?])))))
+  (testing "the async-handler advisory follows the same rule: an aliased
+            controlled prop with an unprovable handler IS advised, because
+            the door could have opened there"
+    (let [{:keys [ast warnings]}
+          (ana-full '[:input {:x/value value :on-input handler-value}])]
+      (is (false? (get-in ast [:props :events 0 :sync?])))
+      (is (= [:rf.ui.compile/controlled-input-async-handler] (mapv :id warnings)))))
+  (testing "and a site the door can never admit still gets no unactionable
+            nag, whatever the spelling"
+    (let [{:keys [ast warnings]}
+          (ana-full '[:div {:x/value value :on-input [:form/typed]}])]
+      (is (false? (get-in ast [:props :events 0 :sync?])))
+      (is (empty? warnings)))))
+
+(deftest both-modes-agree-on-which-spellings-make-a-node-controlled
+  (testing "The interpreted walk asks
+            `re-frame.freehand.controlled/controlled-props?` over the
+            authored keys; the compiled analyzer now asks the same
+            predicate over the same keys. Asserting the two answers TOGETHER
+            is what makes promotion parity a fact rather than two lists that
+            happen to agree today."
+    (doseq [{:keys [note k controlled?]} controlled-spellings]
+      (is (= controlled? (controlled/controlled-props? [k]))
+          (str "interpreted — " note))
+      (is (= (controlled/controlled-props? [k])
+             (-> (ana* (door-form k 'v)) (get-in [:props :events 0 :sync?])))
+          (str "the two modes agree — " note)))))
 
 (deftest sub-sites-index
   (let [{:keys [sites]} (ana-full '[:div
