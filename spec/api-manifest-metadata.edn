@@ -154,16 +154,19 @@
   ;; re-frame.ui.test (fully-rowed), so removal/rename → RED.
   {:namespace "re-frame.ui.test" :var "flush!"          :kind :fn :facade? false :tier :testing :owner "008" :status "Spec-004 S2" :runtime-verified? true}
   {:namespace "re-frame.ui.test" :var "flush-presence!" :kind :fn :facade? false :tier :testing :owner "008" :status "Spec-004 S4" :runtime-verified? true}
-  ;; --- re-frame.freehand CLJS-only mount verb (EP-0036 F1d) ---
-  ;; `mount` is the browser half of the Freehand view door: a DOM node is,
-  ;; so it is defined under a `#?(:cljs ...)` reader-conditional and absent
-  ;; from the door's JVM `ns-publics`. The rest of the door is `.cljc` and
-  ;; JVM-introspected (`:classification` rows above); this row carries the
-  ;; one CLJS-only verb so the manifest enumerates the whole surface, and
-  ;; the drpa3.63 CLJS probe (re-frame.freehand fully-rowed) reddens on a
+  ;; --- re-frame.freehand CLJS-only root verbs (EP-0036 F1d, F5e) ---
+  ;; The root verbs are the browser half of the Freehand view door: a DOM
+  ;; node is, so they are defined under `#?(:cljs ...)` reader-conditionals
+  ;; and absent from the door's JVM `ns-publics`. The rest of the door is
+  ;; `.cljc` and JVM-introspected (`:classification` rows above); these rows
+  ;; carry the CLJS-only verbs so the manifest enumerates the whole surface,
+  ;; and the drpa3.63 CLJS probe (re-frame.freehand fully-rowed) reddens on a
   ;; removal / rename. The JVM structural counterpart is the tree emitter,
-  ;; which the door does not publish. Spec 004C owns the mount grammar.
+  ;; which the door does not publish. Spec 004C owns the mount grammar and
+  ;; teardown; Spec 011 owns hydration and the fallback.
   {:namespace "re-frame.freehand" :var "mount" :kind :fn :facade? true :tier :front-porch :owner "004C" :status "EP-0036" :runtime-verified? false}
+  {:namespace "re-frame.freehand" :var "hydrate-root" :kind :fn :facade? true :tier :front-porch :owner "011" :status "EP-0036" :runtime-verified? false}
+  {:namespace "re-frame.freehand" :var "unmount!" :kind :fn :facade? true :tier :front-porch :owner "004C" :status "EP-0036" :runtime-verified? false}
   ;; --- Reagent adapter (day8/re-frame2-reagent) — probe fully-rowed ---
   {:namespace "re-frame.adapter.reagent" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}

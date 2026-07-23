@@ -110,13 +110,96 @@ vacancy, landing with its own EP-0036 slice.
 
   Browser-only, because a DOM node is: the JVM renders the SAME `[view {…}]` root form
   structurally through the tree emitter, so mounting and structural rendering are one
-  spelling on both hosts. Frame preflight, authored identity, multi-root duplicate
-  detection, failed-root isolation, total teardown and hydration are later slices; a
-  bare declared view at the head is the whole grammar here, and `opts` is accepted and
-  ignored. See [spec/004C-Roots-and-Mount.md](../../spec/004C-Roots-and-Mount.md#the-minimal-one-root-mount).
+  spelling on both hosts.
+
+  `opts` is a **closed** map:
+
+  | Opt | Tier | Meaning |
+  |---|---|---|
+  | `:root-id` | identity | the root-id, verbatim — a qualified keyword, or a vector of one plus scalar disambiguators |
+  | `:disambiguator` | identity | a scalar appended to the DERIVED id, so one view can mount twice on one page with neither site authoring an id |
+  | `:identifier-prefix` | identity | the React `identifierPrefix`. Default: `"rf2-" + root-id-slug + "-"`, injective over root-id |
+  | `:frame` | preflight | a frame-id keyword SCOPES a frame something else owns; a `make-frame` opts map carrying `:id` ENSUREs one the root owns for its lifetime |
+  | `:on-uncaught-error` `:on-caught-error` `:on-recoverable-error` | host | passed to the React root options |
+
+  A root claims its **id**, its **container** and its effective **identifierPrefix**
+  before it renders anything, so a collision on any of them fails loud
+  (`:rf.error/duplicate-root-id`, `:rf.error/root-container-in-use`,
+  `:rf.error/duplicate-identifier-prefix`) with the roots already on the page
+  untouched. The `:frame` plan runs to completion before `createRoot`, so a body that
+  reads a subscription on its first render finds a frame that is already seeded.
+  See [spec/004C-Roots-and-Mount.md](../../spec/004C-Roots-and-Mount.md#the-minimal-one-root-mount).
 - **Example**:
   ```clojure
   (v/mount [app {:label "hello"}] (js/document.getElementById "app"))
+
+  ;; one view, two roots, two identities, two occurrences
+  (v/mount [panel {:side :left}]  left  {:disambiguator :left})
+  (v/mount [panel {:side :right}] right {:root-id :shop/right})
+
+  ;; the root owns the frame's lifetime, seeded before React sees anything
+  (v/mount [app {}] node {:frame {:id :shop/main :initial-events [[:shop/boot]]}})
+  ```
+
+### `hydrate-root`
+
+- **Kind**: function (CLJS / browser only)
+- **Signature**:
+  ```clojure
+  (hydrate-root dom-node root-form) → root
+  (hydrate-root dom-node root-form opts) → root
+  ```
+- **Description**: adopt the server-rendered markup already in `dom-node` for the
+  declared view at `root-form`'s head. Hydration **adopts** the server's DOM rather
+  than replacing it, so the page the reader has been looking at since first paint
+  becomes the live page.
+
+  **Verification is React's own adoption.** A divergence React recovers from — a text
+  mismatch, or a missing, extra or wrong-type element — is reported as
+  `:rf.ssr/hydration-mismatch` carrying this root's id, and React replaces the
+  divergent DOM with the client's truth. The framework reporter is composed **over**
+  any host-supplied `:on-recoverable-error` (framework emit first, then delegate) and
+  is bounded to the hydration adoption window, so a later recoverable error is not
+  mislabelled a mismatch. An **attribute-only** divergence is outside that signal by
+  React's own contract, which makes no guarantee to patch attribute mismatches.
+
+  Identity comes from the server, so identity opts (`:root-id`, `:disambiguator`,
+  `:identifier-prefix`) are **refused** here with `:rf.error/root-manifest-invalid`
+  naming the conflicting key — a client that renders under its own `identifierPrefix`
+  breaks `use-id` hydration outright. `:frame` and the host error callbacks are
+  accepted exactly as at [`mount`](#mount).
+
+  A container carrying nothing to adopt takes the **fallback**: the root mounts
+  client-side instead — the client-only first load of a page whose server never
+  rendered this root. See [spec/011-SSR.md](../../spec/011-SSR.md#hydration-on-the-freehand-paved-path).
+- **Example**:
+  ```clojure
+  (v/hydrate-root (js/document.getElementById "app") [app {:label "hello"}])
+  ```
+
+### `unmount!`
+
+- **Kind**: function (CLJS / browser only)
+- **Signature**:
+  ```clojure
+  (unmount! root) → nil
+  ```
+- **Description**: tear a mounted root down completely. The registry entry goes — and
+  with it the root-id, container and `identifierPrefix` claims — the React root
+  unmounts, every ViewCell below it disconnects (releasing every dependency and
+  retiring every published callback), and the root's reference to its frame is
+  released. A frame the root **ENSUREd** is destroyed once no live root still
+  references it; a frame it merely **scoped** is left alone, because the root borrowed
+  it.
+
+  **Guarded**, and a no-op rather than a throw when the guard fails: a root already
+  unmounted, or superseded by a newer root claiming its id, has nothing left to
+  release — and tearing down on its behalf would tear down the successor.
+  See [spec/004C-Roots-and-Mount.md](../../spec/004C-Roots-and-Mount.md#total-teardown).
+- **Example**:
+  ```clojure
+  (let [root (v/mount [app {}] node)]
+    (v/unmount! root))
   ```
 
 ## Inspection
