@@ -57,6 +57,7 @@
             [re-frame.freehand.conversion :as conv]
             [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.events :as events]
+            [re-frame.freehand.presence-runtime :as presence-runtime]
             [re-frame.freehand.shell :as shell]
             [re-frame.freehand.tree :as tree]))
 
@@ -273,11 +274,29 @@
       (gobj/set js-props "key" key))
     (react/createElement (component-for view) js-props)))
 
+(defn- presence-node
+  "A `(v/presence …)` boundary in interpreted markup — `[presence-tag opts &
+  kids]`. Its keyed children are walked into React elements HERE and handed as
+  one array to the shared retention runtime, the SAME lowering target the
+  compiled React emitter emits, so the retention behaviour is one implementation
+  across modes. The children carry their own React `.-key`, which is the
+  identity the runtime tracks."
+  [cand form]
+  (let [opts (second form)
+        kids (children cand (drop 2 form))]
+    (presence-runtime/presence-boundary (:timeout-ms opts) (into-array kids))))
+
 (defn- node
   [cand form]
   (let [head (first form)]
-    (if (= tree/fragment-tag head)
+    (cond
+      (= tree/fragment-tag head)
       (fragment-node cand (rest form))
+
+      (= descriptor/presence-tag head)
+      (presence-node cand form)
+
+      :else
       (case (descriptor/classify-head head)
         :element (element-node cand head (rest form))
         ;; A nested boundary is a React ELEMENT this walk does not enter:

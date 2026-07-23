@@ -262,6 +262,24 @@
   (:manifest (.-entry ^ViewDescriptor view)))
 
 ;; ---------------------------------------------------------------------------
+;; Reserved interpreted intrinsic heads
+;; ---------------------------------------------------------------------------
+;;
+;; A compiled `(v/presence …)` is a SEQ form the analyzer recognises at
+;; compile time. An INTERPRETED `(v/presence …)` is an ordinary function call
+;; that runs during the body's evaluation; it returns a plain hiccup vector
+;; whose head is this reserved keyword, which each interpreted walk intercepts
+;; BEFORE `classify-head` — exactly as the fragment head `:<>` is intercepted.
+;; The two mechanisms never meet: compile sees the seq, the walk sees the
+;; vector, and the runtime they lower to is one and the same.
+
+(def presence-tag
+  "The reserved head of the vector `v/presence` returns in interpreted mode.
+  Namespaced, so it can never collide with an author's element keyword, and
+  intercepted by both interpreted walks before head classification."
+  :re-frame.freehand/presence)
+
+;; ---------------------------------------------------------------------------
 ;; Vector-head classification — total
 ;; ---------------------------------------------------------------------------
 ;;

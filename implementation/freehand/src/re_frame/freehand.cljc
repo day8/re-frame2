@@ -46,6 +46,7 @@
             ;; require it did not need a moment earlier. `node` sits BELOW this
             ;; namespace and takes nothing back from it.
             [re-frame.freehand.node]
+            [re-frame.freehand.presence-runtime :as presence-runtime]
             [re-frame.freehand.route-link-seam :as route-link-seam]
             [re-frame.interop :as interop]
             #?@(:clj [[re-frame.freehand.compiler :as compiler]
@@ -545,6 +546,78 @@
      Per [Spec 004 §Callback roles and identity](../../../../spec/004-Views.md)."
      [params & body]
      (events/expand-callback :render-fn 'v/render-fn params body)))
+
+;; ---------------------------------------------------------------------------
+;; Presence — keyed enter/exit retention
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §Presence. ONE keyed retention contract, honoured identically by
+;; both execution modes. In COMPILED markup `(v/presence …)` is a seq form the
+;; analyzer recognises and lowers; in INTERPRETED markup it is this ordinary
+;; function call, which returns a reserved-head hiccup vector the interpreted
+;; walks intercept and lower to the SAME retention runtime. The runtime itself
+;; ([[re-frame.freehand.presence-runtime]]) is shared, so retention, the
+;; terminal timeout bound, re-entry and the phase read are the same behaviour
+;; whichever mode wrote the boundary.
+
+(defn presence
+  "(v/presence {:timeout-ms n} keyed-children) — declarative enter/exit
+  retention, deliberately bounded (NOT an animation system). Keyed children
+  pass :mounting → :present → :unmounting; an exiting child is RETAINED for
+  exactly the MANDATORY :timeout-ms — the exit retention duration AND terminal
+  bound — then removal is terminal and exactly-once (all ownership released).
+  Removal-then-reinsertion of a key interrupts the exit and re-enters at
+  :present. Children hold first-appearance order; an incoming reorder is
+  ignored (presence is enter/exit, not reordering).
+
+  DOM-agnostic: the boundary inserts no wrapper node, stamps no attributes, and
+  observes no DOM events. A presence-aware child owns its own exit styling and
+  accessibility — stamp `inert` / `aria-hidden` and the exit class against
+  (v/presence-phase) = :unmounting; the child's stylesheet owns
+  prefers-reduced-motion.
+
+  Called directly in an INTERPRETED body and recognised as a seq form by the
+  COMPILED analyzer — one spelling, one contract, both modes.
+
+  Per [Spec 004 §Presence](../../../../spec/004-Views.md#presence)."
+  [opts & children]
+  (when-not (map? opts)
+    (error/throw-error!
+      :rf.error/ui-tree-malformed 'v/presence
+      (str "(v/presence {:timeout-ms n} children) needs a literal options map with a "
+           "mandatory :timeout-ms (the terminal safety bound); the options map is missing.")
+      {:recovery :no-recovery :extra {:opts (error/diag-value-summary opts)}}))
+  (let [t     (:timeout-ms opts)
+        extra (seq (disj (set (keys opts)) :timeout-ms))]
+    (when-not (and (number? t) (pos? t))
+      (error/throw-error!
+        :rf.error/ui-tree-malformed 'v/presence
+        (str ":timeout-ms is MANDATORY on (v/presence …) and is a positive number of "
+             "milliseconds — the terminal safety bound AND the exit retention duration; "
+             "got " (pr-str t) ".")
+        {:recovery :no-recovery :extra {:timeout-ms (error/diag-value-summary t)}}))
+    (when extra
+      (error/throw-error!
+        :rf.error/ui-tree-malformed 'v/presence
+        (str "the only (v/presence …) option is :timeout-ms; got also "
+             (pr-str (vec extra)) ".")
+        {:recovery :no-recovery :extra {:unknown-options (vec extra)}})))
+  (when (empty? children)
+    (error/throw-error!
+      :rf.error/ui-tree-malformed 'v/presence
+      "(v/presence {:timeout-ms n} children) needs at least one keyed child."
+      {:recovery :no-recovery :extra {}}))
+  (into [descriptor/presence-tag opts] children))
+
+(def ^{:doc "(v/presence-phase) — the single presence-phase read: :mounting /
+  :present / :unmounting inside a (v/presence …) boundary, :present outside one
+  (so presence-aware children stay reusable anywhere). A render-time read (a
+  React context read on ClojureScript); the JVM structural render always yields
+  :present.
+
+  Per [Spec 004 §Presence](../../../../spec/004-Views.md#presence)."
+       :arglists '([])}
+  presence-phase presence-runtime/presence-phase)
 
 ;; ---------------------------------------------------------------------------
 ;; `route-link` — a framework view, declared the ordinary way
