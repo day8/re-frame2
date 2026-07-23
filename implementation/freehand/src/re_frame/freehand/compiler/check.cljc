@@ -261,12 +261,14 @@
   both must be inside the grammar for the compile to stand. The declaration
   itself is the branch the JVM reader selected (`#{:clj}`); `:cljs-branch`,
   present only when the two branches read DIFFERENTLY, carries what the
-  browser build's branch (`#{:cljs}`) BINDS and RENDERS — the branch an
-  author is most likely to false-green, because the JVM reader never elides
-  to it. It is MERGED over the declaration rather than substituted for its
-  body alone, because a conditional around the whole declaration diverges
-  the params too, and a body analyzed against the other branch's params
-  would be refused (or excused) for the wrong reason.
+  browser build's branch (`#{:cljs}`) BINDS, RENDERS and IS WRITTEN AT — the
+  branch an author is most likely to false-green, because the JVM reader
+  never elides to it. It is MERGED over the declaration rather than
+  substituted for its body alone, because a conditional around the whole
+  declaration diverges the params too, and a body analyzed against the other
+  branch's params would be refused (or excused) for the wrong reason — and
+  because a finding is anchored at its declaration's source, which for that
+  branch is its own line and not the JVM branch's.
 
   Both branches are analyzed JVM-side with the SAME head resolution either
   target uses — resolution is JVM for both hosts, so only the FORMS the
@@ -297,10 +299,12 @@
 
   `:cljs-branch` is supplied by [[read-declarations]] only for a `.cljc`
   view whose `#?(:clj … :cljs …)` branches read differently. It carries the
-  branch-owned parts alone — `:params`, `:children-policy`, `:body` — and
-  is merged over the declaration to analyze the CLJS target (see
-  [[findings-for]]), so a `:cljs`-only ineligible form is found rather than
-  false-greened.
+  branch-owned parts alone — the [[branch-keys]] — and is merged over the
+  declaration to analyze the CLJS target (see [[findings-for]]), so a
+  `:cljs`-only ineligible form is found rather than false-greened, and is
+  reported at the line that branch occupies. The view's id and its declared
+  lowering are NOT branch-owned: branches that disagree about either are
+  refused outright (see [[identity-keys]]).
 
   A declaration that already carries `{:compiled true}` is checked the
   same way and reports `:current-lowering :compiled` — the question
@@ -517,11 +521,53 @@
 
 (def ^:private branch-keys
   "The declaration parts a reader conditional can make target-specific: what
-  the branch BINDS and what it RENDERS. Everything else — the view's id, its
-  name, its source coordinates, whether it says `{:compiled true}` — is the
-  declaration's identity, and one identity is what the file declares however
-  many branches it was written across."
-  [:params :children-policy :body])
+  the branch BINDS, what it RENDERS, and WHERE it is written.
+
+  `:source` is here because a conditional around the whole declaration puts
+  the two branches at two places in the file, and a finding from the CLJS
+  branch anchored at the CLJ branch's line sends an author to source that is
+  not the source that failed. A finding's coordinates fall back to its
+  declaration's (see [[coords]]) whenever the reader anchored no metadata of
+  its own — which is most of the time, the reader anchoring lists and not
+  vectors — so the fallback has to be the branch's own."
+  [:params :children-policy :body :source])
+
+(def ^:private identity-keys
+  "The declaration parts a reader conditional may NOT make target-specific.
+
+  A report names one view and one lowering. These are those fields, and if the
+  branches disagree about either, no single report is true of both — so the
+  divergence is refused rather than resolved by preferring a branch. Preferring
+  one is what [[declaration-for]] used to do, and it produced the worst answer
+  a checker can give: a finding drawn from the CLJS branch's body, labelled
+  with the CLJ branch's view id and anchored at the CLJ branch's line. The
+  declaration that actually failed never appeared at all, and the one that was
+  named is fine."
+  [:view-id :compiled?])
+
+(defn- refuse-divergent-identity!
+  "Refuse a top-level conditional whose branches declare DIFFERENT views.
+
+  Two declarations written as one form are two declarations, and the recovery
+  says so: give each its own top-level conditional. Discovery already handles
+  a one-armed conditional — `#?(:clj (v/defview …))` resolves to the
+  declaration for `:clj` and to nothing for `:cljs` — so each is then found,
+  checked against its own target, and reported as ITSELF."
+  [path clj-decl cljs-decl]
+  (let [differing (filter #(not= (get clj-decl %) (get cljs-decl %)) identity-keys)
+        rendered  (str/join ", " (map #(str % " " (pr-str (get clj-decl %))
+                                          " vs " (pr-str (get cljs-decl %)))
+                                      differing))]
+    (throw (ex-info (str "re-frame.freehand check: " path ": the :clj and :cljs branches of one "
+                         "top-level reader conditional disagree about the declaration's IDENTITY "
+                         "— they differ in " rendered ". A report names ONE view and ONE lowering, "
+                         "so answering for both branches would attribute one branch's body to the "
+                         "other's identity. Give each target its own top-level conditional — "
+                         "#?(:clj (v/defview …)) and #?(:cljs (v/defview …)) — and each is "
+                         "discovered, checked against its own target, and reported as itself.")
+                    {:file (str path)
+                     :clj  (select-keys clj-decl (cons :source identity-keys))
+                     :cljs (select-keys cljs-decl (cons :source identity-keys))}))))
 
 (defn- declaration-for
   "The declaration data for top-level `form`, or nil when it declares no view.
@@ -537,12 +583,19 @@
   about it — the loudest false-green there is, since the author reads
   silence as \"no findings\".
 
-  What the branches contain is still ONE declaration. Its identity is the
-  JVM branch's — or the CLJS branch's, for a view that exists only in the
-  browser build — and `:cljs-branch` carries the [[branch-keys]] whenever
-  the CLJS branch's differ. Both are then analyzed by [[findings-for]], so a
-  `:cljs`-only form outside the grammar is FOUND rather than elided by the
-  reader and false-greened."
+  What the branches contain is ONE declaration only if they AGREE about which
+  declaration it is. [[identity-keys]] is that agreement, and a divergence in
+  it is refused ([[refuse-divergent-identity!]]) rather than settled by
+  preferring a branch. What remains is genuinely branch-owned — the
+  [[branch-keys]] — and rides in `:cljs-branch` whenever the CLJS branch's
+  differ, which for a declaration under a conditional includes its own source
+  coordinates. Both are then analyzed by [[findings-for]], so a `:cljs`-only
+  form outside the grammar is FOUND rather than elided by the reader and
+  false-greened, and it is found at the line it was written on.
+
+  A one-armed conditional is not a divergence: `#?(:clj (v/defview …))`
+  resolves to a declaration for `:clj` and to nothing for `:cljs`, so the view
+  is checked for the one target that has it."
   [path ns-sym ns-obj form]
   (let [decl-for  (fn [features]
                     (let [f (resolve-conditionals form features)]
@@ -552,6 +605,10 @@
         cljs-decl (decl-for #{:cljs})
         decl      (or clj-decl cljs-decl)]
     (when decl
+      (when (and clj-decl cljs-decl
+                 (not= (select-keys clj-decl identity-keys)
+                       (select-keys cljs-decl identity-keys)))
+        (refuse-divergent-identity! path clj-decl cljs-decl))
       (cond-> decl
         (and cljs-decl (not= (select-keys cljs-decl branch-keys)
                              (select-keys decl branch-keys)))
