@@ -27,8 +27,11 @@
   (the node schema and the conversion table) and
   [`spec/004D-Freehand-Compiled-Grammar.md`](../../../../../spec/004D-Freehand-Compiled-Grammar.md)
   (the compiled tier that emits calls to these builders)."
-  (:require [re-frame.error :as error]
+  (:require [clojure.string :as str]
+            [re-frame.error :as error]
             [re-frame.freehand.conversion :as conv]
+            [re-frame.freehand.events :as events]
+            [re-frame.freehand.rules :as rules]
             [re-frame.freehand.top-layer :as top-layer]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -464,6 +467,155 @@
                                attrs)
                              events class style])))
 
+;; ---------------------------------------------------------------------------
+;; Props forwarding — `v/spread` and `v/spread-safe`
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §Props forwarding. Two runtime attr maps, two policies, one seam.
+;; Both constructors live HERE, below the door, for the reason every other
+;; builder does: the compiled emitter and the interpreted walk have to reach
+;; the same rule, and an author-space attr map assembled at RUNTIME is exactly
+;; the value the compiler cannot see and must therefore not own alone.
+;;
+;; `v/spread` is the VISIBLE-COST forward: whatever the two maps carry lands on
+;; the element, later-arg-wins, and the author has said so at the site.
+;; `v/spread-safe` is the BOUNDED one a component library forwards a consumer's
+;; attrs through: the owned/structural deny law runs in every build, the
+;; surviving keys fold UNDER the component's own, and only `:class` composes.
+
+(def ^:private spread-refusal-key
+  "The one authored key `v/spread` refuses on its own account. Every other
+  refusal is [[re-frame.freehand.conversion/attr-key-refusal]]'s — the same
+  sentence the direct attribute path states, asked of the same emitted slot —
+  but `:key` reaches that path as an exact match and is DROPPED there, because
+  the interpreted walk has already read it as the element's key. A runtime map
+  is not a site: a key decides which element React considers the same element
+  across renders, and a compiled spread cannot see one to settle it at the
+  site. So it is refused rather than silently honoured in one mode and dropped
+  in the other."
+  :key)
+
+(defn- assert-forwardable-attrs!
+  "Refuse every key `where`'s runtime attr map may not carry, before the map
+  reaches the element. The refusals are `attr-key-refusal`'s, so a forwarded
+  map is judged by exactly the rule a literal one is."
+  [where m]
+  (when-not (or (nil? m) (map? m))
+    (malformed!
+      where
+      (str "(" (name where) " …) takes author-space attribute MAPS (or nil). A "
+           (type-name m) " cannot be checked against the forwarding rules or "
+           "folded onto an element.")
+      {:value (shape m)}))
+  (reduce-kv
+    (fn [_ k _]
+      (when (= spread-refusal-key k)
+        (malformed!
+          where
+          (str "A forwarded attribute map carries :key. A key is not an attribute — "
+               "the reconciler consumes it and it never reaches the DOM — and it is "
+               "LITERAL at the element that carries it, so a map assembled at run "
+               "time cannot supply one. Write :key on the element.")
+          {:attr k}))
+      (when-some [refusal (conv/attr-key-refusal k)]
+        (malformed!
+          where
+          (str "A forwarded attribute map carries " k ". " refusal)
+          {:attr k}))
+      nil)
+    nil
+    m)
+  m)
+
+(defn spread-attrs
+  "`(v/spread base overrides)` — the author-space attribute map the element
+  receives. `overrides` wins every collision (later-arg-wins), both maps are
+  judged key-by-key against the rules a LITERAL attribute map is judged by,
+  and the result folds onto the element through the ordinary rule table.
+
+  The one seam both modes reach: an interpreted body calls it through the
+  public `v/spread`, a compiled body's emitted lowering calls it directly, so
+  the forwarded map cannot mean one thing before promotion and another after."
+  [base overrides]
+  (assert-forwardable-attrs! 're-frame.freehand/spread base)
+  (assert-forwardable-attrs! 're-frame.freehand/spread overrides)
+  (merge base overrides))
+
+(defn- owned-handler-keys
+  "The `on-*` keys of a `v/spread-safe` OWNED props map — the handler families
+  the caller may not install either phase of."
+  [owned]
+  (into #{}
+        (filter #(when-some [n (rules/caller-key-name %)]
+                   (str/starts-with? n "on-")))
+        (keys owned)))
+
+(defn safe-caller-attrs
+  "The GUARDED, canonicalized `caller` map of a `(v/spread-safe owned caller)`
+  — [[re-frame.freehand.rules/assert-safe-caller!]]'s every-build owned-key
+  deny, then the same forwarding refusals `v/spread` applies. `nil` when the
+  caller is nil.
+
+  The deny is the whole point of the form and it is NOT dev-gated: a component
+  library forwards a consumer's attrs onto an element it owns, and the
+  structural/controlled keys plus its own handler families are what it cannot
+  let the consumer clobber. Everything else passes."
+  [caller owned-handler-key-set]
+  (some->> (rules/assert-safe-caller! caller owned-handler-key-set)
+           (assert-forwardable-attrs! 're-frame.freehand/spread-safe)))
+
+(def caller-attrs-key
+  "The reserved key `v/spread-safe` hands the guarded caller map to the
+  interpreted walk under, riding IN the owned attr map the element already
+  reads. Reserved-namespaced, so an authored attribute can never collide with
+  it, and visible in the value rather than hidden in metadata a `merge` would
+  quietly drop.
+
+  A carried marker rather than a pre-merged map because the fold is
+  [[element]]'s: the compiled front end reaches it with the owned props it
+  analysed at build time and the caller map it could not, and the interpreted
+  front end has to reach the SAME fold or the two modes would be two
+  implementations of one policy."
+  :rf.ui/caller)
+
+(defn spread-safe-attrs
+  "`(v/spread-safe owned caller)` — the owned props map carrying its guarded
+  caller under [[caller-attrs-key]], ready for an element's props position.
+  The caller's owned-key deny runs HERE, at the call, so an offending key is
+  refused whether or not the element ever renders."
+  [owned caller]
+  (when-not (or (nil? owned) (map? owned))
+    (malformed!
+      're-frame.freehand/spread-safe
+      (str "(v/spread-safe owned caller) — `owned` is the component's OWN "
+           "author-space props map (or nil), not a " (type-name owned) ".")
+      {:value (shape owned)}))
+  (let [caller* (safe-caller-attrs caller (owned-handler-keys owned))]
+    (cond-> (or owned {})
+      (some? caller*) (assoc caller-attrs-key caller*))))
+
+(defn- fold-caller
+  "Fold a guarded `v/spread-safe` caller map UNDER the element's already-final
+  owned `attrs` / `events`. Owned wins every collision — the caller can carry
+  no owned or structural key, so what is left to collide is an ordinary
+  attribute — with `:class` the ONE exception: the two class values COMPOSE,
+  owned classes first, because a caller passing `.mt-4` is adding a class and
+  not replacing the component's own."
+  [tag attrs es caller]
+  (let [[c-attrs c-es c-class c-style]
+        (reduce-kv #(dyn-attr-entry tag %1 %2 %3) [{} {} nil nil] caller)
+        c-attrs (if-let [c (class-string tag nil c-class)]
+                  (assoc c-attrs :class c)
+                  c-attrs)
+        c-attrs (if-let [s (and (some? c-style) (not-empty (style-map tag c-style)))]
+                  (assoc c-attrs :style s)
+                  c-attrs)
+        merged  (merge c-attrs attrs)
+        merged  (if (and (:class c-attrs) (:class attrs))
+                  (assoc merged :class (str (:class attrs) " " (:class c-attrs)))
+                  merged)]
+    [merged (merge c-es es)]))
+
 (defn element
   "Build an element node in canonical form. Called by a compiled view's
   emitted body, with everything the compiler could settle already settled:
@@ -477,13 +629,16 @@
     `:style`      the authored `:style` value
     `:events`     handler values, classified here by the value present
     `:key?`/`:key-val`  key presence and value
+    `:caller`     an already-guarded `v/spread-safe` caller attr map,
+                  folded UNDER everything above (owned wins; `:class`
+                  composes owned-first)
     `:children`   a thunk building the children, evaluated under this
                   element's namespace context
 
   Absent-when-empty throughout: an element with no attributes carries no
   `:attrs` key at all, so one semantic element has exactly one
   representation."
-  [{:keys [tag attrs dyn class sugar style events key? key-val children]}]
+  [{:keys [tag attrs dyn class sugar style events key? key-val children caller]}]
   (let [ctx        (conv/enter-ns *ns-context* tag)
         ;; `:class` and `:style` ride the accumulator because an ALIASED
         ;; spelling of either arrives through `:dyn` — the front end
@@ -497,17 +652,22 @@
         attrs      (if-let [s (and (some? style) (not-empty (style-map tag style)))]
                      (assoc attrs :style s)
                      attrs)
+        es         (reduce-kv (fn [m k v]
+                                (if-let [c (classify-event tag k v)]
+                                  (assoc m k c)
+                                  m))
+                              es events)
+        ;; `v/spread-safe`: the guarded caller attrs fold UNDER everything the
+        ;; component owns, which is why it happens once the owned class and
+        ;; style have already resolved. The deny law ran at the call, so what
+        ;; arrives here cannot carry a structural or owned key.
+        [attrs es] (if (some? caller) (fold-caller tag attrs es caller) [attrs es])
         ;; The DOM top layer's desired-state pair is Freehand vocabulary, not
         ;; attributes: it leaves `:attrs` here and becomes the reserved
         ;; structural fact below. Extracting it at the ONE canonicaliser both
         ;; modes reach is what makes the validity rules and the recorded fact
         ;; the same in an interpreted and a compiled declaration.
         [attrs top] (top-layer/extract tag attrs)
-        es         (reduce-kv (fn [m k v]
-                                (if-let [c (classify-event tag k v)]
-                                  (assoc m k c)
-                                  m))
-                              es events)
         el-ns      (conv/element-ns ctx)
         kids       (when children
                      ;; Pushing a thread binding costs a frame and a map
@@ -566,10 +726,27 @@
   becomes the opaque marker — its existence and spelling stay testable,
   its behaviour does not (Spec 004B §The opaque marker). A prop that
   CONTAINS one is refused: the marker occupies a site, and below a prop key
-  the tree has no site vocabulary to name (§Data)."
+  the tree has no site vocabulary to name (§Data).
+
+  A DECLARED roster callback records under the marker member that names
+  its authoring form — `{:rf.ui/opaque :v/render-fn}` for the render slot a
+  library seam invokes through `v/slot`, and the matching member for
+  `v/event` / `v/handler` / `v/raw-fn`. The form is worth naming where the
+  bare fn is not: a slot-carrying prop is a CONTRACT between the caller and
+  the seam, so a structural test asserting the caller supplied a render-fn
+  is asserting something the mode-neutral `:fn` cannot say. Both modes reach
+  this arm with the same value — the compiled emitter lowers a render-fn to
+  the same roster callback the interpreted macro expands to — so the record
+  is the same in either."
   [view-id k x]
-  (if (fn? x)
+  (cond
+    (events/callback? x)
+    {:rf.ui/opaque (keyword "v" (name (events/callback-role x)))}
+
+    (fn? x)
     {:rf.ui/opaque :fn}
+
+    :else
     (do (when-let [[path bad] (non-data x)]
           (malformed!
             're-frame.freehand/render

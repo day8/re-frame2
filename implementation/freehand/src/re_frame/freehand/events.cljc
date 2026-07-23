@@ -203,7 +203,7 @@
 ;; by accident fails at the call rather than silently doing the wrong
 ;; thing.
 
-(deftype Callback [role f]
+(deftype Callback [role f arity]
   Object
   (toString [_] (str "#re-frame.freehand/callback " role)))
 
@@ -247,11 +247,29 @@
   [x]
   (.-f ^Callback x))
 
+(defn callback-arity
+  "The DECLARED parameter count of a body-taking roster callback — the
+  length of the vector the author wrote — or `nil` for `v/raw-fn`, whose
+  function arrived from elsewhere and declares nothing here.
+
+  Recorded because one roster role has an arity CONTRACT rather than a
+  convention: a `v/render-fn` is invoked by `v/slot` with a fixed number
+  of arguments, and the two hosts disagree about what a mismatch does —
+  JavaScript silently drops surplus arguments and passes `undefined` for
+  missing ones, the JVM throws a raw `ArityException`. Carrying the
+  declared count lets [[check-slot-arity!]] answer host-identically,
+  before the call, with a diagnostic instead of either."
+  [x]
+  (.-arity ^Callback x))
+
 (defn ^:no-doc callback
   "Build a roster callback. The expansion target of `v/event`,
-  `v/handler` and `v/render-fn`, and the body of `v/raw-fn`."
-  [role f]
-  (->Callback role f))
+  `v/handler` and `v/render-fn`, and the body of `v/raw-fn`.
+
+  `arity` is the declared parameter count, present for the body-taking
+  forms and absent for `v/raw-fn`."
+  ([role f] (->Callback role f nil))
+  ([role f arity] (->Callback role f arity)))
 
 (defn raw-fn
   "The expert seam: hand `f` to a foreign API with EXACTLY its supplied
@@ -277,7 +295,98 @@
               (value-tag params) " where the parameter vector belongs.")
          :fix-the-callback-declaration
          {:params (error/diag-value-summary params)}))
-     `(callback ~role (fn ~params ~@body))))
+     `(callback ~role (fn ~params ~@body) ~(count params))))
+
+;; ---------------------------------------------------------------------------
+;; Render slots — the `v/render-fn` value and the `v/slot` invocation
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §Render slots. A render slot is ONE grammar with two front ends,
+;; exactly like presence: `(v/render-fn [args…] template)` is a seq form the
+;; compiled analyzer recognises and lowers, and an ordinary macro call an
+;; interpreted body expands — and both produce a `:render-fn` roster callback.
+;; `(v/slot render-fn-value arg…)` invokes it, and the vocabulary that gates
+;; the invocation lives HERE rather than in either walk, because the value
+;; being gated is a member of the roster this namespace owns.
+;;
+;; What DOES differ between the modes is what the invoked body answers, and
+;; that difference is D010 rather than an inconsistency: an interpreted
+;; render-fn answers MARKUP, which its (interpreted) caller walks; a compiled
+;; one answers a NODE, which its caller splices. A compiled render-fn is
+;; therefore usable from an interpreted slot — a node is a child value
+;; anywhere — while an interpreted one handed to a COMPILED slot lands on the
+;; markup-in-a-compiled-body refusal, which is the ladder D010 already states.
+
+(defn render-fn?
+  "Is `x` a `v/render-fn` value — a roster callback in the `:render-fn`
+  role?"
+  [x]
+  (and (callback? x) (= :render-fn (callback-role x))))
+
+(defn invalid-slot!
+  "The didactic refusal for a `v/slot` value that is neither `nil`, a
+  `v/render-fn`, nor (interpreted only) an ordinary function."
+  [x]
+  (error/throw-error!
+    :rf.error/ui-tree-malformed 're-frame.freehand/slot
+    (str "(v/slot render-fn-value arg…) received " (value-tag x)
+         " — a slot invokes parameterized content supplied by the CALLER, and "
+         "the roster of things that can be one is closed: a (v/render-fn "
+         "[args…] template) value, nil (renders nothing), or — in an "
+         "INTERPRETED body only — an ordinary pure function of the same "
+         "arguments. Declare the content with v/render-fn.")
+    {:recovery :no-recovery :extra {:value (error/diag-value-summary x)}}))
+
+(defn check-slot-arity!
+  "Enforce the host-independent `v/slot` <-> `v/render-fn` arity contract
+  BEFORE invocation: a slot passing `argc` arguments to a render-fn that
+  declared a different fixed parameter count is a didactic
+  `:rf.error/ui-tree-malformed` on BOTH hosts — neither host's native
+  behaviour is a diagnostic (JavaScript silently drops surplus arguments,
+  the JVM throws a raw `ArityException`)."
+  [rf argc]
+  (let [arity (callback-arity rf)]
+    (when (and (some? arity) (not= arity argc))
+      (error/throw-error!
+        :rf.error/ui-tree-malformed 're-frame.freehand/slot
+        (str "(v/slot render-fn arg…) passed " argc " argument"
+             (when (not= 1 argc) "s") " to a v/render-fn that declares " arity
+             " parameter" (when (not= 1 arity) "s")
+             " — a render-fn is a FIXED-arity callback, so a slot passes "
+             "exactly its declared parameters. Match the slot's argument "
+             "count to the render-fn's parameter vector.")
+        {:recovery :no-recovery :extra {:expected arity :actual argc}}))))
+
+(defn slot-ready?
+  "Gate a `v/slot` value on the COMPILED path: `nil` renders nothing
+  (false), a `v/render-fn` renders (true), anything else — a bare
+  function included — is [[invalid-slot!]].
+
+  The bare-fn refusal is the runtime half of a deliberate asymmetry. An
+  interpreted body may pass an ordinary pure function as parameterized
+  content, because an interpreted slot has nothing to prove about it; a
+  compiled one may not, because the compiled tier's whole claim is that it
+  can SEE the content it lowers, and a function value it cannot see is
+  exactly the claim it declines to make."
+  [x]
+  (cond
+    (nil? x)       false
+    (render-fn? x) true
+    :else          (invalid-slot! x)))
+
+(defn invoke-slot
+  "The INTERPRETED `v/slot` invocation: `nil` renders nothing, a
+  `v/render-fn` renders with `args`, and an ordinary function renders with
+  them too — the interpreted-only widening [[slot-ready?]] refuses. Answers
+  what the invoked body answered, which the interpreted walk then treats as
+  the ordinary child it is."
+  [x args]
+  (cond
+    (nil? x)       nil
+    (render-fn? x) (do (check-slot-arity! x (count args))
+                       (apply (callback-fn x) args))
+    (fn? x)        (apply x args)
+    :else          (invalid-slot! x)))
 
 ;; ---------------------------------------------------------------------------
 ;; The closed event grammar

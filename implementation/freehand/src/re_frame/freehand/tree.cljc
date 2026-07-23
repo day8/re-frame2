@@ -189,6 +189,19 @@
     m
     attrs))
 
+(defn- element-attrs
+  "Split an element's authored props map into the attributes it folds and the
+  `v/spread-safe` caller map it may be carrying.
+
+  `(v/spread-safe owned caller)` answers the owned map with the GUARDED caller
+  riding under [[re-frame.freehand.node/caller-attrs-key]], because the fold —
+  caller under owned, `:class` composing owned-first — belongs to the one
+  canonicaliser rather than to either front end. The compiled emitter hands
+  the same two values to the same slot from the other side."
+  [authored]
+  [(dissoc authored node/caller-attrs-key)
+   (get authored node/caller-attrs-key)])
+
 (defn- element-node
   [tag-kw args]
   (when (namespace tag-kw)
@@ -202,16 +215,18 @@
                       (str "The element head " tag-kw " carries only .class#id sugar and no tag.")
                       {:value (shape tag-kw)}))
         attrs?    (map? (first args))
-        authored  (if attrs? (first args) nil)
+        [authored
+         caller]  (if attrs? (element-attrs (first args)) [nil nil])
         kid-forms (if attrs? (rest args) args)]
     (node/element
-      (with-attrs {:tag      tag
-                   :sugar    classes
-                   :attrs    (cond-> {} id (assoc :id id))
-                   :dyn      {}
-                   :key?     (contains? authored :key)
-                   :key-val  (:key authored)
-                   :children (when (seq kid-forms) #(children kid-forms))}
+      (with-attrs (cond-> {:tag      tag
+                           :sugar    classes
+                           :attrs    (cond-> {} id (assoc :id id))
+                           :dyn      {}
+                           :key?     (contains? authored :key)
+                           :key-val  (:key authored)
+                           :children (when (seq kid-forms) #(children kid-forms))}
+                    (some? caller) (assoc :caller caller))
                   tag id authored))))
 
 ;; ---------------------------------------------------------------------------
