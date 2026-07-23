@@ -88,7 +88,9 @@
   (:require [re-frame.error :as error]
             [re-frame.freehand.conversion :as conv]
             #?@(:cljs [[goog.object :as gobj]
-                       [re-frame.freehand.refs :as refs]])))
+                       [re-frame.freehand.refs :as refs]
+                       [re-frame.interop :as interop]
+                       [re-frame.trace :as trace]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -258,22 +260,74 @@
   (reset! operations 0)
   nil)
 
-(defn- advise!
-  "A host call the browser refused. DEV-only advisory, stripped in
-  production by `goog.DEBUG`: the operation is mechanical and the failure
-  is an authoring mistake the next render can fix, so it must not become
-  an exception that takes a page down, and it must not be swallowed
-  either."
-  [op ^js node e]
-  (when ^boolean js/goog.DEBUG
-    (js/console.warn
-      (str "top layer: " op " was refused by the browser on <"
-           (some-> node .-tagName .toLowerCase) ">. A top-layer call is refused when the "
-           "node is not in the document, or when the element is already open through the "
-           "other mechanism (an already-open non-modal dialog cannot be promoted with "
-           "showModal). Render the node before asking for it to be open, and keep one "
-           "mechanism per element.")
-      e))
+;; ---------------------------------------------------------------------------
+;; Development evidence — typed, and published only from a selected occurrence
+;; ---------------------------------------------------------------------------
+;;
+;; Two advisories, one seam. Both are DEVELOPMENT evidence about a mistake the
+;; next render can fix, so neither throws and neither is swallowed. What makes
+;; them evidence rather than console noise is a pair of rules they now share.
+;;
+;; TYPED. Each carries a stable, catalogued diagnostic id and a `:recovery` on
+;; the trace DIAGNOSTIC channel — the surface a listener, an inspector or an
+;; AI reading a session already consumes. A console sentence names the same
+;; fact for the person it is addressed to, but prose is not a contract:
+;; scraping English out of a log is not a way for a tool to learn anything.
+;;
+;; PUBLISHED FROM A SELECTED OCCURRENCE. Evidence rides a committed callback
+;; ref or a host call that actually ran, never the construction of props. A
+;; render may restart or be abandoned, and an advisory published from one names
+;; a candidate that never existed — it would spam a page that re-renders and
+;; accuse an author of a mistake the page never made. It is the same passive-
+;; render law the reactive bundle obeys, obeyed by the same means.
+
+(def ^:private unreconciled-id
+  "A controlled top-layer declaration with no handler for the browser's
+  own dismissal (Spec 009 §Error / warning catalogue)."
+  :rf.warning/view-top-layer-unreconciled)
+
+(def ^:private refused-id
+  "A top-layer host call the browser refused (Spec 009 §Error / warning
+  catalogue)."
+  :rf.warning/view-top-layer-refused)
+
+(defn- evidence!
+  "Publish one advisory: the typed record on the trace diagnostic channel,
+  and `sentence` on the console for the reader.
+
+  `interop/debug-enabled?` gates both, standing alone so Closure folds it
+  under `:advanced` + `goog.DEBUG=false` and neither the record nor the
+  sentence reaches a production build."
+  [id tags sentence]
+  (when interop/debug-enabled?
+    (trace/emit! :warning id tags)
+    (js/console.warn (str "[" id "] " sentence)))
+  nil)
+
+(defn- refused!
+  "A host call the browser refused, as evidence naming the call, the
+  element and the browser's own reason. Not an exception: the operation is
+  mechanical and the failure is an authoring mistake the next render can
+  fix, so it must not take a page down — and not silence either."
+  [host-call ^js node e]
+  (when interop/debug-enabled?
+    (let [tag (some-> node .-tagName .toLowerCase)]
+      (evidence!
+        refused-id
+        {:host-call  host-call
+         :tag        (some-> tag keyword)
+         :element-id (not-empty (.-id node))
+         :exception  (error/ex-message-safe e)
+         :reason     (str "the browser refused " host-call " — a top-layer call is refused "
+                          "when the node is not in the document, or when the element is "
+                          "already open through the other mechanism")
+         :recovery   :warned-and-continued}
+        (str "top layer: " host-call " was refused by the browser on <" tag ">. A top-layer "
+             "call is refused when the node is not in the document, or when the element is "
+             "already open through the other mechanism (an already-open non-modal dialog "
+             "cannot be promoted with showModal). Render the node before asking for it to be "
+             "open, and keep one mechanism per element. The browser said: "
+             (error/ex-message-safe e)))))
   nil)
 
 (defn- reconcile-popover!
@@ -285,7 +339,7 @@
     (swap! operations inc)
     (try
       (if want (.showPopover node) (.hidePopover node))
-      (catch :default e (advise! (if want "showPopover()" "hidePopover()") node e))))
+      (catch :default e (refused! (if want "showPopover()" "hidePopover()") node e))))
   nil)
 
 (defn- reconcile-modal!
@@ -297,7 +351,7 @@
     (swap! operations inc)
     (try
       (if want (.showModal node) (.close node))
-      (catch :default e (advise! (if want "showModal()" "close()") node e))))
+      (catch :default e (refused! (if want "showModal()" "close()") node e))))
   nil)
 
 (defn apply-desired!
@@ -416,29 +470,50 @@
                       (apply-desired! node (aget entry 1))))))))
   nil)
 
+(defn- reconciling-handlers
+  "The event positions that reconcile this mechanism's own dismissal —
+  the popover's toggle pair, or the dialog's close pair."
+  [fact]
+  (if (contains? fact :popover-open?)
+    [:on-toggle :on-before-toggle]
+    [:on-close :on-cancel]))
+
 (defn- reconciled?
   "Does the element handle the browser's own dismissal? Native dismissal —
   Escape, light dismiss, the close button — happens without asking the
   application, so a controlled top-layer node whose author never reads the
   resulting event will spring back open on the next render."
   [attrs fact]
-  (let [ks (if (contains? fact :popover-open?)
-             [:on-toggle :on-before-toggle]
-             [:on-close :on-cancel])]
-    (boolean (some #(some? (get attrs %)) ks))))
+  (boolean (some #(some? (get attrs %)) (reconciling-handlers fact))))
 
 (defn- advise-unreconciled!
+  "A controlled declaration with nothing listening for the browser's own
+  dismissal, as evidence naming the mechanism and the handlers that would
+  reconcile it. Published from the COMMITTED ref, not from the props: a
+  candidate React never selected declares nothing, and accusing its author
+  would be an accusation about a page that does not exist."
   [tag attrs fact]
-  (when ^boolean js/goog.DEBUG
+  (when interop/debug-enabled?
     (when-not (reconciled? attrs fact)
-      (js/console.warn
-        (str "top layer: " tag " declares a controlled top-layer state with no handler for "
-             "the browser's own dismissal. Escape, light dismiss and the dialog's own close "
-             "button all close the node WITHOUT asking the application, and the substrate "
-             "never writes application state on their behalf — so the next render will "
-             "re-open it. Handle "
-             (if (contains? fact :popover-open?) ":on-toggle" ":on-close / :on-cancel")
-             " with ordinary event intent and move the state that drives this property."))))
+      (let [popover? (contains? fact :popover-open?)
+            handlers (reconciling-handlers fact)]
+        (evidence!
+          unreconciled-id
+          {:tag       tag
+           :mechanism (if popover? :popover :modal)
+           :handlers  handlers
+           :reason    (str "a controlled top-layer state with no handler for the browser's "
+                           "own dismissal springs back open on the next render, because the "
+                           "desired state still says open and the substrate writes no "
+                           "application state on the browser's behalf")
+           :recovery  :warned-and-continued}
+          (str "top layer: " tag " declares a controlled top-layer state with no handler for "
+               "the browser's own dismissal. Escape, light dismiss and the dialog's own close "
+               "button all close the node WITHOUT asking the application, and the substrate "
+               "never writes application state on their behalf — so the next render will "
+               "re-open it. Handle "
+               (if popover? ":on-toggle" ":on-close / :on-cancel")
+               " with ordinary event intent and move the state that drives this property.")))))
   nil)
 
 (defn install!
@@ -472,15 +547,19 @@
   function, and the release arm for a participant that returned no
   cleanup of its own — which this one does not — is to call it with nil.
   Either way the retiring call reaches this exact closure, which is what
-  makes it the generation."
+  makes it the generation.
+
+  The unreconciled-declaration advisory rides the same ref, for the same
+  reason the host call does: building props is not a commit, and evidence
+  from a render the host may abandon names nothing real."
   [props tag attrs]
   (if-let [fact (desired tag attrs)]
-    (do (advise-unreconciled! tag attrs fact)
-        (gobj/set props "ref"
+    (do (gobj/set props "ref"
                   (refs/chain (gobj/get props "ref")
                               (fn top-layer-ref [node]
                                 (if (some? node)
-                                  (enqueue! node fact top-layer-ref)
+                                  (do (advise-unreconciled! tag attrs fact)
+                                      (enqueue! node fact top-layer-ref))
                                   (retire! top-layer-ref))
                                 js/undefined)))
         props)

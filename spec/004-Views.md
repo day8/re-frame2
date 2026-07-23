@@ -1738,6 +1738,22 @@ naming the recovery, not a swallowed exception and not a thrown one: the
 operation is mechanical, the mistake is an authoring mistake the next render can
 fix, and taking the page down for it would be the wrong trade.
 
+Both advisories are **evidence, and evidence is published only from a selected
+commit** — the same passive-render law everything else here obeys. Building an
+element's props is not a commit: the host may restart or abandon that render, and
+an advisory published from one names a candidate that never existed and accuses
+an author of a mistake the page never made. The publication therefore rides the
+committed occurrence — the callback ref for the unreconciled declaration, the
+host call itself for a refusal — and constructing props publishes nothing at all.
+
+They are **typed**, too. Each carries a stable, catalogued diagnostic id and a
+`:recovery` on the development trace channel: the mechanism and the handlers that
+reconcile it for an unreconciled declaration, and the host call, the element and
+the browser's own reason for a refused one. A console sentence names the same
+fact for the person reading it, but prose is not a contract — a tool, including
+an AI reading a session, has to be able to see the fact without parsing English.
+Both are development-only and are eliminated from a production build.
+
 Retention while closed is a component's choice, not the framework's: conditional
 children can remove the node entirely, and leaving it mounted but closed
 preserves expensive host state. Enter/exit retention is §Presence — the top layer
@@ -1780,7 +1796,7 @@ Real React portals stay behind explicit UIx/Helix wrappers, where they are
 visibly React's protocol rather than the substrate's vocabulary.
 
 **Conformance:** [FH-TOPLAYER-001](conformance/freehand/conformance-index.md#fh-toplayer--top-layer),
-FH-TOPLAYER-002, FH-TOPLAYER-003, FH-TOPLAYER-004.
+FH-TOPLAYER-002, FH-TOPLAYER-003, FH-TOPLAYER-004, FH-TOPLAYER-005.
 
 ### The outward React bridge
 

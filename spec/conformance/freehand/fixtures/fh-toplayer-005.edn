@@ -1,0 +1,40 @@
+;; FH-TOPLAYER-005 — the top layer's development advisories: WHEN they are
+;; published, and WHAT they are.
+;;
+;; Two advisories, one seam. Neither is about a value the tree carries, so
+;; neither is provable structurally; both are about a moment.
+;;
+;;   1. WHEN. An advisory is evidence, and evidence is published only from a
+;;      SELECTED commit — the same passive-render law the reactive bundle
+;;      obeys. Constructing an element's props is not a commit: React may
+;;      restart or abandon that render, and an advisory published from one
+;;      names a candidate that never existed, accusing an author of a mistake
+;;      the page never made. So the publication rides the callback ref, which
+;;      runs only for a render the host committed, and building props publishes
+;;      exactly ZERO.
+;;
+;;   2. WHAT. Both advisories carry a stable, catalogued diagnostic id on the
+;;      trace DIAGNOSTIC channel, with the fields a reader needs: the
+;;      mechanism and the handlers that reconcile it for an unreconciled
+;;      declaration; the host call, the element, and the browser's own reason
+;;      for a refused one — each with a `:recovery`. Unstructured console prose
+;;      is not evidence a tool can read, and scraping it is not a contract.
+;;
+;; The refusal case is a REAL browser refusal, not a stub: a <dialog> already
+;; open non-modally cannot be promoted with showModal(), which is exactly the
+;; authoring mistake the advisory names. The runtime continues afterwards —
+;; the operation is mechanical and the next render can fix it, so taking the
+;; page down would be the wrong trade.
+;;
+;; Both are DEV-only: `interop/debug-enabled?` gates the pair, so `:advanced`
+;; + goog.DEBUG=false strips them entirely.
+{:fh/id "FH-TOPLAYER-005"
+ :fh/law
+ "Top-layer development advisories are published only from a SELECTED commit — constructing props publishes zero — and each is typed dev evidence carrying a stable catalogued diagnostic id and a recovery on the trace diagnostic channel: an unreconciled controlled declaration names its mechanism and the handlers that reconcile it, and a refused host call names the call, the element and the browser's reason before the runtime continues."
+
+ :unreconciled-id :rf.warning/view-top-layer-unreconciled
+ :refused-id      :rf.warning/view-top-layer-refused
+ :recovery        :warned-and-continued
+
+ :menu-id   "advisory-menu"
+ :dialog-id "advisory-dialog"}
