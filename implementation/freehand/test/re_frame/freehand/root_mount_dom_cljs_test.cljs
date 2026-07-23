@@ -6,12 +6,21 @@
   the minimal `[app {…}]` form renders one versioned tree, and the derived
   root-id is the mounted view's id. This one proves what REACT DOES with the
   same form — real DOM on a real page — and, the harder claim, what a hot
-  reload does to a live host root: re-mounting the same root re-renders the
-  EXISTING `react-dom/client` root rather than allocating a second one, so
-  the reloaded body renders and the host root is not reseeded. A reconciler
-  can be perfectly shaped around a reuse React never performs, and no
-  headless assertion would notice, because the assertion and the bug would
-  share an author.
+  reload does to a live mount: the reloaded body renders, the EXISTING
+  `react-dom/client` root is re-rendered rather than replaced, and the
+  mounted OCCURRENCE beneath it survives. A reconciler can be perfectly
+  shaped around a reuse React never performs, and no headless assertion
+  would notice, because the assertion and the bug would share an author.
+
+  The occurrence claim is the one that needs care. An identical host root
+  object says nothing about what hangs below it: a fresh component TYPE
+  under a reused root unmounts and remounts the whole boundary, and the new
+  text still appears — so a reload assertion built on \"same root, new text\"
+  passes on exactly the behaviour it exists to forbid. This file therefore
+  proves the occurrence with state React preserves ONLY across a stable
+  component type: an UNCONTROLLED input's value, and its focus. A remount
+  answers a different DOM node, reseeded from the new body, with focus back
+  on `<body>`.
 
   So: a real `react-dom/client` mount through `v/mount`, and every claim
   read back off `document` and off the returned root handle.
@@ -24,6 +33,7 @@
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.descriptor :as descriptor]
+            [re-frame.freehand.react :as fr]
             [re-frame.freehand.root :as root]
             [re-frame.freehand.root-views :as views]))
 
@@ -33,9 +43,12 @@
 (use-fixtures :each
   ;; A fresh registry per test: the live-root registry is `defonce`, so a
   ;; stale entry from a prior test (or a prior run of this file) could
-  ;; masquerade as a live root the reload path would re-render into.
-  {:before (fn [] (root/reset-registry!))
-   :after  (fn [] (root/reset-registry!))})
+  ;; masquerade as a live root the reload path would re-render into. The
+  ;; emitter's boundary cache is cleared for the same reason — a boundary
+  ;; left over from an earlier run would make this file's first mount look
+  ;; like somebody else's reload.
+  {:before (fn [] (root/reset-registry!) (fr/reset-boundaries!))
+   :after  (fn [] (root/reset-registry!) (fr/reset-boundaries!))})
 
 (defn- browser? []
   (and (exists? js/document) (some? (.-createElement js/document))))
@@ -68,15 +81,25 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- reloadable
-  "Build a declared-view descriptor with the fixture's `:root-id` view-id and
-  the given body text — a stand-in for one generation of a redefined view."
-  [body-text]
+  "Build a declared-view descriptor with the fixture's `:root-id` view-id,
+  the given label text and the given uncontrolled-input SEED — a stand-in
+  for one generation of a redefined view.
+
+  The input is deliberately UNCONTROLLED: `:default-value` seeds it once and
+  React never writes to it again, so whatever is typed into the live node is
+  state only a preserved component type can carry across the reload. The
+  seed moves with the body, so a remount is loud — it replaces what was
+  typed with the NEW generation's seed."
+  [label-text seed]
   (descriptor/declare-view
     {:view-id         (:root-id root-002)
      :source          {:ns "re-frame.freehand.root-hmr" :file "root_hmr.cljc" :line 0}
      :lowering        :interpreted
      :children-policy :optional
-     :render          (fn [_] [:main#app body-text])}))
+     :render          (fn [_]
+                        [:main#app
+                         [:span#label label-text]
+                         [:input#field {:type "text" :default-value seed}]])}))
 
 ;; ===========================================================================
 ;; FH-ROOT-001 — the minimal one-root mount puts real DOM on a real page
@@ -115,16 +138,21 @@
                        (done)))))))))
 
 ;; ===========================================================================
-;; FH-ROOT-002 — a hot reload keeps the host root, and does not reseed
+;; FH-ROOT-002 — a compatible reload keeps the host root AND the occurrence
 ;; ===========================================================================
 
-(deftest fh-root-002-a-reload-keeps-the-host-root-and-does-not-reseed
+(deftest fh-root-002-a-compatible-reload-keeps-the-mounted-occurrence
   (testing "Per FH-ROOT-002 (browser): a reload mints a NEW descriptor for
             the redefined view, but its qualified id — and so the derived
-            root-id — is unchanged. Re-mounting the same root into the same
-            container therefore re-renders the EXISTING host root rather than
-            allocating a second one: the reloaded body renders, the host root
-            is identical, and the root-id is stable. The fresh-container
+            root-id, and so the emitter's boundary — is unchanged. Re-mounting
+            the same root into the same container therefore re-renders the
+            EXISTING host root rather than allocating a second one, AND hands
+            React the component type it is already reconciling. The reloaded
+            body renders while the occurrence below the boundary survives:
+            the same input DOM node, still carrying what was typed into it,
+            still the document's active element. That triple is the claim
+            'not reseeded' actually makes — an identical host root object is
+            true of a full remount underneath it too. The fresh-container
             control is the non-vacuity — a genuinely new root there proves
             the reuse above is a real decision, not an always-true identity."
     (if-not (browser?)
@@ -132,26 +160,55 @@
       (async done
         (let [container (host-node!)
               fresh     (host-node!)
-              before    (reloadable (:before root-002))
-              after     (reloadable (:after root-002))
-              root-1    (atom nil)]
+              before    (reloadable (:before root-002) (:seed-before root-002))
+              after     (reloadable (:after root-002) (:seed-after root-002))
+              occ       (:occurrence-preserved root-002)
+              root-1    (atom nil)
+              input-1   (atom nil)]
           (-> (act #(v/mount [before {}] container))
               (.then (fn [mounted]
                        (reset! root-1 mounted)
-                       (is (= (:before root-002) (text container "#app"))
+                       (is (= (:before root-002) (text container "#label"))
                            "the first generation's body rendered")
                        (is (= (:root-id root-002) (:root-id (root/root-descriptor mounted)))
                            "the root's derived id is the shared qualified view-id")
+                       ;; Put real, uncommitted browser state into the live
+                       ;; occurrence — the kind React keeps only while the
+                       ;; component type it mounted stays the same.
+                       (let [input (.querySelector container "#field")]
+                         (reset! input-1 input)
+                         (is (some? input) "the mounted occurrence carries an uncontrolled input")
+                         (is (= (:seed-before root-002) (.-value input))
+                             "seeded from the FIRST generation's body")
+                         (set! (.-value input) (:typed root-002))
+                         (.focus input)
+                         (is (identical? input js/document.activeElement)
+                             "and it holds focus before the reload"))
                        ;; the reload: re-mount the redefined view into the SAME node
                        (act #(v/mount [after {}] container))))
               (.then (fn [remounted]
-                       (is (= (:after root-002) (text container "#app"))
+                       (is (= (:after root-002) (text container "#label"))
                            "the reloaded body is what renders")
                        (when (:same-host-root root-002)
                          (is (identical? (.-react-root ^root/Root @root-1)
                                          (.-react-root ^root/Root remounted))
                              "the reload RE-RENDERED the existing host root — no second
-                              createRoot, so nothing downstream was reseeded"))
+                              createRoot"))
+                       ;; The occurrence itself. Each of these fails on a
+                       ;; boundary React remounted, and only on that.
+                       (let [input (.querySelector container "#field")]
+                         (when (:same-input-node occ)
+                           (is (identical? @input-1 input)
+                               "the SAME input DOM node is still mounted — the boundary was
+                                re-rendered, not unmounted and rebuilt"))
+                         (when (:typed-value occ)
+                           (is (= (:typed root-002) (.-value input))
+                               "still carrying what was typed into it — a remount would have
+                                reseeded it from the NEW body's :default-value"))
+                         (when (:focus occ)
+                           (is (identical? input js/document.activeElement)
+                               "and still the document's active element — a remount drops
+                                focus to <body>")))
                        (is (= (:root-id root-002) (:root-id (root/root-descriptor remounted)))
                            "the root-id did not move across the redefinition")
                        ;; non-vacuity: a DIFFERENT container is a genuinely new root
@@ -161,7 +218,11 @@
                                             (.-react-root ^root/Root elsewhere)))
                            "mounting into a different container is a distinct host root
                             — the reuse above is a real decision, not a tautology")
-                       (is (= (:after root-002) (text fresh "#app")))
+                       (is (= (:after root-002) (text fresh "#label")))
+                       (is (= (:entries (:boundary root-002))
+                              (count (fr/boundary-cache)))
+                           "and the emitter kept ONE boundary for the view id across every
+                            generation — a reload session retains no obsolete component")
                        (.unmount (.-react-root ^root/Root @root-1))
                        (.unmount (.-react-root ^root/Root elsewhere))
                        (.remove container)

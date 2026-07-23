@@ -652,7 +652,7 @@ multi-root duplicate detection (§7), failed-root isolation (§7.1), total
 teardown and hydration (§4) are later work; the bare declared view at the
 head is the whole interpreted grammar this slice ships.
 
-### Hot reload keeps the root identity
+### Hot reload keeps the root identity and the mounted occurrence
 
 A declared view is a descriptor **value**, so a hot reload mints a *new*
 descriptor object for the redefined view. But the value it carries holds the
@@ -665,11 +665,58 @@ That is what makes `mount` **idempotent per root** (§3) the reload path: re-run
 the mount with the same root-id into the same container finds the root live
 and RE-RENDERS the existing host root rather than allocating a second one. A
 second host root on one container tears the whole tree down and re-seeds it;
-reusing the live one is what preserves the occurrence identity across the
-redefinition. The reloaded body renders; the host root, and everything that
-hangs off it, is not reseeded. When frame binding lands, the frame is found
-live at the same fingerprint on that same re-render (§6), so durable state
-survives the edit too.
+reusing the live one is the first half of preserving the occurrence across
+the redefinition. When frame binding lands, the frame is found live at the
+same fingerprint on that same re-render (§6), so durable state survives the
+edit too.
+
+**The reused root is only half the claim, and the weaker half.** Identity of
+the host root object says nothing about what hangs beneath it. The boundary
+under that root is a real component of the host renderer, and a host
+reconciles boundaries on component **identity**: hand it a different one for
+the same position and it unmounts the subtree and mounts a fresh one — the
+reloaded body appears on screen, correctly, on top of an occurrence that has
+been thrown away. Everything the occurrence was holding goes with it: an
+uncontrolled input's text, a scroll offset, focus, and the ViewCell that owned
+the view's dependencies. A reload that does that has reseeded the page as
+surely as a second root would have.
+
+So the second half: **a compatible redefinition renders through the boundary
+the host already mounted.** The emitter caches one boundary per qualified view
+id — the same id the root's identity derives from — and a redefinition
+publishes its new body through that boundary rather than replacing it. The
+reloaded body renders and the occurrence beneath it survives.
+
+### Compatible shell versus clean remount
+
+A redefinition is **compatible** when it does not move the boundary's *hook
+skeleton* — the ordered set of host hooks the emitter's shell owns for that
+declaration. Reusing a boundary across a moved skeleton is not conservative,
+it is wrong: the host's hook state is positional, so the new shell would read
+the old occurrence's slots.
+
+In the interpreted mode the skeleton is not a function of the body at all. An
+interpreted body is unrestricted Clojure that produces markup and calls no
+host hooks; every hook a Freehand boundary owns belongs to its atomic shell,
+in a fixed order. **So every interpreted body edit is compatible, however
+large.** What moves the skeleton is a change of *lowering* — the compiled tier
+renders through its own shell, and its capability-elision verdict omits the
+ViewCell, and with it every hook above, for a view with no reactive site.
+Promotion between modes (adding `{:compiled true}` and reloading) is therefore
+the incompatible edit, and it earns exactly **one** clean remount: a new
+boundary, the old occurrence disconnected, no attempt to carry state that the
+new shell has nowhere to put. What is never permitted is the third outcome —
+serving the promoted declaration the stale interpreted boundary, which would
+render the pre-promotion body indefinitely with nothing to say so.
+
+The publication seam carries a **body revision**, and it advances when a new
+body is published — not when an unchanged tree is walked again. A render that
+began against the previous body and reaches its commit afterwards is stale at
+that revision and publishes nothing: no dependencies, no event sites, no
+evidence (see [006 §The Freehand atomic shell](006-ReactiveSubstrate.md)). The
+host simply renders again at the new body.
+
+**Conformance:** [FH-ROOT-002](conformance/freehand/conformance-index.md#fh-root--roots-and-ssr).
 
 ## 10. Stage placement
 

@@ -306,7 +306,7 @@
                     ;; The read re-enters and advances the body revision — a hot
                     ;; reload landing mid-read, AFTER the first currency check.
                     obs/read           (mock-fn (fn [_handle]
-                                                  (cell/advance-generation! c)
+                                                  (cell/advance-generation! c 1)
                                                   {:value :probed}))
                     obs/release!       (mock-fn (fn [h] (swap! released conj h) nil))]
         (let [cand (cell/candidate c nil)]
@@ -340,7 +340,7 @@
         (render+commit! c fid [query])
         (let [handle (:handle (get (cell/dependencies c) 0))
               stale  (render! c fid [query query])]
-          (cell/advance-generation! c)
+          (cell/advance-generation! c (:generation fence))
           (is (= (:result fence) (cell/commit! stale)))
           (is (= (:generation fence) (cell/generation c)))
           (is (= (:lifecycle fence) (cell/lifecycle c)))
@@ -368,7 +368,7 @@
       (rf/reg-sub (first query)
                   (fn [db _]
                     (when (= (:reload-on-computation fence) (swap! runs inc))
-                      (cell/advance-generation! c))
+                      (cell/advance-generation! c (:generation fence)))
                     (:v db)))
       (seed! fid {:v 1})
       (let [cand (render! c fid [query])]

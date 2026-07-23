@@ -1,4 +1,4 @@
-;; FH-ROOT-002 — hot reload keeps the root's identity, and does not reseed.
+;; FH-ROOT-002 — a compatible hot reload keeps the mounted OCCURRENCE.
 ;;
 ;; A declared view is a descriptor VALUE, so a hot reload mints a NEW
 ;; descriptor object for the redefined view. But the value it carries holds
@@ -7,13 +7,26 @@
 ;; body/generation churn is an internal fact of the descriptor object,
 ;; never part of the identity.
 ;;
-;; So re-mounting the same root into the same container is idempotent: it
-;; RE-RENDERS the existing host root instead of allocating a second one. A
-;; second host root on one container is a React error and would tear the
-;; whole tree down and reseed it; reusing the live one is what makes the
-;; reload preserve identity. This is the donor's known-hard case — the
-;; hot-reload matrix's frame-non-reseed / body-advance cells — recast for
-;; the interpreted root: same identity, new body, host root preserved.
+;; Two things follow, and BOTH are the law:
+;;
+;;   1. re-mounting the same root into the same container is idempotent — it
+;;      RE-RENDERS the existing host root instead of allocating a second one.
+;;      A second host root on one container is a React error and would tear
+;;      the whole tree down and reseed it.
+;;   2. the boundary UNDER that root is the one React already mounted. The
+;;      interpreted emitter caches its React component under the qualified
+;;      view id, so a compatible redefinition hands React the type it is
+;;      already reconciling and the mounted occurrence survives: the same
+;;      Fiber, the same ViewCell, the same DOM nodes, and the browser state
+;;      those nodes hold.
+;;
+;; Claim 1 alone is not the law and must not be mistaken for it. An identical
+;; host root object says nothing about what hangs beneath it — a fresh
+;; component TYPE below a reused root unmounts and remounts the whole
+;; boundary, and the new text still appears. So the occurrence is proven with
+;; state React preserves ONLY across a stable component type: an UNCONTROLLED
+;; input's value and its focus. A remount answers a different DOM node,
+;; reseeded from the new body and unfocused.
 ;;
 ;; The reload is SIMULATED by two descriptors that share one view-id and
 ;; differ only in their body — exactly how a redefinition presents (the
@@ -21,16 +34,48 @@
 ;; `register-view-generation!` models a reload without redefining a var.
 {:fh/id "FH-ROOT-002"
  :fh/law
- "A root's occurrence identity is its derived root-id — the mounted view's qualified id, which a redefinition does not move — so re-mounting the same root into the same container re-renders the existing host root, and the reloaded body renders without reseeding the host root."
+ "A root's occurrence identity is its derived root-id — the mounted view's qualified id, which a redefinition does not move — so a compatible redefinition re-renders the existing host root through the boundary React already mounted: the reloaded body renders and the mounted occurrence below it, down to the browser state its DOM nodes hold, is not reseeded. A redefinition whose hook skeleton moved is not served that boundary."
 
  :root-id :re-frame.freehand.root-hmr/app
 
- ;; the two body generations of the reloaded view — same view-id, different text
+ ;; the two body generations of the reloaded view — same view-id, a
+ ;; body-only change
  :before "before"
  :after  "after"
 
+ ;; the uncontrolled input's SEED in each generation. The seed moves WITH
+ ;; the body, so a remount is not a silent no-op: it puts `seed-after` on
+ ;; the screen in place of whatever was typed.
+ :seed-before "seed-before"
+ :seed-after  "seed-after"
+
+ ;; what is typed into the LIVE occurrence before the reload — DOM state
+ ;; React preserves only while the component type is stable
+ :typed "typed"
+
  ;; the reload re-renders the EXISTING host root (identity preserved, no reseed)
  :same-host-root true
+
+ ;; ... and keeps the mounted OCCURRENCE beneath it. Each claim is read back
+ ;; off the live document, not off an element tree.
+ :occurrence-preserved {:same-input-node true   ; the same DOM node, not an equal one
+                        :typed-value     true   ; still carrying what was typed
+                        :focus           true}  ; and still the document's active element
+
+ ;; The emitter's stable boundary is what makes that possible: ONE cache
+ ;; entry per qualified view id however many generations a session reloads,
+ ;; and a body revision that advances at the RELOAD seam — once per new
+ ;; body, never per walk — so an in-flight render of the old body is stale
+ ;; at commit and publishes nothing.
+ :boundary {:entries 1 :revision-after-reload 1 :revision-after-rewalk 1}
+
+ ;; The other arm. A redefinition whose SHELL SIGNATURE moved — the hook
+ ;; skeleton the emitter would wrap it in — is NOT served the cached
+ ;; boundary. Promotion between modes is the reachable case: the same
+ ;; qualified id redeclared `{:compiled true}`. The interpreted boundary
+ ;; must not render it, and today the compiled React lowering answers that
+ ;; with its own loud refusal rather than a remount.
+ :incompatible {:error :rf.error/view-lowering-unavailable}
 
  ;; non-vacuity control: a mount into a DIFFERENT container is a genuinely
  ;; new root, so its host root is NOT the reloaded one — the reuse above is
