@@ -35,6 +35,12 @@
 
   Normative owner: [`spec/004-Views.md`](../../../../spec/004-Views.md);
   the published roster is [`spec/API.md`](../../../../spec/API.md)."
+  ;; `cljs.core/spread` exists (an `apply` internal; its Clojure twin is
+  ;; private, so only ClojureScript sees the collision). Excluded rather than
+  ;; renamed: `v/spread` is the name the grammar has, on the door and in the
+  ;; compiled analyzer's resolution set, and a door that shadowed a core
+  ;; internal silently would be worse than one that says so here.
+  (:refer-clojure :exclude [spread])
   (:require [re-frame.error :as error]
             [re-frame.freehand.behaviors :as behaviors]
             [re-frame.freehand.cell :as cell]
