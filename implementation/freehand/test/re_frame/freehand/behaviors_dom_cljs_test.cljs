@@ -404,7 +404,17 @@
             a frame that owns no such connection — must be refused exactly as if
             the target were absent, and the decoy's node must be untouched. A
             channel that filtered nothing would find the sole global claimant
-            and mutate a node another frame owns."
+            and mutate a node another frame owns.
+
+            The refusal's PAYLOAD is asserted here too, because the frame is
+            half the address and a diagnostic that did not say so would send a
+            reader looking for a bug in the target instead of in the frame. The
+            record names the frame the command was ISSUED in — not the frame
+            that happens to hold the connection — and its `:live` alternatives
+            are that frame's claims alone. The decoy's `:probe/one` is live
+            process-wide at this instant, which is what makes an empty `:live`
+            an assertion rather than an accident: naming it would offer a
+            recovery the command could never have taken."
     (if-not (browser?)
       (skip! "the browser job runs the frame-scope assertions")
       (async done
@@ -416,10 +426,22 @@
               (.then (fn [_]
                        (is (= 1 (behaviors/connection-count))
                            "the decoy frame really holds the only live claim")
-                       (is (= outcome
-                              (conf/caught-id
-                                #(behaviors/command! frame-id command)))
-                           "a command from the origin frame is refused")
+                       (is (= #{(:target command)} (behaviors/target-ids))
+                           "and that claim is on the very id the command names")
+                       (let [d (conf/caught-data
+                                 #(behaviors/command! frame-id command))]
+                         (is (= outcome (:rf.error/id d))
+                             "a command from the origin frame is refused")
+                         (is (= frame-id (:frame d))
+                             (str "and the refusal names the ORIGIN frame — the "
+                                  "frame the command resolved in, not the one "
+                                  "holding the connection; got "
+                                  (pr-str (:frame d))))
+                         (is (= [] (:live d))
+                             (str "and its :live alternatives are that frame's "
+                                  "claims alone, so a sibling frame's live "
+                                  "target is not offered as reachable; got "
+                                  (pr-str (:live d)))))
                        (is (nil? (attr container (:selector untouched)
                                        (:attribute untouched)))
                            "and the other frame's node was not touched")
