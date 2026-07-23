@@ -126,9 +126,9 @@ A declaration is rejected at **macro-expansion time**, with
 obviously wrong:
 
 - **the option roster is closed.** An unknown key is never discarded — it is
-  named. That holds for a **reserved option whose owning slice has not landed**:
-  the props-schema options raise until the schema surface exists, the way
-  `{:compiled true}` raised until the compiled tier landed. A silently-ignored
+  named. That holds for a **reserved option whose owning slice has not landed**,
+  the way `{:compiled true}` raised until the compiled tier landed and `:props`
+  raised until the schema surface did. A silently-ignored
   option turns a one-character typo into valid code with different semantics, and
   a reserved one accepted-and-ignored makes a declaration report itself as
   something other than it says — the failure mode a declaration form must not
@@ -373,16 +373,19 @@ Every internal view receives **one props map**.
    values; DOM nodes, third-party instances and other host objects cross only
    through [§Qualified host leaves](#qualified-host-leaves).
 
-**The props-schema seam.** A declaration MAY carry a props schema; it is optional
-in `:re-frame.freehand/v1`, including for compiled application views, and
-required by build and catalogue policy for shipped reusable library views and
-wherever a report claims generated coverage. `:key` is outside the schema, and
-children policy is descriptor metadata rather than a schema slot. The schema's
-grammar, validation timing, elision and generation dependencies land with the
-compiled tier.
+**The props-schema seam.** A declaration MAY carry a props schema under
+`:props`; it is optional in `:re-frame.freehand/v1`, including for compiled
+application views, and required by build and catalogue policy for shipped
+reusable library views and wherever a report claims generated coverage. Where
+one is declared it CLOSES the props map to the keys it names, identically in
+both modes — the modes differ in when a breach is reported, never in which props
+are legal. `:key` is outside the schema, and children policy is descriptor
+metadata rather than a schema slot. The schema's grammar, its explicit open
+escape, validation timing, elision and generation dependencies are owned by
+[Spec 004D §Props schemas](004D-Freehand-Compiled-Grammar.md#props-schemas).
 
 **Conformance:** [FH-PROPS-001](conformance/freehand/conformance-index.md#fh-props--props),
-FH-PROPS-002, FH-PROPS-003.
+FH-PROPS-002, FH-PROPS-003, FH-PROPS-004, FH-PROPS-005.
 
 ### Vector-head classification
 

@@ -485,6 +485,97 @@ be host-native and need not themselves be serialisable.**
   except CLJS data compares by value". The identity check doubles as the generated
   fast path.
 
+## Props schemas
+
+A declaration MAY carry a props schema under `:props`. It is **optional in
+`:re-frame.freehand/v1`**, for compiled and interpreted declarations alike.
+
+```clojure
+(v/defview todo-row
+  {:compiled true
+   :props    [:map [:id :int] [:text :string]]}
+  [{:keys [id text]}]
+  [:li.row {:data-id id} text])
+```
+
+Optional is the whole posture. The compiler rejects what it cannot lower, never
+what lacks documentation, and a substrate that demanded an annotation on every
+boundary would charge ceremony for the promotion of one measured hot view. An
+application view without a schema compiles, mounts and renders exactly as one
+with a schema does; the only thing it cannot do is claim a contract it never
+stated.
+
+**A schema decides exactly one thing, and the same thing in both modes: it
+CLOSES the props map.** Declaring `:props` states which props a caller may
+supply, so supplying a key it does not name is an error rather than a value the
+view will silently never read. The rule is one sentence because it is one
+implementation: both modes consult the same roster and report the same
+sentence, and neither owns a copy of the decision.
+
+What differs between the modes is only **when** the breach is reported. A
+compiled call site's prop keys are literal and therefore knowable at build time,
+so the analyzer reports them then, with `:rf.ui.compile/undeclared-prop` and the
+source coordinates of the offending call. A props map delivered at an
+interpreted boundary is knowable at render, so the boundary reports it then,
+with `:rf.error/view-bad-props`. Static knowledge moves the moment a violation
+surfaces and never the set of props that are legal — which is what makes
+`{:compiled true}` a one-line change rather than a contract renegotiation.
+
+**Closed by default, open by declaration.** The alternative to closure is silent
+tolerance, so a view that really does forward arbitrary props says so once, in
+the schema, where the rest of its props contract already is:
+
+```clojure
+{:props [:map {:closed false} [:to :keyword]]}
+```
+
+An **opaque** schema — one behind a registry reference or a runtime expression,
+whose top-level keys cannot be read — closes nothing. A guess about keys nobody
+can see would be worse than the open map it replaced.
+
+**`:key` and `:children` are never schema entries.** `:key` selects sibling
+identity and is stripped by the call ABI before props are delivered;
+children arrive as trailing forms and are governed by `:children-policy`, which
+is descriptor metadata. Either one encoded as an ordinary prop would have two
+contracts that could disagree.
+
+**Absence is reported as absence.** A declaration without `:props` carries no
+`:props-schema` in its [inspection projection](004-Views.md#the-inspection-projection)
+— not `:any`, which would erase the difference between an undeclared contract
+and a deliberately permissive one. The schema is inert data in the repository's
+vector-form Malli convention ([Spec 010](010-Schemas.md)); declaring one pulls
+no schema library onto the classpath, and value validation, where a port wants
+it, goes through Spec 010's validator seam. Runtime checking is a development
+concern: the schema is a compile-time and tooling fact, production renders the
+same tree either way, and the check is elided from production builds.
+
+### Where a schema is mandatory
+
+Nowhere in the grammar, and deliberately so. The mandate is **build and
+catalogue policy** over the surfaces where a contract crosses a boundary, and it
+falls in exactly two places:
+
+- **published, reusable views** — anything a library or component catalogue
+  ships for callers it will never see. A consumer reading a catalogue entry, an
+  editor offering completions and an agent authoring a call site are all reading
+  the same declaration, and for a shipped control that declaration is the only
+  contract there is;
+- **any view whose report claims generated coverage.** A generated corpus is
+  drawn from the declared value domain, so a per-view generated-parity claim
+  without a schema is a claim about a domain nobody wrote down.
+
+Visibility is decided by the publishing surface, never by a new declaration
+option: a `:public` flag would be a second, weaker statement of something the
+build already knows. The framework's own published views are the worked example
+— `v/markup` and `v/error-boundary` closed, `v/route-link` declared open because
+every unrecognised key genuinely forwards to its `<a>`.
+
+An application's private views are outside the mandate, and that asymmetry is
+the design rather than an unfinished edge of it.
+
+**Conformance:** [FH-PROPS-004](conformance/freehand/conformance-index.md#fh-props--props),
+FH-PROPS-005.
+
 ## Template grammar
 
 Reagent-familiar hiccup with the ambiguities removed. Control forms — `let` / `letfn` /
