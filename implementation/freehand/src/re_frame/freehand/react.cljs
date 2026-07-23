@@ -157,7 +157,21 @@
                     {:attr k :value (shape raw)}))
       (cond
         (= :key k)   nil
-        (nil? raw)   nil
+
+        ;; A nil attribute is an ABSENT attribute — that is the law an
+        ;; author relies on to write a conditional value — except on the
+        ;; controlled slots, where absence is React's own signal for
+        ;; UNCONTROLLED. An author who wrote `:value nil` declared a
+        ;; controlled field with nothing in it, and the door has already
+        ;; put the site on the synchronous lane for it; dropping the prop
+        ;; here would hand React the opposite claim. React acts on that:
+        ;; it warns the node changed control, and it keeps the value it
+        ;; last rendered — so clearing a field left the old text on
+        ;; screen. The exception is scoped exactly as the door is, and
+        ;; read through the same slot projection (rf2-drpa3.120).
+        (nil? raw)
+        (when-some [empty-slot (controlled/empty-control-slot tag k)]
+          (gobj/set o (key empty-slot) (val empty-slot)))
 
         (conv/handler-key? k)
         (if (some? cand)

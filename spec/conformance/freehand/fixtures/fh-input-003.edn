@@ -13,7 +13,7 @@
 ;; confident green over a hazard that has quietly moved.
 {:fh/id "FH-INPUT-003"
  :fh/law
- "In a real browser the controlled round trip holds as a user-visible fact: rapid typing yields a final value equal to the typed string character for character, the caret and a range selection survive the round trip unmoved, an IME composition completes intact, and none of it degrades while sibling cells on the same frame are dirty."
+ "In a real browser the controlled round trip holds as a user-visible fact: rapid typing yields a final value equal to the typed string character for character, the caret and a range selection survive the round trip unmoved, an IME composition completes intact, none of it degrades while sibling cells on the same frame are dirty, and state going explicitly nil CLEARS the live node rather than leaving the last rendered value on screen."
 
  :frame :fh-input/browser
  :query [:fh-input/text]
@@ -46,4 +46,18 @@
  {:note   "an IME builds one character over several composition updates"
   :seed   ""
   :steps  ["に" "にほ" "にほん"]
-  :final  "にほん"}}
+  :final  "にほん"}
+
+ ;; State going NIL is the transition an author reaches for to clear a
+ ;; field, and it is the one place where "present" and "truthy" part
+ ;; company. An explicitly nil control value is a CONTROLLED empty value,
+ ;; so the live node clears; an emitter that omitted the prop instead
+ ;; would tell the host the node had become UNCONTROLLED, and the host
+ ;; keeps the value it last rendered — the old text still on screen, with
+ ;; the site already on the synchronous lane.
+ :clearing
+ {:note      "an explicit nil clears the live node rather than releasing it"
+  :seed      "seed"
+  :checked   true
+  :cleared   ""
+  :unchecked false}}
