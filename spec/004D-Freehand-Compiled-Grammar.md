@@ -537,7 +537,12 @@ can see would be worse than the open map it replaced.
 identity and is stripped by the call ABI before props are delivered;
 children arrive as trailing forms and are governed by `:children-policy`, which
 is descriptor metadata. Either one encoded as an ordinary prop would have two
-contracts that could disagree.
+contracts that could disagree. A literal schema naming either is refused at the
+**declaration** — `:rf.error/defview-bad-args`, naming the view, the offending
+slot and the ABI that already delivers it — rather than at a call, because the
+breach is in the contract itself and no call could repair it: the schema would
+advertise to a catalogue, an editor and an agent a prop that a caller and a view
+body can never exchange.
 
 **Absence is reported as absence.** A declaration without `:props` carries no
 `:props-schema` in its [inspection projection](004-Views.md#the-inspection-projection)

@@ -30,7 +30,11 @@
 ;; `:reserved` pins the two keys no schema may govern. `:key` is stripped by the
 ;; call ABI before props are delivered and `:children` arrives as trailing forms
 ;; under `:children-policy`; a schema that had to name them would be a second
-;; contract for something that already has one.
+;; contract for something that already has one. Governing them is therefore not
+;; merely ignored — `:reserved-declarations` are the literal schemas a
+;; DECLARATION refuses, under `:declaration-reject-id`, because a schema that
+;; named a reserved slot would advertise to a catalogue a prop the call ABI can
+;; never deliver.
 {:fh/id "FH-PROPS-004"
 
  :schema             [:map [:id :int] [:label :string]]
@@ -57,6 +61,15 @@
   {:props {:anything 1}          :verdict :accept}]
 
  :reserved #{:key :children}
+
+ :declaration-reject-id :rf.error/defview-bad-args
+
+ ;; Literal schemas a declaration must REFUSE, each with the reserved slot it
+ ;; names. Refused at declaration rather than at a call, because the breach is
+ ;; in the contract itself and no call could repair it.
+ :reserved-declarations
+ [{:schema [:map [:key :string] [:id :int]]         :reserved :key}
+  {:schema [:map [:children [:vector :any]] [:id :int]] :reserved :children}]
 
  ;; The declaration that carries no schema at all — the optional half.
  :schema-less {:describe-omits-props-schema? true}}

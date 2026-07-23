@@ -39,7 +39,8 @@
   Host-neutral throughout: the boundary is shared machinery and the analyzer
   is pure with resolution injected, so every row runs under
   `clojure -M:test` and `npm run test:freehand` alike."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [re-frame.freehand :as v]
             [re-frame.freehand.compiler.analyze :as ana]
             [re-frame.freehand.compiler.env :as env]
@@ -283,3 +284,70 @@
     (is (= (:lowering (v/describe compiled-row)) :compiled)
         "the two really are different lowerings, so the agreement above is
          a parity result rather than the same value read twice")))
+
+;; ---------------------------------------------------------------------------
+;; The reserved slots may not be DECLARED
+;; ---------------------------------------------------------------------------
+;;
+;; `defview` expands on the JVM for BOTH compilation targets, so a
+;; declaration-time refusal is proven JVM-side and that IS the cross-host proof:
+;; `macroexpand-1` cannot reach a ClojureScript macro from a running
+;; ClojureScript test.
+
+#?(:clj
+   (defn- declare-with-schema
+     "Expand a minimal declaration carrying `schema` under `:props`."
+     [schema]
+     #(v/expand-defview nil "t.cljc" 'app.t 'reserved-row
+                        (list {:props schema} '[p] '[:div]))))
+
+#?(:clj
+   (deftest a-schema-may-not-declare-a-reserved-slot
+     (testing "Per FH-PROPS-004: `:key` is stripped by the call ABI before props
+               are delivered and `:children` arrives as trailing forms, so a
+               schema naming either would be a second contract for something
+               that already has one — and an IMPOSSIBLE one, since no call could
+               ever deliver the prop it advertises. The declaration is refused
+               where the breach is, rather than at a call site that cannot
+               repair it."
+       (doseq [{:keys [schema reserved]} (:reserved-declarations props-004)]
+         (is (= (:declaration-reject-id props-004)
+                (conf/caught-id (declare-with-schema schema)))
+             (str "a schema declaring " reserved " is refused"))
+         (let [msg (conf/caught-message (declare-with-schema schema))]
+           (is (str/includes? msg "reserved-row")
+               (str reserved " — the diagnostic names the offending view"))
+           (is (str/includes? msg (pr-str reserved))
+               (str reserved " — and the offending key"))
+           (is (or (str/includes? msg "call site")
+                   (str/includes? msg "trailing"))
+               (str reserved " — and how the ABI already delivers it"))))
+       (is (= conf/no-throw
+              (conf/caught-id (declare-with-schema [:map [:id :int]])))
+           "the control: an ordinary literal schema still declares")
+       (is (= conf/no-throw
+              (conf/caught-id (declare-with-schema [:map {:closed false} [:id :int]])))
+           "so does the explicit escape")
+       (is (= conf/no-throw
+              (conf/caught-id (declare-with-schema '(identity [:map [:key :string]]))))
+           "and an OPAQUE schema is not searched for entries nobody can read —
+            the refusal is a check on the two reserved ABI keys of a literal
+            declaration, not a general schema validator"))))
+
+(deftest no-declaration-can-project-a-reserved-slot-as-a-prop
+  (testing "The refusal above is what makes the tooling projection sound: a
+            catalogue entry, an editor completion and an agent authoring a call
+            site all read the declared schema, and a reserved slot listed among
+            its props would advertise a prop the call ABI can never deliver.
+            Every declaration that survives declaration therefore names none."
+    (doseq [view [interpreted-row compiled-row open-row schema-less-row
+                  compiled-schema-less-row]]
+      (is (empty? (props-schema/reserved-declared (:props-schema (v/describe view))))
+          (str (:view-id (v/describe view)) " declares no reserved slot")))
+    (is (= [:key] (props-schema/reserved-declared [:map [:key :string] [:id :int]]))
+        "the roster is not vacuous — it names the slot a refused schema declared")
+    (is (= [:children] (props-schema/reserved-declared
+                        [:map [:children [:vector :any]] [:id :int]]))
+        "for either reserved slot")
+    (is (empty? (props-schema/reserved-declared '(identity [:map [:key :string]])))
+        "and reads nothing out of a schema nobody can read")))

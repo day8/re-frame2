@@ -57,6 +57,11 @@
             ;; the interpreted front end of a fold the canonicaliser owns.
             [re-frame.freehand.node :as node]
             [re-frame.freehand.presence-runtime :as presence-runtime]
+            ;; The whole meaning of a `:props` schema, in one host-neutral
+            ;; namespace both execution modes already consult. The declaration
+            ;; consults it too, so what a schema may SAY and what it then
+            ;; DECIDES are one statement rather than two that could disagree.
+            [re-frame.freehand.props-schema :as props-schema]
             ;; The compiled tier's render-time reactive runtime — what an
             ;; authored `(v/sub …)` inside a `{:compiled true}` body lowers to.
             ;; Required here for the SAME reason `node` is: promotion is a
@@ -188,6 +193,25 @@
                 " declares " (pr-str policy) ".")
            {:recovery :fix-the-declaration
             :extra    {:view sym :children-policy policy}}))
+       ;; A schema may not govern a RESERVED slot. `:key` is stripped by the
+       ;; call ABI before props are delivered and `:children` arrives as
+       ;; trailing forms under `:children-policy`, so a schema naming either
+       ;; would be a second contract for something that already has one — and
+       ;; an impossible one, since no call can deliver the prop it advertises
+       ;; to a catalogue. It is refused at the declaration, where the breach
+       ;; is, rather than at a call site that could not repair it.
+       ;;
+       ;; Only a LITERAL `[:map …]` is read: an opaque schema's entries are
+       ;; nobody's to see, and inventing a rejection from a guess would be the
+       ;; same error as inventing a closing roster from one.
+       (let [reserved (props-schema/reserved-declared (get opts :props))]
+         (when (seq reserved)
+           (error/throw-error!
+             :rf.error/defview-bad-args
+             'v/defview
+             (props-schema/reserved-declaration-message sym reserved)
+             {:recovery :fix-the-declaration
+              :extra    {:view sym :reserved reserved}})))
        ;; The two lowerings differ in ONE entry. Everything a caller can see —
        ;; the descriptor, the view id, the source coordinates, the children
        ;; policy, the props contract, the boundary node a structural render

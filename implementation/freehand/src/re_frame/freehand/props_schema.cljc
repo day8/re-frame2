@@ -48,7 +48,10 @@
   selects sibling identity and is stripped before props delivery; children
   arrive as trailing forms and are governed by `:children-policy`, which is
   descriptor metadata. Encoding either as an ordinary prop would give it two
-  contracts that could disagree.
+  contracts that could disagree. A literal schema that names one is refused at
+  the DECLARATION — [[reserved-declared]] and
+  [[reserved-declaration-message]] — because the breach is in the contract
+  itself and no call could repair it.
 
   The schema is Malli-shaped vector data, the repository's existing
   convention (Spec 010). It is held as inert data: nothing here validates a
@@ -97,6 +100,21 @@
             (keep #(when (and (vector? %) (keyword? (first %))) (first %)))
             entries))))
 
+(defn reserved-declared
+  "The [[reserved-keys]] a literal `[:map …]` schema NAMES, in declaration
+  order; empty when it names none, and empty for every opaque schema, whose
+  entries nobody can read.
+
+  This is the declaration-time question, and the opposite one to
+  [[undeclared]]. `undeclared` never REPORTS a reserved key, because the call
+  ABI governs it and sending an author to a schema that was not allowed to
+  mention it would be a wrong instruction. That silence is only honest if no
+  schema mentions one — a schema that did would advertise to a catalogue a prop
+  the ABI can never deliver, and would be a second contract for something that
+  already has one."
+  [schema]
+  (into [] (filter reserved-keys) (declared-keys schema)))
+
 (defn open-map?
   "True when a map schema opts OUT of closure with an explicit
   `[:map {:closed false} …]`.
@@ -138,6 +156,30 @@
                   (remove reserved-keys)
                   (distinct))
             (sort-by str prop-keys)))))
+
+(def ^:private reserved-recovery
+  "How the call ABI already delivers each reserved slot — the sentence a
+  refused declaration ends on, because an author who is told only that a key
+  is reserved still has to go and find out where it went."
+  {:key      (str ":key selects sibling identity and is stripped before props "
+                  "are delivered, so callers pass it at the call site and the "
+                  "view body never sees it")
+   :children (str ":children arrives as the trailing forms of a call and is "
+                  "governed by :children-policy, which is a declaration option "
+                  "rather than a prop")})
+
+(defn reserved-declaration-message
+  "The sentence a declaration is refused with when its schema names a
+  [[reserved-keys]] slot — the view, the offending keys, and the ABI each one
+  already has."
+  [view reserved]
+  (str view " declares " (str/join ", " (map pr-str reserved))
+       " in its props schema, and " (if (next reserved) "those keys are" "that key is")
+       " reserved by the call ABI: "
+       (str/join "; " (map reserved-recovery reserved))
+       ". Remove the schema " (if (next reserved) "entries" "entry")
+       " — a schema that named " (if (next reserved) "them" "it")
+       " would advertise a prop no call can deliver."))
 
 (defn violation-message
   "The one sentence both modes report for the same breach — the compiled
