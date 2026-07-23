@@ -39,7 +39,8 @@
   [[check!]] before an emitter ever sees it — the emitters therefore have
   no unknown-node arm, which is what makes escaping structural rather
   than defensive."
-  #{:text :nothing :expr :element :fragment :view :for :if :let :letfn :case})
+  #{:text :nothing :expr :element :fragment :view :for :if :let :letfn :case
+    :presence})
 
 (def ^:private op-rejections
   "Analyzed node kinds outside v1, each with the sentence that names what
@@ -53,8 +54,6 @@
    :html           {:what "the trusted-HTML escaping bypass"
                     :recovery [:keep-interpreted]}
    :slot           {:what "a render-slot invocation"
-                    :recovery [:extract-declared-child :keep-interpreted]}
-   :presence       {:what "a presence boundary"
                     :recovery [:extract-declared-child :keep-interpreted]}
    :client-only    {:what "a browser-only subtree"
                     :recovery [:extract-declared-child :keep-interpreted]}

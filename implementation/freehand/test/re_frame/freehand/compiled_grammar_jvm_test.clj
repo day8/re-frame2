@@ -153,7 +153,8 @@
             grow under a running codebase, so the roster is asserted
             rather than left implicit."
     (is (= :re-frame.freehand/v1 grammar/version))
-    (is (= #{:text :nothing :expr :element :fragment :view :for :if :let :letfn :case}
+    (is (= #{:text :nothing :expr :element :fragment :view :for :if :let :letfn :case
+             :presence}
            grammar/admitted-ops)
         "the admitted node kinds are exactly the v1 roster")
     (is (contains? grammar/recoveries :keep-interpreted)

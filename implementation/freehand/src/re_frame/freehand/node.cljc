@@ -357,14 +357,21 @@
   (if (fn? x) {:rf.ui/opaque :fn} x))
 
 (defn- plain-fragment?
-  "Is `x` a fragment node carrying nothing but its children?"
+  "Is `x` a fragment node carrying nothing but its children?
+
+  A `:rf.ui/presence` node is a fragment-shaped map (children, no tag), but its
+  marker is a LOAD-BEARING child node that must survive as its own node — a
+  presence-rooted view is a boundary wrapping a presence node, not a boundary
+  that adopted the presence children. So a marker-bearing fragment is never
+  plain, and is never adopted."
   [x]
   (and (map? x)
        (contains? x :children)
        (not (contains? x :tag))
        (not (contains? x :view-id))
        (not (contains? x :html))
-       (not (contains? x :key))))
+       (not (contains? x :key))
+       (not (contains? x :rf.ui/presence))))
 
 (defn boundary
   "Assemble one internal-view expansion into a boundary node. The boundary

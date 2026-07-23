@@ -151,6 +151,28 @@
               :children (when (seq kid-forms) #(children kid-forms))}))))
 
 ;; ---------------------------------------------------------------------------
+;; Presence — the keyed enter/exit structural node
+;; ---------------------------------------------------------------------------
+
+(defn presence
+  "The JVM/SSR structural node for `(v/presence {:timeout-ms n} …)`: a fragment
+  carrying the `:rf.ui/presence {:phase :present :timeout-ms n}` diagnostic
+  marker (§004B — presence metadata exposed structurally; a droppable reserved
+  key, stripped by semantic normalization). The JVM structural host has no
+  lifecycle, so every retained child renders `:present`.
+
+  This is the ONE lowering target the compiled JVM emitter and the interpreted
+  structural walk both build, so the structural projection of a presence
+  boundary is identical across modes. `xs` are already-evaluated child VALUES —
+  the compiled emitter's emitted child nodes, or the interpreted walk's walked
+  child nodes — canonicalised here through [[re-frame.freehand.node/children]].
+  `:children` is retained even when empty, like a fragment: it is the node's
+  discriminator."
+  [timeout-ms & xs]
+  {:rf.ui/presence {:phase :present :timeout-ms timeout-ms}
+   :children (vec (apply node/children xs))})
+
+;; ---------------------------------------------------------------------------
 ;; The walk
 ;; ---------------------------------------------------------------------------
 
@@ -158,11 +180,21 @@
   "One markup vector -> one node."
   [form]
   (let [head (first form)]
-    (if (= fragment-tag head)
+    (cond
+      (= fragment-tag head)
       (let [args   (rest form)
             attrs? (map? (first args))
             k      (when attrs? (:key (first args)))]
         (node/fragment (some? k) k (children (if attrs? (rest args) args))))
+
+      ;; A presence boundary: `v/presence` returns `[presence-tag opts & kids]`
+      ;; in interpreted markup. Its children are lowered HERE — walked into
+      ;; structural nodes — and handed to the shared [[presence]] builder, so an
+      ;; interpreted `(v/presence …)` and a compiled one produce the SAME node.
+      (= descriptor/presence-tag head)
+      (apply presence (:timeout-ms (second form)) (children (drop 2 form)))
+
+      :else
       (case (descriptor/classify-head head)
         :element (element-node head (rest form))
         ;; Trailing children are the CALLER's markup and are lowered HERE,
