@@ -606,6 +606,71 @@ registry never spans two `render` calls. Tier-3 `with-root` mounts participate i
 real per-document registry of the jsdom/browser document, and its total teardown
 unregisters (a leaked registration failing a later mount is a test-harness bug, fixture-pinned).
 
+## The Freehand paved path
+
+The interpreted Freehand substrate realises this contract under Freehand
+names, through its single public door (`re-frame.freehand`, conventionally
+aliased `v`). The mount grammar and the identity model above are unchanged —
+this section adds the paved-path spelling and the two guarantees the
+interpreted one-root mount ships first, and nothing here restates the
+numbered contract it points into.
+
+### The minimal one-root mount
+
+The minimal one-root spelling is a bare declared view at the head, no opts:
+
+```clojure
+(v/mount [app {:label "hello"}] (js/document.getElementById "app"))
+```
+
+Its identity is **derived, not authored** (§1.2): with no `:root-id` and no
+`:disambiguator`, the root-id is the mounted view's own registered id — the
+single-root page authors nothing. The mount derives the minimal Root
+Descriptor (§2) from the site alone,
+
+```clojure
+{:rf.root/schema-version 1
+ :root-id            :app.shop/app     ; the mounted view's id
+ :view-id            :app.shop/app
+ :root-id-provenance :derived}
+```
+
+and returns a live root handle carrying it.
+
+**The same form renders structurally.** The identical `[app {…}]` spelling is
+what the JVM renders through the interpreted tree emitter — there is no
+second mount verb for the host with no DOM, only the structural render the
+door does not need to publish. Mounting and structural rendering are one
+spelling on both hosts, which is what lets one conformance row bind the
+browser DOM and the JVM tree to the same declaration. The mounted view is a
+real boundary node in that tree — its qualified id, its props and its
+expansion — so the root's occurrence is addressable structurally, not
+flattened into anonymous markup.
+
+Frame preflight (§3, §6), authored identity and `:disambiguator` (§1),
+multi-root duplicate detection (§7), failed-root isolation (§7.1), total
+teardown and hydration (§4) are later work; the bare declared view at the
+head is the whole interpreted grammar this slice ships.
+
+### Hot reload keeps the root identity
+
+A declared view is a descriptor **value**, so a hot reload mints a *new*
+descriptor object for the redefined view. But the value it carries holds the
+same qualified `:view-id`, and the root-id derives from that id (§1.2), so
+the reload's root-id is unchanged — a redefinition does not move a qualified
+keyword. The descriptor object's body and generation churn is an internal
+fact of the reload, never part of the identity.
+
+That is what makes `mount` **idempotent per root** (§3) the reload path: re-running
+the mount with the same root-id into the same container finds the root live
+and RE-RENDERS the existing host root rather than allocating a second one. A
+second host root on one container tears the whole tree down and re-seeds it;
+reusing the live one is what preserves the occurrence identity across the
+redefinition. The reloaded body renders; the host root, and everything that
+hangs off it, is not reseeded. When frame binding lands, the frame is found
+live at the same fingerprint on that same re-render (§6), so durable state
+survives the edit too.
+
 ## 10. Stage placement
 
 | Surface | Stage |
