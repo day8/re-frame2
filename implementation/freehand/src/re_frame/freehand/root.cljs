@@ -98,6 +98,34 @@
   already using it are untouched: a bad plan affects exactly the roots
   carrying it.
 
+  ## Preflight is also the ownership boundary
+
+  Running the plan before React makes preflight the first thing a mount
+  WRITES, and that splits every mount in two.
+
+  AHEAD of it goes everything that can still fail on the SHAPE of the
+  call — the opts, the identity, the three claims, and building the root's
+  element. None of those has written anything, so a rejection there is
+  free: no frame, no ledger record, no claim, nothing to give back. That
+  is the same property the three admission claims have, and it is strictly
+  better than any rollback, so the ordering is arranged to extend it as
+  far as it will go.
+
+  AFTER it, the document is not necessarily the one this mount was
+  admitted against. `:initial-events` are application code running before
+  React, and application code can mount a root, unmount one, or take the
+  container. So the claim is re-asserted ([[recheck-claim!]]) and a mount
+  whose ground moved refuses — `:rf.error/root-container-in-use` when its
+  own plan took the container, `:rf.error/root-not-live` when the
+  incumbent it was going to re-render is gone — rather than allocating a
+  host root over whatever moved onto it.
+
+  What is left outstanding past that point is small and enumerable: a host
+  root React handed over, and the frame reference preflight took. A
+  failure gives back exactly those two and nothing else — never an
+  incumbent's reference and never a sibling's — and re-raises the original
+  error unchanged ([[attempt!]]).
+
   ## Hydration — identity from the wire, then adopt the server's DOM
 
   A hydrating root does not derive its identity; it READS it. The server
@@ -456,7 +484,11 @@
   Every arm here throws before any React work and before any registry or
   ledger mutation, so a rejected root leaves the document exactly as it
   found it — the existing roots keep rendering, and nothing has to be
-  rolled back because nothing was written."
+  rolled back because nothing was written.
+
+  Read-only and cheap, which is why it is also what [[recheck-claim!]]
+  runs a second time once the frame plan has had its chance to move the
+  document underneath the mount."
   [where dom-node root-id prefix]
   (require-container! where root-id dom-node)
   (let [^Root existing (get @live-roots root-id)]
@@ -527,6 +559,48 @@
                   :existing  (.-identifier-prefix existing)}}))
   nil)
 
+(defn- recheck-claim!
+  "Re-assert the admission claims AFTER preflight, and require the same
+  answer they gave before it.
+
+  A plan's `:initial-events` are application code, and they run BEFORE
+  React — so by the time preflight returns, the document is not
+  necessarily the one this mount was admitted against. A handler that
+  mounts a root has taken the container; a handler that unmounts one has
+  taken the incumbent away. Re-asserting is three reads over a handful of
+  roots, and it is the whole difference between refusing and clobbering.
+
+  [[claim!]] itself raises the ordinary admission diagnostics for every way
+  the document can move under a DIFFERENT id. What is left for here is the
+  two ways it can move and still answer: an id and container that were free
+  and are now taken, and an incumbent that is no longer the one captured."
+  [where dom-node root-id prefix ^Root admitted]
+  (let [^Root now (claim! where dom-node root-id prefix)]
+    (when-not (identical? now admitted)
+      (if (some? admitted)
+        (error/throw-error!
+          :rf.error/root-not-live where
+          (str "the live root under " (pr-str root-id) " is no longer the one this "
+               "mount was admitted to re-render — the frame plan unmounted it, or a "
+               "newer root claimed the id while the plan ran. Rendering through the "
+               "handle captured before the plan would render into a host root React "
+               "has already discarded, and registering it would overwrite whatever "
+               "holds the id now.")
+          {:recovery :recreate-the-root
+           :extra    {:root-id root-id}})
+        (error/throw-error!
+          :rf.error/root-container-in-use where
+          (str "that container was free when this mount was admitted and is now owned "
+               "by the live root " (pr-str (:root-id (.-descriptor now))) " — this "
+               "mount's own frame plan took it. A plan's :initial-events run BEFORE "
+               "React, so a handler that mounts a root wins the container; a second "
+               "host root on that node would tear the first one's tree down and "
+               "re-seed it.")
+          {:recovery :unmount-the-owning-root-first
+           :extra    {:root-id       root-id
+                      :owner-root-id (:root-id (.-descriptor now))}})))
+    now))
+
 ;; ---------------------------------------------------------------------------
 ;; Preflight — the frame plan, before React
 ;; ---------------------------------------------------------------------------
@@ -559,9 +633,11 @@
                {:value (error/diag-value-summary frame-opt)})))
 
 (defn- preflight!
-  "Run `plan` to completion and answer the frame-id the root binds. Called
+  "Run `plan` to completion, and answer the frame-id it bound. Called
   BEFORE `createRoot`, so a body that reads a subscription on its first
-  render finds a seeded frame rather than an empty one.
+  render finds a seeded frame rather than an empty one — and called after
+  every step that can fail on the shape of the call, so a rejected mount
+  never reaches it.
 
   The ledger is what makes several roots over one frame honest. An equal
   fingerprint is the ratified idempotent no-op — the frame is NOT re-seeded,
@@ -616,6 +692,17 @@
                 :installed-by       (if owned? (or (:installed-by r) root-id) (:installed-by r))
                 :refs               (conj (or (:refs r) #{}) root-id)}))
       frame-id)))
+
+(defn- frame-ref-held?
+  "True when `root-id` ALREADY references `frame-id` in the ledger.
+
+  Read BEFORE preflight, so an attempt that fails after it can tell the
+  reference IT took from one the incumbent — or a sibling root — was
+  already holding. Giving back a reference this attempt never took is how
+  a rollback turns one failure into two."
+  [frame-id root-id]
+  (boolean (and (some? frame-id)
+                (contains? (:refs (get @frame-ledger frame-id)) root-id))))
 
 (defn- release-frame!
   "Drop `root-id`'s reference to its frame, and destroy the frame when a
@@ -725,28 +812,40 @@
   (swap! live-roots assoc root-id root)
   root)
 
-(defn- abort!
-  "Undo an attempt that allocated a host root and then threw. The claim was
-  never written, so what has to come back is exactly what was: the React
-  root React just handed us, and this root's reference to its frame."
-  [react-root frame-id root-id thrown]
-  (try (.unmount react-root) (catch :default _ nil))
-  (release-frame! frame-id root-id)
-  (throw thrown))
+(defn- attempt!
+  "Run the post-preflight half of a mount, giving back exactly what this
+  attempt took if it throws.
+
+  Preflight is the first thing a mount WRITES, and everything ahead of it
+  is ordered so a rejection there has nothing to undo. What can be
+  outstanding after it is therefore small and enumerable: the host root
+  React hands over, and — when `acquired?` — the frame reference preflight
+  took for this root. `body` reports the host root through the `keep!` it
+  is handed, the moment React returns one; an INCUMBENT's host root is
+  never reported, because a failed re-render must leave the incumbent
+  rendering exactly as it was.
+
+  The original failure stays primary: the give-back is best-effort, and
+  the throw is re-raised unchanged."
+  [frame-id root-id acquired? body]
+  (let [host (volatile! nil)]
+    (try
+      (body (fn keep! [react-root] (vreset! host react-root) react-root))
+      (catch :default e
+        (when-some [react-root @host]
+          (try (.unmount react-root) (catch :default _ nil)))
+        (when acquired? (release-frame! frame-id root-id))
+        (throw e)))))
 
 (defn- client-render!
   "Allocate a host root, render `element` into it, and register the result
   — the shared tail of a fresh [[mount]] and of [[hydrate-root]]'s
-  fallback. Both are ordinary client renders, and both must give back the
-  host root they just allocated if the render throws."
-  [desc dom-node prefix opts frame-id element]
-  (let [root-id    (:root-id desc)
-        react-root (rdc/createRoot dom-node (root-options prefix opts nil))]
-    (try
-      (.render react-root element)
-      (register! root-id (->Root desc dom-node react-root prefix frame-id false))
-      (catch :default e
-        (abort! react-root frame-id root-id e)))))
+  fallback. Both are ordinary client renders, and both hand the host root
+  they allocate to `keep!` so a render that throws gives it back."
+  [desc dom-node prefix opts frame-id element keep!]
+  (let [react-root (keep! (rdc/createRoot dom-node (root-options prefix opts nil)))]
+    (.render react-root element)
+    (register! (:root-id desc) (->Root desc dom-node react-root prefix frame-id false))))
 
 (defn mount
   "Mount the declared view at `root-form`'s head into `dom-node`, and
@@ -778,24 +877,39 @@
          prefix         (or (:identifier-prefix opts)
                             (root-id/default-identifier-prefix root-id))
          plan           (plan-for 'v/mount (:frame opts))
-         ^Root existing (claim! 'v/mount dom-node root-id prefix)]
-     ;; Before preflight, because a refused root must not have run one — and
-     ;; only a mount reaches here with a root it intends to REUSE.
+         frame-id       (:frame-id plan)
+         ^Root existing (claim! 'v/mount dom-node root-id prefix)
+         ;; The element BEFORE preflight. Building it is the last step that
+         ;; can fail on the SHAPE of the call, and preflight is the FIRST
+         ;; step that writes anything — so a malformed root form is refused
+         ;; with no frame created, no ledger record and no claim to give
+         ;; back. It needs the frame's id and nothing else, which the plan
+         ;; already carries: the provider wrapper names a frame, it does
+         ;; not read one.
+         element        (root-element root-form frame-id nil)
+         acquired?      (and (some? frame-id) (not (frame-ref-held? frame-id root-id)))]
+     ;; The fourth admission claim, before preflight because a refused root
+     ;; must not have run one: the effective identifierPrefix a live root was
+     ;; created with is immutable across a re-mount.
      (require-stable-identifier-prefix! 'v/mount root-id prefix existing)
-     (let [frame-id (preflight! 'v/mount plan root-id)
-           element  (root-element root-form frame-id nil)]
-       (if (some? existing)
-         ;; The reload path: the same host root, re-rendered. No createRoot,
-         ;; so nothing downstream is reseeded; the descriptor snapshot is
-         ;; refreshed because the mounted view object may be a fresh
-         ;; generation, but the identity it keys on is unchanged — and its
-         ;; prefix is the one the claim above just proved unmoved.
-         (let [react-root (.-react-root existing)
-               root       (->Root desc dom-node react-root prefix frame-id
-                                  (.-hydrated existing))]
-           (.render react-root element)
-           (register! root-id root))
-         (client-render! desc dom-node prefix opts frame-id element))))))
+     (preflight! 'v/mount plan root-id)
+     (attempt!
+       frame-id root-id acquired?
+       (fn [keep!]
+         (recheck-claim! 'v/mount dom-node root-id prefix existing)
+         (if (some? existing)
+           ;; The reload path: the same host root, re-rendered. No createRoot,
+           ;; so nothing downstream is reseeded; the descriptor snapshot is
+           ;; refreshed because the mounted view object may be a fresh
+           ;; generation, but the identity it keys on is unchanged. That host
+           ;; root belongs to the INCUMBENT, so it is not handed to `keep!`:
+           ;; a re-render that fails leaves the incumbent rendering.
+           (let [react-root (.-react-root existing)
+                 root       (->Root desc dom-node react-root prefix frame-id
+                                    (.-hydrated existing))]
+             (.render react-root element)
+             (register! root-id root))
+           (client-render! desc dom-node prefix opts frame-id element keep!)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; hydrate-root
@@ -866,12 +980,19 @@
         root-id  (:root-id ident)
         prefix   (root-id/default-identifier-prefix root-id)
         plan     (plan-for 'v/hydrate-root (:frame opts))
+        frame-id (:frame-id plan)
         existing (claim! 'v/hydrate-root dom-node root-id prefix)]
     ;; Before preflight, because a rejected root must not have run one.
     (require-fresh-root! existing root-id)
-    (let [frame-id (preflight! 'v/hydrate-root plan root-id)]
-      (client-render! (descriptor-for ident) dom-node prefix opts frame-id
-                      (root-element root-form frame-id nil)))))
+    (let [element   (root-element root-form frame-id nil)
+          acquired? (and (some? frame-id) (not (frame-ref-held? frame-id root-id)))]
+      (preflight! 'v/hydrate-root plan root-id)
+      (attempt!
+        frame-id root-id acquired?
+        (fn [keep!]
+          (recheck-claim! 'v/hydrate-root dom-node root-id prefix existing)
+          (client-render! (descriptor-for ident) dom-node prefix opts frame-id
+                          element keep!))))))
 
 (defn- adopt!
   "The ADOPTION path: `manifest` is the server's own account of what it
@@ -890,18 +1011,27 @@
                    (assoc :view-id (:view-id (descriptor/describe (head-view root-form)))))
         prefix   (:identifier-prefix manifest)
         plan     (plan-for 'v/hydrate-root (:frame opts))
+        frame-id (:frame-id plan)
         existing (claim! 'v/hydrate-root dom-node root-id prefix)]
     (require-fresh-root! existing root-id)
-    (let [frame-id   (preflight! 'v/hydrate-root plan root-id)
-          adoption   #js {:adopting true}
-          reporter   (hydration-reporter adoption root-id (:on-recoverable-error opts))
-          closer     (react/createElement adoption-window-closer
-                                          #js {:key "rf-adoption" :rfAdoption adoption})
-          element    (root-element root-form frame-id [closer])
-          react-root (rdc/hydrateRoot dom-node element
-                                      (root-options prefix opts reporter))]
-      (register! root-id (->Root (descriptor-for ident) dom-node react-root
-                                 prefix frame-id true)))))
+    ;; The adoption window, its reporter and the element they ride on are
+    ;; all built BEFORE preflight, for the same reason the element is: they
+    ;; are construction, they can fail, and preflight is what writes.
+    (let [adoption  #js {:adopting true}
+          reporter  (hydration-reporter adoption root-id (:on-recoverable-error opts))
+          closer    (react/createElement adoption-window-closer
+                                         #js {:key "rf-adoption" :rfAdoption adoption})
+          element   (root-element root-form frame-id [closer])
+          acquired? (and (some? frame-id) (not (frame-ref-held? frame-id root-id)))]
+      (preflight! 'v/hydrate-root plan root-id)
+      (attempt!
+        frame-id root-id acquired?
+        (fn [keep!]
+          (recheck-claim! 'v/hydrate-root dom-node root-id prefix existing)
+          (let [react-root (keep! (rdc/hydrateRoot dom-node element
+                                                   (root-options prefix opts reporter)))]
+            (register! root-id (->Root (descriptor-for ident) dom-node react-root
+                                       prefix frame-id true))))))))
 
 (defn hydrate-root
   "Adopt the server-rendered markup already in `dom-node` for the declared

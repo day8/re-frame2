@@ -54,4 +54,72 @@
  ;; The rejected root left nothing: no host root on its container, no
  ;; registry entry, no second ledger record.
  :rejected-container-children 0
- :ledger-entries-after 1}
+ :ledger-entries-after 1
+
+ ;; ---------------------------------------------------------------------
+ ;; The preflight is also an OWNERSHIP BOUNDARY, and it has two sides.
+ ;;
+ ;; BEFORE it, nothing has been written — so everything that can still
+ ;; fail on the shape of the call belongs there, and a rejection has
+ ;; nothing to undo. Building the root's element is the last such step,
+ ;; and a bad props slot is the cheapest way to make it fail.
+ ;;
+ ;; AFTER it, the document is no longer the one the mount was admitted
+ ;; against: `:initial-events` are arbitrary application code, and code
+ ;; that runs before React can mount a root, unmount one, or take the
+ ;; container. So the claim is re-asserted, and a mount whose ground
+ ;; moved refuses instead of clobbering what moved onto it.
+ ;;
+ ;; Both refusals are LOUD and both give back exactly what the attempt
+ ;; took — never a sibling's frame reference, and never the incumbent's.
+ ;; ---------------------------------------------------------------------
+ :boundary
+ {;; Before: the root form's head is a declared view, so identity and
+  ;; the claims resolve; `nil` in the props slot then fails when the
+  ;; element is built. Preflight never ran, so there is no frame, no
+  ;; ledger record, no claim and no DOM — and the corrected call
+  ;; immediately after is an ordinary successful mount.
+  :bad-props {:frame-id           :fh.root/boundary-bad-props
+              :seeded             7
+              :error              :rf.error/view-bad-props
+              :frame-live         false
+              :ledger-entries     0
+              :live-roots         0
+              :container-children 0
+              :retry-text         "7"}
+
+  ;; After, fresh root: the plan mounts a root into THIS mount's own
+  ;; container. The inner root is live and registered; the outer attempt
+  ;; refuses rather than allocate a second host root over it.
+  :re-entrant {:frame-id       :fh.root/boundary-re-entrant
+               :inner-root-id  :fh.root/boundary-inner
+               :error          :rf.error/root-container-in-use
+               :live-root-ids  #{:fh.root/boundary-inner}
+               :ledger-entries 0
+               :frame-live     false}
+
+  ;; After, live root: the plan unmounts the very root this re-mount was
+  ;; admitted to re-render. The captured handle names a host root React
+  ;; has already discarded.
+  :superseded {:frame-id       :fh.root/boundary-superseded
+               :error          :rf.error/root-not-live
+               :live-roots     0
+               :ledger-entries 0
+               :frame-live     false}
+
+  ;; And the other direction, which matters at least as much: an
+  ;; ORDINARY re-mount — same id, same container, same plan — is still
+  ;; admitted, still re-renders, and still does not re-seed. A fence
+  ;; strict enough to refuse this would be worse than the defect.
+  ;;
+  ;; "Did not re-seed" is counted rather than inferred: one setup step
+  ;; increments a counter, and the count after the re-mount is still one.
+  ;; The rendered text cannot tell the two apart — a replayed seed writes
+  ;; the same value back.
+  :idempotent {:frame-id       :fh.root/boundary-idempotent
+               :seeded         7
+               :text           "7"
+               :setup-runs     1
+               :live-roots     1
+               :ledger-entries 1
+               :frame-live     true}}}
