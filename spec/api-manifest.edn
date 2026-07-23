@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 522,
+ :var-count 527,
  :tier-vocab
  [:front-porch
   :advanced
@@ -209,6 +209,11 @@
   {:namespace "re-frame.freehand", :var "route-link", :tier :advanced, :kind :var, :owner "012", :status "EP-0036", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.freehand", :var "sub", :tier :front-porch, :kind :fn, :owner "006", :status "EP-0036", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.freehand", :var "view?", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand.test", :var "attrs", :tier :testing, :kind :fn, :owner "008", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand.test", :var "find", :tier :testing, :kind :fn, :owner "008", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand.test", :var "find-all", :tier :testing, :kind :fn, :owner "008", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand.test", :var "render", :tier :testing, :kind :fn, :owner "008", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand.test", :var "text", :tier :testing, :kind :fn, :owner "008", :status "EP-0036", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.http", :var "delete", :tier :advanced, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.http", :var "get", :tier :advanced, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.http", :var "head", :tier :advanced, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
