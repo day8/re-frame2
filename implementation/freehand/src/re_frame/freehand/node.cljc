@@ -527,6 +527,26 @@
     m)
   m)
 
+(defn- canonical-slot-keys
+  "`m` with every key in the CANONICAL author spelling
+  [[re-frame.freehand.conversion/attr-key]] projects it onto.
+
+  Identity for all but the two SLOT-OWNING keys: `:class`, which composes
+  with the `.class` sugar, and `:style`, which carries the CSS grammar.
+  Those two own a place in the element rather than a place in the
+  attribute map, so `:x/class`, `\"class\"` and `'class` are one key
+  spelled four ways. Everything else — `:x/title`, `:on-click`, a
+  `data-*` — is left in author space, because the structural tree carries
+  authored names and rewriting one would edit the tree for no gain.
+
+  Remembered per key, so this is a map rebuild and not a re-derivation."
+  [m]
+  (if (seq m)
+    (persistent! (reduce-kv (fn [acc k v] (assoc! acc (conv/attr-key k) v))
+                            (transient {})
+                            m))
+    {}))
+
 (defn spread-attrs
   "`(v/spread base overrides)` — the author-space attribute map the element
   receives. `overrides` wins every collision (later-arg-wins), both maps are
@@ -535,7 +555,19 @@
 
   The one seam both modes reach: an interpreted body calls it through the
   public `v/spread`, a compiled body's emitted lowering calls it directly, so
-  the forwarded map cannot mean one thing before promotion and another after."
+  the forwarded map cannot mean one thing before promotion and another after.
+
+  A collision is judged on the CANONICAL slot, not on the authored
+  spelling, which is why both maps are projected before the merge rather
+  than after. `:class` and `:style` own a slot in the element, so
+  `{:x/class \"base\"}` and `{:class \"override\"}` are the same key twice —
+  but a raw `merge` sees two distinct map keys, keeps both, and leaves
+  the winner to whatever the downstream fold happens to visit last. The
+  two front ends fold in different orders, so that is exactly a
+  spelling-dependent split: the interpreted walk answered the BASE and
+  the compiled one the override, for one declaration whose only stated
+  rule is later-arg-wins. Projecting first makes the collision visible to
+  the merge, which is the one place the rule is written down."
   [base overrides]
   (assert-forwardable-attrs! 're-frame.freehand/spread base)
   (assert-forwardable-attrs! 're-frame.freehand/spread overrides)
@@ -543,7 +575,7 @@
   ;; both modes rather than an attribute map in one and an absent child in
   ;; the other — the two happen to render the same tree, and agreement by
   ;; coincidence is the thing this whole slice is written against.
-  (merge (or base {}) overrides))
+  (merge (canonical-slot-keys base) (canonical-slot-keys overrides)))
 
 (defn- owned-handler-keys
   "The `on-*` keys of a `v/spread-safe` OWNED props map — the handler families
