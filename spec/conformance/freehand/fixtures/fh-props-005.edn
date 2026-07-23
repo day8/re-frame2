@@ -1,0 +1,37 @@
+;; FH-PROPS-005 — a published view carries a props schema, and a gate says so.
+;;
+;; Props schemas are optional in the grammar. That is the posture, and the whole
+;; point of it is that the mandate falls somewhere ELSE: on the surfaces where a
+;; contract crosses a boundary. A published, reusable view is read by callers its
+;; author will never meet — through a catalogue entry, an editor completion, an
+;; agent authoring a call site — and for a shipped control the declaration IS the
+;; contract. A rule that is policy and nothing else is a rule that erodes, so it
+;; is a gate.
+;;
+;; `:catalogue` is the roster the gate governs: the views the public door itself
+;; publishes. It is named here rather than derived, so ADDING a published view is
+;; a deliberate edit to this fixture and never a quiet inheritance of the
+;; exemption — a new door view with no row fails the gate as surely as one with a
+;; row and no schema.
+;;
+;; Visibility is decided by the publishing surface, never by a `:public`
+;; declaration option: a flag would be a second, weaker statement of something
+;; the build already knows.
+;;
+;; `:closed?` records which way each published view went, because the honest
+;; answer is not the same for all three. `v/route-link` forwards every
+;; unrecognised key to its `<a>`, so a closed roster would be a contract it
+;; breaks on its first `:aria-label`; it declares itself open instead. Declaring
+;; a schema and declaring it CLOSED are two decisions, and the mandate is only
+;; the first.
+{:fh/id "FH-PROPS-005"
+ :catalogue
+ {:re-frame.freehand/markup
+  {:closed? true
+   :why "one prop, `:value`; a caller reaching for a second has misread the boundary"}
+  :re-frame.freehand/error-boundary
+  {:closed? true
+   :why "the option roster its own docstring calls closed, said once as data"}
+  :re-frame.freehand/route-link
+  {:closed? false
+   :why "every unrecognised key forwards to the anchor, so open is the truthful declaration"}}}

@@ -258,6 +258,39 @@
        `:children-policy`  `:optional` (default), `:none`, or `:required`
        `:compiled`         `false` (default), or `true` to select the
                            compiled tier's finite grammar
+       `:props`            a props schema — Malli vector data, held inert
+
+     ## `:props` — the optional contract
+
+         (v/defview todo-row
+           {:compiled true
+            :props    [:map [:id :int] [:text :string]]}
+           [{:keys [id text]}]
+           [:li.row {:data-id id} text])
+
+     OPTIONAL, in both modes. The compiler rejects what it cannot lower,
+     never what lacks documentation, so an ordinary application view
+     declares no schema and pays no ceremony for it. Where a schema is
+     MANDATORY is build and catalogue policy over published, reusable
+     views and views claiming generated parity — not the grammar.
+
+     A declared schema decides one thing, and the same thing in both
+     modes: it CLOSES the props map to the keys it names. A view that
+     really does forward arbitrary props says so in the schema itself,
+     `[:map {:closed false} …]`, rather than by silent tolerance. `:key`
+     and `:children` are reserved slots and never schema entries.
+
+     The modes differ only in WHEN a breach is reported: a compiled call
+     site's keys are literal, so the analyzer names them at build time; a
+     delivered props map is knowable at render, so the boundary names it
+     then. Promotion therefore changes the moment a mistake surfaces, not
+     which props are legal. The runtime check is development-only — a
+     schema is a compile-time and tooling fact, and production renders
+     the same tree either way.
+
+     A declaration WITHOUT `:props` reports its schema as absent from
+     [[describe]], never as `:any`: an undeclared contract and a
+     deliberately permissive one are different facts.
 
      ## `{:compiled true}` — the one-line promotion
 
@@ -291,9 +324,9 @@
      `:rf.error/defview-bad-args` at macro expansion, NAMING it — an
      option is never discarded, because a one-character typo would
      otherwise produce valid code with different semantics. That holds
-     for a RESERVED option whose owning slice has not landed: the
-     props-schema options are refused until the schema surface exists,
-     the way `:compiled` was refused until the compiled tier landed.
+     for a RESERVED option whose owning slice has not landed, the way
+     `:compiled` was refused until the compiled tier landed and `:props`
+     until the schema surface did.
 
      A declaration also needs a BODY. A parameter vector with nothing
      after it would expand into a view that renders nothing and says

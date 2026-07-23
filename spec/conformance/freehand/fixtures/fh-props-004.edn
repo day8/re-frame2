@@ -1,0 +1,62 @@
+;; FH-PROPS-004 — a props schema is optional in the grammar, and where one is
+;; declared it means the SAME thing in both execution modes.
+;;
+;; The law has two halves and they pull in opposite directions, which is why
+;; both are pinned here.
+;;
+;; The first is the trust-the-programmer half: `:props` is OPTIONAL. An ordinary
+;; application view that declares no schema compiles, mounts and renders, and
+;; reports its schema as ABSENT rather than as a permissive `:any` — an
+;; undeclared contract and a deliberately open one are different facts and stay
+;; distinguishable. `:schema-less` names the declaration that proves it.
+;;
+;; The second is the half that makes a declared schema worth declaring: a schema
+;; CLOSES the props map, and closes it identically whichever mode the view was
+;; declared in. `:calls` is the accept/reject matrix — one table of props maps,
+;; each with the verdict it MUST receive, driven against the same schema
+;; declared once interpreted and once compiled. A verdict that differed between
+;; the modes would mean promotion silently renegotiated the view's contract.
+;;
+;; What differs between the modes is WHEN the breach is reported, never what is
+;; legal: a compiled call site's keys are literal, so the analyzer reports them
+;; at build time under `:compiled-reject-id`; a delivered props map is knowable
+;; at render, so the boundary reports it then under `:reject-id`.
+;;
+;; `:open` is the escape, and it is deliberately spelled in the schema rather
+;; than as a second declaration option: a view that really does forward
+;; arbitrary props — `v/route-link` passing every unrecognised key to its `<a>`
+;; — states that once, where the rest of its props contract already is.
+;;
+;; `:reserved` pins the two keys no schema may govern. `:key` is stripped by the
+;; call ABI before props are delivered and `:children` arrives as trailing forms
+;; under `:children-policy`; a schema that had to name them would be a second
+;; contract for something that already has one.
+{:fh/id "FH-PROPS-004"
+
+ :schema             [:map [:id :int] [:label :string]]
+ :open-schema        [:map {:closed false} [:id :int]]
+
+ :reject-id          :rf.error/view-bad-props
+ :compiled-reject-id :rf.ui.compile/undeclared-prop
+
+ ;; props map -> the verdict the schema above MUST return, in EITHER mode.
+ :calls
+ [{:props {:id 1 :label "a"}     :verdict :accept :why "every declared key, supplied"}
+  {:props {:id 1}                :verdict :accept :why "a subset — closure is about which keys MAY appear, not which must"}
+  {:props {}                     :verdict :accept :why "no props at all is a subset too"}
+  {:props {:id 1 :key "k"}       :verdict :accept :why ":key is reserved, stripped before delivery, and never a schema slot"}
+  {:props {:id 1 :labl "a"}      :verdict :reject :why "a one-character typo — the case a closed map exists to catch"}
+  {:props {:id 1 :title "a"}     :verdict :reject :why "an undeclared prop the view would silently never read"}
+  {:props {:extra 1 :other 2}    :verdict :reject :why "two at once; both are named, not just the first"}]
+
+ ;; The same matrix against the OPEN escape: closure is what the declaration
+ ;; asked for, so opting out admits everything the closed schema refused.
+ :open-calls
+ [{:props {:id 1}                :verdict :accept}
+  {:props {:id 1 :title "a"}     :verdict :accept :why "an undeclared key is exactly what {:closed false} admits"}
+  {:props {:anything 1}          :verdict :accept}]
+
+ :reserved #{:key :children}
+
+ ;; The declaration that carries no schema at all — the optional half.
+ :schema-less {:describe-omits-props-schema? true}}
