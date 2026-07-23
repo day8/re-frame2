@@ -49,8 +49,9 @@
             [re-frame.freehand.presence-runtime :as presence-runtime]
             [re-frame.freehand.route-link-seam :as route-link-seam]
             [re-frame.interop :as interop]
-            #?@(:clj [[re-frame.freehand.compiler :as compiler]
-                      [re-frame.source-coords :as source-coords]]))
+            #?@(:clj  [[re-frame.freehand.compiler :as compiler]
+                       [re-frame.source-coords :as source-coords]]
+                :cljs [[re-frame.freehand.root :as root]]))
   #?(:cljs (:require-macros [re-frame.freehand :refer [defview event handler render-fn]])))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -422,6 +423,47 @@
   Per [Spec 006 §The subscription law](../../../../spec/006-ReactiveSubstrate.md#the-subscription-law)."
        :arglists '([query])}
   sub cell/observe!)
+
+;; ---------------------------------------------------------------------------
+;; Roots and mounting — `v/mount`
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004C §The mount grammar. Mounting is the browser half of getting a
+;; Freehand tree onto a page; the JVM renders the SAME root form
+;; structurally through the tree emitter, so the minimal one-root spelling
+;; is one spelling on both hosts. `mount` re-exports the client surface in
+;; `re-frame.freehand.root` — a re-export the descriptor split (this door
+;; requires its emitters, never the reverse) is what makes reachable.
+;; Browser-only, because a DOM node is: there is no JVM mount, only the JVM
+;; structural render the door does not need to publish.
+
+#?(:cljs
+   (def ^{:doc "Mount the declared view at `root-form`'s head into
+  `dom-node`, and return the live root handle.
+
+      (v/mount [app {}] (js/document.getElementById \"app\"))
+
+  The minimal one-root spelling: a declared view at the head, whose
+  registered id becomes the root's derived identity (its `:root-id`, a
+  qualified keyword). The SAME `[app {}]` form renders structurally on the
+  JVM — mounting and structural rendering are one spelling.
+
+  IDEMPOTENT PER ROOT (Spec 004C §3): re-mounting the same root-id into the
+  same container RE-RENDERS the existing host root rather than allocating a
+  second one. That is the hot-reload path — a reload mints a fresh
+  descriptor object for the redefined view, but the qualified id it keys on
+  does not move, so the reload finds the root live and re-renders the new
+  body without reseeding the host root. Body/generation churn is an
+  internal fact of the descriptor, never part of the identity.
+
+  Frame preflight, authored identity, multi-root duplicate detection,
+  failed-root isolation, total teardown and hydration are later slices; a
+  bare declared view at the head is the whole grammar here, and `opts` is
+  accepted and ignored.
+
+  Per [Spec 004C §The mount grammar](../../../../spec/004C-Roots-and-Mount.md)."
+          :arglists '([root-form dom-node] [root-form dom-node opts])}
+     mount root/mount))
 
 ;; ---------------------------------------------------------------------------
 ;; Event intent and the callback roster
