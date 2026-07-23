@@ -4,9 +4,9 @@
 
   FH-CTRL-001…005 proved WHERE a controller's record lives. These prove
   WHEN it is still the one the caller means — and the whole substrate
-  contribution is two more pure functions beside `control/record-key`:
-  `control/reset-revision`, which takes the caller's `:reset-key` and
-  refuses its absence, and `control/current?`, the fence itself. There is
+  contribution is two more pure functions beside `v/controller-key`:
+  `v/controller-revision`, which takes the caller's `:reset-key` and
+  refuses its absence, and `v/controller-current?`, the fence itself. There is
   still no controller DSL, no registry, and no public verb; the pilot
   below is a `v/defview` with four `reg-event`s and two `reg-sub`s.
 
@@ -48,7 +48,6 @@
             #?(:clj [re-frame.freehand.compiler.check :as check])
             [re-frame.freehand.cell :as cell]
             [re-frame.freehand.conformance :as conf]
-            [re-frame.freehand.control :as control]
             [re-frame.freehand.test :as t]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
@@ -91,7 +90,7 @@
   (rf/reg-sub :my.ui.field/text
     (fn [db [_ record-key revision baseline]]
       (let [record (get-in db [records-root record-key])]
-        (if (control/current? (:reset-key record) revision)
+        (if (v/controller-current? (:reset-key record) revision)
           (:draft record)
           baseline))))
 
@@ -112,7 +111,7 @@
   (rf/reg-event :my.ui.field/committed
     (fn [{:keys [db]} [_ record-key revision on-commit]]
       (let [record (get-in db [records-root record-key])]
-        (if (control/current? (:reset-key record) revision)
+        (if (v/controller-current? (:reset-key record) revision)
           {:db (update db records-root dissoc record-key)
            :fx [[:dispatch (conj (vec on-commit) (:draft record))]]}
           {}))))
@@ -122,7 +121,7 @@
   ;; rather than racing it.
   (rf/reg-event :my.ui.field/cancelled
     (fn [{:keys [db]} [_ record-key revision]]
-      (if (control/current? (:reset-key (get-in db [records-root record-key])) revision)
+      (if (v/controller-current? (:reset-key (get-in db [records-root record-key])) revision)
         {:db (update db records-root dissoc record-key)}
         {})))
 
@@ -172,8 +171,8 @@
   then reads and emits through ordinary re-frame. Every intent it renders
   carries the generation the render that produced it displayed."
   [{:keys [value on-commit] :as props}]
-  (let [k (control/record-key kind props)
-        g (control/reset-revision kind props)]
+  (let [k (v/controller-key kind props)
+        g (v/controller-revision kind props)]
     [:span
      [:input {:value    (v/sub [:my.ui.field/text k g value])
               :on-input [:my.ui.field/edited k g ::v/value]
@@ -184,7 +183,7 @@
   "An addressed controller that holds no draft. It never asks for a
   generation, so it has none to omit."
   [{:keys [label] :as props}]
-  (let [k (control/record-key disclosure-kind props)]
+  (let [k (v/controller-key disclosure-kind props)]
     [:button {:on-click [:my.ui.disclosure/toggled k]} label]))
 
 (v/defview invoice-form
@@ -392,7 +391,7 @@
                 keeping the stamp is what lets a tool name the generation
                 that orphaned it"
         (is (= stale-record-after-rejection (record control)))
-        (is (false? (control/current? (:reset-key (record control)) next-revision))
+        (is (false? (v/controller-current? (:reset-key (record control)) next-revision))
             "the fence, asked directly"))
 
       (testing "the counter-case: an external update that moves the VALUE
@@ -409,8 +408,8 @@
    (deftest fh-ctrl-007-the-controller-shape-is-not-interpreted-only
      (testing "Per FH-CTRL-006…010, applicability `common`: the laws bind
                BOTH execution modes, and almost nothing about the fence
-               could differ between them — `control/reset-revision` and
-               `control/current?` are ordinary functions, the second of
+               could differ between them — `v/controller-revision` and
+               `v/controller-current?` are ordinary functions, the second of
                them called from a `reg-sub` that no view mode ever sees,
                and the record is ordinary frame data. What promotion
                COULD move is the SHAPE the pilot renders, so what is

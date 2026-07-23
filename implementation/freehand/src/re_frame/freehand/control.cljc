@@ -50,11 +50,21 @@
   [[re-frame.freehand.errors]] uses for its `:reset-key`. One idea, three
   users, no second mechanism.
 
-  Deliberately NOT on the `re-frame.freehand` door. A controller needs no
-  authoring verb: the address and the revision arrive as ordinary props
-  and the state moves through ordinary re-frame. Publishing a verb here
-  would advertise controllers as a normal way to hold state, which is the
-  opposite of the ruling.
+  All three CROSS THE DOOR, as `v/controller-key`,
+  `v/controller-revision` and `v/controller-current?` — this namespace
+  stays internal and the door names them for the author. A component
+  library is consumer code by construction (D017 gives it the widget
+  vocabulary outright), so leaving the mechanism unpublished would oblige
+  a library to reach into an internal namespace to write an ordinary
+  field. The advertising cost the door pays — a published authoring verb
+  can read as an invitation to hold state in a control — is carried by
+  the `advanced` tier instead: the Guide and the skills load front-porch
+  only, so these are reachable by the library author who needs them and
+  invisible to the app author who does not.
+
+  The door spelling is also what the two refusals below NAME as their
+  raising site, so a diagnostic never points an author at a namespace
+  they never typed.
 
   Normative owner:
   [`spec/004-Views.md` §Semantic controllers](../../../../../spec/004-Views.md#semantic-controllers)."
@@ -62,12 +72,14 @@
             [re-frame.freehand.eq :as eq]))
 
 (def ^:private where
-  "The raising site the address diagnostic names."
-  're-frame.freehand.control/record-key)
+  "The raising site the address diagnostic names — the DOOR spelling, not
+  this namespace's, because that is the name the author wrote."
+  're-frame.freehand/controller-key)
 
 (def ^:private where-revision
-  "The raising site the reset-revision diagnostic names."
-  're-frame.freehand.control/reset-revision)
+  "The raising site the reset-revision diagnostic names — the DOOR
+  spelling, for the same reason."
+  're-frame.freehand/controller-revision)
 
 (defn- missing-address!
   [kind props]
@@ -109,7 +121,7 @@
   pair of the controller KIND and the `:control` address carried by
   `props`.
 
-      (control/record-key :my.ui/buffered-field props)
+      (v/controller-key :my.ui/buffered-field props)
       ;; => [:my.ui/buffered-field [:invoice 42 :amount]]
 
   The kind is in the key so that two controller families addressed at the
@@ -137,7 +149,7 @@
   "The GENERATION a buffered controller of `kind` is currently rendering
   under: the caller's `:reset-key`, taken from `props`.
 
-      (control/reset-revision :my.ui/buffered-field props)
+      (v/controller-revision :my.ui/buffered-field props)
       ;; => 12
 
   It is any EDN the caller likes — a counter, a timestamp, the id of the
@@ -165,7 +177,7 @@
   "The GENERATION FENCE. Is work `stamped` with one generation still
   current against `revision`, the caller's generation now?
 
-      (control/current? (:reset-key record) revision)
+      (v/controller-current? (:reset-key record) revision)
 
   ONE predicate, asked at both boundaries a buffered controller has:
 

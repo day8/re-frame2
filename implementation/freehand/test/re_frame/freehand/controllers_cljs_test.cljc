@@ -7,7 +7,7 @@
   `v/defview` and its protocol is two `reg-sub`s and two `reg-event`s —
   the whole of what a component library writes to own a cross-event
   control. Nothing in it registers with the substrate, and the only
-  Freehand contribution is `control/record-key`: the pair
+  Freehand contribution is `v/controller-key`: the pair
   `(kind, :control address)` a record lives under, plus the loud refusal
   when the address is absent. If this suite could only be written against
   a controller DSL, that would be evidence the DSL had been built too
@@ -40,7 +40,6 @@
             [re-frame.freehand :as v]
             [re-frame.freehand.cell :as cell]
             [re-frame.freehand.conformance :as conf]
-            [re-frame.freehand.control :as control]
             [re-frame.freehand.test :as t]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
@@ -114,7 +113,7 @@
   makes it a writable controller at all — then reads and emits through
   ordinary re-frame."
   [{:keys [value on-commit] :as props}]
-  (let [k (control/record-key kind props)]
+  (let [k (v/controller-key kind props)]
     [:input {:value    (v/sub [:my.ui.field/text k value])
              :on-input [:my.ui.field/edited k ::v/value]
              :on-blur  [:my.ui.field/committed k on-commit]}]))
@@ -384,7 +383,7 @@
             an epoch, a snapshot and a tool already see."
     (let [{:keys [control typed inspection-query record record-path on-commit
                   committed-event committed-path committed-value]} ctrl-005
-          k (control/record-key kind {:control control})]
+          k (v/controller-key kind {:control control})]
       (seed! {})
       (send! [:my.ui.field/edited k typed])
 

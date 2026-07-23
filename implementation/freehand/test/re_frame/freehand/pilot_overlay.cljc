@@ -20,8 +20,8 @@
   `(kind, :control)`. It is NOT buffered: an open flag holds no draft a
   caller could reject, so it asks for an address and never for a
   generation. That asymmetry is the substrate's, not this library's, and
-  it is worth stating: `control/record-key` is what makes a controller
-  writable, and `control/reset-revision` is a SECOND, separable
+  it is worth stating: `v/controller-key` is what makes a controller
+  writable, and `v/controller-revision` is a SECOND, separable
   obligation that only a draft-holding control pays.
 
   [[confirm]] is PROPS-ONLY — value in, intent out. A modal's open state
@@ -93,7 +93,6 @@
   count of retained observers and listeners as an exact integer."
   (:require [re-frame.core :as rf]
             [re-frame.freehand :as v]
-            [re-frame.freehand.control :as control]
             [re-frame.freehand.web :as web]))
 
 ;; ===========================================================================
@@ -366,7 +365,7 @@
    ;; map-carried `:children` is refused at the boundary.
    :children-policy :optional}
   [{:keys [name label options selected on-change gap children] :as props}]
-  (let [k      (control/record-key dropdown-kind props)
+  (let [k      (v/controller-key dropdown-kind props)
         state  (v/sub [:acme.ui.dropdown/state k])
         open?  (:open? state)
         active (:active state)]
