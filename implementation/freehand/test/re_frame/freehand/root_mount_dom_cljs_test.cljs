@@ -386,3 +386,81 @@
                        (is false (str "identifierPrefix suite rejected: " e))
                        (.remove container) (.remove spare) (.remove fresh)
                        (done)))))))))
+
+;; ===========================================================================
+;; FH-ROOT-002 — immutable-prefix drift OUTRANKS the cross-root duplicate
+;; ===========================================================================
+
+(def ^:private drift (:drift-precedence prefix-arm))
+
+(deftest fh-root-002-immutable-prefix-drift-outranks-cross-root-duplicate
+  (testing "Per FH-ROOT-002 (browser): a re-mount that drifts its prefix
+            toward a value ANOTHER live root already owns reports
+            :rf.error/root-identifier-prefix-immutable, not
+            :rf.error/duplicate-identifier-prefix. Once the same-root
+            incumbent is known its drift is what matters: the recovery is
+            unmount-first, and every prefix but the incumbent's own is equally
+            forbidden for that reused root, so a 'choose a distinct prefix'
+            diagnostic would only surface the immutable failure on the next
+            attempt. Both live roots are untouched, read back off the
+            document. A FRESH root aliasing the owned prefix — no incumbent —
+            still earns the duplicate diagnostic: the precedence is about an
+            incumbent, not about the requested value."
+    (if-not (browser?)
+      (skip! "the browser job runs the drift-precedence assertions")
+      (async done
+        (let [ca    (host-node!)
+              cb    (host-node!)
+              spare (host-node!)
+              ra    (:root-a drift)
+              rb    (:root-b drift)
+              pa    (:prefix-a drift)
+              pb    (:prefix-b drift)]
+          (-> (act #(vector (v/mount [probe {}] ca {:root-id ra :identifier-prefix pa})
+                            (v/mount [probe {}] cb {:root-id rb :identifier-prefix pb})))
+              (.then
+                (fn [[a b]]
+                  (is (= pa (root/root-identifier-prefix a)))
+                  (is (= pb (root/root-identifier-prefix b)))
+                  (let [uid-a (text ca ".uid")
+                        uid-b (text cb ".uid")]
+
+                    ;; 1 — the drift: re-mount A toward B's OWNED prefix.
+                    (let [data (caught #(v/mount [probe {}] ca
+                                                 {:root-id ra :identifier-prefix pb}))]
+                      (is (= (:immutable drift) (:rf.error/id data))
+                          "immutable-prefix drift, NOT the cross-root duplicate — the
+                           incumbent's own diagnostic outranks the owned value's")
+                      (is (= (:recovery drift) (:recovery data))
+                          "with the recovery that actually works — unmount, then mount")
+                      (is (= ra (:root-id data)))
+                      (is (= pb (:requested data)) "the diagnostic names what was asked for")
+                      (is (= pa (:existing data)) "and the incumbent's own prefix, not B's"))
+
+                    ;; 2 — A and B are both untouched, read off the document.
+                    (is (= #{ra rb} (root/live-root-ids)))
+                    (is (= pa (root/root-identifier-prefix a)))
+                    (is (= pb (root/root-identifier-prefix b)))
+                    (is (= uid-a (text ca ".uid"))
+                        "A is still emitting use-id under its own prefix")
+                    (is (= uid-b (text cb ".uid"))
+                        "and B under its — neither claim was touched"))
+
+                  ;; 3 — a FRESH root aliasing B's prefix keeps the DUPLICATE.
+                  (let [data (caught #(v/mount [probe {}] spare
+                                               {:root-id           (:fresh-root drift)
+                                                :identifier-prefix pb}))]
+                    (is (= (:duplicate drift) (:rf.error/id data))
+                        "a fresh root aliasing an owned prefix — no incumbent to make it
+                         drift — still reports the cross-root duplicate"))
+                  (is (zero? (.-childElementCount spare))
+                      "and it put nothing on the page")
+
+                  (act #(do (v/unmount! a) (v/unmount! b)))))
+              (.then (fn [_]
+                       (.remove ca) (.remove cb) (.remove spare)
+                       (done))
+                     (fn [e]
+                       (is false (str "drift-precedence suite rejected: " e))
+                       (.remove ca) (.remove cb) (.remove spare)
+                       (done)))))))))

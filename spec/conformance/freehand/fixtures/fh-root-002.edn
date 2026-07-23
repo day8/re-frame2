@@ -124,4 +124,23 @@
   ;; and a true `v/unmount!` DOES free it: a successor claiming the same
   ;; identity re-claims the prefix and mounts, after which the dead handle is
   ;; a guarded no-op that cannot release the successor's claim
-  :successor-reclaims-prefix true}}
+  :successor-reclaims-prefix true
+
+  ;; DRIFT PRECEDENCE (rf2-drpa3.140): a re-mount whose prefix drifts toward a
+  ;; value ANOTHER live root already owns is still same-root drift. The
+  ;; immutable-prefix diagnostic OUTRANKS the cross-root duplicate one, because
+  ;; its recovery — unmount first — is the real one: every prefix but the
+  ;; incumbent's own is equally forbidden for that reused root, so a "choose a
+  ;; distinct prefix" recovery would only surface the immutable failure on the
+  ;; next attempt. A FRESH root aliasing the owned prefix has no incumbent, so
+  ;; it keeps the duplicate diagnostic — the precedence is about an incumbent,
+  ;; not about the requested value.
+  :drift-precedence
+  {:root-a     :fh.root/drift-a
+   :prefix-a   "rf2-drift-a-"
+   :root-b     :fh.root/drift-b
+   :prefix-b   "rf2-drift-b-"
+   :fresh-root :fh.root/drift-fresh
+   :immutable  :rf.error/root-identifier-prefix-immutable
+   :recovery   :unmount-before-changing-identifier-prefix
+   :duplicate  :rf.error/duplicate-identifier-prefix}}}

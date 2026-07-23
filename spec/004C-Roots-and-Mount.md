@@ -441,8 +441,8 @@ prefix-uniqueness backstop share the roster:
 | `:rf.error/duplicate-root-id` | equal root-id at any layer above; client `:existing` includes `:tearing-down? true` while settlement is fenced |
 | `:rf.error/root-container-missing` | hydration locator resolves to no element (§4) |
 | `:rf.error/root-container-in-use` | `create-root`/`mount` on a node already owned by a different live or tearing-down root |
-| `:rf.error/duplicate-identifier-prefix` | `create-root`/`mount`/`hydrate-root` whose effective `identifierPrefix` is already claimed by a different live root — backstops authored `:identifier-prefix` aliasing, and hydrating roots that share React's effective empty prefix `""` when the manifest omits `:identifier-prefix` (the derived mount default is injective over root-id, §1) |
-| `:rf.error/root-identifier-prefix-immutable` | a same-root/same-container re-mount — the idempotent reload path, which RE-RENDERS the live host root — whose effective `identifierPrefix` differs from the one that root was created under. Host root options are fixed at creation, so the running root cannot adopt the new value; the drift is refused before preflight and before any render, and the live root keeps its prefix claim |
+| `:rf.error/duplicate-identifier-prefix` | a **fresh** `create-root`/`mount`/`hydrate-root` whose effective `identifierPrefix` is already claimed by a different live root — backstops authored `:identifier-prefix` aliasing, and hydrating roots that share React's effective empty prefix `""` when the manifest omits `:identifier-prefix` (the derived mount default is injective over root-id, §1). For a **same-root/same-container** incumbent, the immutable-prefix row below takes precedence over this one |
+| `:rf.error/root-identifier-prefix-immutable` | a same-root/same-container re-mount — the idempotent reload path, which RE-RENDERS the live host root — whose effective `identifierPrefix` differs from the one that root was created under. Host root options are fixed at creation, so the running root cannot adopt the new value; the drift is refused before preflight and before any render, and the live root keeps its prefix claim. **Takes precedence over `:rf.error/duplicate-identifier-prefix`** once the incumbent is known: drift toward a value another root owns is still immutable-prefix drift (recovery: unmount first), because every prefix but the incumbent's is equally forbidden for that reused root |
 | `:rf.error/root-not-live` | `render!` on a `Root` whose id is no longer live — `unmount!`ed, tearing-down, or superseded by a newer root claiming the same id (guarded like `unmount!`, but fails loud rather than no-op, before any side effect) |
 | `:rf.error/root-manifest-invalid` | manifest missing/unreadable at hydrate, schema-version incompatible, identity opts passed client-side, unserialisable props at emit, prefix conflict |
 | `:rf.error/frame-payload-conflict` | below |
@@ -705,6 +705,20 @@ manufacturing the very cross-root `use-id` collision the prefix claim exists
 to prevent. What is refused is **drift**, never the re-mount: a re-mount
 offering the same effective prefix — authored verbatim, or derived because
 neither site authored one — is the ordinary idempotent reload.
+
+**This drift check takes precedence over the cross-root prefix-uniqueness
+check.** Once the same-root/same-container incumbent is known, a requested
+prefix that differs from *its own* is reported as
+`:rf.error/root-identifier-prefix-immutable` — even when that requested value
+is a prefix some OTHER live root already owns. The alternative, reporting
+`:rf.error/duplicate-identifier-prefix` because the requested value collides,
+sends the author chasing a *distinct* prefix; but every prefix other than the
+incumbent's is equally forbidden for that reused root, so the honest recovery
+is `:unmount-before-changing-identifier-prefix`, not a different value. A
+**fresh** root (no same-root incumbent) requesting a prefix another root owns
+still reports `:rf.error/duplicate-identifier-prefix` — the drift check is a
+no-op with no incumbent, and the uniqueness backstop is exactly right there.
+Both checks are read-only and run before preflight and any render.
 
 **The host error callbacks move the opposite way, and honestly.** The same
 `createRoot`-fixes-the-options fact governs `:on-uncaught-error`,
