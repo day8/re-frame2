@@ -34,6 +34,7 @@
             [re-frame.freehand.compiler.analyze :as ana]
             [re-frame.freehand.compiler.env :as env]
             [re-frame.freehand.conversion :as conv]
+            [re-frame.freehand.events :as events]
             [re-frame.freehand.node :as node]
             [re-frame.freehand.rules :as rules]))
 
@@ -132,7 +133,17 @@
 (defn- emit-element [e node]
   (let [{:keys [props tag]} node
         key-info    (:key props)
-        cls         (class-slots (:class props))
+        spread      (:spread props)
+        safe        (:safe-spread props)
+        ;; `(v/spread …)` in the props position IS the element's whole attribute
+        ;; map, so the class plan must stay the WHOLE plan: a static fold has
+        ;; already flattened the `.class` sugar into one string, and a forwarded
+        ;; `:class` folded on top of that would REPLACE the sugar rather than
+        ;; compose after it — the one shape in which a promoted declaration
+        ;; would answer a different element (`.card` silently gone).
+        cls         (if spread
+                      {:sugar (:sugar (:class props)) :class nil}
+                      (class-slots (:class props)))
         sty         (style-slots (:style props))
         static      (cond-> (static-attr-entries e (:attrs props))
                       (:static-class cls) (assoc :class (:static-class cls))
@@ -144,9 +155,19 @@
       ~(cond-> {:tag tag}
          (seq static)     (assoc :attrs static)
          (seq dyn)        (assoc :dyn dyn)
+         ;; The forwarded maps go through the SAME constructors the public door
+         ;; calls in an interpreted body — one merge, one deny law, one fold.
+         spread           (assoc :dyn `(node/spread-attrs ~(:base spread)
+                                                          ~(:overrides spread)))
          (contains? cls :class)  (assoc :class (:class cls) :sugar (:sugar cls))
          (contains? sty :style)  (assoc :style (:style sty))
          (seq events)     (assoc :events events)
+         ;; `v/spread-safe`: the OWNED props compiled above, the guarded caller
+         ;; folded under them by `node/element` — the same slot the interpreted
+         ;; walk reaches through the reserved carrier key.
+         safe             (assoc :caller `(node/safe-caller-attrs
+                                           ~(:base safe)
+                                           ~(:owned-handler-keys safe)))
          (:present? key-info) (assoc :key? true :key-val (:expr key-info))
          (seq child-forms) (assoc :children
                                   `(fn [] (node/children ~@child-forms)))))))
@@ -166,10 +187,13 @@
     ;; about what a non-data prop records as.
     :ui-event   value
     :handler    value
-    ;; A compiled render slot: the lexically-visible pure body compiles to a
-    ;; carrier the seam invokes via v/slot. On the JVM its rendered output is
-    ;; a structural tree node.
-    :render-fn  `(re-frame.freehand.tree/render-fn
+    ;; A compiled render slot: the lexically-visible pure body compiles to the
+    ;; SAME roster callback the interpreted `v/render-fn` macro expands to, so
+    ;; the boundary records one marker whichever mode wrote the slot. What the
+    ;; compiled body ANSWERS differs — a structural node rather than markup —
+    ;; and that is D010, not a second carrier.
+    :render-fn  `(events/callback
+                  :render-fn
                   (fn [~@(:params render-fn)] ~(emit-node e (:body render-fn)))
                   ~(count (:params render-fn)))
     value))
@@ -218,20 +242,26 @@
 
 (defn- emit-slot
   "A `v/slot` invocation: gate the render-fn value (nil renders nothing; a
-  non-render-fn value is the didactic `invalid-slot!`), then invoke the
-  carrier's compiled body with the runtime args — a fixed-arity call whose
-  args evaluate only when the slot renders. The rendered output is an
-  ordinary tree child."
+  bare fn — anything that is not a render-fn — is the didactic
+  `invalid-slot!`), then invoke the carrier's compiled body with the runtime
+  args — a fixed-arity call whose args evaluate only when the slot renders.
+  The rendered output is an ordinary tree child.
+
+  The gate is the COMPILED half of the mode asymmetry the interpreted
+  `v/slot` widens: an interpreted body may pass an ordinary pure function as
+  parameterized content, a compiled one may not, because a function value is
+  exactly the content the compiled tier cannot see."
   [e node]
   (let [rf      (gensym "rf-ui-slot")
         slotval (if-let [{:keys [params body]} (:render-fn node)]
-                  `(re-frame.freehand.tree/render-fn (fn [~@params] ~(emit-node e body))
-                                               ~(count params))
+                  `(events/callback :render-fn
+                                    (fn [~@params] ~(emit-node e body))
+                                    ~(count params))
                   (:slot-value node))]
     `(let [~rf ~slotval]
-       (when (re-frame.freehand.tree/slot-ready? ~rf)
-         (re-frame.freehand.tree/check-slot-arity! ~rf ~(count (:args node)))
-         ((:f ~rf) ~@(:args node))))))
+       (when (events/slot-ready? ~rf)
+         (events/check-slot-arity! ~rf ~(count (:args node)))
+         ((events/callback-fn ~rf) ~@(:args node))))))
 
 (defn emit-node
   "AST node -> the form that builds it (nil for a statically-absent child).

@@ -2613,6 +2613,20 @@
                (str "(v/slot render-fn-value arg…) needs a render-fn value (or "
                     "nil) as its first argument; got " (pr-str form))
                {:form form}))
+  ;; The deliberate mode ASYMMETRY, refused where it is visible. An interpreted
+  ;; `v/slot` accepts an ordinary pure fn as parameterized content — it has
+  ;; nothing to prove about what it invokes. A compiled one does not, and a fn
+  ;; written lexically HERE is the one case the compiler can say so about at
+  ;; build time rather than at render.
+  (when (fn-form? (nth form 1 nil))
+    (env/fail! e :rf.ui.compile/bad-slot
+               (str "(v/slot (fn …) arg…) — a bare fn is not compiled render "
+                    "content. The compiled tier lowers what it can SEE, and a "
+                    "function value is exactly what it cannot: write the content "
+                    "as (v/render-fn [args…] template) so its body compiles here, "
+                    "or keep this view interpreted, where an ordinary pure fn is "
+                    "accepted")
+               {:form form}))
   (let [slotval (nth form 1)
         args    (drop 2 form)
         argc    (count args)
