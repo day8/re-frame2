@@ -1,0 +1,48 @@
+;; FH-TOPLAYER-002 — the pair is CLOSED, and each half is legal only where
+;; its browser operation exists.
+;;
+;; This is the row that makes the top layer a narrow contract rather than a
+;; general overlay hook. `popover-open?` means "call showPopover()", which the
+;; browser defines only on an element carrying a valid `:popover` mode;
+;; `modal-open?` means "call showModal()", which only `<dialog>` has. An
+;; element declaring both asks for two different mechanisms — different
+;; dismissal, different focus, different stacking — in one commit, and there
+;; is no honest order in which to perform them.
+;;
+;; Every rejection is the SAME id on both hosts and in both modes, raised at
+;; render before anything is emitted: the properties are recognised at the one
+;; shared canonicaliser, so an emitter that accepted what the other refused is
+;; not a thing that can happen.
+{:fh/id "FH-TOPLAYER-002"
+ :fh/law
+ "The desired-state pair is closed and qualified: popover-open? is legal only on an element with a valid :popover mode, modal-open? only on <dialog>, both together never, and a non-boolean value never — each refused at render with :rf.error/ui-tree-malformed on both hosts."
+
+ :error-id :rf.error/ui-tree-malformed
+
+ :accepted
+ [{:note "auto is the light-dismiss, one-at-a-time mode"
+   :markup [:div {:popover :auto :re-frame.freehand.web/popover-open? true}]}
+  {:note "manual popovers stack and are not light-dismissed"
+   :markup [:div {:popover :manual :re-frame.freehand.web/popover-open? false}]}
+  {:note "bare :popover presence is the empty attribute, which HTML maps to auto"
+   :markup [:div {:popover true :re-frame.freehand.web/popover-open? true}]}
+  {:note "the modal axis of a dialog"
+   :markup [:dialog {:re-frame.freehand.web/modal-open? true}]}]
+
+ :rejected
+ [{:note "no :popover mode, so there is nothing showPopover() could show"
+   :markup [:div {:re-frame.freehand.web/popover-open? true}]}
+  {:note "an unknown :popover mode is not a popover"
+   :markup [:div {:popover "sometimes" :re-frame.freehand.web/popover-open? true}]}
+  {:note "showModal() exists only on <dialog>"
+   :markup [:div {:re-frame.freehand.web/modal-open? true}]}
+  {:note "a <section> is not a dialog however much it looks like one"
+   :markup [:section {:re-frame.freehand.web/modal-open? false}]}
+  {:note "one element, one mechanism"
+   :markup [:dialog {:popover :auto
+                     :re-frame.freehand.web/popover-open? true
+                     :re-frame.freehand.web/modal-open? true}]}
+  {:note "the value IS the state, so it is a boolean or nothing"
+   :markup [:div {:popover :auto :re-frame.freehand.web/popover-open? "open"}]}
+  {:note "a truthy non-boolean is still not a state"
+   :markup [:dialog {:re-frame.freehand.web/modal-open? 1}]}]}

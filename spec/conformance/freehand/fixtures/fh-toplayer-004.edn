@@ -1,0 +1,40 @@
+;; FH-TOPLAYER-004 — the commit law, the tracking frequency, and the exact
+;; cleanup count.
+;;
+;; Three claims that are only worth anything as EXACT integers, so this row
+;; asserts integers:
+;;
+;;   1. Building elements performs ZERO host operations. The host call rides
+;;      a React ref, and React runs a ref only for a render it committed, so
+;;      an abandoned candidate's desired state cannot reach the browser. A
+;;      detach performs zero as well: a superseded generation never acts on
+;;      its replacement.
+;;   2. Re-committing an UNCHANGED desired state performs zero further
+;;      operations. The diff is read from the live node, so a repeated equal
+;;      value is a no-op however many times the parent re-renders — and a
+;;      browser-initiated dismissal is visible to that same diff, which is
+;;      why remembered state was not used.
+;;   3. Mounting, opening, closing and unmounting arms NOTHING that outlives
+;;      the cycle: no document or window listener, no ResizeObserver,
+;;      IntersectionObserver or MutationObserver, no interval. The deltas are
+;;      counted against instrumented globals and every one of them must be
+;;      exactly zero — a leak here compounds per open/close cycle, which is
+;;      precisely the failure the top layer exists to delete.
+;;
+;; `:renders` is how many extra commits the unchanged-state case performs.
+;; More than one, so a per-render host call would show up as a count rather
+;; than as a coincidence.
+{:fh/id "FH-TOPLAYER-004"
+ :fh/law
+ "Host work happens only at a selected commit and only when the desired state differs from the node's live state: building elements and detaching perform zero operations, N re-commits of an unchanged desired state perform zero further operations, and a full mount/open/close/unmount cycle leaves exactly zero retained listeners, observers, intervals and pending batch entries."
+
+ :menu-id "account-menu"
+ :renders 3
+
+ :instrumented
+ ["document.addEventListener"
+  "window.addEventListener"
+  "ResizeObserver"
+  "IntersectionObserver"
+  "MutationObserver"
+  "setInterval"]}

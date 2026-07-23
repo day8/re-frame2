@@ -1017,9 +1017,178 @@ structural marker.
 
 ### The DOM top layer
 
-**Lands in:** F4 — data and host lifecycle. Carries the closed qualified
-desired-state properties, commit-time host reconciliation, and the structural
-projection.
+An overlay used to mean a pile of machinery: a portal to escape a clipping
+ancestor, a z-index ladder, a document listener for outside dismissal, a focus
+trap and its focus-return code, scroll and resize listeners, a measurement loop,
+and a teardown path that is easy to get subtly wrong. Browsers now have a **top
+layer**, and popovers and modal dialogs enter it natively — above every stacking
+context, outside every clipping ancestor, with the platform's own dismissal,
+focus and inertness. Almost all of that machinery can simply be deleted.
+
+What cannot be deleted is the fact that the platform's door is imperative. There
+is no attribute meaning "be open": a modal dialog opens through `showModal()`,
+and a controlled popover through `showPopover()` / `hidePopover()`. So Freehand
+recognises a **closed pair of qualified desired-state properties** whose value is
+the state the browser should be in, and performs the matching idempotent call at
+the selected commit. The contract is ruled by
+[D015](../docs/design/freehand/decisions/D015-top-layer-overlays-and-portals.md).
+
+```clojure
+(v/defview account-menu [{:keys [open? on-open-change]}]
+  [:div
+   [:button {:popover-target "account-menu" :aria-expanded open?} "Account"]
+   [:div {:id                 "account-menu"
+          :popover            :auto
+          ::web/popover-open? open?
+          :on-toggle          (v/event [e]
+                                (conj on-open-change (= "open" (.-newState e))))}
+    "…"]])
+```
+
+Open/close is application or library state, exactly as it was. The substrate
+contributes one mechanical host call and nothing else: no stacking policy, no
+placement, no ARIA, no keyboard behaviour, no transition. A menu still needs
+roles, an active option and arrow keys; a component library still owns all of it.
+
+#### The closed pair, and where each half is legal
+
+Two properties, under a DOM-platform namespace that says at the use site that
+these are browser facts and not neutral substrate grammar:
+
+- **`::web/popover-open?`** — legal only on an element carrying a valid
+  `:popover` mode (`:auto`, `:manual`, `:hint`, or the bare attribute). It means
+  `showPopover()` / `hidePopover()`, which the browser defines nowhere else.
+- **`::web/modal-open?`** — legal only on `<dialog>`, and only about the MODAL
+  axis. It means `showModal()` / `close()`. A non-modal dialog uses the
+  platform's ordinary `:open` attribute and needs no intrinsic at all.
+
+The value **is** the state: `true` and `false` are both declarations, and `nil`
+expresses no desired state — the element is then an ordinary popover or dialog,
+exactly as a nil attribute value drops its entry. There is no third state,
+because there is no third browser operation to name. A non-boolean value, a
+property on an element whose operation does not exist, and both properties on one
+element are each `:rf.error/ui-tree-malformed` at render, on both hosts and in
+both modes: recognition happens at the one shared canonicaliser, so an emitter
+that accepted what the other refused is not a thing that can happen. A generic
+`:open?` is deliberately absent — popover, non-modal dialog and modal dialog have
+materially different browser operations, and one name over three of them would
+hide the difference the author most needs to see.
+
+#### Native behaviour is the whole point
+
+What the pair buys is the platform's own behaviour, unmediated. A modal dialog
+takes initial focus, makes the rest of the page inert, and returns focus on
+close. Two `:auto` popovers are one-at-a-time. A popover nested inside another
+**stacks**, and closing the ancestor closes the descendant with it. None of that
+is Freehand's code, and none of it is re-implemented — which is the point, because
+the hand-rolled versions of exactly these behaviours are where overlay bugs live.
+
+Nesting is the case that needs the substrate to be careful, and it is the one
+place the mechanism is not simply "call the method". The browser decides what an
+opening popover closes from the DOM **as it stands at that instant**, and a React
+commit attaches refs bottom-up — so a commit that opens a nested pair would show
+the inner popover first and then close it by showing the outer one, collapsing
+the pair to its outer half. A conforming implementation therefore performs one
+commit's top-layer operations in **document order**, ancestor before descendant.
+
+#### Commit, order, and the declared tracking frequency
+
+Host work happens at a **selected commit** and only there. A render the host
+abandons performs no host operation at all, so a desired state from an abandoned
+candidate never reaches the browser — the same law the atomic shell states for
+the reactive bundle (§Passive render and atomic selection), realised by the same
+means rather than by a second mechanism. A superseded generation never acts on a
+replacement node, and a node that has left the document is skipped rather than
+asked to open.
+
+Within a commit the operations are ordered and then performed at the microtask
+checkpoint the commit opens — before the browser paints, so the ordering costs no
+frame and no frame is ever painted in the wrong state.
+
+The **tracking frequency is the commit, and nothing between commits.** The
+desired state is diffed against the node's LIVE state, so a repeated equal value
+is a no-op however many renders pass, and the substrate arms nothing that
+outlives the call: no document or window listener, no resize, intersection or
+mutation observer, no animation-frame loop, no timer, no registry of open
+overlays. Cleanup is therefore total by construction rather than by discipline,
+and it is provable as an exact zero rather than asserted as an intention. That
+absence is most of the value: a leaked observer on an overlay compounds once per
+open/close cycle, which is precisely the failure the top layer exists to delete.
+
+Positioning is a separate concern with a separate answer — CSS anchor
+positioning where it suits, or a registered behavior with an explicit update
+contract (§Registered behaviors and commands). The pair does not consume a node's
+behavior slot, so measured placement and top-layer control coexist on one
+element; and nothing here implies per-frame tracking.
+
+#### Browser dismissal, and what the substrate never does
+
+Escape, a light dismiss, and a dialog's own close button all close the node
+**without asking the application**. The substrate does not write application
+state on their behalf and does not quietly adopt the new state as the desired
+one: it has no second state machine, and a framework that guessed here would be
+overriding the author's own store. The author reconciles through ordinary event
+intent on the native events — `:on-toggle` and `:on-before-toggle` for popovers,
+`:on-close` and `:on-cancel` for dialogs, which are ordinary event positions
+needing no new grammar.
+
+The consequence is worth stating plainly, because it is the one thing that
+surprises: a controlled node dismissed by the browser and left unreconciled is
+**re-opened by the next commit**, since the desired state still says open. A
+development diagnostic identifies a controlled top-layer node with no handler for
+its own dismissal. Handlers must consult committed state where acceptance
+matters, rather than closing over a render-time guard — there is a brief, real
+window between the browser dismissing and the author's event committing.
+
+A host call the browser refuses — opening a disconnected node, promoting an
+already-open non-modal dialog with `showModal()` — becomes development evidence
+naming the recovery, not a swallowed exception and not a thrown one: the
+operation is mechanical, the mistake is an authoring mistake the next render can
+fix, and taking the page down for it would be the wrong trade.
+
+Retention while closed is a component's choice, not the framework's: conditional
+children can remove the node entirely, and leaving it mounted but closed
+preserves expensive host state. Enter/exit retention is §Presence — the top layer
+starts no timer and delays no removal.
+
+#### The structural projection
+
+The properties are Freehand vocabulary, not attributes. Both emitters read an
+attribute by its NAME and drop the namespace on the way to the DOM, so a property
+that survived into the attribute space would reach the browser as a garbage prop
+and the structural tree would carry a key no consumer could interpret. Each
+therefore leaves `:attrs` and projects as the reserved diagnostic key
+`:rf.ui/top-layer` on the semantic element ([004B §Reserved `:rf.ui/*`
+keys](004B-UI-Tree-and-Conversion.md#reserved-rfui-keys--the-three-roles-required-gate-semantic-diagnostic)).
+
+The JVM structural host emits the semantic element and the desired-state **fact**
+— and makes no claim that anything was promoted to a top layer, because a server
+has none. Hydration performs the first host operation after the client's first
+commit. The projection is identical from an interpreted declaration and its
+`{:compiled true}` twin: both modes reach one canonicaliser, so the intrinsics are
+compiler-recognised common semantics rather than a quirk of one front end.
+
+#### No neutral portal
+
+A Freehand implementation MUST NOT provide a neutral portal — no `[v/portal {:to
+target} child]`, no named-target registry, no re-parenting primitive in the common
+grammar. The exclusion is the design, not an omission.
+
+A portal's target is a live host node or container: not portable data, with no
+honest structural or JVM representation, and a named-target registry would drag
+in identity, lifetime, hydration and missing-target policy to replace it. Worse,
+a portal solves almost none of what an overlay actually needs — it supplies no
+dismissal, no focus management, no accessibility, no placement and no teardown
+policy — while being general enough to re-parent anything anywhere. That
+combination is the one primitive that can do anything, and it is exactly what
+makes a substrate unanalysable. The top layer solves the problem a portal was
+being reached for, natively and narrowly.
+
+Real React portals stay behind explicit UIx/Helix wrappers, where they are
+visibly React's protocol rather than the substrate's vocabulary.
+
+**Conformance:** [FH-TOPLAYER-001](conformance/freehand/conformance-index.md#fh-toplayer--top-layer),
+FH-TOPLAYER-002, FH-TOPLAYER-003, FH-TOPLAYER-004.
 
 ### The outward React bridge
 
