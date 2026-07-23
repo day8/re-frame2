@@ -564,6 +564,108 @@ vacancy, landing with its own EP-0036 slice.
    [workspace-page {:workspace-id workspace-id}]]
   ```
 
+## Registered behaviors
+
+### `defbehavior`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (defbehavior name docstring?
+    {:timing … :connect … :update … :disconnect … :commands … :opaque …})
+  ```
+- **Description**: register an imperative host **behavior** — the one sanctioned
+  way to own DOM or opaque host state, bounded to a single node. The var it binds
+  holds the **registered id** (the qualified keyword `:my.ns/name`), not the
+  implementation. That split is what keeps a use site data: the tree records an
+  id, the registry holds the code, and nothing serializable ever carries a
+  function.
+
+  The definition roster is CLOSED, and `:timing` is closed with it —
+  `:layout` runs before the browser paints, which is the only honest home for
+  measure-then-place work, and `:passive` (the default) runs after paint. There
+  is no third moment: the set of moments at which host state may move is part of
+  the contract rather than an implementation detail.
+
+  `:connect` runs once, at the commit that mounts the node, and its return value
+  becomes the connection's private memory. `:update` runs only when the committed
+  `:config` moves by `rf=`, receiving `:prev-config` alongside — a re-render that
+  changes nothing touches no host state. `:disconnect` runs exactly once per
+  committed connection, after the connection is released, so its context is
+  inert. `:commands` is a finite roster of named operations reached through the
+  `:re-frame.freehand.host/command` effect. `:opaque` declares that the behavior
+  owns the node's descendants, which makes Freehand children on that node an
+  error rather than content the host would silently overwrite.
+
+  Every entry takes one context map: `:node`, `:config`, `:memory`, `:behavior`,
+  `:target`, `:generation`, and `:dispatch` — a generation-fenced outward
+  dispatch into the frame the connection committed under. There is no frame query
+  function, so a host can never read application state at a moment nobody chose.
+  See
+  [spec/004-Views.md](../../spec/004-Views.md#registered-behaviors-and-commands).
+- **Example**:
+  ```clojure
+  (v/defbehavior autosize
+    "Grow the textarea to fit its content."
+    {:timing     :layout
+     :connect    (fn [{:keys [node config]}] (fit! node config))
+     :update     (fn [{:keys [node config]}] (fit! node config))
+     :disconnect (fn [{:keys [memory]}] (some-> memory .disconnect))
+     :commands   {:refit (fn [{:keys [node config]}] (fit! node config))}})
+  ```
+
+### `behavior`
+
+- **Kind**: Var (a declared view descriptor)
+- **Signature**:
+  ```clojure
+  [v/behavior {:use behavior-id :target … :config …} node]
+  ```
+- **Description**: attach a registered behavior to one node. A declared boundary
+  mounted in a vector head and never called, like `error-boundary` and `markup`.
+
+  The option roster is CLOSED. `:use` is required and names the registered
+  behavior. `:target` is the caller-authored semantic id a command addresses — it
+  is derived from nothing (not render position, not a key path, not the DOM), so
+  a sort, a rename, a parent extraction or a virtualized remount does not move
+  it, and it must be unique among live connections. `:config` is the public
+  configuration and is **data at every depth**: a callback, a node, a ref or a
+  preconstructed host instance is refused on both hosts, because a configuration
+  the structural tree cannot record is a use site a test and a tool cannot read.
+
+  The child is exactly **one element** — a behavior owns one node, so a declared
+  view, a fragment, a presence boundary or text is refused rather than guessed
+  at. The behavior addresses the node the host hands it and has no way to reach
+  any other: there is no selector, no document query, and no ref an application
+  can hold.
+
+  Connection is commit-only. The lifecycle rides a ref and an effect, both of
+  which React runs only for a render it selected, so a candidate the host
+  abandons performs no host work at all. Teardown is total: after the last
+  unmount the substrate holds no connection record, no target claim, no node and
+  no memory.
+
+  On the JVM this is an inert marker — the boundary node records `:use`,
+  `:target` and `:config` with the decorated element as its child, nothing
+  connects, and a command is refused with the channel's own diagnostic. See
+  [spec/004-Views.md](../../spec/004-Views.md#registered-behaviors-and-commands).
+- **Example**:
+  ```clojure
+  [v/behavior {:use    autosize
+               :target :composer/body
+               :config {:max-rows 8}}
+   [:textarea.composer {:value draft :on-input [:composer/typed ::v/value]}]]
+  ```
+
+  A one-shot operation on the live connection is an ordinary effect:
+
+  ```clojure
+  (rf/reg-event :composer/refit-requested
+    (fn [_ _]
+      {:fx [[:re-frame.freehand.host/command
+             {:target :composer/body :op :refit}]]}))
+  ```
+
 ## Related
 
 - [spec/004-Views.md](../../spec/004-Views.md) — the normative contract
