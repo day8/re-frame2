@@ -1198,14 +1198,135 @@ model and the scope/basis/completeness/loss statement; the ids and retention axi
 
 ### Children, compound children, and parameterized content
 
-**Lands in:** F5 — composition and integration. Carries the default child region,
-compound child views, and the pure parameterized-render pair.
+**Lands in:** F5 — composition and integration. Carries the default child region and
+compound child views. The parameterized-render pair has landed; it is
+[§Render slots](#render-slots) below.
+
+### Render slots
+
+A component that renders a list knows the list; it does not know what a row looks
+like. **A render slot is content the caller supplies and the component invokes**, at
+the site the component chooses, with the arguments the component supplies.
+
+`v/render-fn` declares the content and `v/slot` invokes it. Both are **common
+grammar**: seq forms the compiled analyzer recognises and lowers, and an ordinary
+macro and an ordinary function call in an interpreted body — one spelling, one
+contract, two front ends.
+
+```clojure
+(v/defview data-table [{:keys [rows row]}]
+  [:tbody (for [r rows] [:tr {:key (:id r)} (v/slot row r)])])
+
+[data-table {:rows rows
+             :row  (v/render-fn [r] [:td (:name r)])}]
+```
+
+Normatively:
+
+- **A slot value is a `v/render-fn`, or `nil`.** `nil` renders nothing, so a component
+  may offer content it does not require and a caller may decline it without the
+  component branching on absence. Anything else is `:rf.error/ui-tree-malformed`
+  naming the render-fn recovery.
+- **The arity is a contract, not a convention.** A render-fn declares a fixed
+  parameter vector; a slot passes exactly that many arguments, checked **before** the
+  call. The two hosts disagree about what a mismatch does — JavaScript drops surplus
+  arguments silently and passes `undefined` for missing ones, the JVM throws a raw
+  `ArityException` — and neither is a diagnostic, so the count is settled where the
+  answer can be the same on both. An **inline** render-fn's arity is settled at build
+  time in a compiled body; a **prop-carried** one carries its declared count and is
+  checked at the seam.
+- **The rendered output is an ordinary child.** It participates in the surrounding
+  children exactly like any other: there is no slot node, no wrapper element, and no
+  special representation in the structural tree. A slot-carrying **prop** is recorded
+  on the boundary as `{:rf.ui/opaque :v/render-fn}` — the authoring form is named
+  because a slot prop is a contract between the caller and the seam, and a test
+  asserting the caller supplied one is asserting something the mode-neutral `:fn`
+  marker cannot say ([004B §The opaque marker](004B-UI-Tree-and-Conversion.md#the-opaque-marker)).
+- **A slot body is a pure render fragment.** It may run during an uncommitted
+  candidate render — that is why `v/render-fn` sits outside the committed-proxy
+  scheme ([§Callback roles and identity](#callback-roles-and-identity)) — so it may
+  not `v/sub`, dispatch, use hooks or touch refs. A statically named internal view
+  head stays legal, which is the recovery: a *stateful* part is a pure slot body
+  mounting a declared view that owns its own state.
+
+**One asymmetry between the modes, and it is deliberate.** An **interpreted** slot
+also accepts an ordinary pure function of the same arguments. It has nothing to prove
+about what it invokes, and refusing the plainest spelling of "a function of a row"
+would be ceremony. A **compiled** slot does not: the compiled tier's whole claim is
+that it can *see* what it lowers, and a function value is exactly what it cannot. A
+bare fn written lexically at a compiled `v/slot` is a build-time refusal naming
+`v/render-fn`; the always-available rung — drop `{:compiled true}` — accepts the body
+unchanged.
+
+The same law read from the other side gives the crossing rule. What a render-fn body
+*answers* differs by mode: interpreted it answers markup, compiled it answers a node.
+A compiled render-fn is therefore usable from an interpreted slot — a node is a child
+value anywhere — while an interpreted one handed to a **compiled** slot lands on the
+markup-inside-compiled-markup refusal, with the recovery D010 already states. Caller
+and seam are promoted together, or neither is.
+
+**Conformance:** [FH-CALL-006](conformance/freehand/conformance-index.md#fh-call--calls).
 
 ### Props forwarding
 
-**Lands in:** F5 — composition and integration. Carries the safe-forwarding form, its
-denied-prop set and class composition, and the visible open-props escape at a foreign
-boundary.
+Forwarding a consumer's attribute map onto an element you own is **two different
+bargains**, and the grammar makes the author pick one at the site rather than
+inferring which was meant.
+
+`(v/spread base)` / `(v/spread base overrides)` is the **visible-cost** forward.
+Whatever the maps carry lands on the element, `overrides` winning every collision,
+and the author said so at the site.
+
+```clojure
+[:div.card (v/spread attrs {:class "is-open"})]
+```
+
+`(v/spread-safe owned caller)` is the **bounded** one, and the bound is what a
+component library needs.
+
+```clojure
+(v/defview text-field [{:keys [value attrs]}]
+  [:input (v/spread-safe {:value value :on-change [:field/changed]} attrs)])
+```
+
+Normatively, for both forms:
+
+- **A runtime map is judged by the rule a literal map is judged by.** Every forwarded
+  key takes the same refusals the direct attribute path applies, read off the same
+  emitted slot ([004B §Attribute names](004B-UI-Tree-and-Conversion.md#attribute-names)),
+  so a map assembled at run time cannot carry a spelling the grammar refuses at a
+  visible site. This is not a second table: it is the same one, asked at the seam the
+  compiler cannot see through.
+- **`:key` is refused outright.** A key is not an attribute — the reconciler consumes
+  it and it never reaches the DOM — and it is literal at the element that carries it.
+  Honouring one in a forwarded map would decide element identity from a value the
+  compiler cannot see, so it is refused rather than silently honoured in one mode and
+  dropped in the other.
+
+And for `v/spread-safe` alone:
+
+- **The deny law runs in EVERY build.** `:key`, `:ref`, `:value`, `:checked` and the
+  component's own `on-*` handler families — both the bubble and the capture phase —
+  may not appear in `caller`. A literal offender is the compile error
+  `:rf.ui.compile/spread-safe-owned-key`; a runtime one is
+  `:rf.error/ui-tree-malformed`. Neither is elided in an advanced build, because a
+  denial a component library relies on is not a development aid.
+- **Alternate spellings do not route around it.** A key is judged by the slot it is
+  about to be written into, so a namespaced keyword, a string, a symbol or an
+  already-camel spelling of a denied name is denied with it.
+- **What survives folds UNDER the owned props**, with `:class` the one exception: the
+  two class values **compose**, owned classes first, because a caller passing a
+  utility class is adding to the element rather than replacing what the component put
+  there.
+
+That bound is what lets a component keep a promise about the element it renders. A
+controlled input stays controlled and its sync door survives
+([§Controlled inputs](#controlled-inputs)), an owned handler stays the one that fires,
+and the consumer still passes `aria-*`, `data-*`, a class and a style. A general
+`v/spread` claims none of that, which is why it stays the visible-cost escape rather
+than the default.
+
+**Conformance:** [FH-PROPS-006](conformance/freehand/conformance-index.md#fh-props--props).
 
 ### Theming and semantic parts
 

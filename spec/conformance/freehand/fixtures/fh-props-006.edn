@@ -1,0 +1,125 @@
+;; FH-PROPS-006 — props forwarding: the visible-cost spread and the bounded
+;; safe spread, one value in both execution modes.
+;;
+;; Forwarding a consumer's attribute map onto an element you own is two
+;; different bargains, and the grammar makes the author pick one at the site.
+;; `(v/spread base overrides)` is the visible-cost forward — whatever the maps
+;; carry lands, later-arg-wins. `(v/spread-safe owned caller)` is the bounded
+;; one, and the bound is what a component library needs: the structural and
+;; controlled keys plus the component's own handler families are denied to the
+;; caller in EVERY build, what survives folds UNDER the owned props, and only
+;; `:class` composes.
+;;
+;; Rendered against BOTH `re-frame.freehand.slot-views` and its `{:compiled
+;; true}` twins in `re-frame.freehand.slot-views-compiled` — same call sites,
+;; same pinned trees. The expected `:view-id`s are the interpreted namespace's
+;; and the compiled arm rewrites them onto the twin namespace.
+;;
+;; The `.class` sugar rows are the load-bearing ones. Each element carries a
+;; tag shorthand AND a forwarded class, so a fold that assigned into the class
+;; slot rather than composing into it answers the forwarded class alone — the
+;; shorthand silently gone, on an element that still renders.
+;;
+;; The denied rows carry NO tree: the law is that the render is refused, and
+;; the refusal is the value. `:refused` names the always-on diagnostic id.
+{:fh/id "FH-PROPS-006"
+ :fh/law
+ "`(v/spread base overrides)` folds both runtime attribute maps onto the element later-arg-wins, judged key by key by the rule a literal attribute map is judged by; `(v/spread-safe owned caller)` denies the caller the structural/controlled keys and the component's own handler families in every build — in every spelling that reaches the same emitted slot — and folds what survives UNDER the owned props with `:class` composing owned-first. Both answer the same tree interpreted and compiled."
+
+ :cases
+ [{:note "a forwarded map composes with the tag's `.class` sugar, and the site's overrides win"
+   :view :spread-card
+   :args [{:attrs {:id "main" :class "wide" :data-kind "card"}}]
+   :tree {:view-id :re-frame.freehand.slot-views/spread-card
+          :props {:attrs {:id "main" :class "wide" :data-kind "card"}}
+          :children [{:tag :div
+                      :attrs {:id "main" :data-kind "card"
+                              :title "forwarded" :class "card wide"}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "the override wins the forwarded map's own value, and a forwarded handler reaches the events slot"
+   :view :spread-card
+   :args [{:attrs {:title "caller's" :on-click [:card/clicked]}}]
+   :tree {:view-id :re-frame.freehand.slot-views/spread-card
+          :props {:attrs {:title "caller's" :on-click [:card/clicked]}}
+          :children [{:tag :div
+                      :attrs {:title "forwarded" :class "card"}
+                      :events {:on-click [:card/clicked]}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "the one-argument spelling forwards the map and nothing else"
+   :view :spread-base-only
+   :args [{:attrs {:role "note" :aria-live "polite"}}]
+   :tree {:view-id :re-frame.freehand.slot-views/spread-base-only
+          :props {:attrs {:role "note" :aria-live "polite"}}
+          :children [{:tag :section :attrs {:role "note" :aria-live "polite"}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "an empty forward is an element with no attributes, not an element with an empty one"
+   :view :spread-base-only
+   :args [{:attrs nil}]
+   :tree {:view-id :re-frame.freehand.slot-views/spread-base-only
+          :props {:attrs nil}
+          :children [{:tag :section}]
+          :rf.ui/tree-version 1}}
+
+  {:note "a safe spread forwards the keys it permits, UNDER the owned ones — the owned controlled value and handler survive"
+   :view :safe-input
+   :args [{:caller {:aria-label "Email" :on-focus [:field/focused]}}]
+   :tree {:view-id :re-frame.freehand.slot-views/safe-input
+          :props {:caller {:aria-label "Email" :on-focus [:field/focused]}}
+          :children [{:tag :input
+                      :attrs {:aria-label "Email" :value "owned" :class "field"}
+                      :events {:on-focus [:field/focused]
+                               :on-change [:field/changed]}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "a nil caller leaves the component exactly as it declared itself"
+   :view :safe-input
+   :args [{:caller nil}]
+   :tree {:view-id :re-frame.freehand.slot-views/safe-input
+          :props {:caller nil}
+          :children [{:tag :input
+                      :attrs {:value "owned" :class "field"}
+                      :events {:on-change [:field/changed]}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "the caller's class COMPOSES with the sugar and the owned class, owned first — a fold that assigned would drop both silently"
+   :view :safe-input-classy
+   :args [{:caller {:class "mt-4"}}]
+   :tree {:view-id :re-frame.freehand.slot-views/safe-input-classy
+          :props {:caller {:class "mt-4"}}
+          :children [{:tag :span :attrs {:class "badge is-owned mt-4"}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "an ALIASED caller class routes to the class slot rather than landing beside it"
+   :view :safe-input-classy
+   :args [{:caller {:x/class "mt-4"}}]
+   :tree {:view-id :re-frame.freehand.slot-views/safe-input-classy
+          :props {:caller {:x/class "mt-4"}}
+          :children [{:tag :span :attrs {:class "badge is-owned mt-4"}}]
+          :rf.ui/tree-version 1}}]
+
+ :denied
+ [{:note "the structural identity key" :view :safe-input :caller {:key "k"}
+   :refused :rf.error/ui-tree-malformed}
+  {:note "the reserved React ref slot" :view :safe-input :caller {:ref "r"}
+   :refused :rf.error/ui-tree-malformed}
+  {:note "the controlled value the sync door proves" :view :safe-input :caller {:value "hijacked"}
+   :refused :rf.error/ui-tree-malformed}
+  {:note "the controlled checked flag" :view :safe-input :caller {:checked true}
+   :refused :rf.error/ui-tree-malformed}
+  {:note "the component's OWN handler" :view :safe-input :caller {:on-change [:hijack]}
+   :refused :rf.error/ui-tree-malformed}
+  {:note "its capture phase — a family is denied in both phases" :view :safe-input
+   :caller {:on-change-capture [:hijack]}
+   :refused :rf.error/ui-tree-malformed}
+  {:note "an already-camel spelling of the owned handler" :view :safe-input
+   :caller {"onChange" [:hijack]}
+   :refused :rf.error/ui-tree-malformed}
+  {:note "a namespaced spelling of a structural key" :view :safe-input
+   :caller {:consumer/ref "r"}
+   :refused :rf.error/ui-tree-malformed}
+  {:note "`:key` in a general spread — not an attribute, and literal at the element that carries it"
+   :view :spread-base-only :attrs {:key "k"}
+   :refused :rf.error/ui-tree-malformed}]}

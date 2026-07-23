@@ -152,7 +152,7 @@ in a per-file table. The file rows below inherit them.
 | compiled parent to interpreted child crossing | the one emitted descriptor boundary that lets a single declaration be promoted | MOVE | F3 | done |
 | controlled scheduling | the final-normalized native input predicate and one frame-scoped synchronous scheduler shared by both modes | MOVE | F2 | done |
 | key-condition event maps | the closed exact-key `:on-key-down`/`:on-key-up` form with existing event values and pre-dispatch mechanics | MOVE | F2 | pending |
-| `spread-safe`/`spread` and `render-fn`/`slot` | forwarding and parameterized-content grammar, absorbed without the donor hook tier | MOVE | F5 | pending |
+| `spread-safe`/`spread` and `render-fn`/`slot` | forwarding and parameterized-content grammar, absorbed without the donor hook tier | MOVE | F5 | done |
 | presence runtime | keyed enter/exit retention, made common to both modes | MOVE | F4 | done |
 | `route-link` | the ordinary routing-aware view over the late-bound routing seam, crossing by rename | MOVE | F5 | done |
 | analyzer, both emitters, ViewCell reactor, manifest/elision, diagnostic taxonomy, structural test surface | the useful donor machinery named by the programme as absorbed | MOVE | F3 | pending |
@@ -259,8 +259,8 @@ re-proved against the Freehand contract rather than ported line by line.
 | `implementation/ui/test/re_frame/ui/shadow_config_*` | the build-tool configuration contract | MOVE | F3 | pending |
 | `implementation/ui/test/re_frame/ui/skeleton_*` | the adapter-isolation skeleton that rides the node test build | MOVE | F3 | pending |
 | `implementation/ui/test/re_frame/ui/slice_memo_*` | slice-memo lifetime census | MOVE | F2 | pending |
-| `implementation/ui/test/re_frame/ui/slot_*` | slot render-fn arity and keyed reorder | MOVE | F5 | pending |
-| `implementation/ui/test/re_frame/ui/spread_*` | spread and spread-safe grammar, rejected props, elision | MOVE | F5 | pending |
+| `implementation/ui/test/re_frame/ui/slot_*` | slot render-fn arity and keyed reorder | MOVE | F5 | done |
+| `implementation/ui/test/re_frame/ui/spread_*` | spread and spread-safe grammar, rejected props, elision | MOVE | F5 | done |
 | `implementation/ui/test/re_frame/ui/ssr_reinit_*` | server-render reinitialization lifecycle | MOVE | F5 | pending |
 | `implementation/ui/test/re_frame/ui/sub_overrides_*` | production elision of the subscription-override carriage | MOVE | F2 | pending |
 | `implementation/ui/test/re_frame/ui/substrate_flush_*` | flush-to-render convergence | MOVE | F2 | pending |
