@@ -387,6 +387,12 @@
   (rf/reg-sub :acme.invoice/reference
     (fn [db [_ id]] (get-in db [:invoice id :reference])))
 
+  ;; Why the caller refused. Ordinary application state, displayed through
+  ;; the control's own error part — the control neither owns the reason
+  ;; nor decides when it is shown.
+  (rf/reg-sub :acme.invoice/reference-error
+    (fn [db [_ id]] (get-in db [:invoice id :reference-error])))
+
   (rf/reg-sub :acme.invoice/reference-revision
     (fn [db [_ id]] (get-in db [:invoice id :reference-revision])))
 
@@ -418,6 +424,7 @@
     (fn [{:keys [db]} [_ id text]]
       {:db (-> db
                (assoc-in [:invoice id :reference] text)
+               (assoc-in [:invoice id :reference-error] nil)
                (update-in [:invoice id :reference-revision] inc)
                (update ::accepted (fnil inc 0)))}))
 
@@ -446,9 +453,10 @@
   ;; is a NEW baseline decision" in the one case value-equality cannot
   ;; see.
   (rf/reg-event :acme.invoice/reference-refused
-    (fn [{:keys [db]} [_ id]]
+    (fn [{:keys [db]} [_ id reason]]
       {:db (-> db
                (assoc-in [:invoice id :normalising?] false)
+               (assoc-in [:invoice id :reference-error] reason)
                (update-in [:invoice id :reference-revision] inc)
                (update ::refused (fnil inc 0)))}))
 
@@ -510,12 +518,13 @@
                       :value     (or (v/sub [:acme.invoice/reference id]) "")
                       :reset-key (v/sub [:acme.invoice/reference-revision id])
                       :busy?     busy?
+                      :error     (v/sub [:acme.invoice/reference-error id])
                       :on-commit [:acme.invoice/reference-accepted id]}]
      [:output {:data-part "total"} (str total)]
      [:button {:data-part "submit" :type "submit" :disabled (not gate)} "Save"]]))
 
 (v/defview invoice-lines
-  "Two lines on one page — the same two components, four buffered records
+  "Two lines on one page — the same two components, two buffered records
   and eight controlled fields, with no coordination between them. Each
   control's state is addressed by the domain identity that owns it, so
   there is nothing for two instances to collide over."
@@ -524,3 +533,12 @@
   [:div {:data-component "acme/invoice-lines"}
    (for [id ids]
      [invoice-line {:key id :id id}])])
+
+(def by-name
+  "Fixture view-name keyword -> the interpreted declaration. The promoted
+  twins in `pilot-field-compiled` are keyed identically, so one table
+  drives both modes."
+  {:field          field
+   :buffered-field buffered-field
+   :invoice-line   invoice-line
+   :invoice-lines  invoice-lines})
