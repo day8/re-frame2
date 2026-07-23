@@ -311,13 +311,14 @@
           ;; is this view's, and an enclosing boundary has no other way to
           ;; learn whose it was — the throwable carries no view identity, and
           ;; a boundary that guessed would name the guarded child or itself.
-          ;; The note is dropped if an inner occurrence already made one.
+          ;; The note is against THIS throw, and is dropped if an inner
+          ;; occurrence already made one for it.
           kids    (try
                     (if-let [structural (descriptor/structural-body view)]
                       (node/children (structural props*))
                       (children [((descriptor/render-body view) props*)]))
                     (catch #?(:clj Throwable :cljs :default) e
-                      (eb/note-failing-view! view-id)
+                      (eb/note-failing-view! e view-id)
                       (throw e)))]
       (node/boundary view-id props keyed? key kids))))
 

@@ -169,6 +169,49 @@
       (is (= {:reason :failing-view-unobserved} (:loss (:evidence summary)))
           "naming why"))))
 
+(deftest fh-error-003-an-abandoned-throw-cannot-attribute-a-later-failure
+  (testing "Per FH-ERROR-003: attribution belongs to the FAILURE, not to the
+            boundary that happens to catch next. A throw that passed an
+            occurrence seam and was then swallowed — retry logic, a probe, a
+            body that catches its own child — is abandoned: nothing will ever
+            report it. The DIFFERENT failure that reaches the boundary
+            afterwards must still name its own thrower. Reading the abandoned
+            note here names an innocent view and, because the fingerprint
+            derives from it, files the new bug under the old one's
+            correlation token."
+    (let [b       (eb/boundary eb/boundary-view-id :rk)
+          summary (:summary
+                    (eb/contain
+                      b
+                      (fn []
+                        ;; Abandoned: seen by :app/throwing's seam, swallowed here.
+                        (try (tree/render [throwing-child {}])
+                             (catch #?(:clj Throwable :cljs :default) _ nil))
+                        ;; The failure that actually reaches the boundary.
+                        (tree/render [other-throwing-child {}]))
+                      {:phase :render :frame-id nil}))]
+      (is (= :app/other-throwing (:view-id summary))
+          "the view that threw THIS failure, not the abandoned one")
+      (is (= (eb/fingerprint :app/other-throwing :render) (:fingerprint summary))
+          "and the correlation token follows the real thrower"))))
+
+(deftest fh-error-003-an-uncontained-throw-leaves-nothing-a-later-boundary-reads
+  (testing "Per FH-ERROR-003: a throw that NOTHING contains — it escaped the
+            root — was still seen by an occurrence seam on the way out. A
+            boundary mounted afterwards, catching an entirely unrelated and
+            unobservable failure, must still report the truthful unknown: the
+            escaped throw's identity belongs to the escaped throw."
+    (is (thrown? #?(:clj Throwable :cljs :default)
+                 (tree/render [:div [throwing-child {}]]))
+        "the throw escapes with no boundary to contain it")
+    (let [b       (eb/boundary eb/boundary-view-id :rk)
+          summary (:summary (eb/contain b
+                                        #(throw (ex-info "raw" {}))
+                                        {:phase :render :frame-id nil}))]
+      (is (= eb/unknown-view-id (:view-id summary))
+          "the later boundary reports what IT observed — nothing")
+      (is (= {:reason :failing-view-unobserved} (:loss (:evidence summary)))))))
+
 ;; ===========================================================================
 ;; The exact-one-child grammar — the interpreted half of the table the
 ;; compiled analyzer already refuses (`analyze-reject-cljs-test`

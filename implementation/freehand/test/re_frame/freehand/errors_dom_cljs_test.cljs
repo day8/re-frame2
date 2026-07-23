@@ -90,6 +90,12 @@
   [_]
   (throw (ex-info "a grandchild render threw" {})))
 
+(v/defview failing-fallback
+  "A FALLBACK that itself throws — the second failure, which the boundary
+  above the failing one has to catch and name."
+  [_]
+  (throw (ex-info "a fallback render threw" {})))
+
 (v/defview healthy-wrapper
   "Renders fine itself and mounts the view that throws — so the guarded
   child, the catcher, and the thrower are three different views."
@@ -168,6 +174,29 @@
                (fn [e]
                  (teardown! container root close!)
                  (js/Promise.reject e))))))
+
+(defn- mount-form!
+  "Render one Freehand `form` into a fresh root and answer a promise of every
+  private egress record the commit promoted, in promotion order."
+  [form]
+  (let [[container root] (mount!)
+        {:keys [egress close!]} (open-channels!)]
+    (-> (act #(.render root (fr/element form)))
+        (.then (fn [_]
+                 (let [records @egress]
+                   (teardown! container root close!)
+                   records))
+               (fn [e]
+                 (teardown! container root close!)
+                 (js/Promise.reject e))))))
+
+(defn- guard
+  "One boundary over `child`, reporting through the fixture's `:on-error`."
+  [child]
+  [v/error-boundary {:fallback  [:p {:class "fallback"} "contained"]
+                     :reset-key (:reset-key-1 error-002)
+                     :on-error  (:on-error error-002)}
+   child])
 
 ;; ===========================================================================
 ;; FH-ERROR-002 (browser) — the INITIAL-MOUNT generation is promoted.
@@ -343,6 +372,77 @@
                    (fn [e]
                      (is false (str "mount rejected: " e))
                      (done))))))))
+
+(deftest fh-error-003-two-sibling-boundaries-failing-together-each-name-their-own
+  (testing "Per FH-ERROR-003 (browser): two sibling boundaries over two
+            different failing views, mounted in ONE React commit. React
+            finishes rendering BOTH failed subtrees before either
+            `componentDidCatch` runs, so the two failures are in flight at
+            the same time — and each report must still name the view that
+            threw it. Attribution held in one shared slot cannot do this: the
+            first thrower's id is the only one kept, so one report names a
+            view that did not fail this failure and the other goes out as
+            `unknown-view` for a thrower that was plainly observed. Both
+            readers are then sent to the wrong file, and the two bugs share
+            one correlation token."
+    (if-not (browser?)
+      (skip! "the browser job runs the sibling-attribution assertions")
+      (async done
+        (reset! throwing? true)
+        (-> (mount-form! [:div
+                          (guard [guarded-child {}])
+                          (guard [other-guarded-child {}])])
+            (.then (fn [records]
+                     (let [ids (set (map #(:view-id (:summary %)) records))]
+                       (is (= 2 (count records))
+                           "both boundaries contained and both reported")
+                       (is (= #{(id-of guarded-child) (id-of other-guarded-child)} ids)
+                           "each report names its own thrower")
+                       (is (not (contains? ids eb/unknown-view-id))
+                           "neither failure was suppressed into unknown by the other")
+                       (is (= 2 (count (set (map #(:fingerprint (:summary %)) records))))
+                           "so the two failures carry two correlation tokens"))
+                     (done))
+                  (fn [e]
+                    (is false (str "mount rejected: " e))
+                    (done))))))))
+
+(deftest fh-error-003-a-failure-inside-a-fallback-is-attributed-to-the-fallback
+  (testing "Per FH-ERROR-003 (browser): a fallback is ordinary markup and may
+            fail like any other, so it may guard itself. That makes two
+            failures in ONE commit that are causally ordered — the second is
+            rendered BECAUSE the first was caught — and the second is
+            observed before the first has been reported. Each boundary must
+            still name its own thrower: the outer one the guarded child, the
+            one inside the fallback the view that failed inside the fallback.
+            A shared relay hands the first thrower to whichever catch runs
+            first and leaves the other with `unknown-view`."
+    (if-not (browser?)
+      (skip! "the browser job runs the nested-fallback assertions")
+      (async done
+        (reset! throwing? true)
+        (-> (mount-form!
+              [v/error-boundary
+               {:fallback  [v/error-boundary
+                            {:fallback  [:p {:class "inner"} "fallback contained"]
+                             :reset-key (:reset-key-1 error-002)
+                             :on-error  (:on-error error-002)}
+                            [failing-fallback {}]]
+                :reset-key (:reset-key-1 error-002)
+                :on-error  (:on-error error-002)}
+               [guarded-child {}]])
+            (.then (fn [records]
+                     (let [ids (set (map #(:view-id (:summary %)) records))]
+                       (is (= 2 (count records))
+                           "both failures were contained and both reported")
+                       (is (= #{(id-of guarded-child) (id-of failing-fallback)} ids)
+                           "the guarded child's failure and the fallback's are told apart")
+                       (is (not (contains? ids eb/unknown-view-id))
+                           "and neither borrowed or lost the other's identity"))
+                     (done))
+                  (fn [e]
+                    (is false (str "mount rejected: " e))
+                    (done))))))))
 
 ;; ===========================================================================
 ;; Non-vacuity probe — the channels are really open and the child really
