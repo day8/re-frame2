@@ -48,6 +48,17 @@
             ;; namespace and takes nothing back from it.
             [re-frame.freehand.node]
             [re-frame.freehand.presence-runtime :as presence-runtime]
+            ;; The compiled tier's render-time reactive runtime — what an
+            ;; authored `(v/sub …)` inside a `{:compiled true}` body lowers to.
+            ;; Required here for the SAME reason `node` is: promotion is a
+            ;; one-line change to the declaration, so adding `{:compiled true}`
+            ;; must not oblige a namespace to acquire a require it did not need
+            ;; a moment earlier. Without it a compiled declaration carrying a
+            ;; subscription cannot even LOAD — the emitted lowering names a
+            ;; namespace nothing on the consumer's path has loaded. `reactive`
+            ;; sits BELOW this namespace (it reaches only the shell) and takes
+            ;; nothing back from it.
+            [re-frame.freehand.reactive]
             [re-frame.freehand.route-link-seam :as route-link-seam]
             [re-frame.interop :as interop]
             #?@(:clj  [[re-frame.freehand.compiler :as compiler]
@@ -202,7 +213,19 @@
                                 :body            body
                                 :props-schema    schema
                                 :children-policy policy})]
-                         (assoc entry :structural body :manifest manifest))
+                         ;; The manifest is INERT DATA about the declaration,
+                         ;; and it is QUOTED because it contains authored FORMS:
+                         ;; a subscription site records the query the author
+                         ;; wrote, and a query that reads a prop —
+                         ;; `(v/sub [:person/by-id id])` — carries the body's
+                         ;; own local symbol. Spliced unquoted into the entry
+                         ;; map, that symbol would be EVALUATED where no such
+                         ;; local exists and the declaration would not compile.
+                         ;; The structural body beside it is the opposite kind
+                         ;; of value — a form to evaluate — so only the manifest
+                         ;; is quoted. (The JVM emitter's own `register-view!`
+                         ;; call has always quoted it, for exactly this reason.)
+                         (assoc entry :structural body :manifest (list 'quote manifest)))
                        (assoc entry :render
                               `(fn ~(symbol (str sym "-render")) ~params ~@body)))]
          ;; The var metadata is what a COMPILE-TIME head classifier reads: a
