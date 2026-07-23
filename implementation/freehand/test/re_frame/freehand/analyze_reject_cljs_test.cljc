@@ -743,15 +743,33 @@
     (is (nil? (reject-id '[:div {:ref object-ref}]))
         "and the exact :ref spelling still routes through the ref contract"))
 
+  ;; React's `key` is not a prop at all — the reconciler consumes it and it
+  ;; never reaches the DOM — so an alias routed into that slot would change
+  ;; RECONCILIATION IDENTITY rather than an attribute: wrong element reuse,
+  ;; which is `:children`'s hazard class rather than a misspelled
+  ;; attribute's. `:class` and `:style` go the other way in the same ruling,
+  ;; because they ARE ordinary props (rf2-drpa3.93).
+  (testing ":key has ONE accepted spelling; an alias would address the
+            reconciler's element identity through a spelling the grammar
+            never declared"
+    (is (= :rf.ui.compile/rejected-prop-spelling (reject-id '[:div {:x/key "k"}]))
+        ":x/key is not a second spelling of :key")
+    (is (nil? (reject-id '[:div {:key "k"}]))
+        "and the exact :key spelling is the ordinary keyed element"))
+
   (testing "the rule is not over-broad: a qualified key whose name projects
-            onto an ORDINARY prop keeps its current semantics, and so does
-            every legitimate key that neighbours a rejected one"
+            onto an ORDINARY prop keeps its current semantics, an alias of a
+            slot-owning key is ROUTED rather than refused, and so does every
+            legitimate key that neighbours a rejected one"
     (doseq [form '[[:div {:x/title "ok"}]
                    [:div {:x/tab-index 3}]
                    [:div {:x/data-priority "high"}]
                    [:div {:data-priority "high"}]
                    [:div {:aria-hidden true}]
                    [:div {:class "a"}]
+                   [:div.a.b {:x/class "c"}]
+                   [:div.a.b {:x/class {:open true}}]
+                   [:div {:x/style {:color "red"}}]
                    [:label {:for "n"}]
                    [:div {:x/on-click [:e]}]]]
       (is (nil? (reject-id form)) (str (pr-str form) " is an ordinary declaration")))))

@@ -373,22 +373,37 @@
       {:attr k :value (shape v)})))
 
 (defn- dyn-attr-entry
-  "Fold one author-space attribute entry into the `[attrs events]`
-  accumulator through the rule table: `on-*` routes to `:events`, `:key`
-  is structural and never an attribute, everything else normalizes into
-  semantic space. `:class` and `:style` are NOT folded here — they carry
-  richer grammars and have their own slots, so there is exactly one place
-  each is composed."
-  [tag [attrs events] k v]
-  (cond
-    (= :key k)            [attrs events]
-    (conv/handler-key? k) [attrs (if-let [c (classify-event tag k v)]
-                                   (assoc events k c)
-                                   events)]
-    :else                 [(if-let [e (attr-entry tag k v)]
-                             (conj attrs e)
-                             attrs)
-                           events]))
+  "Fold one author-space attribute entry into the
+  `[attrs events class style]` accumulator through the rule table: `on-*`
+  routes to `:events`, `:key` is structural and never an attribute,
+  `:class` and `:style` route to the SLOTS that compose them, and
+  everything else normalizes into semantic space.
+
+  The key is read in its canonical author spelling
+  ([[re-frame.freehand.conversion/attr-key]]) first, because an alias of a
+  slot-owning key is that key written differently: `:x/class` composes into
+  the class string beside the `.class#id` sugar rather than landing next to
+  it as an ordinary attribute. This is the RENDER-time half of one rule —
+  the compiled analyzer applies the same canonicalization to a literal props
+  map at build time, so a promoted declaration answers the same tree
+  (rf2-drpa3.93).
+
+  An ordinary key passes through untouched, namespace and all: the
+  structural tree carries authored names."
+  [tag [attrs events class style] k v]
+  (let [k (conv/attr-key k)]
+    (cond
+      (= :key k)            [attrs events class style]
+      (= :class k)          [attrs events v style]
+      (= :style k)          [attrs events class v]
+      (conv/handler-key? k) [attrs (if-let [c (classify-event tag k v)]
+                                     (assoc events k c)
+                                     events)
+                             class style]
+      :else                 [(if-let [e (attr-entry tag k v)]
+                               (conj attrs e)
+                               attrs)
+                             events class style])))
 
 (defn element
   "Build an element node in canonical form. Called by a compiled view's
@@ -411,7 +426,12 @@
   representation."
   [{:keys [tag attrs dyn class sugar style events key? key-val children]}]
   (let [ctx        (conv/enter-ns *ns-context* tag)
-        [attrs es] (reduce-kv #(dyn-attr-entry tag %1 %2 %3) [(or attrs {}) {}] dyn)
+        ;; `:class` and `:style` ride the accumulator because an ALIASED
+        ;; spelling of either arrives through `:dyn` — the front end
+        ;; discriminates on the exact keyword — and has to reach the one
+        ;; place each is composed rather than land beside it.
+        [attrs es class style]
+        (reduce-kv #(dyn-attr-entry tag %1 %2 %3) [(or attrs {}) {} class style] dyn)
         attrs      (if-let [c (class-string tag sugar class)]
                      (assoc attrs :class c)
                      attrs)

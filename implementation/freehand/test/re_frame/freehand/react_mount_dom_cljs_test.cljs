@@ -19,6 +19,7 @@
   (:require ["react" :as react]
             ["react-dom/client" :as rdc]
             [cljs.test :refer [async deftest is testing]]
+            [goog.object :as gobj]
             [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.conversion :as conv]
             [re-frame.freehand.react :as fr]
@@ -106,6 +107,33 @@
     (is (seq (:rejected struct-009)) "the fixture's rejected table loaded")
     (doseq [{:keys [note form error-id]} (:rejected struct-009)]
       (is (= error-id (conf/caught-id #(fr/element form))) note))))
+
+(deftest fh-struct-009-an-accepted-alias-is-routed-to-its-slot
+  (testing "Per FH-STRUCT-009: two accepted attribute names own a SLOT
+            rather than a place in the props object — `:class`, which
+            composes with the `.class#id` sugar, and `:style`, which
+            carries the CSS grammar. Every representation of those names
+            reaches the same React prop, so an alias is that key written
+            differently and is ROUTED to its slot; refusing it here would
+            make the direct attribute path stricter than `v/spread-safe`
+            for the same key.
+
+            The class rows carry a tag shorthand deliberately. Routing is
+            only correct if the value COMPOSES — a router that assigned
+            into `className` would drop `.a.b` silently, on an element
+            that still renders, which is the failure this row exists to
+            catch. `:key` carries no props row at all: React lifts it onto
+            the element and strips it from props, which is precisely why
+            an alias of it is refused rather than routed."
+    (is (seq (:accepted-keys struct-009)) "the fixture's accepted-key table loaded")
+    (is (some :props (:accepted-keys struct-009)) "and it pins React props, not only trees")
+    (doseq [{:keys [note form props] react-key :react-key} (:accepted-keys struct-009)]
+      (let [el (fr/element form)]
+        (doseq [[prop expected] props]
+          (is (= expected (js->clj (gobj/get (.-props el) prop)))
+              (str note " — " prop)))
+        (when react-key
+          (is (= react-key (.-key el)) (str note " — the key rides the element")))))))
 
 (defn- capture-console
   "Install a console.error/warn recorder and answer `[messages restore!]`.

@@ -1697,15 +1697,37 @@
   the analyzer routes it through `analyze-ref` and its host contract. An alias
   is not a second spelling of it: it would slip past that contract entirely and
   reach React's ref slot as an ordinary attribute, so it is refused here on the
-  same 'one spelling per name' law as the roster."
+  same 'one spelling per name' law as the roster.
+
+  `:key` is refused on that law for a sharper reason. React's key is not a
+  prop — the reconciler consumes it and it never reaches the DOM — so an alias
+  routed into that slot would not misspell an attribute, it would change which
+  element React considers the SAME element across renders. The failure mode is
+  wrong element reuse: preserved DOM state landing on the wrong row, or a
+  remount where none was intended. That is `:children`'s hazard class, not a
+  misspelled attribute's, so `:key` keeps its one spelling (rf2-drpa3.93).
+  The two remaining structural slots go the OTHER way — `:class` and `:style`
+  are ordinary props, and their aliases are canonicalized and routed by
+  `analyze-literal-props` below."
   [e k]
   (let [slot (rules/caller-key-slot k)]
-    (if (and (= rules/reserved-ref-slot slot) (not= :ref k))
+    (cond
+      (and (= rules/reserved-key-slot slot) (not= :key k))
+      (env/fail! e :rf.ui.compile/rejected-prop-spelling
+                 (str k " projects onto React's key, and :key is its one spelling — "
+                      "a key is not a prop React writes to the DOM, it is the "
+                      "identity the reconciler matches elements on, so an alias "
+                      "would silently change which element React reuses. Use :key")
+                 {:prop k})
+
+      (and (= rules/reserved-ref-slot slot) (not= :ref k))
       (env/fail! e :rf.ui.compile/rejected-prop-spelling
                  (str k " projects onto React's reserved ref prop, and :ref is its "
                       "one spelling — an alias reaches the ref slot around the ref "
                       "contract entirely. Use :ref")
                  {:prop k})
+
+      :else
       (when-let [replacement (rules/rejected-slot-replacement slot)]
         (env/fail! e :rf.ui.compile/rejected-prop-spelling
                    (str k " is not a prop — one spelling per name, ambiguities "
@@ -1754,7 +1776,17 @@
   "Analyze a DOM/custom element's LITERAL props map `m` (`properties` is the
   build's custom-element property set for the tag, nil for plain DOM). The
   owned map of a `(v/spread-safe owned caller)` form rides this same path, so
-  a controlled owned site keeps the sync door. -> the props AST."
+  a controlled owned site keeps the sync door. -> the props AST.
+
+  The map's keys are read in their canonical author spelling first
+  (`rules/canonical-attr-key`), so an ALIAS of a slot-owning key is analysed
+  as that key: `:x/class` walks `analyze-class` and composes with the
+  `.class#id` sugar, `:style` spelled under a namespace walks
+  `analyze-style`. Rewriting here rather than at each use is what keeps the
+  compiled tier's answer identical to the interpreted walk's, which applies
+  the same canonicalization to a render-time key
+  ([[re-frame.freehand.node/element]]'s `:dyn` fold) — one rule, two moments
+  (rf2-drpa3.93). An ordinary key is untouched, namespace and all."
   [e tag-info properties m]
   (let [tag (:tag tag-info)]
     (doseq [k (keys m)]
@@ -1769,7 +1801,8 @@
                       " — two id spellings on one element is an ambiguity, "
                       "and this grammar removes ambiguities. Keep one")
                  {:tag tag}))
-    (let [key-form   (get m :key)
+    (let [m          (reduce-kv #(assoc %1 (rules/canonical-attr-key %2) %3) {} m)
+              key-form   (get m :key)
               m*         (dissoc m :key :class :style :ref)
               ref-form   (get m :ref)
               on?        (fn [k] (str/starts-with? (name k) "on-"))
