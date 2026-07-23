@@ -31,10 +31,12 @@
             [re-frame.freehand.top-layer :as top-layer]
             [re-frame.freehand.web :as web]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as test-support]
+            [re-frame.trace.tooling :as trace-tooling]))
 
 (def fx-003 (conf/fixture :FH-TOPLAYER-003))
 (def fx-004 (conf/fixture :FH-TOPLAYER-004))
+(def fx-005 (conf/fixture :FH-TOPLAYER-005))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -137,6 +139,25 @@
 
 (defn- skip! [why]
   (is true (str "a real browser top layer is required — " why)))
+
+(defn- advisories
+  "The top-layer advisory records the trace diagnostic bus carried while
+  `f` ran, in order.
+
+  The trace surface is what the claim is about: an advisory a tool can
+  only reach by reading English prose is not evidence, so the assertions
+  read the same channel a tool would."
+  [f]
+  (let [records (atom [])
+        ids     #{(:unreconciled-id fx-005) (:refused-id fx-005)}
+        k       (keyword (gensym "fh-toplayer-advisory-"))]
+    (trace-tooling/register-listener!
+      k (fn [ev] (when (contains? ids (:operation ev)) (swap! records conj ev))))
+    (try
+      (f)
+      @records
+      (finally
+        (trace-tooling/unregister-listener! k)))))
 
 ;; ===========================================================================
 ;; FH-TOPLAYER-003 — the platform's own behaviour
@@ -578,3 +599,102 @@
                              "and the commit batch is drained"))
                        (done)))
               (.catch (fn [e] (restore!) (is false (str "browser run failed: " e)) (done)))))))))
+
+;; ===========================================================================
+;; FH-TOPLAYER-005 — the advisories: published at a commit, and typed
+;; ===========================================================================
+
+(deftest fh-toplayer-005-an-uncommitted-candidate-publishes-no-advisory
+  (testing "Per FH-TOPLAYER-005: an advisory is evidence, and evidence is
+            published only from a SELECTED commit. Building an element's
+            props is not one — React may restart or abandon that render —
+            so constructing top-layer props for a controlled node with no
+            reconciliation handler publishes exactly nothing, and the
+            committed callback ref publishes the typed record."
+    (if-not (browser?)
+      (skip! "the browser job owns the advisory channels")
+      (let [attrs {:popover            :auto
+                   ::web/popover-open? true}
+            node  (js/document.createElement "div")]
+        (.setAttribute node "popover" "auto")
+        (.appendChild js/document.body node)
+        (try
+          (let [refs      (atom [])
+                candidate (advisories
+                            (fn []
+                              (dotimes [_ 3]
+                                (swap! refs conj
+                                       (gobj/get (top-layer/install! #js {} :div attrs) "ref")))))
+                committed (advisories (fn [] ((first @refs) node)))]
+            (is (= 3 (count @refs)) "three candidates were built")
+            (is (= [] candidate)
+                "three uncommitted candidates published no record at all")
+
+            (is (= 1 (count committed))
+                "the committed ref published exactly one record")
+            (when-some [ev (first committed)]
+              (let [tags (:tags ev)]
+                (is (= (:unreconciled-id fx-005) (:operation ev))
+                    "under the catalogued diagnostic id")
+                (is (= :warning (:op-type ev)) "on the diagnostic channel")
+                (is (= (:recovery fx-005) (:recovery ev)) "carrying its recovery")
+                (is (= :div (:tag tags)) "naming the element that declared it")
+                (is (= :popover (:mechanism tags)) "and the mechanism")
+                (is (= [:on-toggle :on-before-toggle] (:handlers tags))
+                    "and the handlers that would reconcile it")))
+
+            ;; The advisory is about the DECLARATION, so a declaration that
+            ;; does handle its own dismissal publishes nothing at its commit
+            ;; either — the record names a real mistake or it names nothing.
+            (let [handled (advisories
+                            (fn []
+                              (let [ref (gobj/get (top-layer/install!
+                                                    #js {} :div
+                                                    (assoc attrs :on-toggle identity))
+                                                  "ref")]
+                                (ref node))))]
+              (is (= [] handled) "a reconciled declaration published no record")))
+          (finally
+            (top-layer/flush-top-layer!)
+            (.remove node)))))))
+
+(deftest fh-toplayer-005-a-refused-host-call-becomes-typed-evidence
+  (testing "Per FH-TOPLAYER-005: a host call the browser refuses publishes
+            typed evidence naming the call, the element and the browser's
+            own reason, then the runtime CONTINUES — the operation is
+            mechanical and the next render can fix the mistake."
+    (if-not (browser?)
+      (skip! "the browser job owns a real host refusal")
+      (let [dialog (js/document.createElement "dialog")]
+        (.setAttribute dialog "id" (:dialog-id fx-005))
+        (.appendChild js/document.body dialog)
+        (try
+          ;; Already open NON-modally: showModal() on an open dialog is the
+          ;; refusal the advisory exists to name, and it is the browser's
+          ;; refusal, not a stubbed one.
+          (.show dialog)
+          (is (true? (.-open dialog)) "the dialog is open, non-modally")
+          (let [ref      (gobj/get (top-layer/install! #js {} :dialog
+                                                       {::web/modal-open? true
+                                                        :on-close         identity})
+                                   "ref")
+                captured (advisories (fn [] (ref dialog) (top-layer/flush-top-layer!)))]
+            (is (= 1 (count captured))
+                "the refusal published exactly one record")
+            (when-some [ev (first captured)]
+              (let [tags (:tags ev)]
+                (is (= (:refused-id fx-005) (:operation ev))
+                    "under the catalogued diagnostic id")
+                (is (= (:recovery fx-005) (:recovery ev)) "carrying its recovery")
+                (is (= "showModal()" (:host-call tags)) "naming the host call")
+                (is (= :dialog (:tag tags)) "and the element")
+                (is (= (:dialog-id fx-005) (:element-id tags)) "by its id")
+                (is (string? (:exception tags))
+                    "and the browser's own reason for refusing")))
+            (is (false? (.matches dialog ":modal"))
+                "the refused promotion did not happen")
+            (is (zero? (top-layer/pending-count))
+                "and the batch drained past the refusal rather than aborting"))
+          (finally
+            (.close dialog)
+            (.remove dialog)))))))
