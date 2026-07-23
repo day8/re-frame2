@@ -672,6 +672,114 @@ portals, presence timing, error recovery) requires a Tier-3 mounted test. This i
 same JVM-structural-subset boundary [004D-Freehand-Compiled-Grammar.md §The JVM structural subset](004D-Freehand-Compiled-Grammar.md#the-jvm-structural-subset)
 draws — Tier-1 is that subset's test surface.
 
+## Freehand structural and mounted testing
+
+[Freehand](004-Views.md) is one view substrate with two execution modes over one
+semantic model, so its testing surface is one surface, not two. The section above is
+the donor compiled-view surface (`re-frame.ui.test`) that this generalizes; the
+contract here is the paved path — `re-frame.freehand.test`, conventionally aliased
+`t`, over the versioned structural tree owned by
+[004B](004B-UI-Tree-and-Conversion.md#the-node-schema--version-1).
+
+### The structural surface — headless, both hosts, both modes
+
+Five names query semantic **values**; none simulates behaviour.
+
+| Name | Answers |
+|---|---|
+| `(t/render form)` | the versioned structural tree for a declared-view call (`[view props & children]`, in either mode) or arbitrary markup — the ROOT node, a map carrying `:rf.ui/tree-version` |
+| `(t/find tree pred)` | the first node the predicate matches, or nil |
+| `(t/find-all tree pred)` | every matching node, in document order |
+| `(t/attrs node)` | the merged attribute projection — `:attrs` + `:events` on an element, `:props` on a view boundary, `{}` on a fragment, nil on nil |
+| `(t/text node)` | the node's text descendants, concatenated in document order |
+
+`find` / `find-all` are conveniences over the whole traversal API, which is ordinary
+Clojure — `(tree-seq map? :children tree)` and a predicate over `(:tag %)` (element
+tag) or `(:view-id %)` (view boundary). **Node reading is the ruled projection**:
+`(:on-click node)` is a *field* miss — event intent lives under `:events`, read
+through `attrs`, so "what does this button do" is an equality check on data
+(`(is (= [:cart/add 42] (:on-click (t/attrs node))))`) with no browser, no click
+simulation, no flake. Projections are owned by
+[004B §Projections](004B-UI-Tree-and-Conversion.md#projections--how-nodes-are-read); a
+projection over a malformed value fails loud with `:rf.error/ui-tree-malformed` rather
+than reading a plausible answer off a broken tree.
+
+The single most consequential difference from the donor surface: **the structural
+tree is cross-host in both modes.** The donor's compiled emitter targeted React
+directly, so its structural tree was JVM-only. Freehand's interpreted walk and its
+compiled structural realisation each answer the *same* tree on the JVM and in the
+ClojureScript runtime — so `t/render` is a cross-host structural claim proven in node
+(`npm run test:freehand`), not a JVM claim wearing a `.cljc` extension. Frame scope is
+the programmer's ordinary bracket (`rf/with-new-frame` / `rf/with-frame`); drive state
+with `rf/dispatch-sync` and assert on a fresh `render`. The events and subs a view
+under test touches must be `.cljc` — the JVM-structural-subset boundary; host-bearing
+behaviour is the mounted tier's.
+
+### The mounted tier
+
+Real listeners firing into the DOM, focus, controlled-input contention, presence
+timing, and error recovery are outside the structural subset. They are proven by
+**mounting** a real React tree in a browser and reading the DOM natively — the Tier-3
+mounted surface, browser only. It arrives with the mounted browser matrices; the
+structural surface and its runner are the headless tier this section contracts.
+
+### The host/mode matrix
+
+Two axes. A **mode** is `common` (the law binds identically in both modes),
+`interpreted`, or `compiled`; a **host** is `jvm`, `browser`, `ssr`, or a *qualified
+host* (a foreign boundary behind a declared host descriptor). Each cell names the tier
+that proves a law there.
+
+| Mode ↓ / Host → | jvm | browser | ssr | qualified host |
+|---|---|---|---|---|
+| **common** | structural | structural | structural tree → [011](011-SSR.md) | mounted |
+| **interpreted** | structural | structural · mounted | structural tree → [011](011-SSR.md) | mounted |
+| **compiled** | structural | structural · mounted | structural tree → [011](011-SSR.md) | mounted |
+
+- **structural** — the surface and runner execute this **headlessly today**: the JVM
+  lane via `clojure -M:test`, the ClojureScript lane via `npm run test:freehand`. The
+  `browser` column's structural cell is the host-neutral tree proven in the node
+  runtime; it needs no real DOM, because the tree is plain data identical to the JVM's.
+- **mounted** — the real-DOM Tier-3 tier (real listeners, focus, presence timing).
+  Browser only, and **not** executed by the structural runner; it lands with the
+  mounted browser matrices.
+- **structural tree → 011** — the structural tree is the *input* server rendering
+  consumes; the runner proves the tree, and [011](011-SSR.md) owns emission and
+  hydration.
+- **qualified host** — a foreign boundary is opaque to the structural render (the v1
+  node set carries no host variant), so a qualified-host law is proven by connecting
+  the real behaviour or wrapper in a browser under its own host-boundary slice, never
+  by the structural surface.
+
+No cell claims structural coverage the runner cannot execute: the four `structural`
+cells (both modes × {jvm, browser}) are exactly what `t/render` renders headlessly on
+the two lanes.
+
+### How a conformance fixture is executed
+
+A Freehand law carries a permanent `FH-<AREA>-<NNN>` id and resolves to one paragraph
+of normative spec; the [conformance index](conformance/freehand/conformance-index.md)
+binds each id to its canonical paragraph, its applicability cell (the mode/host grammar
+above), and its fixture. The index *addresses* laws; it does not run them
+([conformance/freehand/README.md](conformance/freehand/README.md) §What this is not).
+Executing them is the runner's job.
+
+A structural-render law's fixture carries `:cases` of `{:form <markup> :tree <expected
+root>}` and `:rejected` of `{:form <markup> :error-id <id>}`. The runner reads the
+fixture at macro-expansion time — so the JVM and ClojureScript lanes assert against the
+same bytes — realizes the `:fh/fn` stand-ins EDN cannot carry, renders each `:form`
+through the public `t/render`, and compares: a `:cases` row must produce its pinned
+tree, a `:rejected` row must raise its `:error-id`. **Status flows back** as a report
+naming the fixture's id — `{:fh/id … :ran n :passed n :failures [{:fh/id … :note …
+:expected … :actual …}]}` — so a red row is attributable to its law without a lookup,
+and a run that asserts nothing (`:ran 0`) is itself a failure. The runner's own
+falsifiability proof feeds it a deliberately wrong fixture and asserts the run reds and
+names the id.
+
+Only the structural-render shape runs headlessly here — the tier the `structural`
+matrix cells mark. A law proven by mounting, by server emission, or across a qualified
+host boundary is executed by its own tier.
+
 ## Compiled-view gates
 
 The compiled-view substrate ships the CI gates that [004D-Freehand-Compiled-Grammar.md](004D-Freehand-Compiled-Grammar.md)

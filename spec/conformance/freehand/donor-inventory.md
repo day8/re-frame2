@@ -191,7 +191,7 @@ Every tracked file under `implementation/ui/src/`.
 | `implementation/ui/src/re_frame/ui/semantic.cljc` | semantic normalization — the parity and fingerprint input | MOVE | F1 | pending |
 | `implementation/ui/src/re_frame/ui/sub_overrides.cljs` | the React carriage for story-supplied subscription overrides | MOVE | F2 | pending |
 | `implementation/ui/src/re_frame/ui/substrate.cljs` | the first-party React adapter machinery, frame-context reader, and root-scoped adapter disposal | MOVE | F2 | pending |
-| `implementation/ui/src/re_frame/ui/test.cljc` | the structural and mounted test surface across the JVM and browser hosts | MOVE | F1 | pending |
+| `implementation/ui/src/re_frame/ui/test.cljc` | the structural and mounted test surface across the JVM and browser hosts | MOVE | F1 | done |
 | `implementation/ui/src/re_frame/ui/tool.cljc` | the dev-only read-only projections a debugging consumer reads | MOVE | F4 | pending |
 | `implementation/ui/src/re_frame/ui/tool/evidence.cljc` | the bounded per-cell accumulator over the invalidation-evidence plane | MOVE | F4 | pending |
 | `implementation/ui/src/re_frame/ui/tree.cljc` | builders for the versioned public structural tree in canonical form | MOVE | F1 | pending |
