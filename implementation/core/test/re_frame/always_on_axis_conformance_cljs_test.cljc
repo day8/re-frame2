@@ -243,7 +243,18 @@
     ;; routing-side production probe
     ;; (`re-frame.routing-scroll-always-on-elision-prod-test`) pins the real
     ;; emit site under `goog.DEBUG=false`.
-    :rf.error/unsupported-scroll-strategy})
+    :rf.error/unsupported-scroll-strategy
+    ;; rf2-drpa3.35 (EP-0036 F4e): a Freehand `v/error-boundary` CONTAINED a
+    ;; render-class failure and promoted at most ONE record per failure
+    ;; generation onto the always-on axis, so an off-box shipper sees a
+    ;; contained render failure under `goog.DEBUG=false`. A NON-EVENT union
+    ;; record (the safe summary + the opaque exception + a capped host stack;
+    ;; NO app-db or event-history capture, per D019) fanned through the
+    ;; `error-emit/dispatch-error-record!` helper — the frame-teardown-report
+    ;; sibling — so this leg drives it through the `record-categories` branch
+    ;; below. The emit SITE lives in `re-frame.freehand.errors`; the
+    ;; JVM companion keeps the literal == the catalogue's always-on set.
+    :rf.error/view-render-failed})
 
 ;; The frame-teardown report is the ONE always-on category that rides the
 ;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record
@@ -272,7 +283,11 @@
     ;; rf2-1b0po (S5-C): an isolated root-boot failure is a page-lifecycle
     ;; fact, not a dispatched-event failure, so it rides the same non-event
     ;; union-record helper as its `malformed-hydration-payload` sibling.
-    :rf.error/root-boot-failed})
+    :rf.error/root-boot-failed
+    ;; rf2-drpa3.35 (EP-0036 F4e): a contained Freehand render failure is a
+    ;; render-lifecycle fact, not a dispatched-event failure, so its private
+    ;; frame egress rides the same non-event union-record helper.
+    :rf.error/view-render-failed})
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — fresh registrar + plain-atom adapter per test; the always-on

@@ -423,6 +423,48 @@ declared vacancies that land with their own EP-0036 slices.
   it accepts no children (`:children-policy :none`), because the value *is* the
   content. See [spec/004-Views.md](../../spec/004-Views.md#the-vmarkup-boundary).
 
+### `error-boundary`
+
+- **Kind**: Var (a declared view descriptor)
+- **Signature**:
+  ```clojure
+  [v/error-boundary {:fallback … :reset-key … :on-error …} child]
+  ```
+- **Description**: the framework's resettable render-failure boundary. Like
+  `route-link` and `markup` it is a declared descriptor mounted in a vector head,
+  never called; what it does not share with an ordinary `v/defview` is a render
+  body, because a boundary *contains* its child rather than producing markup.
+
+  It catches render-class failures below it — a Freehand child body throwing,
+  Hiccup normalization or common prop/event validation throwing, and (in the
+  browser) a descendant foreign component throwing where React boundaries apply.
+  It does **not** catch event-handler, asynchronous, or re-frame handler/sub
+  failures: those keep their existing typed owners. A caught failure shows
+  `:fallback` and publishes nothing from the failed render. `:on-error`, when
+  present, is one event prefix; the framework appends a bounded **safe summary**
+  (a stable diagnostic id, the failing view id, phase, fingerprint and evidence —
+  never the exception, props, app-db, or event payloads) and dispatches it exactly
+  once per failure generation, after the fallback commits. Changing `:reset-key`
+  by `rf=` clears the captured failure and re-mounts the child; there is no
+  boundary ref and no imperative reset handle.
+
+  Production reporting rides a second, private channel: at most one record per
+  failure generation is promoted onto re-frame's always-on error axis and the
+  frame-owned observability sink, carrying the opaque exception and a capped host
+  stack. That record carries no automatic app-db or event-history capture.
+
+  The option roster is CLOSED — `:fallback` (required), `:reset-key`, `:on-error`.
+  Anything else raises `:rf.error/error-boundary-bad-args`. See
+  [spec/004-Views.md](../../spec/004-Views.md#error-boundaries-and-error-egress).
+- **Example**:
+  ```clojure
+  [v/error-boundary
+   {:reset-key route-revision
+    :fallback  [broken-page {}]
+    :on-error  [:telemetry/ui-render-failed]}
+   [workspace-page {:workspace-id workspace-id}]]
+  ```
+
 ## Related
 
 - [spec/004-Views.md](../../spec/004-Views.md) — the normative contract

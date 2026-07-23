@@ -55,6 +55,7 @@
   (:require [re-frame.error :as error]
             [re-frame.freehand.conversion :as conv]
             [re-frame.freehand.descriptor :as descriptor]
+            [re-frame.freehand.errors :as eb]
             [re-frame.freehand.node :as node]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -93,6 +94,53 @@
   "The canonical children vector for markup `forms`."
   [forms]
   (node/walked-children walk where forms))
+
+;; ---------------------------------------------------------------------------
+;; Error-boundary containment
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §Error boundaries and error egress. On the structural host a
+;; boundary IS a try around the child walk: [[re-frame.freehand.errors/contain]]
+;; runs the guarded child, and a render-class throw is CAPTURED — the boundary
+;; node holds the FALLBACK subtree instead of the child's, while every sibling
+;; node the surrounding walk built keeps its place. The child that threw
+;; published nothing (the atomic shell's law); this is what replaces it.
+;;
+;; The fallback is walked OUTSIDE the guard: a fallback that itself throws
+;; propagates to the next outer boundary rather than being caught here (D019
+;; §Boundary semantics 6). The safe intent and the private egress are the
+;; MOUNTED host's to fire (they dispatch and promote, which a pure structural
+;; walk does not do); this walk proves containment, and the law's own suite
+;; proves the once-per-generation intent and the egress record.
+
+(defn- boundary-child-view-id
+  "The failing view id the summary attributes a caught structural throw to —
+  the guarded child's own declared view id when it is a declared boundary,
+  else the error boundary's id. Best-effort structural attribution; the
+  MOUNTED host resolves the exact failing descendant."
+  [child]
+  (let [head (first child)]
+    (if (and (vector? child) (descriptor/view? head))
+      (:view-id (descriptor/describe head))
+      eb/boundary-view-id)))
+
+(defn- mount-error-boundary
+  "Mount `v/error-boundary` on the structural host: contain the guarded
+  child's walk, and answer the boundary node holding the child subtree on
+  success or the fallback subtree on a caught render throw."
+  [view args]
+  (let [{:keys [key props]} (descriptor/normalize-call view args)
+        {:keys [fallback] :as opts} (eb/read-opts props)
+        child   (first (:children opts))
+        b       (eb/boundary eb/boundary-view-id (:reset-key opts))
+        outcome (eb/contain b
+                            #(children [child])
+                            {:phase   :render
+                             :view-id (boundary-child-view-id child)})
+        kids    (case (:status outcome)
+                  :ok        (:result outcome)
+                  :contained (children [fallback]))]
+    (node/boundary eb/boundary-view-id props key kids)))
 
 ;; ---------------------------------------------------------------------------
 ;; Element nodes
@@ -212,7 +260,12 @@
         ;; a compiled body splicing `children` and an interpreted body
         ;; splicing `children` are doing the same thing to the same value.
         :view    (let [args (rest form)]
-                   (node/mount head (cons (first args) (children (rest args)))))
+                   (if (descriptor/error-boundary? head)
+                     ;; A boundary contains the child walk, so its children are
+                     ;; NOT pre-lowered here — the guard has to run around the
+                     ;; walk itself, not around an already-built subtree.
+                     (mount-error-boundary head args)
+                     (node/mount head (cons (first args) (children (rest args))))))
         :host    (malformed!
                    (str "A declared host descriptor is a legal vector head, but the v1 node set "
                         "carries no host variant — a foreign boundary's structural and SSR "

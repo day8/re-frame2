@@ -56,6 +56,7 @@
             [re-frame.freehand.cell :as cell]
             [re-frame.freehand.conversion :as conv]
             [re-frame.freehand.descriptor :as descriptor]
+            [re-frame.freehand.error-react :as error-react]
             [re-frame.freehand.events :as events]
             [re-frame.freehand.presence-runtime :as presence-runtime]
             [re-frame.freehand.shell :as shell]
@@ -170,6 +171,7 @@
 ;; ---------------------------------------------------------------------------
 
 (declare ^:private emit)
+(declare element)
 
 (def ^:private components
   "Descriptor -> React component. Keyed by descriptor IDENTITY, so a
@@ -180,6 +182,15 @@
 (defn- component-for
   [view]
   (or (get @components view)
+      ;; An error boundary is not an ordinary function component — a function
+      ;; component cannot catch a descendant's render throw. It lowers to the
+      ;; React class boundary the error-boundary law drives (capture, the
+      ;; once-per-generation intent, reset, the private egress), built once
+      ;; and memoised like any other declared view's component.
+      (when (descriptor/error-boundary? view)
+        (let [c (error-react/boundary-component element)]
+          (swap! components assoc view c)
+          c))
       (let [view-id (:view-id (descriptor/describe view))
             _       (when (descriptor/structural-body view)
                       ;; A compiled declaration has no interpreted body to walk.
