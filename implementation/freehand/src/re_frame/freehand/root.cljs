@@ -47,6 +47,15 @@
   a second one (Spec 004C §3). A second `createRoot` on one container
   tears the whole tree down and re-seeds it.
 
+  Reuse is what gives the claims their fourth arm. React root options are
+  fixed at `createRoot`, so the root a reload re-renders cannot adopt a
+  new `identifierPrefix` — and a re-mount authoring a different one is
+  refused with `:rf.error/root-identifier-prefix-immutable` rather than
+  silently kept, which would leave the entry claiming a prefix `use-id`
+  never emits and the old prefix looking free to the check above. What is
+  refused is DRIFT, not the re-mount: the same effective prefix, authored
+  or derived, is the ordinary reload.
+
   ## HMR identity — occurrence identity is the qualified view id
 
   A root's occurrence identity is its `:root-id`, and a derived
@@ -483,6 +492,41 @@
          :extra    {:root-id root-id :identifier-prefix prefix :owner-root-id owner}}))
     existing))
 
+(defn- require-stable-identifier-prefix!
+  "The fourth admission claim, and the one only a RE-MOUNT can fail: the
+  effective `identifierPrefix` a live root was created with is the prefix
+  it keeps.
+
+  The reload path re-renders the EXISTING host root, and a React root's
+  options are fixed at `createRoot` — the running root has no way to adopt
+  a new prefix. Accepting the drift would put the registry and React out
+  of step in the one place it costs the most: the entry would claim a
+  prefix `use-id` never emits, and would leave the OLD prefix looking free
+  to the uniqueness check above, so the next root to author it is admitted
+  against a live root still rendering under it. That is the cross-root
+  `use-id` collision the prefix claim exists to prevent, manufactured by
+  the check itself.
+
+  So drift fails loud, here, alongside the other three claims and for the
+  same reason: raised before preflight and before any React work, the live
+  root keeps its prefix, its claim, its frame and its committed DOM."
+  [where root-id requested ^Root existing]
+  (when (and (some? existing) (not= requested (.-identifier-prefix existing)))
+    (error/throw-error!
+      :rf.error/root-identifier-prefix-immutable where
+      (str "re-mounting root " (pr-str root-id) " asks for identifierPrefix "
+           (pr-str requested) ", but the live root in that container was created "
+           "with " (pr-str (.-identifier-prefix existing)) " — a root's "
+           "identifierPrefix is fixed when React creates it, so a re-mount "
+           "re-renders that root under the OLD prefix and use-id keeps emitting "
+           "it. Unmount this root and mount again to render under the new "
+           "prefix, or drop the change.")
+      {:recovery :unmount-before-changing-identifier-prefix
+       :extra    {:root-id   root-id
+                  :requested requested
+                  :existing  (.-identifier-prefix existing)}}))
+  nil)
+
 ;; ---------------------------------------------------------------------------
 ;; Preflight — the frame plan, before React
 ;; ---------------------------------------------------------------------------
@@ -715,7 +759,11 @@
   the same container re-renders the existing host root instead of
   allocating a second one. That is the reload path — a hot reload re-runs
   the mount, finds the root live under its qualified-view-id identity, and
-  re-renders the new body without reseeding the host root.
+  re-renders the new body without reseeding the host root. The one thing
+  that re-mount cannot carry is a DIFFERENT effective `identifierPrefix`:
+  React fixes a root's options when it creates it, so drift is refused
+  (`:rf.error/root-identifier-prefix-immutable`) rather than silently
+  ignored — unmount, then mount again, to render under a new prefix.
 
   `opts` is a CLOSED map: `:root-id` / `:disambiguator` /
   `:identifier-prefix` (identity), `:frame` (the preflight plan), and
@@ -730,20 +778,24 @@
          prefix         (or (:identifier-prefix opts)
                             (root-id/default-identifier-prefix root-id))
          plan           (plan-for 'v/mount (:frame opts))
-         ^Root existing (claim! 'v/mount dom-node root-id prefix)
-         frame-id       (preflight! 'v/mount plan root-id)
-         element        (root-element root-form frame-id nil)]
-     (if (some? existing)
-       ;; The reload path: the same host root, re-rendered. No createRoot,
-       ;; so nothing downstream is reseeded; the descriptor snapshot is
-       ;; refreshed because the mounted view object may be a fresh
-       ;; generation, but the identity it keys on is unchanged.
-       (let [react-root (.-react-root existing)
-             root       (->Root desc dom-node react-root prefix frame-id
-                                (.-hydrated existing))]
-         (.render react-root element)
-         (register! root-id root))
-       (client-render! desc dom-node prefix opts frame-id element)))))
+         ^Root existing (claim! 'v/mount dom-node root-id prefix)]
+     ;; Before preflight, because a refused root must not have run one — and
+     ;; only a mount reaches here with a root it intends to REUSE.
+     (require-stable-identifier-prefix! 'v/mount root-id prefix existing)
+     (let [frame-id (preflight! 'v/mount plan root-id)
+           element  (root-element root-form frame-id nil)]
+       (if (some? existing)
+         ;; The reload path: the same host root, re-rendered. No createRoot,
+         ;; so nothing downstream is reseeded; the descriptor snapshot is
+         ;; refreshed because the mounted view object may be a fresh
+         ;; generation, but the identity it keys on is unchanged — and its
+         ;; prefix is the one the claim above just proved unmoved.
+         (let [react-root (.-react-root existing)
+               root       (->Root desc dom-node react-root prefix frame-id
+                                  (.-hydrated existing))]
+           (.render react-root element)
+           (register! root-id root))
+         (client-render! desc dom-node prefix opts frame-id element))))))
 
 ;; ---------------------------------------------------------------------------
 ;; hydrate-root
