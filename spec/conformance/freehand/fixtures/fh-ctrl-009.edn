@@ -1,0 +1,36 @@
+{:fh/id  "FH-CTRL-009"
+ :fh/law "The reset target is the caller's CURRENT baseline, re-read by the render that follows the reset rather than restored from a mount-time snapshot; and reaching it costs no render-time mutation — repeating the render any number of times, including under candidates the host never selects and across a hot-reload body-generation advance, dispatches nothing, moves no controller state, and yields an identical tree."
+
+ :kind :my.ui/buffered-field
+
+ :control [:invoice 42 :amount]
+
+ ;; Mount-time facts. If the reset restored a snapshot taken here, the
+ ;; assertions below would show this value rather than the caller's
+ ;; current one.
+ :baseline "10.00"
+ :revision 4
+
+ :typed "12."
+
+ ;; The caller establishes a NEW baseline, different from the mount-time
+ ;; one, at a new generation. The control must show what the caller
+ ;; asserts NOW.
+ :reset-baseline "77.77"
+ :next-revision  5
+
+ :displayed-after-reset "77.77"
+
+ ;; Render purity. The read is a pure function of (record, generation,
+ ;; baseline), so repeating it is free of consequence — which is what
+ ;; makes a StrictMode double-invoke, a concurrent restart and an
+ ;; abandoned candidate all uneventful rather than each needing a rule.
+ ;; Three renders is enough to catch a first-render-only effect.
+ :renders 3
+
+ ;; Hot reload: the seam advances the cell's BODY generation. A buffered
+ ;; draft lives in frame data with no host slot to index, so the record
+ ;; and its stamp are untouched and there is no slot order to drift.
+ :hot-reload-generation      7
+ :record-after-hot-reload    {:reset-key 4 :draft "12."}
+ :displayed-after-hot-reload "12."}

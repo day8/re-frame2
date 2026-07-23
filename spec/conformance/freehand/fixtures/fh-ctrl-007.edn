@@ -1,0 +1,38 @@
+{:fh/id  "FH-CTRL-007"
+ :fh/law "A caller rejects a live draft by advancing the reset generation, and the rejection lands even when the caller reasserts a value EQUAL to the one it had: the draft stops being displayed at once and the caller's baseline is shown, while the same reassertion under an UNCHANGED generation leaves the draft alone. Value-equality is provably blind to the rejection; the generation is not."
+
+ :kind :my.ui/buffered-field
+
+ :control [:invoice 42 :amount]
+
+ ;; The accepted baseline, and the generation that established it.
+ :baseline "10.00"
+ :revision 4
+
+ ;; The user edits. The record is stamped with the generation its render
+ ;; displayed, and the control shows the draft.
+ :typed                   "bad"
+ :displayed-while-editing "bad"
+ :record-while-editing    {:reset-key 4 :draft "bad"}
+
+ ;; THE CASE. The caller refuses the draft and stands by what it already
+ ;; had — the same string, character for character — and advances the
+ ;; generation to say "this is a NEW baseline decision".
+ :reasserted-value "10.00"
+ :next-revision    5
+
+ ;; The draft is gone from the display immediately, with no event
+ ;; dispatched during render and no host node reset.
+ :displayed-after-rejection "10.00"
+
+ ;; The superseded record is not erased — it is INELIGIBLE. Keeping the
+ ;; stamp is what lets a tool holding the caller's event and the app-db
+ ;; name the generation that orphaned it; the next edit replaces it.
+ :stale-record-after-rejection {:reset-key 4 :draft "bad"}
+
+ ;; The counter-case, and the reason the law above is about the
+ ;; GENERATION rather than about any change at all: the caller moves the
+ ;; VALUE while holding the generation, which is an external update and
+ ;; not a rejection, so the live draft continues.
+ :changed-value                   "99.99"
+ :displayed-after-external-change "bad"}

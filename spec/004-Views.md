@@ -862,6 +862,111 @@ screen rather than of what the work is; the cost is that a forgotten owner leave
 orphaned record, so development tooling reports orphaned and stale controller records
 instead of the substrate guessing.
 
+#### The buffered controller and the reset generation
+
+A **buffered** control is one that holds a draft while the user edits and commits it
+later — on blur, on Enter — instead of publishing every keystroke. It is the one
+controller shape a component library cannot avoid, and it is the one that goes wrong
+in the same way in every framework, so Freehand ships exactly **one** of it. The
+ruling is
+[D016](../docs/design/freehand/decisions/D016-buffered-and-revision-controls.md).
+
+The difficulty is not the draft. It is that a caller must be able to **reject** one,
+and rejection is frequently spelled by standing by what the caller already had:
+
+> The accepted amount is `"10"`. The user types `"bad"` and commits it. The caller
+> validates, refuses, and reasserts `"10"`.
+
+The value before that decision and the value after it are identical, so nothing
+derived from the value can see the decision at all — and a control that watched the
+value keeps the refused draft on screen. This is not a subtle case. It is the
+ordinary shape of asynchronous validation, of a transforming caller, and of a "revert"
+button, and it is the failure every hand-rolled buffered input eventually acquires.
+
+So a buffered control is **generation-fenced**, and its generation is the caller's:
+
+```clojure
+[buffered-field {:control   [:invoice invoice-id :amount]
+                 :value     (v/sub [:invoice/amount invoice-id])
+                 :reset-key (v/sub [:invoice/amount-revision invoice-id])
+                 :on-commit [:invoice/amount-committed invoice-id]}]
+```
+
+- **`:reset-key` is REQUIRED.** A buffered control rendered without one is refused
+  loudly with `:rf.error/view-control-reset-revision-missing`, naming the kind and
+  the recovery. Optional would be the worse design, not the friendlier one: a control
+  with no generation buffers correctly right up to the first rejection and then loses
+  it, which is a defect that reaches production because development never rejects
+  anything. Requiring it puts the obligation at every call site, and a caller that
+  genuinely never resets says so — `:reset-key 0` reads as *do not externally reset
+  an active edit*, which is a statement rather than a silence.
+- **It is a revision, never the value.** It is any immutable EDN the caller advances
+  when it establishes a new baseline decision, compared only for `rf=` equality. A
+  caller that passed the value as its own reset key would have written the bug above.
+- **The draft carries the generation it was made under.** A live record is at minimum
+  `{:reset-key … :draft …}`, and the generation stamp is what the fence reads.
+
+Nothing about buffering changes how the keystroke itself is delivered: the control's
+element is an ordinary controlled input, so its edit takes the synchronous round trip
+under the same door predicate as any other (§Controlled inputs). What the buffer
+changes is only *where the value round-trips to* — the draft rather than the domain
+value — and the draft is ordinary frame data, so an epoch, a snapshot and a JVM test
+all see it.
+
+#### The generation fence
+
+One predicate decides currency, and both of a buffered control's boundaries ask it:
+
+| Boundary | The question |
+|---|---|
+| the **read**, each render | is this draft's generation still the caller's? If not, display `:value` |
+| the **write**, in the handler | does the committed record's generation still match the intent's? If not, produce nothing |
+
+They are the same question because a control whose display and whose commit disagreed
+about which generation is live would commit something the user could not see. A
+missing stamp is **not** current, whatever the generation is: work that cannot prove
+its currency does not have it.
+
+**A superseded draft is invisible, not erased.** That is the whole mechanism, and it
+is why this needs no new machinery. The fence is a comparison over ordinary frame
+data, so a new generation exposes the caller's baseline on the very next render with
+**no render-time dispatch, no render-phase mutation of state or of a host node, and
+no remount**. A render that the host restarts, double-invokes or abandons therefore
+changes nothing — the same law the atomic shell already states, applied to a draft
+rather than to a dependency set (§Governing laws, law 3). Key-remount and
+effect-driven reset are both excluded, and for the same reason: a remount destroys
+focus, selection and any composition in flight, and an effect commits one stale frame
+before it corrects.
+
+**The reset target is the caller's current value, not a mount-time snapshot.** The
+control has no snapshot to restore — it simply stops displaying the draft, and what
+is left is the `:value` expression evaluated by *this* render. A caller that rejects
+by transforming rather than by refusing gets the transformed value for free.
+
+**Late work is fenced by the last committed render.** An event site fires the intent
+of the render the host SELECTED — an abandoned candidate published no event bodies at
+all — so the generation an intent carries is always the last committed one. A blur
+arriving after a reset has rendered therefore speaks for the new generation and finds
+a record that speaks for the old, and produces nothing. In the other direction an
+edit stamps the record with the generation its own render displayed, so an edit that
+lands after a reset is **born stale**: never shown, and not committable either. The
+reset wins, deliberately — a keystroke aimed at a baseline the caller has withdrawn
+must not reinstate it.
+
+Decisions that depend on changing state are made in the handler against committed
+state, exactly as §Semantic transitions and owner cleanup requires, so cancel beats a
+late blur and a repeated commit is an idempotent no-op rather than a second domain
+event.
+
+**The evidence is the ordinary record.** A reset is the caller's own event moving the
+caller's own data; the substrate publishes no reset channel, emits no discard event,
+and deletes nothing to tidy up. A superseded record keeps its stamp until the next
+edit replaces it or its owner clears it, so an app-db diff across the caller's event
+names precisely which generation was superseded and which drafts it orphaned.
+
+**Conformance:** [FH-CTRL-006](conformance/freehand/conformance-index.md#fh-ctrl--controllers),
+FH-CTRL-007, FH-CTRL-008, FH-CTRL-009, FH-CTRL-010, FH-CTRL-011.
+
 #### Vocabulary and absences
 
 Control families are **first-party library vocabulary, not framework grammar**.

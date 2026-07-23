@@ -1,0 +1,73 @@
+{:fh/id  "FH-CTRL-008"
+ :fh/law "Work from a superseded generation does not land in either direction: a commit whose generation no longer matches the committed record produces no caller intent and moves nothing, an edit made under a generation the caller has already replaced is born stale and is neither displayed nor committable, a cancel clears the record before a later blur can resurrect it, and a repeated commit is an idempotent no-op — every one of them decided in the handler against committed state, never by a guard captured during render."
+
+ :kind :my.ui/buffered-field
+
+ :control [:invoice 42 :amount]
+
+ ;; The caller's baseline, the generation that established it, and the
+ ;; generation the caller advances to when it replaces that baseline.
+ :baseline      "10.00"
+ :revision      4
+ :next-revision 5
+
+ ;; Where an accepted draft goes — the caller's own domain event, at the
+ ;; caller's own path.
+ :on-commit      [:invoice/amount-committed 42]
+ :committed-path [:invoice 42 :amount]
+
+ ;; --- The current commit: the control, so nothing below is green for
+ ;; --- want of a working commit at all.
+ :ordinary
+ {:typed            "12."
+  :committed-value  "12."
+  :record-after     nil}
+
+ ;; --- A commit whose generation the caller has replaced.
+ ;;
+ ;; The intent an event site fires always carries the LAST COMMITTED
+ ;; render's generation — a candidate the host never selected published
+ ;; no event bodies at all — so once the reset render commits, the blur
+ ;; the node carries speaks for generation 5 while the record still
+ ;; speaks for 4. It is a no-op: no caller intent, no record change.
+ :superseded-commit
+ {:typed                  "12."
+  :committed-value        nil
+  :record-after           {:reset-key 4 :draft "12."}
+  :displayed-after        "10.00"}
+
+ ;; --- An edit made under a generation the caller has already replaced.
+ ;;
+ ;; The edit is materialized from the render at generation 4 and lands
+ ;; after the caller's reset to 5 has been processed. It stamps the
+ ;; record with the generation its render displayed, so the record is
+ ;; BORN STALE: never shown, and not committable at 5 either. The reset
+ ;; wins — which is the safe direction, because a keystroke aimed at a
+ ;; baseline the caller has withdrawn must not reinstate it.
+ :superseded-edit
+ {:typed             "!!"
+  :record-after      {:reset-key 4 :draft "!!"}
+  :displayed-after   "10.00"
+  :committed-value   nil}
+
+ ;; --- Cancel, and the blur that was already on its way.
+ ;;
+ ;; Cancel clears the record. The blur behind it consults committed
+ ;; state, finds no live edit, and produces nothing — Escape beats a late
+ ;; blur rather than racing it.
+ :cancel
+ {:typed            "12."
+  :record-after     nil
+  :committed-value  nil
+  :displayed-after  "10.00"}
+
+ ;; --- Repeated commits.
+ ;;
+ ;; The first commit retires the session; the second finds no record and
+ ;; is a no-op, so a double blur does not dispatch the caller's event
+ ;; twice.
+ :repeated
+ {:typed             "12."
+  :commits           2
+  :committed-value   "12."
+  :caller-events     1}}
