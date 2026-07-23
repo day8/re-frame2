@@ -1370,8 +1370,92 @@ than the default.
 
 ### Theming and semantic parts
 
-**Lands in:** F5 — composition and integration. Carries the bounded per-instance part
-override and the styling/structural plane split.
+Theming is **two planes**. The **styling** plane is CSS tokens and semantic part
+addresses; the **structural** plane is the composition forms that already exist. The
+split is what lets a component library be restyled freely without making its
+correctness overridable, and it costs the substrate nothing: a theme is CSS and a
+part is an address, both ordinary host values. There is no theme registry, no theme
+context protocol, no styling DSL, and no re-theming verb on the public surface — a
+library opts into this contract through its own props schema and its own part
+roster. The ruling is
+[D018](../docs/design/freehand/decisions/D018-theming-and-parts.md).
+
+**Tokens ride the cascade.** Colour, spacing, radius, typography and motion travel
+as CSS custom properties, selected by an ancestor scope the application renders
+once — conventionally a `data-theme` attribute or a class. Inheritance reaches every
+descendant, so switching themes changes that one attribute and **re-renders
+nothing**: no token subscription per leaf, no remount, and no reactive fan-out
+proportional to the tree. The residue is the value a stylesheet cannot know — a
+genuinely dynamic colour or measure supplied at a call site — and it rides as an
+inline namespaced custom property on the node that needs it. That is the escape,
+not the default path: a component given no dynamic value emits no inline style at
+all and takes everything from the cascade.
+
+**A part is a stable semantic address.** A component declares a finite roster of
+public part ids and emits each as a literal `data-part` value under a
+`data-component` scope. The scope is what lets `label`, `control` and `icon` be the
+obvious names in every library at once without two libraries colliding, and it is
+what a caller's stylesheet selects through. Three consequences the component author
+owns:
+
+- **The roster is a deliberate public subset**, not every node. A private
+  implementation node carries no part id, which is what makes the roster a promise
+  rather than a description of today's DOM.
+- **A part id is API.** Renaming or removing one breaks every stylesheet that
+  reached it, exactly as renaming a prop does, and it breaks it silently — the
+  rendered output can look identical. Growing the roster is additive; shrinking it
+  is a breaking component-contract change.
+- **A variant is not a part.** `:tone`, `:size` and `:density` are fixed choices the
+  component anticipated, so they are ordinary value props lowered to a class. A part
+  id is an open address a caller styles; spelling a variant as one turns a closed
+  choice into a public surface.
+
+**A per-part override is a bounded spread, not a second merge law.** Stylesheets
+cannot carry a per-instance analytics attribute or an `aria-*` relationship, so a
+library may accept per-part attributes — conventionally a map from declared part id
+to an ordinary attribute map — and merge each through `v/spread-safe`
+([§Props forwarding](#props-forwarding)). It inherits that law entire: `:key`,
+`:ref`, `:value`, `:checked` and the component's own handler families cannot appear,
+in any spelling, in any build, and what survives folds under the owned props with
+`:class` composing. So an override adds to the element and cannot replace the
+controlled contract, the element's identity, or the handler that fires — which is
+precisely why a themed controlled input stays controlled and keeps its synchronous
+door ([§Controlled inputs](#controlled-inputs)). The substrate defines no `:parts`
+prop and validates no part id: the roster is the library's data and the library
+polices it, over a merge law the substrate does own.
+
+**Structure is the other plane's job.** Replacing a label with an icon and a help
+popover is composition, not styling: trailing children for one default region, a
+compound child view for a fixed one, `v/render-fn` and `v/slot` for parameterized
+content ([§Render slots](#render-slots)), and a declared child view when the
+replacement owns state. Smuggling structure through a theme hides keys, event sites
+and reactive boundaries from the analysis both modes depend on, and the established
+forms keep all three visible.
+
+**There is no portable late tree transform.** A pure Hiccup-to-Hiccup rewrite is
+ordinary interpreted code and stays perfectly legal in an application and in
+tooling. It is not a cross-mode theming seam, and Freehand publishes no verb that
+would make it one. A compiled leaf has no tree to intercept before lowering — its
+whole claim is that its template is settled at build — so a portable transform would
+have to become either a second compiler language or an interpreted walker inside
+compiled markup, both refused by governing law 6. Worse, a transform running after
+analysis can move identity, event ownership, controlled scheduling, diagnostics and
+source attribution, so a visual theme becomes a behaviour rewrite. The refusal is
+the contract, and the recovery is the structural plane above.
+
+**Where each plane is proved.** CSS is a browser mechanism, so only a mounted
+browser can say that a rule targeting a part reached an element's computed style,
+that an inline token resolved through `var()`, or that flipping an ancestor
+`data-theme` recoloured a node the substrate never re-rendered. Everything else is
+deterministic in the structural tree on both hosts: the `data-component` scope,
+every emitted `data-part`, the variant class and the inline token are ordinary
+attributes a JVM or SSR test reads by equality, which is how a component's emitted
+address set is held to exactly its declared roster. The shipped evidence for both
+halves is the theming pilot —
+[`pilot_theming_cljs_test.cljc`](../implementation/freehand/test/re_frame/freehand/pilot_theming_cljs_test.cljc)
+structurally and
+[`pilot_theming_dom_cljs_test.cljs`](../implementation/freehand/test/re_frame/freehand/pilot_theming_dom_cljs_test.cljs)
+in a real browser.
 
 ### Framework-supplied views
 
