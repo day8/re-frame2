@@ -192,6 +192,21 @@ implementation/
     deps.edn                 No runtime deps; a test-tooling library.
     src/re_frame/test_quiet*       Silent-on-success reporter + runner entry points.
 
+  spec-resource/             day8/re-frame2-spec-resource — the ONE build-time reader for
+                             committed `spec/` data. Macros that inline a spec-side file at
+                             macro-expansion time (the Freehand conformance fixtures, the
+                             api-manifest sidecar) read through it, so the file participates
+                             in the compiling namespace's shadow-cljs cache key instead of
+                             being frozen into it invisibly. Shared rather than copied
+                             because resolving shadow's recording reader is a cold-load
+                             race that two independent resolvers lose to each other.
+    deps.edn                 No runtime deps, and none on shadow-cljs; build/test-time only.
+    src/re_frame/build/spec_resource.clj  Recording read + walk-up fallback + the
+                             require-before-resolve that makes the reader cold-load-safe.
+    test/re_frame/build/           The deterministic race control: it holds the
+                             interned-but-unbound window open and drives two independent
+                             resolver sites into it.
+
   security/                  Cross-cutting security regression tests (MCP egress, schema
                              redaction, SSR escaping) — test-only, no shipped namespace.
     test/re_frame/security/        JVM + CLJS security regression suites.
