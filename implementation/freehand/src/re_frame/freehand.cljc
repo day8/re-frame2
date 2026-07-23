@@ -38,6 +38,7 @@
   (:require [re-frame.error :as error]
             [re-frame.freehand.cell :as cell]
             [re-frame.freehand.descriptor :as descriptor]
+            [re-frame.freehand.errors :as errors]
             [re-frame.freehand.events :as events]
             ;; The structural node builders a COMPILED declaration's emitted
             ;; body calls. Required here, and not by the consumer, because
@@ -784,3 +785,64 @@
   {:children-policy :none}
   [{:keys [value]}]
   value)
+
+;; ---------------------------------------------------------------------------
+;; `error-boundary` — the framework's resettable render-failure boundary
+;; ---------------------------------------------------------------------------
+;;
+;; Like `route-link`, a framework-supplied boundary is not a privileged one:
+;; it is a declared internal boundary classified `:view`, so it is mounted
+;; `[v/error-boundary {…} child]` and never called. What it does NOT share
+;; with an ordinary `defview` is a render body — a boundary CONTAINS its
+;; child rather than producing markup, so its descriptor carries the reserved
+;; `:error-boundary` marker instead, and both emitters route it to their
+;; containment realisation (a React class boundary in the browser, a
+;; structural `contain` on the JVM). The law it drives — capture, the
+;; once-per-generation safe intent, reset, and the private frame egress —
+;; lives in `re-frame.freehand.errors`; Spec 004 §Error boundaries
+;; and error egress owns the contract.
+
+(def ^{:doc "(v/error-boundary {:fallback … :reset-key … :on-error …} child)
+  — a RESETTABLE render-failure boundary with a fallback.
+
+      [v/error-boundary
+       {:reset-key route-revision
+        :fallback  [broken-page {}]
+        :on-error  [:telemetry/ui-render-failed]}
+       [workspace-page {:workspace-id workspace-id}]]
+
+  It catches render-class failures below it — a Freehand child body throwing,
+  Hiccup normalization or common prop/event validation throwing, and (in the
+  browser) a descendant foreign component throwing where React boundaries
+  apply. It does NOT catch event-handler, asynchronous, or re-frame
+  handler/sub failures: those keep their existing typed owners.
+
+  A caught failure shows `:fallback` and publishes NOTHING from the failed
+  render — the atomic shell already guarantees an abandoned candidate owns
+  nothing. `:on-error`, when present, is one event prefix; the framework
+  appends a bounded SAFE SUMMARY (a stable diagnostic id, the failing view
+  id, phase, fingerprint and evidence — never the exception, props, app-db,
+  or event payloads) and dispatches it exactly once per failure generation
+  after the fallback commits. Changing `:reset-key` by `rf=` clears the
+  captured failure and re-mounts the child — there is no boundary ref and no
+  imperative reset handle.
+
+  Production reporting rides a SECOND, private channel: at most one record
+  per failure generation is promoted onto re-frame's always-on error axis
+  and the frame-owned observability sink, carrying the opaque exception and a
+  capped host stack an off-box shipper needs. That record carries NO
+  automatic app-db or event-history capture — an application that wants a
+  redacted snapshot obtains it through its own `:on-error` handler and an
+  allow-list it owns.
+
+  Options — the roster is CLOSED: `:fallback` (required), `:reset-key`, and
+  `:on-error`. An unknown key, a missing `:fallback`, or an `:on-error` that
+  is not an event-prefix vector raises `:rf.error/error-boundary-bad-args`.
+
+  Per [Spec 004 §Error boundaries and error egress](../../../../spec/004-Views.md#error-boundaries-and-error-egress)."}
+  error-boundary
+  (descriptor/declare-view
+    {:view-id         errors/boundary-view-id
+     :lowering        :interpreted
+     :children-policy :required
+     :error-boundary  true}))

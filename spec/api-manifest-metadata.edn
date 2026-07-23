@@ -1312,6 +1312,12 @@
   ;; boundary a markup VALUE crosses at (D010). Nothing in the compiled tier
   ;; knows its name; Spec 004 §Cross-mode children owns the law.
   ["re-frame.freehand" "markup"]            {:tier :advanced    :owner "004" :status "EP-0036"}
+  ;; `error-boundary` (rf2-drpa3.35, EP-0036 F4e) is the other framework-
+  ;; supplied view — a resettable render-failure boundary, an ordinary
+  ;; descriptor Var mounted `[v/error-boundary {…} child]`. Spec 004 owns the
+  ;; containment / reset / safe-intent / private-egress contract; the law
+  ;; lives in the internal `re-frame.freehand.errors`.
+  ["re-frame.freehand" "error-boundary"]    {:tier :advanced    :owner "004" :status "EP-0036"}
 
   ["re-frame.ui.test" "render"]    {:tier :testing :owner "008" :status "Spec-004 S1"}
   ["re-frame.ui.test" "text"]      {:tier :testing :owner "008" :status "Spec-004 S1"}

@@ -1,0 +1,31 @@
+;; FH-ERROR-003 — the safe summary and the private frame egress field sets.
+;;
+;; The two deliberately different representations of one caught failure: the
+;; safe public summary an application receives, and the private egress record
+;; an off-box shipper receives. Both are asserted by EXACT field set — the
+;; egress carries the opaque exception and a capped host stack, and NEITHER
+;; carries app-db or event history (EP-0036 / D019 reject automatic capture).
+{:fh/id "FH-ERROR-003"
+ :fh/law
+ "A caught render failure produces two representations by exact field set: a safe public summary (a stable diagnostic id, the failing view id, phase, fingerprint and D020 evidence) that an application receives, and a private egress record (the summary plus the opaque exception and a capped host stack) an off-box shipper receives — and neither carries app-db or event history."
+
+ :view-id          :app.workspace/workspace-page
+ :boundary-view-id :re-frame.freehand/error-boundary
+ :phase            :render
+ :frame-id         :main
+
+ :diagnostic-id    :re-frame.freehand/render-failed
+ :egress-category  :rf.error/view-render-failed
+ :recovery         :contained
+ :basis            :observation
+
+ ;; The exact, closed top-level field sets.
+ :safe-summary-keys  #{:diagnostic-id :view-id :boundary-view-id :phase :frame-id :fingerprint :evidence}
+ :egress-record-keys #{:error :frame :time :summary :exception :component-stack :recovery}
+
+ ;; D020's evidence vocabulary — present on the summary, capped in production.
+ :evidence-keys-complete   #{:scope :basis :complete?}
+ :evidence-keys-incomplete #{:scope :basis :complete? :loss}
+
+ ;; The automatic-capture keys that MUST be absent everywhere in the report.
+ :forbidden-keys #{:app-db :db :event :events :event-history :ex-data :props}}

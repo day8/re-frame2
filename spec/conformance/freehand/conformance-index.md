@@ -131,6 +131,9 @@ a failed candidate publishes nothing.
 
 | Id | Law | Canonical paragraph | Applicability | Fixture | Status |
 |---|---|---|---|---|---|
+| `FH-ERROR-001` | An error boundary contains a render-class throw below it — the boundary shows its fallback while every sibling keeps rendering — and the failed candidate publishes nothing at all: the atomic bundle is absent, the cell owns no dependencies and carries no evidence | [004-Views.md#containment-and-the-abandoned-candidate](../../004-Views.md#containment-and-the-abandoned-candidate) | common jvm browser | `spec/conformance/freehand/fixtures/fh-error-001.edn` | active |
+| `FH-ERROR-002` | A changed :reset-key by rf= clears the captured failure and re-mounts the child; under repeated failures within one generation the safe intent and the private egress fire exactly once, and a new failure generation after a reset reports exactly once again | [004-Views.md#reset-and-the-once-per-generation-safe-intent](../../004-Views.md#reset-and-the-once-per-generation-safe-intent) | common jvm browser | `spec/conformance/freehand/fixtures/fh-error-002.edn` | active |
+| `FH-ERROR-003` | A caught render failure produces two representations by exact field set: a safe public summary an application receives, and a private egress record an off-box shipper receives that adds the opaque exception and a capped host stack — and neither carries app-db or event history | [004-Views.md#the-safe-summary-and-the-private-frame-egress](../../004-Views.md#the-safe-summary-and-the-private-frame-egress) | common jvm browser | `spec/conformance/freehand/fixtures/fh-error-003.edn` | active |
 
 ### FH-ROOT — Roots and SSR
 

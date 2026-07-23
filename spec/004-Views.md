@@ -712,9 +712,102 @@ and accessibility alone.
 
 ### Error boundaries and error egress
 
-**Lands in:** F4 — data and host lifecycle. Carries containment scope, reset, the
-fallback contract, the once-per-generation safe summary, and the private frame error
-egress path.
+A render failure is inevitable — a nil assumption, malformed Hiccup, a foreign
+component throwing, stale data violating a contract. The atomic shell already
+guarantees that a candidate which throws owns nothing and publishes nothing
+(§Passive render and atomic selection). It does not decide what the user sees
+next, or how the failure reaches production telemetry. `v/error-boundary` is
+that decision, and it is common: the JVM structural host contains a throwing
+child with a `try` around its walk, and the browser realises the same law
+through a React class boundary, but both drive one host-neutral state machine,
+so a structural test and a mounted boundary contain the same failure the same
+way. The contract is ruled by
+[D019](../docs/design/freehand/decisions/D019-error-boundaries-and-production-reports.md);
+the egress category and its channel are
+[009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
+
+`v/error-boundary` is a declared framework boundary, mounted `[v/error-boundary
+{…} child]` and never called, with a closed option roster: `:fallback`
+(required — what renders when a throw is caught below the boundary),
+`:reset-key` (the caller-owned retry value), and `:on-error` (the optional safe
+intent). It catches render-class failures below it — a Freehand child body
+throwing, Hiccup normalization or common prop/event validation throwing, and,
+in the browser, a descendant foreign component throwing where React boundaries
+apply. It does **not** catch event-handler, asynchronous, or re-frame
+handler/sub/resource failures: those keep their existing typed owners. An
+unknown option, a missing `:fallback`, or an `:on-error` that is not an
+event-prefix vector is `:rf.error/error-boundary-bad-args` at the interpreted
+mount and `:rf.ui.compile/bad-error-boundary` at the compiled build.
+
+#### Containment and the abandoned candidate
+
+A throwing child is **contained**: the boundary shows its `:fallback` while every
+sibling subtree keeps rendering, and the throw never reaches the surrounding
+markup, so the rest of the tree still renders. On the structural host the
+boundary node holds the fallback subtree instead of the child's; in the browser
+the boundary re-renders its fallback in place of the failed child's fiber.
+
+The candidate that threw **publishes nothing at all**. This is the atomic
+shell's law, not a second mechanism: an abandoned render is abandoned by
+dropping its candidate, so its cell is still `:new`, owns no dependencies, and
+carries no evidence — the selected-commit bundle is simply absent. A boundary
+contains a failure; it never has to un-publish one.
+
+If the fallback itself throws, the error propagates to the next outer boundary
+rather than being caught here — a boundary never tries to catch its own fallback
+indefinitely. On the server, a render failure propagates to the server error
+projector rather than simulating client recovery; that projection is the SSR
+slice's, cited here so the boundary law and the server law do not drift.
+
+#### Reset and the once-per-generation safe intent
+
+`:reset-key` is a caller-owned value. When it changes by `rf=`, the boundary
+clears the captured failure and re-mounts the child, retrying it; an unchanged
+key leaves a failed boundary on its fallback. There is no boundary ref and no
+imperative reset handle — a retry button dispatches an ordinary event that moves
+the reset value, so recovery is data, not a side channel.
+
+`:on-error`, when present, is one event prefix. The framework appends the safe
+public summary and dispatches the result exactly **once per failure
+generation**, after the fallback commits. A failure generation is one captured
+episode: a fresh capture from the cleared state advances the generation, and a
+repeated capture while already failed — a StrictMode double-invoke, an HMR
+re-render, a repeated parent render of the same failure — is a no-op that
+reports nothing new. So under repeated failures the intent fires exactly once,
+not "at least once"; a new generation, after a reset and another throw, reports
+exactly once again. Lifecycle and render errors are not domain events: an
+application receives an intent only when the author explicitly supplies
+`:on-error`, and an error site produces at most one event vector, never a
+secondary event DSL.
+
+#### The safe summary and the private frame egress
+
+One caught failure has two audiences that must not share a representation.
+
+The **safe public summary** is the bounded, serialisable envelope an application
+receives — on its `:on-error` event, and in any structural value. Its field set
+is closed: a stable diagnostic id (`:re-frame.freehand/render-failed`), the
+failing declared view id and the boundary's own view id, the finite phase
+(`:render`, `:normalize`, `:foreign-render`), the resolved frame id, a stable
+fingerprint, and D020 evidence (scope, basis, completeness, loss). It carries
+**nothing** host-shaped: not the raw exception, not `ex-data`, not props, not
+app-db, not event payloads — every one of those is a data-classification
+hazard, and the envelope is what may reach an event vector and a serializable
+trace.
+
+The **private frame error egress** is the second channel. At most one record per
+failure generation is promoted onto re-frame's existing always-on error axis
+(`:rf.error/view-render-failed`) and the frame-owned observability sink,
+carrying the safe summary plus the opaque exception and a capped host/component
+stack an off-box shipper needs. Observer and sink code own redaction,
+source-map processing, transport, and vendor integration; a sink failure is
+isolated and never replaces the user's fallback. This record carries **no**
+automatic app-db or event-history capture. That omission is deliberate
+(D019 rejects it): "redacted" is application-specific, event payloads and state
+routinely carry secrets and large values, and coupling basic containment to
+history policy invites a false promise that every report is replayable. An
+application that wants a redacted snapshot obtains it through its own `:on-error`
+handler and an allow-list it owns.
 
 ### Diagnostics and evidence
 

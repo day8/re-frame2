@@ -1,0 +1,36 @@
+;; FH-ERROR-002 — reset, and the once-per-generation safe intent.
+;;
+;; A changed :reset-key clears the captured failure and re-mounts the child.
+;; Under repeated failures WITHIN one generation the safe `:on-error` intent
+;; (and the private egress record) fire EXACTLY ONCE — not "at least once" —
+;; and a fresh failure generation, after a reset and another throw, reports
+;; again.
+{:fh/id "FH-ERROR-002"
+ :fh/law
+ "A changed :reset-key by rf= clears the captured failure and re-mounts the child; under repeated failures within one generation the safe intent and the private egress fire exactly once, and a new failure generation after a reset reports exactly once again."
+
+ :on-error   [:telemetry/ui-render-failed]
+ :view-id    :app.workspace/workspace-page
+ :phase      :render
+ :frame-id   :rf/default
+
+ ;; The two caller-owned reset values that bracket the two generations.
+ :reset-key-1 :revision-1
+ :reset-key-2 :revision-2
+
+ ;; Drive this many failed captures + promotions within EACH generation.
+ :repeated-failures 5
+
+ ;; The exact-count assertion: one intent (and one egress record) PER
+ ;; generation, no matter how many repeated failures, and exactly two across
+ ;; the two generations bracketing one reset.
+ :intents-per-generation        1
+ :egress-records-per-generation 1
+ :total-intents-after-one-reset 2
+ :total-egress-after-one-reset  2
+
+ ;; The state-machine facts a reset and a re-capture leave.
+ :after-first-capture {:status :failed :generation 1}
+ :after-reset         {:status :clear  :did-reset? true}
+ :after-same-key      {:did-reset? false}
+ :after-recapture     {:status :failed :generation 2}}

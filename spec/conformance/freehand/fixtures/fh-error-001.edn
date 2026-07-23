@@ -1,0 +1,26 @@
+;; FH-ERROR-001 — containment, and the abandoned candidate that owns nothing.
+;;
+;; A boundary around a throwing child shows its fallback while a SIBLING
+;; subtree keeps rendering — the containment half. And the render that threw
+;; published NOTHING: the atomic shell's bundle (F2a) is absent, so the cell
+;; is still `:new`, owns no dependencies, and carries no evidence.
+{:fh/id "FH-ERROR-001"
+ :fh/law
+ "An error boundary contains a render-class throw below it — the boundary shows its fallback while every sibling keeps rendering — and the failed candidate publishes nothing at all: the atomic bundle is absent, the cell owns no dependencies and carries no evidence."
+
+ ;; The structural containment scenario. The test mounts a boundary whose
+ ;; child throws, beside a sibling that renders normally.
+ :fallback [:p.fallback "broken"]
+ :sibling  [:aside "sibling"]
+
+ :contained {:boundary-view-id :re-frame.freehand/error-boundary
+             :fallback-tag     :p
+             :fallback-text    "broken"
+             :sibling-tag      :aside
+             :sibling-text     "sibling"}
+
+ ;; The abandoned-candidate half: a render body that threw is dropped, so its
+ ;; cell publishes none of the F2a bundle.
+ :abandoned {:lifecycle        :new
+             :dependency-count 0
+             :evidence         nil}}
