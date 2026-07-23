@@ -26,8 +26,8 @@ mint a value that passes `v/view?` and classifies as an internal boundary while
 carrying no view-id, no source and no lowering — `v/defview` is the only way to
 create a mounted boundary, and where the constructor lives is what enforces it.
 
-The roster below is the whole door today. `v/mount`, the host boundary and the
-compiled tier are declared vacancies that land with their own EP-0036 slices.
+The roster below is the whole door today. The host boundary and the compiled tier are
+declared vacancies that land with their own EP-0036 slices.
 
 ## Declaration
 
@@ -66,6 +66,41 @@ compiled tier are declared vacancies that land with their own EP-0036 slices.
     {:children-policy :none}
     [_]
     [:span.badge "3"])
+  ```
+
+## Roots and mounting
+
+### `mount`
+
+- **Kind**: function (CLJS / browser only)
+- **Signature**:
+  ```clojure
+  (mount root-form dom-node) → root
+  (mount root-form dom-node opts) → root
+  ```
+- **Description**: mount the declared view at `root-form`'s head into `dom-node`, and
+  return the live root handle. The minimal one-root spelling is a bare declared view
+  at the head; its identity — the `:root-id` — is **derived** from the mounted view's
+  registered id (a qualified keyword), so the single-root page authors nothing. The
+  mount derives the minimal Root Descriptor (`{:rf.root/schema-version 1 :root-id
+  :view-id :root-id-provenance}`) from the site alone.
+
+  **Idempotent per root**: re-mounting the same root-id into the same container
+  RE-RENDERS the existing host root rather than allocating a second one. That is the
+  hot-reload path — a reload mints a fresh descriptor object for the redefined view,
+  but the qualified id it keys on does not move, so the reload finds the root live and
+  re-renders the new body without reseeding the host root. Body/generation churn is an
+  internal fact of the descriptor, never part of the identity.
+
+  Browser-only, because a DOM node is: the JVM renders the SAME `[view {…}]` root form
+  structurally through the tree emitter, so mounting and structural rendering are one
+  spelling on both hosts. Frame preflight, authored identity, multi-root duplicate
+  detection, failed-root isolation, total teardown and hydration are later slices; a
+  bare declared view at the head is the whole grammar here, and `opts` is accepted and
+  ignored. See [spec/004C-Roots-and-Mount.md](../../spec/004C-Roots-and-Mount.md#the-minimal-one-root-mount).
+- **Example**:
+  ```clojure
+  (v/mount [app {:label "hello"}] (js/document.getElementById "app"))
   ```
 
 ## Inspection
