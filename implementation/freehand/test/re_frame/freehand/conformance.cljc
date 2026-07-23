@@ -101,3 +101,19 @@
     nil
     (catch #?(:clj Throwable :cljs :default) e
       (ex-message e))))
+
+(defn caught-data
+  "Run `thunk` and return the whole `ex-data` of the error it raised, or nil
+  when it returned normally.
+
+  [[caught-id]]'s companion, for the assertions whose subject is what a
+  diagnostic NAMES rather than which diagnostic it is. The whole map,
+  deliberately: a payload contract is proven by reading the slots a
+  consumer would read, and picking one out here would leave the rest
+  unasserted."
+  [thunk]
+  (try
+    (thunk)
+    nil
+    (catch #?(:clj Throwable :cljs :default) e
+      (ex-data e))))
