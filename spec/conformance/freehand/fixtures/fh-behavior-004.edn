@@ -38,4 +38,12 @@
   :memory      {:updates 0}}
 
  ;; The `:layout` arm, read off the node in the commit that mounted it.
- :layout {:attribute "data-measured" :value "layout"}}
+ :layout {:attribute "data-measured" :value "layout"}
+
+ ;; `:mixed-timing` declares the PASSIVE behavior first in document order and
+ ;; the LAYOUT behavior second. The connect order below is therefore the
+ ;; declared timing overriding document order — which is what "before the
+ ;; browser paints" buys, and the one observable form the claim takes.
+ :timing-order
+ [:re-frame.freehand.behavior-views/measure
+  :re-frame.freehand.behavior-views/probe]}
