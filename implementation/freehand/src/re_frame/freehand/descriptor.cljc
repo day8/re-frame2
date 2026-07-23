@@ -29,7 +29,9 @@
   emitters and the compiled analyzer consume exactly these values.
 
   Normative owner: [`spec/004-Views.md`](../../../../../spec/004-Views.md)."
-  (:require [re-frame.error :as error])
+  (:require [re-frame.error :as error]
+            [re-frame.freehand.props-schema :as props-schema]
+            [re-frame.interop :as interop])
   #?(:cljs (:require-macros [re-frame.freehand.descriptor :refer [def-view-descriptor]])))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -421,7 +423,14 @@
     a distinction `:key` alone cannot carry, since both read `nil`;
   - **the declared children policy holds** — children against a `:none`
     view, or none against a `:required` view, is
-    `:rf.error/view-children-policy`."
+    `:rf.error/view-children-policy`;
+  - **a declared props schema closes the map** — an undeclared prop is
+    `:rf.error/view-bad-props`. The roster and the sentence come from
+    [[re-frame.freehand.props-schema]], the same pair the compiled
+    analyzer applies to a literal call site, so promotion changes when a
+    breach is reported and never which props are legal. DEV-gated: the
+    schema is a compile-time and tooling fact, and production carries no
+    validation pass (D011)."
   [view args]
   (let [entry            (.-entry ^ViewDescriptor view)
         view-id          (:view-id entry)
@@ -443,6 +452,21 @@
              "instead: [the-view {…} child-1 child-2].")
         :pass-children-as-trailing-forms
         {}))
+    ;; The props-schema decision, on the props the call actually delivered.
+    ;; `closing-keys` answers nil for every view without a closing schema —
+    ;; the overwhelming majority — so the ordinary boundary pays one map
+    ;; lookup and a nil check. The whole arm sits under `debug-enabled?`
+    ;; because a schema is a compile-time and tooling fact: production
+    ;; renders the same tree either way, and the CLJS branch folds away.
+    (when interop/debug-enabled?
+      (when-let [closing (props-schema/closing-keys (:props-schema entry))]
+        (let [bad (props-schema/undeclared closing (keys props))]
+          (when (seq bad)
+            (bad-props-error!
+              view-id
+              (props-schema/violation-message view-id closing bad)
+              :match-the-declared-props-schema
+              {:undeclared bad :declared (vec closing)})))))
     (let [policy   (:children-policy entry)
           children (when (seq children) (vec children))]
       (when (or (and (= :none policy) children)

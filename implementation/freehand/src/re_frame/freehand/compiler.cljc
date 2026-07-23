@@ -16,7 +16,8 @@
                       [re-frame.freehand.compiler.env :as env]
                       [re-frame.freehand.compiler.grammar :as grammar]
                       [re-frame.freehand.compiler.header :as header]
-                      [re-frame.freehand.fingerprint :as fingerprint]])))
+                      [re-frame.freehand.fingerprint :as fingerprint]
+                      [re-frame.freehand.props-schema :as props-schema]])))
 
 #?(:clj
    (do
@@ -607,9 +608,17 @@
 
   `form` is the declaration's `&form`, `menv` its `&env`, `params` its
   one-element parameter vector and `body` the body forms."
-  [{:keys [form menv ns-sym vname view-id params body children-policy]}]
+  [{:keys [form menv ns-sym vname view-id params body children-policy props-schema]}]
   (let [cljs?  (some? (:ns menv))
-        coords (source-coords form cljs?)]
+        coords (source-coords form cljs?)
+        ;; The static half of the props-schema decision. A declared schema
+        ;; closes the map, and the analyzer already refuses an undeclared
+        ;; literal key at a call site it can see — so the compiled tier gains
+        ;; BUILD-TIME reporting of exactly the breach the boundary reports at
+        ;; render, from exactly the same roster. Nil when no schema was
+        ;; declared, or the schema is opaque or explicitly open: the map stays
+        ;; open and nothing is checked.
+        closing (props-schema/closing-keys props-schema)]
     (anchored
      coords
      #(with-grammar
@@ -624,7 +633,7 @@
                           :source          coords
                           :template-anchor (fingerprint/digest "sta1-" body)})
                         (assoc :self-children? (not= :none children-policy)
-                               :self-closed-keys nil))
+                               :self-closed-keys closing))
                 _   (ana/reject-reactive-binding! e0 params)
                 ;; The parameter vector's own bindings are template locals: a
                 ;; head or expression spelling one of them is a LOCAL, never a
