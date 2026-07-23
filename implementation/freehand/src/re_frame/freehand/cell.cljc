@@ -293,6 +293,33 @@
   []
   (some? *render*))
 
+(defn current-candidate
+  "The candidate of the render currently in progress, or `nil` outside a
+  declared render.
+
+  The ONE thing a compiled body cannot be handed by threading. An
+  interpreted walk holds the candidate as it descends and passes it to
+  every site it reaches; a compiled body is a straight-line function the
+  compiler emitted, and there is no walk between the shell and the site
+  to carry it. So the shell's own capture — already established for
+  reactive reads, and already scoped to exactly the synchronous body
+  evaluation — is what an emitted event site reads its candidate from.
+
+  This is deliberately NOT a second ambient slot. It is [[observe!]]'s,
+  read through a different door: the same `binding`, established by the
+  same [[with-capture]], torn down at the same instant. A compiled site
+  and an interpreted read in one render therefore cannot see two
+  different candidates, which is the property that keeps one commit
+  atomic.
+
+  Reading it OUTSIDE a render answers `nil` rather than throwing,
+  because the answer is informative: a compiled view whose ViewCell was
+  elided by proof has no candidate, and a site under it has nothing to
+  belong to — the same sentence the interpreted walk already writes for
+  markup with no boundary above it."
+  []
+  *render*)
+
 (defn with-capture
   "Run `thunk` — a view body — under `candidate`, with the candidate's
   frame established as the ambient frame for the duration.

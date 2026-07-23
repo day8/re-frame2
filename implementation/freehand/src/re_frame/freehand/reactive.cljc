@@ -40,7 +40,8 @@
   [`spec/006-ReactiveSubstrate.md`](../../../../../spec/006-ReactiveSubstrate.md)
   §The Freehand atomic shell; the grammar that admits the site is
   [`spec/004D-Freehand-Compiled-Grammar.md`](../../../../../spec/004D-Freehand-Compiled-Grammar.md)."
-  (:require [re-frame.freehand.cell :as cell]))
+  (:require [re-frame.freehand.cell :as cell]
+            [re-frame.freehand.events :as events]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -61,3 +62,44 @@
   an active declared render."
   [site-id query]
   (cell/observe-site! site-id query))
+
+(defn event-site
+  "The compiled lowering of one `:on-*` position: record `value` as the
+  proven lexical site `site-id`'s intent on THIS render's candidate, and
+  answer the site's stable proxy.
+
+  It is [[re-frame.freehand.events/site]] — the one constructor, the one
+  classification, the one committed-proxy scheme the interpreted walk
+  reaches — with two differences that are both about WHEN a fact was
+  learned, never about what a site means:
+
+  - the site key is the analyzer's stable LEXICAL id rather than the
+    walk's document ordinal, exactly as [[sub-read]]'s is;
+  - the candidate is read from the shell's own ambient capture
+    ([[re-frame.freehand.cell/current-candidate]]) rather than threaded,
+    because a compiled body is straight-line code with no walk between
+    the shell and the site to carry it.
+
+  `element` is the CONTROLLED-INPUT door's element half — `{:tag :input
+  :controlled? true :slot \"onInput\"}` — and it is a compile-time
+  CONSTANT here, because the whole props map of a compiled element is
+  lexically visible. That is the resolution of the ABI question the
+  donor's emitter answered with a pre-encoded flag: Freehand does not
+  encode the synchronous-lane verdict in the emission at all. It emits
+  the element facts, and [[re-frame.freehand.controlled/door?]] decides —
+  the same predicate, on the same facts, at the same commit, as the
+  interpreted walk. A field cannot change lanes by gaining
+  `{:compiled true}`, because there is no second decision to diverge.
+
+  `nil` outside a render — an elided ViewCell has no candidate, so
+  declarative intent under it has no commit to belong to and a plain
+  function is returned unchanged, which is the sentence the interpreted
+  walk already writes for markup with no boundary above it."
+  [site-id value element]
+  (if-some [cand (cell/current-candidate)]
+    (events/site (cell/candidate-events cand)
+                 site-id
+                 value
+                 events/default-payload
+                 element)
+    (when (fn? value) value)))

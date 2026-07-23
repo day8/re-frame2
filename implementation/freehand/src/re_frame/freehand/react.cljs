@@ -97,7 +97,7 @@
                    o)))
              #js {} v))
 
-(defn- put-attr!
+(defn- put-plain-attr!
   [o tag k raw]
   (let [semantic (conv/attr-value raw)]
     (when (= ::conv/reject semantic)
@@ -107,6 +107,58 @@
                        "own richer grammars.")
                   {:attr k :value (shape raw)}))
     (gobj/set o (conv/react-prop-name k) semantic)))
+
+(defn ^:no-doc put-class!
+  "Compose `sugar` (the tag's `.class` shorthand names) with the AUTHORED
+  `:class` value and write the result as `className` — or remove the
+  property when the composition is empty.
+
+  Named and shared because the compiled tier composes classes through
+  THIS function rather than through a second, build-time ordering. A flag
+  map mixing literal and computed entries sorts all its truthy names
+  together, and that ordering is a property of the composition rule, not
+  of the emitter that reached it."
+  [o tag sugar raw]
+  (let [parts (conv/class-parts raw)]
+    (when (= ::conv/reject parts)
+      (malformed! (str "The :class value on " tag " is outside the class grammar. Write a "
+                       "string, a keyword, a vector of them in order, or a flag map whose "
+                       "truthy entries name classes.")
+                  {:attr :class :value (shape raw)}))
+    (if-let [c (conv/class-string (into (vec sugar) parts))]
+      (gobj/set o "className" c)
+      (gobj/remove o "className"))
+    o))
+
+(defn ^:no-doc put-style!
+  "Canonicalise an authored `:style` map and write it."
+  [o tag raw]
+  (gobj/set o "style" (react-style tag raw))
+  o)
+
+(defn ^:no-doc put-attr!
+  "Write ONE runtime-valued attribute onto a props object, under every
+  rule this emitter applies to the same value: the canonical author
+  spelling, the refusal roster, the nil-is-absent law and its
+  controlled-slot exception, and the two keys that own a slot.
+
+  The compiled tier resolves an element's literal attributes at build
+  time and calls this for the rest, so the values a compiler cannot see
+  are converted by the one function that converts them when nobody
+  compiled anything."
+  [o tag k raw]
+  (let [k (conv/attr-key k)]
+    (when-some [refusal (conv/attr-key-refusal k)]
+      (malformed! (str "The element " tag " carries " k ". " refusal)
+                  {:attr k}))
+    (cond
+      (= :key k)   nil
+      (nil? raw)   (when-some [empty-slot (controlled/empty-control-slot tag k)]
+                     (gobj/set o (key empty-slot) (val empty-slot)))
+      (= :class k) (put-class! o tag nil raw)
+      (= :style k) (put-style! o tag raw)
+      :else        (put-plain-attr! o tag k raw))
+    o))
 
 (defn- react-props
   "The React props object for one element: the author attribute map in
@@ -190,20 +242,12 @@
             (gobj/set o (conv/react-event-name k) raw)))
 
         (= :class k)
-        (let [parts (conv/class-parts raw)]
-          (when (= ::conv/reject parts)
-            (malformed! (str "The :class value on " tag " is outside the class grammar. Write a "
-                             "string, a keyword, a vector of them in order, or a flag map whose "
-                             "truthy entries name classes.")
-                        {:attr :class :value (shape raw)}))
-          (if-let [c (conv/class-string (into (vec sugar-classes) parts))]
-            (gobj/set o "className" c)
-            (gobj/remove o "className")))
+        (put-class! o tag sugar-classes raw)
 
         (= :style k)
-        (gobj/set o "style" (react-style tag raw))
+        (put-style! o tag raw)
 
-        :else (put-attr! o tag k raw)))
+        :else (put-plain-attr! o tag k raw)))
     ;; Key PRESENCE, not key truth. React string-coerces whatever key it is
     ;; given, so an explicit `nil` is the ordinary identity "null" — and a
     ;; different authored fact from no key at all, which matters wherever a
@@ -276,9 +320,21 @@
      :else                             (:lowering (descriptor/describe view)))
    (:view-cell (descriptor/manifest view))])
 
+(defn- boundary-body
+  "The body THIS emitter runs for `view`: the compiled tier's React
+  lowering when the declaration carries one, and the interpreted walk's
+  render body when it does not.
+
+  Exactly one of the two exists per declaration — the lowerings are
+  exclusive — so this is a selection, never a fallback. Both are read
+  through the same slot, which is what gives the compiled tier the same
+  hot-reload seam the interpreted tier has rather than a second one."
+  [view]
+  (or (descriptor/react-body view) (descriptor/render-body view)))
+
 (defn- publish-body!
-  "Publish `view`'s render body into a stable boundary's `slot`, and
-  advance that slot's BODY REVISION when the body is genuinely new.
+  "Publish `view`'s body into a stable boundary's `slot`, and advance
+  that slot's BODY REVISION when the body is genuinely new.
 
   Identity is the test, because a redefinition mints a new body closure
   and re-walking an unchanged tree does not. So one render pass that
@@ -286,7 +342,7 @@
   advances nothing — the revision moves at the RELOAD seam, and a live
   candidate is never made stale by an ordinary walk."
   [slot view]
-  (let [body (descriptor/render-body view)]
+  (let [body (boundary-body view)]
     (when-not (identical? body (:body @slot))
       (vswap! slot (fn [s] (-> s (assoc :body body) (update :revision inc)))))
     nil))
@@ -298,24 +354,7 @@
   The body is read from the slot on every render rather than closed over,
   which is what lets a compatible reload publish a new body through a
   component React is already reconciling."
-  [view view-id slot]
-  (when (descriptor/structural-body view)
-    ;; A compiled declaration has no interpreted body to walk. Its React
-    ;; lowering — direct jsx calls over the same analyzed template — is the
-    ;; compiled tier's other emitter, and it lands with the slice that owns
-    ;; the ViewCell it renders inside. Until then this path is a LOUD
-    ;; refusal rather than a walk of `nil`: a compiled view that quietly
-    ;; rendered nothing in a browser would be the worst possible way to
-    ;; learn the lowering is missing.
-    (error/throw-error!
-      :rf.error/view-lowering-unavailable
-      're-frame.freehand.react/element
-      (str view-id " is declared {:compiled true} and the compiled tier's "
-           "React lowering is not built yet — the structural lowering is. "
-           "Render it structurally, or drop the marker to mount it "
-           "interpreted; the declaration is the only thing that changes.")
-      {:recovery :render-structurally-or-drop-the-compiled-marker
-       :extra    {:view-id view-id}}))
+  [view-id slot]
   (let [c (fn freehand-view [js-props]
             (let [{:keys [body revision]} @slot]
               (shell/render
@@ -342,6 +381,74 @@
                         (catch :default e
                           (eb/note-failing-view! e view-id)
                           (throw e)))))))))]
+    (gobj/set c "displayName" (str view-id))
+    c))
+
+(defn- lowering-unavailable!
+  [view-id]
+  (error/throw-error!
+    :rf.error/view-lowering-unavailable
+    're-frame.freehand.react/element
+    (str view-id " is declared {:compiled true} but carries no browser lowering — "
+         "only the host-neutral structural one. A compiled declaration acquires "
+         "its React lowering when the ClojureScript compiler expands it, so this "
+         "descriptor was built by a JVM expansion and handed to a browser. Render "
+         "it structurally, or drop the marker to mount it interpreted; the "
+         "declaration is the only thing that changes.")
+    {:recovery :render-structurally-or-drop-the-compiled-marker
+     :extra    {:view-id view-id}}))
+
+(defn- compiled-component
+  "The React function component a `{:compiled true}` declaration lowers
+  to — the SAME atomic shell the interpreted tier gets, or no shell at
+  all when the declaration's own analysis proved it needs none.
+
+  The wrapper is chosen by the manifest's `:view-cell` verdict and by
+  nothing else. That verdict is a deterministic function of the analyzed
+  sites, so the component React reconciles and the fact a tool reads off
+  `v/manifest` are ONE fact rather than two that could drift:
+
+  - `:present` — the body carries a subscription, a committed handler, a
+    `dispatch-fn` or a frame read, so it renders inside
+    [[re-frame.freehand.shell/render]] under
+    [[re-frame.freehand.cell/with-capture]]. Its reads and its event
+    sites are recorded on that render's candidate and published by the
+    SELECTED commit, through the very same cell an interpreted body
+    drives. There is no compiled reactive path.
+  - `:elided` — the analysis PROVED the body has no reactive site, so
+    the ViewCell, the frame-context read, the `useSyncExternalStore`
+    bridge and both layout effects are omitted. That omission is what
+    the compiled tier buys, and it is earned by proof rather than
+    guessed: the interpreted shell can never elide, because an
+    unrestricted body offers nothing to prove it with.
+
+  The body is read from the boundary's `slot` on every render, exactly
+  as the interpreted one is, so a compatible reload publishes a new
+  compiled body through a component React is already reconciling."
+  [view view-id slot]
+  (let [reactive? (not= :elided (:view-cell (descriptor/manifest view)))
+        run       (fn [body js-props]
+                    ;; The OCCURRENCE SEAM — see `interpreted-component`.
+                    ;; A compiled body throws for the same reasons an
+                    ;; interpreted one does (an author's expression, a
+                    ;; refused prop value), and the boundary that catches
+                    ;; it several fibers above still has no other way to
+                    ;; learn whose render it was.
+                    (try
+                      (body (conv/forward-children (gobj/get js-props "props")))
+                      (catch :default e
+                        (eb/note-failing-view! e view-id)
+                        (throw e))))
+        c (if reactive?
+            (fn freehand-compiled-view [js-props]
+              (let [{:keys [body revision]} @slot]
+                (shell/render
+                  view-id
+                  revision
+                  (fn [cand]
+                    (cell/with-capture cand (fn [] (run body js-props)))))))
+            (fn freehand-compiled-view [js-props]
+              (run (:body @slot) js-props)))]
     (gobj/set c "displayName" (str view-id))
     c))
 
@@ -398,7 +505,7 @@
       ;; changes is the body the next render runs.
       (do (publish-body! (:slot entry) view)
           (:component entry))
-      (let [slot (volatile! {:body (descriptor/render-body view) :revision 0})
+      (let [slot (volatile! {:body (boundary-body view) :revision 0})
             c    (cond
                    ;; An error boundary is not an ordinary function component
                    ;; — a function component cannot catch a descendant's
@@ -417,8 +524,16 @@
                    (descriptor/behavior? view)
                    (behavior-component view-id)
 
+                   ;; A COMPILED declaration carries no interpreted body to
+                   ;; walk. Its markup was resolved at build time into the
+                   ;; React lowering the slot now holds, and the wrapper
+                   ;; around it is the one its own manifest verdict names.
+                   (descriptor/structural-body view)
+                   (do (when (nil? (:body @slot)) (lowering-unavailable! view-id))
+                       (compiled-component view view-id slot))
+
                    :else
-                   (interpreted-component view view-id slot))]
+                   (interpreted-component view-id slot))]
         (swap! components assoc view-id {:signature sig :component c :slot slot})
         c))))
 
@@ -556,6 +671,12 @@
     (conv/child-run? form) (reduce (fn [a f] (collect cand a f)) acc form)
     (vector? form)  (conj acc (node cand form))
     (seq? form)     (reduce (fn [a f] (collect cand a f)) acc form)
+    ;; A React element in a child position is markup a COMPILED body
+    ;; already lowered — the shape a compiled parent forwards to an
+    ;; interpreted child. It is finished work, so it passes through
+    ;; untouched: this walk has nothing left to decide about it, and
+    ;; entering it is not possible in any case.
+    (react/isValidElement form) (conj acc form)
     :else
     (malformed!
       (str "A view body produced a " (type-name form) " where a child was expected. "
@@ -588,3 +709,39 @@
   views inside the form each open their own when React renders them."
   [form]
   (emit nil form))
+
+;; ---------------------------------------------------------------------------
+;; The two seams the compiled tier reaches this walk through
+;; ---------------------------------------------------------------------------
+;;
+;; A compiled body resolved its markup at build time, but two things stay
+;; runtime facts even then: what an arbitrary value in a child position
+;; denotes, and how a declared boundary is crossed. Both already have one
+;; implementation here, and the compiled tier calls it rather than
+;; growing a second — which is what makes cross-mode agreement a
+;; structural property instead of a pair of walks somebody has to keep in
+;; step.
+
+(defn ^:no-doc child-elements
+  "Classify ONE runtime value in a child position, and answer the React
+  children it denotes, in order.
+
+  The candidate is this render's AMBIENT one, because a compiled body is
+  straight-line code with no walk between the shell and the value to
+  thread one through. Inside a compiled view that kept its ViewCell the
+  ambient candidate is that view's, so declarative intent in a forwarded
+  subtree is recorded on the same commit an interpreted body would have
+  recorded it on. Under a view whose ViewCell its own analysis ELIDED
+  there is no candidate — and no commit for such intent to belong to,
+  which is the sentence `react-props` already writes for markup with no
+  boundary above it."
+  [form]
+  (children (cell/current-candidate) [form]))
+
+(defn ^:no-doc mount-view
+  "Cross a declared boundary from a compiled body. `args` is the call's
+  props map followed by its children, exactly as the interpreted walk
+  hands them over — so one `normalize-call` and one stable component
+  cache serve both modes."
+  [view args]
+  (boundary-node view args))

@@ -13,6 +13,7 @@
                       [re-frame.freehand.compiler.build :as build]
                       [re-frame.freehand.compiler.emit-cljs :as emit-cljs]
                       [re-frame.freehand.compiler.emit-jvm :as emit-jvm]
+                      [re-frame.freehand.compiler.emit-react :as emit-react]
                       [re-frame.freehand.compiler.env :as env]
                       [re-frame.freehand.compiler.grammar :as grammar]
                       [re-frame.freehand.compiler.header :as header]
@@ -649,10 +650,17 @@
                 (println (str "WARNING re-frame.freehand [" view-id "] "
                               (:id w) ": " (:msg w)))))
             (let [sites @(:sites e)]
-              {:body     (emit-jvm/emit-structural-body e params ast)
-               :grammar  grammar/version
-               :manifest (structural-manifest view-id ast sites)
-               :sites    sites})))))))
+              (cond-> {:body     (emit-jvm/emit-structural-body e params ast)
+                       :grammar  grammar/version
+                       :manifest (structural-manifest view-id ast sites)
+                       :sites    sites}
+                ;; The BROWSER realisation, emitted only where there is a
+                ;; browser to emit for. Both lowerings come out of ONE
+                ;; analysis of ONE body — the emitters consume the same
+                ;; normalized AST and neither is written in terms of the
+                ;; other's output — so a compiled declaration cannot say one
+                ;; thing in a structural render and another in the DOM.
+                cljs? (assoc :react (emit-react/emit-react-body e params ast)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; re-frame.freehand.react/lazy — the def-level code-splitting constructor
