@@ -48,6 +48,7 @@
             [re-frame.freehand.compiler.build :as build]
             [re-frame.freehand.compiler.env :as env]
             [re-frame.freehand.fingerprint :as fingerprint]
+            [re-frame.freehand.root-id :as root-id]
             #?@(:clj [[re-frame.registrar :as registrar]
                       [re-frame.freehand.compiler :as compiler]
                       [re-frame.freehand.compiler.emit-cljs :as emit-cljs]
@@ -61,13 +62,11 @@
   ([id msg] (fail id msg nil))
   ([id msg data] (throw (env/compile-error id msg data))))
 
-(defn- qualified-kw? [x]
-  (and (keyword? x) (some? (namespace x))))
-
-(defn scalar-disambiguator?
-  "The disambiguator grammar: keyword, string, or integer (contract §1.2)."
-  [x]
-  (or (keyword? x) (string? x) (integer? x)))
+(def scalar-disambiguator?
+  "The disambiguator grammar: keyword, string, or integer (contract §1.2).
+  One implementation, in [[re-frame.freehand.root-id]] — the client tier
+  asks the same question of the same opts map."
+  root-id/scalar-disambiguator?)
 
 (defn validate-authored-root-id!
   "Authored `:root-id` shapes (contract §1.1): a qualified keyword
@@ -75,11 +74,7 @@
   disambiguators. Anything else is a compile error — identity opts are
   literals, so the shape is always statically checkable."
   [where root-id]
-  (when-not (or (qualified-kw? root-id)
-                (and (vector? root-id)
-                     (<= 2 (count root-id))
-                     (qualified-kw? (first root-id))
-                     (every? scalar-disambiguator? (rest root-id))))
+  (when-not (root-id/authored-root-id? root-id)
     (fail :rf.ui.compile/bad-root-id
           (str where ": :root-id must be a qualified keyword (canonical: "
                ":page/shop) or a vector of a qualified keyword plus scalar "
@@ -88,116 +83,23 @@
           {:root-id root-id}))
   root-id)
 
-;; The slug is the identity fingerprint that seeds the default React
-;; `identifierPrefix` (§3) and the S5 synthesized locators, so it MUST be
-;; INJECTIVE over the closed valid root-id grammar: distinct valid
-;; root-ids ALWAYS yield distinct slugs, and no two live roots can then
-;; share an effective prefix / locator. The earlier transform (normalise
-;; every disallowed char to `-`, join ns/name with `-`, join vector
-;; components with `--`) was lossy and NOT injective — `:a/b-c` and
-;; `:a-b/c` both flattened to "a-b-c"; `[:x/y "a--b"]` and
-;; `[:x/y "a" "b"]` both to "x-y--a--b".
-;;
-;; Encoding — a decodable, hence injective, canonical form over the
-;; DOM-safe `identifierPrefix` alphabet [A-Za-z0-9_-]:
-;;
-;;   - `_` is the SOLE metacharacter. Every character NOT in [A-Za-z0-9-]
-;;     — INCLUDING `_` itself — is escaped as `_<hex>_`, where <hex> is the
-;;     lowercase UTF-16 code unit. This is a reversible per-char escape, so
-;;     nothing is normalised away; `.`, `*`, whitespace, unicode all round
-;;     trip. The output therefore carries a bare `_` only inside an escape.
-;;   - Structural markers are `_` + an UPPERCASE tag letter — disjoint from
-;;     the lowercase-hex escapes and never emitted by the char escape, so a
-;;     marker can never be mistaken for data (nor data for a marker):
-;;       `_S`  keyword namespace/name separator
-;;       `_V`  vector root-id lead-in
-;;       `_K`  vector element: keyword    `_T` string    `_I` integer
-;;
-;; A keyword root -> `enc-kw`; a vector root -> `_V` + type-tagged, escaped
-;; elements. Every ns/name, element, and type boundary is MARKED rather
-;; than inferred from a data character, so the mapping is losslessly
-;; decodable and thus injective. Keyword roots and vector roots never
-;; collide: a vector slug starts with the literal `_V`, and a keyword slug
-;; starts with either a safe char [A-Za-z0-9-] or `_<lowercase-hex>` — it
-;; can never begin with `_V`.
+;; The slug and the `identifierPrefix` default it seeds are the SAME
+;; function the client tier computes for a root nobody compiled, so they
+;; live in `re-frame.freehand.root-id` and are read here. Two
+;; implementations that agree today are two implementations that can
+;; disagree tomorrow — and a compile-time prefix that disagreed with the
+;; runtime one would break `use-id` hydration in a way neither tier could
+;; see alone.
 
-(defn- code-unit
-  "The UTF-16 code unit at index `i` — host-neutral (a CLJS string is a JS
-  string; a JVM `char` is a 16-bit code unit), so the slug is identical
-  across the JVM and CLJS reference runs (contract determinism)."
-  [s i]
-  #?(:clj  (int (.charAt ^String s i))
-     :cljs (.charCodeAt s i)))
+(def root-id-slug
+  "The ONE deterministic, INJECTIVE slug (contract §1) —
+  [[re-frame.freehand.root-id/root-id-slug]]."
+  root-id/root-id-slug)
 
-(defn- hex [cc]
-  #?(:clj  (Integer/toHexString (int cc))
-     :cljs (.toString cc 16)))
-
-(defn- safe-code? [cc]
-  (or (<= 48 cc 57)     ; 0-9
-      (<= 65 cc 90)     ; A-Z
-      (<= 97 cc 122)    ; a-z
-      (= cc 45)))       ; -
-
-(defn- enc
-  "Reversibly escape a raw string into the DOM-safe alphabet: a character
-  in [A-Za-z0-9-] passes through; anything else (INCLUDING `_`) becomes
-  `_<lowercase-hex-code-unit>_`. The output therefore contains a bare `_`
-  only inside an escape, so the uppercase structural markers can never be
-  confused with escaped data."
-  [s]
-  (let [n (count s)]
-    (loop [i 0, out ""]
-      (if (< i n)
-        (let [cc (code-unit s i)]
-          (recur (inc i)
-                 (str out (if (safe-code? cc)
-                            (subs s i (inc i))
-                            (str "_" (hex cc) "_")))))
-        out))))
-
-(defn- enc-kw
-  "A keyword -> `enc(namespace) _S enc(name)` when qualified, else
-  `enc(name)`. The `_S` marker fixes the namespace/name boundary, so
-  `:a/b-c` and `:a-b/c` cannot alias, and a qualified keyword can never
-  collide with an unqualified one (only the qualified form carries `_S`)."
-  [k]
-  (if-let [ns* (namespace k)]
-    (str (enc ns*) "_S" (enc (name k)))
-    (enc (name k))))
-
-(defn- enc-elem
-  "A vector element, type-tagged so a keyword, string, and integer
-  disambiguator built from the same characters cannot alias, and so the
-  tag also delimits the element: `_K` keyword, `_T` string, `_I` integer."
-  [x]
-  (cond
-    (keyword? x) (str "_K" (enc-kw x))
-    (integer? x) (str "_I" (enc (str x)))
-    :else        (str "_T" (enc x))))
-
-(defn root-id-slug
-  "The ONE deterministic, INJECTIVE slug (contract §1): distinct valid
-  root-ids ALWAYS produce distinct slugs, so distinct roots can never share
-  an effective `identifierPrefix` (§3) or synthesized locator (S5).
-
-  A keyword root encodes to `enc-kw` (`:page/shop` -> \"page_Sshop\"); a
-  vector root to `_V` + type-tagged, escaped elements (`[:shop/app :left]`
-  -> \"_V_Kshop_Sapp_Kleft\"). Every character outside [A-Za-z0-9-] is
-  reversibly escaped `_<hex>_` rather than normalised, and every ns/name,
-  element, and type boundary is marked — so the mapping is losslessly
-  decodable and thus injective (see the comment above). The slug stays
-  within the DOM-safe alphabet [A-Za-z0-9_-], a valid `identifierPrefix`."
-  [root-id]
-  (if (vector? root-id)
-    (str "_V" (apply str (map enc-elem root-id)))
-    (enc-kw root-id)))
-
-(defn default-identifier-prefix
+(def default-identifier-prefix
   "`\"rf2-\" + root-id-slug + \"-\"` (contract §3) — the `identifierPrefix`
   default fed to the React root."
-  [root-id]
-  (str "rf2-" (root-id-slug root-id) "-"))
+  root-id/default-identifier-prefix)
 
 ;; ---------------------------------------------------------------------------
 ;; Top-region scan (contract §5/§6)
@@ -308,10 +210,10 @@
                    "derivation needs exactly one)")
               {:view-count n :view-ids (mapv :view-id views)}))
       (let [vid (:view-id (first views))]
-        (if (some? disambiguator)
-          {:root-id [vid (validate-disambiguator! where disambiguator)]
-           :provenance :derived}
-          {:root-id vid :provenance :derived})))))
+        (when (some? disambiguator)
+          (validate-disambiguator! where disambiguator))
+        {:root-id    (root-id/derive-root-id vid disambiguator)
+         :provenance :derived}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Props extraction (contract §5) + Root Descriptor v1 (contract §2)

@@ -1,6 +1,7 @@
 (ns re-frame.freehand.root
-  "The interpreted client mount surface — `v/mount`, the minimal Root
-  Descriptor, and HMR-stable root identity.
+  "The interpreted client mount surface — `v/mount`, `v/hydrate-root`,
+  `v/unmount!`, the Root Descriptor, and the per-document live-root
+  registry.
 
   This is the browser half of getting a Freehand tree onto a page. Its
   structural counterpart on the JVM is [[re-frame.freehand.tree/render]],
@@ -8,39 +9,53 @@
   DOM here and answers a structural tree there, so the minimal one-root
   spelling is one spelling on both hosts.
 
-  ## The minimal Root Descriptor
+  ## Root identity — derived by default, authored when it must be
 
   A mount derives a **Root Descriptor** — the small, static value that
-  names WHAT was mounted and gives the root its identity. The minimal
-  single-root descriptor carries just enough to key idempotent re-mount
-  and to be read back by a tool:
+  names WHAT was mounted and gives the root its identity:
 
       {:rf.root/schema-version 1
        :root-id            :app.shop/app   ; derived from the mounted view
        :view-id            :app.shop/app
        :root-id-provenance :derived}
 
-  Its identity — the `:root-id` — is **derived from the mounted view's
-  registered id** (Spec 004C §1.2): the minimal spelling authors nothing
-  and the single-root page needs no disambiguator. The richer descriptor
-  surface (frame plans, authored `:root-id`, the manifest extension) lands
-  with later slices; this slice pins only the derived single-root spelling.
+  The single-root page authors nothing: with no `:root-id` and no
+  `:disambiguator` the root-id is the mounted view's own registered id
+  (Spec 004C §1.2). Two roots on one page need to differ, and they differ
+  by a fact the author states — `:disambiguator :left` derives
+  `[:shop/panel :left]`, or `:root-id` names the id outright. Provenance
+  records which happened, so a duplicate diagnostic can say *both ids
+  derived from the same view* rather than leaving the reader to guess.
+
+  ## One page, N roots — the claims a mount makes before it renders
+
+  A root claims three things in the per-document registry, and it claims
+  them BEFORE any React work: its **root-id**, its **container**, and its
+  effective **identifierPrefix**. Each has its own diagnostic, and every
+  one of them is raised with the existing roots untouched — that is what
+  failure isolation means at admission time (Spec 004C §7, Layer 3):
+
+    - an id already live in the document → `:rf.error/duplicate-root-id`;
+    - a container already owned by a DIFFERENT root →
+      `:rf.error/root-container-in-use`;
+    - a prefix already claimed → `:rf.error/duplicate-identifier-prefix`
+      (the DERIVED prefix is injective over root-id, so this backstops
+      AUTHORED prefixes, which can still alias).
+
+  The one admitted repeat is the reload path: the same root-id into the
+  same container RE-RENDERS the existing host root rather than allocating
+  a second one (Spec 004C §3). A second `createRoot` on one container
+  tears the whole tree down and re-seeds it.
 
   ## HMR identity — occurrence identity is the qualified view id
 
-  A root's occurrence identity is its `:root-id`, and a `:root-id` is the
-  view's QUALIFIED id — a namespaced keyword that a redefinition does not
-  move. A declared view is a descriptor VALUE, so a hot reload mints a new
-  descriptor object; but the value it holds carries the same `:view-id`,
-  so the derived `:root-id` is unchanged. The body/generation churn is an
-  internal fact of the descriptor object, never part of the identity.
-
-  So `mount` is **idempotent per root** (Spec 004C §3): re-mounting the
-  same root-id into the same container RE-RENDERS the existing host root
-  rather than allocating a second one. A second `createRoot` on one
-  container is a React error and would tear the whole tree down and
-  re-seed it; the registry here is what turns the guide-01 reload path —
-  re-run the mount, find the root live, re-render — into the default.
+  A root's occurrence identity is its `:root-id`, and a derived
+  `:root-id` is the view's QUALIFIED id — a namespaced keyword that a
+  redefinition does not move. A declared view is a descriptor VALUE, so a
+  hot reload mints a new descriptor object; but the value it holds carries
+  the same `:view-id`, so the derived `:root-id` is unchanged. Body and
+  generation churn is an internal fact of the descriptor object, never
+  part of the identity.
 
   Reusing the host root is HALF of not reseeding, and the weaker half.
   What hangs below the root is a React component, and React reconciles on
@@ -48,27 +63,88 @@
   the boundary and mounts a new one, so the reloaded body appears on top
   of an occurrence that was thrown away. The other half is therefore
   [[re-frame.freehand.react]]'s boundary cache, keyed on the same
-  qualified view id this registry keys on, so a compatible redefinition
-  renders through the boundary React already mounted. Together: the
-  reloaded body renders, and neither the host root nor the occurrence
-  beneath it is reseeded.
+  qualified view id this registry keys on.
 
-  ## Not this slice
+  ## Preflight — the frame, before React
 
-  Frame preflight, authored/`:disambiguator` identity, multi-root
-  duplicate detection, failed-root isolation, total teardown and
-  hydration are all later (Spec 004C §7, EP-0036 F5e); a bare declared
-  view at the root head is the whole grammar here. Frame binding is F2a.
+  A root's `:frame` opt is its **plan**, and the plan runs to completion
+  before `createRoot` is called (Spec 004C §3): the frame is ENSUREd,
+  its `:initial-events` drain, and only then does React see anything. The
+  ordering is the point — a view body that reads a subscription during
+  the first render must find the frame already seeded, not seeded by an
+  effect that runs after the first paint.
 
-  INTERNAL. `v/mount` is the authoring surface over [[mount]]; nothing
-  else here is application API.
+  Two spellings, and they mean different lifetimes:
+
+    - `{:frame {:id :shop/main …}}` — the root OWNS the frame. It creates
+      it if absent, refreshes its own plan when the config changes, and
+      DESTROYS it at `unmount!` once no other live root references it.
+    - `{:frame :shop/main}` — the root SCOPES a frame something else owns
+      (a boot call, an SSR hydrate). It never creates and never destroys;
+      a target naming no live frame fails loud.
+
+  A plan meeting a frame another root installed under a DIFFERENT config
+  fingerprint fails THAT root with `:rf.error/frame-payload-conflict`,
+  before install and before React. The installed frame and the roots
+  already using it are untouched: a bad plan affects exactly the roots
+  carrying it.
+
+  ## Hydration — adopt the server's DOM, and say so when it diverges
+
+  [[hydrate-root]] adopts server-rendered markup instead of replacing it.
+  Verification is React's own adoption: React diffs the client's first
+  render against the server DOM and reports the divergences it RECOVERS
+  from — a text mismatch, a missing/extra/wrong-type element — through
+  the root's `onRecoverableError`. The framework surfaces that as
+  `:rf.ssr/hydration-mismatch`, composed OVER any host callback (emit
+  first, then delegate — never clobber), and bounded to the adoption
+  window: React holds that callback for the root's whole lifetime, so an
+  unbounded emit would mislabel a later recovery as a hydration mismatch.
+
+  Attribute-only divergence is deliberately outside this signal — React
+  documents that it makes no guarantee to patch attribute mismatches, so
+  it calls neither `onRecoverableError` nor any production equivalent.
+  The adoption signal is *React-recoverable adoption errors*, not
+  exhaustive server-vs-client divergence detection.
+
+  A container the server did not render has nothing to adopt, so
+  hydration cannot proceed at all. That is the **fallback** path: the
+  root mounts client-side instead, and says which happened through
+  [[hydrated?]] rather than hydrating an empty node against a non-empty
+  tree — which React would resolve by discarding and re-rendering
+  everything anyway, loudly, for a page that was never server-rendered.
+
+  ## Teardown
+
+  [[unmount!]] is TOTAL. It releases the registry entry (id, container
+  and prefix claims), unmounts the React root — whose layout cleanups
+  disconnect every ViewCell below, releasing every dependency and
+  retiring every published callback — and releases this root's reference
+  to its frame, destroying the frame when the root owned it and no other
+  live root still references it. What is left afterwards is nothing: not
+  a claim, not a subscription, not a frame.
+
+  INTERNAL. `v/mount`, `v/hydrate-root` and `v/unmount!` are the
+  authoring surface over this namespace; nothing else here is application
+  API.
 
   Normative owner:
-  [`spec/004C-Roots-and-Mount.md`](../../../../../spec/004C-Roots-and-Mount.md)."
-  (:require ["react-dom/client" :as rdc]
+  [`spec/004C-Roots-and-Mount.md`](../../../../../spec/004C-Roots-and-Mount.md);
+  hydration and the fallback are
+  [`spec/011-SSR.md`](../../../../../spec/011-SSR.md)."
+  (:require ["react" :as react]
+            ["react-dom/client" :as rdc]
+            [clojure.string :as str]
             [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.freehand.descriptor :as descriptor]
-            [re-frame.freehand.react :as fr]))
+            [re-frame.freehand.fingerprint :as fingerprint]
+            [re-frame.freehand.react :as fr]
+            [re-frame.freehand.root-id :as root-id]
+            [re-frame.freehand.shell :as shell]
+            [re-frame.interop :as interop]
+            [re-frame.live-frame :as live-frame]
+            [re-frame.trace :as trace]))
 
 ;; ---------------------------------------------------------------------------
 ;; The Root value
@@ -78,15 +154,13 @@
 ;; at the root head is exactly the shape a mistaken caller might pass to
 ;; `mount`, and a distinct type keeps a live host root from being confused
 ;; with a descriptor or a props map. It carries the static Root Descriptor
-;; (the identity the registry keys on) and the two host handles a re-render
-;; and a later teardown need. The react-dom root is reached with interop
-;; from within the artefact; there is no public accessor because reading it
-;; is not an application concern.
+;; (the identity the registry keys on), the claims the registry holds on
+;; its behalf, and the host handles a re-render and a teardown need.
 
-(deftype Root [descriptor container react-root])
+(deftype Root [descriptor container react-root identifier-prefix frame-id hydrated])
 
 (defn root?
-  "True when `x` is a live [[mount]] handle."
+  "True when `x` is a live [[mount]] / [[hydrate-root]] handle."
   [x]
   (instance? Root x))
 
@@ -96,105 +170,622 @@
   [^Root root]
   (.-descriptor root))
 
+(defn root-identifier-prefix
+  "The effective React `identifierPrefix` `root` claimed — authored, or
+  derived from its root-id."
+  [^Root root]
+  (.-identifier-prefix root))
+
+(defn root-frame-id
+  "The frame this root bound into its React tree, or nil when it bound
+  none."
+  [^Root root]
+  (.-frame-id root))
+
+(defn hydrated?
+  "True when `root` ADOPTED server-rendered markup; false when it
+  client-rendered — either an ordinary [[mount]], or a [[hydrate-root]]
+  that took the fallback path because its container carried nothing to
+  adopt."
+  [^Root root]
+  (.-hydrated root))
+
 ;; ---------------------------------------------------------------------------
-;; Root identity — derived from the mounted view
+;; Opts — a closed grammar, validated before anything happens
 ;; ---------------------------------------------------------------------------
 
-(defn- mounted-view
-  "The single declared view at `root-form`'s head — the derivation source
-  for the root's identity (Spec 004C §1.3, the minimal single-root case).
+(def ^:private identity-opt-keys #{:root-id :disambiguator :identifier-prefix})
+(def ^:private host-opt-keys #{:on-uncaught-error :on-caught-error :on-recoverable-error})
+(def ^:private mount-opt-keys (into (conj identity-opt-keys :frame) host-opt-keys))
+
+;; A hydrating root takes its identity FROM the server (Spec 004C §3): the
+;; client must render under the server's prefix or `use-id` hydration
+;; breaks, so an identity opt supplied client-side is a conflict, not an
+;; override. `:frame` stays legal — a plan is preflight, not identity.
+(def ^:private hydrate-opt-keys (into #{:frame} host-opt-keys))
+
+(defn- bad-opts!
+  [where reason extra]
+  (error/throw-error!
+    :rf.error/ui-tree-malformed where reason
+    {:recovery :no-recovery :extra extra}))
+
+(defn- check-opt-keys!
+  [where opts allowed]
+  (when-not (map? opts)
+    (bad-opts! where
+               (str where " takes an opts MAP; a " (name (:type (error/diag-value-summary opts)))
+                    " is not one.")
+               {:value (error/diag-value-summary opts)}))
+  (when-let [unknown (seq (remove allowed (keys opts)))]
+    (bad-opts! where
+               (str where ": unknown root opt" (when (next unknown) "s") " "
+                    (str/join ", " (map pr-str (sort-by str unknown)))
+                    " — the opts map is CLOSED. It accepts "
+                    (str/join ", " (map pr-str (sort-by str allowed))) ".")
+               {:unknown (vec unknown)}))
+  opts)
+
+(defn- check-identity-opts!
+  "Identity opts are a conflict at a HYDRATING root, not an override: the
+  server already fixed this root's id and prefix, and a client that
+  renders under a different prefix breaks `use-id` hydration outright."
+  [opts]
+  (when-let [bad (seq (filter identity-opt-keys (keys opts)))]
+    (error/throw-error!
+      :rf.error/root-manifest-invalid
+      'v/hydrate-root
+      (str "v/hydrate-root: identity opt" (when (next bad) "s") " "
+           (str/join ", " (map pr-str (sort-by str bad)))
+           " supplied client-side. A hydrating root takes its identity from the "
+           "server that rendered it — the client must render under the server's "
+           "identifierPrefix or use-id hydration breaks. Host-behaviour opts only.")
+      {:recovery :drop-the-client-side-identity-opts
+       :extra    {:conflicting-keys (vec (sort-by str bad))}}))
+  opts)
+
+;; ---------------------------------------------------------------------------
+;; Root identity — authored, or derived from the mounted view
+;; ---------------------------------------------------------------------------
+
+(defn- head-view
+  "The declared view at `root-form`'s head, or nil when the head is
+  something else."
+  [root-form]
+  (let [head (and (vector? root-form) (first root-form))]
+    (when (descriptor/view? head) head)))
+
+(defn- mounted-view-id
+  "The registered id of the single declared view at `root-form`'s head —
+  the derivation source for the root's identity (Spec 004C §1.3).
 
   The minimal grammar is a bare declared view at the head: `[app {…}]`.
   Anything else — a bare DOM element, a fragment, a runtime value — has no
   single mounted view to derive a `:root-id` from, and rather than guess
-  one this fails loud, naming the one-root spelling. The richer top-region
-  walk that admits wrapper forms lands with the multi-root slice."
-  [root-form]
-  (let [head (and (vector? root-form) (first root-form))]
-    (if (descriptor/view? head)
-      head
-      (error/throw-error!
-        :rf.error/ui-tree-malformed
-        'v/mount
-        (str "v/mount takes a declared view at the root — write "
-             "(v/mount [the-view {…}] dom-node), where the-view is a "
-             "v/defview. The minimal one-root spelling derives the root's "
-             "identity from that view's registered id, so a bare element, a "
-             "fragment or a runtime value has no single mounted view to "
-             "derive it from; richer root forms land with the multi-root "
-             "slice.")
-        {:recovery :no-recovery
-         :extra    {:value (error/diag-value-summary head)}}))))
+  one this fails loud, naming both recoveries."
+  [where root-form]
+  (if-let [view (head-view root-form)]
+    (:view-id (descriptor/describe view))
+    (error/throw-error!
+      :rf.error/ui-tree-malformed
+      where
+      (str where " has no single mounted view to derive a root-id from. Write "
+           "(" where " [the-view {…}] …) with a v/defview at the head, or author "
+           ":root-id — a root whose head is a bare element, a fragment or a "
+           "runtime value has an identity only you can name.")
+      {:recovery :no-recovery
+       :extra    {:value (error/diag-value-summary
+                           (and (vector? root-form) (first root-form)))}})))
 
-(defn descriptor-for
-  "The minimal Root Descriptor for `root-form` (Spec 004C §2). Every field
-  is a static fact of the mount site: the `:root-id` and `:view-id` are the
-  mounted view's registered id, and the provenance records that the id was
-  derived rather than authored."
-  [root-form]
-  (let [view-id (:view-id (descriptor/describe (mounted-view root-form)))]
-    {:rf.root/schema-version 1
-     :root-id                view-id
-     :view-id                view-id
-     :root-id-provenance     :derived}))
+(defn- resolve-identity
+  "-> `{:root-id … :view-id … :provenance :authored|:derived}`.
+
+  Authored wins, verbatim (Spec 004C §1.1). Otherwise the id derives from
+  the mounted view's registered id, with `:disambiguator` appended when
+  the site supplies one — the spelling that lets ONE view mount twice on
+  one page with neither site authoring an id.
+
+  `:view-id` records WHICH view was mounted, which is how a tool gets from
+  a root back to a declaration. It is present exactly when the root form
+  has one: derivation requires it, an authored id does not."
+  [where root-form {:keys [root-id disambiguator]}]
+  (when (and (some? root-id) (some? disambiguator))
+    (bad-opts! where
+               (str where ": :disambiguator modifies DERIVATION and :root-id is "
+                    "already verbatim identity — keep one.")
+               {:root-id root-id :disambiguator disambiguator}))
+  (when (and (some? disambiguator) (not (root-id/scalar-disambiguator? disambiguator)))
+    (bad-opts! where
+               (str where ": :disambiguator must be a scalar — a keyword, a string "
+                    "or an integer. It is identity, and identity a diagnostic "
+                    "cannot print is identity nobody can act on.")
+               {:value (error/diag-value-summary disambiguator)}))
+  (if (some? root-id)
+    (do
+      (when-not (root-id/authored-root-id? root-id)
+        (bad-opts! where
+                   (str where ": :root-id must be a qualified keyword (canonical: "
+                        ":page/shop) or a vector of a qualified keyword plus scalar "
+                        "disambiguators (e.g. [:shop/panel :left]); got "
+                        (pr-str root-id) ".")
+                   {:root-id root-id}))
+      (cond-> {:root-id root-id :provenance :authored}
+        (head-view root-form)
+        (assoc :view-id (:view-id (descriptor/describe (head-view root-form))))))
+    (let [view-id (mounted-view-id where root-form)]
+      {:root-id    (root-id/derive-root-id view-id disambiguator)
+       :view-id    view-id
+       :provenance :derived})))
+
+(defn- descriptor-for
+  "The Root Descriptor for a resolved identity (Spec 004C §2). Every field
+  is a static fact of the mount site."
+  [{:keys [root-id view-id provenance]}]
+  (cond-> {:rf.root/schema-version 1
+           :root-id                root-id
+           :root-id-provenance     provenance}
+    (some? view-id) (assoc :view-id view-id)))
 
 ;; ---------------------------------------------------------------------------
-;; The live-root registry — what makes re-mount idempotent
+;; The per-document live-root registry
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `defonce`, so a namespace reload hands the reloaded code the SAME
 ;; registry a live root was registered in — the reload re-runs `mount` and
-;; must find that root, not a fresh empty map. Keyed by `:root-id`, which is
-;; the qualified view id and therefore stable across the redefinition.
+;; must find that root, not a fresh empty map. Keyed by `:root-id`.
+;;
+;; ONE map, not three. The container claim and the prefix claim are
+;; PROPERTIES of a live root, so they are read off the same entries rather
+;; than mirrored into parallel tables that can disagree. A page holds a
+;; handful of roots; the scan is nothing, and the invariant is free.
 
 (defonce ^:private live-roots (atom {}))
 
+;; The frame ledger:
+;;   frame-id -> {:config-fingerprint … :installed-by root-id :refs #{root-id}}
+;;
+;; `:installed-by` names the root that ENSUREd the frame (a `{:id …}` plan)
+;; and is nil for a frame this page only SCOPES; `:refs` is every live root
+;; that referenced it, which is what makes teardown able to destroy an
+;; installed frame exactly when the last of them goes.
+(defonce ^:private frame-ledger (atom {}))
+
+(defn ^:no-doc live-root-ids
+  "Every root-id currently live in the document — a registry read for
+  tests and tools, never application API."
+  []
+  (set (keys @live-roots)))
+
+(defn ^:no-doc frame-ledger-snapshot
+  "The preflight ledger projected for reading: frame-id →
+  `{:config-fingerprint :installed-by :refs}`. A test and diagnostic seam."
+  []
+  @frame-ledger)
+
 (defn ^:no-doc reset-registry!
-  "Drop every registry entry WITHOUT tearing its host root down — a
-  test-isolation seam only. Total teardown is a later slice; a suite that
-  mounts under an id another suite also uses calls this between runs so a
-  stale entry cannot masquerade as a live root."
+  "Drop every registry and ledger entry WITHOUT tearing anything down — a
+  test-isolation seam only. Total teardown is [[unmount!]]; this exists so
+  a suite that mounts under an id another suite also uses cannot inherit a
+  stale entry masquerading as a live root."
   []
   (reset! live-roots {})
+  (reset! frame-ledger {})
   nil)
+
+(defn- owner-of-container
+  [dom-node]
+  (some (fn [[rid ^Root r]]
+          (when (identical? dom-node (.-container r)) rid))
+        @live-roots))
+
+(defn- owner-of-prefix
+  [prefix except-root-id]
+  (some (fn [[rid ^Root r]]
+          (when (and (not= rid except-root-id)
+                     (= prefix (.-identifier-prefix r)))
+            rid))
+        @live-roots))
+
+(defn- claim!
+  "Assert the three admission claims and answer the live root this mount
+  RE-RENDERS, or nil when it is a fresh root.
+
+  Every arm here throws before any React work and before any registry or
+  ledger mutation, so a rejected root leaves the document exactly as it
+  found it — the existing roots keep rendering, and nothing has to be
+  rolled back because nothing was written."
+  [where dom-node root-id prefix]
+  (when (or (nil? dom-node) (nil? (.-nodeType dom-node)))
+    (error/throw-error!
+      :rf.error/root-container-missing where
+      (str where ": the container is not a DOM element. A root mounts INTO a "
+           "live node — check the lookup that was meant to produce it.")
+      {:recovery :supply-a-live-container
+       :extra    {:root-id root-id :value (error/diag-value-summary dom-node)}}))
+  (let [^Root existing (get @live-roots root-id)]
+    (when (and (some? existing) (not (identical? dom-node (.-container existing))))
+      (error/throw-error!
+        :rf.error/duplicate-root-id where
+        (str "root-id " (pr-str root-id) " is already live in this document, in a "
+             "DIFFERENT container. Root-ids are page-unique identity: two roots "
+             "under one id would each believe they were the page's " (pr-str root-id)
+             ". Author :root-id, or add :disambiguator so the two sites derive "
+             "distinct ids.")
+        {:recovery :make-root-ids-unique
+         :extra    {:root-id root-id}}))
+    (when (nil? existing)
+      (when-let [owner (owner-of-container dom-node)]
+        (error/throw-error!
+          :rf.error/root-container-in-use where
+          (str "that container is already owned by the live root " (pr-str owner)
+               " — one container, one root. A second host root on one node tears "
+               "the first one's tree down and re-seeds it. Unmount the owner "
+               "first, or mount into a fresh node.")
+          {:recovery :unmount-the-owning-root-first
+           :extra    {:root-id root-id :owner-root-id owner}})))
+    (when-let [owner (owner-of-prefix prefix root-id)]
+      (error/throw-error!
+        :rf.error/duplicate-identifier-prefix where
+        (str "identifierPrefix " (pr-str prefix) " is already claimed by the live "
+             "root " (pr-str owner) ". Two roots sharing a prefix collide React's "
+             "use-id output. The derived default is unique per root-id, so this is "
+             "an authored prefix — give one root a distinct :identifier-prefix, or "
+             "drop the opt and take the derived default.")
+        {:recovery :make-identifier-prefixes-unique
+         :extra    {:root-id root-id :identifier-prefix prefix :owner-root-id owner}}))
+    existing))
+
+;; ---------------------------------------------------------------------------
+;; Preflight — the frame plan, before React
+;; ---------------------------------------------------------------------------
+
+(defn- plan-for
+  "Read the `:frame` opt into a preflight plan, or nil when the root binds
+  no frame.
+
+    :frame :shop/main          → SCOPE an existing frame (never created here)
+    :frame {:id :shop/main …}  → ENSURE it: create-if-absent, config verbatim"
+  [where frame-opt]
+  (cond
+    (nil? frame-opt) nil
+
+    (keyword? frame-opt)
+    {:frame-id frame-opt :owned? false}
+
+    (and (map? frame-opt) (keyword? (:id frame-opt)))
+    {:frame-id           (:id frame-opt)
+     :owned?             true
+     :config             (dissoc frame-opt :id)
+     :config-fingerprint (fingerprint/config-fingerprint (:id frame-opt)
+                                                         (dissoc frame-opt :id))}
+
+    :else
+    (bad-opts! where
+               (str where ": :frame is either a frame-id keyword — SCOPE a frame "
+                    "something else owns — or a make-frame opts map carrying :id, "
+                    "which the root ENSUREs and owns for its lifetime.")
+               {:value (error/diag-value-summary frame-opt)})))
+
+(defn- preflight!
+  "Run `plan` to completion and answer the frame-id the root binds. Called
+  BEFORE `createRoot`, so a body that reads a subscription on its first
+  render finds a seeded frame rather than an empty one.
+
+  The ledger is what makes several roots over one frame honest. An equal
+  fingerprint is the ratified idempotent no-op — the frame is NOT re-seeded,
+  because `:initial-events` are a seed, not a replay. A DIFFERENT
+  fingerprint recorded by a DIFFERENT root is the conflict: one frame, one
+  plan."
+  [where {:keys [frame-id owned? config config-fingerprint] :as plan} root-id]
+  (when (some? plan)
+    (let [record (get @frame-ledger frame-id)]
+      (when (and owned?
+                 (some? (:installed-by record))
+                 (not= (:installed-by record) root-id)
+                 (not= (:config-fingerprint record) config-fingerprint))
+        (error/throw-error!
+          :rf.error/frame-payload-conflict where
+          (str "frame " (pr-str frame-id) " is already installed by root "
+               (pr-str (:installed-by record)) " under a DIFFERENT config. One "
+               "frame, one plan: a second config would silently reset whatever "
+               "the first root's frame has been doing. Align the two configs, or "
+               "give this root its own frame.")
+          {:recovery :align-frame-plan-config
+           :extra    {:frame-id  frame-id
+                      :installed {:config-fingerprint (:config-fingerprint record)
+                                  :installed-by       (:installed-by record)}
+                      :arriving  {:config-fingerprint config-fingerprint
+                                  :root-id            root-id}}}))
+      (if owned?
+        ;; ENSURE. `make-frame` is idempotent replacement: absent → created
+        ;; and its :initial-events drain; present under the same plan → left
+        ;; exactly as it is. The same-root differing fingerprint is a config
+        ;; edit, so the plan re-runs — durable state survives, because that
+        ;; is what idempotent replacement means.
+        (when (or (nil? (frame/frame frame-id))
+                  (not= (:config-fingerprint record) config-fingerprint))
+          (live-frame/make-frame (assoc config :id frame-id)))
+        ;; SCOPE. A frame this root does not own must already exist — there
+        ;; is no config here to create one from, and scoping a frame that
+        ;; is not there would leave every read below the root silently
+        ;; frameless.
+        (when (nil? (frame/frame frame-id))
+          (error/throw-error!
+            :rf.error/frame-provider-frame-absent where
+            (str where ": :frame " (pr-str frame-id) " names no live frame. A "
+                 "keyword :frame SCOPES a frame something else owns; pass a "
+                 "make-frame opts map carrying :id for the root to own it, or "
+                 "create the frame before mounting.")
+            {:recovery :ensure-or-create-the-frame
+             :extra    {:root-id root-id :frame frame-id}})))
+      (swap! frame-ledger update frame-id
+             (fn [r]
+               {:config-fingerprint (if owned? config-fingerprint (:config-fingerprint r))
+                :installed-by       (if owned? (or (:installed-by r) root-id) (:installed-by r))
+                :refs               (conj (or (:refs r) #{}) root-id)}))
+      frame-id)))
+
+(defn- release-frame!
+  "Drop `root-id`'s reference to its frame, and destroy the frame when a
+  root INSTALLED it and this was the last live reference.
+
+  A scoped frame is never destroyed — the root borrowed it. An installed
+  frame outlives its root only while a sibling still references it, which
+  is the same rule that makes install idempotent in the first place."
+  [frame-id root-id]
+  (when (some? frame-id)
+    (let [{:keys [installed-by refs]} (get @frame-ledger frame-id)
+          remaining                   (disj (or refs #{}) root-id)]
+      (if (seq remaining)
+        (swap! frame-ledger update frame-id assoc :refs remaining)
+        (do (swap! frame-ledger dissoc frame-id)
+            (when (and (some? installed-by) (some? (frame/frame frame-id)))
+              (frame/destroy-frame! frame-id))))))
+  nil)
+
+;; ---------------------------------------------------------------------------
+;; React root options
+;; ---------------------------------------------------------------------------
+
+(defn- report-recoverable-default!
+  "React's own default `onRecoverableError` reporting, preserved when the
+  app authored no callback but the framework installed a wrapper: once a
+  wrapper is set React no longer runs its default, so it is replicated
+  here rather than swallowed."
+  [error*]
+  (if (fn? (.-reportError js/globalThis))
+    (js/reportError error*)
+    (when (exists? js/console) (.error js/console error*))))
+
+(defn- emit-hydration-mismatch!
+  [root-id error*]
+  (when interop/debug-enabled?
+    (trace/emit! :warning :rf.ssr/hydration-mismatch
+                 {:root-id  root-id
+                  :error    (some-> error* .-message)
+                  :where    're-frame.freehand/hydrate-root
+                  :recovery :warned-and-replaced})))
+
+(defn ^:no-doc hydration-reporter
+  "The composed `onRecoverableError` for a HYDRATING root.
+
+  `adoption` is the root-local `#js {:adopting true}` window flag;
+  `authored` is the host's own `:on-recoverable-error` or nil. The
+  framework diagnostic fires only while the window is open, and the
+  authored callback is ALWAYS delegated to — compose, never clobber —
+  inside the window and outside it.
+
+  Public so a mounted browser proof can drive the REAL callback across the
+  window boundary rather than a stand-in shaped like it."
+  [^js adoption root-id authored]
+  (fn on-recoverable [error* error-info]
+    (when (.-adopting adoption)
+      (emit-hydration-mismatch! root-id error*))
+    (if (fn? authored)
+      (authored error* error-info)
+      (report-recoverable-default! error*))))
+
+(defn ^:no-doc adoption-window-closer
+  "A React component that CLOSES a hydrating root's adoption window on its
+  first commit. It reads the window flag off its `rfAdoption` prop and
+  clears it from a passive effect with empty deps, so it runs exactly once
+  and strictly AFTER the hydration commit React reports mismatches
+  against. Renders nil, so it adds nothing to adopt and cannot itself
+  mismatch."
+  [^js props]
+  (react/useEffect
+    (fn close-window []
+      (when-some [adoption (.-rfAdoption props)]
+        (set! (.-adopting adoption) false))
+      js/undefined)
+    #js [])
+  nil)
+
+(defn- root-options
+  [prefix {:keys [on-uncaught-error on-caught-error on-recoverable-error]} on-recoverable]
+  (let [o (js-obj)]
+    (when prefix (aset o "identifierPrefix" prefix))
+    (when (fn? on-uncaught-error) (aset o "onUncaughtError" on-uncaught-error))
+    (when (fn? on-caught-error) (aset o "onCaughtError" on-caught-error))
+    (let [recoverable (or on-recoverable on-recoverable-error)]
+      (when (fn? recoverable) (aset o "onRecoverableError" recoverable)))
+    o))
+
+(defn- root-element
+  "The element a root renders: the root form's own element, wrapped in the
+  frame provider when the root bound a frame, plus any extra children the
+  mount kind needs (the hydration window closer). The provider is the
+  outermost wrapper because a `useContext` read anywhere below it must
+  resolve, including inside the mounted view's own boundary."
+  [root-form frame-id extra]
+  (let [element (fr/element root-form)]
+    (cond
+      (some? frame-id) (apply shell/provide-frame frame-id element extra)
+      (seq extra)      (apply react/createElement react/Fragment nil element extra)
+      :else            element)))
 
 ;; ---------------------------------------------------------------------------
 ;; mount
 ;; ---------------------------------------------------------------------------
 
+(defn- register!
+  [root-id ^Root root]
+  (swap! live-roots assoc root-id root)
+  root)
+
+(defn- abort!
+  "Undo an attempt that allocated a host root and then threw. The claim was
+  never written, so what has to come back is exactly what was: the React
+  root React just handed us, and this root's reference to its frame."
+  [react-root frame-id root-id thrown]
+  (try (.unmount react-root) (catch :default _ nil))
+  (release-frame! frame-id root-id)
+  (throw thrown))
+
 (defn mount
-  "Mount the declared view at `root-form`'s head into `dom-node`, and return
-  the [[Root]] host handle.
+  "Mount the declared view at `root-form`'s head into `dom-node`, and
+  return the [[Root]] host handle.
 
       (v/mount [app {}] (js/document.getElementById \"app\"))
+      (v/mount [panel {}] left  {:disambiguator :left :frame {:id :shop/main}})
 
   IDEMPOTENT PER ROOT (Spec 004C §3): re-mounting the same `:root-id` into
-  the same container re-renders the existing host root instead of allocating
-  a second one. That is the reload path — a hot reload re-runs the mount,
-  finds the root live under its qualified-view-id identity, and re-renders
-  the new body without reseeding the host root.
+  the same container re-renders the existing host root instead of
+  allocating a second one. That is the reload path — a hot reload re-runs
+  the mount, finds the root live under its qualified-view-id identity, and
+  re-renders the new body without reseeding the host root.
 
-  The minimal one-root spelling is a bare declared view at the head; `opts`
-  is accepted and ignored at this slice (authored identity, frame plans and
-  the host error callbacks land later, Spec 004C §3, §6, §7)."
+  `opts` is a CLOSED map: `:root-id` / `:disambiguator` /
+  `:identifier-prefix` (identity), `:frame` (the preflight plan), and
+  React's `:on-uncaught-error` / `:on-caught-error` /
+  `:on-recoverable-error`."
   ([root-form dom-node] (mount root-form dom-node {}))
-  ([root-form dom-node _opts]
-   (let [descriptor (descriptor-for root-form)
-         root-id    (:root-id descriptor)
-         element    (fr/element root-form)
-         existing   (get @live-roots root-id)]
-     (if (and (some? existing) (identical? dom-node (.-container ^Root existing)))
+  ([root-form dom-node opts]
+   (check-opt-keys! 'v/mount opts mount-opt-keys)
+   (let [ident          (resolve-identity 'v/mount root-form opts)
+         root-id        (:root-id ident)
+         desc           (descriptor-for ident)
+         prefix         (or (:identifier-prefix opts)
+                            (root-id/default-identifier-prefix root-id))
+         plan           (plan-for 'v/mount (:frame opts))
+         ^Root existing (claim! 'v/mount dom-node root-id prefix)
+         frame-id       (preflight! 'v/mount plan root-id)
+         element        (root-element root-form frame-id nil)]
+     (if (some? existing)
        ;; The reload path: the same host root, re-rendered. No createRoot,
        ;; so nothing downstream is reseeded; the descriptor snapshot is
        ;; refreshed because the mounted view object may be a fresh
        ;; generation, but the identity it keys on is unchanged.
-       (let [react-root (.-react-root ^Root existing)
-             root       (->Root descriptor dom-node react-root)]
+       (let [react-root (.-react-root existing)
+             root       (->Root desc dom-node react-root prefix frame-id
+                                (.-hydrated existing))]
          (.render react-root element)
-         (swap! live-roots assoc root-id root)
-         root)
-       (let [react-root (rdc/createRoot dom-node)
-             root       (->Root descriptor dom-node react-root)]
-         (.render react-root element)
-         (swap! live-roots assoc root-id root)
-         root)))))
+         (register! root-id root))
+       (let [react-root (rdc/createRoot dom-node (root-options prefix opts nil))]
+         (try
+           (.render react-root element)
+           (register! root-id (->Root desc dom-node react-root prefix frame-id false))
+           (catch :default e
+             (abort! react-root frame-id root-id e))))))))
+
+;; ---------------------------------------------------------------------------
+;; hydrate-root
+;; ---------------------------------------------------------------------------
+
+(defn- server-rendered?
+  "True when `dom-node` carries markup a hydration could adopt. An empty
+  container is the client-only first load — there is nothing there to
+  adopt, and hydrating against it is not a degraded adoption but no
+  adoption at all."
+  [dom-node]
+  (boolean (or (pos? (.-childElementCount dom-node))
+               (not (str/blank? (.-textContent dom-node))))))
+
+(defn hydrate-root
+  "Adopt the server-rendered markup already in `dom-node` for the declared
+  view at `root-form`'s head, and return the [[Root]] host handle.
+
+      (v/hydrate-root (js/document.getElementById \"app\") [app {}])
+
+  Identity resolves exactly as [[mount]]'s derived case does, and identity
+  opts are REFUSED here (`:rf.error/root-manifest-invalid`): a hydrating
+  root renders under the identity the server already fixed, and a client
+  that picks its own `identifierPrefix` breaks `use-id` hydration.
+
+  A divergence React recovers from — a text mismatch, a missing, extra or
+  wrong-type element — is reported as `:rf.ssr/hydration-mismatch` and
+  React replaces the offending DOM. An ATTRIBUTE-only divergence is
+  outside that signal by React's own contract. A container carrying
+  nothing to adopt takes the fallback: the root mounts client-side, and
+  [[hydrated?]] answers false."
+  ([dom-node root-form] (hydrate-root dom-node root-form {}))
+  ([dom-node root-form opts]
+   (check-opt-keys! 'v/hydrate-root opts hydrate-opt-keys)
+   (check-identity-opts! opts)
+   (let [ident    (resolve-identity 'v/hydrate-root root-form opts)
+         root-id  (:root-id ident)
+         desc     (descriptor-for ident)
+         ;; The server rendered under ITS prefix, and the manifest that
+         ;; carries that prefix across the wire lands with the SSR-manifest
+         ;; slice. Until then the hydrating root derives the SAME prefix the
+         ;; server's own render of this root-id derives — one function, both
+         ;; ends — which is what makes the two sides agree today.
+         prefix   (root-id/default-identifier-prefix root-id)
+         plan     (plan-for 'v/hydrate-root (:frame opts))
+         existing (claim! 'v/hydrate-root dom-node root-id prefix)]
+     ;; Before preflight, because a rejected root must not have run one.
+     (when (some? existing)
+       (error/throw-error!
+         :rf.error/duplicate-root-id 'v/hydrate-root
+         (str "root-id " (pr-str root-id) " is already live in this container. "
+              "Hydration ADOPTS server markup, and a live client root has already "
+              "replaced it — re-render through v/mount, or unmount first.")
+         {:recovery :make-root-ids-unique
+          :extra    {:root-id root-id}}))
+     (let [frame-id (preflight! 'v/hydrate-root plan root-id)]
+       (if-not (server-rendered? dom-node)
+         ;; The FALLBACK. Nothing to adopt, so this is an ordinary client
+         ;; mount that happened to be spelled as a hydration — the
+         ;; client-only first load of a page whose server never rendered
+         ;; this root.
+         (let [react-root (rdc/createRoot dom-node (root-options prefix opts nil))]
+           (try
+             (.render react-root (root-element root-form frame-id nil))
+             (register! root-id (->Root desc dom-node react-root prefix frame-id false))
+             (catch :default e
+               (abort! react-root frame-id root-id e))))
+         (let [adoption   #js {:adopting true}
+               reporter   (hydration-reporter adoption root-id (:on-recoverable-error opts))
+               closer     (react/createElement adoption-window-closer
+                                               #js {:key "rf-adoption" :rfAdoption adoption})
+               element    (root-element root-form frame-id [closer])
+               react-root (rdc/hydrateRoot dom-node element
+                                           (root-options prefix opts reporter))]
+           (register! root-id (->Root desc dom-node react-root prefix frame-id true))))))))
+
+;; ---------------------------------------------------------------------------
+;; unmount!
+;; ---------------------------------------------------------------------------
+
+(defn unmount!
+  "Tear `root` down completely, and answer nil.
+
+  Releases the registry entry — and with it the root-id, container and
+  identifierPrefix claims — unmounts the React root, and releases this
+  root's reference to its frame, destroying an OWNED frame once no live
+  root still references it. React's unmount runs the shell's layout
+  cleanups, so every ViewCell below disconnects: every dependency
+  released, every published callback retired.
+
+  GUARDED, and deliberately a no-op rather than a throw when the guard
+  fails: a root that was already unmounted, or superseded by a newer root
+  claiming its id, has nothing left to release, and tearing down on its
+  behalf would tear down the SUCCESSOR."
+  [^Root root]
+  (when (root? root)
+    (let [root-id (:root-id (.-descriptor root))]
+      (when (identical? root (get @live-roots root-id))
+        (swap! live-roots dissoc root-id)
+        (release-frame! (.-frame-id root) root-id)
+        (.unmount (.-react-root root)))))
+  nil)
