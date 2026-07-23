@@ -577,8 +577,22 @@
                                     :on-change [:form/typed :rf.ui/value]}])
                    (get-in [:props :events 0 :sync?]))))
     (is (true? (-> (ana* '[:input {:checked checked?
-                                    :on-before-input [:form/check]}])
+                                   :on-change [:form/check]}])
                    (get-in [:props :events 0 :sync?])))))
+  (testing "an options map carrying a vector rides the door (D009 fact 4)"
+    (is (true? (-> (ana* '[:input {:value value
+                                   :on-input {:event [:form/typed :rf.ui/value]
+                                              :prevent-default true}}])
+                   (get-in [:props :events 0 :sync?])))))
+  (testing ":on-before-input is OUTSIDE the door, and gets no unactionable nag"
+    ;; beforeinput fires BEFORE the DOM mutation, so target.value is not
+    ;; generally the candidate value — admitting it needs its own
+    ;; projection and composition contract, not a name added to a list.
+    (let [{:keys [ast warnings]}
+          (ana-full '[:input {:checked checked? :on-before-input [:form/check]}])]
+      (is (false? (get-in ast [:props :events 0 :sync?])))
+      (is (empty? warnings)
+          "no door could have opened here, so there is nothing to advise")))
   (testing "a synchronous v/event body rides the same door as a literal vector"
     ;; The widening (readiness P0-2): the site proof stays static (literal
     ;; controlled prop co-present); the appended prefix/payload stay runtime.
@@ -600,6 +614,18 @@
       (is (= :ui-event (get-in ast [:props :events 0 :classification])))
       (is (false? (get-in ast [:props :events 0 :sync?])))
       (is (empty? warnings))))
+  (testing "a capture/passive listener is a different attachment lane"
+    (is (false? (-> (ana* '[:input {:value value
+                                    :on-input {:event [:form/typed] :capture true}}])
+                    (get-in [:props :events 0 :sync?]))))
+    (is (false? (-> (ana* '[:input {:value value
+                                    :on-input {:event [:form/typed] :passive true}}])
+                    (get-in [:props :events 0 :sync?])))))
+  (testing "the door is a fact about the TAG too — value on a :div is not a control"
+    (let [{:keys [ast warnings]}
+          (ana-full '[:div {:value value :on-input [:form/typed :rf.ui/value]}])]
+      (is (false? (get-in ast [:props :events 0 :sync?])))
+      (is (empty? warnings) "a :div has no value React restores, so no advisory")))
   (testing "ordinary sites and non-data handlers stay batched"
     (is (false? (-> (ana* '[:button {:value value :on-click [:form/go]}])
                     (get-in [:props :events 0 :sync?]))))

@@ -43,9 +43,13 @@
   are host-shaped, and both are named seams rather than hidden branches
   — reading the scalar payload off a live callback argument
   ([[native-payload]] vs [[payload-map]]) and running the selected
-  browser mechanics before dispatch. The frame-bound dispatcher is
-  injected at [[commit!]], so this namespace neither creates nor
-  observes frames.
+  browser mechanics before dispatch. The frame-bound dispatchers are
+  injected at [[commit!]] — the ordinary batched one and the synchronous
+  controlled-input one — so this namespace neither creates nor observes
+  frames, and it schedules nothing. Which lane a site takes is the door
+  verdict recorded on its committed plan; what the door IS belongs to
+  [[re-frame.freehand.controlled]], and what the synchronous lane DOES
+  belongs to [[re-frame.freehand.cell]].
 
   INTERNAL. The public door is `re-frame.freehand`, which re-exports the
   authoring surface — the roster forms, the projection roster, and the
@@ -56,6 +60,7 @@
   §Event intent and the payload materializer, §Callback roles and
   identity."
   (:require [re-frame.error :as error]
+            [re-frame.freehand.controlled :as controlled]
             [re-frame.interop :as interop]
             [re-frame.trace :as trace]))
 
@@ -477,10 +482,25 @@
   `v/raw-fn` returns the authored function itself — those two roles are
   deliberately outside the committed-proxy scheme, because a render
   callback may run during an uncommitted foreign render and a raw
-  function's identity is the caller's to own."
+  function's identity is the caller's to own.
+
+  `element` carries the CONTROLLED-INPUT door's element half — `{:tag
+  :input :controlled? true :slot \"onInput\"}`, the facts only the walk
+  has, because only the walk has seen every prop of the element. The
+  SITE half — the callback's role and its listener options — is the plan
+  classified right here, so the two halves meet at
+  [[re-frame.freehand.controlled/door?]] once and no caller can supply a
+  partial verdict. `nil` means no door, which is what every non-element
+  site passes.
+
+  The verdict rides the committed plan, so a re-commit changes it exactly
+  as it changes the body: an element that stops being controlled stops
+  taking the synchronous lane, and not one callback identity moves."
   ([candidate site-key value]
-   (site candidate site-key value default-payload))
-  ([^RenderCandidate candidate site-key value payload-fn]
+   (site candidate site-key value default-payload nil))
+  ([candidate site-key value payload-fn]
+   (site candidate site-key value payload-fn nil))
+  ([^RenderCandidate candidate site-key value payload-fn element]
    (let [plan (event-plan value)]
      (case (:role plan)
        nil        nil
@@ -490,8 +510,14 @@
              sites (.-sites candidate)
              proxy (or (committed-proxy owner site-key)
                        (:proxy (get @sites site-key))
-                       (mint-proxy owner site-key))]
-         (vswap! sites assoc site-key (assoc plan :proxy proxy :payload payload-fn))
+                       (mint-proxy owner site-key))
+             door? (and (some? element)
+                        (controlled/door? (assoc element
+                                                 :role     (:role plan)
+                                                 :capture? (:capture plan)
+                                                 :passive? (:passive plan))))]
+         (vswap! sites assoc site-key
+                 (assoc plan :proxy proxy :payload payload-fn :door door?))
          proxy)))))
 
 (defn commit!
@@ -504,17 +530,30 @@
   `:once` state is retained only for sites this render still carries.
   Retargeting is exactly a re-commit with a different `dispatch`, so a
   frame change reaches every site without touching one callback
-  identity."
-  [^RenderCandidate candidate dispatch]
-  (let [^EventOwner owner (.-owner candidate)
-        sites             @(.-sites candidate)]
-    (vswap! (.-state owner)
-            (fn [{:keys [fired]}]
-              {:lifecycle :connected
-               :sites     sites
-               :dispatch  dispatch
-               :fired     (into #{} (filter #(contains? sites %)) fired)}))
-    owner))
+  identity.
+
+  `door-dispatch` is the SYNCHRONOUS dispatcher a controlled-input site
+  fires through — the same materialized event vector, delivered so that
+  state has round-tripped before the native listener returns. It is a
+  second committed target rather than a flag the dispatcher reads,
+  because the two lanes are different scheduling contracts and a site
+  belongs to exactly one of them: `re-frame.freehand.cell` commits both
+  bound to the SAME frame, so a retarget moves them together and neither
+  can outlive the other. The two-argument arity commits no door — the
+  honest answer for a host that has no synchronous lane, and for a test
+  that is proving ordinary dispatch."
+  ([candidate dispatch] (commit! candidate dispatch nil))
+  ([^RenderCandidate candidate dispatch door-dispatch]
+   (let [^EventOwner owner (.-owner candidate)
+         sites             @(.-sites candidate)]
+     (vswap! (.-state owner)
+             (fn [{:keys [fired]}]
+               {:lifecycle     :connected
+                :sites         sites
+                :dispatch      dispatch
+                :door-dispatch door-dispatch
+                :fired         (into #{} (filter #(contains? sites %)) fired)}))
+     owner)))
 
 (defn retire!
   "Retire every proxy `owner` published. The proxies stay callable — a
@@ -523,10 +562,11 @@
   firing into whatever owns the node now."
   [^EventOwner owner]
   (vswap! (.-state owner) assoc
-          :lifecycle :retired
-          :sites     nil
-          :dispatch  nil
-          :fired     #{})
+          :lifecycle     :retired
+          :sites         nil
+          :dispatch      nil
+          :door-dispatch nil
+          :fired         #{})
   nil)
 
 (defn lifecycle
@@ -578,22 +618,37 @@
   (when-some [pf (:payload plan)]
     (apply pf args)))
 
+(defn- lane
+  "The dispatcher this site fires through — the SYNCHRONOUS one when the
+  site is inside the controlled-input door and a door dispatcher is
+  committed, the ordinary batched one otherwise.
+
+  The fallback is not a silent downgrade of a promise: a door verdict
+  reaches a site only from a walk that also committed through
+  `re-frame.freehand.cell`, which always publishes both lanes together.
+  A host with no synchronous lane (the structural JVM host, a test
+  committing ordinary dispatch) simply has no door to fall out of."
+  [plan {:keys [dispatch door-dispatch]}]
+  (if (and (:door plan) (some? door-dispatch)) door-dispatch dispatch))
+
 (defn- fire!
-  [plan dispatch args]
-  (case (:role plan)
-    (:event-vector :event-options)
-    (dispatch (materialize-event (:event plan) (payload plan args)))
+  [plan state args]
+  (let [dispatch (lane plan state)]
+    (case (:role plan)
+      (:event-vector :event-options)
+      (dispatch (materialize-event (:event plan) (payload plan args)))
 
-    :event
-    (let [result (apply (:f plan) args)]
-      ;; Exactly one event vector or nil. `nil` dispatches nothing;
-      ;; anything that is not a vector is rejected by the materializer,
-      ;; which is the one place that law lives.
-      (when (some? result)
-        (dispatch (materialize-event result (payload plan args)))))
+      :event
+      (let [result (apply (:f plan) args)]
+        ;; Exactly one event vector or nil. `nil` dispatches nothing;
+        ;; anything that is not a vector is rejected by the materializer,
+        ;; which is the one place that law lives. `nil` also needs no door
+        ;; flush — no state moved, so nothing has to round-trip.
+        (when (some? result)
+          (dispatch (materialize-event result (payload plan args)))))
 
-    (:handler :bare-fn)
-    (apply (:f plan) args))
+      (:handler :bare-fn)
+      (apply (:f plan) args)))
   nil)
 
 (defn- invoke!
@@ -603,13 +658,13 @@
   ;; `(owner, site-key)` alone would let a never-selected candidate's
   ;; proxy fire the body a different candidate committed, and would let a
   ;; retired proxy come back to life the moment its key was re-used.
-  (let [{:keys [sites dispatch] :as state} @(.-state owner)
+  (let [{:keys [sites] :as state} @(.-state owner)
         plan (get sites site-key)]
     (if (and (some? plan) (identical? proxy (:proxy plan)))
       (when-not (and (:once plan) (contains? (:fired state) site-key))
         (when (:once plan)
           (vswap! (.-state owner) update :fired conj site-key))
         (apply-mechanics! plan args)
-        (fire! plan dispatch args))
+        (fire! plan state args))
       (retired-evidence! owner site-key (:lifecycle state))))
   nil)
