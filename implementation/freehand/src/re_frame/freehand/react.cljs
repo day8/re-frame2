@@ -58,6 +58,7 @@
             [re-frame.freehand.conversion :as conv]
             [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.error-react :as error-react]
+            [re-frame.freehand.errors :as eb]
             [re-frame.freehand.events :as events]
             [re-frame.freehand.presence-runtime :as presence-runtime]
             [re-frame.freehand.shell :as shell]
@@ -289,9 +290,18 @@
                   (cell/with-capture
                     cand
                     (fn []
-                      (emit cand
-                            (body (conv/forward-children
-                                    (gobj/get js-props "props"))))))))))]
+                      ;; The OCCURRENCE SEAM. React renders each declared
+                      ;; view in its own component, so a throw arriving here
+                      ;; is THIS view's body's — the boundary that catches it
+                      ;; several fibers above has no other way to learn whose,
+                      ;; and the throwable carries no view identity.
+                      (try
+                        (emit cand
+                              (body (conv/forward-children
+                                      (gobj/get js-props "props"))))
+                        (catch :default e
+                          (eb/note-failing-view! view-id)
+                          (throw e)))))))))]
     (gobj/set c "displayName" (str view-id))
     c))
 

@@ -68,7 +68,7 @@
           outcome (eb/contain b
                               (fn [] (cell/with-capture (cell/candidate c nil)
                                        (fn [] (throw (boom)))))
-                              {:phase :render :view-id :app/child :frame-id nil})]
+                              {:phase :render :frame-id nil})]
       (is (= :contained (:status outcome))
           "the throw was contained, not propagated")
       (is (= lifecycle (cell/lifecycle c))

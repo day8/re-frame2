@@ -113,17 +113,6 @@
 ;; walk does not do); this walk proves containment, and the law's own suite
 ;; proves the once-per-generation intent and the egress record.
 
-(defn- boundary-child-view-id
-  "The failing view id the summary attributes a caught structural throw to —
-  the guarded child's own declared view id when it is a declared boundary,
-  else the error boundary's id. Best-effort structural attribution; the
-  MOUNTED host resolves the exact failing descendant."
-  [child]
-  (let [head (first child)]
-    (if (and (vector? child) (descriptor/view? head))
-      (:view-id (descriptor/describe head))
-      eb/boundary-view-id)))
-
 (defn- mount-error-boundary
   "Mount `v/error-boundary` on the structural host: contain the guarded
   child's walk, and answer the boundary node holding the child subtree on
@@ -133,10 +122,10 @@
         {:keys [fallback] :as opts} (eb/read-opts props)
         child   (first (:children opts))
         b       (eb/boundary eb/boundary-view-id (:reset-key opts))
-        outcome (eb/contain b
-                            #(children [child])
-                            {:phase   :render
-                             :view-id (boundary-child-view-id child)})
+        ;; WHICH view threw is not passed in: the mount seam below notes it
+        ;; as the throw unwinds through it, so a failure several levels under
+        ;; the guarded child is attributed to the view that actually threw.
+        outcome (eb/contain b #(children [child]) {:phase :render})
         kids    (case (:status outcome)
                   :ok        (:result outcome)
                   :contained (children [fallback]))]
@@ -300,11 +289,21 @@
   node/IMount
   (-mount [view args]
     (let [{:keys [key props]} (descriptor/normalize-call view args)
-          props* (conv/forward-children props)
-          kids   (if-let [structural (descriptor/structural-body view)]
-                   (node/children (structural props*))
-                   (children [((descriptor/render-body view) props*)]))]
-      (node/boundary (:view-id (descriptor/describe view)) props key kids))))
+          props*  (conv/forward-children props)
+          view-id (:view-id (descriptor/describe view))
+          ;; The OCCURRENCE SEAM. A render-class throw passing through here
+          ;; is this view's, and an enclosing boundary has no other way to
+          ;; learn whose it was — the throwable carries no view identity, and
+          ;; a boundary that guessed would name the guarded child or itself.
+          ;; The note is dropped if an inner occurrence already made one.
+          kids    (try
+                    (if-let [structural (descriptor/structural-body view)]
+                      (node/children (structural props*))
+                      (children [((descriptor/render-body view) props*)]))
+                    (catch #?(:clj Throwable :cljs :default) e
+                      (eb/note-failing-view! view-id)
+                      (throw e)))]
+      (node/boundary view-id props key kids))))
 
 ;; ---------------------------------------------------------------------------
 ;; Render entry

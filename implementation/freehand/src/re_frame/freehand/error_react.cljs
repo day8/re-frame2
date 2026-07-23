@@ -23,7 +23,11 @@
       ([[re-frame.freehand.errors/capture!]]) and PROMOTES it: a fresh
       failure advances the generation and fires the safe `:on-error` intent
       and the private egress record, a repeat (StrictMode's double-invoke)
-      is a no-op.
+      is a no-op. WHICH declared view threw is resolved through
+      [[re-frame.freehand.errors/attributed-failure]] — React renders each
+      declared view in its own component, and that component's occurrence
+      seam noted the failure on the way past. This boundary never puts its
+      own id in the failing slot.
     - **`componentDidUpdate`** promotes anything still unreported and THEN
       reconciles the caller-owned `:reset-key` (a change clears the failure
       and re-mounts the child).
@@ -123,11 +127,16 @@
           (fn [error info]
             (this-as ^js this
               (eb/capture! (.-boundary this)
-                           {:exception       error
-                            :phase           :render
-                            :view-id         eb/boundary-view-id
-                            :frame-id        (context-frame-id this)
-                            :component-stack (some-> info (gobj/get "componentStack"))})
+                           ;; WHICH declared view threw comes from the
+                           ;; occurrence seam's note, never from this
+                           ;; boundary's own id — the catcher is not the
+                           ;; thrower, and a record that said so would send
+                           ;; a reader to the wrong file.
+                           (eb/attributed-failure
+                             {:exception       error
+                              :phase           :render
+                              :frame-id        (context-frame-id this)
+                              :component-stack (some-> info (gobj/get "componentStack"))}))
               (promote! this))))
     (set! (.-componentDidUpdate proto)
           (fn [_prev-props _prev-state _snapshot]

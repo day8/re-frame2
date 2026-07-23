@@ -29,6 +29,7 @@
             [re-frame.error-emit :as error-emit]
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
+            [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.errors :as eb]
             [re-frame.freehand.react :as fr]
             [re-frame.router :as router]
@@ -78,6 +79,25 @@
     (throw (ex-info "a child render threw" {:secret "must-not-leak"}))
     [:p {:id "child"} "recovered"]))
 
+(v/defview other-guarded-child
+  "A SECOND failing descendant — the one attribution has to tell apart from
+  [[guarded-child]]."
+  [_]
+  (throw (ex-info "a different child render threw" {})))
+
+(v/defview deep-thrower
+  "Throws from a view the boundary does not guard directly."
+  [_]
+  (throw (ex-info "a grandchild render threw" {})))
+
+(v/defview healthy-wrapper
+  "Renders fine itself and mounts the view that throws — so the guarded
+  child, the catcher, and the thrower are three different views."
+  [_]
+  [:div [deep-thrower {}]])
+
+(defn- id-of [view] (:view-id (descriptor/describe view)))
+
 ;; ---------------------------------------------------------------------------
 ;; The two failure channels, counted at their real seams
 ;; ---------------------------------------------------------------------------
@@ -123,13 +143,31 @@
 
 (defn- boundary-element
   "The mounted boundary under test: `reset-key` is the caller-owned retry
-  value, and the fallback is what must be on screen when the child throws."
-  [reset-key]
-  (fr/element
-    [v/error-boundary {:fallback  [:p {:id "fallback"} "contained"]
-                       :reset-key reset-key
-                       :on-error  (:on-error error-002)}
-     [guarded-child {}]]))
+  value, `child` is the ONE guarded region, and the fallback is what must be
+  on screen when the child throws."
+  ([reset-key] (boundary-element reset-key [guarded-child {}]))
+  ([reset-key child]
+   (fr/element
+     [v/error-boundary {:fallback  [:p {:id "fallback"} "contained"]
+                        :reset-key reset-key
+                        :on-error  (:on-error error-002)}
+      child])))
+
+(defn- mount-one-failure!
+  "Mount a boundary over `child`, let the failure commit, and answer a
+  promise of the ONE private egress record it promoted — the report an
+  off-box shipper would receive."
+  [child]
+  (let [[container root] (mount!)
+        {:keys [egress close!]} (open-channels!)]
+    (-> (act #(.render root (boundary-element (:reset-key-1 error-002) child)))
+        (.then (fn [_]
+                 (let [record (first @egress)]
+                   (teardown! container root close!)
+                   record))
+               (fn [e]
+                 (teardown! container root close!)
+                 (js/Promise.reject e))))))
 
 ;; ===========================================================================
 ;; FH-ERROR-002 (browser) — the INITIAL-MOUNT generation is promoted.
@@ -245,6 +283,66 @@
                       (is false (str "mount rejected: " e))
                       (teardown! container root close!)
                       (done)))))))))
+
+;; ===========================================================================
+;; FH-ERROR-003 (browser) — the mounted record names the failing DESCENDANT.
+;; ===========================================================================
+
+(deftest fh-error-003-a-mounted-report-names-the-failing-descendant
+  (testing "Per FH-ERROR-003 (browser): `:view-id` is the declared view that
+            THREW and `:boundary-view-id` is the catcher. Here the guarded
+            child, the catcher and the thrower are three different views —
+            the boundary guards a healthy wrapper which mounts the view that
+            fails — so a record naming either the boundary or the guarded
+            child is caught. Getting this right is the whole value of the
+            report: a summary naming the catcher sends a reader to the wrong
+            file, and every failure under one boundary would carry it."
+    (if-not (browser?)
+      (skip! "the browser job runs the mounted-attribution assertions")
+      (async done
+        (reset! throwing? true)
+        (-> (mount-one-failure! [healthy-wrapper {}])
+            (.then (fn [record]
+                     (let [summary (:summary record)]
+                       (is (= (id-of deep-thrower) (:view-id summary))
+                           "the view that actually threw, not the one guarded")
+                       (is (= eb/boundary-view-id (:boundary-view-id summary))
+                           "and the catcher keeps its own separate field")
+                       (is (not= eb/boundary-view-id (:view-id summary))
+                           "the boundary is never named as the thrower")
+                       (is (= (:view-id summary) (:view-id (:summary record)))
+                           "the safe summary the app receives carries the same attribution"))
+                     (done))
+                  (fn [e]
+                    (is false (str "mount rejected: " e))
+                    (done))))))))
+
+(deftest fh-error-003-two-mounted-descendants-of-one-boundary-fingerprint-apart
+  (testing "Per FH-ERROR-003 (browser): the fingerprint is derived from the
+            failing view and the phase, so two DIFFERENT descendants failing
+            under the same boundary shape must fingerprint APART. Naming the
+            shared catcher would collapse every bug beneath a boundary onto
+            one correlation token and make two unrelated failures
+            indistinguishable in telemetry."
+    (if-not (browser?)
+      (skip! "the browser job runs the mounted-fingerprint assertions")
+      (async done
+        (reset! throwing? true)
+        (-> (mount-one-failure! [guarded-child {}])
+            (.then (fn [first-record]
+                     (-> (mount-one-failure! [other-guarded-child {}])
+                         (.then (fn [second-record]
+                                  [first-record second-record])))))
+            (.then (fn [[a b]]
+                     (is (= (id-of guarded-child) (:view-id (:summary a))))
+                     (is (= (id-of other-guarded-child) (:view-id (:summary b))))
+                     (is (not= (:fingerprint (:summary a))
+                               (:fingerprint (:summary b)))
+                         "two failing descendants, two fingerprints")
+                     (done))
+                   (fn [e]
+                     (is false (str "mount rejected: " e))
+                     (done))))))))
 
 ;; ===========================================================================
 ;; Non-vacuity probe — the channels are really open and the child really
