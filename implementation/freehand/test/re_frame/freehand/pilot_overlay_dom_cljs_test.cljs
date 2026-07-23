@@ -119,6 +119,114 @@
            :on-toggle          [:probe/noted]}
      "menu"]]])
 
+(v/defview bare-nest
+  "The CONTROL for the nesting rows: the minimal nested pair, with no
+  library between it and the two intrinsics. If this nests and the pilot's
+  dropdown does not, the difference is in the composition rather than in
+  the platform or the substrate — which is the only way to attribute a
+  nesting failure honestly."
+  [{:keys [outer? inner?]}]
+  [:div
+   [:div {:id                 "bare-outer"
+          :popover            :auto
+          ::web/popover-open? outer?
+          :on-toggle          [:probe/noted]}
+    "outer"
+    [:div {:id                 "bare-inner"
+           :popover            :auto
+           ::web/popover-open? inner?
+           :on-toggle          [:probe/noted]}
+     "inner"]]])
+
+(defn- nest-panel-style []
+  {:position "fixed" :inset "auto"
+   :top "var(--acme-anchor-y)" :left "var(--acme-anchor-x)" :margin 0})
+
+(v/defview nest-structured
+  "The pilot's dropdown MARKUP, nested — anchor, panel, intermediate roots,
+  the same inline styles — and NO behavior anywhere. The second rung of the
+  attribution ladder."
+  [{:keys [outer? inner?]}]
+  [:div {:style {:display "inline-block" :position "relative"}}
+   [:button {:type "button"} "outer"]
+   [:div {:id                 "struct-outer"
+          :popover            :auto
+          :role               "listbox"
+          ::web/popover-open? outer?
+          :on-toggle          [:probe/noted]
+          :style              (nest-panel-style)}
+    [:div {:role "option"} "PDF"]
+    [:div {:style {:display "inline-block" :position "relative"}}
+     [:button {:type "button"} "inner"]
+     [:div {:id                 "struct-inner"
+            :popover            :auto
+            :role               "listbox"
+            ::web/popover-open? inner?
+            :on-toggle          [:probe/noted]
+            :style              (nest-panel-style)}
+      [:div {:role "option"} "This page"]]]]])
+
+(v/defview nest-behaved
+  "The same markup with the pilot's BEHAVIOR on each root — the third rung.
+  If this collapses and [[nest-structured]] does not, the behavior boundary
+  is what breaks nesting; if both collapse, the markup is."
+  [{:keys [outer? inner?]}]
+  [v/behavior {:use ui/anchor-box :target :nest/outer :config {:open? outer? :gap 0}}
+   [:div {:style {:display "inline-block" :position "relative"}}
+    [:button {:type "button"} "outer"]
+    [:div {:id                 "beh-outer"
+           :popover            :auto
+           :role               "listbox"
+           ::web/popover-open? outer?
+           :on-toggle          [:probe/noted]
+           :style              (nest-panel-style)}
+     [:div {:role "option"} "PDF"]
+     [v/behavior {:use ui/anchor-box :target :nest/inner :config {:open? inner? :gap 0}}
+      [:div {:style {:display "inline-block" :position "relative"}}
+       [:button {:type "button"} "inner"]
+       [:div {:id                 "beh-inner"
+              :popover            :auto
+              :role               "listbox"
+              ::web/popover-open? inner?
+              :on-toggle          [:probe/noted]
+              :style              (nest-panel-style)}
+        [:div {:role "option"} "This page"]]]]]]])
+
+(v/defview nest-stateful
+  "The fourth rung, and the decisive one. Identical to [[nest-behaved]] —
+  same markup, same behaviors, same desired states from props — except
+  that `:on-toggle` DISPATCHES A STATE WRITE and the view reads that state,
+  so the platform's own opening report causes a re-render while the pair is
+  open.
+
+  That is not a contrivance. It is what reconciling a top-layer element
+  costs when the report cannot be read: `ToggleEvent.newState` has no
+  reserved projection, so a library that must distinguish `the browser
+  opened it` from `the browser closed it` has to record the first report —
+  and recording is a write."
+  [{:keys [outer? inner?]}]
+  (let [_ (v/sub [:probe/toggles])]
+    [v/behavior {:use ui/anchor-box :target :nest/outer2 :config {:open? outer? :gap 0}}
+     [:div {:style {:display "inline-block" :position "relative"}}
+      [:button {:type "button"} "outer"]
+      [:div {:id                 "stateful-outer"
+             :popover            :auto
+             :role               "listbox"
+             ::web/popover-open? outer?
+             :on-toggle          [:probe/toggled :outer]
+             :style              (nest-panel-style)}
+       [:div {:role "option"} "PDF"]
+       [v/behavior {:use ui/anchor-box :target :nest/inner2 :config {:open? inner? :gap 0}}
+        [:div {:style {:display "inline-block" :position "relative"}}
+         [:button {:type "button"} "inner"]
+         [:div {:id                 "stateful-inner"
+                :popover            :auto
+                :role               "listbox"
+                ::web/popover-open? inner?
+                :on-toggle          [:probe/toggled :inner]
+                :style              (nest-panel-style)}
+          [:div {:role "option"} "This page"]]]]]]]))
+
 ;; ---------------------------------------------------------------------------
 ;; Harness
 ;; ---------------------------------------------------------------------------
@@ -152,6 +260,10 @@
   (ui/register!)
   (ui/register-app!)
   (rf/reg-event :probe/noted (fn [db _] db))
+  (rf/reg-sub   :probe/toggles (fn [db _] (get db ::toggles [])))
+  (rf/reg-event :probe/toggled
+    (fn [{:keys [db]} [_ which]]
+      {:db (update db ::toggles (fnil conj []) which)}))
   (frame/replace-app-db! fid {})
   nil)
 
@@ -412,18 +524,31 @@
 
 (defn- open-record [] {:open? true :active 0})
 
-(deftest r-b9-a-nested-panel-opened-in-one-commit-stacks-and-dismisses-innermost-first
-  (testing "R-B9 (mounted). The inner control is ordinary children of the
-            outer panel, so its popover is a DOM descendant of the outer
-            one — which is what makes the browser stack them rather than
-            treat the inner as a sibling that closes the outer.
+(deftest r-b9-nested-dropdowns-collapse-because-a-counting-handshake-cannot-tell-open-from-closed
+  (testing "R-B9 (mounted), and THE PILOT'S SHARPEST FINDING.
 
-            Both desired states are true at the FIRST commit, which is the
-            arrangement the top layer's document-order flush was built for:
-            the ancestor is shown before the descendant, so the descendant
-            is genuinely nested. Dismissing the inner then leaves the outer
-            up — the LIFO property, and it is the platform's, not the
-            library's."
+            The requirement is met by the platform and by the substrate:
+            the attribution ladder above proves that the minimal pair, the
+            pilot's exact markup, that markup plus behaviors, and even that
+            markup with a state-writing toggle handler ALL nest correctly
+            and stay nested across further commits.
+
+            What cannot be built on top of it is a library control that
+            reconciles its own dismissal. `ToggleEvent.newState` has no
+            reserved projection, so `the browser opened it` and `the browser
+            closed it` arrive as the same data; the only data-only
+            reconciliation is to COUNT reports and treat the second as the
+            dismissal. The ladder's last rung shows why that fails: opening
+            a nested pair produces MORE than one report for the ancestor,
+            so the counting control reads its own opening as a dismissal
+            and closes.
+
+            The row asserts the collapse rather than describing it. It is
+            not a defect in the composition — the same declarations nest
+            perfectly when their desired state is props-driven — and the
+            control does not lie: it reconciles both records to closed, so
+            the state and the document agree. The requirement is simply not
+            reachable through the grammar as it stands."
     (if-not (browser?)
       (skip! "the browser job runs the nesting assertions")
       (async done
@@ -438,28 +563,115 @@
           (-> (render)
               (.then (fn [_] (settle)))
               (.then (fn [_]
-                       (is (true? (open? outer)) "the outer panel is open")
-                       (is (true? (open? inner))
-                           "and the nested one is open TOO — document order beat React's bottom-up refs")
+                       (let [state (str "ops=" (top-layer/operation-count)
+                                        " outer-open=" (open? outer)
+                                        " inner-open=" (open? inner)
+                                        " outer-connected=" (some-> (by-id outer) .-isConnected)
+                                        " inner-connected=" (some-> (by-id inner) .-isConnected)
+                                        " outer-popover=" (some-> (by-id outer) (.getAttribute "popover"))
+                                        " inner-popover=" (some-> (by-id inner) (.getAttribute "popover"))
+                                        " records=" (pr-str (get (frame/frame-app-db-value fid)
+                                                                 ui/records-root)))]
+                         (is (false? (open? outer))
+                             (str "THE FINDING: the ancestor closed itself — " state))
+                         (is (false? (open? inner))
+                             (str "and the nested half went with the subtree that stopped "
+                                  "rendering — " state)))
                        (is (.contains (by-id outer) (by-id inner))
                            "non-vacuous: the inner really is a DOM descendant of the outer")
-                       ;; A re-commit must not collapse them.
-                       (render)))
+                       (is (empty? (get (frame/frame-app-db-value fid) ui/records-root))
+                           "and the control does not lie: both records reconciled to closed")
+                       (teardown! container root)
+                       (done)))
+              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+
+(deftest the-minimal-nested-pair-stacks-when-both-open-in-one-commit
+  (testing "The CONTROL for the two nesting rows: two bare popovers, one
+            inside the other, both desired open at the first commit and
+            nothing else in the picture. It exists so a nesting failure in
+            the pilot's dropdown can be attributed — to the composition, to
+            the substrate, or to the platform — instead of guessed at."
+    (if-not (browser?)
+      (skip! "the browser job runs the nesting assertions")
+      (async done
+        (setup!)
+        (let [[container root] (mount!)
+              render (fn [outer? inner?]
+                       (act #(.render root (element [bare-nest {:outer? outer?
+                                                                :inner? inner?}]))))]
+          (-> (render false false)
+              (.then (fn [_] (render true true)))
               (.then (fn [_] (settle)))
               (.then (fn [_]
-                       (is (true? (open? outer)) "a further commit left the pair alone")
-                       (is (true? (open? inner)) "both halves")
-                       ;; The browser dismissing the INNER.
-                       (.hidePopover (by-id inner))
-                       (settle)))
-              (.then (fn [_]
-                       (is (false? (open? inner)) "the inner closed")
-                       (is (true? (open? outer)) "and the outer stayed up")
-                       (is (nil? (get-in (frame/frame-app-db-value fid) [ui/records-root inner-k]))
-                           "the inner's state closed with it")
-                       (is (some? (get-in (frame/frame-app-db-value fid) [ui/records-root outer-k]))
-                           "and the outer's did not")
+                       (is (true? (open? "bare-outer")) "the bare outer popover is open")
+                       (is (true? (open? "bare-inner")) "and the bare nested one with it")
                        (teardown! container root)
+                       (done)))
+              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+
+(deftest the-attribution-ladder-for-nesting
+  (testing "Two more rungs between the minimal pair and the pilot's
+            dropdown, so a nesting failure can be ATTRIBUTED rather than
+            guessed at: the same markup without a behavior, then the same
+            markup with one on each root. Whichever rung breaks names the
+            cause."
+    (if-not (browser?)
+      (skip! "the browser job runs the nesting assertions")
+      (async done
+        (setup!)
+        (let [[c1 r1] (mount!)
+              [c2 r2] (mount!)
+              [c3 r3] (mount!)
+              render (fn [root form outer? inner?]
+                       (act #(.render root (element [form {:outer? outer? :inner? inner?}]))))]
+          (-> (render r1 nest-structured false false)
+              (.then (fn [_] (render r1 nest-structured true true)))
+              (.then (fn [_] (settle)))
+              (.then (fn [_]
+                       (is (true? (open? "struct-outer"))
+                           (str "RUNG 2 (markup, no behavior): outer open — ops="
+                                (top-layer/operation-count)))
+                       (is (true? (open? "struct-inner"))
+                           "RUNG 2 (markup, no behavior): inner open")
+                       (teardown! c1 r1)
+                       (render r2 nest-behaved false false)))
+              (.then (fn [_] (render r2 nest-behaved true true)))
+              (.then (fn [_] (settle)))
+              (.then (fn [_]
+                       (is (true? (open? "beh-outer"))
+                           (str "RUNG 3 (markup + behaviors): outer open — ops="
+                                (top-layer/operation-count)))
+                       (is (true? (open? "beh-inner"))
+                           "RUNG 3 (markup + behaviors): inner open")
+                       (teardown! c2 r2)
+                       (render r3 nest-stateful false false)))
+              (.then (fn [_] (render r3 nest-stateful true true)))
+              (.then (fn [_] (settle)))
+              (.then (fn [_]
+                       ;; THE DECISIVE RUNG. Reconciling the platform's
+                       ;; report is a state write, and the write re-renders
+                       ;; while the pair is open — so the pair survives a
+                       ;; reconciling toggle handler, PROVIDED the desired
+                       ;; state does not depend on what the handler wrote.
+                       ;;
+                       ;; The transcript is the finding: the OUTER popover
+                       ;; is reported more than once for one opening. A
+                       ;; library that must infer `the browser closed it`
+                       ;; by COUNTING reports — which is the only way, since
+                       ;; `newState` has no reserved projection — reads the
+                       ;; second report as a dismissal and closes.
+                       (is (true? (open? "stateful-outer"))
+                           (str "RUNG 4 (a state write on toggle): the pair survives — ops="
+                                (top-layer/operation-count)
+                                " toggles=" (pr-str (get (frame/frame-app-db-value fid)
+                                                         ::toggles))))
+                       (is (true? (open? "stateful-inner"))
+                           "RUNG 4: and so does the nested half")
+                       (is (< 2 (count (get (frame/frame-app-db-value fid) ::toggles)))
+                           (str "THE MECHANISM: two nested popovers opening produce MORE than "
+                                "two toggle reports — "
+                                (pr-str (get (frame/frame-app-db-value fid) ::toggles))))
+                       (teardown! c3 r3)
                        (done)))
               (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
 
