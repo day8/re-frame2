@@ -176,6 +176,23 @@
 (defn- render-line! [root]
   (act #(.render root (shell/provide-frame fid (fr/element [pilot/invoice-line {:id line-id}])))))
 
+(defn- seed-lines!
+  "Seed TWO invoice lines, both with a blank description and submit already
+  attempted, so both lines' \"description\" error regions render on mount."
+  []
+  (live-frame/make-frame {:id fid})
+  (frame/replace-app-db! fid
+    {:invoice {1 (assoc seed-line :description "")
+               2 (assoc seed-line :description "")}
+     :ui      {1 {:submit-attempted? true}
+               2 {:submit-attempted? true}}})
+  (pilot/register!)
+  (pilot/register-app!)
+  fid)
+
+(defn- render-lines! [root]
+  (act #(.render root (shell/provide-frame fid (fr/element [pilot/invoice-lines {:ids [1 2]}])))))
+
 (defn- app [] (frame/frame-app-db-value fid))
 (defn- line [] (get-in (app) [:invoice line-id]))
 
@@ -511,6 +528,48 @@
                            (is (= "REF-2" (.-value node))
                                "and the normalised value is displayed"))))))
           done)))))
+
+;; ===========================================================================
+;; Instance-unique error ids — the mounted a11y check
+;; ===========================================================================
+
+(deftest pilot-repeated-fields-resolve-aria-describedby-to-their-own-region
+  (testing "rf2-drpa3.134, acceptance 2 (mounted). Two invoice lines
+            mounted together put two controlled fields named
+            \"description\" on one page. Each control's `aria-describedby`
+            resolves — by document id, the way assistive technology
+            resolves it — to its OWN error region, and the two ids differ.
+            Before the fix both controls pointed at one ambiguous
+            `acme-field-description-error`."
+    (if-not (browser?)
+      (skip! "the browser job runs the duplicate-id assertion")
+      (async done
+        (seed-lines!)
+        (let [[container root] (mount!)]
+          (-> (render-lines! root)
+              (.then
+                (fn [_]
+                  (let [controls (.querySelectorAll
+                                   container "[data-field='description'] [data-part='control']")
+                        c1  (.item controls 0)
+                        c2  (.item controls 1)
+                        id1 (.getAttribute c1 "aria-describedby")
+                        id2 (.getAttribute c2 "aria-describedby")]
+                    (is (= 2 (.-length controls)) "non-vacuous: two description fields mounted")
+                    (is (some? id1) "line 1's control names a region")
+                    (is (some? id2) "line 2's control names a region")
+                    (is (not= id1 id2) "the two controls name DISTINCT regions")
+                    (is (.contains (.closest c1 "[data-component='acme/field']")
+                                   (.getElementById js/document id1))
+                        "line 1's aria-describedby resolves inside line 1's own field")
+                    (is (.contains (.closest c2 "[data-component='acme/field']")
+                                   (.getElementById js/document id2))
+                        "line 2's aria-describedby resolves inside line 2's own field"))))
+              (.then (fn [_] (teardown! container root) (done)))
+              (.catch (fn [e]
+                        (is false (str "the mounted pilot rejected: " e))
+                        (teardown! container root)
+                        (done)))))))))
 
 ;; ===========================================================================
 ;; The blocked cell, stated rather than skipped quietly

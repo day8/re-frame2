@@ -21,7 +21,7 @@
   promotion parity means."
   (:require [re-frame.freehand :as v]
             [re-frame.freehand.control :as control]
-            [re-frame.freehand.pilot-field :refer [buffered-kind]]))
+            [re-frame.freehand.pilot-field :refer [buffered-kind error-region-id]]))
 
 (v/defview field
   {:compiled true
@@ -33,9 +33,10 @@
               [:on-blur {:optional true} [:maybe :vector]]
               [:error {:optional true} [:maybe :string]]
               [:busy? {:optional true} :boolean]
-              [:columns {:optional true} :int]]}
-  [{:keys [name label value on-input on-blur error busy? columns]}]
-  (let [error-id (str "acme-field-" name "-error")]
+              [:columns {:optional true} :int]
+              [:instance {:optional true} :any]]}
+  [{:keys [name label value on-input on-blur error busy? columns instance]}]
+  (let [error-id (error-region-id "acme-field" instance name)]
     [:label {:data-component "acme/field"
              :data-part      "root"
              :data-field     name
@@ -67,7 +68,7 @@
   [{:keys [name label value on-commit error busy?] :as props}]
   (let [k        (control/record-key buffered-kind props)
         g        (control/reset-revision buffered-kind props)
-        error-id (str "acme-buffered-" name "-error")]
+        error-id (error-region-id "acme-buffered" (:control props))]
     [:label {:data-component "acme/buffered-field"
              :data-part      "root"
              :data-field     name
@@ -100,6 +101,7 @@
                              :prevent-default true}}
      [field {:name     "description"
              :label    "Description"
+             :instance id
              :value    (or (:description line) "")
              :columns  40
              :error    (v/sub [:acme.invoice/field-error id :description])
@@ -107,18 +109,21 @@
              :on-blur  [:acme.invoice/field-blurred id :description]}]
      [field {:name     "quantity"
              :label    "Quantity"
+             :instance id
              :value    (or (:quantity line) "")
              :error    (v/sub [:acme.invoice/field-error id :quantity])
              :on-input [:acme.invoice/field-edited id :quantity]
              :on-blur  [:acme.invoice/field-blurred id :quantity]}]
      [field {:name     "unit-price"
              :label    "Unit price"
+             :instance id
              :value    (or (:unit-price line) "")
              :error    (v/sub [:acme.invoice/field-error id :unit-price])
              :on-input [:acme.invoice/field-edited id :unit-price]
              :on-blur  [:acme.invoice/field-blurred id :unit-price]}]
      [field {:name     "account"
              :label    "Account"
+             :instance id
              :value    (or (:account line) "")
              :error    (v/sub [:acme.invoice/field-error id :account])
              :on-input [:acme.invoice/field-edited id :account]
