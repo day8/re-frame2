@@ -575,6 +575,15 @@
   [^EventOwner owner]
   (:lifecycle @(.-state owner)))
 
+(defn ^:no-doc committed-sites
+  "The COMMITTED site table — `{site-key plan}` — as an inspection seam
+  for tools and tests, never a publication. It hands back the EXACT plans
+  firing reads, including each site's proxy and its controlled-input door
+  verdict, so an assertion pins what the runtime will do rather than a
+  copy of it. Mirrors [[re-frame.freehand.cell/dependencies]]."
+  [^EventOwner owner]
+  (:sites @(.-state owner)))
+
 ;; ---------------------------------------------------------------------------
 ;; Firing
 ;; ---------------------------------------------------------------------------

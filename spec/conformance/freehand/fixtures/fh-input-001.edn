@@ -1,0 +1,143 @@
+;; FH-INPUT-001 — the exact controlled-input door predicate.
+;;
+;; One table over FINAL-NORMALIZED site facts. Each row is the whole
+;; question the door asks, and the answer it must give.
+;;
+;; The near-misses carry the weight. A door that is merely "about right"
+;; is worse than no door: a site wrongly BATCHED loses characters, and a
+;; site wrongly SYNCHRONOUS puts a full re-frame drain and a host flush
+;; inside every firing of an unrelated listener. So every row that is
+;; outside the door differs from an inside row by exactly ONE fact, and
+;; names which one.
+{:fh/id "FH-INPUT-001"
+ :fh/law
+ "A site is inside the controlled-input synchronous door only when all five facts hold: a supported native control tag, `value`/`checked` present in the final normalized props, a firing attribute normalizing to onInput/onChange, a synchronously-known event-vector-or-nil outcome, and no capture/passive listener option. `:on-before-input` is outside."
+
+ ;; ---------------------------------------------------------------------
+ ;; The predicate, fact by fact.
+ ;; ---------------------------------------------------------------------
+ :door-rows
+ [;; --- inside ---------------------------------------------------------
+  {:note  "the paved path — a literal event vector on a controlled input"
+   :site  {:tag :input :controlled? true :slot "onInput" :role :event-vector}
+   :door? true}
+
+  {:note  ":on-change is the second door attribute, not a lesser one"
+   :site  {:tag :input :controlled? true :slot "onChange" :role :event-vector}
+   :door? true}
+
+  {:note  "an options map carrying a vector keeps the proof (D009 fact 4)"
+   :site  {:tag :input :controlled? true :slot "onInput" :role :event-options}
+   :door? true}
+
+  {:note  "a v/event body names its outcome synchronously, so it rides too"
+   :site  {:tag :input :controlled? true :slot "onInput" :role :event}
+   :door? true}
+
+  {:note  "textarea and select are supported native controls"
+   :site  {:tag :textarea :controlled? true :slot "onInput" :role :event-vector}
+   :door? true}
+  {:note  "a select is controlled through :value and fires onChange"
+   :site  {:tag :select :controlled? true :slot "onChange" :role :event-vector}
+   :door? true}
+
+  ;; --- near-misses: one fact away from inside -------------------------
+  {:note    "NEAR-MISS — :on-before-input fires BEFORE the DOM mutation, so the target's value is not the candidate value; it is outside the door by ruling, not by omission"
+   :site    {:tag :input :controlled? true :slot "onBeforeInput" :role :event-vector}
+   :door?   false
+   :differs :slot}
+
+  {:note    "NEAR-MISS — a v/handler is imperative: what it dispatches, and whether it dispatches at all, is unknowable when the door would have to open"
+   :site    {:tag :input :controlled? true :slot "onInput" :role :handler}
+   :door?   false
+   :differs :role}
+
+  {:note    "NEAR-MISS — a bare function is the same unknowable outcome, spelled shorter"
+   :site    {:tag :input :controlled? true :slot "onInput" :role :bare-fn}
+   :door?   false
+   :differs :role}
+
+  {:note    "NEAR-MISS — an uncontrolled input has no value React restores, so there is nothing to race"
+   :site    {:tag :input :controlled? false :slot "onInput" :role :event-vector}
+   :door?   false
+   :differs :controlled?}
+
+  {:note    "NEAR-MISS — :value on a :div is not a control; the tag is a fact of the door"
+   :site    {:tag :div :controlled? true :slot "onInput" :role :event-vector}
+   :door?   false
+   :differs :tag}
+
+  {:note    "NEAR-MISS — a custom element's value is its own adapter's protocol, not React's restore"
+   :site    {:tag :my-field :controlled? true :slot "onInput" :role :event-vector}
+   :door?   false
+   :differs :tag}
+
+  {:note    "NEAR-MISS — the capture phase is a different native attachment lane"
+   :site    {:tag :input :controlled? true :slot "onInput" :role :event-options :capture? true}
+   :door?   false
+   :differs :capture?}
+
+  {:note    "NEAR-MISS — a passive listener is a different native attachment lane"
+   :site    {:tag :input :controlled? true :slot "onInput" :role :event-options :passive? true}
+   :door?   false
+   :differs :passive?}
+
+  {:note    "NEAR-MISS — the capture-phase SPELLING normalizes to its own slot and never collides with the door's"
+   :site    {:tag :input :controlled? true :slot "onInputCapture" :role :event-vector}
+   :door?   false
+   :differs :slot}
+
+  ;; --- plainly outside -------------------------------------------------
+  {:note  "an ordinary click is not a controlled edit, whatever props the element carries"
+   :site  {:tag :input :controlled? true :slot "onClick" :role :event-vector}
+   :door? false}
+
+  {:note  "a partially-known site answers false rather than guessing"
+   :site  {:tag :input :controlled? true}
+   :door? false}
+
+  {:note  "the empty site is outside"
+   :site  {}
+   :door? false}]
+
+ ;; ---------------------------------------------------------------------
+ ;; Final normalization — the door reads SLOTS, never authored keywords.
+ ;; ---------------------------------------------------------------------
+ :slot-rows
+ [{:note "the exact spelling"                :key :value           :slot "value"}
+  {:note "a namespaced alias reaches the same React prop"
+   :key :x/value :slot "value"}
+  {:note "a string key is that key written differently"
+   :key "value" :slot "value"}
+  {:note "checked is the second controlled slot"
+   :key :checked :slot "checked"}
+  {:note "a handler key normalizes to its React handler prop"
+   :key :on-input :slot "onInput"}
+  {:note "and so does a namespaced one"      :key :x/on-change     :slot "onChange"}
+  {:note "before-input has a slot of its own" :key :on-before-input :slot "onBeforeInput"}
+  {:note "the capture phase is a distinct slot"
+   :key :on-input-capture :slot "onInputCapture"}
+  {:note "defaultValue seeds an UNCONTROLLED input and is not a controlled slot"
+   :key :default-value :slot "defaultValue"}]
+
+ :controlled-rows
+ [{:note "presence of :value"                          :keys [:value :on-input]     :controlled? true}
+  {:note "presence of :checked"                        :keys [:checked :on-change]  :controlled? true}
+  {:note "an aliased spelling counts exactly as much"  :keys [:x/value]             :controlled? true}
+  {:note "presence, not truth — the value is not read" :keys [:value]               :controlled? true}
+  {:note ":default-value seeds an uncontrolled input"  :keys [:default-value]       :controlled? false}
+  {:note "no controlled slot at all"                   :keys [:on-input :class :id] :controlled? false}
+  {:note "an element with no props is uncontrolled"    :keys []                     :controlled? false}]
+
+ ;; ---------------------------------------------------------------------
+ ;; The compiled tier asks the SAME predicate, in the same vocabulary.
+ ;; ---------------------------------------------------------------------
+ :compiled-role-rows
+ [{:classification :vector   :role :event-vector}
+  {:classification :options  :role :event-options}
+  {:classification :ui-event :role :event}
+  {:classification :handler  :role :handler}
+  {:classification :fn       :role :bare-fn}
+  {:classification :dynamic  :role :dynamic}
+  {:note "an unmapped classification is :dynamic, which no door roster admits"
+   :classification :something-new :role :dynamic}]}

@@ -636,9 +636,108 @@ FH-EVENT-004.
 
 ### Controlled inputs
 
-**Lands in:** F2 — reactive intent. Carries the controlled-node predicate, the door
-event props, the synchronous same-tick scheduling guarantee, and the forwarding rules
-that preserve it.
+A controlled input is the one place where the render cycle meets a live node the
+user is typing into, and where the DOM value is only *provisional* until
+application state has round-tripped back through render. Hosts enforce that
+literally: React restores a controlled node's value from the props it last
+rendered at the end of a discrete event. A keystroke whose state change has not
+landed by then is not merely late — it is erased, and with it the caret, the
+selection, and any composition in flight.
+
+```clojure
+(v/defview title-field [{:keys [value]}]
+  [:input {:value    value
+           :on-input [:document/title-edited ::v/value]}])
+```
+
+Freehand's answer is a **narrow door**, not a mode. Making every event
+synchronous would impose that cost and its reentrancy on the whole system; the
+useful rule is one small enough to recognise mechanically, and identical in both
+execution modes. The ruling is
+[D009](../docs/design/freehand/decisions/D009-controlled-input-synchronous-flush.md).
+
+**The door predicate.** A site is inside the door when *all five* facts hold:
+
+| # | Fact |
+|---|---|
+| 1 | The element is a supported native control — `input`, `textarea`, `select`. Not a foreign component, and not a custom element, whose own synchronous protocol belongs to its adapter |
+| 2 | Its **final normalized** props carry `value` or `checked`. Presence, not truth: an explicit `nil` is a controlled node whose value is empty |
+| 3 | The firing attribute **normalizes to** `onInput` or `onChange` |
+| 4 | The handler's outcome is *synchronously known* to be one event vector or `nil` — a vector, an options map carrying one, or `v/event` |
+| 5 | No listener option moves the site onto a different native attachment lane. `:capture` and `:passive` are outside |
+
+The predicate reads **normalized slots, never authored keywords**. Both walks
+project an attribute key onto the prop they actually write, so `:x/value`
+reaches `value` and makes the node controlled exactly as `:value` does; judging
+the authored keyword would leave every other spelling of one emitted prop
+outside the door. It is a property of the *whole element*, so it is decided
+after every prop is normalized, not handler by handler.
+
+`v/handler`, bare functions, promises and foreign callback protocols are
+outside. Not because they cannot dispatch, but because what they dispatch — and
+whether they dispatch at all, or later — is unknowable at the moment the door
+would have to open. `nil` means no dispatch and needs no flush.
+
+**`:on-before-input` is outside the door.** `beforeinput` fires *before* the DOM
+mutation, so the target's value is not generally the candidate value, and
+composition needs its own evidence. It remains an ordinary event site; admitting
+it would require a browser-backed projection and composition contract, not a
+name added to a list.
+
+**The synchronous round trip.** Opening the door commits a second, frame-bound
+dispatcher beside the ordinary one. A site belongs to exactly one lane, and both
+are published by the same commit against the same frame, so a retarget moves
+them together:
+
+```text
+native callback
+  → select and materialize one intent
+  → dispatch against the exact committed frame
+  → drain the frame synchronously
+  → flush the cells observing that frame
+  → return to the host's event processing
+```
+
+The flush is **frame-scoped**. Not global: a keystroke in one frame must never
+force another frame's pending work to settle inside a listener it has nothing to
+do with. Not narrower than the frame either: an occurrence-scoped flush would
+let a sibling reading the same frame commit an older snapshot of state the
+flushed cell has already moved past. Cells dirty on that frame for unrelated
+reasons do ride the flush — that coupling is honest, it is measurable, and it is
+reduced with ordinary boundary and subscription granularity, not with a second
+source of truth.
+
+The public guarantee is the **observable round trip**, not a promise about a
+particular host API: the value the user typed reaches application state and
+comes back to the element within the same user action, so characters are not
+dropped, the caret and selection do not move, and composition survives. A host
+may flush additional pending work; that is a performance fact, and it belongs in
+the trace rather than in the contract.
+
+**One predicate, both modes.** The compiled tier applies the same predicate at
+compile time over statically proved facts; the interpreted walk applies it at
+render time over the props it just normalized. Neither owns a copy, so promotion
+cannot silently move a field from synchronous to batched. Where the compiled
+grammar cannot prove the facts — a handler expression whose class is decided at
+runtime — the verdict belongs to the common predicate at render time, never to
+an unconditionally batched lowering.
+
+**Forwarding preserves the proof.** A component library that forwards a
+consumer's attributes onto its own controlled element does so through
+`v/spread-safe`, which denies the caller `value`, `checked`, and the component's
+own handler slots — in every build, by normalized slot, so no alternate spelling
+routes around it. An opaque spread cannot claim the guarantee, because nothing
+about it is provable.
+
+**Not this slice.** Buffered and draft controls — a field that holds a local
+draft and commits on blur or Enter — are a controller protocol, not a scheduling
+rule; they are ruled by
+[D016](../docs/design/freehand/decisions/D016-buffered-and-revision-controls.md).
+There is no general synchronous-render escape hatch, and render-phase mutation
+of a host node is permanently outside the model.
+
+**Conformance:** [FH-INPUT-001](conformance/freehand/conformance-index.md#fh-input--controlled-input),
+FH-INPUT-002.
 
 ### Semantic controllers
 
