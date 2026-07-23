@@ -265,6 +265,108 @@ counts **mounts** under the `:interp-slots` column — a runtime, per-occurrence
 fact, and one interp slot inside a keyed list contributes one mount per row.
 Neither is derivable from the other, which is why both exist.
 
+## Static manifests and capability elision
+
+The crossings roster is one entry in a larger promise. What a compiled
+declaration carries is a **manifest**: the finite set of rosters its analysis
+makes statically knowable, plus the one verdict those rosters decide. The
+manifest is what lets a reader learn what a view does without running it, a tool
+inventory a codebase without mounting it, and the compiled tier claim — provably
+— that a view proven inert costs nothing at runtime. Its worth rests on being
+**complete**: every reactive read, every intent, every crossing the body carries
+appears in it, because the whole soundness of capability elision depends on the
+analyzer having seen every reactive call ([§Template grammar](#template-grammar)
+— expression positions).
+
+### The finite manifest
+
+Every roster is finite, in source order, and a projection of the analyzer's
+lexical site index — never a re-derivation a second pass could drift from.
+
+| Roster | What it names |
+|---|---|
+| `:subscriptions` | each `sub` read: the query it read and its site coordinates |
+| `:events` | each committed event handler site and its source coordinate |
+| `:slots` | each compiled render-slot site, and whether its `render-fn` was inline |
+| `:frame-ops` | each `(frame)` committed-frame read |
+| `:html-sites` | each trusted-markup `ui/html` site |
+| `:crossings` | the internal-view boundaries the body mounts, each MARKED with the mode it crosses into (§Manifests mark the crossing) |
+| `:capabilities` | the union of the structural capability bits the AST names (`:raw` / `:html` / `:foreign` / `:render-slot` / `:render-fn` / `:custom-element` / `:spread` / `:spread-safe`) with the reactive and host-hook bits the sites own |
+
+A roster is **empty**, never absent, when the body carries no site of its kind:
+an empty roster is a positive claim — *this view reads nothing* — and an absent
+one would be silence a reader could not distinguish from an un-analyzed view. The
+rosters whose authoring forms land with a later slice (presence, top-layer, error
+boundaries, and the reactive-read forms themselves) are declared here and
+populate as those forms become part of the grammar; a manifest never reports a
+site it could not have seen. Source coordinates ride each site so a manifest fact
+and a build-log line name the same lexical position.
+
+### The capability-elision verdict
+
+From the rosters follows the one thing compilation buys that interpretation
+cannot. A compiled view that carries **no reactive site** — no `sub`, no
+committed event handler, no `dispatch-fn`, and no `(frame)` read — never observes
+frame context, so it needs neither a subscription bridge nor a committed event
+owner. Its reactive **ViewCell shell is omitted**, and the production lowering is
+a plain memoized component over its generated prop-slot comparator. The manifest
+records the verdict as `:view-cell :elided` with `:reactive? false`; a view with
+any reactive site carries `:view-cell :present`.
+
+The asymmetry with the interpreted shell is deliberate and load-bearing. **The
+interpreted shell always observes context**, because the interpreted mode has no
+finite grammar and cannot prove a body sub-free, so it cannot safely drop the
+observation. **Compiled elision requires proof**, and the proof is the manifest:
+the shell is dropped only for a body the analyzer has shown carries none of the
+reactive four. A `local` or an `effect` alone is ordinary React machinery that
+rides a plain component, not the reactive shell, so it does not force the ViewCell
+— only a genuine reactive read does.
+
+The verdict is **deterministic** — a static function of the analyzed sites, never
+a timing measurement (EP-0036 D021). That is why the number of views that omit
+the shell over a corpus of known cardinality is an assertion on an **exact
+integer**, not a threshold: a gate that counted the omitted cells and compared
+against a bound would pass a corpus that silently stopped eliding one view, and
+the integer does not. `:reactive?` and `:view-cell` are two facets of one
+verdict and can never disagree.
+
+### The elision oracle
+
+An omitted shell is an ABSENCE, and an absence is only as good as the instrument
+that looked for it — so the instrument is named, and its discrimination is proven
+before it is trusted. §Evidence for the absence fixes the discipline this section
+inherits: a production-bundle text search is **not** an acceptable oracle. Two
+failures have been measured in this repository — identifier text survives into a
+release build inside docstrings, and the Closure compiler inlines small functions,
+so a symbol can be absent while its code is present — and either mistake turns a
+zero count into a false negative that reads like evidence.
+
+The oracle is instead the **emitted lowering walked as data**, symbol by symbol
+at build time, where nothing has been inlined, minified, or renamed: a compiled
+view's lowering either names a reactive-shell entry point or it does not, and a
+qualified-symbol reference is a fact about the emitted structure that no
+docstring or textual coincidence can forge. A suite asserting the absence MUST
+first demonstrate, in the same emit configuration, that the same walk finds a
+KNOWN-PRESENT symbol, reports a KNOWN-ABSENT one as absent, and flags a
+COUNTERFACTUAL lowering that DOES name the shell — the reactive twin of the inert
+view under test, differing only in whether the body carries a reactive site. Two
+further disciplines close the escape routes a naive check leaves open: the walk
+compares qualified symbols in the emitted data rather than substrings of its
+printout, so the probe's own text — the sentinel named in the suite's own source
+— cannot satisfy the probe; and one token known to survive the same lowering is
+asserted PRESENT, so a mis-targeted probe that found nothing anywhere fails
+loudly instead of passing as a false absence.
+
+Where a build ships a real production bundle, the same discipline carries over as
+a **control build**: the same entry compiled at the same `:advanced` level with
+the elision gate as the ONLY variable, string-literal sentinels asserted PRESENT
+in the `goog.DEBUG=true` control and ABSENT in production, and one token asserted
+present in the production bundle to catch a mis-targeted probe. The two oracles
+answer the same question at two tiers — the emitted lowering proves the shell is
+never referenced from an inert view, so a bundler's reachability analysis cannot
+reach the shell module from a bundle of only inert views; the control build
+proves the reference graph the bundle actually ships agrees.
+
 ## The portability law and the template AST
 
 **A portable view has one deterministic, serialisable template representation, produced
