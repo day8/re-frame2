@@ -109,17 +109,16 @@
                                           (throw e))))
                                     {:phase :render :frame-id nil}))))
           quiet   (future
-                    (do
-                      (rendezvous! barrier)                      ; 1
-                      (rendezvous! barrier)                      ; 2
-                      ;; Enter a containment NOW — after the peer's note, before
-                      ;; the peer's catch.
-                      (let [b (eb/boundary eb/boundary-view-id :rk)]
-                        (eb/contain b
-                                    (fn []
-                                      (rendezvous! barrier)      ; 3
-                                      (tree/render [healthy {}]))
-                                    {:phase :render :frame-id nil}))))
+                    (rendezvous! barrier)                        ; 1
+                    (rendezvous! barrier)                        ; 2
+                    ;; Enter a containment NOW — after the peer's note, before
+                    ;; the peer's catch.
+                    (let [b (eb/boundary eb/boundary-view-id :rk)]
+                      (eb/contain b
+                                  (fn []
+                                    (rendezvous! barrier)        ; 3
+                                    (tree/render [healthy {}]))
+                                  {:phase :render :frame-id nil})))
           summary (deref failing 15000 ::timeout)
           outcome (deref quiet 15000 ::timeout)]
       (is (not= ::timeout summary) "the failing walk finished")

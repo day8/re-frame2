@@ -1056,6 +1056,14 @@ summary says so: the view id is `:re-frame.freehand/unknown-view` and the
 evidence is incomplete with a `:loss` naming why. Truthful ignorance, never the
 boundary's own id in the failing slot.
 
+Attribution is **failure-local**: it belongs to the throw, not to the boundary
+that catches next. Failures overlap routinely — a host may finish rendering
+every failed subtree of a commit before it reports any of them, a fallback may
+fail while the failure it replaced is still unreported, and two renders may run
+at once — and each report names the view that threw the failure that report is
+about. One failure can neither borrow, suppress, nor erase another's identity,
+and a failure nothing ever reported leaves nothing a later boundary can read.
+
 The summary carries **nothing** host-shaped: not the raw exception, not
 `ex-data`, not props, not app-db, not event payloads — every one of those is a
 data-classification hazard, and the envelope is what may reach an event vector
