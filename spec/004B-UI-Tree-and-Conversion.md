@@ -259,10 +259,23 @@ there would claim one that does not exist and would silently replace a value the
 will go looking for; and an event vector is dispatched as data at run time as well as
 compared as data in a test, so an intent carrying a marker would no longer mean what
 its site does. "Data" here is the **EDN value grammar** exactly — nil, booleans,
-strings, keywords, symbols, numbers, `#uuid`, `#inst`, and collections of those; the
-grammar the round-trip promise is stated in. Ordinary nested EDN is untouched, and the
-check is read-only: nothing is rewritten, so a prop that passes is the value the author
-passed.
+strings, characters, keywords, symbols, numbers, `#uuid`, `#inst`, and EDN's four
+collections (list, vector, map, set) of those; the grammar the round-trip promise is
+stated in. Ordinary nested EDN is untouched, and the check is read-only: nothing is
+rewritten, so a prop that passes is the value the author passed.
+
+Two boundaries follow from stating that grammar as **EDN's**, rather than as whatever
+the host's collection and number predicates happen to admit. A collection a host
+implements *outside* those four is not data however collection-like it is: a persistent
+queue prints `#object[…]` on the JVM and `#queue […]` in ClojureScript and reads back
+on neither host's counterpart, and a record prints a tag no EDN reader has — so a tree
+holding either would print and fail to read, or read on one host only, which is the
+same defect as a host object. And `##NaN` is not data either, because the promise is
+that the tree prints and reads back **equal**: `##NaN` is the one value that survives
+print/read while never comparing equal to itself, so a tree carrying one is not equal
+to itself — and the tree is an equality input (a fingerprint hashes one, a structural
+assertion compares one, §Canonical uniqueness). Both are rejected exactly as any other
+non-data value is, at the site that recorded them.
 
 A **template option is not a prop at all.** A reserved internal view whose option holds
 *markup* rather than a value — `v/error-boundary`'s `:fallback` — has that option

@@ -70,12 +70,39 @@
 ;; value nested inside a recorded value is REFUSED, at the site that recorded
 ;; it, exactly as every other value outside the tree's closed grammars is.
 
-(defn- edn-scalar?
-  "Is `x` an EDN leaf — a value that prints and reads back as itself on
-  BOTH hosts?"
+(defn- nan?
+  "Is `x` `##NaN` — the one value in the scalar grammar below that prints
+  and reads back and is STILL not itself?
+
+  Asked through NUMERIC equality, not `=` and not a host `isNaN`. `(= x x)`
+  cannot answer it: `clojure.lang.Util/equiv` returns true on reference
+  identity before it looks at the values, so a value compared with itself
+  is equal to itself by construction. A host `isNaN` cannot be asked
+  either — the JVM's takes a `double`, and a Ratio or a BigDecimal cannot
+  be handed to one. `==` is defined on every number on both hosts and
+  compares numerically, which is the only comparison NaN fails."
   [x]
-  (or (string? x) (keyword? x) (number? x) (boolean? x) (nil? x) (symbol? x)
+  (and (number? x) (not (== x x))))
+
+(defn- edn-scalar?
+  "Is `x` an EDN leaf — a value that prints and READS BACK EQUAL on the
+  host it was written on?
+
+  Equal, not merely readable, because the tree is an equality input: a
+  fingerprint compares one, a structural test asserts on one, and a
+  reconciler is handed one. `##NaN` is the single value that satisfies
+  print/read and fails that: it is not equal to itself, so a tree holding
+  one is not equal to itself either. It is refused with everything else
+  the tree cannot promise."
+  [x]
+  (or (string? x) (keyword? x) (boolean? x) (nil? x) (symbol? x)
+      (and (number? x) (not (nan? x)))
       (uuid? x)
+      ;; A JVM character is ordinary EDN — `\\a` prints and reads back —
+      ;; and the host it does not exist on has nothing to disagree about:
+      ;; ClojureScript reads `\\a` as the one-character string it already
+      ;; accepts, which is what `char?` answers there.
+      (char? x)
       ;; EDN's other built-in tagged literal. `inst?` is NOT the predicate:
       ;; it answers true for `java.time.Instant`, which prints `#object[…]`
       ;; and does not read back. The instant that prints `#inst` is the
@@ -88,6 +115,16 @@
   indices walked to reach it, so a diagnostic names the offending SITE
   rather than the whole prop.
 
+  DATA is the EDN value grammar exactly — the scalars above, and the four
+  collections EDN spells: map, vector, set, list. The arms below name
+  those four rather than asking `coll?`, because `coll?` is a question
+  about a host INTERFACE and collections implement it with no EDN spelling
+  at all: a `defrecord` value answers `map?` while printing `#user.R{…}`,
+  which no EDN reader has a tag for, and a persistent QUEUE answers a
+  collection predicate on either host while printing outside EDN on both.
+  Such a value was accepted, printed, and failed to read back — the round
+  trip this rule exists to promise.
+
   READ-ONLY and short-circuiting — nothing is rebuilt, and the walk stops
   at the first offender. The ordinary case (a scalar prop, or a small map
   of them) costs one predicate per value and allocates nothing, which is
@@ -98,9 +135,19 @@
     (edn-scalar? x)
     nil
 
+    ;; A QUEUE, named — the one collection whose EDN status differs BY
+    ;; HOST, which is the sharpest reason the rule cannot be a host
+    ;; predicate. On the JVM it prints `#object[…]` and no reader takes it;
+    ;; in ClojureScript it satisfies `ISeq` and prints `#queue […]`, a tag
+    ;; `clojure.edn` does not have. Accepting it where it happens to read
+    ;; back would make one declaration answer a tree on one host and a
+    ;; refusal on the other, and the tree is ONE value on two hosts.
+    (instance? #?(:clj clojure.lang.PersistentQueue :cljs PersistentQueue) x)
+    [[] x]
+
     ;; `reduce-kv` over a vector answers index/element — exactly the path
     ;; segment wanted — so maps and vectors share one arm.
-    (or (map? x) (vector? x))
+    (or (and (map? x) (not (record? x))) (vector? x))
     (reduce-kv (fn [_ k v]
                  (if-let [found (or (non-data k)
                                     (when-let [[p bad] (non-data v)]
@@ -111,7 +158,10 @@
                x)
 
     ;; A set or a seq has no position worth naming, so the path stops here.
-    (coll? x)
+    ;; `seq?` rather than `list?`: EDN's list is anything that prints as
+    ;; `(…)`, which is every `ISeq`, and `list?` additionally answers true
+    ;; for a PersistentQueue.
+    (or (set? x) (seq? x))
     (reduce (fn [_ v] (when-let [found (non-data v)] (reduced found))) nil x)
 
     :else
@@ -122,6 +172,14 @@
   offending value IS the recorded value."
   [path]
   (if (seq path) (str " at " (pr-str path)) ""))
+
+(defn- offender-name
+  "How a refusal NAMES the value that may not be recorded. `##NaN` by its
+  own spelling rather than as `number`, because the number grammar is
+  otherwise wide open and `carries a number` would leave the refusal
+  unreadable."
+  [x]
+  (if (nan? x) "##NaN" (type-name x)))
 
 ;; ---------------------------------------------------------------------------
 ;; The namespace context (SVG / MathML)
@@ -341,25 +399,25 @@
     (vector? v) (do (when-let [[path bad] (non-data v)]
                       (malformed!
                         're-frame.freehand/render
-                        (str "The " k " handler on " tag " carries a " (type-name bad)
+                        (str "The " k " handler on " tag " carries a " (offender-name bad)
                              (at-path path)
                              " inside its event intent. An event vector is recorded "
                              "verbatim and is data through and through — a test compares "
                              "it as data and the event system dispatches it as data, so "
-                             "an argument inside it has no cross-host spelling. A function "
-                             "records as the opaque marker when it IS the handler value; "
-                             "it cannot ride inside the intent.")
+                             "an argument inside it has to print and read back EQUAL. A "
+                             "function records as the opaque marker when it IS the handler "
+                             "value; it cannot ride inside the intent.")
                         {:attr k :path path :value (shape bad)}))
                     v)
     (map? v)    (do (when-let [[path bad] (non-data v)]
                       (malformed!
                         're-frame.freehand/render
-                        (str "The " k " handler on " tag " carries a " (type-name bad)
+                        (str "The " k " handler on " tag " carries a " (offender-name bad)
                              (at-path path)
                              " inside its options map. An options map is recorded verbatim "
                              "and is data through and through — the structural tree prints "
-                             "and reads back losslessly, so a value inside one has no "
-                             "cross-host spelling. A function records as the opaque marker "
+                             "and reads back EQUAL, so a value inside one has to survive "
+                             "that round trip. A function records as the opaque marker "
                              "when it IS the handler value; it cannot ride inside the "
                              "options.")
                         {:attr k :path path :value (shape bad)}))
@@ -504,11 +562,11 @@
     (do (when-let [[path bad] (non-data x)]
           (malformed!
             're-frame.freehand/render
-            (str "The " k " prop on " view-id " carries a " (type-name bad)
+            (str "The " k " prop on " view-id " carries a " (offender-name bad)
                  (at-path path)
                  ". A recorded prop is data through and through — the structural "
-                 "tree prints and reads back losslessly on both hosts, so a value "
-                 "inside one has no cross-host spelling. A callback records as the "
+                 "tree prints and reads back EQUAL on both hosts, so a value inside "
+                 "one has to survive that round trip. A callback records as the "
                  "opaque marker when it IS the prop; pass it as its own prop rather "
                  "than nesting it in data.")
             {:prop k :path path :value (shape bad)}))
