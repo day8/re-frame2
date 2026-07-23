@@ -1499,6 +1499,19 @@ no memory. Lifecycle facts are tool evidence, not domain events — there is no
 mount event, no unmount event, and no per-occurrence teardown slot on the public
 surface.
 
+**The absence is the SUBSTRATE's, and it is synchronous** — the table is empty at
+the instant the last connection is released, which is what lets a test assert an
+exact integer rather than trust a path. What `:disconnect` itself released is the
+AUTHOR's, and a host is entitled to refuse a synchronous release: React will not
+unmount a nested root from inside a render, so a behavior that opened one defers
+the unmount and its second tree is still open at the moment the substrate's own
+absence is already true. That gap belongs to the host, not to this contract, and
+it cannot be closed by the substrate — nothing here can know what a `:disconnect`
+handed to a library. So a leak check counting the substrate's connections asserts
+at the instant of unmount, and one counting the author's own host resources waits
+for whatever release the host imposed. A guide that teaches an integration whose
+release is deferred teaches the wait alongside it.
+
 #### The bounded command channel
 
 Desired state normally flows through `:config` and `:update`. A one-shot

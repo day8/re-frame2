@@ -142,6 +142,12 @@
 ;; Nothing an application author writes can avoid this while the nested root
 ;; IS the integration path — which is the argument for the qualified host
 ;; leaf, made in the currency of a warning in the console.
+;;
+;; The gap is MEASURED rather than merely described:
+;; `the-nested-roots-release-is-the-one-that-is-not-synchronous` in the
+;; mounted suite unmounts outside `act` and reads the instant between the
+;; substrate's release (already total) and React's (one microtask away, with
+;; the foreign component's `window` listener still installed).
 
 (defn- close-root!
   [root]
