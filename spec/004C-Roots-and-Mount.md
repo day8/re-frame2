@@ -647,10 +647,8 @@ real boundary node in that tree — its qualified id, its props and its
 expansion — so the root's occurrence is addressable structurally, not
 flattened into anonymous markup.
 
-Frame preflight (§3, §6), authored identity and `:disambiguator` (§1),
-multi-root duplicate detection (§7), failed-root isolation (§7.1), total
-teardown and hydration (§4) are later work; the bare declared view at the
-head is the whole interpreted grammar this slice ships.
+Everything below adds to that spelling without changing it: a page of
+one root, with no opts, still authors nothing.
 
 ### Hot reload keeps the root identity and the mounted occurrence
 
@@ -717,6 +715,97 @@ evidence (see [006 §The Freehand atomic shell](006-ReactiveSubstrate.md)). The
 host simply renders again at the new body.
 
 **Conformance:** [FH-ROOT-002](conformance/freehand/conformance-index.md#fh-root--roots-and-ssr).
+
+### Several roots on one page
+
+A page is N roots, and the whole reason to build it that way is that the
+roots are independent. Independence is not a hope: it is three claims each
+root makes in the per-document registry, and each of them is asserted
+**before the root renders anything**.
+
+The claims are the root's **id**, its **container**, and its effective
+**identifierPrefix**, and the diagnostics are the ones §7 already names —
+`:rf.error/duplicate-root-id`, `:rf.error/root-container-in-use`,
+`:rf.error/duplicate-identifier-prefix`. Every one of them is raised with
+the roots already on the page untouched. That is what failure isolation
+means at admission time, and it is cheaper than it sounds: a mount that
+has written nothing has nothing to roll back.
+
+Two roots of the SAME view are the case the derivation default cannot
+answer on its own, because both would derive one id. The author says which
+fact distinguishes them, in one of two spellings:
+
+```clojure
+(v/mount [panel {:side :left}]  left-node  {:disambiguator :left})   ; ⇒ [:shop/panel :left]
+(v/mount [panel {:side :right}] right-node {:root-id :shop/right})   ; ⇒ :shop/right
+```
+
+`:disambiguator` appends a scalar to the derived id; `:root-id` names the
+id outright. The descriptor records which happened
+(`:root-id-provenance`), so a later duplicate diagnostic can say *both ids
+derived from the same view* rather than leaving the reader to work out
+why two mounts collided.
+
+Distinct ids give distinct `identifierPrefix` values for free, because the
+slug is injective (§1) — so the prefix check is never tripped by the
+framework's own derivation, only by an authored prefix that aliases.
+
+**Conformance:** [FH-ROOT-003](conformance/freehand/conformance-index.md#fh-root--roots-and-ssr).
+
+### Preflight runs before React
+
+A root's frame is settled **before** `createRoot`, not by an effect that
+runs after the first paint. The ordering is the whole point: a view body
+that reads a subscription on its first render must find a frame that is
+already there, and a root that cannot get one must fail before it has put
+anything on the page.
+
+The interpreted spelling is the `:frame` opt, and its two shapes are two
+different lifetimes:
+
+```clojure
+(v/mount [app {}] node {:frame {:id :shop/main :initial-events [[:shop/boot]]}})  ; ENSURE — the root owns it
+(v/mount [app {}] node {:frame :shop/main})                                       ; SCOPE  — something else owns it
+```
+
+The ENSURE shape creates the frame if it is absent and drains its
+`:initial-events`; meeting the same plan again is the ratified idempotent
+no-op, and re-seeding is precisely what it must not do. The SCOPE shape
+creates nothing, and a target naming no live frame fails loud rather than
+scoping every read below the root to a frame that is not there.
+
+Plans meeting one frame are reconciled by the §7 rule, unchanged: an equal
+config fingerprint is the no-op, and a DIFFERENT fingerprint recorded by a
+DIFFERENT root fails **that root** with
+`:rf.error/frame-payload-conflict`, before install and before React. The
+installed frame and the roots already using it are untouched — a bad plan
+affects exactly the roots carrying it.
+
+**Conformance:** [FH-ROOT-004](conformance/freehand/conformance-index.md#fh-root--roots-and-ssr).
+
+### Total teardown
+
+`(v/unmount! root)` is total, and "total" is a claim about what is left
+rather than about what was called. Afterwards the root holds no id,
+container or prefix claim; the host root is unmounted, so every ViewCell
+beneath it has disconnected and released every dependency it owned and
+retired every callback it published; and the root's reference to its frame
+is gone. A frame the root ENSUREd is DESTROYED once no live root still
+references it; a frame the root merely SCOPED is left exactly as it was
+found, because the root borrowed it.
+
+The count that matters is zero, and it is asserted as zero — not as
+"small", and not as the absence of a visible symptom. A leak here is a
+long dev session's leak: a released root whose subscriptions still
+recompute on every write is invisible until the page is slow for reasons
+nobody can attribute.
+
+`unmount!` is **guarded and idempotent**: a root already unmounted, or one
+superseded by a newer root that claimed its id, is a no-op rather than a
+throw. Tearing down on a stale handle's behalf would tear down the
+successor, which is a worse answer than doing nothing.
+
+**Conformance:** [FH-ROOT-005](conformance/freehand/conformance-index.md#fh-root--roots-and-ssr).
 
 ## 10. Stage placement
 

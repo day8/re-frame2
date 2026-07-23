@@ -1,0 +1,63 @@
+;; FH-ROOT-003 — two roots of ONE view on one page.
+;;
+;; The derivation default cannot answer this case alone: both mounts would
+;; derive the same id from the same view. So the author states the fact that
+;; distinguishes them, in one of two spellings — `:disambiguator`, which
+;; APPENDS a scalar to the derived id, or `:root-id`, which names the id
+;; outright — and the descriptor records which happened.
+;;
+;; What must then be true is independence, and independence is proven with
+;; state that cannot be shared by accident: each panel's UNCONTROLLED input.
+;; Type into the left one and the right one must not move. Two roots sharing
+;; a host root, a boundary, or an identity would show it here immediately.
+;;
+;; The other half of the row is the three admission claims. Each is asserted
+;; BEFORE the offending root renders anything, and each leaves the roots
+;; already on the page untouched — so the fixture pins both the diagnostic
+;; and the fact that the incumbent kept working.
+{:fh/id "FH-ROOT-003"
+ :fh/law
+ "Two roots of one view on one page hold independent identity and independent state — distinguished by :disambiguator or an authored :root-id, each with its own host root, its own occurrence and its own injective identifierPrefix — and the three admission claims (id, container, prefix) each fail loud BEFORE any render, leaving every root already on the page rendering and untouched."
+
+ :view :panel
+
+ ;; The two spellings, and the ids they resolve to.
+ :left  {:opts   {:disambiguator :left}
+         :root-id [:re-frame.freehand.root-views/panel :left]
+         :provenance :derived
+         :label  "left"
+         :seed   "left-seed"
+         :typed  "left-typed"}
+ :right {:opts   {:root-id :fh.root/right}
+         :root-id :fh.root/right
+         :provenance :authored
+         :label  "right"
+         :seed   "right-seed"
+         :typed  "right-typed"}
+
+ ;; An authored id's derived prefix, pinned exactly: the slug is the
+ ;; decodable canonical form, so `.` escapes to `_2e_` and the
+ ;; namespace/name boundary is the `_S` marker.
+ :right-identifier-prefix "rf2-fh_2e_root_Sright-"
+
+ ;; The derived pair need only be DISTINCT — which is the injectivity claim,
+ ;; and the reason the framework's own derivation can never trip the
+ ;; prefix-uniqueness check.
+ :prefixes-distinct true
+
+ ;; The three admission claims. Each names the diagnostic and asserts the
+ ;; incumbent root is untouched: still registered, still rendering.
+ :claims
+ [{:claim :root-id
+   :note  "the same root-id, in a DIFFERENT container"
+   :error :rf.error/duplicate-root-id}
+  {:claim :container
+   :note  "a DIFFERENT root-id, into a container another root owns"
+   :error :rf.error/root-container-in-use}
+  {:claim :identifier-prefix
+   :note  "an AUTHORED identifier-prefix that aliases a live root's"
+   :error :rf.error/duplicate-identifier-prefix}]
+
+ ;; Nothing is left behind by a rejected mount, because nothing was written:
+ ;; the registry still holds exactly the roots that were there.
+ :live-roots-after-rejection 2}

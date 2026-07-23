@@ -1,0 +1,57 @@
+;; FH-ROOT-004 — the frame is settled before React exists.
+;;
+;; The ordering is the whole claim. A view body that reads a subscription on
+;; its FIRST render must find a frame that is already live and already
+;; seeded — not one an effect creates after the first paint, which would
+;; render `nil` once and correct itself, and would do it differently under
+;; StrictMode, streaming, or a slow first commit.
+;;
+;; So the proof is the first rendered text. `counter` reads `[:root/n]` and
+;; prints it; the plan's `:initial-events` seed that value. If preflight ran
+;; late the DOM would say the empty read, and no amount of settling would
+;; make that first frame right again.
+;;
+;; The two `:frame` spellings are two LIFETIMES, and the difference is what
+;; teardown later acts on: an ENSURE plan (a make-frame opts map carrying
+;; `:id`) is a frame the root owns, a SCOPE reference (a bare frame-id
+;; keyword) is one it borrows.
+;;
+;; The conflict arm is the isolation claim: a second root arriving with a
+;; DIFFERENT config for one frame fails, before install and before React,
+;; and the installed frame — plus the sibling root already rendering against
+;; it — is untouched.
+{:fh/id "FH-ROOT-004"
+ :fh/law
+ "A root's frame plan runs to completion before the host root exists — the frame is live and its initial events drained by the time the first render reads a subscription — the ENSURE and SCOPE spellings own and borrow the frame's lifetime respectively, and a plan meeting one frame under a different config fingerprint fails that root with :rf.error/frame-payload-conflict before install and before React, with the installed frame and its sibling roots untouched."
+
+ :view :counter
+ :query [:root/n]
+
+ ;; ENSURE — the root owns the frame. The seed rides `:initial-events`, so
+ ;; a preflight that ran late would show the un-seeded read instead.
+ :ensure {:frame-id :fh.root/preflight
+          :seeded   7
+          :first-render-text "7"}
+
+ ;; SCOPE — the root borrows a frame something else created.
+ :scope {:frame-id :fh.root/borrowed
+         :seeded   11
+         :first-render-text "11"}
+
+ ;; A keyword :frame naming no live frame is a configuration error, not a
+ ;; silent frameless subtree.
+ :absent-scope {:frame-id :fh.root/never-created
+                :error    :rf.error/frame-provider-frame-absent}
+
+ ;; The conflict. A second root's ENSURE plan for the same frame under a
+ ;; different config fingerprint fails THAT root.
+ :conflict {:error :rf.error/frame-payload-conflict
+            ;; and the incumbent is untouched — same frame, same value, same
+            ;; rendered text, still exactly one live root
+            :incumbent-text "7"
+            :live-roots-after 1}
+
+ ;; The rejected root left nothing: no host root on its container, no
+ ;; registry entry, no second ledger record.
+ :rejected-container-children 0
+ :ledger-entries-after 1}
