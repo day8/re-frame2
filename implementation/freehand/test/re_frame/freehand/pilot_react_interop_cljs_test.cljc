@@ -215,14 +215,21 @@
             the use site authored. On the structural host there is no live
             connection, so the command performs no host work.
 
-            TWO things an adopter has to discover the hard way, and both are
-            reported as findings:
+            THREE things an adopter has to discover the hard way, and all
+            three are reported as findings:
 
             1. An fx refusal does NOT propagate out of `dispatch-sync` —
                re-frame catches it and routes it to the always-on error axis.
                The public seam for observing one is
                `rf/register-listener! :errors`.
-            2. On the JVM there is no refusal to observe AT ALL. The command
+            2. The record that arrives there is NOT typed as a command
+               refusal. `:re-frame.freehand.host/command` is a registrar fx,
+               so its typed diagnostic is flattened to the generic
+               `:rf.error/fx-handler-exception` and the real id has to be
+               dug out of the record's `:exception`. An operator surface
+               that wanted to show `your command was refused, and why` has to
+               know to unwrap.
+            3. On the JVM there is no refusal to observe AT ALL. The command
                fx is registered `{:platforms #{:client}}`, so the structural
                host SKIPS it (a `:rf.fx/skipped-on-platform` trace) and the
                JVM refusal `command!` carries is never reached through the
@@ -239,14 +246,20 @@
         (is (= {:instances 0 :listeners 0 :constructed 0 :destroyed 0}
                (pilot/ledger-snapshot))
             "a command with no live connection performs NO host work")
-        (let [ids (mapv :error @seen)]
+        (let [ids   (mapv :error @seen)
+              inner (mapv #(:rf.error/id (ex-data (:exception %))) @seen)]
           #?(:cljs
-             (is (some #{:rf.error/behavior-command-refused} ids)
-                 (str "the refusal is a typed, visible record; got " (pr-str ids)))
+             (do
+               (is (= [:rf.error/fx-handler-exception] ids)
+                   (str "the error axis sees the GENERIC fx wrapper, not the "
+                        "command's own id — finding (2) above; got " (pr-str ids)))
+               (is (= [:rf.error/behavior-command-refused] inner)
+                   (str "and the typed refusal is one unwrap deeper, inside the "
+                        "record's :exception; got " (pr-str inner))))
              :clj
              (is (empty? ids)
                  (str "on the STRUCTURAL host the client-only fx is skipped, so "
-                      "there is no refusal record to observe — finding (2) above; "
+                      "there is no refusal record to observe — finding (3) above; "
                       "got " (pr-str ids)))))
         (finally
           (rf/unregister-listener! :errors ::commands))))))

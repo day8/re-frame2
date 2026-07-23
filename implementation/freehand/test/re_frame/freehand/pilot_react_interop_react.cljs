@@ -231,6 +231,16 @@
 
 (rf/reg-sub :acme/last-ping (fn [db _] (get-in db [:acme :last-ping])))
 
+;; Reaching the foreign component's IMPERATIVE HANDLE is an ordinary bounded
+;; command, addressed by the semantic id the use site authored. The handle
+;; itself never leaves the behavior's private memory — which is the rule that
+;; keeps `no public value carries a live host object` true even when the
+;; foreign component's whole API is a handle.
+(rf/reg-event :acme/ping-requested
+  (fn [_ _]
+    {:fx [[:re-frame.freehand.host/command
+           {:target :acme/widget :op :ping}]]}))
+
 (v/defview widget-page
   [{:keys [label tick]}]
   [:section.widget-page
