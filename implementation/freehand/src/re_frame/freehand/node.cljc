@@ -424,8 +424,19 @@
 (defn classify-event
   "One `:events` entry value, classified BY THE VALUE PRESENT AT RENDER
   (Spec 004B §Element fields): a vector is a literal event intent, a map is
-  an options map, a function is a site whose spelling is testable and whose
-  behaviour is not, and nil drops the entry.
+  an options map, a FN-CARRIED SITE is one whose spelling is testable and
+  whose behaviour is not, and nil drops the entry.
+
+  A fn-carried site is a bare function OR one of the declared roster
+  callbacks — `v/event`, `v/handler`, `v/raw-fn` — exactly as 004B
+  §Element fields enumerates them. A roster callback is a record rather
+  than an `IFn`, so `fn?` alone answers false for it and the site would
+  fall to the malformed arm: `[:div {:on-scroll (v/event [e] …)}]` would
+  render in React and be REFUSED by the structural tree, which is a
+  cross-host divergence over one declaration. It records under the
+  mode-neutral `:fn` member, which is the member 004B says the
+  interpreted walk produces and the one the compiled emitters already
+  emit at a DOM site — so promotion moves nothing.
 
   An intent and an options map are recorded VERBATIM, so they must already
   be data — a function riding as an event argument would record an intent
@@ -460,7 +471,9 @@
                              "options.")
                         {:attr k :path path :value (shape bad)}))
                     v)
-    (fn? v)     {:rf.ui/opaque :fn}
+    (or (fn? v) (events/callback? v))
+    {:rf.ui/opaque :fn}
+
     :else
     (malformed!
       're-frame.freehand/render
