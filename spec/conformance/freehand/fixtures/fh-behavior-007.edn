@@ -1,0 +1,86 @@
+;; FH-BEHAVIOR-007 — one node, more than one mechanism: the refs COMPOSE, in a
+;; defined order, and every participant is released.
+;;
+;; A behavior attaches through `cloneElement` with its own ref; the DOM top
+;; layer installs its idempotent host call as a ref on the element's props.
+;; React holds ONE ref per element, so an element carrying both is not a
+;; failure an implementation notices — it is a silent CLOBBER, whose symptom is
+;; a popover that never opens or a behavior that never connects. The substrate
+;; composes instead.
+;;
+;; Two shapes of evidence, because the law has two halves that no single tier
+;; can see:
+;;
+;;   THE ORDER is a fact about the composition itself, so it is pinned on the
+;;   composition itself, as an exact SEQUENCE rather than a set. Participants
+;;   take the node from the INSIDE OUT — the element's own intrinsics, then
+;;   each decorating boundary in the order it encloses the node — and release
+;;   in the exact reverse. `:nested` proves the rule survives a third
+;;   participant, which is the whole point of composing rather than special-
+;;   casing a pair. `:protocols` proves a release reaches a participant under
+;;   whichever protocol it answered with: a ref that returned a cleanup
+;;   function is released by CALLING it, one that returned anything else is
+;;   released with nil, exactly as React would have released each.
+;;
+;;   THE COMBINATION is a real-DOM fact. A structural test cannot see a
+;;   clobbered ref — the tree records the behavior boundary and the top-layer
+;;   desired state whether or not either mechanism ever reached the node — so
+;;   the proof is a mounted element carrying BOTH, where the behavior's own
+;;   DOM write and the platform's `:popover-open` state are read back off the
+;;   SAME node.
+;;
+;; `:renders` is how many further commits the combination performs with the
+;; desired state unchanged. The composed ref is deliberately fresh at each
+;; commit (that re-entry is what makes the top layer's diff against the live
+;; node cheap), so React detaches and re-attaches the whole chain every time —
+;; and the behavior, whose own ref is deliberately stable, must nevertheless
+;; still hold ONE connection with no re-connection churn. More than one commit,
+;; so churn would show as a count rather than as a coincidence.
+;;
+;; `:control` is the mount that makes the absence mean something: the same
+;; markup with NEITHER mechanism, measured first, so a zero after teardown is
+;; the substrate's release rather than a counter that was never written.
+{:fh/id "FH-BEHAVIOR-007"
+ :fh/law
+ "When more than one mechanism needs a ref on one element the refs COMPOSE rather than clobber: participants receive the node from the inside out — the element's own intrinsics, then each decorating boundary outward — and are released in the exact reverse, under whichever release protocol each answered with. A mounted element carrying both a behavior and a top-layer intrinsic proves both received the same node and both released, measured against a control mount carrying neither."
+
+ ;; One element, two mechanisms.
+ :pair
+ {:attach  [[:intrinsic :attach] [:decoration :attach]]
+  :release [[:decoration :release] [:intrinsic :release]]}
+
+ ;; A third mechanism participates by chaining onto the pair — O(1), not a
+ ;; fresh ruling per pair.
+ :nested
+ {:attach  [[:intrinsic :attach] [:inner :attach] [:outer :attach]]
+  :release [[:outer :release] [:inner :release] [:intrinsic :release]]}
+
+ ;; Release honours the protocol each participant answered with.
+ :protocols
+ {:attach  [[:cleanup-returning :attach] [:nil-detaching :attach]]
+  :release [[:nil-detaching :released-with-nil] [:cleanup-returning :cleanup-called]]}
+
+ ;; The mounted combination.
+ :combination
+ {:menu-id   "composed-menu"
+  :target    :composed/menu
+  :attribute "data-measured"
+  :value     "layout"
+  :renders   3}
+
+ :control
+ {:connections 0
+  :targets     []
+  :lifecycle   []
+  :pending     0}
+
+ :mounted
+ {:connections 1
+  :targets     [:composed/menu]
+  :lifecycle   [:connect]}
+
+ :after-teardown
+ {:connections 0
+  :targets     []
+  :lifecycle   [:connect :disconnect]
+  :pending     0}}
