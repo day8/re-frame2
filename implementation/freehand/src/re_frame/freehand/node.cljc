@@ -28,7 +28,8 @@
   [`spec/004D-Freehand-Compiled-Grammar.md`](../../../../../spec/004D-Freehand-Compiled-Grammar.md)
   (the compiled tier that emits calls to these builders)."
   (:require [re-frame.error :as error]
-            [re-frame.freehand.conversion :as conv]))
+            [re-frame.freehand.conversion :as conv]
+            [re-frame.freehand.top-layer :as top-layer]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -438,6 +439,12 @@
         attrs      (if-let [s (and (some? style) (not-empty (style-map tag style)))]
                      (assoc attrs :style s)
                      attrs)
+        ;; The DOM top layer's desired-state pair is Freehand vocabulary, not
+        ;; attributes: it leaves `:attrs` here and becomes the reserved
+        ;; structural fact below. Extracting it at the ONE canonicaliser both
+        ;; modes reach is what makes the validity rules and the recorded fact
+        ;; the same in an interpreted and a compiled declaration.
+        [attrs top] (top-layer/extract tag attrs)
         es         (reduce-kv (fn [m k v]
                                 (if-let [c (classify-event tag k v)]
                                   (assoc m k c)
@@ -473,6 +480,10 @@
       (pos? (count attrs)) (assoc :attrs attrs)
       (pos? (count es))    (assoc :events es)
       key?                 (assoc :key key-val)
+      ;; The desired state as a FACT, never as a claim: a structural host has
+      ;; no top layer to promote anything into, so the tree says what was
+      ;; asked for and stops there.
+      (some? top)          (assoc (top-layer/fact-key) top)
       (pos? (count kids))  (assoc :children kids))))
 
 ;; ---------------------------------------------------------------------------

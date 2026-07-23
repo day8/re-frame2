@@ -62,6 +62,7 @@
             [re-frame.freehand.events :as events]
             [re-frame.freehand.presence-runtime :as presence-runtime]
             [re-frame.freehand.shell :as shell]
+            [re-frame.freehand.top-layer :as top-layer]
             [re-frame.freehand.tree :as tree]))
 
 (defn- malformed!
@@ -384,7 +385,12 @@
         attrs?    (map? (first args))
         attrs     (if attrs? (first args) {})
         kid-forms (if attrs? (rest args) args)
-        props     (react-props cand tag classes id attrs)
+        ;; The DOM top layer's desired-state pair never reaches React as a
+        ;; prop — an emitter drops the namespace that is the whole of its
+        ;; meaning — so it is withheld from the props and installed as the
+        ;; commit-time host call instead.
+        props     (top-layer/install! (react-props cand tag classes id (top-layer/without attrs))
+                                      tag attrs)
         kids      (children cand kid-forms)]
     (when (and (seq kids) (contains? conv/children-rejected-tags tag))
       (malformed! (str "The element " tag " cannot have children — it is a void element, and "

@@ -307,8 +307,8 @@ and only one is a droppable diagnostic.
 - **Diagnostic — genuinely optional.** Evidence-only keys a consumer may find absent,
   broken, or stripped **without any semantic effect** — a broken or absent diagnostic
   never changes app semantics or a fingerprint; that neutrality is this section's own
-  rule, and it is what makes the diagnostic tier safe to strip. `:rf.ui/presence` and
-  `:rf.ui/boundary` are the v1 members.
+  rule, and it is what makes the diagnostic tier safe to strip. `:rf.ui/presence`,
+  `:rf.ui/boundary` and `:rf.ui/top-layer` are the v1 members.
 
 | Key | Role | Where | Meaning |
 |---|---|---|---|
@@ -316,6 +316,7 @@ and only one is a droppable diagnostic.
 | `:rf.ui/property-props` | **semantic** | custom-element element nodes | the set of `:attrs` keys classified as **properties** per the RULED `v/custom-element` declaration; **consumed** at conversion (the serialiser and `N` omit those props from markup — step 5) and only then removed from the output. Required whenever a property-only classification exists; **removing it changes semantics** — the props would leak back into the attribute space |
 | `:rf.ui/presence` | diagnostic | the fragment node a presence boundary renders as | `{:phase :present :timeout-ms n}` — the presence metadata exposed structurally per [004D §The JVM structural subset](004D-Freehand-Compiled-Grammar.md#the-jvm-structural-subset); phase is always `:present` on the JVM |
 | `:rf.ui/boundary` | diagnostic | the fragment node wrapping a deterministic fallback | `:client-only` (the structural "fallbacks" evidence; `:portal` reserved for the wave-2 row) |
+| `:rf.ui/top-layer` | diagnostic | the element node a DOM top-layer desired-state property is declared on | `{:popover-open? bool}` or `{:modal-open? bool}` — the desired state per [004 §The DOM top layer](004-Views.md#the-dom-top-layer), recorded as a FACT and never as a claim that anything was promoted; a structural host has no top layer, and the property is vocabulary rather than an attribute, so it never appears in `:attrs` |
 
 ### Child normalization (canonical form)
 

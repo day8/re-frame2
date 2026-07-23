@@ -1,0 +1,35 @@
+;; FH-TOPLAYER-003 — native focus, dismissal and NESTING, in a real browser.
+;;
+;; FH-TOPLAYER-001 pins what the tree says and FH-TOPLAYER-002 where each
+;; property is legal. Neither can prove the thing the top layer exists for:
+;; that the browser's own focus, inertness, light-dismiss and LIFO stacking
+;; are what an author gets, and that the substrate contributes none of it.
+;; Those are facts about a live `react-dom/client` mount read back off
+;; `document`, and jsdom does not have them — there is no top layer to
+;; promote anything into.
+;;
+;; Nesting is the row that earns its keep. React attaches refs bottom-up and
+;; the browser decides what an opening popover closes from the DOM as it
+;; stands at that instant, so a naive implementation opens the inner popover
+;; first and then closes it by opening the outer one. Two auto popovers that
+;; are NOT nested must collapse to one; two that ARE nested must both stay
+;; open and must close together, outer-first. That pair of assertions is the
+;; difference between using the platform's top layer and re-implementing it
+;; badly.
+;;
+;; Dismissal is driven by `hidePopover()` rather than a synthetic key event:
+;; an untrusted `KeyboardEvent` does not trigger native light dismiss, so a
+;; synthetic Escape would prove nothing. The browser-initiated path being
+;; proven is the one that matters — the node closes itself, the native event
+;; reaches the author's handler, and the substrate writes no application
+;; state on its behalf.
+{:fh/id "FH-TOPLAYER-003"
+ :fh/law
+ "In a real browser the desired-state pair yields the platform's own behaviour: a modal dialog takes initial focus, makes the background inert and returns focus on close; two non-nested auto popovers are one-at-a-time while a nested pair stacks and closes together; and a browser-initiated dismissal reaches the author's handler without the substrate mutating any application state."
+
+ :menu-id  "account-menu"
+ :nested-id "account-submenu"
+ :sibling-id "notifications"
+ :dialog-id "confirm"
+ :opener-id "opener"
+ :inside-id "inside-dialog"}

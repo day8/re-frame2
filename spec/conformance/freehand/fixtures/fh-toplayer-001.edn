@@ -1,0 +1,67 @@
+;; FH-TOPLAYER-001 — the structural projection of the desired-state pair.
+;;
+;; The pair is Freehand vocabulary, not attributes: an emitter reads an
+;; attribute by its NAME and drops the namespace, so a leaked property would
+;; reach the DOM as a garbage `popoverOpen?` prop and the tree would carry a
+;; key no consumer could interpret. It therefore leaves `:attrs` entirely and
+;; becomes the reserved diagnostic fact `:rf.ui/top-layer`.
+;;
+;; The trees below are pinned LITERALLY, and rendered against the interpreted
+;; declarations in `re-frame.freehand.top-layer-views` AND their `{:compiled
+;; true}` twins, on both hosts. Both modes reach one canonicaliser
+;; (`re-frame.freehand.node/element`), so the intrinsics are common semantics
+;; by construction rather than by two front ends agreeing.
+;;
+;; `:unexpressed` is the row that keeps `nil` honest: a nil property value
+;; expresses NO desired state — exactly as a nil attribute value drops its
+;; entry — so the element is an ordinary popover and carries no fact at all.
+;; A third state would have been the alternative, and there is no third
+;; browser operation for it to name.
+{:fh/id "FH-TOPLAYER-001"
+ :fh/law
+ "A qualified desired-state property leaves :attrs and projects as the reserved :rf.ui/top-layer fact on the semantic element — the same value from an interpreted declaration and its compiled twin, on both hosts; a nil value expresses no desired state and records nothing."
+
+ :fact-key :rf.ui/top-layer
+
+ :cases
+ [{:note "a popover desired OPEN"
+   :view :menu
+   :args [{}]
+   :tree {:view-id :re-frame.freehand.top-layer-views/menu
+          :children [{:tag      :div
+                      :attrs    {:id "account-menu" :popover "auto"}
+                      :events   {:on-toggle [:menu/toggled]}
+                      :rf.ui/top-layer {:popover-open? true}
+                      :children ["Account"]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "a popover desired CLOSED — false is a declaration, not an absence"
+   :view :menu-closed
+   :args [{}]
+   :tree {:view-id :re-frame.freehand.top-layer-views/menu-closed
+          :children [{:tag      :div
+                      :attrs    {:id "account-menu" :popover "auto"}
+                      :events   {:on-toggle [:menu/toggled]}
+                      :rf.ui/top-layer {:popover-open? false}
+                      :children ["Account"]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "a modal dialog desired OPEN"
+   :view :confirm
+   :args [{}]
+   :tree {:view-id :re-frame.freehand.top-layer-views/confirm
+          :children [{:tag      :dialog
+                      :attrs    {:id "confirm"}
+                      :events   {:on-close [:confirm/closed]}
+                      :rf.ui/top-layer {:modal-open? true}
+                      :children [{:tag :p :children ["Delete this?"]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "a nil value expresses no desired state — an ordinary popover"
+   :view :unexpressed
+   :args [{}]
+   :tree {:view-id :re-frame.freehand.top-layer-views/unexpressed
+          :children [{:tag      :div
+                      :attrs    {:id "account-menu" :popover "auto"}
+                      :children ["Account"]}]
+          :rf.ui/tree-version 1}}]}
