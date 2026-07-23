@@ -72,15 +72,7 @@
 
 (def ^:private sugar-re #"([.#])([^.#]+)")
 
-(defn parse-tag
-  "Split an authored element keyword into its tag and its `.class#id`
-  sugar: `:section.panel.open#main` becomes
-
-      {:tag :section :classes [\"panel\" \"open\"] :id \"main\"}
-
-  The tag survives VERBATIM — there is no case folding anywhere, so the
-  camelCase SVG tags (`:clipPath`, `:feGaussianBlur`, `:foreignObject`)
-  pass through unchanged (Spec 004B §Element fields, pinned)."
+(defn- parse-tag*
   [tag-kw]
   (let [s    (name tag-kw)
         cuts (keep identity [(str/index-of s ".") (str/index-of s "#")])
@@ -89,6 +81,48 @@
     {:tag     (keyword (subs s 0 end))
      :classes (into [] (keep (fn [[_ mark nm]] (when (= "." mark) nm))) toks)
      :id      (some (fn [[_ mark nm]] (when (= "#" mark) nm)) toks)}))
+
+;; The parse is a PURE function of one keyword, and an interpreted walk
+;; asks it the same question on every render of every element — the tag
+;; keyword at a markup site is a constant, so a template of a thousand
+;; elements re-derives a thousand answers it already had. Measured on B1
+;; at 1800 bytes per element, which was the single largest allocation in
+;; the walk. So the answers are kept.
+;;
+;; Keyed on the KEYWORD, not on its `name`. A cache keyed by name would
+;; alias `:svg/text` onto `:text` — one entry serving two heads whose
+;; tags differ — and aliasing in a parse cache is the failure mode that
+;; is hardest to see, because the wrong answer is a perfectly well-formed
+;; one. The keyword is its own total key.
+;;
+;; BOUNDED, because the key space is the author's. Tags are lexical
+;; constants in ordinary markup, so the live set is a few dozen; a caller
+;; that MINTS keywords per render would otherwise grow this map without
+;; limit. Past the limit the cache stops accepting entries and the parse
+;; simply costs what it always cost — a bounded loss, never a leak.
+
+(def ^:private tag-cache-limit 4096)
+
+(def ^:private tag-cache
+  (atom {}))
+
+(defn parse-tag
+  "Split an authored element keyword into its tag and its `.class#id`
+  sugar: `:section.panel.open#main` becomes
+
+      {:tag :section :classes [\"panel\" \"open\"] :id \"main\"}
+
+  The tag survives VERBATIM — there is no case folding anywhere, so the
+  camelCase SVG tags (`:clipPath`, `:feGaussianBlur`, `:foreignObject`)
+  pass through unchanged (Spec 004B §Element fields, pinned).
+
+  Memoized per keyword, bounded — see the note above."
+  [tag-kw]
+  (if-some [hit (get @tag-cache tag-kw)]
+    hit
+    (let [parsed (parse-tag* tag-kw)]
+      (swap! tag-cache (fn [m] (if (< (count m) tag-cache-limit) (assoc m tag-kw parsed) m)))
+      parsed)))
 
 ;; ---------------------------------------------------------------------------
 ;; `:class` — composition and deterministic order
