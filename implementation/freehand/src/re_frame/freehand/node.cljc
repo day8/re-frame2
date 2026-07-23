@@ -539,7 +539,11 @@
   [base overrides]
   (assert-forwardable-attrs! 're-frame.freehand/spread base)
   (assert-forwardable-attrs! 're-frame.freehand/spread overrides)
-  (merge base overrides))
+  ;; Always a MAP, so `(v/spread nil)` is an element with no attributes in
+  ;; both modes rather than an attribute map in one and an absent child in
+  ;; the other — the two happen to render the same tree, and agreement by
+  ;; coincidence is the thing this whole slice is written against.
+  (merge (or base {}) overrides))
 
 (defn- owned-handler-keys
   "The `on-*` keys of a `v/spread-safe` OWNED props map — the handler families
