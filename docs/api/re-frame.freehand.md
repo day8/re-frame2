@@ -26,8 +26,9 @@ mint a value that passes `v/view?` and classifies as an internal boundary while
 carrying no view-id, no source and no lowering — `v/defview` is the only way to
 create a mounted boundary, and where the constructor lives is what enforces it.
 
-The roster below is the whole door today. The host boundary and the compiled tier are
-declared vacancies that land with their own EP-0036 slices.
+The roster below is the whole door today. The compiled tier has landed — `{:compiled
+true}` on a declaration selects it — and the host boundary is the remaining declared
+vacancy, landing with its own EP-0036 slice.
 
 ## Declaration
 
@@ -54,11 +55,26 @@ declared vacancies that land with their own EP-0036 slices.
   no occurrence, no memoisation and no error containment of their own. Changing
   brackets to parentheses changes runtime **ownership**, not spelling.
 
-  The option roster is **closed**: `:children-policy` — `:optional` (the default),
-  `:none`, or `:required`. An unknown key, a reserved-but-unimplemented key
-  (`{:compiled true}`), a missing body, more than one parameter, or a policy outside
-  the roster all raise `:rf.error/defview-bad-args` at **macro-expansion** time. A
-  view that deliberately renders nothing writes an explicit `nil` body.
+  The option roster is **closed**, and every key is optional:
+
+      :children-policy   :optional (the default), :none, or :required
+      :compiled          false (the default), or true to select the compiled tier
+
+  `{:compiled true}` is the **one-line promotion** — it selects the already-landed
+  compiled tier's finite grammar for that one declaration, and nothing else moves:
+  callers, structural output and the view's own tests are unchanged, because the
+  compiled tier reuses the interpreted tier's descriptor, props contract and boundary
+  node (see [spec/004D-Freehand-Compiled-Grammar.md](../../spec/004D-Freehand-Compiled-Grammar.md)).
+  What does change is that the body must sit inside the finite language: a form the
+  grammar does not admit is a build failure naming a recovery, never a silent
+  demotion.
+
+  An unknown key, a **reserved-but-unimplemented** key (the props-schema options —
+  `{:props-schema …}` — which the schema slice owns and which are refused until it
+  lands, the way `:compiled` was refused until the compiled tier landed), a missing
+  body, more than one parameter, or a policy outside the roster all raise
+  `:rf.error/defview-bad-args` at **macro-expansion** time. A view that deliberately
+  renders nothing writes an explicit `nil` body.
 - **Example**:
   ```clojure
   (v/defview cart-badge
