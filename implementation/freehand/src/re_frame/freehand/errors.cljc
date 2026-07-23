@@ -220,53 +220,89 @@
   wrong file."
   :re-frame.freehand/unknown-view)
 
-(def ^:private failing-view
-  "The declared view whose render threw and has not yet been attributed to
-  a boundary. One slot, because a throw is unwound to exactly one catcher."
-  (atom nil))
+(def ^:private failing-views
+  "Which declared view threw WHICH failure — the attribution relay, keyed by
+  the THROWN VALUE'S IDENTITY and held WEAKLY.
+
+  The thrown value is the only thing thrower and catcher demonstrably share:
+  the occurrence seam has it in hand as it rethrows, and the boundary has
+  the same object at the catch (React hands it to `componentDidCatch`
+  verbatim). Keying on it is what makes attribution FAILURE-LOCAL — one
+  note per throw, readable only by the catch that caught THAT throw.
+
+  A single slot cannot express that. Two failures are routinely in flight at
+  once: React finishes rendering every failed subtree of a commit before it
+  runs any `componentDidCatch`, and the structural host renders on whatever
+  thread asked it to. With one slot the first note wins and the second
+  thrower is lost — one report names a view that did not fail this failure
+  while the other goes out as [[unknown-view-id]] for a thrower that was
+  plainly observed — and a note nothing ever collected waits to be read by
+  the next unrelated boundary.
+
+  Weak keys make the lifetime the throw's own: a note lives exactly as long
+  as something still holds the exception it describes, so nothing has to be
+  cleared and nothing accumulates."
+  #?(:clj  (java.util.Collections/synchronizedMap (java.util.WeakHashMap.))
+     :cljs (js/WeakMap.)))
+
+(defn- attributable?
+  "Whether `thrown` can carry a note. The JVM catch clause yields a
+  Throwable; ClojureScript's `:default` catches whatever was thrown, and a
+  relay key must be an object — `(Object x)` answers `x` itself exactly when
+  `x` already is one, which `instance?` cannot say across realms. A thrown
+  primitive is unattributable, and the report says so rather than guessing."
+  [thrown]
+  #?(:clj  (some? thrown)
+     :cljs (and (some? thrown) (identical? thrown (js/Object thrown)))))
 
 (defn note-failing-view!
-  "Record `view-id` as the declared view whose render threw — called by the
-  OCCURRENCE seam of each host (the React function component the interpreted
-  emitter builds, the structural walk's mount) as the throw passes through
-  it, and by nothing else.
+  "Record `view-id` as the declared view whose render threw `thrown` —
+  called by the OCCURRENCE seam of each host (the React function component
+  the interpreted emitter builds, the structural walk's mount) as that throw
+  passes through it, and by nothing else.
 
-  The FIRST writer wins, because the innermost occurrence is the one that
-  threw: on a host where occurrences nest (the structural walk's mount calls
-  the walk which calls mount again) the throw unwinds outward through every
-  enclosing occurrence, and each of those is a bystander that would
-  otherwise overwrite the culprit with itself.
-
-  The note is consumed by [[attributed-failure]] at the catch. A throw that
-  NO boundary contains leaves its note behind — on a host where that
-  happens the root has already been torn down, so the residue outlives
-  nothing that could read it."
-  [view-id]
-  (swap! failing-view #(if (nil? %) view-id %))
+  The FIRST writer for a given throw wins, because the innermost occurrence
+  is the one that threw: the throw unwinds outward through every enclosing
+  occurrence, and each of those is a bystander that would otherwise
+  overwrite the culprit with itself. First-writer-wins is scoped to the ONE
+  throw — a concurrent or interleaved failure is a different key and neither
+  claims nor clears the other's note."
+  [thrown view-id]
+  (when (attributable? thrown)
+    #?(:clj  (.putIfAbsent ^java.util.Map failing-views thrown view-id)
+       :cljs (when-not (.has ^js failing-views thrown)
+               (.set ^js failing-views thrown view-id))))
   nil)
 
-(defn- take-failing-view!
-  "The noted failing view, cleared — nil when no occurrence noted one."
-  []
-  (first (reset-vals! failing-view nil)))
+(defn- noted-failing-view
+  "The view noted for `thrown`, or nil when no occurrence noted one. Reading
+  is not consuming: the note belongs to the throw, so a host that catches
+  the same throw twice (StrictMode, an HMR re-render) reads the same
+  answer."
+  [thrown]
+  (when (attributable? thrown)
+    #?(:clj  (.get ^java.util.Map failing-views thrown)
+       :cljs (.get ^js failing-views thrown))))
 
 (defn attributed-failure
   "Answer `caught` — a host's raw material for one failure — carrying the
   identity of the declared view that actually threw, resolved from the
-  occurrence seam's note ([[note-failing-view!]]).
+  occurrence seam's note on `caught`'s own `:exception`
+  ([[note-failing-view!]]).
 
   This is the whole value of a failure report. A record that names the
   boundary rather than the failing descendant sends a reader to the wrong
   file, and because the [[fingerprint]] is derived from the view id and the
   phase, it also collapses every failure under one boundary onto a SINGLE
   correlation token — two unrelated bugs indistinguishable because they
-  share a catcher.
+  share a catcher. A record that named some OTHER failure's thrower is worse
+  again: it is a confident identification of an innocent view.
 
-  When nothing was noted the record says so — [[unknown-view-id]], evidence
-  marked incomplete, and a `:loss` naming why — rather than substituting an
-  identity it does not have."
-  [caught]
-  (if-let [failing (take-failing-view!)]
+  When nothing was noted for this throw the record says so —
+  [[unknown-view-id]], evidence marked incomplete, and a `:loss` naming why
+  — rather than substituting an identity it does not have."
+  [{:keys [exception] :as caught}]
+  (if-let [failing (noted-failing-view exception)]
     (assoc caught :view-id failing)
     (assoc caught
            :view-id   unknown-view-id
@@ -566,13 +602,11 @@
   [^Boundary b render-thunk context]
   (if (= :failed (status b))
     {:status :contained :summary (:summary (failure b))}
-    (do
-      ;; Enter the guarded region with the attribution relay EMPTY: a note
-      ;; left behind by an earlier throw that nothing contained is not this
-      ;; region's, and reading it as such would name an innocent view.
-      (take-failing-view!)
-      (try
-        {:status :ok :result (render-thunk)}
-        (catch #?(:clj Throwable :cljs :default) e
-          (let [record (capture! b (attributed-failure (assoc context :exception e)))]
-            {:status :contained :summary (:summary record)}))))))
+    (try
+      {:status :ok :result (render-thunk)}
+      (catch #?(:clj Throwable :cljs :default) e
+        ;; The attribution read is keyed by THIS throw, so the guarded region
+        ;; needs no scrubbing on the way in and cannot read a note left by a
+        ;; failure that is not the one it caught.
+        (let [record (capture! b (attributed-failure (assoc context :exception e)))]
+          {:status :contained :summary (:summary record)})))))

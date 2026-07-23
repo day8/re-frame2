@@ -307,13 +307,18 @@
                       ;; view in its own component, so a throw arriving here
                       ;; is THIS view's body's — the boundary that catches it
                       ;; several fibers above has no other way to learn whose,
-                      ;; and the throwable carries no view identity.
+                      ;; and the throwable carries no view identity. The note
+                      ;; rides the thrown value, which is the one thing this
+                      ;; render and that catch demonstrably share: React
+                      ;; finishes rendering every failed subtree of a commit
+                      ;; before it runs any `componentDidCatch`, so two
+                      ;; failures are routinely in flight at once.
                       (try
                         (emit cand
                               (body (conv/forward-children
                                       (gobj/get js-props "props"))))
                         (catch :default e
-                          (eb/note-failing-view! view-id)
+                          (eb/note-failing-view! e view-id)
                           (throw e)))))))))]
     (gobj/set c "displayName" (str view-id))
     c))
