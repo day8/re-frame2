@@ -34,7 +34,7 @@
 ;; `register-view-generation!` models a reload without redefining a var.
 {:fh/id "FH-ROOT-002"
  :fh/law
- "A root's occurrence identity is its derived root-id — the mounted view's qualified id, which a redefinition does not move — so a compatible redefinition re-renders the existing host root through the boundary React already mounted: the reloaded body renders and the mounted occurrence below it, down to the browser state its DOM nodes hold, is not reseeded. A redefinition whose hook skeleton moved is not served that boundary."
+ "A root's occurrence identity is its derived root-id — the mounted view's qualified id, which a redefinition does not move — so a compatible redefinition re-renders the existing host root through the boundary React already mounted: the reloaded body renders and the mounted occurrence below it, down to the browser state its DOM nodes hold, is not reseeded. A redefinition whose hook skeleton moved is not served that boundary. What a re-mount may never carry is a DIFFERENT effective identifierPrefix: a live root's is fixed at createRoot, so drift is refused with :rf.error/root-identifier-prefix-immutable before preflight and before React, leaving the live root's prefix claim and committed DOM untouched — while the same prefix, authored or derived, stays the ordinary idempotent reload."
 
  :root-id :re-frame.freehand.root-hmr/app
 
@@ -86,4 +86,42 @@
  ;; duplicate-root-id refusal, not a second root — which is exactly why the
  ;; control has to say what distinguishes the two sites.
  :fresh-container-host-root :distinct
- :fresh-container-opts {:disambiguator :control}}
+ :fresh-container-opts {:disambiguator :control}
+
+ ;; The reload path REUSES the live host root, and a React root's options are
+ ;; fixed at `createRoot`. So the one thing a re-mount cannot bring with it is
+ ;; a different effective `identifierPrefix`: the running root has no way to
+ ;; adopt it. Accepting the drift would register a prefix `use-id` never emits
+ ;; AND free the old one for a second root the live root is still using — two
+ ;; roots colliding `use-id` output while the registry says they cannot.
+ ;;
+ ;; So drift is REFUSED, at the same admission gate the three claims of
+ ;; FH-ROOT-003 are made at: before preflight, before React, with the live
+ ;; root's prefix, claim and committed DOM untouched.
+ ;;
+ ;; The refusal is about DRIFT, never about re-mounting. A re-mount offering
+ ;; the SAME prefix — authored verbatim, or derived because neither site
+ ;; authored one — is the ordinary idempotent reload above, and the fixture
+ ;; pins both directions so a fix cannot be made strict enough to break it.
+ :identifier-prefix
+ {:root-id  :fh.root/prefix
+  :original "rf2-original-"
+  :drifted  "rf2-drifted-"
+  :error    :rf.error/root-identifier-prefix-immutable
+  :recovery :unmount-before-changing-identifier-prefix
+
+  ;; the derived arm: a root that authors no prefix takes the injective
+  ;; default, and re-mounting it authors none again — the same effective
+  ;; prefix, so the same idempotent reload
+  :derived-root-id :fh.root/prefix-derived
+  :derived-prefix  "rf2-fh_2e_root_Sprefix-derived-"
+
+  ;; after the refusal the incumbent still OWNS its prefix, so a second root
+  ;; offering it is still refused — the registry did not quietly free it
+  :aliaser-root-id :fh.root/prefix-aliaser
+  :aliaser-error   :rf.error/duplicate-identifier-prefix
+
+  ;; and a true `v/unmount!` DOES free it: a successor claiming the same
+  ;; identity re-claims the prefix and mounts, after which the dead handle is
+  ;; a guarded no-op that cannot release the successor's claim
+  :successor-reclaims-prefix true}}

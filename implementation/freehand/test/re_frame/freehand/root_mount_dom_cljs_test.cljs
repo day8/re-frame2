@@ -30,6 +30,7 @@
   DOM to mount and says so rather than passing quietly."
   (:require ["react" :as react]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.descriptor :as descriptor]
@@ -73,6 +74,13 @@
 
 (defn- skip! [why]
   (is true (str "a real React mount needs a DOM host — " why)))
+
+(defn- caught
+  "Run `thunk` and answer the `ex-data` of the diagnostic it raised, or nil
+  when it returned normally. The whole ex-data rather than just the id,
+  because the interesting half of a refusal here is what it NAMES."
+  [thunk]
+  (try (thunk) nil (catch :default e (ex-data e))))
 
 ;; ---------------------------------------------------------------------------
 ;; A reloadable view: a descriptor is a VALUE, so two descriptors sharing one
@@ -236,4 +244,141 @@
                        (is false (str "reload rejected: " e))
                        (.remove container)
                        (.remove fresh)
+                       (done)))))))))
+
+;; ===========================================================================
+;; FH-ROOT-002 — a re-mount may not DRIFT the live root's identifierPrefix
+;; ===========================================================================
+
+(def ^:private prefix-arm (:identifier-prefix root-002))
+
+(def ^:private probe
+  "A declared view whose body reads React's `useId` and renders it.
+
+  `useId` output is namespaced by the mounted root's `identifierPrefix` — a
+  React ROOT option, fixed when the root is created — so the text this puts
+  on the page is the only honest witness to which prefix the live React root
+  is EMITTING under, as distinct from which one the registry says it holds.
+  Those two are exactly what a silently-accepted drift puts out of step, so
+  nothing short of reading the document proves it."
+  (descriptor/declare-view
+    {:view-id         :re-frame.freehand.root-prefix/probe
+     :source          {:ns "re-frame.freehand.root-prefix" :file "root_prefix.cljc" :line 0}
+     :lowering        :interpreted
+     :children-policy :optional
+     :render          (fn [_] [:span.uid (react/useId)])}))
+
+(deftest fh-root-002-a-remount-cannot-drift-the-identifier-prefix
+  (testing "Per FH-ROOT-002 (browser): the reload path RE-RENDERS the live
+            host root, and a React root's options are fixed when it is
+            created — so the one thing a re-mount cannot bring with it is a
+            different effective identifierPrefix. The drift is refused before
+            preflight and before React, and what matters is what is true
+            afterwards: the live root still emitting use-id under its original
+            prefix, still claiming that prefix against a second root, still
+            rendering what it committed. Both directions are proven here,
+            because a fix strict enough to break the ordinary reload would be
+            a worse bug than the one it closes."
+    (if-not (browser?)
+      (skip! "the browser job runs the identifierPrefix assertions")
+      (async done
+        (let [container (host-node!)
+              spare     (host-node!)
+              fresh     (host-node!)
+              rid       (:root-id prefix-arm)
+              original  (:original prefix-arm)
+              drifted   (:drifted prefix-arm)
+              root-1    (atom nil)
+              uid-1     (atom nil)]
+          (-> (act #(v/mount [probe {}] container
+                             {:root-id rid :identifier-prefix original}))
+              (.then
+                (fn [mounted]
+                  (reset! root-1 mounted)
+                  (reset! uid-1 (text container ".uid"))
+                  (is (str/starts-with? (or @uid-1 "") original)
+                      "the authored prefix reached React — use-id emits under it")
+                  (is (= original (root/root-identifier-prefix mounted))
+                      "and the root claims exactly the prefix it was created with")
+
+                  ;; 1 — the drift itself.
+                  (let [data (caught #(v/mount [probe {}] container
+                                               {:root-id rid :identifier-prefix drifted}))]
+                    (is (= (:error prefix-arm) (:rf.error/id data))
+                        "a re-mount authoring a DIFFERENT prefix is refused")
+                    (is (= (:recovery prefix-arm) (:recovery data))
+                        "with the recovery that actually works — unmount, then mount")
+                    (is (= rid (:root-id data)))
+                    (is (= drifted (:requested data)) "the diagnostic names what was asked for")
+                    (is (= original (:existing data)) "and what the live root has"))
+
+                  ;; 2 — and the incumbent is untouched, read back off the document.
+                  (is (= @uid-1 (text container ".uid"))
+                      "the live root is still emitting use-id under its ORIGINAL prefix")
+                  (is (= original (root/root-identifier-prefix @root-1))
+                      "and still claims it")
+                  (is (= #{rid} (root/live-root-ids)))
+
+                  ;; 3 — the claim was not quietly freed for somebody else.
+                  (is (= (:aliaser-error prefix-arm)
+                         (:rf.error/id
+                           (caught #(v/mount [probe {}] spare
+                                             {:root-id           (:aliaser-root-id prefix-arm)
+                                              :identifier-prefix original}))))
+                      "a second root offering the incumbent's prefix is still refused")
+                  (is (zero? (.-childElementCount spare))
+                      "and it put nothing on the page")
+
+                  ;; 4 — the other direction: an IDENTICAL prefix is the reload.
+                  (act #(v/mount [probe {}] container
+                                 {:root-id rid :identifier-prefix original}))))
+              (.then
+                (fn [remounted]
+                  (is (identical? (.-react-root ^root/Root @root-1)
+                                  (.-react-root ^root/Root remounted))
+                      "an identical authored prefix RE-RENDERS the existing host root —
+                       the refusal is about drift, not about re-mounting")
+                  (is (= @uid-1 (text container ".uid"))
+                      "the same occurrence, still under the same generated id")
+
+                  ;; 5 — and so is a DERIVED prefix, twice, with nothing authored.
+                  (act #(let [a (v/mount [probe {}] fresh
+                                         {:root-id (:derived-root-id prefix-arm)})
+                              b (v/mount [probe {}] fresh
+                                         {:root-id (:derived-root-id prefix-arm)})]
+                          [a b]))))
+              (.then
+                (fn [[a b]]
+                  (is (= (:derived-prefix prefix-arm) (root/root-identifier-prefix a))
+                      "a root authoring no prefix takes the injective derived default")
+                  (is (identical? (.-react-root ^root/Root a) (.-react-root ^root/Root b))
+                      "and re-mounting it — deriving the same prefix again — is the
+                       ordinary idempotent reload, not a refusal")
+                  (act #(v/unmount! b))))
+              (.then
+                (fn [_]
+                  ;; 6 — a TRUE teardown does free the prefix, and the successor
+                  ;;     that takes it cannot be released by the dead handle.
+                  (act #(do (v/unmount! @root-1)
+                            (let [successor (v/mount [probe {}] container
+                                                     {:root-id           rid
+                                                      :identifier-prefix original})]
+                              (v/unmount! @root-1)
+                              successor)))))
+              (.then
+                (fn [successor]
+                  (is (:successor-reclaims-prefix prefix-arm) "the fixture asserts this arm")
+                  (is (= original (root/root-identifier-prefix successor))
+                      "unmount! released the prefix and the successor claimed it")
+                  (is (= #{rid} (root/live-root-ids))
+                      "the stale handle did not release the successor's claim")
+                  (is (str/starts-with? (or (text container ".uid") "") original)
+                      "and the successor is on the page, emitting under it")
+                  (act #(v/unmount! successor))))
+              (.then (fn [_]
+                       (.remove container) (.remove spare) (.remove fresh)
+                       (done))
+                     (fn [e]
+                       (is false (str "identifierPrefix suite rejected: " e))
+                       (.remove container) (.remove spare) (.remove fresh)
                        (done)))))))))
