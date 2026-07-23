@@ -42,6 +42,57 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 ;; ---------------------------------------------------------------------------
+;; Remembered projections
+;; ---------------------------------------------------------------------------
+;;
+;; Three of the rules below are pure projections of ONE authored keyword —
+;; the `.class#id` parse, the React prop name, the React handler name — and
+;; every one of them is asked the same question on every render. An
+;; author's markup site spells its tag and its attribute keys as lexical
+;; CONSTANTS, so a template of a thousand elements re-derives a thousand
+;; answers it already had. Measured on B1 and on the React emitter's own
+;; leaf calls, that re-derivation was the largest single cost in the
+;; interpreted walk.
+;;
+;; The TECHNIQUE is `reagent2.impl.template`'s, which has cached both its
+;; tag parse and its prop-name projection for years and is the reason a
+;; runtime Hiccup interpreter can be fast at all. It is adopted here as a
+;; technique and not as a dependency: that namespace is ClojureScript-only
+;; (`#js {}` / `aget`), and these rules are `.cljc` because the structural
+;; walk runs them on the JVM, so there is no shared artefact to import even
+;; if Freehand were willing to take a classpath edge onto an adapter. Two
+;; differences from the donor are deliberate:
+;;
+;;   - it is keyed on the KEYWORD, not on the keyword's `name`. A cache
+;;     keyed by name aliases `:svg/text` onto `:text` — one entry serving
+;;     two heads that parse differently — and an aliased parse cache fails
+;;     in the way that is hardest to see, because the wrong answer is a
+;;     perfectly well-formed one. (The donor had to patch that class of
+;;     collision twice.) A keyword is its own total key.
+;;   - it is BOUNDED, because the key space belongs to the author. Tags
+;;     and attribute keys are lexical constants in ordinary markup, so a
+;;     live set is a few dozen; a caller that MINTS keywords per render
+;;     would otherwise grow these maps without limit. Past the limit a
+;;     cache stops accepting entries and the projection costs what it
+;;     always cost — a bounded loss, never a leak.
+;;
+;; A projection here always answers a map or a string, never nil, so a
+;; miss and a remembered nil are not confusable.
+
+(def ^:private cache-limit
+  "The most entries one remembered projection will hold."
+  4096)
+
+(defn- remembered
+  "`(f k)`, answered from `cache` when it has been asked before."
+  [cache k f]
+  (if-some [hit (get @cache k)]
+    hit
+    (let [v (f k)]
+      (swap! cache (fn [m] (if (< (count m) cache-limit) (assoc m k v) m)))
+      v)))
+
+;; ---------------------------------------------------------------------------
 ;; Numbers — JS `ToString`, on both hosts
 ;; ---------------------------------------------------------------------------
 ;;
@@ -82,29 +133,7 @@
      :classes (into [] (keep (fn [[_ mark nm]] (when (= "." mark) nm))) toks)
      :id      (some (fn [[_ mark nm]] (when (= "#" mark) nm)) toks)}))
 
-;; The parse is a PURE function of one keyword, and an interpreted walk
-;; asks it the same question on every render of every element — the tag
-;; keyword at a markup site is a constant, so a template of a thousand
-;; elements re-derives a thousand answers it already had. Measured on B1
-;; at 1800 bytes per element, which was the single largest allocation in
-;; the walk. So the answers are kept.
-;;
-;; Keyed on the KEYWORD, not on its `name`. A cache keyed by name would
-;; alias `:svg/text` onto `:text` — one entry serving two heads whose
-;; tags differ — and aliasing in a parse cache is the failure mode that
-;; is hardest to see, because the wrong answer is a perfectly well-formed
-;; one. The keyword is its own total key.
-;;
-;; BOUNDED, because the key space is the author's. Tags are lexical
-;; constants in ordinary markup, so the live set is a few dozen; a caller
-;; that MINTS keywords per render would otherwise grow this map without
-;; limit. Past the limit the cache stops accepting entries and the parse
-;; simply costs what it always cost — a bounded loss, never a leak.
-
-(def ^:private tag-cache-limit 4096)
-
-(def ^:private tag-cache
-  (atom {}))
+(def ^:private tag-cache (atom {}))
 
 (defn parse-tag
   "Split an authored element keyword into its tag and its `.class#id`
@@ -116,13 +145,9 @@
   camelCase SVG tags (`:clipPath`, `:feGaussianBlur`, `:foreignObject`)
   pass through unchanged (Spec 004B §Element fields, pinned).
 
-  Memoized per keyword, bounded — see the note above."
+  Remembered per keyword — see §Remembered projections above."
   [tag-kw]
-  (if-some [hit (get @tag-cache tag-kw)]
-    hit
-    (let [parsed (parse-tag* tag-kw)]
-      (swap! tag-cache (fn [m] (if (< (count m) tag-cache-limit) (assoc m tag-kw parsed) m)))
-      parsed)))
+  (remembered tag-cache tag-kw parse-tag*))
 
 ;; ---------------------------------------------------------------------------
 ;; `:class` — composition and deterministic order
@@ -372,6 +397,10 @@
     (str/starts-with? css-name "-ms-")      (camelize (subs css-name 1))
     :else                                   (camelize css-name)))
 
+(defn- react-prop-name* [k] (rules/react-prop-name (name k)))
+
+(def ^:private prop-name-cache (atom {}))
+
 (defn react-prop-name
   "The author attribute keyword as the React emitter spells it — React's
   own CANONICAL prop name (Spec 004B §Attribute names).
@@ -392,9 +421,11 @@
   declared view that React renders as its own component. The context-
   sensitive rule this replaced could only be right where the walk happened
   to know the context, so inserting a view boundary silently changed which
-  attribute reached the DOM."
+  attribute reached the DOM.
+
+  Remembered per keyword — see §Remembered projections above."
   [k]
-  (rules/react-prop-name (name k)))
+  (remembered prop-name-cache k react-prop-name*))
 
 ;; ---------------------------------------------------------------------------
 ;; Attribute keys the grammar refuses
@@ -432,8 +463,18 @@
       (str k " is not a prop — one spelling per name, ambiguities removed. Use "
            replacement "."))))
 
+(defn- react-event-name* [k]
+  (str "on" (upper-first (camelize (subs (name k) 3)))))
+
+(def ^:private event-name-cache (atom {}))
+
 (defn react-event-name
   "The handler-position key as React spells the prop: `:on-click` becomes
-  `onClick`, `:on-double-click` becomes `onDoubleClick`."
+  `onClick`, `:on-double-click` becomes `onDoubleClick`.
+
+  Remembered per keyword — see §Remembered projections above. This is the
+  most expensive projection in the table per call (a regex camelize, a
+  case fold and three string builds) and the React emitter runs it on
+  every handler attribute of every element it emits."
   [k]
-  (str "on" (upper-first (camelize (subs (name k) 3)))))
+  (remembered event-name-cache k react-event-name*))
