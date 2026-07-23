@@ -1,0 +1,62 @@
+;; FH-ROOT-006 — hydration adopts, and a divergence is reported.
+;;
+;; ADOPTION is proven by NODE IDENTITY, not by text. The server's markup is
+;; put into the container, the exact DOM nodes it created are captured, and
+;; after hydration those SAME node objects must still be mounted. A root
+;; that quietly discarded the server render and client-rendered instead
+;; would produce identical text and pass any assertion written about it.
+;;
+;; The mismatch half needs the same care in the other direction. React's
+;; `onRecoverableError` is the only signal here, so a harness that never
+;; receives it reports nothing and passes on broken and correct HTML alike.
+;; The fixture therefore pins a KNOWN-BAD server body as well as the correct
+;; one: the divergent case must produce the diagnostic, and the matching
+;; case must produce none. Neither assertion means anything without the
+;; other.
+;;
+;; What React recovers from is bounded, and the boundary is React's own: a
+;; text mismatch or a missing / extra / wrong-type element reaches the
+;; callback; an ATTRIBUTE-only divergence does not, because React documents
+;; that it makes no guarantee to patch attribute mismatches. That row is
+;; here so the boundary is pinned as a fact rather than discovered later as
+;; a surprise.
+{:fh/id "FH-ROOT-006"
+ :fh/law
+ "v/hydrate-root ADOPTS server-rendered markup — the server's own DOM nodes survive the mount — and a divergence React recovers from is REPORTED as :rf.ssr/hydration-mismatch carrying the root-id, composed over any host :on-recoverable-error and bounded to the adoption window, while identity opts supplied client-side are refused with :rf.error/root-manifest-invalid."
+
+ :view  :greeting
+ :props {:name "world"}
+ :root-id :re-frame.freehand.root-views/greeting
+
+ ;; The server's bytes for `[greeting {:name "world"}]`.
+ :server-html "<section id=\"greeting\"><h1 id=\"title\">Hello</h1><p id=\"who\">world</p></section>"
+
+ ;; The matching case: the server's nodes are still the mounted nodes, and
+ ;; nothing was reported.
+ :match {:adopted true
+         :same-nodes ["#greeting" "#title" "#who"]
+         :mismatches 0}
+
+ ;; The KNOWN-BAD case — the harness's own proof that it can see anything at
+ ;; all. The text under #who disagrees, which is squarely inside what React
+ ;; recovers from.
+ :divergent-html "<section id=\"greeting\"><h1 id=\"title\">Hello</h1><p id=\"who\">SOMEBODY ELSE</p></section>"
+ :divergent {:mismatches-at-least 1
+             :operation :rf.ssr/hydration-mismatch
+             :where     re-frame.freehand/hydrate-root
+             :recovery  :warned-and-replaced
+             ;; React's recovery is a REPLACEMENT: the page ends up carrying
+             ;; the client's truth, never the server's stale value under a
+             ;; tree that disagrees with it.
+             :final-text "world"}
+
+ ;; A host callback is composed OVER, never clobbered: the framework emits
+ ;; first, then the host's own callback runs.
+ :host-callback {:invocations-at-least 1}
+
+ ;; Identity comes from the server. Supplying it client-side is a conflict,
+ ;; not an override.
+ :identity-opts-refused
+ [{:opts {:root-id :fh.root/other}          :error :rf.error/root-manifest-invalid}
+  {:opts {:identifier-prefix "mine-"}       :error :rf.error/root-manifest-invalid}
+  {:opts {:disambiguator :left}             :error :rf.error/root-manifest-invalid}]}

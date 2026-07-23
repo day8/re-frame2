@@ -1,0 +1,46 @@
+;; FH-ROOT-005 — teardown is total, and total means zero.
+;;
+;; Every number here is an EXACT count, deliberately. "Approximately zero"
+;; is the shape a leak hides in: a released root whose ViewCell still holds
+;; a live sub-cache node recomputes on every write for the rest of the
+;; session, and nothing on screen says so. The symptom is a dev session that
+;; gets slower for reasons nobody can attribute, which is precisely the
+;; failure an exact assertion catches on the day it is introduced.
+;;
+;; Four independent things must go, and they are read from four different
+;; places — the registry, the document, the frame registry, and the live
+;; sub-cache — so no single mistake can make all four look right.
+;;
+;; The counterpart claims are what must SURVIVE. A frame the root merely
+;; SCOPED is not the root's to destroy: it borrowed it. And a stale handle
+;; is a guarded no-op — tearing down on its behalf would tear down the
+;; successor that legitimately claimed its id, which is a worse answer than
+;; doing nothing.
+{:fh/id "FH-ROOT-005"
+ :fh/law
+ "Teardown is total by exact count: after v/unmount! the registry holds zero claims for that root, its container holds zero child nodes, the frame it ENSURED is destroyed and its ledger record gone, and the subscription its view held is released from the live sub-cache — while a frame the root merely SCOPED survives, and a stale or superseded handle is a guarded no-op rather than a teardown of the successor."
+
+ :view  :counter
+ :query [:root/n]
+
+ :owned  {:frame-id :fh.root/teardown-owned  :seeded 3}
+ :scoped {:frame-id :fh.root/teardown-scoped :seeded 5}
+
+ ;; While mounted: one live root, one ledger record, one sub-cache node.
+ :before {:live-roots 1 :ledger-entries 1 :ref-count 1}
+
+ ;; After `v/unmount!`: zero, of each, by count.
+ :after  {:live-roots       0
+          :ledger-entries   0
+          :container-children 0
+          :frame-live       false}
+
+ ;; The scoped root's frame is NOT destroyed — but its subscription IS
+ ;; released, so the frame survives holding nothing of the dead root's.
+ :scoped-after {:frame-live true
+                :ref-count  nil
+                :live-roots 0}
+
+ ;; Unmounting a stale handle is a no-op, not a teardown of the successor.
+ :stale-handle {:successor-still-live true
+                :successor-text       "3"}}

@@ -1,0 +1,47 @@
+;; FH-ROOT-007 — the fallback, and its boundary.
+;;
+;; An empty container is not a near miss a hydration can reconcile. There is
+;; no server render to adopt at all — the page was never server-rendered for
+;; this root, or this root's region was composed in on the client — and
+;; hydrating a non-empty client tree against nothing is a total divergence
+;; React answers by discarding and re-rendering everything, loudly, for a
+;; page that was never wrong.
+;;
+;; So `hydrate-root` recognises the one input it CAN recognise before React
+;; is involved and mounts client-side instead, reporting it as the mount
+;; kind rather than as N adoption errors. The page comes up correct either
+;; way; what changes is whether the reader is handed a pile of diagnostics
+;; about a page that was never server-rendered.
+;;
+;; The boundary is the other half of the row, and it is the part that could
+;; quietly go wrong. A container carrying markup that merely DISAGREES is a
+;; real hydration with a real mismatch — falling back there would throw away
+;; the adoption the server render was paid for on the strength of one wrong
+;; character, and would hide the disagreement while doing it.
+{:fh/id "FH-ROOT-007"
+ :fh/law
+ "A hydrating root whose container carries nothing to adopt takes the FALLBACK — an ordinary client mount, reported as the mount kind rather than as adoption errors — while a container carrying markup that merely disagrees stays on the adoption path and takes the mismatch."
+
+ :view  :greeting
+ :props {:name "world"}
+
+ ;; The fallback: an empty container. The root comes up, correct, and says
+ ;; it did not hydrate.
+ :empty-container {:hydrated false
+                   :text     "world"
+                   :mismatches 0}
+
+ ;; Whitespace-only is the same case — a formatted page skeleton is empty.
+ :whitespace-container {:html "\n  " :hydrated false}
+
+ ;; The boundary: markup that DISAGREES is still a hydration.
+ :divergent-container
+ {:html "<section id=\"greeting\"><h1 id=\"title\">Hello</h1><p id=\"who\">stale</p></section>"
+  :hydrated true
+  :mismatches-at-least 1
+  :final-text "world"}
+
+ ;; The fallback root is an ordinary root in every other respect: it holds
+ ;; the same claims and tears down the same way.
+ :live-roots-after-fallback 1
+ :live-roots-after-unmount  0}
