@@ -74,9 +74,14 @@
   o)
 
 (defn ^:no-doc style!
-  "Canonicalise a `:style` the compiler could not fold and write it."
+  "Canonicalise a `:style` the compiler could not fold and write it. A nil
+  value is an ABSENT attribute — the same nil-is-absent law the interpreted
+  walk applies to every attribute, and `:style` has no controlled-slot
+  exception — so a compiled `:style (when …)` that folds to nil writes no
+  style, exactly as its interpreted twin does."
   [o tag raw]
-  (fr/put-style! o tag raw)
+  (when (some? raw)
+    (fr/put-style! o tag raw))
   o)
 
 (defn ^:no-doc attr!
