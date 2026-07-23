@@ -44,14 +44,14 @@
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.root :as root]
             [re-frame.live-frame :as live-frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.adapter.uix :as react-substrate]
             [re-frame.test-support :as test-support]))
 
 (def struct-007 (conf/fixture :FH-STRUCT-007))
 
 (def ^:private runtime-fixture
   (test-support/make-reset-runtime-fixture
-    {:adapter       plain-atom/adapter
+    {:adapter       react-substrate/adapter
      :ambient-frame nil
      :async?        true}))
 
@@ -83,13 +83,44 @@
     (catch :default e
       (js/Promise.reject e))))
 
+(defn- live!
+  "Leave React's act environment. A repaint driven by a DEPENDENCY rather
+  than by a re-render call is the mechanism under test here, and inside
+  an act environment React diverts that work to the act queue instead of
+  flushing it where the browser would — so the assertion would be about
+  act's drain order rather than about the substrate."
+  []
+  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+  nil)
+
+(defn- tick!
+  "Yield one browser task, so React has flushed what the notification
+  scheduled before anything is read back off `document`."
+  []
+  (js/Promise. (fn [resolve] (js/setTimeout #(resolve nil) 0))))
+
+(defn- settle!
+  "Close the cells' pending window and let the browser render what that
+  notification scheduled.
+
+  A source-side change MARKS the observing cells and returns — constant
+  work, never a computation — so the repaint lands when the window closes
+  at the host checkpoint. Closing it explicitly here, outside the act
+  environment, is what makes the assertion that follows a claim about the
+  substrate rather than about microtask ordering."
+  []
+  (cell/flush!)
+  (tick!))
+
 (defn- host-node! []
   (let [container (js/document.createElement "div")]
     (.appendChild js/document.body container)
     container))
 
 (defn- unmount! [container mounted]
-  (some-> mounted .-react-root .unmount)
+  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+  (when (some? mounted)
+    (.unmount (.-react-root ^root/Root mounted)))
   (.remove container)
   nil)
 
@@ -144,6 +175,20 @@
   [_]
   [:p#reactive.probe {:data-shell (shell-witness)} (str (v/sub [:compiled/total]))])
 
+(v/defview sub-probe-interpreted
+  "The INTERPRETED twin of `sub-probe` — the same parameter vector and the
+  same body, without the marker. It is the control for every reactive
+  claim below: promotion may not change what a read observes, when it
+  observes it, or what repaints because of it."
+  [_]
+  [:p#interpreted.probe {:data-shell (shell-witness)} (str (v/sub [:compiled/total]))])
+
+(v/defview both-probes
+  "Both reactive arms under ONE root, so a repaint claim is made about
+  two lowerings in one commit discipline, on one page, at one moment."
+  [_]
+  [:div#both [sub-probe {}] [sub-probe-interpreted {}]])
+
 (v/defview event-probe
   "One committed `:on-*` site. It reads the frame the commit bound, so
   the shell is retained for it exactly as it is for a subscription."
@@ -162,7 +207,7 @@
   {:compiled true}
   [_]
   [:input#field {:type :text :value (str (v/sub [:compiled/text]))
-                 :on-change [:compiled/typed]}])
+                 :on-input [:compiled/typed :re-frame.freehand/value]}])
 
 (v/defview interpreted-shell
   "An INTERPRETED child, mounted BY a compiled parent below, with children
@@ -184,9 +229,35 @@
 (defn- register! []
   (rf/reg-sub :compiled/total (fn [db _] (:total db)))
   (rf/reg-sub :compiled/text  (fn [db _] (:text db)))
-  (rf/reg-event-db :compiled/pressed (fn [db _] (update db :presses inc)))
-  (rf/reg-event-db :compiled/typed
-                   (fn [db [_ {v :re-frame.freehand/value}]] (assoc db :text v))))
+  (rf/reg-event :compiled/pressed
+                (fn [{:keys [db]} _] {:db (update db :presses inc)}))
+  (rf/reg-event :compiled/typed
+                (fn [{:keys [db]} [_ v]] {:db (assoc db :text v)}))
+  (rf/reg-event :compiled/total-set
+                (fn [{:keys [db]} [_ n]] {:db (assoc db :total n)})))
+
+;; ---------------------------------------------------------------------------
+;; Typing, as the browser delivers it
+;; ---------------------------------------------------------------------------
+
+(defn- set-native-value!
+  "Write `s` through `HTMLInputElement`'s own prototype setter, so React's
+  value tracker sees the mutation exactly as it does for a real
+  keystroke. Assigning `.-value` directly leaves the tracker's record
+  unchanged and React skips the change event — the field would look
+  typed-into while nothing was dispatched."
+  [node s]
+  (.call (.-set (js/Object.getOwnPropertyDescriptor
+                  (.-prototype js/HTMLInputElement) "value"))
+         node s))
+
+(defn- keystroke!
+  "One keystroke: append `ch` to whatever the node holds, then dispatch a
+  real bubbling `input` event."
+  [node ch]
+  (set-native-value! node (str (.-value node) ch))
+  (.dispatchEvent node (js/InputEvent. "input"
+                                       #js {:bubbles true :cancelable false :data ch})))
 
 (defn- seed! [db]
   (live-frame/make-frame {:id fid})
@@ -327,15 +398,22 @@
         (seed! {:total 41})
         (let [container (host-node!)
               mounted   (atom nil)]
-          (-> (act #(v/mount [sub-probe {}] container {:frame fid}))
+          (-> (act #(v/mount [both-probes {}] container {:frame fid}))
               (.then (fn [m]
                        (reset! mounted m)
                        (is (= "41" (text container "#reactive"))
-                           "the first render observed the current value")
-                       (act #(frame/replace-app-db! fid {:total 42}))))
+                           "the compiled arm's first render observed the current value")
+                       (is (= "41" (text container "#interpreted"))
+                           "and so did its interpreted twin")
+                       (live!)
+                       (rf/dispatch-sync [:compiled/total-set 42] {:frame fid})
+                       (settle!)))
               (.then (fn [_]
+                       (is (= "42" (text container "#interpreted"))
+                           "the interpreted twin repainted — the control")
                        (is (= "42" (text container "#reactive"))
-                           "a changed input repainted the MOUNTED occurrence")
+                           "and the compiled arm repainted the MOUNTED occurrence
+                            identically, off the same committed dependency")
                        (unmount! container @mounted)
                        (done)))
               (.catch (fn [e]
@@ -404,9 +482,9 @@
                          (is (some? el) "the compiled controlled input mounted")
                          (is (= "ab" (.-value el))
                              "its value is the subscription's, not the DOM's")
-                         (act (fn []
-                                (set! (.-value el) "abc")
-                                (.dispatchEvent el (js/Event. "input" #js {:bubbles true})))))))
+                         (live!)
+                         (keystroke! el "c")
+                         (settle!))))
               (.then (fn [_]
                        (is (= "abc" (:text (db)))
                            "the committed handler carried the native value into app-db")
