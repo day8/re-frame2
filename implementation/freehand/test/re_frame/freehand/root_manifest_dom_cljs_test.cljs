@@ -27,7 +27,7 @@
   real-DOM operation. The `-dom-cljs-test` suffix opts this file into the
   browser lane; the node suites load it too, where it has no DOM and says
   so rather than passing quietly."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
@@ -46,15 +46,48 @@
 (def root-006 (conf/fixture :FH-ROOT-006))
 (def root-007 (conf/fixture :FH-ROOT-007))
 
+;; React commits a hydration on ITS OWN schedule, not inside `act`, so this
+;; file runs with the act environment off — and pins it rather than inheriting
+;; whatever a sibling suite on the shared browser page left behind. The
+;; previous value is restored, because the suites that DO want `act` run after
+;; this one.
+(def ^:private act-env (atom nil))
+
 (use-fixtures :each
-  {:before (fn [] (root/reset-registry!) (fr/reset-boundaries!))
-   :after  (fn [] (root/reset-registry!) (fr/reset-boundaries!))})
+  {:before (fn []
+             (reset! act-env (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))
+             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+             (root/reset-registry!)
+             (fr/reset-boundaries!))
+   :after  (fn []
+             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) @act-env)
+             (root/reset-registry!)
+             (fr/reset-boundaries!))})
 
 (defn- browser? []
   (and (exists? js/document) (some? (.-createElement js/document))))
 
 (defn- skip! [why]
   (is true (str "a real React mount needs a DOM host — " why)))
+
+(defn- settle
+  "Give React its hydration commit, then call `k`.
+
+  This is load-bearing, not decoration. Tearing a HYDRATING root down in
+  the same tick it was created is an update that arrives before React has
+  adopted anything, which React reports as a recovery — *\"this root
+  received an early update, before anything was able hydrate\"* — and with
+  no host `:on-recoverable-error` the framework reporter faithfully
+  replicates React's own default and re-throws it at the window. That is
+  correct behaviour and an uncaught page error, which the browser runner
+  fails the whole run on even when every assertion passed.
+
+  Waiting for the adoption is also the honest thing to assert against: the
+  identity facts below are then read off a root that really hydrated,
+  which the node-identity check makes self-verifying rather than a
+  hopeful sleep."
+  [k]
+  (js/setTimeout k 300))
 
 (defn- server-page!
   "Plant the shape a real server render leaves on the page: the root's
@@ -99,46 +132,59 @@
             so every value asserted below can only have come off the wire."
     (if-not (browser?)
       (skip! "the browser job runs the hydration assertions")
-      (let [wire-id  (:root-id root-006)
-            derived  (:derived-root-id root-006)
-            prefix   (:identifier-prefix root-006)
-            node     (server-page! (:server-html root-006) (:manifest root-006))
-            mounted  (v/hydrate-root node greeting-form)
-            desc     (root/root-descriptor mounted)]
-        (is (not= derived wire-id)
-            "the fixture's manifest names an id derivation would never produce —
-             without that this whole test is a tautology")
-        (is (= wire-id (:root-id desc))
-            "the root's identity is the MANIFEST's root-id")
-        (is (= (:provenance root-006) (:root-id-provenance desc))
-            "and the descriptor says where it came from: off the wire, not out
-             of a derivation")
-        (is (= derived (:view-id desc))
-            ":view-id stays the CLIENT's own fact — which declared view this
-             site mounted, which is how a tool gets from a root back to a
-             declaration. For a single-root derivation that id IS what the
-             root-id would have derived to, which is why the two differ here")
-        (is (= #{wire-id} (root/live-root-ids))
-            "the registry is keyed on the wire id too — the derived id claims
-             nothing")
-        (is (= prefix (root/root-identifier-prefix mounted))
-            "and the effective identifierPrefix is the server's, verbatim")
-        (is (not= (root-id/default-identifier-prefix derived)
-                  (root/root-identifier-prefix mounted))
-            "which is NOT the prefix this root form's derivation would have
-             produced")
-        ;; The claim is real, not merely recorded: a second root asking for
-        ;; the manifest's prefix is refused, which is the framework's own
-        ;; uniqueness fence reading back what this root actually claimed.
-        (let [other (server-page! "" nil)
-              t     (thrown #(v/mount [views/app {:label "other"}] other
-                                      {:root-id :fh.root/prefix-probe
-                                       :identifier-prefix prefix}))]
-          (is (= :rf.error/duplicate-identifier-prefix (:id t))
-              "the hydrating root really holds the manifest's prefix claim")
-          (remove-page! other))
-        (v/unmount! mounted)
-        (remove-page! node)))))
+      (async done
+        (let [wire-id  (:root-id root-006)
+              derived  (:derived-root-id root-006)
+              prefix   (:identifier-prefix root-006)
+              node     (server-page! (:server-html root-006) (:manifest root-006))
+              ;; captured BEFORE React touches the container — the adoption
+              ;; check below is object identity, which a client re-render
+              ;; cannot fake
+              served   (.querySelector node "#greeting")
+              mounted  (v/hydrate-root node greeting-form)
+              desc     (root/root-descriptor mounted)]
+          (is (not= derived wire-id)
+              "the fixture's manifest names an id derivation would never produce —
+               without that this whole test is a tautology")
+          (is (= wire-id (:root-id desc))
+              "the root's identity is the MANIFEST's root-id")
+          (is (= (:provenance root-006) (:root-id-provenance desc))
+              "and the descriptor says where it came from: off the wire, not out
+               of a derivation")
+          (is (= derived (:view-id desc))
+              ":view-id stays the CLIENT's own fact — which declared view this
+               site mounted, which is how a tool gets from a root back to a
+               declaration. For a single-root derivation that id IS what the
+               root-id would have derived to, which is why the two differ here")
+          (is (= #{wire-id} (root/live-root-ids))
+              "the registry is keyed on the wire id too — the derived id claims
+               nothing")
+          (is (= prefix (root/root-identifier-prefix mounted))
+              "and the effective identifierPrefix is the server's, verbatim")
+          (is (not= (root-id/default-identifier-prefix derived)
+                    (root/root-identifier-prefix mounted))
+              "which is NOT the prefix this root form's derivation would have
+               produced")
+          (settle
+            (fn []
+              (is (identical? served (.querySelector node "#greeting"))
+                  "the adoption really happened — the server's own node object is
+                   still the mounted one, which is what makes the settle above a
+                   verified precondition rather than a hopeful sleep")
+              ;; The prefix claim is real, not merely recorded: a second root
+              ;; asking for the manifest's prefix is refused, which is the
+              ;; framework's own uniqueness fence reading back what this root
+              ;; actually claimed.
+              (let [other (server-page! "" nil)
+                    t     (thrown #(v/mount [views/app {:label "other"}] other
+                                            {:root-id :fh.root/prefix-probe
+                                             :identifier-prefix prefix}))]
+                (is (= :rf.error/duplicate-identifier-prefix (:id t))
+                    "the hydrating root really holds the manifest's prefix claim")
+                (remove-page! other))
+              (v/unmount! mounted)
+              (remove-page! node)
+              (done))))))))
 
 ;; ===========================================================================
 ;; The two absences, pinned apart
