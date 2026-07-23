@@ -19,7 +19,35 @@
 ;; the form that produced it. `:source-coord-keys` pins that coordinate's own
 ;; shape, which is total: absent reader metadata makes a site inherit its
 ;; declaration's position, never omit the field and never invent a line.
+;;
+;; `:roster-coverage` is what stops that shape row being VACUOUS. A key contract
+;; asserted over zero entries passes loudest of all, and four of the six rosters
+;; are empty across the census, so the shape row was reading green on two of
+;; them. Each roster therefore declares how many entries the proof actually
+;; inspects — a positive integer, never a lower bound — and the SURFACE it
+;; inspects them through:
+;;
+;;   :public   — reachable through the public door: a `v/defview` census
+;;               declaration, read back with `v/manifest`.
+;;   :analyzer — NOT reachable through the public door today, and named as a gap
+;;               rather than quietly omitted. `slot`, `html` and `frame` are not
+;;               published vars, and a compiled `(sub …)` lowers to a runtime
+;;               namespace that does not exist yet, so no census declaration
+;;               carrying one can compile. These rosters are proven one tier
+;;               down, over the same analyzer the door will call once those
+;;               forms are public.
+;;
+;; The split is ASSERTED, not assumed: an `:analyzer` roster must be empty across
+;; the public census, so the day one becomes reachable its row has to move here
+;; deliberately instead of drifting.
 {:fh/id "FH-STRUCT-010"
+ :roster-coverage
+ {:subscriptions {:surface :analyzer :entries 1}
+  :events        {:surface :public   :entries 3}
+  :slots         {:surface :analyzer :entries 1}
+  :html-sites    {:surface :analyzer :entries 1}
+  :frame-ops     {:surface :analyzer :entries 1}
+  :crossings     {:surface :public   :entries 1}}
  :required-keys
  {:subscriptions #{:sid :query :source-coord :path}
   :events        #{:sid :source-coord :path}

@@ -15,10 +15,14 @@
   authoring forms are recognised by the analyzer but are not yet public
   vars on the door, so a census that must compile through the ordinary
   `v/defview` uses the publicly reachable reactive discriminator — a
-  committed event handler. The manifest's `:subscriptions` and
-  `:frame-ops` rosters are exercised at the analyzer tier in
-  `viewcell-elision-oracle-jvm-test`, which injects the resolver the
-  reactive forms need."
+  committed event handler. Only `:events` and `:crossings` are therefore
+  non-empty here. The four rosters this census cannot populate —
+  `:subscriptions`, `:frame-ops`, `:slots` and `:html-sites` — are
+  covered one tier down in
+  `re-frame.freehand.manifest-roster-coverage-cljs-test`, which injects
+  the resolver those forms need and asserts the gap rather than leaving
+  it implied; `viewcell-elision-oracle-jvm-test` reads the elision
+  verdict off the same tier."
   (:require [re-frame.freehand :as v]))
 
 ;; ---------------------------------------------------------------------------
