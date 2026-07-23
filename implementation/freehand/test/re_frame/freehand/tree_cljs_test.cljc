@@ -228,3 +228,17 @@
     (is (seq (:rejected struct-009)) "the fixture's rejected table loaded")
     (doseq [{:keys [note form error-id]} (:rejected struct-009)]
       (is (= error-id (conf/caught-id #(tree/render form))) note))))
+
+(deftest fh-struct-009-refusal-reads-the-emitted-prop-name
+  (testing "Per FH-STRUCT-009: the refusal judges the prop name the
+            emitters WRITE, not the raw map key — a key is classified and
+            projected by its `name`, so a namespace, a string or a symbol
+            changes the spelling at the site and nothing at all about
+            where the value lands. The rejected table above carries those
+            representations; this row is the CONTROL that the same rule is
+            not over-broad, because a guard that turned every qualified
+            attribute away would look identical in a table of rejections
+            and would be a worse defect than the bypass it closed."
+    (is (seq (:accepted-keys struct-009)) "the fixture's accepted-key table loaded")
+    (doseq [{:keys [note form tree]} (:accepted-keys struct-009)]
+      (is (= tree (tree/render form)) note))))
