@@ -362,9 +362,13 @@
         ;; forceUpdate cell — the setter identity is stable across renders.
         tick       (react/useState 0)
         force!     (fn [] ((aget tick 1) inc))
-        ;; committed state (source of truth) — mutated ONLY in the effect /
-        ;; removal callbacks, never during render, so `reconcile` reads a stable
-        ;; snapshot and a StrictMode double-render is idempotent.
+        ;; COMMITTED state (source of truth) — one ref the current and the
+        ;; work-in-progress fiber BOTH see. Mutated only in the commit effect
+        ;; and the removal callbacks, never during render, so `reconcile` reads
+        ;; a stable snapshot, a StrictMode double-render is idempotent, and a
+        ;; render React abandons leaves it exactly as it found it. The lazy seed
+        ;; below is the one render-phase write, and it can only ever install the
+        ;; empty state.
         st         (react/useRef nil)
         incoming-pairs (incoming-identities incoming)
         incoming-keys  (mapv first incoming-pairs)]
@@ -378,11 +382,12 @@
       ;; hydration signal to consult, so it always seeds the client-mount path.
       (set! (.-current st) #js {:entries [] :elements {} :timers {}}))
     (let [state    (.-current st)
-          ;; keep the latest element for every incoming key; retained keys keep
-          ;; their last-seen element.
+          ;; THIS RENDER'S CANDIDATE element map — a value this render holds and
+          ;; returns its output from, never a publication. The committed
+          ;; snapshot with the incoming elements laid over it; a retained key
+          ;; keeps its last COMMITTED element.
           elements (merge (.-elements state) (into {} incoming-pairs))
           desired  (reconcile (.-entries state) incoming-keys)]
-      (set! (.-elements state) elements)
       ;; Commit + phase transitions run AFTER paint (a side-effect, never during
       ;; render). Runs every commit; idempotent via signature guards.
       (react/useEffect
@@ -391,9 +396,22 @@
                ;; re-derived from the same props the render saw; the uniqueness
                ;; claim is pure, so both paths agree on the ordered key set
                ;; (the dev warning already fired during render).
-               desired (reconcile (.-entries state)
-                                  (mapv first (first (claim-identities
-                                                      (collect-elements [] incoming)))))
+               pairs   (first (claim-identities (collect-elements [] incoming)))
+               ;; PUBLISH the elements — here, because React runs an effect only
+               ;; for a render it COMMITTED. A candidate React abandons (a
+               ;; transition that suspends, a superseded render) runs no effect
+               ;; and so publishes nothing, exactly as a dropped
+               ;; `re-frame.freehand.cell` candidate does. Publishing during
+               ;; render instead would hand a never-committed element to the
+               ;; shared ref that the CURRENT tree renders from, and the next
+               ;; timer-driven commit would paint it.
+               ;;
+               ;; `.-elements` is re-read here rather than reusing the render's
+               ;; merge, so a removal callback that fired in the render→commit
+               ;; gap is not undone by a stale snapshot.
+               _       (set! (.-elements state)
+                             (merge (.-elements state) (into {} pairs)))
+               desired (reconcile (.-entries state) (mapv first pairs))
                timers  (.-timers state)
                ;; 1. schedule a removal timer for each newly-:unmounting key
                ;; 2. cancel the timer for each re-entered key
