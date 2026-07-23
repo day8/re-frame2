@@ -1681,12 +1681,36 @@
 ;; Element props
 ;; ---------------------------------------------------------------------------
 
-(defn- check-rejected-spelling! [e k]
-  (when-let [replacement (get rules/rejected-prop-spellings k)]
-    (env/fail! e :rf.ui.compile/rejected-prop-spelling
-               (str k " is not a prop — one spelling per name, ambiguities "
-                    "removed. Use " replacement)
-               {:prop k})))
+(defn- check-rejected-spelling!
+  "Refuse a literal prop key whose EMITTED prop name is spoken for.
+
+  The key is read the way the emitter below will read it — through
+  `rules/caller-key-slot`, which is `(rules/react-prop-name (name k))` for an
+  attribute, the very projection `:react-name` is built from. Checking the raw
+  keyword instead left every other representation of one emitted prop outside
+  the check: `:x/children` compiled happily and landed in React's reserved
+  `children` slot, so a compiled declaration rendered content its structural
+  twin did not carry (rf2-2bg4t). One canonical slot, and the refusal cannot
+  drift from the emission.
+
+  `:ref` is the one spelling of the reserved ref slot the grammar accepts —
+  the analyzer routes it through `analyze-ref` and its host contract. An alias
+  is not a second spelling of it: it would slip past that contract entirely and
+  reach React's ref slot as an ordinary attribute, so it is refused here on the
+  same 'one spelling per name' law as the roster."
+  [e k]
+  (let [slot (rules/caller-key-slot k)]
+    (if (and (= rules/reserved-ref-slot slot) (not= :ref k))
+      (env/fail! e :rf.ui.compile/rejected-prop-spelling
+                 (str k " projects onto React's reserved ref prop, and :ref is its "
+                      "one spelling — an alias reaches the ref slot around the ref "
+                      "contract entirely. Use :ref")
+                 {:prop k})
+      (when-let [replacement (rules/rejected-slot-replacement slot)]
+        (env/fail! e :rf.ui.compile/rejected-prop-spelling
+                   (str k " is not a prop — one spelling per name, ambiguities "
+                        "removed. Use " replacement)
+                   {:prop k})))))
 
 (defn- analyze-ref [e form context]
   (when (:in-render-fn? e)

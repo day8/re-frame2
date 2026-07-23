@@ -431,9 +431,42 @@
 ;; Attribute keys the grammar refuses
 ;; ---------------------------------------------------------------------------
 
+(def ^:private by-emitted-name
+  "The clause both refusals end on — one sentence, written once, because the
+  two refusals state ONE rule about how a key is read."
+  (str "The refusal reads the prop name the emitters will write, so a namespaced "
+       "keyword, a string or a symbol spelling the same name is refused with it."))
+
+(defn- attr-key-refusal* [k]
+  (let [slot (rules/caller-key-slot k)]
+    (if (= rules/reserved-ref-slot slot)
+      (str "It projects onto React's reserved ref prop, and the interpreted walk has no "
+           "ref machinery — React would consume it as a reserved prop while the structural "
+           "tree carried it as an ordinary attribute, which is two answers for one "
+           "declaration. Refs land with the host-lifecycle slice. " by-emitted-name)
+      (if-some [replacement (rules/rejected-slot-replacement slot)]
+        (str "It is not a prop — one spelling per name, ambiguities removed. Use "
+             replacement ". " by-emitted-name)
+        ::no-refusal))))
+
+(def ^:private refusal-cache (atom {}))
+
 (defn attr-key-refusal
   "Why the interpreted walk refuses attribute key `k`, as the sentence a
   diagnostic states — or `nil` when the key is an ordinary attribute.
+
+  The key is read as the emitters will read it. Both walks classify and
+  project an attribute key by its NAME — the namespace is dropped on the
+  way to the DOM — so the refusal asks
+  [[re-frame.freehand.rules/caller-key-slot]] for the prop slot the key is
+  about to be written into and judges THAT, exactly as the runtime spread
+  deny does. Comparing the raw key instead left every other representation
+  of one emitted prop outside the guard: `:x/children`, `\"children\"` and
+  `'children` all reach React's `children` slot, so one declaration
+  rendered content the structural tree did not carry — the cross-mode
+  divergence this guard exists to rule out (rf2-2bg4t). One canonical
+  slot, and refusal and emission agree by construction rather than by
+  coincidence.
 
   Two sources, one answer, and both are answered BEFORE either emitter
   writes anything:
@@ -452,16 +485,18 @@
     tree carries it as an ordinary attribute. Honouring it half-way is
     exactly the divergence two emitters over one semantic value exist to
     rule out, so the interpreted walk says so instead. Refs land with the
-    host-lifecycle slice."
+    host-lifecycle slice.
+
+  A key that is not nameable at all has no slot and no refusal here; the
+  walks report a malformed key through their own channel.
+
+  Remembered per key — see §Remembered projections above. The verdict is a
+  pure function of the key, and this is the one table read on EVERY
+  attribute of every element, so the slot projection is paid once per
+  distinct authored key rather than once per attribute per render."
   [k]
-  (if (= :ref k)
-    (str ":ref is a commit-phase host hook, and the interpreted walk has no ref machinery "
-         "— React would consume it as a reserved prop while the structural tree carried it "
-         "as an ordinary attribute, which is two answers for one declaration. Refs land "
-         "with the host-lifecycle slice.")
-    (when-some [replacement (get rules/rejected-prop-spellings k)]
-      (str k " is not a prop — one spelling per name, ambiguities removed. Use "
-           replacement "."))))
+  (let [answer (remembered refusal-cache k attr-key-refusal*)]
+    (when-not (= ::no-refusal answer) answer)))
 
 (defn- react-event-name* [k]
   (str "on" (upper-first (camelize (subs (name k) 3)))))
