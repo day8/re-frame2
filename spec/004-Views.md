@@ -648,9 +648,67 @@ framework laws and component-library widget vocabulary.
 
 ### Presence
 
-**Lands in:** F4 — data and host lifecycle. Carries the keyed enter/exit plan, the
-phase set and attribute overrides, the mandatory terminal bound, and the structural
-projection.
+Presence is declarative enter/exit retention over keyed children — deliberately
+bounded, and not an animation system. It keeps a departed child mounted long
+enough for the child's own exit transition to run, and nothing more: no easing,
+no curves, no timeline, no presence-event bus.
+
+```clojure
+(v/presence {:timeout-ms 300}
+  (for [t toasts]
+    [toast-card {:key (:id t) :toast t}]))
+```
+
+One retention contract, honoured identically by both execution modes. In the
+interpreted mode `(v/presence …)` is an ordinary function call whose result the
+walk lowers; in the compiled mode it is a form the analyzer recognises and the
+emitter lowers. Both modes reach the SAME retention runtime, so the behaviour
+below is one implementation, not two that agree.
+
+- **The phase machine.** Every keyed child passes `:mounting → :present`. When a
+  key leaves the incoming set its child is not removed but RETAINED in
+  `:unmounting`, so its exit transition runs; the child is dropped from the set
+  only by its own removal, never by a later render.
+- **The terminal bound.** `:timeout-ms` is MANDATORY and is a positive number of
+  milliseconds. It is the exit retention duration AND the terminal safety bound
+  in one: a retained child is removed when `:timeout-ms` fires — not when some
+  other completion signal arrives — and the removal is terminal and
+  exactly-once, releasing every subscription, event and effect the retained
+  subtree owned.
+- **Keyed children.** Presence tracks children BY KEY — a key IS a retained
+  identity — so every child must be keyed. The compiled mode rejects an unkeyed
+  presence child at build time; the interpreted mode drops a child whose runtime
+  key is absent and reports it, and two children under one key resolve to the
+  first claimant with the collision reported.
+- **First-appearance order is frozen.** A key holds the slot it first mounted
+  into; a newly-appearing key appends at the tail regardless of its incoming
+  position, and an incoming reorder is ignored. An exiting child never jumps
+  position mid-transition. A list whose rendered order must track a changing sort
+  does not belong under a presence boundary — sort upstream, and handle display
+  order at the presentation layer.
+- **Re-entry interrupts.** Removal-then-reinsertion of a key before its timeout
+  fires flips it from `:unmounting` back to `:present` and cancels the pending
+  removal; re-entry is the same child returning, never a second one.
+- **The phase read.** `(v/presence-phase)` is the single phase read — `:mounting`
+  / `:present` / `:unmounting` inside a boundary, and `:present` outside one, so
+  a presence-aware child stays reusable anywhere.
+- **DOM-agnostic.** The boundary inserts no wrapper node, stamps no attributes,
+  and observes no DOM events. A presence-aware child owns its own exit styling
+  and accessibility: it stamps `inert` / `aria-hidden` and its exit class against
+  `(v/presence-phase)` = `:unmounting`, and its stylesheet honours
+  `prefers-reduced-motion`.
+- **The structural projection.** The JVM structural host has no lifecycle, so it
+  renders every retained child `:present` and exposes the presence fact
+  structurally as a fragment carrying `:rf.ui/presence {:phase :present
+  :timeout-ms n}` — a droppable reserved marker, so a consumer that does not
+  read it sees a plain fragment of `:present` children.
+- **Test behaviour.** A deterministic clock advances retention without a
+  wall-clock sleep, so a retention window closes exactly when a test says and a
+  run carries no wall-clock flake.
+
+`(v/presence-phase)` remains for the uncommon child whose STRUCTURE, rather than
+its attributes, depends on phase; the ordinary case reads the phase for styling
+and accessibility alone.
 
 ### Error boundaries and error egress
 

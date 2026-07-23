@@ -96,6 +96,9 @@ Keyed retention, override, timeout, accessibility, and test contract.
 
 | Id | Law | Canonical paragraph | Applicability | Fixture | Status |
 |---|---|---|---|---|---|
+| `FH-PRESENCE-001` | A presence boundary projects the `:rf.ui/presence {:phase :present :timeout-ms n}` fragment with its retained children `:present`, identically from an interpreted `(v/presence …)` and its `{:compiled true}` twin and on both hosts; the marker survives view-boundary adoption when presence is a view's root | [004-Views.md#presence](../../004-Views.md#presence) | common jvm browser | `spec/conformance/freehand/fixtures/fh-presence-001.edn` | active |
+| `FH-PRESENCE-002` | The keyed retention machine both modes lower to derives the three-phase plan — new keys mount, present keys hold, a departed key is retained `:unmounting`, a re-entered key flips back to `:present`, and first-appearance order is frozen against an incoming reorder — and claims one pair per key, the first claimant winning and duplicates reported | [004-Views.md#presence](../../004-Views.md#presence) | common jvm browser | `spec/conformance/freehand/fixtures/fh-presence-002.edn` | active |
+| `FH-PRESENCE-003` | In a real browser a departed key's child is retained `:unmounting` and owns its exit accessibility (`aria-hidden` read from `(v/presence-phase)`); the deterministic timeout removes it terminally and exactly once, and a re-entry before the flush cancels the removal and restores `:present` | [004-Views.md#presence](../../004-Views.md#presence) | interpreted browser | `spec/conformance/freehand/fixtures/fh-presence-003.edn` | active |
 
 ### FH-TOPLAYER — Top layer
 
