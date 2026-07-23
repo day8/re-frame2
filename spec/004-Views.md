@@ -941,11 +941,23 @@ receives — on its `:on-error` event, and in any structural value. Its field se
 is closed: a stable diagnostic id (`:re-frame.freehand/render-failed`), the
 failing declared view id and the boundary's own view id, the finite phase
 (`:render`, `:normalize`, `:foreign-render`), the resolved frame id, a stable
-fingerprint, and D020 evidence (scope, basis, completeness, loss). It carries
-**nothing** host-shaped: not the raw exception, not `ex-data`, not props, not
-app-db, not event payloads — every one of those is a data-classification
-hazard, and the envelope is what may reach an event vector and a serializable
-trace.
+fingerprint, and D020 evidence (scope, basis, completeness, loss).
+
+The failing view id is the view that **threw**, however far below the guarded
+child it sits — the boundary that caught it is a separate field. Both facts are
+carried because they are two facts: a summary naming the catcher sends a reader
+to the wrong file, and since the fingerprint derives from the failing view and
+the phase, it would also collapse every failure beneath one boundary onto a
+single correlation token. Where no occurrence observed which declared view threw
+— a foreign component's failure, a host without the occurrence seam — the
+summary says so: the view id is `:re-frame.freehand/unknown-view` and the
+evidence is incomplete with a `:loss` naming why. Truthful ignorance, never the
+boundary's own id in the failing slot.
+
+The summary carries **nothing** host-shaped: not the raw exception, not
+`ex-data`, not props, not app-db, not event payloads — every one of those is a
+data-classification hazard, and the envelope is what may reach an event vector
+and a serializable trace.
 
 The **private frame error egress** is the second channel. At most one record per
 failure generation is promoted onto re-frame's existing always-on error axis

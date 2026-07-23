@@ -208,6 +208,72 @@
   #{:error :frame :time :summary :exception :component-stack :recovery})
 
 ;; ---------------------------------------------------------------------------
+;; Which declared view threw — the attribution relay
+;; ---------------------------------------------------------------------------
+
+(def unknown-view-id
+  "The `:view-id` a summary carries when no occurrence observed which
+  declared view threw — a foreign component's failure, or a host that
+  drives a boundary without the occurrence seam. Truthful ignorance, and
+  deliberately NOT the boundary's own id: a record naming the CATCHER as
+  the thrower reads like an identification and sends the reader to the
+  wrong file."
+  :re-frame.freehand/unknown-view)
+
+(def ^:private failing-view
+  "The declared view whose render threw and has not yet been attributed to
+  a boundary. One slot, because a throw is unwound to exactly one catcher."
+  (atom nil))
+
+(defn note-failing-view!
+  "Record `view-id` as the declared view whose render threw — called by the
+  OCCURRENCE seam of each host (the React function component the interpreted
+  emitter builds, the structural walk's mount) as the throw passes through
+  it, and by nothing else.
+
+  The FIRST writer wins, because the innermost occurrence is the one that
+  threw: on a host where occurrences nest (the structural walk's mount calls
+  the walk which calls mount again) the throw unwinds outward through every
+  enclosing occurrence, and each of those is a bystander that would
+  otherwise overwrite the culprit with itself.
+
+  The note is consumed by [[attributed-failure]] at the catch. A throw that
+  NO boundary contains leaves its note behind — on a host where that
+  happens the root has already been torn down, so the residue outlives
+  nothing that could read it."
+  [view-id]
+  (swap! failing-view #(if (nil? %) view-id %))
+  nil)
+
+(defn- take-failing-view!
+  "The noted failing view, cleared — nil when no occurrence noted one."
+  []
+  (first (reset-vals! failing-view nil)))
+
+(defn attributed-failure
+  "Answer `caught` — a host's raw material for one failure — carrying the
+  identity of the declared view that actually threw, resolved from the
+  occurrence seam's note ([[note-failing-view!]]).
+
+  This is the whole value of a failure report. A record that names the
+  boundary rather than the failing descendant sends a reader to the wrong
+  file, and because the [[fingerprint]] is derived from the view id and the
+  phase, it also collapses every failure under one boundary onto a SINGLE
+  correlation token — two unrelated bugs indistinguishable because they
+  share a catcher.
+
+  When nothing was noted the record says so — [[unknown-view-id]], evidence
+  marked incomplete, and a `:loss` naming why — rather than substituting an
+  identity it does not have."
+  [caught]
+  (if-let [failing (take-failing-view!)]
+    (assoc caught :view-id failing)
+    (assoc caught
+           :view-id   unknown-view-id
+           :complete? false
+           :loss      {:reason :failing-view-unobserved})))
+
+;; ---------------------------------------------------------------------------
 ;; The safe public summary
 ;; ---------------------------------------------------------------------------
 
@@ -486,10 +552,12 @@
     {:status :contained :summary <the safe summary>}     ; the child threw
 
   `context` supplies the failure attribution the boundary cannot infer from
-  the throwable alone — `:phase`, `:view-id`, `:frame-id`, and the evidence
-  `:complete?` / `:loss` — merged with the caught `:exception`. A candidate
-  that threw published nothing (the atomic shell's law); this decides what
-  replaces it.
+  the throwable alone — `:phase`, `:frame-id`, and the evidence `:complete?`
+  / `:loss` — merged with the caught `:exception`. WHICH declared view threw
+  is not context: it comes from the occurrence seam's note through
+  [[attributed-failure]], so a throw several levels below the guarded child
+  is attributed to the view that actually threw. A candidate that threw
+  published nothing (the atomic shell's law); this decides what replaces it.
 
   React cannot express its own error boundary as a try around a child render
   — a descendant renders in its own fiber — so the browser drives the SAME
@@ -498,8 +566,13 @@
   [^Boundary b render-thunk context]
   (if (= :failed (status b))
     {:status :contained :summary (:summary (failure b))}
-    (try
-      {:status :ok :result (render-thunk)}
-      (catch #?(:clj Throwable :cljs :default) e
-        (let [record (capture! b (assoc context :exception e))]
-          {:status :contained :summary (:summary record)})))))
+    (do
+      ;; Enter the guarded region with the attribution relay EMPTY: a note
+      ;; left behind by an earlier throw that nothing contained is not this
+      ;; region's, and reading it as such would name an innocent view.
+      (take-failing-view!)
+      (try
+        {:status :ok :result (render-thunk)}
+        (catch #?(:clj Throwable :cljs :default) e
+          (let [record (capture! b (attributed-failure (assoc context :exception e)))]
+            {:status :contained :summary (:summary record)}))))))

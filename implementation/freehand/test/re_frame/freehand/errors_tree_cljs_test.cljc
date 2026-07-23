@@ -13,6 +13,7 @@
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.descriptor :as descriptor]
+            [re-frame.freehand.errors :as eb]
             [re-frame.freehand.tree :as tree]))
 
 (def error-001 (conf/fixture :FH-ERROR-001))
@@ -28,6 +29,18 @@
   (descriptor/declare-view
     {:view-id :app/throwing :lowering :interpreted :children-policy :optional
      :render (fn [_] (throw (ex-info "a child render threw" {})))}))
+
+;; A SECOND throwing descendant, and a healthy wrapper that mounts one of
+;; them — the shapes attribution has to tell apart.
+(def ^:private other-throwing-child
+  (descriptor/declare-view
+    {:view-id :app/other-throwing :lowering :interpreted :children-policy :optional
+     :render (fn [_] (throw (ex-info "a different child render threw" {})))}))
+
+(def ^:private wrapper
+  (descriptor/declare-view
+    {:view-id :app/wrapper :lowering :interpreted :children-policy :optional
+     :render (fn [_] [:div [throwing-child {}]])}))
 
 (defn- boundary-node
   "The single error-boundary node under the rendered `:div` root."
@@ -91,6 +104,70 @@
       (is (= [{:tag :span :children ["ok"]}]
              (:children (first (:children healthy))))
           "then, retried, the child"))))
+
+;; ===========================================================================
+;; FH-ERROR-003 (attribution) — the summary names the view that THREW.
+;; ===========================================================================
+
+(defn- contained-summary
+  "The safe summary of the failure `child`'s walk produces under a fresh
+  boundary — the structural host's realisation of what a mounted boundary
+  reports."
+  [child]
+  (let [b (eb/boundary eb/boundary-view-id :rk)]
+    (:summary (eb/contain b #(tree/render child) {:phase :render :frame-id nil}))))
+
+(deftest fh-error-003-a-failure-is-attributed-to-the-view-that-threw
+  (testing "Per FH-ERROR-003: `:view-id` is the DECLARED VIEW THAT THREW and
+            `:boundary-view-id` is the catcher — two fields because they are
+            two facts. A report that put the boundary in the failing slot
+            would send a reader to the wrong file, and it would do so however
+            deep the real failure was: the guarded child, an element under
+            it, or a view several occurrences down."
+    (doseq [[why child expected]
+            [["the guarded child itself threw"
+              [throwing-child {}]           :app/throwing]
+             ["the throw is one plain element below the guarded child"
+              [:div [throwing-child {}]]    :app/throwing]
+             ["a healthy declared wrapper mounts the view that threw"
+              [wrapper {}]                  :app/throwing]]]
+      (let [summary (contained-summary child)]
+        (is (= expected (:view-id summary)) why)
+        (is (= eb/boundary-view-id (:boundary-view-id summary))
+            (str why " — and the catcher keeps its own separate field"))))))
+
+(deftest fh-error-003-two-descendants-of-one-boundary-fingerprint-apart
+  (testing "Per FH-ERROR-003: the fingerprint is a correlation token derived
+            from the failing view and the phase, so two DIFFERENT views
+            failing under one boundary must fingerprint APART. Attributing
+            to the catcher — or to the guarded child a deeper failure passed
+            through — collapses every bug under a boundary onto one token,
+            and two unrelated failures become indistinguishable."
+    (let [a (contained-summary [throwing-child {}])
+          b (contained-summary [other-throwing-child {}])]
+      (is (= :app/throwing (:view-id a)))
+      (is (= :app/other-throwing (:view-id b)))
+      (is (not= (:fingerprint a) (:fingerprint b))
+          "two failing descendants of one boundary carry two fingerprints"))))
+
+(deftest fh-error-003-an-unobservable-thrower-is-reported-as-unknown
+  (testing "Per FH-ERROR-003: when no occurrence observed which declared view
+            threw — a raw throw inside the guarded region, a foreign
+            component's failure — the record says exactly that. The view id
+            is the reserved unknown marker and the evidence is incomplete
+            with a `:loss` naming why. What it must never be is the
+            boundary's own id, which reads like an identification."
+    (let [b       (eb/boundary eb/boundary-view-id :rk)
+          summary (:summary (eb/contain b
+                                        #(throw (ex-info "raw" {}))
+                                        {:phase :render :frame-id nil}))]
+      (is (= eb/unknown-view-id (:view-id summary))
+          "truthful ignorance, not the catcher's id")
+      (is (not= eb/boundary-view-id (:view-id summary)))
+      (is (false? (:complete? (:evidence summary)))
+          "and the evidence states that it is incomplete")
+      (is (= {:reason :failing-view-unobserved} (:loss (:evidence summary)))
+          "naming why"))))
 
 ;; ===========================================================================
 ;; The exact-one-child grammar — the interpreted half of the table the
