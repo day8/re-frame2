@@ -564,19 +564,17 @@
             "so no coordinate is claimed on a host that cannot measure one")))))
 
 ;; ===========================================================================
-;; The composition's own claim: the two refs never meet
+;; The composition's own claim: the two mechanisms address different parts
 ;; ===========================================================================
 
 (deftest the-behavior-and-the-top-layer-land-on-different-elements
-  (testing "A behavior attaches through `cloneElement` with its own ref and
-            the top layer installs its host call on a ref of its own, so an
-            element carrying both would have one silently overwrite the
-            other. This composition never asks for such an element — the
-            measurement is of the anchor's box and the promotion is of the
-            panel — and this row pins that as a structural fact rather than
-            leaving it to a reviewer's eye. `pilot-overlay-dom-cljs-test`
-            reproduces the collision deliberately, so the absence here is
-            evidence rather than luck."
+  (testing "The behavior measures the anchor's box and the top layer
+            promotes the panel, so the two land on different elements. This
+            row pins that as a structural fact rather than leaving it to a
+            reviewer's eye. It is a modelling claim, not a workaround: ref
+            composition means an element carrying both would hand the node
+            to both, and `pilot-overlay-dom-cljs-test` mounts exactly that
+            element to show it."
     (seed! {})
     (let [tree     (render! (dropdown-form))
           boundary (t/find tree #(= :re-frame.freehand/behavior (:view-id %)))

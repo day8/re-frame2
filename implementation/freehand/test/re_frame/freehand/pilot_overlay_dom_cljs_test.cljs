@@ -20,11 +20,12 @@
   against a CONTROL mount of the same markup with no overlay at all — so
   React's own bookkeeping cannot be mistaken for the library's.
 
-  One row here is not a proof of the pilot but a REPRODUCTION: an element
-  carrying both a behavior and a top-layer desired state loses one of the
-  two refs. The pilot's own composition never asks for such an element,
-  and this row is the evidence that the avoidance was necessary rather
-  than decorative.
+  One row here is not a claim about the dropdown but about the vocabulary
+  it is built from: an element carrying BOTH a behavior and a top-layer
+  desired state hands the node to both, because ref composition chains the
+  two. The pilot's own composition never asks for such an element — it
+  measures the anchor and promotes the panel — so that row is what says
+  the split is a modelling choice rather than an avoidance.
 
   This file rides the browser lane through its `-dom-cljs-test` suffix. It
   also matches the node suites' broader regex, where it has no top layer to
@@ -101,13 +102,14 @@
    [:div {:id "plain-panel"} "PDF"]])
 
 (v/defview collided
-  "THE REPRODUCTION (rf2-drpa3.118). One element carrying BOTH a registered
-  behavior and a top-layer desired state.
+  "THE COMBINATION. One element carrying BOTH a registered behavior and a
+  top-layer desired state.
 
   A behavior attaches through `cloneElement` with its own ref; the top
   layer installs its idempotent host call on a ref of its own. React keeps
-  one `ref` prop per element, so whichever is applied last silently wins
-  and the other never runs. Nothing warns."
+  one `ref` prop per element, so before ref composition whichever was
+  applied last silently won and the other never ran. Composition chains
+  them, and this shape is how the pilot reads that back."
   [{:keys [open?]}]
   [:div
    [v/behavior {:use    ui/anchor-box
@@ -833,44 +835,65 @@
               (.catch (fn [e] (restore!) (is false (str "browser run failed: " e)) (done)))))))))
 
 ;; ===========================================================================
-;; THE REPRODUCTION — rf2-drpa3.118, met by a pilot that had to avoid it
+;; THE COMBINATION — one element, both mechanisms, and both refs run
 ;; ===========================================================================
 
-(deftest a-behavior-and-a-top-layer-state-on-one-element-lose-a-ref
-  (testing "REPRODUCTION of the known hazard. A behavior attaches through
-            `cloneElement` with its own ref, and the top layer installs its
-            host call on a ref of its own. React keeps ONE `ref` per
-            element, so on an element carrying both, one silently
-            overwrites the other — no warning, no diagnostic, and the
-            half that lost simply never runs.
+(deftest a-behavior-and-a-top-layer-state-on-one-element-both-receive-the-node
+  (testing "A behavior attaches through `cloneElement` with its own ref and
+            the top layer installs its host call on a ref of its own, and
+            React keeps ONE `ref` per element — so an element carrying both
+            was once a silent clobber, with no warning and no diagnostic
+            for whichever half never ran. Ref composition chains them
+            instead, and this row is the pilot's own reading of that: ONE
+            element carries the behavior's measured box AND the browser's
+            `:popover-open` state at the same time.
 
-            The pilot's dropdown never asks for such an element: the
-            measurement is of the anchor's box and the promotion is of the
-            panel, and they were never the same node. That split reads as
-            natural rather than contorted — the root is what a stylesheet
-            already addresses and what the anchor's box already is — but it
-            is a split the author has to KNOW to make, and nothing tells
-            them. This row is the evidence that knowing mattered."
+            The pilot's dropdown still splits the two across the root and
+            the panel, because the measurement is of the anchor's box and
+            the promotion is of the panel and those are simply different
+            things. What changed is that the split is now a modelling
+            choice rather than a hazard the author had to KNOW to avoid.
+
+            FH-BEHAVIOR-007 pins the composition mechanism itself; this row
+            pins that the PILOT's own vocabulary composes on one element."
     (if-not (browser?)
-      (skip! "the browser job runs the ref-collision reproduction")
+      (skip! "the browser job runs the shared-element combination")
       (async done
         (setup!)
         (let [[container root] (mount!)
-              render (fn [open?] (act #(.render root (element [collided {:open? open?}]))))]
+              render   (fn [open?] (act #(.render root (element [collided {:open? open?}]))))
+              measured (fn []
+                         (some-> (by-id "collided")
+                                 (.-style)
+                                 (.getPropertyValue "--acme-anchor-w")
+                                 (.trim)))
+              closed   (atom nil)]
           (-> (render false)
-              (.then (fn [_] (render true)))
+              (.then (fn [_] (next-task)))
+              (.then (fn [_]
+                       (reset! closed {:connected (behaviors/connection-count)
+                                       :promoted  (open? "collided")})
+                       (render true)))
               (.then (fn [_] (next-task)))
               (.then (fn [_]
                        (let [connected (behaviors/connection-count)
                              promoted  (open? "collided")]
-                         (is (or (zero? connected) (false? promoted))
-                             (str "one of the two refs was lost — behavior connections "
-                                  connected ", popover open " promoted))
                          (is (= 1 connected)
-                             "the BEHAVIOR's ref is the one that survives (cloneElement wins)")
-                         (is (false? promoted)
-                             (str "and the top layer's never ran: the element declares a "
-                                  "desired state of OPEN and is not open. Nothing warned.")))
+                             (str "the BEHAVIOR's ref ran — exactly one connection, not "
+                                  connected))
+                         (is (true? promoted)
+                             (str "and the TOP LAYER's ref ran too: the element declares a "
+                                  "desired state of OPEN and IS open. Neither ref was "
+                                  "clobbered."))
+                         (is (seq (measured))
+                             (str "on the SAME node — #collided carries the behavior's "
+                                  "measured box, so both refs were handed that element"))
+                         (is (= 1 (:connected @closed))
+                             "non-vacuous: the behavior was already connected while closed")
+                         (is (false? (:promoted @closed))
+                             (str "non-vacuous: the element was NOT open before it was "
+                                  "asked to be — the OPEN reading is a response, not a "
+                                  "constant")))
                        (teardown! container root)
                        (done)))
               (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
