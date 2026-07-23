@@ -1,0 +1,50 @@
+;; FH-BEHAVIOR-005 — `:disconnect` runs exactly once, and cleanup is TOTAL.
+;;
+;; "Cleanup is total" is a claim about what does NOT survive, so it is asserted
+;; as an ABSENCE: after the last behavior unmounts, the substrate holds no
+;; connection record, no target claim, no node and no memory. A count is used
+;; rather than a threshold — the exact integer zero, not "small".
+;;
+;; The measurement rides a CONTROL. The same markup is mounted twice, once with
+;; a behavior and once without (`:control-mount` declares the identical section
+;; and node and attaches nothing), and the control's numbers are taken FIRST.
+;; That is what stops React's own bookkeeping from masquerading as the
+;; substrate's: the control proves the counters read zero for a mount that never
+;; connected, so a zero after teardown is the behavior's release rather than a
+;; counter that was never written.
+;;
+;; `:disconnect` runs EXACTLY once — not once per render, not once per timing
+;; arm, and not again on a second teardown of the same root. Both timing arms
+;; are installed on every render and guarded by the registered `:timing`, so a
+;; passive behavior whose passive arm released must not also be released by the
+;; layout arm; the transcript below is what proves it.
+{:fh/id "FH-BEHAVIOR-005"
+ :fh/law
+ "Teardown releases a behavior totally: `:disconnect` runs exactly once per committed connection, and after the last unmount the connection table and the live target index are both EMPTY — measured against a control mount of the same markup that attached no behavior, so React's own bookkeeping cannot masquerade as the substrate's."
+
+ :control
+ {:connections 0
+  :targets     []
+  :lifecycle   []}
+
+ :mounted
+ {:connections 1
+  :targets     [:probe/one]
+  :lifecycle   [:connect]}
+
+ :after-teardown
+ {:connections 0
+  :targets     []
+  :lifecycle   [:connect :disconnect]}
+
+ ;; The `:layout` arm tears down in the layout phase and is released exactly
+ ;; once too — the two arms never both release one connection.
+ :layout-after-teardown
+ {:connections 0
+  :targets     []
+  :lifecycle   [:connect :disconnect]}
+
+ ;; Two live connections, then one leaves: the remaining claim is untouched.
+ :partial-teardown
+ {:connections 1
+  :targets     [:probe/one]}}

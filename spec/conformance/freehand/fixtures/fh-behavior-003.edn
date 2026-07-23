@@ -1,0 +1,73 @@
+;; FH-BEHAVIOR-003 — the structural projection is an INERT MARKER, and the JVM
+;; says so rather than pretending.
+;;
+;; A server has no live node, so a structural render connects nothing. What it
+;; DOES do is record the whole public fact: the boundary node, the behavior's
+;; registered id, the semantic target a command would address, and the public
+;; config — with the author's own element as its child, unchanged. That is the
+;; value below, pinned on both hosts.
+;;
+;; What is NOT in it is as load-bearing as what is: no node, no memory, no
+;; cleanup handle, no host instance, no callback. The tree prints and reads back
+;; losslessly, which is only true because the use site is data.
+;;
+;; The `:lifecycle` assertion is the other half — after rendering every view
+;; here the lifecycle transcript is EMPTY. "Inert" is a claim about what did not
+;; happen, so it is asserted as an absence.
+;;
+;; `:command` pins the JVM's answer to a command: the channel is a browser
+;; capability, so a structural host REFUSES rather than silently doing nothing.
+{:fh/id "FH-BEHAVIOR-003"
+ :fh/law
+ "On the structural host a behavior is an inert marker: the boundary node records the registered id, the semantic target and the public config with the decorated element as its child, no lifecycle runs at all, and a command is refused with the channel's own diagnostic rather than silently dropped."
+
+ :lifecycle []
+
+ :command
+ {:args    {:target :probe/one :op :mark}
+  :outcome :rf.error/behavior-command-refused}
+
+ :cases
+ [{:note "the ordinary attachment — id, target and public config, wrapping the author's element"
+   :view :plain
+   :args [{}]
+   :tree {:view-id :re-frame.freehand.behavior-views/plain
+          :children
+          [{:tag :section :attrs {:class "host"}
+            :children
+            [{:view-id :re-frame.freehand/behavior
+              :props   {:use    :re-frame.freehand.behavior-views/probe
+                        :target :probe/one
+                        :config {:label "a"}}
+              :children [{:tag :div :attrs {:class "node"} :children ["content"]}]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "no target is recorded as ABSENT, never as nil — a behavior nothing commands has none"
+   :view :no-target
+   :args [{}]
+   :tree {:view-id :re-frame.freehand.behavior-views/no-target
+          :children
+          [{:view-id :re-frame.freehand/behavior
+            :props   {:use    :re-frame.freehand.behavior-views/probe
+                      :config {:label "quiet"}}
+            :children [{:tag :div :attrs {:class "node"}}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "two occurrences project two markers, each carrying its own semantic id"
+   :view :pair
+   :args [{}]
+   :tree {:view-id :re-frame.freehand.behavior-views/pair
+          :children
+          [{:tag :section :attrs {:class "host"}
+            :children
+            [{:view-id :re-frame.freehand/behavior
+              :props   {:use    :re-frame.freehand.behavior-views/probe
+                        :target :probe/one
+                        :config {:label "one"}}
+              :children [{:tag :div :attrs {:data-id "one" :class "node"}}]}
+             {:view-id :re-frame.freehand/behavior
+              :props   {:use    :re-frame.freehand.behavior-views/probe
+                        :target :probe/two
+                        :config {:label "two"}}
+              :children [{:tag :div :attrs {:data-id "two" :class "node"}}]}]}]
+          :rf.ui/tree-version 1}}]}

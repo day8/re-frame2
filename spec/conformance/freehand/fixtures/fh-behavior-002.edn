@@ -1,0 +1,73 @@
+;; FH-BEHAVIOR-002 — the use site is DATA, and it owns exactly one node.
+;;
+;; The declaration is registered code; the use site is the value that names it.
+;; Everything below defends that split, because it is what lets a structural
+;; test, a tool and a reader see what a node's behavior is without holding the
+;; implementation:
+;;
+;;   * the option roster is closed to `:use` / `:target` / `:config`;
+;;   * `:use` names a REGISTERED behavior, so an id nothing answers to is
+;;     refused rather than mounting a node nothing will connect to;
+;;   * `:config` is data at every depth — a callback, a node or a host instance
+;;     inside it would be a use site the tree cannot record and a test cannot
+;;     read, so it is refused on BOTH hosts rather than only where the tree
+;;     happens to be built;
+;;   * the boundary decorates exactly ONE element, because a behavior owns one
+;;     node and a group is not a node.
+;;
+;; Every case names a declaration in `re-frame.freehand.behavior-views` and the
+;; outcome rendering it must produce — `:renders`, or the `:rf.error/id` the
+;; refusal must carry. The views are rendered on both hosts, so acceptance and
+;; refusal are one answer rather than two that agree.
+{:fh/id "FH-BEHAVIOR-002"
+ :fh/law
+ "A `[v/behavior {…} node]` use site is data with a closed option roster: `:use` must name a registered behavior, `:config` is refused if it carries a non-data value at any depth, and the boundary decorates exactly one element — a second child, a declared view, a fragment or text is refused, as are Freehand children under an opaque behavior."
+
+ :option-keys [:use :target :config]
+
+ :cases
+ [{:note "the ordinary attachment — id, semantic target, public config"
+   :view :plain :outcome :renders}
+
+  {:note "a behavior nothing commands needs no target"
+   :view :no-target :outcome :renders}
+
+  {:note "the `:layout` arm is the same use site with a different registration"
+   :view :layout-timed :outcome :renders}
+
+  {:note "an opaque behavior over an empty node"
+   :view :opaque-host :outcome :renders}
+
+  {:note "two occurrences under distinct semantic ids"
+   :view :pair :outcome :renders}
+
+  {:note "an option outside the closed roster is refused"
+   :view :unknown-option :outcome :rf.error/behavior-bad-args}
+
+  {:note "`:use` is required — there is no default behavior"
+   :view :missing-use :outcome :rf.error/behavior-bad-args}
+
+  {:note "an id no declaration registered is refused at the use site, on both hosts"
+   :view :unregistered-use :outcome :rf.error/behavior-bad-args}
+
+  {:note "`:config` is the public configuration and is a map"
+   :view :config-not-map :outcome :rf.error/behavior-bad-args}
+
+  {:note "a callback NESTED inside the config is refused — the rule holds at every depth"
+   :view :config-carries-a-callback :outcome :rf.error/behavior-bad-args}
+
+  {:note "a behavior owns ONE node, so a second child is refused"
+   :view :two-children :outcome :rf.error/behavior-bad-args}
+
+  {:note "a declared view is a boundary, not a node"
+   :view :view-child :outcome :rf.error/behavior-bad-args}
+
+  {:note "a fragment is a group, not a node"
+   :view :fragment-child :outcome :rf.error/behavior-bad-args}
+
+  {:note "and text is a value, not a node"
+   :view :text-child :outcome :rf.error/behavior-bad-args}
+
+  {:note "an opaque behavior owns the descendants, so declared children are refused
+          rather than rendered and silently overwritten"
+   :view :opaque-with-children :outcome :rf.error/behavior-bad-args}]}

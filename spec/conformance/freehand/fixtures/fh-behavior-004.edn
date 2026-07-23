@@ -1,0 +1,41 @@
+;; FH-BEHAVIOR-004 — connection happens at COMMIT, and `:update` observes
+;; movement rather than renders.
+;;
+;; This is the row a structural test cannot reach. A behavior's whole value is
+;; that its imperative work is bounded to moments the substrate names, and the
+;; first of those moments is the host's own COMMIT — never a render. React
+;; renders speculatively: a transition that suspends, a superseded update, a
+;; StrictMode double-render. If a behavior connected from a render, every one of
+;; those would open a host connection the application never asked for and
+;; nothing would ever close.
+;;
+;; So the probe below drives a genuinely abandoned candidate — the same shape
+;; `presence_commit_ownership_dom_cljs_test` uses: the behavior's use site is
+;; rendered inside a transition whose sibling suspends, so the candidate really
+;; runs and really never commits. The lifecycle transcript must be EMPTY.
+;;
+;; The second half is `:update`'s trigger. A re-render with `rf=`-equal config is
+;; not movement, and a behavior that reconciled its host on every commit would
+;; reset a cursor, a selection or a scroll offset for no reason at all.
+;;
+;; `:timing` is the third: a `:layout` behavior's work must be complete before
+;; the browser paints, which is only observable as a DOM fact — the attribute
+;; below is present on the node in the same commit that mounted it.
+{:fh/id "FH-BEHAVIOR-004"
+ :fh/law
+ "A behavior connects only from a SELECTED commit — a candidate render the host abandons connects nothing — and `:update` runs only when the committed config MOVES by `rf=`; a `:layout` behavior's work is complete before the browser paints."
+
+ ;; The lifecycle transcript (`{:op …}` in order) after each step of the probe.
+ :abandoned    []
+ :committed    [:connect]
+ :equal-config [:connect]
+ :moved-config [:connect :update]
+
+ ;; What the moved-config `:update` must see.
+ :moved
+ {:config      {:label "moved"}
+  :prev-config {:label "a"}
+  :memory      {:updates 0}}
+
+ ;; The `:layout` arm, read off the node in the commit that mounted it.
+ :layout {:attribute "data-measured" :value "layout"}}
