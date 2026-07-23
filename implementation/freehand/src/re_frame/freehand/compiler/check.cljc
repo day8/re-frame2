@@ -88,10 +88,11 @@
   `v/defview` written under `#?(:clj … :cljs …)` is found.
 
   Where selection leaves source the TARGET's own reader would refuse — a map
-  entry with one side elided, two entries selecting the same key — the checker
-  refuses too (see [[resolve-entries]]). A branch that does not READ cannot be
-  eligible, and normalising it into something readable would be a green about
-  a map nobody wrote.
+  entry with one side elided, two entries selecting the same key, two set
+  members selecting the same value — the checker refuses too (see
+  [[resolve-entries]] and [[resolve-members]]). A branch that does not READ
+  cannot be eligible, and normalising it into something readable would be a
+  green about a literal nobody wrote.
 
   A PURE `.cljs` source is the case that has no answer, and it is refused
   rather than approximated (see [[refuse-cljs-source!]]). Resolution needs
@@ -466,7 +467,7 @@
 
   Thrown WITHOUT the file, because the walk does not carry one;
   [[read-declarations]] holds the path and prefixes it, which is what
-  `::unreadable-map` marks this exception for. `sentence` completes \"a map
+  `::unreadable` marks this exception for. `sentence` completes \"a map
   literal … cannot be read for the :cljs target\"."
   [sentence m features]
   (throw (ex-info (str "a map literal " sentence " cannot be read for the "
@@ -475,7 +476,22 @@
                        "conditional around the WHOLE map — #?(:clj {…} :cljs {…}) "
                        "— or give every entry a branch for every target. The map, "
                        "as preserved: " (pr-str m))
-                  {::unreadable-map true :target (first features) :map m})))
+                  {::unreadable true :target (first features) :map m})))
+
+(defn- refuse-unreadable-set!
+  "Refuse a set whose selected `member` collides with one already taken for the
+  `features` target.
+
+  Thrown WITHOUT the file, for the reason [[refuse-unreadable-map!]] is, and
+  marked the same way so [[read-declarations]] prefixes the path."
+  [member s features]
+  (throw (ex-info (str "a set literal whose conditional selection gives two members "
+                       "the same value, " (pr-str member) ", cannot be read for the "
+                       (first features) " target, so the checker will not answer for "
+                       "a declaration containing it. Write the conditional around the "
+                       "WHOLE set — #?(:clj #{…} :cljs #{…}) — so each target's members "
+                       "are written as themselves. The set, as preserved: " (pr-str s))
+                  {::unreadable true :target (first features) :set s :member member})))
 
 (defn- resolve-entries
   "Resolve conditionals across a map's entries, at the refusal boundary the
@@ -545,6 +561,32 @@
              [(resolve-conditionals x features)])))
         xs))
 
+(defn- resolve-members
+  "Resolve conditionals across a set's members, at the refusal boundary the
+  TARGET's reader draws.
+
+  A set has no half-written member — a conditional that selects nothing simply
+  contributes nothing, which is what it contributes to the real reader too, and
+  [[resolve-children]] already drops it. What a set DOES share with a map is
+  the collision: two members distinct as authored can select the SAME value,
+  and the target reader refuses that set as a duplicate. `#{#?(:clj :a :cljs
+  :b) :b}` reads as `#{:a :b}` for `:clj` and does not read at all for `:cljs`.
+  Rebuilding with `into` coalesced it to `#{:b}` and reported the view
+  ELIGIBLE, which is the map's `into` bug in a set: a green that survives
+  source the compiler cannot read is an answer to a different question.
+
+  The check is on the RESOLVED members, and after splicing, because that is
+  where the reader makes it: `#?@` contributes its whole branch, so a duplicate
+  can arrive between a splice and a sibling — or between two members of one
+  splice, as `#{#?@(:clj [:a :a])}` does for `:clj`."
+  [s features]
+  (reduce (fn [acc member]
+            (if (contains? acc member)
+              (refuse-unreadable-set! member s features)
+              (conj acc member)))
+          (empty s)
+          (resolve-children s features)))
+
 (defn- resolve-conditionals
   "Return `form` with every reader conditional resolved for `features`,
   preserving each rebuilt collection's metadata (the reader anchors lists
@@ -562,9 +604,9 @@
   conditional survives the walk, and the analyzer is handed a reader object
   where the browser build has `#{v/sub}`.
 
-  A MAP is the one kind whose target reader can refuse what selection leaves
-  behind, and there the walk stops rather than assembling something the target
-  cannot read — see [[resolve-entries]]."
+  A MAP and a SET are the kinds whose target reader can refuse what selection
+  leaves behind, and there the walk stops rather than assembling something the
+  target cannot read — see [[resolve-entries]] and [[resolve-members]]."
   [form features]
   (cond
     (not (has-reader-conditional? form))
@@ -578,7 +620,7 @@
     (with-meta (resolve-entries form features) (meta form))
 
     (set? form)
-    (with-meta (into (empty form) (resolve-children form features)) (meta form))
+    (with-meta (resolve-members form features) (meta form))
 
     (vector? form)
     (with-meta (resolve-children form features) (meta form))
@@ -710,8 +752,9 @@
   The one shape that read mode cannot read is answered as a refusal rather
   than raised as a reader exception — see [[refuse-preserved-read!]]. This is
   also where the file's NAME is put on a refusal raised deeper in the walk:
-  [[resolve-entries]] knows which map stopped it and for which target but not
-  which file it came from, and every checker refusal names the file."
+  [[resolve-entries]] and [[resolve-members]] know which literal stopped them
+  and for which target but not which file it came from, and every checker
+  refusal names the file."
   [path]
   (with-open [rdr (LineNumberingPushbackReader. (io/reader (io/file path)))]
     (try
@@ -729,10 +772,10 @@
       (catch clojure.lang.LispReader$ReaderException ex
         (refuse-preserved-read! ex path))
       (catch clojure.lang.ExceptionInfo ex
-        (if (::unreadable-map (ex-data ex))
+        (if (::unreadable (ex-data ex))
           (throw (ex-info (str "re-frame.freehand check: " path ": " (ex-message ex))
                           (-> (ex-data ex)
-                              (dissoc ::unreadable-map)
+                              (dissoc ::unreadable)
                               (assoc :file (str path)))))
           (throw ex))))))
 
