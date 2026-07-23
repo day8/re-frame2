@@ -1319,6 +1319,40 @@
   ;; lives in the internal `re-frame.freehand.errors`.
   ["re-frame.freehand" "error-boundary"]    {:tier :advanced    :owner "004" :status "EP-0036"}
 
+  ;; =========================================================================
+  ;; re-frame.freehand.test — the Freehand substrate's STRUCTURAL TEST
+  ;; surface (day8/re-frame2-freehand; EP-0036 F1e, conventionally aliased
+  ;; `t`; contract in Spec 008 §Freehand structural and mounted testing).
+  ;;
+  ;; TIER `:testing`, exactly like its `re-frame.ui.test` sibling and the
+  ;; `re-frame.test-support` / `re-frame.test-helpers` surfaces. It is a
+  ;; TEST-AUTHORING surface, not a runtime view verb: nothing here is mounted
+  ;; or rendered by an application, so `:front-porch` / `:advanced` (the
+  ;; runtime authoring tiers) would misfile it, and `:tooling` is the tier
+  ;; for inspection data a TOOL reads (`describe`, `manifest`) rather than a
+  ;; surface a programmer writes tests against.
+  ;;
+  ;; OWNER "008". Spec 008 owns the structural-surface contract — the five
+  ;; names, the frame-scope bracket, the `.cljc` authoring constraint and the
+  ;; host/mode matrix — the same way it owns `re-frame.ui.test`'s. The node
+  ;; SCHEMA and the projections the surface reads are 004B's; the owner axis
+  ;; records the contract's home, not every spec a row touches.
+  ;;
+  ;; Dev/test SCOPE is not privacy. Nothing in a production bundle may
+  ;; `:require` it, and it is still a published surface a rename or an
+  ;; accidental export must not move silently — so it is JVM-INTROSPECTED
+  ;; (generator `jvm-namespaces`) and reconciled by the CLJS probe,
+  ;; FULLY-ROWED in both directions. `render` / `find` / `find-all` / `attrs`
+  ;; / `text` are the whole surface; everything beneath them (`node-kind`,
+  ;; `text*`, the diagnostic helpers) is `defn-`, so the five are exact by
+  ;; construction rather than by a `^:no-doc` carve-out.
+  ;; =========================================================================
+  ["re-frame.freehand.test" "render"]   {:tier :testing :owner "008" :status "EP-0036"}
+  ["re-frame.freehand.test" "find"]     {:tier :testing :owner "008" :status "EP-0036"}
+  ["re-frame.freehand.test" "find-all"] {:tier :testing :owner "008" :status "EP-0036"}
+  ["re-frame.freehand.test" "attrs"]    {:tier :testing :owner "008" :status "EP-0036"}
+  ["re-frame.freehand.test" "text"]     {:tier :testing :owner "008" :status "EP-0036"}
+
   ["re-frame.ui.test" "render"]    {:tier :testing :owner "008" :status "Spec-004 S1"}
   ["re-frame.ui.test" "text"]      {:tier :testing :owner "008" :status "Spec-004 S1"}
   ["re-frame.ui.test" "attrs"]     {:tier :testing :owner "008" :status "Spec-004 S1"}

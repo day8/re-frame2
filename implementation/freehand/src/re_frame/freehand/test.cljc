@@ -1,4 +1,4 @@
-(ns ^:no-doc re-frame.freehand.test
+(ns re-frame.freehand.test
   "`t` — the Freehand STRUCTURAL test surface (EP-0036 F1e; Spec 008).
 
   A programmer renders a declared view to the versioned semantic tree and
@@ -61,7 +61,10 @@
   Dev/test scope ONLY: nothing in a production bundle may `:require` this
   namespace. It sits alongside the emitters, below the `re-frame.freehand`
   door — `t/render` wraps the structural emitter the way `v/mount` wraps the
-  host one.
+  host one. Dev/test scope is not privacy: this is a PUBLIC authoring
+  surface, rowed at the `testing` tier in the API manifest, so a rename, a
+  signature change or an accidental export reddens the public-API gate on
+  both hosts.
 
   Normative owner: [`spec/008-Testing.md`](../../../../../spec/008-Testing.md);
   the node schema and projections are

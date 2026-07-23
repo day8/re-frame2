@@ -251,6 +251,7 @@ nav:
     - "re-frame.adapter.uix": api/re-frame.adapter.uix.md
     - "re-frame.test-support": api/re-frame.test-support.md
     - "re-frame.test-helpers": api/re-frame.test-helpers.md
+    - "re-frame.freehand.test": api/re-frame.freehand.test.md
     - "re-frame.ui.test": api/re-frame.ui.test.md
 
   - Machines:
