@@ -882,9 +882,14 @@ throwing, Hiccup normalization or common prop/event validation throwing, and,
 in the browser, a descendant foreign component throwing where React boundaries
 apply. It does **not** catch event-handler, asynchronous, or re-frame
 handler/sub/resource failures: those keep their existing typed owners. An
-unknown option, a missing `:fallback`, or an `:on-error` that is not an
-event-prefix vector is `:rf.error/error-boundary-bad-args` at the interpreted
-mount and `:rf.ui.compile/bad-error-boundary` at the compiled build.
+unknown option, a missing `:fallback`, an `:on-error` that is not an
+event-prefix vector, or anything other than exactly one guarded child is
+`:rf.error/error-boundary-bad-args` at the interpreted mount and
+`:rf.ui.compile/bad-error-boundary` at the compiled build. The boundary guards
+**one** region, so a second declared child is refused rather than kept and
+discarded — wrap siblings in a fragment. A dropped subtree would be missing from
+the page with nothing on screen or in the console to say so, and the two modes
+would disagree about one declaration.
 
 #### Containment and the abandoned candidate
 

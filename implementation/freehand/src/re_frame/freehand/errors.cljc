@@ -102,10 +102,17 @@
 
   The rules mirror the analyzer: the option roster is CLOSED, `:fallback` is
   REQUIRED (a boundary with no fallback would render nothing on failure —
-  worse than a loud reject), and `:on-error`, when present, is a literal
+  worse than a loud reject), `:on-error`, when present, is a literal
   event vector `[:domain/event …]` so the safe summary can be appended and
-  dispatched. Exactly one child region is guarded by the boundary's
-  `:children-policy :required`, so `:children` is present here."
+  dispatched, and the boundary guards EXACTLY ONE child.
+
+  The child count is checked HERE and not left to the descriptor's
+  `:children-policy :required`, which admits one or MORE. The boundary
+  guards one region, so a second declared child has nowhere to go: without
+  this rule the interpreted mount kept `(first children)` and discarded the
+  rest — a subtree missing from the page with nothing anywhere to say so —
+  while the compiled analyzer refused the identical declaration. Two modes
+  disagreeing about one declaration is the failure this rule closes."
   [props]
   (let [{:keys [reset-key on-error]} props
         fallback (:fallback props)
@@ -140,6 +147,18 @@
              "appended to it and dispatched exactly once after the fallback commits.")
         {:recovery :supply-an-event-prefix-vector
          :extra    {:on-error (error/diag-value-summary on-error)}}))
+    (when-not (= 1 (count children))
+      (error/throw-error!
+        :rf.error/error-boundary-bad-args
+        'v/error-boundary
+        (str "v/error-boundary guards exactly ONE child; the call declares "
+             (count children) ". Wrap the siblings in a fragment — "
+             "[v/error-boundary {…} [:<> child-1 child-2]] — so the boundary "
+             "guards one region and nothing is dropped. Keeping the first child "
+             "and discarding the rest would leave a subtree off the page with "
+             "nothing on screen or in the console to say so.")
+        {:recovery :guard-exactly-one-child
+         :extra    {:children-count (count children)}}))
     {:fallback  fallback
      :reset-key reset-key
      :on-error  on-error
