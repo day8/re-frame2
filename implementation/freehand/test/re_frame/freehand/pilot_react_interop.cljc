@@ -377,7 +377,7 @@
     [:table.ledger
      [:thead
       [:tr (for [{:keys [key label]} header]
-             ^{:key key} [:th {:on-click [:ledger/sorted key]} label])]]
+             ^{:key key} [:th [:button.sort {:on-click [:ledger/sorted key]} label]])]]
      [:tbody
       (for [{:keys [id cells]} rows]
         ^{:key id}
