@@ -77,7 +77,13 @@
  ;; with its own loud refusal rather than a remount.
  :incompatible {:error :rf.error/view-lowering-unavailable}
 
- ;; non-vacuity control: a mount into a DIFFERENT container is a genuinely
- ;; new root, so its host root is NOT the reloaded one — the reuse above is
- ;; a real decision, not an always-true tautology.
- :fresh-container-host-root :distinct}
+ ;; non-vacuity control: a SECOND root, in a different container, is a
+ ;; genuinely new root — its host root is NOT the reloaded one, so the reuse
+ ;; above is a real decision rather than an always-true tautology.
+ ;;
+ ;; It carries a `:disambiguator`, and it has to. Root-ids are page-unique
+ ;; identity, so the same derived id in a second container is the
+ ;; duplicate-root-id refusal, not a second root — which is exactly why the
+ ;; control has to say what distinguishes the two sites.
+ :fresh-container-host-root :distinct
+ :fresh-container-opts {:disambiguator :control}}
