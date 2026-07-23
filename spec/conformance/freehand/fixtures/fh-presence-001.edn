@@ -1,0 +1,47 @@
+;; FH-PRESENCE-001 — the presence node's structural projection, one value on
+;; both hosts and in both modes.
+;;
+;; Presence retention is a RUNTIME machine (the React clock, FH-PRESENCE-003),
+;; but its STRUCTURAL projection is a value: the `:rf.ui/presence` marker, the
+;; terminal `:timeout-ms`, and the retained children rendered `:present` (the
+;; JVM structural host has no lifecycle). This fixture pins that value.
+;;
+;; It is rendered against BOTH the interpreted views in
+;; `re-frame.freehand.presence-views` and their `{:compiled true}` twins in
+;; `re-frame.freehand.presence-views-compiled` — same call sites, same pinned
+;; trees — so an interpreted `(v/presence …)` and a compiled one are proven to
+;; project the SAME node. Running on the JVM and in ClojureScript is the
+;; cross-host arm: two hosts producing this one pinned value is what "equal on
+;; both hosts" means operationally.
+;;
+;; `:view` names a declaration in the presence-views namespaces; `:args` is the
+;; boundary call's argument tail; the expected `:view-id`s are the interpreted
+;; namespace's, and the compiled arm rewrites them onto the twin namespace.
+{:fh/id "FH-PRESENCE-001"
+ :fh/law
+ "A presence boundary projects the `:rf.ui/presence {:phase :present :timeout-ms n}` fragment with its retained children rendered `:present`, identically in the interpreted and compiled modes and on both hosts; the marker survives view-boundary adoption when presence is a view's root."
+
+ :cases
+ [{:note "a presence boundary inside an element — the marker, the timeout, and two `:present` children"
+   :view :toasts
+   :args [{}]
+   :tree {:view-id :re-frame.freehand.presence-views/toasts
+          :children
+          [{:tag :div :attrs {:class "stack"}
+            :children
+            [{:rf.ui/presence {:phase :present :timeout-ms 300}
+              :children
+              [{:tag :div :attrs {:class "toast"} :key "a" :children ["A"]}
+               {:tag :div :attrs {:class "toast"} :key "b" :children ["B"]}]}]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "presence as the ROOT of a view — the marker is a load-bearing child node, never adopted away"
+   :view :rooted
+   :args [{}]
+   :tree {:view-id :re-frame.freehand.presence-views/rooted
+          :children
+          [{:rf.ui/presence {:phase :present :timeout-ms 250}
+            :children
+            [{:tag :li :attrs {:class "row"} :key 1 :children ["one"]}
+             {:tag :li :attrs {:class "row"} :key 2 :children ["two"]}]}]
+          :rf.ui/tree-version 1}}]}

@@ -1,0 +1,64 @@
+;; FH-PRESENCE-002 — the keyed retention state machine, as pure data.
+;;
+;; The retention machine is the ONE runtime both modes lower to: an
+;; interpreted `(v/presence …)` and a compiled one reach the identical
+;; `reconcile` / `claim-identities` in `re-frame.freehand.presence-runtime`.
+;; So the retention, re-entry, timeout-ordering and first-appearance-order
+;; contract is proven ONCE, on both hosts, over these pure functions —
+;; "identical in both modes" holds by shared construction, and this fixture
+;; pins the semantics the shared code must have.
+;;
+;; `reconcile` derives the next ordered `[{:key :phase} …]` from the committed
+;; entries and the keys present this render. `claim-identities` reduces the
+;; flattened `[key element]` children to one pair per key (first claimant wins)
+;; and returns the duplicate keys — the ownership invariant retention assumes.
+{:fh/id "FH-PRESENCE-002"
+ :fh/law
+ "reconcile derives the three-phase retention plan: new keys mount, present keys hold, a departed key is retained `:unmounting`, a re-entered key flips back to `:present`, and children hold first-appearance order (an incoming reorder is ignored); claim-identities keeps one pair per key, first claimant winning, and reports duplicates."
+
+ :reconcile
+ [{:note "brand-new keys enter :mounting, in first-appearance order"
+   :committed []
+   :incoming ["a" "b"]
+   :expected [{:key "a" :phase :mounting} {:key "b" :phase :mounting}]}
+
+  {:note "present keys still incoming keep their phase"
+   :committed [{:key "a" :phase :present} {:key "b" :phase :present}]
+   :incoming ["a" "b"]
+   :expected [{:key "a" :phase :present} {:key "b" :phase :present}]}
+
+  {:note "a departed key is RETAINED :unmounting — dropped only by its removal timer, never here"
+   :committed [{:key "a" :phase :present} {:key "b" :phase :present}]
+   :incoming ["a"]
+   :expected [{:key "a" :phase :present} {:key "b" :phase :unmounting}]}
+
+  {:note "removal-then-reinsertion RE-ENTERS: :unmounting flips back to :present, interrupting the exit"
+   :committed [{:key "a" :phase :present} {:key "b" :phase :unmounting}]
+   :incoming ["a" "b"]
+   :expected [{:key "a" :phase :present} {:key "b" :phase :present}]}
+
+  {:note "an incoming REORDER is ignored — committed keys hold first-appearance order (blessed order)"
+   :committed [{:key "a" :phase :present} {:key "b" :phase :present}]
+   :incoming ["b" "a"]
+   :expected [{:key "a" :phase :present} {:key "b" :phase :present}]}
+
+  {:note "a new key appends at the TAIL regardless of its incoming position"
+   :committed [{:key "b" :phase :present}]
+   :incoming ["a" "b"]
+   :expected [{:key "b" :phase :present} {:key "a" :phase :mounting}]}
+
+  {:note "every departed key is retained and holds its slot while a new key appends"
+   :committed [{:key "a" :phase :present} {:key "b" :phase :present}]
+   :incoming ["c"]
+   :expected [{:key "a" :phase :unmounting} {:key "b" :phase :unmounting} {:key "c" :phase :mounting}]}]
+
+ :claim
+ [{:note "distinct keys pass through unchanged, no duplicates"
+   :pairs [["a" 1] ["b" 2]]
+   :distinct [["a" 1] ["b" 2]]
+   :dups []}
+
+  {:note "a key claimed twice keeps its FIRST claimant; the later collision is dropped and reported"
+   :pairs [["a" 1] ["b" 2] ["a" 3]]
+   :distinct [["a" 1] ["b" 2]]
+   :dups ["a"]}]}
