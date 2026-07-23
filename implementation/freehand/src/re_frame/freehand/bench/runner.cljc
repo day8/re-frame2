@@ -68,7 +68,7 @@
   (when (number? x) (/ (double (Math/round (* (double x) 10.0))) 10.0)))
 
 (defn- prove-summary
-  [{:keys [arms move defects proven?]}]
+  [{:keys [arms move timing-ratio defects proven?]}]
   (concat
     ["Freehand B-spine falsifiability proof (D021, both directions)."
      (str "  a gate that HOLDS      -> exit " (get-in arms [:honoured-gate :exit-code])
@@ -79,8 +79,15 @@
     [(str "  timing baseline        -> exit " (get-in arms [:baseline-timing :exit-code])
           "   (expected 0), p50 " (get-in arms [:baseline-timing :p50-ms]) "ms")
      (str "  timing MOVED           -> exit " (get-in arms [:moved-timing :exit-code])
-          "   (expected 0), p50 " (get-in arms [:moved-timing :p50-ms]) "ms = "
-          (round1 move) "x the baseline")]
+          "   (expected 0), p50 " (get-in arms [:moved-timing :p50-ms]) "ms")
+     ;; The proof's quantity and the reader's quantity, kept apart on
+     ;; purpose: one decides the exit code, the other is evidence.
+     (str "  the moved arm did " (round1 move) "x the baseline's WORK ("
+          (get-in arms [:moved-timing :nodes]) " vs "
+          (get-in arms [:baseline-timing :nodes]) " nodes rendered) -- deterministic, "
+          "and the only thing this proof reads.")
+     (str "  its wall clock moved " (round1 timing-ratio)
+          "x -- published evidence, gating nothing.")]
     (if proven?
       ["  PROVEN both ways: a violated deterministic property reds; a wildly moved"
        "  wall-clock distribution does not."]
