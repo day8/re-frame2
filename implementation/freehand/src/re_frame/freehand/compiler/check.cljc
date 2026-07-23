@@ -87,6 +87,12 @@
   and discovery ([[declaration-for]]) runs on the resolved BRANCHES, so a
   `v/defview` written under `#?(:clj … :cljs …)` is found.
 
+  Where selection leaves source the TARGET's own reader would refuse — a map
+  entry with one side elided, two entries selecting the same key — the checker
+  refuses too (see [[resolve-entries]]). A branch that does not READ cannot be
+  eligible, and normalising it into something readable would be a green about
+  a map nobody wrote.
+
   A PURE `.cljs` source is the case that has no answer, and it is refused
   rather than approximated (see [[refuse-cljs-source!]]). Resolution needs
   either a namespace loaded on the JVM — which a `.cljs` namespace never is
@@ -448,6 +454,80 @@
 
 (declare resolve-conditionals)
 
+(defn- elides?
+  "Does `form` select NOTHING for `features`? Only a reader conditional can;
+  every other form contributes itself to every target."
+  [form features]
+  (and (reader-conditional? form)
+       (= ::elide (select-branch form features))))
+
+(defn- refuse-unreadable-map!
+  "Refuse a map the `features` target's reader would not accept.
+
+  Thrown WITHOUT the file, because the walk does not carry one;
+  [[read-declarations]] holds the path and prefixes it, which is what
+  `::unreadable-map` marks this exception for. `sentence` completes \"a map
+  literal … cannot be read for the :cljs target\"."
+  [sentence m features]
+  (throw (ex-info (str "a map literal " sentence " cannot be read for the "
+                       (first features) " target, so the checker will not "
+                       "answer for a declaration containing it. Write the "
+                       "conditional around the WHOLE map — #?(:clj {…} :cljs {…}) "
+                       "— or give every entry a branch for every target. The map, "
+                       "as preserved: " (pr-str m))
+                  {::unreadable-map true :target (first features) :map m})))
+
+(defn- resolve-entries
+  "Resolve conditionals across a map's entries, at the refusal boundary the
+  TARGET's reader draws.
+
+  The file is read with conditionals preserved, so a map arrives already
+  PAIRED. The reader that compiles the target pairs its forms AFTER selection,
+  and two things can happen in between that no rebuilt-from-pairs map can
+  express. A conditional in key or value position that selects nothing leaves
+  its entry half-written — the target reader sees an odd number of forms. And
+  two keys distinct as authored can select the SAME key, which the target
+  reader refuses as a duplicate.
+
+  Resolving each side independently and rebuilding with `into` did neither: it
+  fabricated `{:title nil}` for `{:title #?(:clj 1)}` and silently kept one
+  entry of `{#?(:clj :a :cljs :b) 1 :b 2}`, then reported the view ELIGIBLE.
+  A branch that does not READ cannot be eligible, and a checker whose green
+  survives source the compiler cannot read is answering a different question
+  than the one it was asked. So both are refused.
+
+  An entry whose key and value BOTH elide contributes nothing at all, which is
+  exactly what it contributes to the real reader, and is dropped. What is NOT
+  reconstructed is a map whose surviving forms RE-PAIR into a different map —
+  `{#?(:clj :a) 1 :b #?(:clj 2)}` reads as `{1 :b}` for `:cljs`. Recovering
+  that needs maps read as flat form sequences, a reader of the checker's own,
+  and it is refused with the rest: an honest refusal on source nobody writes
+  is the right trade against the general-purpose-analyzer non-goal."
+  [m features]
+  (reduce-kv
+   (fn [acc k v]
+     (let [k-gone? (elides? k features)
+           v-gone? (elides? v features)]
+       (cond
+         (and k-gone? v-gone?) acc
+         (or k-gone? v-gone?)
+         (refuse-unreadable-map!
+          (str "whose conditional selects nothing for the "
+               (if k-gone? "KEY" "VALUE") " of the entry " (pr-str [k v])
+               ", leaving that entry half-written,")
+          m features)
+
+         :else
+         (let [k' (resolve-conditionals k features)]
+           (if (contains? acc k')
+             (refuse-unreadable-map!
+              (str "whose conditional selection gives two entries the same key, "
+                   (pr-str k') ",")
+              m features)
+             (assoc acc k' (resolve-conditionals v features)))))))
+   (empty m)
+   m))
+
 (defn- resolve-children
   "Resolve conditionals across a sequence of sibling forms, SPLICING a
   matched `#?@` and dropping an elided conditional — the two things a
@@ -480,7 +560,11 @@
   EVERY collection kind is descended into, sets included. A kind left out is
   not a smaller fix, it is the same false-green in a new position: the
   conditional survives the walk, and the analyzer is handed a reader object
-  where the browser build has `#{v/sub}`."
+  where the browser build has `#{v/sub}`.
+
+  A MAP is the one kind whose target reader can refuse what selection leaves
+  behind, and there the walk stops rather than assembling something the target
+  cannot read — see [[resolve-entries]]."
   [form features]
   (cond
     (not (has-reader-conditional? form))
@@ -491,11 +575,7 @@
       (when-not (= ::elide branch) (resolve-conditionals branch features)))
 
     (map? form)
-    (with-meta (into (empty form)
-                     (map (fn [[k v]] [(resolve-conditionals k features)
-                                       (resolve-conditionals v features)]))
-                     form)
-               (meta form))
+    (with-meta (resolve-entries form features) (meta form))
 
     (set? form)
     (with-meta (into (empty form) (resolve-children form features)) (meta form))
@@ -628,7 +708,10 @@
   aliases resolve.
 
   The one shape that read mode cannot read is answered as a refusal rather
-  than raised as a reader exception — see [[refuse-preserved-read!]]."
+  than raised as a reader exception — see [[refuse-preserved-read!]]. This is
+  also where the file's NAME is put on a refusal raised deeper in the walk:
+  [[resolve-entries]] knows which map stopped it and for which target but not
+  which file it came from, and every checker refusal names the file."
   [path]
   (with-open [rdr (LineNumberingPushbackReader. (io/reader (io/file path)))]
     (try
@@ -644,7 +727,14 @@
                            (conj declarations declaration)
                            declarations))))))))
       (catch clojure.lang.LispReader$ReaderException ex
-        (refuse-preserved-read! ex path)))))
+        (refuse-preserved-read! ex path))
+      (catch clojure.lang.ExceptionInfo ex
+        (if (::unreadable-map (ex-data ex))
+          (throw (ex-info (str "re-frame.freehand check: " path ": " (ex-message ex))
+                          (-> (ex-data ex)
+                              (dissoc ::unreadable-map)
+                              (assoc :file (str path)))))
+          (throw ex))))))
 
 (defn- refuse-cljs-source!
   "Refuse a pure `.cljs` `path`, naming the two workflows that answer.
