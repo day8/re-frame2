@@ -24,6 +24,11 @@
      anchored nowhere inherits its declaration's position — which is why
      this half is host-neutral even though the exact positions are not
      (`re-frame.freehand.manifest-source-coord-jvm-test` pins those).
+     Only two of the six rosters are non-empty over this census, so the
+     row asserted here would pass over nothing on the other four:
+     `re-frame.freehand.manifest-roster-coverage-cljs-test` owns the
+     non-vacuity table that covers all six, and the entry counts that
+     were once hard-coded here are declared in the fixture it reads.
   3. **The omitted count is an integer** — `FH-DIAG-002`. Over the census,
      the number of views that omit the ViewCell is exactly four — asserted
      as an integer, never a threshold (EP-0036 D021: elision is a
@@ -120,17 +125,6 @@
             (str nm " — its :source-coord is a whole {:file :line :column}"))
         (is (pos-int? (:line (:source-coord entry)))
             (str nm " — with a real line, never a placeholder"))))))
-
-(deftest the-per-entry-gate-is-not-vacuous
-  (testing "A key contract asserted over zero entries would pass loudest of
-            all. The census reaches two of the six rosters through the public
-            door, and those two are named here so an emptied census cannot
-            read green."
-    (let [rosters (fn [k] (mapcat #(get (v/manifest %) k) (vals mv/by-name)))]
-      (is (= 3 (count (rosters :events)))
-          "three event sites across the census")
-      (is (= 1 (count (rosters :crossings)))
-          "one crossing across the census"))))
 
 (deftest reactive-and-elided-are-mutually-exclusive-and-agree
   (testing "The two facets of the verdict cannot disagree: :view-cell
