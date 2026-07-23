@@ -224,19 +224,27 @@
             browser-initiated dismissal means reading `ToggleEvent.newState`,
             and there is no reserved projection for it — the closed roster
             is `::v/value` / `::v/checked` / `::v/key`. The sanctioned
-            escape for exactly this shape is `v/event`, and a view that
-            reaches for it can no longer render on the structural host at
-            all, which for an overlay means no SSR and no headless
-            assertion. The row pins BOTH halves: the refusal is real, and
-            this library therefore counts reports instead of reading them."
+            escape for exactly this shape is `v/event`, and what a view
+            that reaches for it GIVES UP is the property the whole
+            data-intent idiom is for: the site renders, but it records as
+            the opaque marker, so what it dispatches is no longer
+            assertable by equality and the library's contract stops being
+            comparable data. That is why this library counts reports
+            instead of reading them."
     (seed! {})
-    (is (thrown? #?(:clj Throwable :cljs :default)
-                 (t/render [:div {:popover :auto
-                                  :on-toggle (v/event [_] [:acme.ui.dropdown/dismissed :x])}]))
-        "a v/event callback at a handler site is refused by the structural render")
+    (is (= {:rf.ui/opaque :fn}
+           (:on-toggle
+             (t/attrs
+               (t/render [:div {:popover   :auto
+                                :on-toggle (v/event [_]
+                                             [:acme.ui.dropdown/dismissed :x])}]))))
+        "a v/event callback at a handler site renders — and records OPAQUE, so
+         the intent behind it cannot be compared")
     (is (= [:acme.ui.dropdown/dismissed :x]
            (:on-click (t/attrs (t/render [:div {:on-click [:acme.ui.dropdown/dismissed :x]}]))))
-        "non-vacuous: an ordinary event vector at the same site renders fine")
+        "against an ordinary event vector at the same site, which records
+         VERBATIM and is assertable by equality — the difference the finding
+         is about")
 
     (testing "and the handshake the library uses instead: the first report
               of a session acknowledges, a later one closes, and a report
