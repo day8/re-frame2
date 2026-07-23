@@ -78,11 +78,24 @@
   outside the grammar is analyzed and found, never silently elided. See
   [[read-declarations]] and [[findings-for]].
 
+  A PURE `.cljs` source is the case that has no answer, and it is refused
+  rather than approximated (see [[refuse-cljs-source!]]). Resolution needs
+  either a namespace loaded on the JVM — which a `.cljs` namespace never is
+  — or a genuine ClojureScript analyzer environment, which exists only
+  INSIDE a running ClojureScript compile; a standalone read is not one, and
+  cannot be handed one. Loading a stand-in JVM namespace of the same name
+  would answer about that namespace instead, which is the false-green this
+  checker exists to prevent. So `.cljs` is refused with the two workflows
+  that do answer: make the declaration `.cljc` — whose `:cljs` branch the
+  checker DOES analyze — or let the build answer, which is the same
+  analyzer and the same diagnostics.
+
   Normative owner:
   [`spec/004D-Freehand-Compiled-Grammar.md`](../../../../../../spec/004D-Freehand-Compiled-Grammar.md)
   §The read-only checker."
   (:require [re-frame.freehand.compiler.grammar :as grammar]
             #?@(:clj [[clojure.java.io :as io]
+                      [clojure.string :as str]
                       [re-frame.freehand :as v]
                       [re-frame.freehand.compiler.analyze :as ana]
                       [re-frame.freehand.compiler.env :as env]
@@ -474,6 +487,36 @@
                 :else
                 (recur declarations)))))))))
 
+(defn- refuse-cljs-source!
+  "Refuse a pure `.cljs` `path`, naming the two workflows that answer.
+
+  The checker's whole claim is that it runs the analyzer the BUILD runs, and
+  the analyzer classifies heads by RESOLUTION. On the JVM that is a loaded
+  namespace; for a ClojureScript target it is a real `cljs.analyzer`
+  environment, and a real one exists only inside a running ClojureScript
+  compile — a standalone read cannot receive one, and a `.cljs` namespace is
+  never loaded on the JVM.
+
+  What is left is a stand-in, and every stand-in is a lie: `(require …)` on a
+  same-named JVM namespace answers about THAT namespace's vars, and
+  resolving through the checker's own namespace answers about the checker.
+  Either produces a confident report about code nobody wrote — the exact
+  false-green [[findings-for]] exists to prevent. So the answer is a refusal
+  that says what to do instead."
+  [path]
+  (when (.endsWith (str/lower-case (str path)) ".cljs")
+    (throw (ex-info (str "re-frame.freehand check: " path " is a ClojureScript "
+                         "source. Heads are classified by resolution, and a .cljs "
+                         "namespace has neither a loaded JVM namespace nor — outside "
+                         "a running ClojureScript compile — an analyzer environment "
+                         "to resolve through, so there is no build context to check "
+                         "against and the checker will not invent one. Make the "
+                         "declaration .cljc and check that (both reader-conditional "
+                         "branches are analyzed, including the :cljs branch the "
+                         "browser build compiles), or let the build answer — it is "
+                         "the same analyzer and the same diagnostics.")
+                    {:file (str path) :target :cljs}))))
+
 (defn check-file
   "Check every `v/defview` in the source file at `path` and answer one
   report per declaration, in declaration order.
@@ -483,9 +526,15 @@
   rest, why not and what to do about it. The file is only ever read —
   see the read-only law in this namespace's docstring.
 
-  The file's namespace must be LOADED, because heads are classified by
-  resolution; a tool driving this from a REPL or a build already has it."
+  `path` is a `.clj` or `.cljc` source whose namespace is LOADED, because
+  heads are classified by resolution; a tool driving this from a REPL or a
+  build already has it. A `.cljc` declaration is checked for BOTH targets —
+  each reader-conditional branch a compile visits is analyzed (see
+  [[findings-for]]) — which is how a CLJS-target question is answered. A
+  pure `.cljs` source has no build context to answer from and is refused,
+  not approximated: see [[refuse-cljs-source!]]."
   [path]
+  (refuse-cljs-source! path)
   (mapv check-declaration (read-declarations path)))
 
 ))

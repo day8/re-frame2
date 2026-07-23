@@ -1800,6 +1800,30 @@ unloaded namespace is refused loudly rather than reported as a wall of
 unresolved heads, because that failure would be about the checker rather than
 about the code.
 
+Only resolution is host-uniform; the **forms** are not. A `.cljc` declaration
+compiles a different reader-conditional branch per target, and the branch a SPA
+author is most likely to false-green is the `:cljs` one, because the JVM never
+reads it. Handing the reader a `:features` set does not fix this: the JVM
+reader's `:clj` platform feature is always present and cannot be turned off, so
+`#?(:clj … :cljs …)` resolves to `:clj` whatever it is asked for, and the other
+branch is elided before any analysis can see it. The checker therefore reads
+with reader conditionals **preserved** and selects each target's branch
+**itself**, past the platform feature, and analyzes **every branch a compile
+would visit** — one refusal at a time still, JVM branch first. A declaration is
+eligible only when both branches are.
+
+A **pure `.cljs` source is refused**, and refusing is the whole answer. A
+`.cljs` namespace is never loaded on the JVM, and the genuine ClojureScript
+analyzer environment that would resolve through instead exists only *inside* a
+running ClojureScript compile — a standalone read is not one and cannot be
+handed one. Every remaining option is a stand-in: a same-named JVM namespace
+answers about that namespace's vars, and the checker's own namespace answers
+about the checker. Either would report confidently about code nobody wrote,
+which is precisely the false-green the branch discipline above exists to
+prevent. The refusal names the two workflows that do answer — write the
+declaration in `.cljc`, whose `:cljs` branch the checker analyzes, or let the
+build answer, which is the same analyzer and the same diagnostics.
+
 The **report vocabulary** — the reason roster, the recovery roster, and the
 report and finding shapes — is host-neutral, so a ClojureScript tool can render
 a report it received over the wire without a second copy of the vocabulary to
