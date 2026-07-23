@@ -518,9 +518,12 @@
            ;; The two things that defeat `position: fixed` emulation, in
            ;; one element: a clipping box and a containing-block-forming
            ;; transform.
-           :style          {:overflow "hidden"
-                            :height   "40px"
-                            :width    "220px"
+           ;; Deliberately TIGHT: an 18px box that the panel could not
+           ;; possibly fit inside, so `escaped the clip` is a measurement
+           ;; rather than a coincidence.
+           :style          {:overflow  "hidden"
+                            :height    "18px"
+                            :width     "220px"
                             :transform "translateX(10px)"}}
      [dropdown {:name      (str "format-" (name id))
                 :label     "Export as…"

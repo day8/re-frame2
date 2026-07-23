@@ -214,9 +214,9 @@
                                           "nor the caret")
                                       (is (identical? before (field))
                                           "nor the node")
-                                      (is (zero? (count (.querySelectorAll
-                                                          (.-body js/document)
-                                                          "[data-part='option']")))
+                                      (is (zero? (.-length (.querySelectorAll
+                                                             (.-body js/document)
+                                                             "[data-part='option']")))
                                           (str "and its results are NOT shown — they answer "
                                                "'an', and the user has typed 'anna'"))
                                       (teardown! container root)
