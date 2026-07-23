@@ -56,7 +56,10 @@
   The schema is Malli-shaped vector data, the repository's existing
   convention (Spec 010). It is held as inert data: nothing here validates a
   VALUE, so no schema library is dragged onto the classpath by declaring
-  one. Value validation, when a port wants it, goes through Spec 010's
+  one. Inert also means AUTHORED — a declaration publishes the form it was
+  given and never the value an expression would evaluate to ([[inert-form]]),
+  which is what keeps an OPAQUE schema open at every surface instead of open
+  where it is read as a form and closed where it is read as a value. Value validation, when a port wants it, goes through Spec 010's
   validator seam.
 
   Per [Spec 004D §Props schemas](../../../../spec/004D-Freehand-Compiled-Grammar.md#props-schemas)."
@@ -84,6 +87,24 @@
   replaced."
   [schema]
   (and (vector? schema) (= :map (first schema))))
+
+(defn inert-form
+  "The form a DECLARATION emits to carry `schema` — inert data that yields the
+  authored schema itself and never something the author did not write.
+
+  A literal `[:map …]` is already inert: it evaluates to itself, and it stays
+  unwrapped because a compiled parent reads a child's schema off Var metadata
+  at BUILD time, where that metadata is a FORM rather than a value.
+
+  Anything else is an EXPRESSION, and evaluating it is how the one decision
+  becomes two. The compiled front end can only ever see the expression, so it
+  reads an opaque schema and leaves the map open; an evaluated expression hands
+  the runtime descriptor a literal `[:map …]` and closes the very same map at
+  render. Quoting keeps ONE schema at every surface — and evaluates the
+  author's expression exactly zero times, which is what makes a schema inert
+  data rather than a value the declaration computes."
+  [schema]
+  (if (map-schema? schema) schema (list 'quote schema)))
 
 (defn declared-keys
   "The top-level prop keys a literal `[:map …]` schema names, in declaration

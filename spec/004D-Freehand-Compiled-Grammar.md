@@ -530,8 +530,14 @@ the schema, where the rest of its props contract already is:
 ```
 
 An **opaque** schema — one behind a registry reference or a runtime expression,
-whose top-level keys cannot be read — closes nothing. A guess about keys nobody
-can see would be worse than the open map it replaced.
+whose top-level keys cannot be read — closes nothing, and closes nothing at
+every surface. A guess about keys nobody can see would be worse than the open
+map it replaced, and an opacity honoured at build time and forgotten at render
+would be the cross-mode divergence the closure rule exists to forbid. What a
+declaration publishes to the descriptor and to its Var is therefore the schema
+as AUTHORED, held inert: evaluating the expression would hand the boundary a
+literal `[:map …]` that closes the very map the compiler, which can only ever
+see the expression, had just left open.
 
 **`:key` and `:children` are never schema entries.** `:key` selects sibling
 identity and is stripped by the call ABI before props are delivered;

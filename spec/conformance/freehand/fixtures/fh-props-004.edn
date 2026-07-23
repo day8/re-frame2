@@ -35,6 +35,16 @@
 ;; DECLARATION refuses, under `:declaration-reject-id`, because a schema that
 ;; named a reserved slot would advertise to a catalogue a prop the call ABI can
 ;; never deliver.
+;;
+;; `:opaque` is the other half of the closure rule, and the half that is easiest
+;; to lose: a schema behind a registry reference or a runtime expression closes
+;; NOTHING, and closes nothing at EVERY surface. A guess about keys nobody can
+;; see would be worse than the open map it replaced, and an opacity honoured
+;; where the schema is read as a form and forgotten where it is read as a value
+;; would be exactly the cross-mode divergence the parity matrix above exists to
+;; forbid. What the declaration publishes is therefore the AUTHORED schema, as
+;; inert data — evaluating it would hand one consumer a literal `[:map …]` the
+;; other one cannot see.
 {:fh/id "FH-PROPS-004"
 
  :schema             [:map [:id :int] [:label :string]]
@@ -70,6 +80,12 @@
  :reserved-declarations
  [{:schema [:map [:key :string] [:id :int]]         :reserved :key}
   {:schema [:map [:children [:vector :any]] [:id :int]] :reserved :children}]
+
+ ;; An opaque schema, and the surfaces its openness must survive. Every row of
+ ;; `:calls` above is `:accept` against one, in both modes, at build time as
+ ;; much as at the boundary.
+ :opaque {:closes-nothing-at-every-surface?    true
+          :describe-carries-the-authored-form? true}
 
  ;; The declaration that carries no schema at all — the optional half.
  :schema-less {:describe-omits-props-schema? true}}

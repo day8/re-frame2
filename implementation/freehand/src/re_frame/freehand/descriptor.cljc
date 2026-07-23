@@ -217,7 +217,11 @@
        :props-schema           <schema>}      ; absent when none declared
 
   `:props-schema` is **absent** when no schema was declared — absence is
-  reported as absence, never as `:any`. The descriptor's host `mount` and
+  reported as absence, never as `:any` — and a declared one is projected
+  as AUTHORED, inert and unevaluated
+  ([[re-frame.freehand.props-schema/inert-form]]), so a schema behind a
+  reference or an expression reaches a catalogue as that reference or
+  expression and closes nothing anywhere. The descriptor's host `mount` and
   structural `tree` entries are private and are deliberately NOT
   projected: browser heads resolve through the mount entry and structural
   heads through the tree entry, and neither shape is a contract an

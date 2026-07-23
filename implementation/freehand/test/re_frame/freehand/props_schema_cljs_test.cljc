@@ -96,6 +96,44 @@
    :compiled    compiled-row})
 
 ;; ---------------------------------------------------------------------------
+;; The OPAQUE declarations — a schema nobody can read, in both modes
+;; ---------------------------------------------------------------------------
+
+(def registry-schema
+  "A shared props contract, factored out of the declarations that use it — the
+  ordinary reason a `:props` entry is a reference rather than a literal."
+  [:map [:id :int]])
+
+(v/defview opaque-row
+  "A schema behind a runtime expression. Its top-level keys are not readable
+  from the declaration, so it closes nothing — and the point of the row is that
+  it closes nothing WHEREVER the schema is consulted."
+  {:props (identity [:map [:id :int]])}
+  [{:keys [id]}]
+  [:li.row {:data-id id}])
+
+(v/defview opaque-compiled-row
+  "The compiled arm, carrying the self-call the parity claim turns on. A
+  compiled body's call sites are analyzed at BUILD time against the view's own
+  closing roster, so `{:id id :extra true}` here is the exact call that must not
+  be accepted by the compiler and then refused by the boundary."
+  {:compiled true
+   :props    (identity [:map [:id :int]])}
+  [{:keys [id deeper?]}]
+  [:li.row {:data-id id}
+   (when deeper? [opaque-compiled-row {:id id :extra true}])])
+
+(v/defview registry-row
+  "The reference spelling of the same opacity."
+  {:props registry-schema}
+  [{:keys [id]}]
+  [:li.row {:data-id id}])
+
+(def ^:private opaque-by-mode
+  {:interpreted opaque-row
+   :compiled    opaque-compiled-row})
+
+;; ---------------------------------------------------------------------------
 ;; Surface 1 + 2 — the boundary, in both modes
 ;; ---------------------------------------------------------------------------
 
@@ -286,6 +324,69 @@
          a parity result rather than the same value read twice")))
 
 ;; ---------------------------------------------------------------------------
+;; An OPAQUE schema closes nothing — at EVERY surface
+;; ---------------------------------------------------------------------------
+
+(deftest an-opaque-schema-closes-nothing-at-the-boundary-in-both-modes
+  (testing "Per FH-PROPS-004: a schema behind a registry reference or a runtime
+            expression has no readable top-level keys, so it closes nothing —
+            a guess about keys nobody can see would be worse than the open map
+            it replaced. The claim is only worth anything if it survives the
+            surface that reads the schema as a VALUE as well as the one that
+            reads it as a form: an opacity honoured at build time and forgotten
+            at render would be two contracts wearing one name."
+    (doseq [{:keys [props]} (:calls props-004)
+            [mode view]     (assoc opaque-by-mode :reference registry-row)]
+      (is (= :accept (boundary-verdict view props))
+          (str mode " — an opaque schema admits " (pr-str props))))
+    (is (true? (:closes-nothing-at-every-surface? (:opaque props-004)))
+        "the fixture states the same expectation the rows above assert")))
+
+(deftest an-opaque-schema-derives-no-closing-roster-from-what-tooling-reads
+  (testing "The boundary rows above are the symptom; this is the cause. Both
+            surfaces derive their roster from the schema the declaration
+            published, through the one function that owns the decision — so a
+            projection that had quietly become a literal `[:map …]` would close
+            the map at render while the compiler still saw an expression. What
+            `describe` carries is the AUTHORED form, inert, unevaluated, and the
+            same value the Var carries."
+    (doseq [[mode view] (assoc opaque-by-mode :reference registry-row)]
+      (let [schema (:props-schema (v/describe view))]
+        (is (contains? (v/describe view) :props-schema)
+            (str mode " — an opaque schema is still REPORTED; absence would say
+                 the declaration made no statement at all"))
+        (is (not (props-schema/map-schema? schema))
+            (str mode " — what the projection carries is opaque, not a literal
+                 map schema silently substituted for it"))
+        (is (nil? (props-schema/closing-keys schema))
+            (str mode " — and so it closes nothing"))))
+    (is (= '(identity [:map [:id :int]]) (:props-schema (v/describe opaque-row)))
+        "the expression spelling reaches tooling exactly as authored")
+    (is (= 'registry-schema (:props-schema (v/describe registry-row)))
+        "and so does the reference spelling")
+    (is (true? (:describe-carries-the-authored-form? (:opaque props-004)))
+        "the fixture states the same expectation")))
+
+#?(:clj
+   (deftest an-opaque-schema-is-carried-once-and-inert
+     (testing "Per FH-PROPS-004: the Var carries the SCHEMA and not a
+               precomputed roster, precisely so a compiled parent and the
+               boundary cannot drift about what it admits. They cannot drift
+               about an OPAQUE schema either, which takes carrying the authored
+               form rather than its evaluation — the expression is data the
+               declaration published, and publishing it twice, evaluated, is how
+               the two surfaces came to disagree."
+       (is (= (:props-schema (v/describe opaque-row))
+              (:re-frame.freehand/props-schema (meta #'opaque-row)))
+           "the Var and the inspection projection publish ONE representation")
+       (is (= (:props-schema (v/describe opaque-compiled-row))
+              (:re-frame.freehand/props-schema (meta #'opaque-compiled-row)))
+           "in the compiled mode too")
+       (is (nil? (env/closed-prop-keys (meta #'opaque-compiled-row)))
+           "and the roster a compiled parent derives from that Var is nil —
+            the same answer the boundary gave the rows above"))))
+
+;; ---------------------------------------------------------------------------
 ;; The reserved slots may not be DECLARED
 ;; ---------------------------------------------------------------------------
 ;;
@@ -341,7 +442,8 @@
             its props would advertise a prop the call ABI can never deliver.
             Every declaration that survives declaration therefore names none."
     (doseq [view [interpreted-row compiled-row open-row schema-less-row
-                  compiled-schema-less-row]]
+                  compiled-schema-less-row opaque-row opaque-compiled-row
+                  registry-row]]
       (is (empty? (props-schema/reserved-declared (:props-schema (v/describe view))))
           (str (:view-id (v/describe view)) " declares no reserved slot")))
     (is (= [:key] (props-schema/reserved-declared [:map [:key :string] [:id :int]]))
