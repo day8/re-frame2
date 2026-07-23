@@ -128,8 +128,8 @@
   mixing literal and computed entries sorts ALL its truthy names
   together. Taking the split plan here would order a promoted
   declaration's classes differently from its interpreted twin's."
-  [o cls]
-  `(re-frame.freehand.compiled-react/class! ~o ~(vec (:sugar cls)) ~(:runtime cls)))
+  [o tag cls]
+  `(re-frame.freehand.compiled-react/class! ~o ~tag ~(vec (:sugar cls)) ~(:runtime cls)))
 
 (defn- static-style-obj
   "A wholly-literal `:style` map, canonicalised at build time into the
@@ -253,7 +253,7 @@
         dynamics    (remove :literal? attrs)
         o           (gensym "rf-fh-props")
         writes      (cond-> []
-                      (and cls (not (:static? cls))) (conj (dynamic-class-form o cls))
+                      (and cls (not (:static? cls))) (conj (dynamic-class-form o tag cls))
                       (and sty (not (:static? sty))) (conj (style-write o tag sty))
                       true (into (map (fn [{:keys [k value]}]
                                         `(re-frame.freehand.compiled-react/attr!

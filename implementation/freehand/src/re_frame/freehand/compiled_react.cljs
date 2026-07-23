@@ -69,8 +69,8 @@
   "Compose the element's `className` from the tag's sugar names and the
   AUTHORED `:class` value, and write it — the interpreted walk's `:class`
   arm, on the value the compiled body just produced."
-  [o sugar raw]
-  (fr/put-class! o sugar raw)
+  [o tag sugar raw]
+  (fr/put-class! o tag sugar raw)
   o)
 
 (defn ^:no-doc style!

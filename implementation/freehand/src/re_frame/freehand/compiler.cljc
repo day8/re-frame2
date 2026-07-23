@@ -660,7 +660,7 @@
                 ;; normalized AST and neither is written in terms of the
                 ;; other's output — so a compiled declaration cannot say one
                 ;; thing in a structural render and another in the DOM.
-                cljs? (assoc :react (emit-react/emit-react-body e params ast)))))))))
+                cljs? (assoc :react (emit-react/emit-react-body e params ast))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; re-frame.freehand.react/lazy — the def-level code-splitting constructor

@@ -1,0 +1,477 @@
+(ns re-frame.freehand.compiled-mount-dom-cljs-test
+  "The compiled tier in a real browser — `{:compiled true}` mounted through
+  `v/mount`, and every claim read back off `document`.
+
+  Until this file existed, NO compiled view was browser-mountable: the
+  declaration analyzed, the manifest reported, the structural tree
+  rendered on both hosts, and the React emitter refused every compiled
+  descriptor because the browser lowering was not built. Everything the
+  compiled tier claimed about a page was therefore claimed about a page
+  nobody had put on screen.
+
+  So the assertions below are deliberately the ones a structural render
+  cannot make:
+
+  - **Cross-mode parity, in the DOM.** The compiled twin of the
+    interpreted `page` is mounted against the SAME `FH-STRUCT-007` rows
+    its interpreted original is pinned to by
+    `react-mount-dom-cljs-test` — same fixture, same selectors, same
+    expected text and attributes, unedited. Two emitters, one page.
+  - **The wrapper the manifest names is the wrapper React ran.** A view
+    whose analysis proved it reactive renders inside the atomic shell; a
+    view whose analysis ELIDED its ViewCell renders with no shell at
+    all. That is not read off the manifest — the manifest is the claim —
+    it is read off the DOM, because a compiled body can ask
+    `cell/observing?` and a candidate exists exactly when the ViewCell
+    shell opened one.
+  - **The reactive arms do their work.** A committed `:on-*` site
+    dispatches into the frame the commit bound, and a subscription
+    observes the current value and REPAINTS the mounted occurrence when
+    it moves.
+
+  This file rides the browser lane through its `-dom-cljs-test`
+  namespace suffix. It also matches the node suites' broader regex,
+  where it has no DOM to mount and says so rather than passing quietly —
+  the declarations themselves still load, which is the cross-host half."
+  (:require ["react" :as react]
+            [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.freehand :as v]
+            [re-frame.freehand.cell :as cell]
+            [re-frame.freehand.compiled-views :as compiled]
+            [re-frame.freehand.conformance :as conf]
+            [re-frame.freehand.react :as fr]
+            [re-frame.freehand.root :as root]
+            [re-frame.live-frame :as live-frame]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]))
+
+(def struct-007 (conf/fixture :FH-STRUCT-007))
+
+(def ^:private runtime-fixture
+  (test-support/make-reset-runtime-fixture
+    {:adapter       plain-atom/adapter
+     :ambient-frame nil
+     :async?        true}))
+
+(use-fixtures :each
+  ;; The live-root registry and the emitter's boundary cache are both
+  ;; process-global, so a root or a boundary left over from an earlier
+  ;; test — or an earlier run of this file — could masquerade as this
+  ;; test's own reload and hand React a component built for a different
+  ;; declaration generation.
+  {:before (fn []
+             (root/reset-registry!)
+             (fr/reset-boundaries!)
+             ((:before runtime-fixture)))
+   :after  (fn []
+             ((:after runtime-fixture))
+             (root/reset-registry!)
+             (fr/reset-boundaries!))})
+
+(defn- browser? []
+  (and (exists? js/document) (some? (.-createElement js/document))))
+
+(defn- act
+  "A React 19 `act` boundary as a promise, so assertions run after the
+  commit rather than racing it."
+  [thunk]
+  (try
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+    (js/Promise.resolve (react/act (fn [] (js/Promise.resolve (thunk)))))
+    (catch :default e
+      (js/Promise.reject e))))
+
+(defn- host-node! []
+  (let [container (js/document.createElement "div")]
+    (.appendChild js/document.body container)
+    container))
+
+(defn- unmount! [container mounted]
+  (some-> mounted .-react-root .unmount)
+  (.remove container)
+  nil)
+
+(defn- skip! [why]
+  (is true (str "a real React mount needs a DOM host — " why)))
+
+(defn- text [container selector]
+  (some-> (.querySelector container selector) .-textContent))
+
+(defn- attr [container selector n]
+  (some-> (.querySelector container selector) (.getAttribute n)))
+
+;; ---------------------------------------------------------------------------
+;; The shell witness
+;; ---------------------------------------------------------------------------
+
+(defn shell-witness
+  "\"shell\" inside an open render candidate, \"no-shell\" outside one.
+
+  A ViewCell is the ONLY thing that opens a candidate, so this is the
+  presence of the reactive shell, observed from inside the very body the
+  shell is (or is not) wrapping — and it reaches the DOM as an ordinary
+  attribute, where a test can read it without a seam into the runtime.
+
+  A plain `defn`, so a compiled body may call it: it owns no
+  subscription, no occurrence and no memoization, and calling it is not
+  a reactive site. That matters here — a witness that WAS a site would
+  force the very shell it exists to detect."
+  []
+  (if (cell/observing?) "shell" "no-shell"))
+
+;; ---------------------------------------------------------------------------
+;; The arms. Module-level, because a declaration cannot close over a
+;; test's locals — and because `{:compiled true}` is a macro-expansion
+;; fact, so these are exactly the declarations a real application writes.
+;; ---------------------------------------------------------------------------
+
+(def ^:private fid :compiled-dom/frame)
+
+(v/defview inert-probe
+  "No subscription, no committed handler, no frame read — the analysis
+  proves the reactive shell unnecessary, so the ViewCell is ELIDED and
+  this body runs with no candidate above it."
+  {:compiled true}
+  [{:keys [caption]}]
+  [:p#inert.probe {:data-shell (shell-witness)} caption])
+
+(v/defview sub-probe
+  "One subscription. A reactive site is proof the shell is needed, so the
+  ViewCell is RETAINED and this body runs inside a candidate."
+  {:compiled true}
+  [_]
+  [:p#reactive.probe {:data-shell (shell-witness)} (str (v/sub [:compiled/total]))])
+
+(v/defview event-probe
+  "One committed `:on-*` site. It reads the frame the commit bound, so
+  the shell is retained for it exactly as it is for a subscription."
+  {:compiled true}
+  [{:keys [caption]}]
+  [:button#press.probe {:data-shell (shell-witness)
+                        :on-click   [:compiled/pressed]}
+   caption])
+
+(v/defview field-probe
+  "A CONTROLLED input: a `value` prop makes the element controlled, and
+  the door verdict for its handler is decided from those element facts.
+  The compiled tier does not encode that verdict — it emits the facts and
+  lets the one door predicate decide, which is why promotion cannot move
+  a field between the synchronous and batched lanes."
+  {:compiled true}
+  [_]
+  [:input#field {:type :text :value (str (v/sub [:compiled/text]))
+                 :on-change [:compiled/typed]}])
+
+(v/defview interpreted-shell
+  "An INTERPRETED child, mounted BY a compiled parent below, with children
+  the compiled parent already lowered into React elements."
+  [{:keys [children]}]
+  [:div#interp children])
+
+(v/defview crossing-probe
+  "A compiled parent crossing into an interpreted child, forwarding
+  children the compiled emitter resolved at build time. The crossing is
+  a mount — the head is a descriptor, not a React component — so the call
+  normalizes through the same boundary rules an interpreted crossing
+  does."
+  {:compiled true}
+  [{:keys [label]}]
+  [:section#crossing
+   [interpreted-shell {} [:em.forwarded label]]])
+
+(defn- register! []
+  (rf/reg-sub :compiled/total (fn [db _] (:total db)))
+  (rf/reg-sub :compiled/text  (fn [db _] (:text db)))
+  (rf/reg-event-db :compiled/pressed (fn [db _] (update db :presses inc)))
+  (rf/reg-event-db :compiled/typed
+                   (fn [db [_ {v :re-frame.freehand/value}]] (assoc db :text v))))
+
+(defn- seed! [db]
+  (live-frame/make-frame {:id fid})
+  (frame/replace-app-db! fid db)
+  fid)
+
+(defn- db [] (frame/frame-app-db-value fid))
+
+;; ===========================================================================
+;; Cross-mode parity — the SAME FH-STRUCT-007 rows, in a browser
+;; ===========================================================================
+
+(defn- check-row!
+  [container {:keys [note selector selector-all tag text attrs] n :count}]
+  (if selector-all
+    (is (= n (.-length (.querySelectorAll container selector-all))) note)
+    (let [el (.querySelector container selector)]
+      (is (some? el) (str note " — " selector " matched"))
+      (when el
+        (when tag  (is (= tag (.-tagName el)) note))
+        (when text (is (= text (.-textContent el)) note))
+        (doseq [[attr-name expected] attrs]
+          (is (= expected (.getAttribute el attr-name))
+              (str note " — " attr-name)))))))
+
+(deftest a-compiled-view-mounts-as-the-same-real-dom-its-interpreted-twin-does
+  (testing "Per FH-STRUCT-007, rendered by the OTHER emitter: the compiled
+            twin of the interpreted `page` — the same declaration with
+            `{:compiled true}` added and nothing else changed — mounts
+            through `v/mount` and produces the elements, converted
+            attribute names, composed classes, text and keyed run of
+            child boundaries the fixture pins its interpreted original
+            to. `react-mount-dom-cljs-test` renders the original against
+            these same rows; between them, promotion is proven not to
+            change one thing about the page."
+    (is (seq (:dom struct-007)) "the fixture's DOM table loaded")
+    (if-not (browser?)
+      (skip! "the browser job runs the mount assertions")
+      (async done
+        (let [container (host-node!)]
+          (-> (act #(v/mount [compiled/page (:props struct-007)] container))
+              (.then (fn [mounted]
+                       (doseq [row (:dom struct-007)]
+                         (check-row! container row))
+                       (unmount! container mounted)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "compiled mount rejected: " e))
+                        (.remove container)
+                        (done)))))))))
+
+;; ===========================================================================
+;; The elision verdict is the wrapper React actually ran
+;; ===========================================================================
+
+(deftest an-elided-compiled-view-mounts-with-no-view-cell
+  (testing "A compiled body whose analysis found no reactive site renders
+            with NO ViewCell: no candidate is open above it, so the
+            witness inside the body reports `no-shell`. The manifest
+            claims `:view-cell :elided`; this is that claim observed in
+            the DOM rather than restated. The reactive arm below is the
+            control — without it, `no-shell` could be a constant."
+    (if-not (browser?)
+      (skip! "the browser job runs the shell assertions")
+      (async done
+        (register!)
+        (seed! {:total 41})
+        (let [container (host-node!)]
+          (-> (act #(v/mount [inert-probe {:caption "inert"}] container {:frame fid}))
+              (.then (fn [mounted]
+                       (is (= :elided (:view-cell (v/manifest inert-probe)))
+                           "the declaration's own analysis elided the ViewCell")
+                       (is (false? (:reactive? (v/manifest inert-probe))))
+                       (is (= "inert" (text container "#inert"))
+                           "and it rendered — an elided shell is not an absent view")
+                       (is (= "no-shell" (attr container "#inert" "data-shell"))
+                           "no candidate was open above the body: no ViewCell ran")
+                       (is (= "probe" (attr container "#inert" "class"))
+                           "the sugar class survived the compiled lowering")
+                       (is (= [:compiled :elided]
+                              (:signature (get (fr/boundary-cache)
+                                               (:view-id (v/describe inert-probe)))))
+                           "and the boundary React reconciles was minted for exactly
+                            that lowering and that verdict")
+                       (unmount! container mounted)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "inert mount rejected: " e))
+                        (.remove container)
+                        (done)))))))))
+
+(deftest a-reactive-compiled-view-mounts-inside-the-atomic-shell
+  (testing "A compiled body carrying a subscription renders INSIDE the
+            atomic shell — the same shell an interpreted body renders
+            inside, opening the same candidate. The witness reports
+            `shell`, which is the exact opposite of the elided arm above
+            over the same probe attribute, so neither answer is a
+            constant."
+    (if-not (browser?)
+      (skip! "the browser job runs the shell assertions")
+      (async done
+        (register!)
+        (seed! {:total 41})
+        (let [container (host-node!)]
+          (-> (act #(v/mount [sub-probe {}] container {:frame fid}))
+              (.then (fn [mounted]
+                       (is (= :present (:view-cell (v/manifest sub-probe))))
+                       (is (true? (:reactive? (v/manifest sub-probe))))
+                       (is (= "shell" (attr container "#reactive" "data-shell"))
+                           "a candidate was open above the body: the ViewCell ran")
+                       (is (= [:compiled :present]
+                              (:signature (get (fr/boundary-cache)
+                                               (:view-id (v/describe sub-probe))))))
+                       (unmount! container mounted)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "reactive mount rejected: " e))
+                        (.remove container)
+                        (done)))))))))
+
+;; ===========================================================================
+;; The subscription arm — observe, and repaint when the value moves
+;; ===========================================================================
+
+(deftest a-compiled-subscription-observes-and-repaints-the-mounted-occurrence
+  (testing "The claim the compiled tier could not make before this slice:
+            a `v/sub` inside a compiled body, mounted in a browser,
+            observes the CURRENT value and repaints the mounted
+            occurrence when that value moves. The read goes through the
+            one shell — `reactive/sub-read` reaches
+            `cell/observe-site!` — so the compiled view is repainted by
+            the same committed dependency an interpreted twin would be
+            repainted by."
+    (if-not (browser?)
+      (skip! "the browser job runs the repaint assertions")
+      (async done
+        (register!)
+        (seed! {:total 41})
+        (let [container (host-node!)
+              mounted   (atom nil)]
+          (-> (act #(v/mount [sub-probe {}] container {:frame fid}))
+              (.then (fn [m]
+                       (reset! mounted m)
+                       (is (= "41" (text container "#reactive"))
+                           "the first render observed the current value")
+                       (act #(frame/replace-app-db! fid {:total 42}))))
+              (.then (fn [_]
+                       (is (= "42" (text container "#reactive"))
+                           "a changed input repainted the MOUNTED occurrence")
+                       (unmount! container @mounted)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "subscription arm rejected: " e))
+                        (.remove container)
+                        (done)))))))))
+
+;; ===========================================================================
+;; The event arm — a committed site, fired from a real DOM event
+;; ===========================================================================
+
+(deftest a-compiled-event-site-dispatches-into-the-committed-frame
+  (testing "A committed `:on-*` site in a compiled body is recorded on
+            this render's candidate through the ONE event-site
+            constructor, becomes live at the SELECTED commit, and
+            dispatches into the frame that commit bound. Fired here by a
+            real DOM click, not by invoking the callback — a proxy that
+            React never attached would pass the second and fail the
+            first."
+    (if-not (browser?)
+      (skip! "the browser job runs the dispatch assertions")
+      (async done
+        (register!)
+        (seed! {:presses 0})
+        (let [container (host-node!)
+              mounted   (atom nil)]
+          (-> (act #(v/mount [event-probe {:caption "press"}] container {:frame fid}))
+              (.then (fn [m]
+                       (reset! mounted m)
+                       (is (= :present (:view-cell (v/manifest event-probe)))
+                           "an event site is a reactive site, so the shell is retained")
+                       (is (= "shell" (attr container "#press" "data-shell")))
+                       (is (= 0 (:presses (db))) "nothing has been dispatched yet")
+                       (act #(.click (.querySelector container "#press")))))
+              (.then (fn [_]
+                       (is (= 1 (:presses (db)))
+                           "the real click reached the committed frame")
+                       (act #(.click (.querySelector container "#press")))))
+              (.then (fn [_]
+                       (is (= 2 (:presses (db)))
+                           "and the site's proxy survived the repaint between clicks")
+                       (unmount! container @mounted)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "event arm rejected: " e))
+                        (.remove container)
+                        (done)))))))))
+
+(deftest a-compiled-controlled-input-round-trips-through-app-db
+  (testing "A compiled `:input` carrying `value` is CONTROLLED, and its
+            handler's lane is decided from those element facts by the one
+            door predicate rather than from a bit the emitter baked in.
+            The proof it is wired: what the field shows follows app-db,
+            and typing into it reaches app-db."
+    (if-not (browser?)
+      (skip! "the browser job runs the controlled-input assertions")
+      (async done
+        (register!)
+        (seed! {:text "ab"})
+        (let [container (host-node!)
+              mounted   (atom nil)]
+          (-> (act #(v/mount [field-probe {}] container {:frame fid}))
+              (.then (fn [m]
+                       (reset! mounted m)
+                       (let [el (.querySelector container "#field")]
+                         (is (some? el) "the compiled controlled input mounted")
+                         (is (= "ab" (.-value el))
+                             "its value is the subscription's, not the DOM's")
+                         (act (fn []
+                                (set! (.-value el) "abc")
+                                (.dispatchEvent el (js/Event. "input" #js {:bubbles true})))))))
+              (.then (fn [_]
+                       (is (= "abc" (:text (db)))
+                           "the committed handler carried the native value into app-db")
+                       (is (= "abc" (.-value (.querySelector container "#field")))
+                           "and the field shows what app-db now holds")
+                       (unmount! container @mounted)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "controlled-input arm rejected: " e))
+                        (.remove container)
+                        (done)))))))))
+
+;; ===========================================================================
+;; Crossings — a compiled parent mounting an interpreted child
+;; ===========================================================================
+
+(deftest a-compiled-parent-mounts-an-interpreted-child-in-a-browser
+  (testing "Promotion is per declaration and not transitive, so the
+            ordinary case is a compiled parent mounting an interpreted
+            child. The parent lowered its children into React elements at
+            build time and the interpreted child forwards them, so the
+            crossing carries FINISHED markup in both directions — which
+            the interpreted walk has to accept as a child rather than
+            refuse as an unknown value."
+    (if-not (browser?)
+      (skip! "the browser job runs the crossing assertions")
+      (async done
+        (let [container (host-node!)]
+          (-> (act #(v/mount [crossing-probe {:label "across"}] container))
+              (.then (fn [mounted]
+                       (is (= "across" (text container "#crossing #interp em.forwarded"))
+                           "the compiled parent's forwarded child rendered inside the
+                            interpreted boundary it crossed into")
+                       (is (= [{:view-id (:view-id (v/describe interpreted-shell))
+                                :lowering :interpreted}]
+                              (mapv #(select-keys % [:view-id :lowering])
+                                    (:crossings (v/manifest crossing-probe))))
+                           "and the manifest named that crossing, and its mode")
+                       (unmount! container mounted)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "crossing mount rejected: " e))
+                        (.remove container)
+                        (done)))))))))
+
+;; ===========================================================================
+;; Non-vacuity
+;; ===========================================================================
+
+(deftest the-proof-is-not-vacuous
+  (testing "Every claim above rests on these being true: the arms really
+            are compiled declarations, the fixture really carries DOM
+            rows, and the two shell verdicts really differ. Without this
+            row a lowering that quietly fell back to the interpreted walk
+            — or a fixture that loaded empty — would leave every
+            assertion above green for the wrong reason."
+    (doseq [[nm view] {:page compiled/page :inert inert-probe :sub sub-probe
+                       :event event-probe :field field-probe
+                       :crossing crossing-probe}]
+      (is (= :compiled (:lowering (v/describe view))) (str nm " is a compiled declaration"))
+      (is (some? (v/manifest view)) (str nm " carries a compiled manifest")))
+    (is (= :interpreted (:lowering (v/describe interpreted-shell)))
+        "and the crossing target is genuinely interpreted")
+    (is (<= 8 (count (:dom struct-007))) "the fixture's DOM table is fully loaded")
+    (is (not= (:view-cell (v/manifest inert-probe))
+              (:view-cell (v/manifest sub-probe)))
+        "the two shell arms really do disagree about the ViewCell")
+    (is (false? (cell/observing?)) "and the witness reads false outside any render")))
