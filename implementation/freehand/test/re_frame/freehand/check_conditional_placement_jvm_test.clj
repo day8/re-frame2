@@ -104,14 +104,16 @@
     (testing "a declaration written under a top-level conditional is reported,
               and its CLJS branch's head is bound from THAT branch's params —
               analyzing it against the :clj branch's params would refuse it as
-              an unresolved head, which is the wrong diagnosis"
+              an unresolved head, which is the wrong diagnosis. The finding
+              anchors at the CLJS branch's own line 69, not the :clj branch's
+              65 that the report identity carries"
       (is (= {:view-id           :re-frame.freehand.check-conditional-placement-views/declaration-divergent
               :source            {:file fixture-path :line 65 :column 10}
               :current-lowering  :interpreted
               :target-grammar    :re-frame.freehand/v1
               :compile-eligible? false
               :findings          [{:id       :rf.ui.compile/dynamic-head
-                                   :source   {:line 65 :column 10}
+                                   :source   {:line 69 :column 10}
                                    :form     '[tag {} "the CLJS branch has a dynamic head - ineligible"]
                                    :reason   :head-is-a-runtime-value
                                    :recovery [:use-a-literal-head
