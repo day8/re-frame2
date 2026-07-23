@@ -370,3 +370,82 @@
                  (first kids)
                  {:children kids})]
       (assoc root :rf.ui/tree-version tree-version))))
+
+;; ---------------------------------------------------------------------------
+;; The server render path — `v/render-static`'s JVM tree -> HTML seam
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 011 §Freehand server render. `v/render-static` (the door macro over
+;; `re-frame.freehand.compiler.root/render-static-form`) compiles the LITERAL
+;; root form to the versioned JVM structural tree and folds it to an inert HTML
+;; string. The macro emits a call to
+;;
+;;   (emit-static-html (render-root-tree (fn [] <compiled root node>)))
+;;
+;; so the two halves of the render live HERE, in the interpreted structural
+;; renderer that is already reachable through the one require a Freehand view has
+;; — and `re-frame.freehand` never statically requires `re-frame.ssr` (the SSR
+;; serialiser is resolved LATE, at render time). That is the whole point of the
+;; seam: a documented render-static call in a namespace that requires only
+;; `re-frame.freehand` COMPILES and RENDERS, and a missing SSR artefact is the
+;; ruled, typed `:rf.error/ssr-artefact-missing` rather than a raw
+;; `ClassNotFoundException` at compile time.
+
+(defn render-root-tree
+  "Run a compiled ROOT-FORM tree `thunk` and stamp the versioned structural
+  tree — the literal-root-form sibling of [[render]] (which walks an interpreted
+  form). `re-frame.freehand/render-static` renders the server tree through here
+  before [[emit-static-html]] folds it to an inert HTML string; the root node is
+  the single mounted view's boundary the root form produced.
+
+  Binds the HTML namespace context (mirroring [[render]]) so the tree's top
+  element derives its `:ns` from the HTML default. There is no reactive read to
+  scope: render-static's no-silent-elision proof (Spec 004C §3, EP-0034 §2)
+  rejects a runtime-requiring capability — including `v/sub` — anywhere in the
+  root's server-reachable closure at BUILD time, so this render is a pure fold."
+  [thunk]
+  (binding [node/*ns-context* nil]
+    (assoc (thunk) :rf.ui/tree-version tree-version)))
+
+#?(:clj
+   (defn resolve-ssr-emitter
+     "Late-resolve `re-frame.ssr/emit-ui-tree` on the JVM — the SSR artefact's
+     pure structural-tree -> HTML serialiser (Spec 004B §The SSR consumption
+     boundary). Returns the resolved var (loading `re-frame.ssr` on demand if it
+     is on the classpath but not yet required), or nil when the artefact is
+     absent.
+
+     `re-frame.freehand` takes NO static require on `re-frame.ssr` (Spec 011
+     §wall — no `ui → ssr` static require), so a server namespace that requires
+     only `re-frame.freehand` still renders: the emitter is loaded HERE, at
+     render time. Extracted as its own seam so the artefact-absent branch is
+     drivable in a test."
+     []
+     (try
+       (requiring-resolve 're-frame.ssr/emit-ui-tree)
+       (catch java.io.FileNotFoundException _ nil))))
+
+#?(:clj
+   (defn emit-static-html
+     "Fold a version-1 JVM structural `tree` to an inert HTML string through the
+     SSR artefact's `re-frame.ssr/emit-ui-tree`, resolved LATE (see
+     [[resolve-ssr-emitter]]). This is the runtime seam
+     `re-frame.freehand/render-static` emits a call to instead of naming
+     `re-frame.ssr/emit-ui-tree` directly — a direct emit would compile a hard
+     `re-frame.ssr` reference into the caller's namespace, so a documented
+     render-static call in a namespace that required only `re-frame.freehand`
+     would fail to COMPILE with a raw `ClassNotFoundException: re-frame.ssr`.
+
+     When the `day8/re-frame2-ssr` artefact is absent from the server classpath
+     this raises the ruled, typed `:rf.error/ssr-artefact-missing` naming the
+     artefact — never a raw host exception, never a silent fallback."
+     [tree]
+     (if-let [emit (resolve-ssr-emitter)]
+       (emit tree)
+       (error/throw-error!
+        :rf.error/ssr-artefact-missing
+        'v/render-static
+        (str "v/render-static requires day8/re-frame2-ssr on the classpath; add "
+             "it to deps and require re-frame.ssr at app boot.")
+        {:recovery :add-ssr-artefact
+         :extra {:maven "day8/re-frame2-ssr" :require-ns "re-frame.ssr"}}))))
