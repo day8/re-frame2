@@ -62,8 +62,10 @@
 
   What the door DOES is not here: opening it commits the site's
   synchronous dispatcher, which is
-  [[re-frame.freehand.cell]]'s frame-scoped flush. This namespace decides
-  membership and nothing else.
+  [[re-frame.freehand.cell]]'s frame-scoped flush. This namespace owns the
+  controlled-input VOCABULARY — which tags and slots make a node
+  controlled, and what an EMPTY one of those slots is
+  ([[empty-control-slot]]) — and no behaviour beyond it.
 
   INTERNAL. There is no authoring verb: a controlled input is recognised,
   never declared.
@@ -159,6 +161,47 @@
   normalized values and can run before they are converted."
   [attr-keys]
   (boolean (some #(controlled-slot? (prop-slot %)) attr-keys)))
+
+;; ---------------------------------------------------------------------------
+;; Presence, once the value IS in hand
+;; ---------------------------------------------------------------------------
+
+(def controlled-empty-values
+  "What React reads as a CONTROLLED but EMPTY [[controlled-slots]] slot: an
+  empty string clears a `value`, and `false` unchecks a `checked`.
+
+  React's own signal for an UNCONTROLLED node is the prop's ABSENCE — and
+  it reads an explicit `null` the same way, loudly. So an emitter that
+  dropped an explicitly nil controlled prop under its generic
+  nil-attribute law would hand React the opposite of what the author wrote
+  and the door already decided. React acts on that: it warns the node
+  changed control, and it KEEPS the value it last rendered rather than
+  clearing the field."
+  {"value"   ""
+   "checked" false})
+
+(defn empty-control-slot
+  "The React prop slot an explicitly nil attribute `k` on `tag` must still
+  be WRITTEN into, paired with the controlled-empty value it takes — or
+  `nil` when this is not a controlled slot on a supported native control,
+  where an emitter's ordinary nil-attribute omission stands.
+
+      (empty-control-slot :input :x/value) ;=> [\"value\" \"\"]
+      (empty-control-slot :input :checked) ;=> [\"checked\" false]
+      (empty-control-slot :input :title)   ;=> nil
+      (empty-control-slot :div   :value)   ;=> nil
+
+  Scoped to exactly the door's first two facts, and read through the same
+  [[prop-slot]] projection, so a spelling that makes a node CONTROLLED is
+  the spelling that clears it.
+
+  An ENTRY rather than the value alone, because the empty `checked` value
+  IS `false`: a caller asking `(when-let [v …])` would silently drop the
+  unchecked case — the same presence-versus-truth collapse this rule
+  exists to undo."
+  [tag k]
+  (when (contains? controlled-tags tag)
+    (find controlled-empty-values (prop-slot k))))
 
 ;; ---------------------------------------------------------------------------
 ;; The compiled tier's vocabulary, mapped onto the roster's

@@ -45,6 +45,7 @@
   DOM to mount and says so rather than passing quietly."
   (:require ["react" :as react]
             ["react-dom/client" :as rdc]
+            [clojure.string :as str]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as react-substrate]
             [re-frame.core :as rf]
@@ -100,6 +101,7 @@
 (defn- reg! []
   (rf/reg-sub (first query) (fn [db _] (:text db)))
   (rf/reg-sub :fh-input/len (fn [db _] (count (:text db))))
+  (rf/reg-sub :fh-input/flag (fn [db _] (:flag db)))
   (rf/reg-event evt (fn [{:keys [db]} [_ text]] {:db (assoc db :text text)})))
 
 (defn- app-text [] (:text (frame/frame-app-db-value fid)))
@@ -145,6 +147,30 @@
    [batched-field {}]
    (for [n (range siblings)]
      [sibling {:key n :n n}])])
+
+(v/defview clearable-field
+  "The same door, driven by state that goes NIL. `:value` is PRESENT on
+  every render — that is what makes the node controlled — and on the
+  second render the value it carries is `nil`, which is the controlled
+  EMPTY value and not an absent prop."
+  [_]
+  [:input {:id        "clearable"
+           :value     (cell/observe! query)
+           :on-change [evt :re-frame.freehand/value]}])
+
+(v/defview clearable-box
+  "`checked` is the second controlled slot, and the one where presence and
+  truth are easiest to confuse: an unchecked box and a box with no
+  `checked` prop are different nodes to React."
+  [_]
+  [:input {:id        "clearable-box"
+           :type      "checkbox"
+           :checked   (cell/observe! [:fh-input/flag])
+           :on-change [evt :re-frame.freehand/value]}])
+
+(v/defview clearing-page
+  [_]
+  [:div [clearable-field {}] [clearable-box {}]])
 
 ;; ---------------------------------------------------------------------------
 ;; Typing, as the browser delivers it
@@ -198,6 +224,34 @@
 (defn- render-page!
   [root siblings]
   (act #(.render root (shell/provide-frame fid (fr/element [page {:siblings siblings}])))))
+
+(defn- render-clearing-page!
+  "Write `db` and render the clearing page from it, inside one act — so a
+  re-render is a genuine state transition through the same boundary, on
+  the same host nodes."
+  [root db]
+  (act #(do (frame/replace-app-db! fid db)
+            (.render root (shell/provide-frame fid (fr/element [clearing-page {}]))))))
+
+(defn- spy-console-errors!
+  "Collect what React says on `console.error` while a transition runs, and
+  answer the restore thunk. The controlled↔uncontrolled complaint is a
+  console diagnostic and nothing else — no exception, no visible failure —
+  so a suite that does not listen for it cannot see it."
+  [sink]
+  (let [original (.-error js/console)]
+    (set! (.-error js/console)
+          (fn [& args]
+            (swap! sink conj (str/join " " (map str args)))
+            (.apply original js/console (to-array args))))
+    (fn [] (set! (.-error js/console) original))))
+
+(defn- control-complaints
+  "The captured console lines that are React telling us a node changed
+  between controlled and uncontrolled — the exact diagnostic an omitted
+  `value`/`checked` prop raises."
+  [lines]
+  (filterv #(re-find #"(?i)uncontrolled|should not be null" %) lines))
 
 ;; ===========================================================================
 ;; FH-INPUT-003 — rapid typing, and the control that proves it is a claim
@@ -399,6 +453,60 @@
                   (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
+                        (teardown! container root)
+                        (done)))))))))
+
+;; ===========================================================================
+;; FH-INPUT-003 — clearing a controlled field
+;; ===========================================================================
+
+(deftest fh-input-003-an-explicit-nil-clears-the-live-node
+  (testing "Per FH-INPUT-003: state going NIL is how an author clears a
+            controlled field, and it is the one transition where PRESENCE
+            and TRUTH part company. `:value` is present on both renders, so
+            the node is controlled on both; the second render's value is
+            the controlled EMPTY value. An emitter that dropped the prop
+            because it was nil would tell React the node had become
+            UNCONTROLLED — and React does not clear an uncontrolled node,
+            it keeps the value it last rendered. The symptom is the old
+            text still on screen while application state says empty, on a
+            site the door has already put on the synchronous lane, so
+            nothing throws and nothing else says so."
+    (if-not (browser?)
+      (skip! "the browser job runs the clearing assertions")
+      (async done
+        (reg!)
+        (let [{:keys [seed cleared unchecked] flag :checked} (:clearing input-003)
+              _ (make-frame! {:text seed :flag flag})
+              [container root] (mount!)
+              errors  (atom [])
+              restore (spy-console-errors! errors)]
+          (-> (render-clearing-page! root {:text seed :flag flag})
+              (.then
+                (fn [_]
+                  (let [field (node container "clearable")
+                        box   (node container "clearable-box")]
+                    (is (= seed (.-value field)) "the field starts at the seeded value")
+                    (is (true? (.-checked box)) "and the box starts checked")
+                    (-> (render-clearing-page! root {:text nil :flag nil})
+                        (.then
+                          (fn [_]
+                            (is (identical? field (node container "clearable"))
+                                "the SAME host node — this is a value transition, not a remount")
+                            (is (identical? box (node container "clearable-box")))
+                            (is (= cleared (.-value field))
+                                (str "the field cleared — it holds " (pr-str (.-value field))))
+                            (is (= unchecked (.-checked box))
+                                "and the box unchecked")
+                            (is (= [] (control-complaints @errors))
+                                (str "React raised no controlled/uncontrolled diagnostic: "
+                                     (pr-str @errors)))
+                            (restore)
+                            (teardown! container root)
+                            (done)))))))
+              (.catch (fn [e]
+                        (is false (str "mount rejected: " e))
+                        (restore)
                         (teardown! container root)
                         (done)))))))))
 
