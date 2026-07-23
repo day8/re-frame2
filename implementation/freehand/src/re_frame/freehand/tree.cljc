@@ -118,7 +118,7 @@
   child's walk, and answer the boundary node holding the child subtree on
   success or the fallback subtree on a caught render throw."
   [view args]
-  (let [{:keys [key props]} (descriptor/normalize-call view args)
+  (let [{:keys [key keyed? props]} (descriptor/normalize-call view args)
         {:keys [fallback] :as opts} (eb/read-opts props)
         child   (first (:children opts))
         b       (eb/boundary eb/boundary-view-id (:reset-key opts))
@@ -138,7 +138,7 @@
     ;; fallback, so its presence proves nothing a test could not already
     ;; assume, and a contained boundary shows the walked fallback subtree as
     ;; its children.
-    (node/boundary eb/boundary-view-id (dissoc props :fallback) key kids)))
+    (node/boundary eb/boundary-view-id (dissoc props :fallback) keyed? key kids)))
 
 ;; ---------------------------------------------------------------------------
 ;; Element nodes
@@ -236,10 +236,16 @@
   (let [head (first form)]
     (cond
       (= fragment-tag head)
-      (let [args   (rest form)
-            attrs? (map? (first args))
-            k      (when attrs? (:key (first args)))]
-        (node/fragment (some? k) k (children (if attrs? (rest args) args))))
+      ;; Key PRESENCE, not key truth — the question [[element-node]] and the
+      ;; React walk already ask. `(:key attrs)` answers nil for an explicit
+      ;; nil key and for no key at all, and those are different authored
+      ;; facts: React string-coerces a supplied key, so an explicit nil is
+      ;; the identity "null". `contains?` is the honest question.
+      (let [args  (rest form)
+            attrs (when (map? (first args)) (first args))]
+        (node/fragment (contains? attrs :key)
+                       (:key attrs)
+                       (children (if attrs (rest args) args))))
 
       ;; A presence boundary: `v/presence` returns `[presence-tag opts & kids]`
       ;; in interpreted markup. Its children are lowered HERE — walked into
@@ -288,7 +294,7 @@
 (extend-type #?(:clj re_frame.freehand.descriptor.ViewDescriptor :cljs descriptor/ViewDescriptor)
   node/IMount
   (-mount [view args]
-    (let [{:keys [key props]} (descriptor/normalize-call view args)
+    (let [{:keys [key keyed? props]} (descriptor/normalize-call view args)
           props*  (conv/forward-children props)
           view-id (:view-id (descriptor/describe view))
           ;; The OCCURRENCE SEAM. A render-class throw passing through here
@@ -303,7 +309,7 @@
                     (catch #?(:clj Throwable :cljs :default) e
                       (eb/note-failing-view! view-id)
                       (throw e)))]
-      (node/boundary view-id props key kids))))
+      (node/boundary view-id props keyed? key kids))))
 
 ;; ---------------------------------------------------------------------------
 ;; Render entry

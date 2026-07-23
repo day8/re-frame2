@@ -558,8 +558,17 @@
   fragment-rooted view is a boundary with several children and a
   nil-rooted view is a boundary with none. Both stay matchable, which is
   what makes a `:view-id` predicate a total selector (Spec 004B
-  §Coverage Q12)."
-  [view-id props key kids]
+  §Coverage Q12).
+
+  `key?` and `key-val` are key PRESENCE and key VALUE, threaded separately
+  exactly as [[element]] and [[fragment]] thread them, because `:key` is
+  present on the node iff the call was explicitly keyed (Spec 004B). An
+  explicit `nil` key is legal authored presence — React string-coerces a
+  supplied key, so it is the identity `\"null\"` — and asking `(some? key)`
+  instead would answer the same for an explicit nil and an absent key,
+  flattening a fact the caller established into a value that cannot carry
+  it. `v/normalize-call` reports the presence as `:keyed?` for this reason."
+  [view-id props key? key-val kids]
   (let [recorded (reduce-kv (fn [m k x] (assoc m k (recorded-prop view-id k x)))
                             {} (dissoc props :children))
         kids     (if (and (= 1 (count kids)) (plain-fragment? (first kids)))
@@ -567,7 +576,7 @@
                    (vec kids))]
     (cond-> {:view-id view-id}
       (pos? (count recorded)) (assoc :props recorded)
-      (some? key)             (assoc :key key)
+      key?                    (assoc :key key-val)
       (pos? (count kids))     (assoc :children kids))))
 
 ;; ---------------------------------------------------------------------------
