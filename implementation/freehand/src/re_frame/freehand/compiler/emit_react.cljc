@@ -306,9 +306,27 @@
   markers exist because the analyzer is shared with the wider grammar),
   so the ordinary arm is the whole of what a v1 crossing carries: the
   walked value, handed to the boundary verbatim, exactly as the
-  interpreted walk hands it."
-  [{:keys [value]}]
-  value)
+  interpreted walk hands it.
+
+  A `:render-fn` entry is the exception, and it is not optional: the
+  analyzer records a lexically-visible slot body as an ANALYSED template
+  rather than a form, so such an entry carries no `:value` at all. Left
+  to the ordinary arm it emits `nil` — a prop-carried slot that reaches
+  the seam ABSENT, gating cleanly and rendering nothing, which is the
+  quietest possible failure. The arm below mirrors
+  [[re-frame.freehand.compiler.emit-jvm/prop-value-form]]'s call for
+  call: the same [[re-frame.freehand.events/callback]] carrier the
+  interpreted `v/render-fn` macro expands to, so the boundary records one
+  marker whichever mode wrote the slot; only the BODY differs, and it
+  differs the way every other arm does — it is emitted through this
+  emitter, so the deferred body builds React elements."
+  [e st {:keys [value marker render-fn]}]
+  (case marker
+    :render-fn `(events/callback
+                 :render-fn
+                 (fn [~@(:params render-fn)] ~(emit-node e st (:body render-fn)))
+                 ~(count (:params render-fn)))
+    value))
 
 (defn- emit-view
   "An internal boundary crossing — ONE call, whatever mode the child was
@@ -327,7 +345,7 @@
   [e st node]
   (let [entries   (get-in node [:props :entries])
         key-info  (get-in node [:props :key])
-        props-map (cond-> (into {} (map (fn [{:keys [k] :as en}] [k (prop-value-form en)])) entries)
+        props-map (cond-> (into {} (map (fn [{:keys [k] :as en}] [k (prop-value-form e st en)])) entries)
                     (:present? key-info) (assoc :key (:expr key-info)))]
     `(re-frame.freehand.compiled-react/mount
       ~(:sym node) ~props-map
