@@ -78,6 +78,15 @@
   outside the grammar is analyzed and found, never silently elided. See
   [[read-declarations]] and [[findings-for]].
 
+  Selection follows the conditional wherever a conditional may legally
+  stand, because an uncovered PLACEMENT is the same false-green in a new
+  syntactic position: a preserved conditional the walk does not descend
+  into survives as a reader object where the browser build has a form, and
+  a declaration the walk does not recognise is not reported at all. So
+  [[resolve-conditionals]] descends every collection kind including SETS,
+  and discovery ([[declaration-for]]) runs on the resolved BRANCHES, so a
+  `v/defview` written under `#?(:clj … :cljs …)` is found.
+
   A PURE `.cljs` source is the case that has no answer, and it is refused
   rather than approximated (see [[refuse-cljs-source!]]). Resolution needs
   either a namespace loaded on the JVM — which a `.cljs` namespace never is
@@ -249,20 +258,25 @@
 
   A `{:compiled true}` `.cljc` view compiles to BOTH a JVM structural tree
   and a CLJS React tree, each from its OWN reader-conditional branch, and
-  both must be inside the grammar for the compile to stand. `:body` is the
-  branch the JVM reader selected (`#{:clj}`); `:cljs-body`, present only
-  when the two branches read DIFFERENTLY, is the branch the browser build
-  compiles (`#{:cljs}`) — the branch an author is most likely to
-  false-green, because the JVM reader never elides to it.
+  both must be inside the grammar for the compile to stand. The declaration
+  itself is the branch the JVM reader selected (`#{:clj}`); `:cljs-branch`,
+  present only when the two branches read DIFFERENTLY, carries what the
+  browser build's branch (`#{:cljs}`) BINDS and RENDERS — the branch an
+  author is most likely to false-green, because the JVM reader never elides
+  to it. It is MERGED over the declaration rather than substituted for its
+  body alone, because a conditional around the whole declaration diverges
+  the params too, and a body analyzed against the other branch's params
+  would be refused (or excused) for the wrong reason.
 
   Both branches are analyzed JVM-side with the SAME head resolution either
   target uses — resolution is JVM for both hosts, so only the FORMS the
   reader produced differ. One finding is reported: the first ineligible
   form across the branches, JVM branch first, keeping the
   one-refusal-at-a-time law."
-  [{:keys [body cljs-body] :as declaration}]
-  (vec (take 1 (concat (when body      (findings-for-branch declaration body))
-                       (when cljs-body (findings-for-branch declaration cljs-body))))))
+  [{:keys [body cljs-branch] :as declaration}]
+  (vec (take 1 (concat (when body        (findings-for-branch declaration body))
+                       (when cljs-branch (findings-for-branch (merge declaration cljs-branch)
+                                                              (:body cljs-branch)))))))
 
 (defn check-declaration
   "Check ONE declaration against `:re-frame.freehand/v1` WITHOUT
@@ -275,16 +289,18 @@
        :ns-sym          'app.people       ; heads resolve through it
        :params          '[{:keys [people]}]
        :body            '([:ul (map person-item people)])   ; the :clj branch
-       :cljs-body       nil               ; the :cljs branch, when it DIVERGES
+       :cljs-branch     nil               ; the :cljs branch, when it DIVERGES
        :compiled?       false             ; what the declaration says TODAY
        :children-policy :optional
        :source          {:file \"src/app/people.cljc\" :line 42 :column 1}
        :resolver        <fn>}             ; optional; tests only
 
-  `:cljs-body` is supplied by [[read-declarations]] only for a `.cljc`
-  view whose `#?(:clj … :cljs …)` branches read differently; both branches
-  are then analyzed (see [[findings-for]]), so a `:cljs`-only ineligible
-  form is found rather than false-greened.
+  `:cljs-branch` is supplied by [[read-declarations]] only for a `.cljc`
+  view whose `#?(:clj … :cljs …)` branches read differently. It carries the
+  branch-owned parts alone — `:params`, `:children-policy`, `:body` — and
+  is merged over the declaration to analyze the CLJS target (see
+  [[findings-for]]), so a `:cljs`-only ineligible form is found rather than
+  false-greened.
 
   A declaration that already carries `{:compiled true}` is checked the
   same way and reports `:current-lowering :compiled` — the question
@@ -412,7 +428,13 @@
   read with conditionals PRESERVED (see [[read-opts]]), and the target's
   branch is selected HERE, past the reach of the reader's `:clj` platform
   feature. `form` is not itself a splicing conditional — those are handled
-  in sibling context by [[resolve-children]]."
+  in sibling context by [[resolve-children]], the reader allowing `#?@` only
+  inside a collection.
+
+  EVERY collection kind is descended into, sets included. A kind left out is
+  not a smaller fix, it is the same false-green in a new position: the
+  conditional survives the walk, and the analyzer is handed a reader object
+  where the browser build has `#{v/sub}`."
   [form features]
   (cond
     (not (has-reader-conditional? form))
@@ -429,6 +451,9 @@
                      form)
                (meta form))
 
+    (set? form)
+    (with-meta (into (empty form) (resolve-children form features)) (meta form))
+
     (vector? form)
     (with-meta (resolve-children form features) (meta form))
 
@@ -438,25 +463,62 @@
     :else
     form))
 
-(defn- declaration-with-branches
-  "The declaration data for a preserved `v/defview` `form`, carrying the
-  branch each compilation target compiles.
+(defn- defview-form?
+  "Is `form` a `v/defview` declaration, read in `ns-obj`? A head counts when
+  it RESOLVES to the var there — an alias, a `:refer`, or the qualified name
+  all read the same."
+  [ns-obj form]
+  (and (seq? form)
+       (symbol? (first form))
+       (= #'v/defview (try (ns-resolve ns-obj (first form))
+                           (catch Exception _ nil)))))
 
-  `:body` is the `:clj` branch (the JVM structural tree's source) and
-  `:cljs-body`, present only when the two branches read DIFFERENTLY, is the
-  `:cljs` branch the browser build compiles. Both are analyzed by
-  [[findings-for]], so a `:cljs`-only form outside the grammar is FOUND
-  rather than elided by the reader and false-greened."
-  [path ns-sym form]
-  (let [clj-decl  (declaration-at path ns-sym (resolve-conditionals form #{:clj}))
-        cljs-body (:body (declaration-at path ns-sym (resolve-conditionals form #{:cljs})))]
-    (cond-> clj-decl
-      (not= (:body clj-decl) cljs-body) (assoc :cljs-body cljs-body))))
+(def ^:private branch-keys
+  "The declaration parts a reader conditional can make target-specific: what
+  the branch BINDS and what it RENDERS. Everything else — the view's id, its
+  name, its source coordinates, whether it says `{:compiled true}` — is the
+  declaration's identity, and one identity is what the file declares however
+  many branches it was written across."
+  [:params :children-policy :body])
+
+(defn- declaration-for
+  "The declaration data for top-level `form`, or nil when it declares no view.
+
+  Discovery runs on the RESOLVED BRANCHES rather than on the form as read,
+  because a whole declaration may be written under a reader conditional:
+
+      #?(:clj  (v/defview thing [_]           [:div …])
+         :cljs (v/defview thing [{:keys [tag]}] [tag {} …]))
+
+  A preserved conditional is not a seq, so a discovery test applied to the
+  form itself skips such a declaration entirely and the file reports NOTHING
+  about it — the loudest false-green there is, since the author reads
+  silence as \"no findings\".
+
+  What the branches contain is still ONE declaration. Its identity is the
+  JVM branch's — or the CLJS branch's, for a view that exists only in the
+  browser build — and `:cljs-branch` carries the [[branch-keys]] whenever
+  the CLJS branch's differ. Both are then analyzed by [[findings-for]], so a
+  `:cljs`-only form outside the grammar is FOUND rather than elided by the
+  reader and false-greened."
+  [path ns-sym ns-obj form]
+  (let [decl-for  (fn [features]
+                    (let [f (resolve-conditionals form features)]
+                      (when (defview-form? ns-obj f)
+                        (declaration-at path ns-sym f))))
+        clj-decl  (decl-for #{:clj})
+        cljs-decl (decl-for #{:cljs})
+        decl      (or clj-decl cljs-decl)]
+    (when decl
+      (cond-> decl
+        (and cljs-decl (not= (select-keys cljs-decl branch-keys)
+                             (select-keys decl branch-keys)))
+        (assoc :cljs-branch (select-keys cljs-decl branch-keys))))))
 
 (defn- read-declarations
   "Every `v/defview` in the file at `path`, in declaration order, as
   declaration data — each carrying both reader-conditional branches a
-  `.cljc` compile visits (see [[declaration-with-branches]]).
+  `.cljc` compile visits (see [[declaration-for]]).
 
   The file is opened for READING and read with `*read-eval*` false: a
   checker is pointed at source an author has not yet decided to compile,
@@ -464,8 +526,7 @@
   way to answer the question. Reader conditionals are PRESERVED rather than
   resolved by the reader (see [[read-opts]]) so the `:cljs` branch survives
   to be analyzed. Forms are read in the file's own namespace so `::keyword`
-  aliases resolve, and a head counts as `v/defview` when it RESOLVES there
-  — an alias, a `:refer`, or the qualified name all read the same."
+  aliases resolve."
   [path]
   (with-open [rdr (LineNumberingPushbackReader. (io/reader (io/file path)))]
     (binding [*read-eval* false]
@@ -474,18 +535,11 @@
         (binding [*ns* ns-obj]
           (loop [declarations []]
             (let [form (read read-opts rdr)]
-              (cond
-                (= ::eof form)
+              (if (= ::eof form)
                 declarations
-
-                (and (seq? form)
-                     (symbol? (first form))
-                     (= #'v/defview (try (ns-resolve ns-obj (first form))
-                                         (catch Exception _ nil))))
-                (recur (conj declarations (declaration-with-branches path ns-sym form)))
-
-                :else
-                (recur declarations)))))))))
+                (recur (if-let [declaration (declaration-for path ns-sym ns-obj form)]
+                         (conj declarations declaration)
+                         declarations))))))))))
 
 (defn- refuse-cljs-source!
   "Refuse a pure `.cljs` `path`, naming the two workflows that answer.
