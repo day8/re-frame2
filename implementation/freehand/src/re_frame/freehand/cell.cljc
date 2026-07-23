@@ -166,6 +166,7 @@
            :lifecycle  :new
            :frame      nil
            :deps       {}
+           :dep-order  []
            :events     (events/owner view-id)
            :revision   0
            :listeners  {}
@@ -193,10 +194,16 @@
   (:deps @(st cell)))
 
 (defn dependency-queries
-  "The queries the SELECTED commit owns, in render order."
+  "The queries the SELECTED commit owns, in RENDER order.
+
+  The order is the one the commit published, not a sort of the site keys.
+  A site key is whatever the tier that recorded it uses — the
+  interpreted walk's document ordinal, the compiled tier's proven lexical
+  site id — and only an ordinal happens to sort into render order. Reading
+  the published order keeps this projection true for both."
   [^ViewCell cell]
-  (let [deps (:deps @(st cell))]
-    (mapv #(:query (get deps %)) (sort (keys deps)))))
+  (let [{:keys [deps dep-order]} @(st cell)]
+    (mapv #(:query (get deps %)) dep-order)))
 
 ;; ---------------------------------------------------------------------------
 ;; The render candidate — a value the caller holds
@@ -311,6 +318,30 @@
               (forked-capture! owner query)))
      :cljs nil))
 
+(defn- record-read!
+  "The ONE reactive read, under the site key its tier names.
+
+  Resolve, probe, stabilize against the same site's prior committed
+  observation, record on the candidate in render order, and answer the
+  value. Ownership-free: [[obs/probe]] creates no cache entry, no watch
+  and no disposal obligation."
+  [^RenderCandidate cand site-key query]
+  (let [^ViewCell owner-cell (.-cell cand)
+        reads     (.-reads cand)
+        prior     (get (:deps @(st owner-cell)) site-key)
+        query*    (if (and prior (eq/rf= query (:query prior))) (:query prior) query)
+        target    (obs/resolve-target {:query-v query*})
+        ev        (obs/probe target)
+        v         (:value ev)
+        v*        (if (and prior (eq/rf= v (:value prior))) (:value prior) v)]
+    (vswap! reads
+            (fn [r]
+              (-> r
+                  (update :order conj site-key)
+                  (assoc-in [:by-site site-key]
+                            {:query query* :target target :evidence ev :value v*}))))
+    v*))
+
 (defn observe!
   "RENDER time: resolve, probe and RECORD one reactive read on the active
   candidate, and return the observed value.
@@ -340,22 +371,30 @@
     (when (nil? cand)
       (read-outside-render! query))
     (ensure-render-thread! cand query)
-    (let [^ViewCell owner-cell (.-cell cand)
-          reads     (.-reads cand)
-          site-key  (count (:order @reads))
-          prior     (get (:deps @(st owner-cell)) site-key)
-          query*    (if (and prior (eq/rf= query (:query prior))) (:query prior) query)
-          target    (obs/resolve-target {:query-v query*})
-          ev        (obs/probe target)
-          v         (:value ev)
-          v*        (if (and prior (eq/rf= v (:value prior))) (:value prior) v)]
-      (vswap! reads
-              (fn [r]
-                (-> r
-                    (update :order conj site-key)
-                    (assoc-in [:by-site site-key]
-                              {:query query* :target target :evidence ev :value v*}))))
-      v*)))
+    (record-read! cand (count (:order @(.-reads cand))) query)))
+
+(defn observe-site!
+  "The SAME render-time read as [[observe!]], recorded under the site key
+  `site-key` the caller names rather than the document-order ordinal.
+
+  This is the COMPILED tier's door. Its analyzer has already proven a
+  FINITE set of read sites and given each one a stable lexical id, so the
+  compiled lowering can name the site it is reading at instead of counting
+  its way to it — which is what makes a read's identity survive a body
+  edit that moves it, and what lets the manifest's subscription roster and
+  the cell's committed dependency set be indexed by the same key.
+
+  Everything else is the one shell: the same capture, the same
+  same-thread rule, the same outside-render diagnostic, the same
+  stabilization, and the same commit. There is no second reactive path —
+  the compiled tier differs in WHEN the site was identified, never in what
+  a read means."
+  [site-key query]
+  (let [^RenderCandidate cand *render*]
+    (when (nil? cand)
+      (read-outside-render! query))
+    (ensure-render-thread! cand query)
+    (record-read! cand site-key query)))
 
 ;; ---------------------------------------------------------------------------
 ;; The repaint channel
@@ -747,6 +786,7 @@
                    :lifecycle :connected
                    :frame     fid
                    :deps      staged
+                   :dep-order (vec order)
                    :evidence  bundle)
             (events/commit! (.-events cand)
                             (frame-dispatcher fid)
@@ -787,6 +827,7 @@
              :lifecycle :disconnected
              :frame     nil
              :deps      {}
+             :dep-order []
              :evidence  nil
              :dirty     nil)
       (swap! pending-cells disj cell)
