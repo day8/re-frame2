@@ -17,6 +17,7 @@
             [re-frame.freehand.compiler.build :as build]
             [re-frame.freehand.compiler.env :as env]
             [re-frame.freehand.controlled :as controlled]
+            [re-frame.freehand.events :as events]
             [re-frame.freehand.fingerprint :as fingerprint]
             [re-frame.freehand.props-schema :as props-schema]
             [re-frame.freehand.rules :as rules]
@@ -1443,9 +1444,137 @@
           (rest form))
     (meta form)))
 
+(defn- analyze-ui-event-fn
+  "The `(v/event [e] body…)` seq form, lowered to the `(fn [e] body…)` the
+  runtime callback carries. One reader for the two positions a `v/event` is
+  legal in — the whole handler, and one branch of a key-condition map — so the
+  arity refusal, the walk and the loop-capture check cannot differ between
+  them."
+  [e k form]
+  (let [[_ bindings & body] form]
+    (when-not (and (vector? bindings) (= 1 (count bindings)))
+      (env/fail! e :rf.ui.compile/bad-ui-event
+                 (str "(v/event [e] body…) at " k " binds exactly the "
+                      "native event and returns an event vector (or nil to "
+                      "dispatch nothing); got " (pr-str bindings)
+                      ". For imperative work with no dispatch, S3 adds "
+                      "v/handler")
+                 {:prop k :form form}))
+    ;; A v/event handler is a SITE, like a literal vector: capturing a loop
+    ;; binding needs per-row committed slots (its own bindings shadow, so they
+    ;; are excluded from the capture check). Its body is a deferred callback,
+    ;; so render-time sub/frame inside it are rejected by the fn walk.
+    (let [binders (set (env/binding-syms bindings))
+          form*   (walk-expr e [:handler k :ui-event]
+                             (with-meta (apply list 'fn bindings body)
+                               (meta form)))]
+      (check-loop-capture! (update e :loop-syms #(reduce disj % binders))
+                           (str "v/event handler at " k) form)
+      form*)))
+
+;; ---------------------------------------------------------------------------
+;; The compiled key-condition event map
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §Key-condition event maps, ruled by D007. The compiled tier reads
+;; the SAME closed form the runtime normalizer reads — string keys, one level,
+;; legal only on a key listener, each branch an existing dispatching value —
+;; because a declaration that means one thing interpreted and another with
+;; `{:compiled true}` is exactly the promotion break the compiled tier exists to
+;; make impossible. The two rosters this rests on are ASKED rather than
+;; restated: `events/key-slots` names the legal slots and `events/branch-options`
+;; the legal branch keys, so there is one grammar with two front ends.
+
+(defn- key-condition-map?
+  "Is this literal map at an event position the exact-key CONDITION form rather
+  than the listener OPTIONS map? Decided by the presence of a string key, the
+  way `events/map-plan` decides it at render."
+  [form]
+  (boolean (some string? (keys form))))
+
+(defn- analyze-key-branch
+  "One branch of a compiled key-condition map, lowered to the value the
+  emitters write into the map.
+
+  A branch names exactly ONE intent, so the roster is the dispatching one: an
+  event vector, an options map carrying `:event` and at most the two
+  pre-dispatch mechanics, a `v/event`, or `nil`. A literal branch lowers to
+  data; a `v/event` branch lowers to the roster callback its interpreted
+  spelling expands to, so the runtime classifies one branch grammar whichever
+  front end wrote it."
+  [e k key-str form]
+  (cond
+    (nil? form) nil
+
+    (vector? form) (analyze-event-vector! e k form)
+
+    (and (map? form) (or (empty? form) (key-condition-map? form)))
+    (env/fail! e :rf.ui.compile/bad-handler-options
+               (str "the " (pr-str key-str) " branch at " k " is "
+                    (if (empty? form) "an empty map" "another key-condition map")
+                    " — the exact-key form is ONE level deep and every branch names "
+                    "one intent. Nesting selects nothing: a keystroke carries a single "
+                    "key. Write {\"Enter\" [:accept] \"Escape\" [:close]}, and let "
+                    "(v/event [e] …) answer anything richer")
+               {:prop k :key key-str :form form})
+
+    (map? form)
+    (let [unknown (remove events/branch-options (keys form))]
+      (when (seq unknown)
+        (env/fail! e :rf.ui.compile/bad-handler-options
+                   (str "the " (pr-str key-str) " branch at " k " carries "
+                        (str/join ", " (map pr-str (sort unknown)))
+                        " — a branch is SELECTED after the keystroke arrives, so "
+                        (pr-str (vec (sort events/branch-options)))
+                        " is all it can still honour. :capture and :passive are decided "
+                        "when the listener is attached to the node and :once retires the "
+                        "whole site, every one of them before a key has been read. Drop "
+                        "the option rather than have it silently do nothing")
+                   {:prop k :key key-str :form form}))
+      (when-not (vector? (:event form))
+        (env/fail! e :rf.ui.compile/bad-handler-options
+                   (str "the " (pr-str key-str) " branch at " k " is an options map and "
+                        "needs a literal :event vector — {\"Enter\" {:event "
+                        "[:domain/event args...] :prevent-default true}}")
+                   {:prop k :key key-str :form form}))
+      (assoc form :event (analyze-event-vector! e k (:event form))))
+
+    (ui-event-form? e form)
+    ;; The interpreted `v/event` macro expands to this exact constructor, so the
+    ;; branch the runtime classifies is the same roster value in both modes.
+    (list 're-frame.freehand.events/callback :event (analyze-ui-event-fn e k form) 1)
+
+    :else
+    (env/fail! e :rf.ui.compile/bad-handler-options
+               (str "the " (pr-str key-str) " branch at " k " is not an intent — a key "
+                    "branch is an event vector, an options map carrying :event, a "
+                    "(v/event [e] …), or nil (dispatch nothing). A callback that is not "
+                    "itself an intent, and anything the compiler cannot see, are outside "
+                    "the one-level exact-key form")
+               {:prop k :key key-str :form form})))
+
+(defn- analyze-key-map
+  "The whole compiled key-condition map: its slot legality, then every branch.
+
+  Legality is the runtime rule — a map that selects by `KeyboardEvent.key` is
+  legal only where a key IS carried — raised HERE, at build, rather than at the
+  first keystroke of a site that could never have fired."
+  [e k form]
+  (when-not (contains? events/key-slots (rules/caller-key-slot k))
+    (env/fail! e :rf.ui.compile/bad-handler-options
+               (str "a key-condition map at " k " — the exact-key form selects an intent "
+                    "by KeyboardEvent.key, so it is legal only on :on-key-down and "
+                    ":on-key-up. Put an ordinary click or input intent in an event vector "
+                    "or an options map")
+               {:prop k :form form}))
+  (reduce-kv (fn [m key-str branch]
+               (assoc m key-str (analyze-key-branch e k key-str branch)))
+             {}
+             form))
+
 (defn analyze-handler
   "Classify one :on-* entry. -> {:k kw :name str :classification
-  :vector|:options|:fn|:dynamic :form form :capture? bool
+  :vector|:options|:key-map|:fn|:dynamic :form form :capture? bool
   :hoistable? bool :serializable? bool}"
   [e k form]
   (when (:in-render-fn? e)
