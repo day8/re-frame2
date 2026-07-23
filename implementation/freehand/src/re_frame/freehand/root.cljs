@@ -56,6 +56,20 @@
   refused is DRIFT, not the re-mount: the same effective prefix, authored
   or derived, is the ordinary reload.
 
+  The SAME `createRoot`-fixes-the-options fact governs the three host error
+  callbacks — `:on-uncaught-error`, `:on-caught-error`,
+  `:on-recoverable-error` — but their honest answer is the opposite one.
+  Identity must stay put, so a prefix that would move is refused; a callback
+  is meant to move — a hot reload's fresh closure is the ordinary case, and
+  refusing it would make HMR needlessly brittle. So rather than pass the
+  opts' callbacks straight to React (where the first mount's would be fixed
+  and every later one silently ignored), the root installs one STABLE
+  delegate per key that reads the live callback off a mutable cell, and an
+  accepted re-mount advances that cell. React holds the delegate; the
+  delegate's target is what the remount moves. A key a mount omits falls
+  back to React's own default reporting for that error kind, so a stale
+  closure is never retained and a newly supplied one is never dropped.
+
   ## HMR identity — occurrence identity is the qualified view id
 
   A root's occurrence identity is its `:root-id`, and a derived
@@ -222,8 +236,17 @@
 ;; with a descriptor or a props map. It carries the static Root Descriptor
 ;; (the identity the registry keys on), the claims the registry holds on
 ;; its behalf, and the host handles a re-render and a teardown need.
+;;
+;; `callbacks` is a mutable cell (a `volatile!`) holding the root's CURRENT
+;; host-error callbacks — the `{:on-uncaught-error … :on-caught-error …
+;; :on-recoverable-error …}` subset of the last accepted mount's opts. React
+;; fixes a root's options at `createRoot`, so the running root cannot adopt a
+;; fresh callback object; the framework installs a stable delegate per key
+;; that READS this cell, and an accepted re-mount advances the cell rather
+;; than silently keeping the first mount's closures. A remount reuses the
+;; incumbent's cell, so the delegates React already fixed see the new target.
 
-(deftype Root [descriptor container react-root identifier-prefix frame-id hydrated])
+(deftype Root [descriptor container react-root identifier-prefix frame-id hydrated callbacks])
 
 (defn root?
   "True when `x` is a live [[mount]] / [[hydrate-root]] handle."
@@ -726,15 +749,40 @@
 ;; React root options
 ;; ---------------------------------------------------------------------------
 
-(defn- report-recoverable-default!
-  "React's own default `onRecoverableError` reporting, preserved when the
-  app authored no callback but the framework installed a wrapper: once a
-  wrapper is set React no longer runs its default, so it is replicated
-  here rather than swallowed."
+(defn- report-error!
+  "React's own default reporting for an UNCAUGHT or a RECOVERABLE error:
+  hand it to the host `reportError` so a window error handler still sees it,
+  or `console.error` on a runtime without one. Replicated here because the
+  framework always installs a stable delegate for these keys (so a remount
+  can advance the callback), and once a delegate is set React no longer runs
+  its own default — a delegate that swallowed the no-callback case would be
+  a silent regression rather than the honest passthrough this is."
   [error*]
   (if (fn? (.-reportError js/globalThis))
     (js/reportError error*)
     (when (exists? js/console) (.error js/console error*))))
+
+(defn- report-caught!
+  "React's own default for an error an Error Boundary CAUGHT: the boundary
+  handled it, so the default is an informational `console.error`, not a
+  re-throw to the window the way an uncaught or recoverable error earns."
+  [error*]
+  (when (exists? js/console) (.error js/console error*)))
+
+(defn- host-callback-delegate
+  "A stable React error-option callback that dispatches to the CURRENT
+  authored callback under `k` in the root's `callbacks` cell, falling back
+  to `default!` — React's own reporting for that error kind — when the cell
+  holds no fn there.
+
+  This is the whole of the remount-honesty mechanism: React fixes a root's
+  options at creation, so the delegate object never changes, but the cell it
+  reads is advanced by an accepted re-mount. A callback supplied on the
+  reload therefore takes effect and the first mount's is not silently kept."
+  [callbacks k default!]
+  (fn [error* error-info]
+    (let [f (get @callbacks k)]
+      (if (fn? f) (f error* error-info) (default! error*)))))
 
 (defn- emit-hydration-mismatch!
   [root-id error*]
@@ -749,20 +797,23 @@
   "The composed `onRecoverableError` for a HYDRATING root.
 
   `adoption` is the root-local `#js {:adopting true}` window flag;
-  `authored` is the host's own `:on-recoverable-error` or nil. The
-  framework diagnostic fires only while the window is open, and the
-  authored callback is ALWAYS delegated to — compose, never clobber —
-  inside the window and outside it.
+  `callbacks` is the root's live host-callback cell (see [[Root]]). The
+  framework diagnostic fires only while the window is open, and the CURRENT
+  authored `:on-recoverable-error` — the one the last accepted mount
+  supplied — is ALWAYS delegated to (compose, never clobber), inside the
+  window and outside it, falling back to React's default when none is set.
+  Reading the callback off the cell rather than capturing it is what lets a
+  re-mount advance it: React fixes this delegate at `hydrateRoot`, but the
+  cell it reads is not fixed.
 
   Public so a mounted browser proof can drive the REAL callback across the
   window boundary rather than a stand-in shaped like it."
-  [^js adoption root-id authored]
-  (fn on-recoverable [error* error-info]
-    (when (.-adopting adoption)
-      (emit-hydration-mismatch! root-id error*))
-    (if (fn? authored)
-      (authored error* error-info)
-      (report-recoverable-default! error*))))
+  [^js adoption root-id callbacks]
+  (let [delegate (host-callback-delegate callbacks :on-recoverable-error report-error!)]
+    (fn on-recoverable [error* error-info]
+      (when (.-adopting adoption)
+        (emit-hydration-mismatch! root-id error*))
+      (delegate error* error-info))))
 
 (defn ^:no-doc adoption-window-closer
   "A React component that CLOSES a hydrating root's adoption window on its
@@ -781,13 +832,21 @@
   nil)
 
 (defn- root-options
-  [prefix {:keys [on-uncaught-error on-caught-error on-recoverable-error]} on-recoverable]
+  "The React root options object: `identifierPrefix` and the three stable
+  host-error delegates. Each delegate reads the CURRENT authored callback
+  off `callbacks` (the root's live cell, advanced by an accepted remount)
+  and defaults to React's own reporting when none is set — so installing
+  them is honest for a root that supplied no callback and STAYS honest
+  across a remount that supplies or changes one. `recoverable` overrides the
+  recoverable delegate for a hydrating root: the adoption reporter, which
+  composes the mismatch signal over the same cell."
+  [prefix callbacks recoverable]
   (let [o (js-obj)]
     (when prefix (aset o "identifierPrefix" prefix))
-    (when (fn? on-uncaught-error) (aset o "onUncaughtError" on-uncaught-error))
-    (when (fn? on-caught-error) (aset o "onCaughtError" on-caught-error))
-    (let [recoverable (or on-recoverable on-recoverable-error)]
-      (when (fn? recoverable) (aset o "onRecoverableError" recoverable)))
+    (aset o "onUncaughtError" (host-callback-delegate callbacks :on-uncaught-error report-error!))
+    (aset o "onCaughtError"   (host-callback-delegate callbacks :on-caught-error report-caught!))
+    (aset o "onRecoverableError"
+          (or recoverable (host-callback-delegate callbacks :on-recoverable-error report-error!)))
     o))
 
 (defn- root-element
@@ -843,9 +902,11 @@
   fallback. Both are ordinary client renders, and both hand the host root
   they allocate to `keep!` so a render that throws gives it back."
   [desc dom-node prefix opts frame-id element keep!]
-  (let [react-root (keep! (rdc/createRoot dom-node (root-options prefix opts nil)))]
+  (let [callbacks  (volatile! (select-keys opts host-opt-keys))
+        react-root (keep! (rdc/createRoot dom-node (root-options prefix callbacks nil)))]
     (.render react-root element)
-    (register! (:root-id desc) (->Root desc dom-node react-root prefix frame-id false))))
+    (register! (:root-id desc)
+               (->Root desc dom-node react-root prefix frame-id false callbacks))))
 
 (defn mount
   "Mount the declared view at `root-form`'s head into `dom-node`, and
@@ -867,7 +928,17 @@
   `opts` is a CLOSED map: `:root-id` / `:disambiguator` /
   `:identifier-prefix` (identity), `:frame` (the preflight plan), and
   React's `:on-uncaught-error` / `:on-caught-error` /
-  `:on-recoverable-error`."
+  `:on-recoverable-error`.
+
+  The three host error callbacks are LATE-BOUND across the reload. React
+  fixes a root's options when it creates it, so the framework installs a
+  stable delegate per key and an accepted re-mount ADVANCES the callback the
+  delegate runs: the effective callback for each key is the one from the
+  MOST RECENT accepted mount. A re-mount that changes a callback drops the
+  stale one; a re-mount that omits a callback it earlier supplied restores
+  React's own default reporting for that kind. What never happens is the
+  first mount's closure quietly outliving a reload that replaced it — unlike
+  the immutable `:identifier-prefix`, a callback is meant to move."
   ([root-form dom-node] (mount root-form dom-node {}))
   ([root-form dom-node opts]
    (check-opt-keys! 'v/mount opts mount-opt-keys)
@@ -905,8 +976,16 @@
            ;; root belongs to the INCUMBENT, so it is not handed to `keep!`:
            ;; a re-render that fails leaves the incumbent rendering.
            (let [react-root (.-react-root existing)
+                 callbacks  (.-callbacks existing)
                  root       (->Root desc dom-node react-root prefix frame-id
-                                    (.-hydrated existing))]
+                                    (.-hydrated existing) callbacks)]
+             ;; Advance the live host-callback cell to THIS mount's callbacks
+             ;; before re-rendering. React fixed the error delegates at
+             ;; createRoot, so a reload's fresh :on-*-error closures reach
+             ;; React only through the cell those delegates read; keeping the
+             ;; incumbent's cell object is what makes the already-fixed
+             ;; delegates see the new target instead of the stale one.
+             (vreset! callbacks (select-keys opts host-opt-keys))
              (.render react-root element)
              (register! root-id root))
            (client-render! desc dom-node prefix opts frame-id element keep!)))))))
@@ -1017,8 +1096,9 @@
     ;; The adoption window, its reporter and the element they ride on are
     ;; all built BEFORE preflight, for the same reason the element is: they
     ;; are construction, they can fail, and preflight is what writes.
-    (let [adoption  #js {:adopting true}
-          reporter  (hydration-reporter adoption root-id (:on-recoverable-error opts))
+    (let [callbacks (volatile! (select-keys opts host-opt-keys))
+          adoption  #js {:adopting true}
+          reporter  (hydration-reporter adoption root-id callbacks)
           closer    (react/createElement adoption-window-closer
                                          #js {:key "rf-adoption" :rfAdoption adoption})
           element   (root-element root-form frame-id [closer])
@@ -1029,9 +1109,9 @@
         (fn [keep!]
           (recheck-claim! 'v/hydrate-root dom-node root-id prefix existing)
           (let [react-root (keep! (rdc/hydrateRoot dom-node element
-                                                   (root-options prefix opts reporter)))]
+                                                   (root-options prefix callbacks reporter)))]
             (register! root-id (->Root (descriptor-for ident) dom-node react-root
-                                       prefix frame-id true))))))))
+                                       prefix frame-id true callbacks))))))))
 
 (defn hydrate-root
   "Adopt the server-rendered markup already in `dom-node` for the declared
