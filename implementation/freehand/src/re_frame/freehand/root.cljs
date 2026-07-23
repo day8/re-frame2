@@ -500,8 +500,50 @@
                    (some? root-id) (assoc :root-id root-id))}))
   dom-node)
 
+(defn- require-stable-identifier-prefix!
+  "The fourth admission claim, and the one only a RE-MOUNT can fail: the
+  effective `identifierPrefix` a live root was created with is the prefix
+  it keeps.
+
+  The reload path re-renders the EXISTING host root, and a React root's
+  options are fixed at `createRoot` — the running root has no way to adopt
+  a new prefix. Accepting the drift would put the registry and React out
+  of step in the one place it costs the most: the entry would claim a
+  prefix `use-id` never emits, and would leave the OLD prefix looking free
+  to the uniqueness check, so the next root to author it is admitted
+  against a live root still rendering under it. That is the cross-root
+  `use-id` collision the prefix claim exists to prevent, manufactured by
+  the check itself.
+
+  So drift fails loud, alongside the other three claims and for the same
+  reason: raised before preflight and before any React work, the live root
+  keeps its prefix, its claim, its frame and its committed DOM. It runs
+  inside [[claim!]] with PRECEDENCE over the cross-root prefix-uniqueness
+  check: once the same-root/same-container incumbent is known, a requested
+  prefix that differs from ITS own is drift the reload cannot carry — and
+  its recovery, unmount-first, is the real one. Reporting it as a duplicate
+  of whichever OTHER root happens to own the requested value would send the
+  author chasing a distinct prefix, when EVERY prefix but the incumbent's is
+  equally forbidden for that reused root."
+  [where root-id requested ^Root existing]
+  (when (and (some? existing) (not= requested (.-identifier-prefix existing)))
+    (error/throw-error!
+      :rf.error/root-identifier-prefix-immutable where
+      (str "re-mounting root " (pr-str root-id) " asks for identifierPrefix "
+           (pr-str requested) ", but the live root in that container was created "
+           "with " (pr-str (.-identifier-prefix existing)) " — a root's "
+           "identifierPrefix is fixed when React creates it, so a re-mount "
+           "re-renders that root under the OLD prefix and use-id keeps emitting "
+           "it. Unmount this root and mount again to render under the new "
+           "prefix, or drop the change.")
+      {:recovery :unmount-before-changing-identifier-prefix
+       :extra    {:root-id   root-id
+                  :requested requested
+                  :existing  (.-identifier-prefix existing)}}))
+  nil)
+
 (defn- claim!
-  "Assert the three admission claims and answer the live root this mount
+  "Assert the admission claims and answer the live root this mount
   RE-RENDERS, or nil when it is a fresh root.
 
   Every arm here throws before any React work and before any registry or
@@ -535,6 +577,12 @@
                "first, or mount into a fresh node.")
           {:recovery :unmount-the-owning-root-first
            :extra    {:root-id root-id :owner-root-id owner}})))
+    ;; The fourth admission claim, given PRECEDENCE over cross-root prefix
+    ;; ownership below: once the same-root/same-container incumbent is known,
+    ;; a requested prefix that differs from ITS own is immutable-prefix drift,
+    ;; not a duplicate of whatever other root owns the requested value. A
+    ;; fresh root (no incumbent) skips this and meets the duplicate check.
+    (require-stable-identifier-prefix! where root-id prefix existing)
     (when-let [owner (owner-of-prefix prefix root-id)]
       (error/throw-error!
         :rf.error/duplicate-identifier-prefix where
@@ -546,41 +594,6 @@
         {:recovery :make-identifier-prefixes-unique
          :extra    {:root-id root-id :identifier-prefix prefix :owner-root-id owner}}))
     existing))
-
-(defn- require-stable-identifier-prefix!
-  "The fourth admission claim, and the one only a RE-MOUNT can fail: the
-  effective `identifierPrefix` a live root was created with is the prefix
-  it keeps.
-
-  The reload path re-renders the EXISTING host root, and a React root's
-  options are fixed at `createRoot` — the running root has no way to adopt
-  a new prefix. Accepting the drift would put the registry and React out
-  of step in the one place it costs the most: the entry would claim a
-  prefix `use-id` never emits, and would leave the OLD prefix looking free
-  to the uniqueness check above, so the next root to author it is admitted
-  against a live root still rendering under it. That is the cross-root
-  `use-id` collision the prefix claim exists to prevent, manufactured by
-  the check itself.
-
-  So drift fails loud, here, alongside the other three claims and for the
-  same reason: raised before preflight and before any React work, the live
-  root keeps its prefix, its claim, its frame and its committed DOM."
-  [where root-id requested ^Root existing]
-  (when (and (some? existing) (not= requested (.-identifier-prefix existing)))
-    (error/throw-error!
-      :rf.error/root-identifier-prefix-immutable where
-      (str "re-mounting root " (pr-str root-id) " asks for identifierPrefix "
-           (pr-str requested) ", but the live root in that container was created "
-           "with " (pr-str (.-identifier-prefix existing)) " — a root's "
-           "identifierPrefix is fixed when React creates it, so a re-mount "
-           "re-renders that root under the OLD prefix and use-id keeps emitting "
-           "it. Unmount this root and mount again to render under the new "
-           "prefix, or drop the change.")
-      {:recovery :unmount-before-changing-identifier-prefix
-       :extra    {:root-id   root-id
-                  :requested requested
-                  :existing  (.-identifier-prefix existing)}}))
-  nil)
 
 (defn- recheck-claim!
   "Re-assert the admission claims AFTER preflight, and require the same
@@ -959,10 +972,10 @@
          ;; not read one.
          element        (root-element root-form frame-id nil)
          acquired?      (and (some? frame-id) (not (frame-ref-held? frame-id root-id)))]
-     ;; The fourth admission claim, before preflight because a refused root
-     ;; must not have run one: the effective identifierPrefix a live root was
-     ;; created with is immutable across a re-mount.
-     (require-stable-identifier-prefix! 'v/mount root-id prefix existing)
+     ;; The fourth admission claim — the immutable identifierPrefix — is
+     ;; asserted inside `claim!` above, before preflight and with precedence
+     ;; over cross-root prefix ownership, so a refused re-mount has run no
+     ;; plan and given nothing away.
      (preflight! 'v/mount plan root-id)
      (attempt!
        frame-id root-id acquired?
