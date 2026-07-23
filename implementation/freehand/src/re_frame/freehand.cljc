@@ -466,14 +466,71 @@
   body without reseeding the host root. Body/generation churn is an
   internal fact of the descriptor, never part of the identity.
 
-  Frame preflight, authored identity, multi-root duplicate detection,
-  failed-root isolation, total teardown and hydration are later slices; a
-  bare declared view at the head is the whole grammar here, and `opts` is
-  accepted and ignored.
+  `opts` is a CLOSED map. Identity: `:root-id` (authored, verbatim) or
+  `:disambiguator` (a scalar appended to the derived id, so ONE view can
+  mount twice on one page with neither site authoring an id), plus
+  `:identifier-prefix`. Preflight: `:frame` — a frame-id keyword SCOPES a
+  frame something else owns, a `make-frame` opts map carrying `:id`
+  ENSUREs one the root owns for its lifetime, and either way the frame is
+  live before React sees anything. Host: React's `:on-uncaught-error` /
+  `:on-caught-error` / `:on-recoverable-error`.
+
+  A root claims its id, its container and its `identifierPrefix` in the
+  per-document registry BEFORE it renders, so a collision on any of them
+  fails loud with the existing roots untouched.
 
   Per [Spec 004C §The mount grammar](../../../../spec/004C-Roots-and-Mount.md)."
           :arglists '([root-form dom-node] [root-form dom-node opts])}
      mount root/mount))
+
+#?(:cljs
+   (def ^{:doc "Adopt the server-rendered markup already in `dom-node` for
+  the declared view at `root-form`'s head, and return the live root handle.
+
+      (v/hydrate-root (js/document.getElementById \"app\") [app {}])
+
+  Hydration ADOPTS the server's DOM rather than replacing it, so the page
+  the user is already looking at becomes the live page. Verification is
+  React's own adoption: a divergence React recovers from — a text
+  mismatch, a missing, extra or wrong-type element — is reported as
+  `:rf.ssr/hydration-mismatch` and React replaces the offending DOM. An
+  ATTRIBUTE-only divergence is outside that signal by React's own
+  contract, which makes no guarantee to patch attribute mismatches.
+
+  Identity comes from the server, so identity opts (`:root-id`,
+  `:disambiguator`, `:identifier-prefix`) are REFUSED here
+  (`:rf.error/root-manifest-invalid`) — a client that renders under its
+  own prefix breaks `use-id` hydration. `:frame` and the host error
+  callbacks are accepted, exactly as at [[mount]].
+
+  A container carrying nothing to adopt takes the FALLBACK: the root
+  mounts client-side instead, which is the client-only first load of a
+  page whose server never rendered this root.
+
+  Per [Spec 011 §Hydration](../../../../spec/011-SSR.md)."
+          :arglists '([dom-node root-form] [dom-node root-form opts])}
+     hydrate-root root/hydrate-root))
+
+#?(:cljs
+   (def ^{:doc "Tear a mounted root down completely, and answer nil.
+
+      (v/unmount! root)
+
+  TOTAL: the registry entry goes — and with it the root-id, container and
+  `identifierPrefix` claims — the React root unmounts, every ViewCell
+  below it disconnects (releasing every dependency, retiring every
+  published callback), and the root's reference to its frame is released.
+  A frame the root ENSUREd is DESTROYED once no live root still
+  references it; a frame the root merely scoped is left alone.
+
+  GUARDED, and a no-op rather than a throw when the guard fails: a root
+  already unmounted, or superseded by a newer root claiming its id, has
+  nothing left to release — and tearing down on its behalf would tear
+  down the successor.
+
+  Per [Spec 004C §The mount grammar](../../../../spec/004C-Roots-and-Mount.md)."
+          :arglists '([root])}
+     unmount! root/unmount!))
 
 ;; ---------------------------------------------------------------------------
 ;; Event intent and the callback roster
