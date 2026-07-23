@@ -54,6 +54,7 @@
   (:require ["react" :as react]
             [goog.object :as gobj]
             [re-frame.error :as error]
+            [re-frame.freehand.behaviors :as behaviors]
             [re-frame.freehand.cell :as cell]
             [re-frame.freehand.controlled :as controlled]
             [re-frame.freehand.conversion :as conv]
@@ -255,9 +256,10 @@
   remounts the boundary ONCE, cleanly, rather than running a different
   hook order against the old Fiber's hook state."
   [view]
-  [(if (descriptor/error-boundary? view)
-     :error-boundary
-     (:lowering (descriptor/describe view)))
+  [(cond
+     (descriptor/error-boundary? view) :error-boundary
+     (descriptor/behavior? view)       :behavior
+     :else                             (:lowering (descriptor/describe view)))
    (:view-cell (descriptor/manifest view))])
 
 (defn- publish-body!
@@ -329,6 +331,47 @@
     (gobj/set c "displayName" (str view-id))
     c))
 
+(defn- behavior-component
+  "The React function component `v/behavior` lowers to.
+
+  It is an ordinary atomic shell — the decorated element's event sites are
+  this boundary's to own and publish, exactly as a forwarded child's are
+  under any other declared view — with the behavior's LIFECYCLE ARMS
+  installed above it and the node's ref given to the element the walk
+  produced.
+
+  `cloneElement` rather than a wrapper node, deliberately: a behavior owns
+  the node its AUTHOR declared, so inserting one of the substrate's own
+  would change the document that both the stylesheet and the host library
+  address. And the ref rather than a `querySelector`: a behavior addresses
+  the node React handed it and has no way to reach any other, which is what
+  keeps the boundary one node wide.
+
+  The lifecycle hooks run BEFORE the shell's, in a fixed order no
+  declaration can move: the behavior's timing arms are guarded by the
+  registered `:timing` rather than selected by it, so the hook skeleton is
+  the same for a `:passive` and a `:layout` behavior and swapping one for
+  the other at a live site is a re-connection, not a hook-order fault."
+  [view-id]
+  (let [c (fn freehand-behavior [js-props]
+            (let [props    (gobj/get js-props "props")
+                  opts     (behaviors/read-opts props)
+                  set-node (behaviors/use-attachment! opts)]
+              (shell/render
+                view-id
+                0
+                (fn [cand]
+                  (cell/with-capture
+                    cand
+                    (fn []
+                      (try
+                        (behaviors/attach (emit cand (:child opts)) set-node)
+                        (catch :default e
+                          (eb/note-failing-view! view-id)
+                          (throw e)))))))))]
+    (gobj/set c "displayName" (str view-id))
+    c))
+
 (defn- component-for
   [view]
   (let [view-id (:view-id (descriptor/describe view))
@@ -342,7 +385,7 @@
       (do (publish-body! (:slot entry) view)
           (:component entry))
       (let [slot (volatile! {:body (descriptor/render-body view) :revision 0})
-            c    (if (descriptor/error-boundary? view)
+            c    (cond
                    ;; An error boundary is not an ordinary function component
                    ;; — a function component cannot catch a descendant's
                    ;; render throw. It lowers to the React class boundary the
@@ -350,7 +393,17 @@
                    ;; once-per-generation intent, reset, the private egress),
                    ;; built once and cached like any other declared view's
                    ;; component.
+                   (descriptor/error-boundary? view)
                    (error-react/boundary-component element)
+
+                   ;; A behavior boundary has no body to walk either: it
+                   ;; CONTAINS one declared element and owns that element's
+                   ;; imperative lifecycle, so it lowers to the component
+                   ;; that holds the node's ref and the timing arms.
+                   (descriptor/behavior? view)
+                   (behavior-component view-id)
+
+                   :else
                    (interpreted-component view view-id slot))]
         (swap! components assoc view-id {:signature sig :component c :slot slot})
         c))))
