@@ -1501,6 +1501,40 @@ supplies new config → `:update` reconciles the host; the host emitted somethin
 the behavior dispatches a configured intent; perform this one-shot operation now
 → one data command; React owns the protocol → use a wrapper, not a behavior.
 
+#### The tool plane
+
+A behavior is the one place in the substrate where opaque host state lives, so
+it is the one place a reader most needs to see into — and the one place a
+careless inspection surface would hand out exactly what the contract refuses.
+Both halves are settled by making the tool plane a pair of read-only
+projections over the live table, published by the behavior namespace itself
+rather than through the public door:
+
+- **the active connections** — one entry per live connection, carrying its
+  generation, its registered behavior id, the frame it was committed under, the
+  semantic target it claims and its public config; and
+- **the command traffic** — a bounded window of the recent commands, each row
+  carrying what the command named and what the channel decided (`:delivered` or
+  `:refused`), plus the behavior and generation wherever the channel actually
+  resolved a connection. Refusals are recorded as faithfully as deliveries: a
+  projection that only saw the successes would be evidence for the one case
+  nobody debugs.
+
+Both answer VALUES. Neither answers a node, a private memory, or anything a
+caller could reach one through — the omission is by construction, because a
+projection is built from a connection's public half, not filtered out of its
+whole. A tool that could be handed a host object would be the instance registry
+the behavior contract exists to refuse, reached through the inspection door
+instead of the front one.
+
+Neither is an event stream. Lifecycle facts are tool evidence, so a tool ASKS
+and is not called back: there is no mount event, no unmount event, no command
+event, and nothing on this plane dispatches. The traffic window is bounded for
+the same reason a trace ring is — an unbounded log is a retention leak dressed
+up as evidence — and a delivered row is written before the operation runs, so a
+command that crashes its host appears in the traffic rather than vanishing from
+it.
+
 #### The structural marker
 
 The JVM has no live node, so a behavior there is an INERT MARKER and says so. The

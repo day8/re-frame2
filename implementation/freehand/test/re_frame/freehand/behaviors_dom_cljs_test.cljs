@@ -1,5 +1,6 @@
 (ns re-frame.freehand.behaviors-dom-cljs-test
-  "FH-BEHAVIOR-004 / -005 / -006 — the MOUNTED half of the behavior contract.
+  "FH-BEHAVIOR-004 / -005 / -006 / -008 — the MOUNTED half of the behavior
+  contract.
 
   A behavior's whole value is that imperative host work is bounded to
   moments the substrate names, over a node the substrate handed it, with a
@@ -18,10 +19,13 @@
                      CONTROL mount of the same markup with no behavior —
                      so a zero cannot be a counter that was never written.
     FH-BEHAVIOR-006  a command reaches the one live connection claiming
-                     its explicit semantic target and NOTHING else (a live
-                     decoy proves the `nothing else`), and every other
-                     outcome is a visible refusal that performs no host
-                     work.
+                     its explicit semantic target IN ITS OWN FRAME and
+                     NOTHING else (a live decoy, and a second frame, prove
+                     the `nothing else`), and every other outcome is a
+                     visible refusal that performs no host work.
+    FH-BEHAVIOR-008  the tool plane is two read-only projections over that
+                     same live table, and what they OMIT — node, memory,
+                     any route to a host instance — is the assertion.
 
   This file rides the browser lane through its `-dom-cljs-test` suffix. It
   also matches the node suites' broader regex, where it has no DOM to mount
@@ -48,6 +52,7 @@
 (def ^:private fh-004 (conf/fixture :FH-BEHAVIOR-004))
 (def ^:private fh-005 (conf/fixture :FH-BEHAVIOR-005))
 (def ^:private fh-006 (conf/fixture :FH-BEHAVIOR-006))
+(def ^:private fh-008 (conf/fixture :FH-BEHAVIOR-008))
 
 (def ^:private frame-id :dom/behaviors)
 
@@ -575,3 +580,150 @@
     (is (= (:fx-id fh-006) behaviors/command-fx-id))
     (is (some? (rf/handler-meta :fx behaviors/command-fx-id))
         "the reserved fx id is registered")))
+
+;; ===========================================================================
+;; FH-BEHAVIOR-008 — the tool plane: two read-only projections
+;; ===========================================================================
+
+(defn- absent-keys-are-absent
+  "Assert that no row in `rows` carries any of `absent`. The whole point of
+  a projection is what it does NOT answer, so this is the load-bearing
+  half — a leak of `:node` or `:memory` would otherwise pass every
+  positive assertion above it."
+  [rows absent note]
+  (doseq [row rows, k absent]
+    (is (not (contains? row k))
+        (str note " — the projection answers no " k))))
+
+(deftest fh-behavior-008-active-connections-project-the-public-half-only
+  (testing "Per FH-BEHAVIOR-008: the active-connection projection answers
+            which behaviors are connected, under which frame, claiming which
+            semantic ids, on which public config — as VALUES, oldest first.
+            The omission is the law: no node, no private memory, no
+            lifecycle entry and no route to a host instance, absent because
+            the projection is built from the record's public half rather
+            than filtered out of its whole."
+    (if-not (browser?)
+      (skip! "the browser job runs the projection assertions")
+      (async done
+        (setup!)
+        (let [[container root]        (mount!)
+              {:keys [present absent]} (:connection-keys fh-008)
+              connected                (:connected fh-008)
+              no-target                (:no-target fh-008)]
+          (-> (act #(.render root (element [bv/plain {}])))
+              (.then (fn [_]
+                       (let [rows (behaviors/active-connections)
+                             row  (first rows)]
+                         (is (= 1 (count rows))
+                             "one mounted behavior, one projected connection")
+                         (is (= (set present) (set (keys row)))
+                             "the key roster is closed in the present direction")
+                         (absent-keys-are-absent rows absent "a live connection")
+                         (is (= (:behavior connected) (:behavior row)))
+                         (is (= (:target connected) (:target row)))
+                         (is (= (:config connected) (:config row)))
+                         (is (= frame-id (:frame row))
+                             "carrying the frame the connection was committed under")
+                         (is (pos-int? (:generation row))
+                             "and the generation the release will name"))
+                       (act #(.render root (element [bv/no-target {}])))))
+              (.then (fn [_]
+                       (let [row (first (behaviors/active-connections))]
+                         (is (= (disj (set present) :target) (set (keys row)))
+                             "a behavior nothing commands projects NO target — absent, never nil")
+                         (is (= (:config no-target) (:config row))))
+                       (act #(.render root (element [bv/pair {}])))))
+              (.then (fn [_]
+                       (let [rows (behaviors/active-connections)]
+                         (is (= 2 (count rows)))
+                         (is (= (sort (map :generation rows)) (map :generation rows))
+                             "projected oldest first, by the generation that ordered them")
+                         (is (= [:probe/one :probe/two] (mapv :target rows))))
+                       (teardown! container root)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "mount rejected: " e))
+                        (teardown! container root)
+                        (done)))))))))
+
+(deftest fh-behavior-008-the-command-log-records-what-was-asked-and-decided
+  (testing "Per FH-BEHAVIOR-008: the command-traffic projection records what
+            each command NAMED and what the channel DECIDED — refusals as
+            faithfully as deliveries, because a projection that only saw the
+            successes would be evidence for the one case nobody debugs. The
+            resolved behavior and generation appear on a delivered row only,
+            and the operation's return value — the connection's private
+            memory — has no representation here at all."
+    (if-not (browser?)
+      (skip! "the browser job runs the command-traffic assertions")
+      (async done
+        (setup!)
+        (let [[container root]        (mount!)
+              {:keys [present absent]} (:log-keys fh-008)
+              traffic                  (:traffic fh-008)]
+          (-> (act #(.render root (element [bv/plain {}])))
+              (.then (fn [_]
+                       (is (empty? (behaviors/command-log))
+                           "a mount commands nothing, so the log starts empty")
+                       (doseq [{:keys [command]} traffic]
+                         (conf/caught-id #(behaviors/command! frame-id command)))
+                       (let [rows (behaviors/command-log)]
+                         (is (= (count traffic) (count rows))
+                             "every command left exactly one row, in order")
+                         (absent-keys-are-absent rows absent "a traffic row")
+                         (doseq [[{:keys [note row resolved?]} got]
+                                 (map vector traffic rows)]
+                           (is (= frame-id (:frame got))
+                               (str note " — scoped by the frame it resolved in"))
+                           (is (= row (dissoc got :frame :behavior :generation)) note)
+                           (if resolved?
+                             (do (is (= :re-frame.freehand.behavior-views/probe
+                                        (:behavior got))
+                                     (str note " — naming the behavior it reached"))
+                                 (is (pos-int? (:generation got))
+                                     (str note " — and the generation it reached it at")))
+                             (do (is (not (contains? got :behavior))
+                                     (str note " — no connection resolved, so no behavior"))
+                                 (is (not (contains? got :generation))
+                                     (str note " — and no generation"))))
+                           (is (every? (set present) (keys got))
+                               (str note " — the key roster is closed"))))
+                       (teardown! container root)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "mount rejected: " e))
+                        (teardown! container root)
+                        (done)))))))))
+
+(deftest fh-behavior-008-the-command-log-is-a-bounded-window
+  (testing "Per FH-BEHAVIOR-008: the traffic window is BOUNDED — an
+            unbounded log is a retention leak dressed up as evidence, and a
+            session that runs for a day would carry a day of it. The
+            eviction is proved rather than assumed: the run's only refusal
+            is issued FIRST, so a cap that discarded the newest rows would
+            still be holding it."
+    (if-not (browser?)
+      (skip! "the browser job runs the bounded-window assertions")
+      (async done
+        (setup!)
+        (let [[container root] (mount!)
+              {:keys [overflow-by op target evicted]} (:bounded fh-008)]
+          (-> (act #(.render root (element [bv/plain {}])))
+              (.then (fn [_]
+                       (conf/caught-id #(behaviors/command! frame-id evicted))
+                       (is (= [:refused] (mapv :outcome (behaviors/command-log)))
+                           "the row that must later be gone is really written first")
+                       (dotimes [_ (+ behaviors/command-log-limit overflow-by)]
+                         (behaviors/command! frame-id {:target target :op op}))
+                       (let [rows (behaviors/command-log)]
+                         (is (= behaviors/command-log-limit (count rows))
+                             "the window holds the limit and no more")
+                         (is (every? #(= :delivered (:outcome %)) rows)
+                             "and the OLDEST rows were the ones dropped"))
+                       (teardown! container root)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "mount rejected: " e))
+                        (teardown! container root)
+                        (done)))))))))
