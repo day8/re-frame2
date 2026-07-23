@@ -69,6 +69,23 @@
         (is (= (as-compiled-ids tree) (tree/render (into [promoted] call)))
             (str note " (compiled — the same tree, from the same call)"))))))
 
+(deftest promotion-does-not-change-what-a-prop-may-carry
+  (testing "Per FH-STRUCT-006's rejection table: the prop-recording rule
+            is ONE rule, because both modes reach `:props` through the
+            same builder. A callback nested inside a recorded prop is
+            refused identically whether the declaration is interpreted or
+            compiled — a mode that quietly accepted one would be a second
+            tree format wearing the first one's name."
+    (is (seq (:rejected struct-006)) "the fixture's rejection table loaded")
+    (doseq [{:keys [note view args error-id]} (:rejected struct-006)]
+      (let [call (into [] (realize args))]
+        (is (= error-id (conf/caught-id
+                          #(tree/render (into [(get views/by-name view)] call))))
+            (str note " (interpreted)"))
+        (is (= error-id (conf/caught-id
+                          #(tree/render (into [(get compiled/by-name view)] call))))
+            (str note " (compiled — the same refusal, from the same call)"))))))
+
 (deftest the-proof-is-not-vacuous
   (testing "Both halves of the comparison must actually be the two modes.
             A promotion proof where both sides are interpreted proves

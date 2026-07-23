@@ -101,4 +101,22 @@
             :attrs {:id "main" :class "panel open" :tab-index "3"}
             :children [{:tag :h2 :children ["Details"]}
                        {:tag :ul :attrs {:class "rows"}}]}]
-          :rf.ui/tree-version 1}}]}
+          :rf.ui/tree-version 1}}]
+
+ ;; The round-trip is the reason a boundary sanitizes props at all, and it
+ ;; is a claim about the WHOLE recorded value, not its first level. The
+ ;; opaque marker occupies a SITE — a prop that IS a callback — because a
+ ;; site is what the grammar names and what a test asserts on. Below the
+ ;; prop key there is no site vocabulary, so a marker written there would
+ ;; claim one that does not exist and would silently replace the value the
+ ;; author passed. Refused instead, at the boundary that recorded it.
+ :rejected
+ [{:note "a callback NESTED in a data prop is refused — the marker occupies a site, not a value inside one"
+   :view :panel
+   :args [{:title "Details" :config {:callback :fh/fn}}]
+   :error-id :rf.error/ui-tree-malformed}
+
+  {:note "the same rule at depth — a recorded prop is data all the way down"
+   :view :panel
+   :args [{:title "Details" :config [:a [:b {:cb :fh/fn}]]}]
+   :error-id :rf.error/ui-tree-malformed}]}

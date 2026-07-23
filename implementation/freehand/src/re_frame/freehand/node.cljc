@@ -50,6 +50,80 @@
   (name (:type (shape x))))
 
 ;; ---------------------------------------------------------------------------
+;; Data — what a recorded value may contain, at every depth
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004B §The node schema: the tree is plain, serialisable data, and EDN
+;; print/read round-trips it losslessly. Two slots record a value the tree did
+;; not build — a view boundary's `:props` and an element's `:events` — and both
+;; are exactly where a host value can walk in. The rule they share:
+;;
+;;   THE OPAQUE MARKER OCCUPIES A SITE, NEVER A VALUE INSIDE ONE.
+;;
+;; A prop or handler that IS a function records as `{:rf.ui/opaque :fn}`: the
+;; site is named by the grammar, so its existence and spelling stay testable
+;; while its behaviour does not. Below that key the grammar names no sites, so
+;; a marker written there would claim one that does not exist and would quietly
+;; replace a value the author will go looking for — and an event vector, which
+;; is compared as data in a test and dispatched as data at run time, would
+;; record an intent that no longer means what the site does. So a non-data
+;; value nested inside a recorded value is REFUSED, at the site that recorded
+;; it, exactly as every other value outside the tree's closed grammars is.
+
+(defn- edn-scalar?
+  "Is `x` an EDN leaf — a value that prints and reads back as itself on
+  BOTH hosts?"
+  [x]
+  (or (string? x) (keyword? x) (number? x) (boolean? x) (nil? x) (symbol? x)
+      (uuid? x)
+      ;; EDN's other built-in tagged literal. `inst?` is NOT the predicate:
+      ;; it answers true for `java.time.Instant`, which prints `#object[…]`
+      ;; and does not read back. The instant that prints `#inst` is the
+      ;; host's own, and it is the one both readers reconstruct.
+      (instance? #?(:clj java.util.Date :cljs js/Date) x)))
+
+(defn- non-data
+  "`[path value]` for the FIRST value inside `x` that is not data, or nil
+  when `x` is data all the way down. `path` is the map keys and vector
+  indices walked to reach it, so a diagnostic names the offending SITE
+  rather than the whole prop.
+
+  READ-ONLY and short-circuiting — nothing is rebuilt, and the walk stops
+  at the first offender. The ordinary case (a scalar prop, or a small map
+  of them) costs one predicate per value and allocates nothing, which is
+  what lets the rule hold at every depth without a sanitizing copy of
+  every prop on every render."
+  [x]
+  (cond
+    (edn-scalar? x)
+    nil
+
+    ;; `reduce-kv` over a vector answers index/element — exactly the path
+    ;; segment wanted — so maps and vectors share one arm.
+    (or (map? x) (vector? x))
+    (reduce-kv (fn [_ k v]
+                 (if-let [found (or (non-data k)
+                                    (when-let [[p bad] (non-data v)]
+                                      [(into [k] p) bad]))]
+                   (reduced found)
+                   nil))
+               nil
+               x)
+
+    ;; A set or a seq has no position worth naming, so the path stops here.
+    (coll? x)
+    (reduce (fn [_ v] (when-let [found (non-data v)] (reduced found))) nil x)
+
+    :else
+    [[] x]))
+
+(defn- at-path
+  "The ` at [:config :callback]` clause of a diagnostic, or nothing when the
+  offending value IS the recorded value."
+  [path]
+  (if (seq path) (str " at " (pr-str path)) ""))
+
+;; ---------------------------------------------------------------------------
 ;; The namespace context (SVG / MathML)
 ;; ---------------------------------------------------------------------------
 ;;
@@ -255,12 +329,41 @@
   "One `:events` entry value, classified BY THE VALUE PRESENT AT RENDER
   (Spec 004B §Element fields): a vector is a literal event intent, a map is
   an options map, a function is a site whose spelling is testable and whose
-  behaviour is not, and nil drops the entry."
+  behaviour is not, and nil drops the entry.
+
+  An intent and an options map are recorded VERBATIM, so they must already
+  be data — a function riding as an event argument would record an intent
+  that cannot be compared, printed, or dispatched as the site's own
+  (§Data)."
   [tag k v]
   (cond
     (nil? v)    nil
-    (vector? v) v
-    (map? v)    v
+    (vector? v) (do (when-let [[path bad] (non-data v)]
+                      (malformed!
+                        're-frame.freehand/render
+                        (str "The " k " handler on " tag " carries a " (type-name bad)
+                             (at-path path)
+                             " inside its event intent. An event vector is recorded "
+                             "verbatim and is data through and through — a test compares "
+                             "it as data and the event system dispatches it as data, so "
+                             "an argument inside it has no cross-host spelling. A function "
+                             "records as the opaque marker when it IS the handler value; "
+                             "it cannot ride inside the intent.")
+                        {:attr k :path path :value (shape bad)}))
+                    v)
+    (map? v)    (do (when-let [[path bad] (non-data v)]
+                      (malformed!
+                        're-frame.freehand/render
+                        (str "The " k " handler on " tag " carries a " (type-name bad)
+                             (at-path path)
+                             " inside its options map. An options map is recorded verbatim "
+                             "and is data through and through — the structural tree prints "
+                             "and reads back losslessly, so a value inside one has no "
+                             "cross-host spelling. A function records as the opaque marker "
+                             "when it IS the handler value; it cannot ride inside the "
+                             "options.")
+                        {:attr k :path path :value (shape bad)}))
+                    v)
     (fn? v)     {:rf.ui/opaque :fn}
     :else
     (malformed!
@@ -370,11 +473,26 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- recorded-prop
-  "A prop value as the boundary records it. Non-data values become the
-  opaque marker — their existence and spelling stay testable, their
-  behaviour does not (Spec 004B §The opaque marker)."
-  [x]
-  (if (fn? x) {:rf.ui/opaque :fn} x))
+  "A prop value as the boundary records it. A prop that IS a function
+  becomes the opaque marker — its existence and spelling stay testable,
+  its behaviour does not (Spec 004B §The opaque marker). A prop that
+  CONTAINS one is refused: the marker occupies a site, and below a prop key
+  the tree has no site vocabulary to name (§Data)."
+  [view-id k x]
+  (if (fn? x)
+    {:rf.ui/opaque :fn}
+    (do (when-let [[path bad] (non-data x)]
+          (malformed!
+            're-frame.freehand/render
+            (str "The " k " prop on " view-id " carries a " (type-name bad)
+                 (at-path path)
+                 ". A recorded prop is data through and through — the structural "
+                 "tree prints and reads back losslessly on both hosts, so a value "
+                 "inside one has no cross-host spelling. A callback records as the "
+                 "opaque marker when it IS the prop; pass it as its own prop rather "
+                 "than nesting it in data.")
+            {:prop k :path path :value (shape bad)}))
+        x)))
 
 (defn- plain-fragment?
   "Is `x` a fragment node carrying nothing but its children?
@@ -411,7 +529,7 @@
   what makes a `:view-id` predicate a total selector (Spec 004B
   §Coverage Q12)."
   [view-id props key kids]
-  (let [recorded (reduce-kv (fn [m k x] (assoc m k (recorded-prop x)))
+  (let [recorded (reduce-kv (fn [m k x] (assoc m k (recorded-prop view-id k x)))
                             {} (dissoc props :children))
         kids     (if (and (= 1 (count kids)) (plain-fragment? (first kids)))
                    (vec (:children (first kids)))
