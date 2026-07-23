@@ -410,10 +410,28 @@
 ;; R-A7 — the key protocol, with real keyboard events
 ;; ===========================================================================
 
+(defn- settle!
+  "Fire a NON-door interaction and let it settle.
+
+  Typing is different from every other interaction the pilot has: an
+  `:on-input` site on a controlled element is inside the synchronous
+  door, so its state change has landed by the time the listener returns.
+  A keydown and a blur are NOT — `onInput`/`onChange` is the whole door
+  roster — so they take the ordinary batched lane and settle at the next
+  host checkpoint. That is correct and invisible to a user, and it means
+  a browser test has to WAIT rather than assert straight after the
+  dispatch. Re-entering React's act environment is how this suite waits;
+  [[live!]] afterwards puts typing back on the discrete-event path."
+  [thunk]
+  (-> (act thunk)
+      (.then (fn [_] (live!) nil))))
+
 (deftest pilot-r-a7-enter-commits-and-escape-reverts-in-the-dom
   (testing "R-A7. Enter and Escape ride ONE registered event carrying the
             live `KeyboardEvent.key`, so the browser proof is that the
-            real key events reach it and that the control follows."
+            real key events reach it and that the control follows. Both
+            are outside the synchronous door by construction, so each is
+            allowed to settle before it is read back."
     (if-not (browser?)
       (skip! "the browser job runs the keyboard assertions")
       (async done
@@ -421,20 +439,25 @@
           (fn [container]
             (let [node (control container "reference")]
               (insert-at! node 4 "E")
-              (is (= "REF-E1" (.-value node)))
-              (fire-key! node "Enter")
-              (is (= "REF-E1" (:reference (line)))
-                  "Enter committed the draft to the caller")
-              (is (nil? (draft)) "and retired the session")
-              (is (= "REF-E1" (.-value node)) "the control now shows the accepted value")
-
-              (insert-at! node 0 "Z")
-              (is (= "ZREF-E1" (.-value node)) "a second draft is live")
-              (fire-key! node "Escape")
-              (is (= "REF-E1" (:reference (line)))
-                  "Escape left the caller's value alone")
-              (is (= "REF-E1" (.-value node))
-                  "and the control is back on the baseline")))
+              (is (= "REF-E1" (.-value node)) "the draft is live")
+              (-> (settle! #(fire-key! node "Enter"))
+                  (.then
+                    (fn [_]
+                      (is (= "REF-E1" (:reference (line)))
+                          "Enter committed the draft to the caller")
+                      (is (nil? (draft)) "and retired the session")
+                      (is (= "REF-E1" (.-value node))
+                          "the control now shows the accepted value")
+                      (insert-at! node 0 "Z")
+                      (is (= "ZREF-E1" (.-value node)) "a second draft is live")
+                      (settle! #(fire-key! node "Escape"))))
+                  (.then
+                    (fn [_]
+                      (is (= "REF-E1" (:reference (line)))
+                          "Escape left the caller's value alone")
+                      (is (= "REF-E1" (.-value node))
+                          "and the control is back on the baseline")
+                      (is (nil? (draft)) "with the session retired"))))))
           done)))))
 
 (deftest pilot-r-a7-a-blur-behind-an-escape-does-not-resurrect-the-draft
@@ -451,11 +474,16 @@
             (let [node (control container "reference")]
               (insert-at! node 4 "G")
               (is (= "REF-G1" (draft)) "non-vacuous: a draft really is live")
-              (fire-key! node "Escape")
-              (fire-blur! node)
-              (is (= "REF-1" (:reference (line)))
-                  "the late blur found no live edit to commit")
-              (is (= "REF-1" (.-value node)))))
+              (-> (settle! (fn []
+                             (fire-key! node "Escape")
+                             (fire-blur! node)))
+                  (.then
+                    (fn [_]
+                      (is (= "REF-1" (:reference (line)))
+                          "the late blur found no live edit to commit")
+                      (is (= 0 (:re-frame.freehand.pilot-field/accepted (app) 0))
+                          "and the caller's accept event never fired")
+                      (is (= "REF-1" (.-value node))))))))
           done)))))
 
 ;; ===========================================================================
