@@ -195,6 +195,38 @@
         :else                {}))))
 
 ;; ---------------------------------------------------------------------------
+;; Instance-unique ids for a control's error region
+;; ---------------------------------------------------------------------------
+
+(defn- id-token
+  "A DOM-safe token for one part of a control's identity, or nil when the
+  part is absent. `[:invoice 2 :reference]` becomes `invoice-2-reference`
+  and `\"description\"` stays `description`. Pure and stable, so the same
+  identity yields the same token on every render and after a list
+  reorder."
+  [part]
+  (when (some? part)
+    (let [t (-> (str part)
+                (str/replace #"[^A-Za-z0-9]+" "-")
+                (str/replace #"(^-+)|(-+$)" ""))]
+      (when-not (str/blank? t) t))))
+
+(defn error-region-id
+  "The id of a field's error region, and the target its control points
+  `aria-describedby` at, built from a `prefix` and the identity `parts`
+  the caller supplies to name ONE instance. Absent parts drop out, so a
+  single-instance field keeps the short `acme-field-<name>-error` while a
+  field the caller renders more than once earns
+  `acme-field-<instance>-<name>-error` and two same-named instances no
+  longer collide.
+
+  The library trusts the caller's identity to be distinct — exactly as
+  the buffered controller trusts its `:control` address (D004) — and
+  allocates, counts and polices nothing."
+  [prefix & parts]
+  (str/join "-" (concat [prefix] (keep id-token parts) ["error"])))
+
+;; ---------------------------------------------------------------------------
 ;; `field` — the controlled field. Props only: value in, intent out.
 ;; ---------------------------------------------------------------------------
 
@@ -210,7 +242,13 @@
 
   `:columns` is the one value the cascade cannot know, so it is the one
   value that rides as an inline custom property; everything else is a
-  `data-part` a stylesheet reaches."
+  `data-part` a stylesheet reaches.
+
+  `:instance` is the caller's instance identity — the domain thing this
+  particular field belongs to, such as an invoice line id. It is optional
+  because a single-instance call needs none, and it is what a caller
+  renders the same field name more than once supplies so the two error
+  regions get distinct ids rather than colliding."
   {:props [:map
            [:name :string]
            [:label :string]
@@ -219,9 +257,10 @@
            [:on-blur {:optional true} [:maybe :vector]]
            [:error {:optional true} [:maybe :string]]
            [:busy? {:optional true} :boolean]
-           [:columns {:optional true} :int]]}
-  [{:keys [name label value on-input on-blur error busy? columns]}]
-  (let [error-id (str "acme-field-" name "-error")]
+           [:columns {:optional true} :int]
+           [:instance {:optional true} :any]]}
+  [{:keys [name label value on-input on-blur error busy? columns instance]}]
+  (let [error-id (error-region-id "acme-field" instance name)]
     [:label {:data-component "acme/field"
              :data-part      "root"
              :data-field     name
@@ -273,7 +312,10 @@
   [{:keys [name label value on-commit error busy?] :as props}]
   (let [k        (control/record-key buffered-kind props)
         g        (control/reset-revision buffered-kind props)
-        error-id (str "acme-buffered-" name "-error")]
+        ;; The `:control` address already names this instance uniquely
+        ;; across the whole app (D004), so the error region borrows it and
+        ;; two lines' reference fields never share an id.
+        error-id (error-region-id "acme-buffered" (:control props))]
     [:label {:data-component "acme/buffered-field"
              :data-part      "root"
              :data-field     name
@@ -489,6 +531,7 @@
                              :prevent-default true}}
      [field {:name     "description"
              :label    "Description"
+             :instance id
              :value    (or (:description line) "")
              :columns  40
              :error    (v/sub [:acme.invoice/field-error id :description])
@@ -496,18 +539,21 @@
              :on-blur  [:acme.invoice/field-blurred id :description]}]
      [field {:name     "quantity"
              :label    "Quantity"
+             :instance id
              :value    (or (:quantity line) "")
              :error    (v/sub [:acme.invoice/field-error id :quantity])
              :on-input [:acme.invoice/field-edited id :quantity]
              :on-blur  [:acme.invoice/field-blurred id :quantity]}]
      [field {:name     "unit-price"
              :label    "Unit price"
+             :instance id
              :value    (or (:unit-price line) "")
              :error    (v/sub [:acme.invoice/field-error id :unit-price])
              :on-input [:acme.invoice/field-edited id :unit-price]
              :on-blur  [:acme.invoice/field-blurred id :unit-price]}]
      [field {:name     "account"
              :label    "Account"
+             :instance id
              :value    (or (:account line) "")
              :error    (v/sub [:acme.invoice/field-error id :account])
              :on-input [:acme.invoice/field-edited id :account]

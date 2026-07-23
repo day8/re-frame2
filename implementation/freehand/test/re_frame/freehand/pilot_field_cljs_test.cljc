@@ -610,6 +610,94 @@
             (is (= "REF-1" (:value (t/attrs (control-of (buffered-node (first (roots)) "reference"))))))
             (is (= "REF-2" (:value (t/attrs (control-of (buffered-node (second (roots)) "reference"))))))))))))
 
+(deftest repeated-fields-emit-instance-unique-error-ids
+  (testing "rf2-drpa3.134. `invoice-lines` renders two lines at once, so
+            two controlled fields named \"description\" and two buffered
+            fields named \"reference\" sit on one page. Each field derives
+            its error-region id from the caller's instance identity — the
+            controlled field from its `:instance` line id, the buffered
+            field from its `:control` address — so the same field name
+            twice no longer collides, and every control's `aria-describedby`
+            resolves to its OWN region."
+    (each-mode
+      (fn [mode]
+        (seed-lines! [1 2])
+        ;; Every field invalid, and every gate open, so every error region
+        ;; renders: blank the descriptions, attempt submit on both lines,
+        ;; and give each reference a rejection reason to display.
+        (frame/replace-app-db! fid (-> (app-db)
+                                       (assoc-in [:invoice 1 :description] "")
+                                       (assoc-in [:invoice 2 :description] "")
+                                       (assoc-in [:invoice 1 :reference-error] "Not on file.")
+                                       (assoc-in [:invoice 2 :reference-error] "Not on file.")))
+        (send! [:acme.invoice/submit-attempted 1])
+        (send! [:acme.invoice/submit-attempted 2])
+        (let [tree     (render! (lines-form mode [1 2]))
+              roots    (nodes tree #(= "acme/invoice-line" (:data-component (:attrs %))))
+              [l1 l2]  roots
+              resolves? (fn [field-node]
+                          (let [ctl   (control-of field-node)
+                                err   (error-of field-node)
+                                by    (:aria-describedby (t/attrs ctl))]
+                            {:by by :id (:id (t/attrs err))}))]
+          (is (= 2 (count roots)) "non-vacuous: two lines rendered")
+
+          (testing "two same-named CONTROLLED fields do not collide"
+            (let [a (resolves? (field-node l1 "description"))
+                  b (resolves? (field-node l2 "description"))]
+              (is (not= (:id a) (:id b))
+                  "distinct error-region ids for the two \"description\" fields")
+              (is (= (:id a) (:by a)) "line 1's control points at line 1's region")
+              (is (= (:id b) (:by b)) "line 2's control points at line 2's region")))
+
+          (testing "and the two BUFFERED fields do not collide either"
+            (let [a (resolves? (buffered-node l1 "reference"))
+                  b (resolves? (buffered-node l2 "reference"))]
+              (is (not= (:id a) (:id b))
+                  "distinct error-region ids for the two \"reference\" fields")
+              (is (= (:id a) (:by a)))
+              (is (= (:id b) (:by b))))))))))
+
+(deftest an-error-id-is-stable-across-a-list-reorder
+  (testing "rf2-drpa3.134, acceptance 3. The id is a pure function of the
+            caller's instance identity, not of render position, so line 1's
+            description carries the SAME id whether it is rendered first or
+            second — an ordinary reorder migrates no ids."
+    (each-mode
+      (fn [mode]
+        (seed-lines! [1 2])
+        (frame/replace-app-db! fid (-> (app-db)
+                                       (assoc-in [:invoice 1 :description] "")
+                                       (assoc-in [:invoice 2 :description] "")))
+        (send! [:acme.invoice/submit-attempted 1])
+        (send! [:acme.invoice/submit-attempted 2])
+        (let [id-of (fn [ids position]
+                      (let [roots (nodes (render! (lines-form mode ids))
+                                         #(= "acme/invoice-line" (:data-component (:attrs %))))]
+                        (:id (t/attrs (error-of (field-node (nth roots position) "description"))))))]
+          (is (= (id-of [1 2] 0) (id-of [2 1] 1))
+              "line 1's description keeps its id when it moves to second position")
+          (is (= (id-of [1 2] 1) (id-of [2 1] 0))
+              "and line 2's likewise, when it moves to first"))))))
+
+(deftest a-single-instance-field-keeps-the-short-id
+  (testing "rf2-drpa3.134, acceptance 4. A field the caller renders once
+            supplies no instance, so its error id stays the short
+            `acme-field-<name>-error` — the single-instance call is
+            unchanged and no id allocator, registry or policing appears."
+    (each-mode
+      (fn [mode]
+        (seed-line! 1 {:description ""})
+        (send! [:acme.invoice/submit-attempted 1])
+        (let [solo (render! (form mode :field {:name     "description"
+                                               :label    "Description"
+                                               :value    ""
+                                               :error    "A description is required."
+                                               :on-input [:noop]}))]
+          (is (= "acme-field-description-error"
+                 (:id (t/attrs (error-of (field-node solo "description")))))
+              "no :instance, so no instance segment"))))))
+
 ;; ===========================================================================
 ;; R-A9 — asynchronous transform race safety
 ;; ===========================================================================
@@ -923,7 +1011,7 @@
       (fn [mode]
         (let [declared (:props-schema (v/describe (get-in modes [mode :field])))]
           (is (= :map (first declared)) "the schema is a literal map schema")
-          (is (= [:name :label :value :on-input :on-blur :error :busy? :columns]
+          (is (= [:name :label :value :on-input :on-blur :error :busy? :columns :instance]
                  (mapv first (rest declared)))
               "and names every prop the component takes, in order"))))))
 
