@@ -1,0 +1,56 @@
+;; Conformance fixture: ep-0037/r2-partial-activation
+;;
+;; EP-0037 R2 — the plan diff + the partial-revalidation law (conformance row
+;; 5). Navigating between sibling leaves under a shared parent does NOT turn the
+;; parent requirement into a new page load: the shared ancestor identity is KEPT
+;; (its owner handed off — adopted, never re-ensured), the new leaf is ADDED, and
+;; the departed leaf is REMOVED. The :rf.resource/route-plan trace for the second
+;; navigation projects the diff: :kept 1 (the parent :acct/viewer, adopted),
+;; :ensured 1 (the added leaf :acct/b), :removed 1 (the departed leaf :acct/a).
+;;
+;; Per [016 §Plan diff and owner handoff](../../016-Resources.md#plan-diff-and-owner-handoff).
+
+{:fixture/id           :ep-0037/r2-partial-activation
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :resources/ensure :core/event-handler}
+ :fixture/doc          "EP-0037 R2: sibling-leaf navigation under a shared parent keeps the parent identity (adopted, not re-ensured — the partial-revalidation law), adds the new leaf, and removes the departed leaf. The second navigation's route-plan trace projects :kept 1 / :ensured 1 / :removed 1."
+
+ :fixture/registry
+ {:route
+  {:route/account   {:path      "/account"
+                     :resources [{:resource :acct/viewer :blocking? true}]}
+   :route/account.a {:path      "/account/a"
+                     :parent    :route/account
+                     :resources [{:resource :acct/a :blocking? true}]}
+   :route/account.b {:path      "/account/b"
+                     :parent    :route/account
+                     :resources [{:resource :acct/b :blocking? true}]}}
+
+  :resource
+  {:acct/viewer {:scope :rf.scope/global :params-schema [:map] :url-template "/api/viewer"}
+   :acct/a      {:scope :rf.scope/global :params-schema [:map] :url-template "/api/a"}
+   :acct/b      {:scope :rf.scope/global :params-schema [:map] :url-template "/api/b"}}
+
+  :fx {:rf.http/managed {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:fx {:rf.http/managed [[:noop]]}}
+
+ :fixture/dispatches
+ [;; nav 1 → /account/a plans {viewer, a}; the plan's identity set is recorded
+  ;; under nav-token 1 for the next activation to diff against.
+  [:rf.route/transitioned "/account/a"]
+  ;; nav 2 → /account/b: viewer is KEPT (shared parent), a is REMOVED, b ADDED.
+  [:rf.route/transitioned "/account/b"]]
+
+ :fixture/expect
+ {;; The SECOND navigation's route-plan trace projects the kept/added/removed
+  ;; diff — the corpus-observable proof of the partial-revalidation law (the
+  ;; parent :acct/viewer is kept + adopted, not re-ensured).
+  :trace-emissions
+  [{:operation :rf.resource/route-plan
+    :tags      {:route-id :route/account.b
+                :branch   [:route/account :route/account.b]
+                :ensured  1
+                :kept     1
+                :removed  1}}]}}

@@ -1,0 +1,62 @@
+;; Conformance fixture: ep-0037/r2-branch-composition
+;;
+;; EP-0037 R2 — the effective parent-to-leaf resource plan (conformance row 4).
+;; Declaring :parent composes the ancestor's :resources with the leaf's: a full
+;; activation of the child route :route/account.settings plans BOTH the parent's
+;; shared shell read (:acct/viewer, declared once on :route/account) AND the
+;; leaf's own read (:acct/settings). :parent IS the opt-in — no marker. The
+;; :rf.resource/route-plan trace carries the composed parent-to-leaf :branch and
+;; :ensured 2, and both blocking first loads keep the route :transition :loading.
+;;
+;; Per [016 §Effective parent-chain resource plans](../../016-Resources.md#effective-parent-chain-resource-plans)
+;; and [012 §Nested layouts](../../012-Routing.md#nested-layouts).
+
+{:fixture/id           :ep-0037/r2-branch-composition
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :resources/ensure :core/event-handler}
+ :fixture/doc          "EP-0037 R2: activating a child route with :parent composes the parent's :resources with the leaf's. Navigating to /account/settings plans both :acct/viewer (parent shell) and :acct/settings (leaf); the route-plan trace shows the parent-to-leaf :branch + :ensured 2; both blocking first loads hold the route :transition :loading."
+
+ :fixture/registry
+ {:route
+  {:route/account          {:path      "/account"
+                            :resources [{:resource :acct/viewer :blocking? true}]}
+   :route/account.settings {:path      "/account/settings"
+                            :parent    :route/account
+                            :resources [{:resource :acct/settings :blocking? true}]}}
+
+  :resource
+  {:acct/viewer   {:scope :rf.scope/global :params-schema [:map] :url-template "/api/viewer"}
+   :acct/settings {:scope :rf.scope/global :params-schema [:map] :url-template "/api/settings"}}
+
+  ;; No-op the managed-HTTP fx so the ensures create :loading entries without a
+  ;; live fetch — the blocking route holds :loading (no reply drains it here).
+  :fx {:rf.http/managed {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:fx {:rf.http/managed [[:noop]]}}
+
+ :fixture/dispatches
+ [[:rf.route/transitioned "/account/settings"]]
+
+ :fixture/expect
+ {;; Both blocking first loads pending → the route projects :loading.
+  :final-runtime-db
+  {:rf.runtime/routing {:current {:route-id   :route/account.settings
+                                  :transition :loading
+                                  :error      nil}}}
+
+  ;; The parent + leaf resources are both :loading (both were ensured).
+  :sub-values
+  {[:rf/resource {:resource :acct/viewer :scope :rf.scope/global :params {}}]
+   {:status :loading :data nil :error nil :refresh-error nil
+    :loading? true :fetching? false :stale? false :has-data? false :previous? false}
+   [:rf/resource {:resource :acct/settings :scope :rf.scope/global :params {}}]
+   {:status :loading :data nil :error nil :refresh-error nil
+    :loading? true :fetching? false :stale? false :has-data? false :previous? false}}
+
+  :trace-emissions
+  [;; The composed plan trace: the parent-to-leaf branch + two ensures.
+   {:operation :rf.resource/route-plan
+    :tags      {:route-id :route/account.settings
+                :branch   [:route/account :route/account.settings]
+                :ensured  2}}]}}
