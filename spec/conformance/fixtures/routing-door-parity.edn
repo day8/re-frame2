@@ -1,0 +1,92 @@
+;; Conformance fixture: routing/door-parity
+;;
+;; EP-0037 R0 — conformance row 2 (door parity, the R0 target spine). Per
+;; Spec 012 §The one planning pipeline: every navigation door lowers to the
+;; SAME resolver — a named address, a matching raw URL, and the URL-driven
+;; door (popstate / initial / SSR) all resolve to one canonical target.
+;; Doors differ only in cause-specific history/scroll effects.
+;;
+;; The fixture pins the R0 arms of door parity:
+;;   1. NAMED-ADDRESS door — a programmatic `{:to ... :params ...}` navigate
+;;      commits the target and PUSHES the URL.
+;;   2. RAW-URL door — a programmatic `{:url ...}` navigate to the SAME
+;;      destination resolves to an IDENTICAL target and is therefore a rule-3
+;;      no-op (returns {}): no second push, no token. The no-op is the strict
+;;      oracle — the raw-URL door could only be identical if it resolved to
+;;      exactly the target the named-address door committed.
+;;   3. URL-DRIVEN door — `[:rf.route/handle-url-change url]` (the shared
+;;      popstate / initial / SSR entry) lands the SAME target from the URL and
+;;      does NOT push (the URL already came from the browser).
+;;
+;; The pure resolver parity is proven directly by the calls: match-url (the
+;; raw-URL door's resolver) and route-url (the named-address door's URL
+;; builder) are inverse and converge on the same target/URL; round-trip pins
+;; the identity.
+;;
+;; Per [012 §The one planning pipeline] (#the-one-planning-pipeline) and
+;; [§URL changes are events] (#url-changes-are-events).
+
+{:fixture/id           :routing/door-parity
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler :core/fx}
+ :fixture/doc          "EP-0037 R0 door parity (row 2): a named-address navigate, a matching raw-URL navigate, and the URL-driven handle-url-change door all resolve to one canonical target. The raw-URL navigate to the already-current target is a strict rule-3 no-op (proving it resolved identically to the named-address door); the URL-driven door lands the same target without a history push. Only the named-address door pushes. match-url and route-url are inverse and converge (calls)."
+
+ :fixture/registry
+ {:event {:rf/init                    {:doc "Seed the current route."}
+          :rf.route/navigate          {:doc "Programmatic navigation door."}
+          :rf.route/handle-url-change {:doc "URL-driven door (popstate / initial / SSR)."}}
+  :route {:route/home    {:path "/"}
+          :route/article {:path   "/articles/:slug"
+                          :params [:map [:slug :string]]}}
+  :fx    {:rf.nav/push-url    {:platforms #{:client}}
+          :rf.nav/replace-url {:platforms #{:client}}
+          :rf.nav/scroll      {:platforms #{:client}}}}
+
+ ;; No door handler is overridden — the runtime's built-in handlers (per Spec
+ ;; 012) share one resolver, which is the parity being asserted.
+ :fixture/handlers
+ {:event {:rf/init [[:set-runtime [:rf.runtime/routing :current] {:route-id :route/home :params {}}]]}
+  :fx    {:rf.nav/push-url    [[:noop]]
+          :rf.nav/replace-url [[:noop]]
+          :rf.nav/scroll      [[:noop]]}}
+
+ :fixture/frame-config {:initial-events [[:rf/init]] :platform :client}
+
+ :fixture/dispatches
+ [;; (1) Named-address door — commits route/article, PUSHES the URL.
+  [:rf.route/navigate {:to :route/article :params {:slug "routing-as-data"}}]
+
+  ;; (2) Raw-URL door to the SAME destination — resolves to an identical
+  ;;     target, so it is a rule-3 no-op ({}). No second push. The absence of
+  ;;     a change strictly proves the raw URL resolved to exactly the named
+  ;;     target committed by (1).
+  [:rf.route/navigate {:url "/articles/routing-as-data"}]
+
+  ;; (3) URL-driven door (popstate / initial / SSR) — lands the SAME target
+  ;;     from the URL; does NOT push (the URL came from the browser).
+  [:rf.route/handle-url-change "/articles/routing-as-data"]]
+
+ :fixture/calls
+ ;; Pure resolver parity: the raw-URL door's resolver (match-url) and the
+ ;; named-address door's URL builder (route-url) are inverse and converge on
+ ;; the same target/URL; round-trip pins the identity.
+ [{:call :match-url :url "/articles/routing-as-data"
+   :expect {:route-id :route/article :params {:slug "routing-as-data"} :query {} :fragment nil :validation-failed? false}}
+  {:call :route-url :route-id :route/article :params {:slug "routing-as-data"}
+   :expect "/articles/routing-as-data"}
+  {:call :round-trip :url "/articles/routing-as-data"}]
+
+ :fixture/expect
+ ;; All three doors converge on one canonical target. Submap match tolerates
+ ;; :transition/:nav-token/etc.
+ {:final-runtime-db
+  {:rf.runtime/routing
+   {:current {:route-id :route/article
+              :params   {:slug "routing-as-data"}
+              :query    {}
+              :fragment nil}}}
+
+  ;; Only the named-address door (1) drives a history push. The raw-URL door
+  ;; (2) no-ops; the URL-driven door (3) never pushes.
+  :effects-routed
+  [{:fx-id :rf.nav/push-url :args "/articles/routing-as-data"}]}}
