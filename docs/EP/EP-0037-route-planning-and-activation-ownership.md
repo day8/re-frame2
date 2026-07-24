@@ -1,6 +1,6 @@
 # EP-0037: Route Planning and Activation Ownership
 
-Status: proposal
+Status: accepted
 Type: standards-track
 Created: 2026-07-24
 
@@ -1392,15 +1392,48 @@ to remove.
 
 ## Resolved Decisions
 
-No operator decisions have been recorded yet. The normative-voiced content above
-is the proposal's recommended contract and binds nothing until acceptance.
+Accepted by the operator on 2026-07-24. All four Open Issues below were
+resolved as recommended; their sections are retained for the design record.
+
+1. **Entry decisions (OI-1, 2026-07-24).** `:can-enter` stays a boolean
+   subscription over the resolved target, paired with the terminal
+   `:rf.route/entry-denied` event and its framework no-op default handler. No
+   closed decision-value algebra: the default hard-deny `403`, Spec 011
+   redirect supersession, and the ordinary redirect event cover the SSR cases.
+2. **Readiness fields (OI-2, 2026-07-24).** `:transition` / `:error` remain in
+   the public `:rf/route` read, derived through one pure projector; runtime-db
+   may cache the projected values only as a reconstructible, non-authoritative
+   cache, reconciled through the projector on hydration, epoch restore, and
+   every resource settlement. R0/R1 implement this shape; they do not revise
+   it.
+3. **Leave bypass (OI-3, 2026-07-24).** The public boolean `:bypass-leave?
+   true` ships as the explicit trusted-programmer escape; `:rf.route/continue`
+   remains the ordinary confirmation path. The set-valued `:bypass-guards?`
+   and every entry bypass are removed.
+4. **Branch resource opt-in (OI-4, 2026-07-24).** Automatic parent-to-leaf
+   resource composition: declaring `:parent` IS the opt-in — no
+   `:inherit-resources?` marker. The effective-plan projection and the
+   redundant-child advisory keep the inherited contribution and accidental
+   child copies mechanically visible.
+
+Acceptance also knowingly ratifies, per the Open Issues preamble: the closed
+extracted `:rf/route-address`; the `RouteDestination` / `:rf/route-destination`
+replay union; `:rf.route/entry-blocked` → `:rf.route/entry-denied`; the
+leave-only pending value's `:destination`/`:target`/`:cause`/`:policy` shape;
+`:bypass-guards?` → `:bypass-leave?`; the prefetch event/error/trace ids; the
+shared planner's `:plan-cause` diagnostic vocabulary and the widened
+`:rf.error/resource-route-plan` tags; and the exact retirement roster under
+Tooling and observability.
+
+Implementation programme: epic `rf2-kqxe6` — A0 (this record), R0–R6, the
+docs/examples/skills waves, and three independent review gates (correctness,
+completeness, implementational quality).
 
 ## Open Issues
 
-These are acceptance-time choices, not permissions to defer schema decisions to
-implementation beads. The body states this proposal's recommended arm. If the
-operator accepts it unchanged, all four recommendations must be copied into
-Resolved Decisions with the acceptance date before R0 is cut.
+**Resolved at acceptance (2026-07-24)** — every recommendation below was
+accepted as written; see Resolved Decisions above. The sections are retained
+as the design record of each choice and its rejected alternative.
 
 Acceptance must also knowingly ratify the closed extracted
 `:rf/route-address`; the `RouteDestination`/`:rf/route-destination` replay
