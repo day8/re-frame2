@@ -514,13 +514,15 @@ React component *into* a Freehand tree. It lands with its own EP-0036 slice.
 - **Kind**: Var (set)
 - **Signature**:
   ```clojure
-  projections ;; => #{::v/value ::v/checked ::v/key}
+  projections ;; => #{::v/value ::v/checked ::v/key ::v/scroll-top ::v/new-state}
   ```
 - **Description**: the CLOSED reserved scalar-projection roster. These are the only
   markers a declarative event vector may carry, and the exact keys of the payload
   map a firing site supplies. A marker in a top-level argument position is replaced
   at firing time from the live callback payload; a marker nested inside another
-  value is ordinary application data.
+  value is ordinary application data. The roster is closed but not guessed up front —
+  `::v/scroll-top` and `::v/new-state` were admitted when pilots needed a shallow
+  scalar read the existing markers could not spell.
 
 ### `materialize-event`
 
