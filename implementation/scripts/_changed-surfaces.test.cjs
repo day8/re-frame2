@@ -2551,6 +2551,201 @@ test('all-required-passed aggregator needs cljs-freehand-evidence-elision (rf2-x
 });
 
 // ---------------------------------------------------------------------------
+// rf2-zl8ao — the B5 unused-module reachability gate's CI arm.
+//
+// PR #6901 shipped the second control-build proof (`npm run
+// test:freehand-reachability`: `:freehand-release` vs its strict-superset twin
+// `:freehand-release-reachability-control`, the `re-frame.freehand.control`
+// doors ABSENT in production and PRESENT in the control) and wired it into
+// NOTHING — the same omission rf2-xwa4n fixed for the sibling one file up.
+// The positive-control half exists to red when the probe stops probing; a gate
+// nobody runs cannot red.
+//
+// It is NOT the sibling gate under another name. The evidence pair moves
+// `goog.DEBUG` and holds the app still (a dev-gated SEAM elides); this pair
+// holds the flag still and moves the APP (an unused MODULE elides). The
+// controller strings are absent from the goog.DEBUG=true control too, so that
+// build cannot prove this claim — and the tests below pin both arms so a later
+// tidy-up cannot collapse them into one.
+//
+// Same three-part shape as the two blocks above: the classifier must ARM the
+// producer surfaces, the job must be gated on that output and run the command,
+// and the aggregator must depend on it.
+// ---------------------------------------------------------------------------
+
+const FREEHAND_REACHABILITY_PRODUCERS = [
+  // The two refusal doors the probe greps for.
+  'implementation/freehand/src/re_frame/freehand/control.cljc',
+  // The facade: the sole requirer of `control`, and the single production
+  // call edge (`controller-key` is `def`'d to `control/record-key`).
+  'implementation/freehand/src/re_frame/freehand.cljc',
+  // The CONTROL entry — the one `v/controller-key` call that validates the
+  // oracle.
+  'implementation/freehand/test/re_frame/freehand/bench/b5_reachability_control_app.cljs',
+  // The PRODUCTION entry both bundles compile.
+  'implementation/freehand/test/re_frame/freehand/release_app.cljs',
+  'implementation/scripts/check-freehand-reachability.cjs',
+  'implementation/shadow-cljs.edn',
+  'implementation/package.json',
+  'implementation/package-lock.json',
+];
+
+test('the B5 reachability producer surfaces arm freehand_reachability (rf2-zl8ao)', () => {
+  for (const file of FREEHAND_REACHABILITY_PRODUCERS) {
+    assert.equal(
+      classify(file).freehand_reachability,
+      'true',
+      `${file} can invalidate the B5 control-build proof — it must schedule the gate`,
+    );
+  }
+});
+
+test('the armed reachability producers all EXIST (rf2-zl8ao)', () => {
+  // The classifier never stats a path, so every row above would stay green if
+  // a producer were renamed — routing a required lane at nothing.
+  for (const file of FREEHAND_REACHABILITY_PRODUCERS) {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, file)),
+      `${file} must exist — it is a producer surface this routing exists to watch`,
+    );
+  }
+});
+
+test('the reachability producer cases keep their generic fan-out (rf2-zl8ao)', () => {
+  // A POSIX `case` takes the FIRST match, so the Freehand producer case
+  // shadows `implementation/freehand/*` and the checker case shadows
+  // `implementation/scripts/*`. Both must WIDEN, never narrow.
+  for (const file of [
+    'implementation/freehand/src/re_frame/freehand/control.cljc',
+    'implementation/freehand/src/re_frame/freehand.cljc',
+    'implementation/freehand/test/re_frame/freehand/bench/b5_reachability_control_app.cljs',
+  ]) {
+    const result = classify(file);
+    for (const key of ['implementation_jvm', 'cljs_node_test', 'cljs_browser']) {
+      assert.equal(
+        result[key],
+        'true',
+        `${file} must keep arming ${key} — the producer case shadows implementation/freehand/*`,
+      );
+    }
+  }
+  const checker = classify('implementation/scripts/check-freehand-reachability.cjs');
+  for (const key of [
+    'cljs_node_test',
+    'cljs_browser',
+    'cljs_prod',
+    'bundle_isolation',
+    'reagent_slim_bundle',
+  ]) {
+    assert.equal(checker[key], 'true', `the checker must keep arming ${key}`);
+  }
+});
+
+test('the SHARED release entry arms BOTH Freehand control-build gates (rf2-zl8ao)', () => {
+  // `:freehand-release` is the production half of both control pairs, and a
+  // POSIX `case` runs ONE arm: the release entry is matched by the evidence
+  // producer case, so the reachability output has to be set from inside it.
+  // Drop that and a change to the shipped app — a controlled input added to a
+  // release view is enough to root the controller — skips the reachability
+  // gate entirely.
+  const result = classify('implementation/freehand/test/re_frame/freehand/release_app.cljs');
+  assert.equal(result.freehand_evidence_elision, 'true');
+  assert.equal(result.freehand_reachability, 'true');
+});
+
+test('freehand_reachability stays OFF unrelated surfaces (rf2-zl8ao)', () => {
+  // Two `:advanced` builds are only worth spending on the surfaces that can
+  // break the proof; the rest of the Freehand tree is deliberately excluded
+  // and the unconditional nightly run is what covers it.
+  for (const file of [
+    'implementation/freehand/src/re_frame/freehand/compiler/analyze.cljc',
+    'implementation/freehand/README.md',
+    'implementation/freehand/deps.edn',
+    'spec/conformance/freehand/fixtures/fh-call-001.edn',
+    'implementation/core/src/re_frame/core.cljc',
+    'implementation/scripts/check-elision.cjs',
+    'spec/API.md',
+  ]) {
+    assert.equal(
+      classify(file).freehand_reachability,
+      'false',
+      `${file} must not pay for two :advanced builds`,
+    );
+  }
+});
+
+test('the two Freehand control-build gates stay SEPARATE arms (rf2-zl8ao)', () => {
+  // They prove different things, so neither output may become an alias of the
+  // other: the evidence doors are not the controller doors, and a merge of the
+  // two arms would silently drop one claim's producer coverage.
+  const evidenceOnly = classify(
+    'implementation/freehand/src/re_frame/freehand/evidence.cljc',
+  );
+  assert.equal(evidenceOnly.freehand_evidence_elision, 'true');
+  assert.equal(
+    evidenceOnly.freehand_reachability,
+    'false',
+    'the evidence schema cannot invalidate the reachability claim — do not alias the outputs',
+  );
+  const reachabilityOnly = classify(
+    'implementation/freehand/src/re_frame/freehand/control.cljc',
+  );
+  assert.equal(reachabilityOnly.freehand_reachability, 'true');
+  assert.equal(
+    reachabilityOnly.freehand_evidence_elision,
+    'false',
+    'the controller doors cannot invalidate the evidence claim — do not alias the outputs',
+  );
+});
+
+test('the reachability CONTROL build is a controlled comparison (rf2-zl8ao)', () => {
+  // The whole proof is "same everything, different entry". If the control ever
+  // stops sharing `:advanced` + `goog.DEBUG false` with `:freehand-release`,
+  // an absence result stops being attributable to reachability — so pin the
+  // pair's declaration, which is the thing the build-config arm above watches.
+  const shadow = fs.readFileSync(
+    path.join(REPO_ROOT, 'implementation/shadow-cljs.edn'),
+    'utf8',
+  );
+  const control = shadow.slice(shadow.indexOf(':freehand-release-reachability-control'));
+  assert.match(control, /:optimizations :advanced/);
+  assert.match(control, /:closure-defines \{goog\.DEBUG false\}/);
+  assert.match(
+    control,
+    /:init-fn re-frame\.freehand\.bench\.b5-reachability-control-app\/-main/,
+    'the control build must keep the SUPERSET entry — the production entry would prove nothing',
+  );
+});
+
+test('cljs-freehand-reachability is gated on its output and runs the probe (rf2-zl8ao)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, 'cljs-freehand-reachability');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.freehand_reachability == 'true'/,
+  );
+  assert.match(block, /run: npm run test:freehand-reachability/);
+  assert.match(block, /working-directory: implementation/);
+  // The detect job must publish the output the `if:` reads, or the gate is
+  // permanently false and the job never runs at all.
+  assert.match(
+    jobBlock(workflow, 'detect_changed_surfaces'),
+    /freehand_reachability: \$\{\{ steps\.detect\.outputs\.freehand_reachability \}\}/,
+    'detect_changed_surfaces must expose freehand_reachability as a job output',
+  );
+});
+
+test('all-required-passed aggregator needs cljs-freehand-reachability (rf2-zl8ao)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
+  assert.match(
+    block,
+    /- cljs-freehand-reachability\r?\n/,
+    'aggregator must list cljs-freehand-reachability in needs: — otherwise the lane is advisory',
+  );
+});
+
+// ---------------------------------------------------------------------------
 // rf2-3mh2f — the .beads PR-boundary guard's CI arm.
 //
 // The classifier, the pre-commit hook and scripts/check-beads-pr-boundary.sh
