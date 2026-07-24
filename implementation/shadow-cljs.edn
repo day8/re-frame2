@@ -854,6 +854,37 @@
                       :closure-defines {goog.DEBUG false}}
    :modules {:main {:init-fn re-frame.freehand.release-app/-main}}}
 
+  ;; The ClojureScript/Node lane of the Freehand B-spine (D021).
+  ;;
+  ;; `clojure -M:bench` is a JVM process, so it reaches every `.cljc`
+  ;; workload and none of the ClojureScript-only ones — the React arm
+  ;; measures the interpreted React emitter, which exists only here. This
+  ;; build is the ENTRY that loads them and delegates to the SAME runner:
+  ;; one registry, one provenance record, one gate/evidence split, one
+  ;; report shape, and the same exit-code law where 1 means a
+  ;; deterministic property was violated and nothing else.
+  ;;
+  ;; A development compile, deliberately, and NOT the :freehand-release
+  ;; build above: this one runs workloads, that one is the artefact a
+  ;; consumer ships. The result record names its own `:optimizations`
+  ;; and `:instrumentation?`, so a `:none` run is honestly labelled
+  ;; rather than silently pooled with an `:advanced` one — which is
+  ;; also why B5, when it measures shipped cost, will measure the
+  ;; release bundle rather than this.
+  ;;
+  ;;   npm run --silent bench:freehand-node > out/freehand-bench-node.edn
+  ;;
+  ;; Stdout is the artefact (the human summary rides as `;;` comments),
+  ;; which is why the package script sends the compile chatter to stderr
+  ;; and why the command is run with `--silent`.
+  :freehand-bench-node
+  {:target    :node-script
+   :main      re-frame.freehand.bench.node/-main
+   :output-to "out/freehand-bench-node.js"
+   ;; The load-bearing hook is inherited from :build-defaults.
+   :compiler-options {:warnings      {:redef false}
+                      :infer-externs false}}
+
   ;; rf2-vxgfnd.6 — the G-1 direct-render parity gate (07 §5) for the
   ;; re-frame.ui compiled-view substrate. A :node-script RELEASE build
   ;; (:advanced — the gate measures + inspects PRODUCTION emission):

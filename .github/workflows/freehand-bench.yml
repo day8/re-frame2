@@ -34,12 +34,23 @@ name: freehand bench
 # (re-frame.freehand.bench.provenance/detect-hardware-class) — a result
 # record never carries a literal naming one machine.
 #
-# WHAT RUNS TODAY. The evidence suite is empty: B1–B5 are separate slices
-# and each registers its workload when the implementation that can run it
-# lands. An empty suite prints an empty report and exits 0, which is the
-# honest answer. The falsifiability proof runs here too — not as a duplicate
-# of the PR gate but because a harness whose gate direction has rotted would
-# otherwise publish evidence nobody should trust.
+# WHAT RUNS TODAY. B1–B5 are separate slices and each registers its
+# workloads when the implementation that can run them lands, so the suite
+# grows as the programme does. The falsifiability proof runs here too — not
+# as a duplicate of the PR gate but because a harness whose gate direction
+# has rotted would otherwise publish evidence nobody should trust.
+#
+# TWO LANES, ONE HARNESS. `clojure -M:bench` is a JVM process and reaches
+# every `.cljc` workload; the React arm measures the interpreted React
+# emitter, which is ClojureScript-only. So there is a second job below
+# running the same registry, the same provenance record and the same
+# gate/evidence split through a Node entry
+# (`re-frame.freehand.bench.node`), and uploading its EDN beside the JVM
+# one. Two artefacts because they are two hosts — a result record names
+# its own `:host` and `:build`, and pooling a V8 `:none` number with a
+# JIT-warmed JVM one would be the pooling D021 forbids — but ONE harness,
+# because a second report shape is a second place a threshold could be
+# added.
 
 on:
   schedule:
@@ -115,5 +126,68 @@ jobs:
         with:
           name: freehand-bench-${{ github.sha }}
           path: implementation/freehand/out/freehand-bench.edn
+          if-no-files-found: error
+          retention-days: 90
+
+  # The ClojureScript half of the same suite. See TWO LANES, ONE HARNESS
+  # above: this job adds a host, not a harness.
+  react-evidence:
+    name: Freehand B-spine evidence — ClojureScript lane (pinned worker)
+    # PINNED for the same reason the JVM lane is. See THE PIN above.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: implementation
+    env:
+      # The same configured class, so the two lanes' records are labelled
+      # with the same comparability claim about the machine — the HOST
+      # difference between them stays visible in `:host`, where it belongs.
+      RF2_HARDWARE_CLASS: release-worker
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      # `--silent` and the script's own `>&2` keep npm's banner and the
+      # shadow-cljs compile chatter off stdout, so the redirected bytes are
+      # the EDN artefact and nothing else. The lane refuses to publish at
+      # all if the ClojureScript-only workloads stopped registering.
+      - name: Run the ClojureScript evidence lane and publish its result records
+        run: |
+          mkdir -p out
+          npm run --silent bench:freehand-node > out/freehand-bench-node.edn
+          cat out/freehand-bench-node.edn
+
+      - name: Upload the ClojureScript result records
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: freehand-bench-node-${{ github.sha }}
+          path: implementation/out/freehand-bench-node.edn
           if-no-files-found: error
           retention-days: 90
