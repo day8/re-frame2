@@ -3619,15 +3619,38 @@
          :static? false :path (:path e)}))))
 
 (def ^:private wrapper-body-ops
-  "Analyzed node kinds that WRAP markup rather than being it — the shapes a
-  `for` body can take where the keyed row is present but one form deeper.
+  "Analyzed node kinds that CAN wrap markup rather than being it — the shapes
+  a `for` body takes when a row is present one form deeper.
 
-  They are refused with their own sentence rather than with the
-  missing-`:key` one, because they are a different mistake with a
-  different fix: the row is keyed, and what is wrong is that something
-  stands between the `for` and it. A body that is an `:expr`, a `:text` or
-  a `:slot` carries no row at all and keeps the general message."
+  A body of one of these kinds is a candidate for the `indirect-list-body`
+  sentence rather than the missing-`:key` one, but only once
+  [[wraps-markup-node?]] confirms a markup row is actually in there: the
+  mistake that sentence names is a keyed row with something standing between
+  it and the `for`, and a wrapper bottoming out at an `:expr`/`:text`/`:slot`
+  has no row to stand in front of and keeps the general message."
   #{:let :letfn :if :case})
+
+(defn- wraps-markup-node?
+  "Does this analyzed `for`-body wrapper reach a MARKUP ROW — an element,
+  view, foreign or fragment — in a rendered position?
+
+  That is the fact the `indirect-list-body` diagnostic asserts (\"the keyed
+  row is present, one form deeper\"), so it is established BEFORE the
+  diagnostic claims it. A `:let`/`:letfn`/`:if`/`:case` bottoming out at an
+  `:expr`/`:text`/`:slot` carries no row at all, and reporting it as a
+  wrapper around a keyed node would state a fact the analyzer has not proved
+  (rf2-drpa3.164). The walk mirrors [[presence-keyed-child?]]'s node shapes:
+  a branch reaches markup when ANY rendered arm does — one wrapped row is
+  enough to make the wrapper the thing between the `for` and it."
+  [ast]
+  (case (:op ast)
+    (:element :view :foreign :fragment) true
+    (:let :letfn)                       (wraps-markup-node? (:body ast))
+    :if   (or (wraps-markup-node? (:then ast)) (wraps-markup-node? (:else ast)))
+    :case (boolean (or (some wraps-markup-node? (map second (:clauses ast)))
+                       (and (not= ::none (:default ast))
+                            (wraps-markup-node? (:default ast)))))
+    false))
 
 (defn- analyze-for [e form]
   (let [[_ seq-exprs & body] form]
@@ -3706,8 +3729,13 @@
         ;; inside it IS keyed — reporting a missing key sends the author to a
         ;; line that has one. The rule they need is that the body must BE the
         ;; node, and the fix is `for`'s own `:let` modifier, which this
-        ;; grammar fully supports.
-        (when (contains? wrapper-body-ops (:op body-ast))
+        ;; grammar fully supports. But the sentence claims a row is present
+        ;; one form deeper, so it is raised only once `wraps-markup-node?`
+        ;; proves one is: `(for [x xs] (let [y x] (str y)))` wraps a scalar,
+        ;; not a keyed node, and keeps the general unkeyed-list-item answer
+        ;; rather than a sentence about a row that isn't there.
+        (when (and (contains? wrapper-body-ops (:op body-ast))
+                   (wraps-markup-node? body-ast))
           (env/fail! e :rf.ui.compile/indirect-list-body
                      (str "a for body must BE the keyed node — an element, a "
                           "view or a fragment, with nothing standing between "
