@@ -488,12 +488,28 @@
         (rf/dispatch-sync [:search/go])
         (rf/dispatch-sync [:search/go])
         (.countDown gate)
+        ;; Wait on the SIGNAL, not the clock (rf2-xagmz). The supersede is a
+        ;; real async round-trip: transport reply → reply lowering → app
+        ;; dispatch → stale-suppression trace. `poll-until` returns the
+        ;; instant the pred below is truthy — a delivered app reply AND the
+        ;; superseded attempt's `:rf.http/stale-suppressed` trace row have
+        ;; both landed. So the wait is bounded by the supersede signal, never
+        ;; a fixed sleep; the `:timeout-ms` is a pure backstop that fires only
+        ;; if the signal genuinely never arrives (a real regression). The old
+        ;; 5 s backstop was comfortable idle but marginal under this machine's
+        ;; six concurrent worker agents (each running shadow-cljs + JVM +
+        ;; Chromium) and a loaded CI runner — the async supersede landed
+        ;; AFTER the window, timing the machine, not the canonicalisation
+        ;; (it redded unrelated PRs, e.g. #6817). A generous, load-tolerant
+        ;; bound makes that false timeout unreachable while still failing
+        ;; fast on a genuinely stuck supersede. The probe interval is gentled
+        ;; so the poll itself adds little contention on a saturated JVM.
         (test-support/poll-until
           (fn []
             (when (and (seq @replies)
                        (some (fn [ev] (= :rf.http/stale-suppressed (:operation ev))) @traces))
               true))
-          {:timeout-ms 5000 :label "supersede-stale"})
+          {:timeout-ms 30000 :interval-ms 25 :label "supersede-stale"})
         (Thread/sleep 200)
         ;; Exactly one DELIVERED app reply — request #2's; #1 suppressed.
         (is (= 1 (count @replies))
