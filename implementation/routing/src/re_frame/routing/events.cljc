@@ -151,6 +151,37 @@
               :error      nil
               :nav-token  nav-token}))
 
+;; EP-0037 R2 §Effective parent-chain resource plans: a full activation plans
+;; the composed parent-to-leaf branch. Routing owns the `:parent` walk (it owns
+;; the registry + the `:parent` semantics) and hands the resolved contributor
+;; metas to the late-bound `:routing/on-route-entry` plan; the Resources
+;; artefact composes their `:resources`. Branch resolution is FAIL-LOUD — an
+;; unregistered `:parent` or a `:parent` cycle aborts the plan (a committed
+;; failed activation), never a silently-truncated branch. This is the PLANNING
+;; walk; `re-frame.routing.subs/chain-from-meta` (the display sub) swallows
+;; cycles defensively and is not a substitute here.
+(defn resolve-branch
+  "Fail-loud parent-to-leaf branch resolution for `leaf-id`. Returns
+  `{:branch [{:route-id :route-meta} …]}` parent-most-first on success, or
+  `{:branch-error {:kind :unknown-parent|:parent-cycle :route-id* … :chain …}}`
+  when a `:parent` names an unregistered route or the chain cycles. The leaf's
+  own route-meta may legitimately be nil (e.g. `:rf.route/not-found`) — that is
+  a single-segment branch with no resources, not an unknown-parent error; only a
+  followed `:parent` that resolves to no registration is an error."
+  [leaf-id]
+  (loop [cur leaf-id, acc (list), seen #{}, first? true]
+    (if (contains? seen cur)
+      {:branch-error {:kind :parent-cycle :route-id* cur
+                      :chain (vec (reverse (conj acc cur)))}}
+      (let [meta (registrar/lookup :route cur)]
+        (if (and (nil? meta) (not first?))
+          {:branch-error {:kind :unknown-parent :route-id* cur}}
+          (let [acc'   (conj acc {:route-id cur :route-meta meta})
+                parent (:parent meta)]
+            (if parent
+              (recur parent acc' (conj seen cur) false)
+              {:branch (vec acc')})))))))
+
 ;; Per Spec 012 §Navigation is an event / §URL changes are events: a
 ;; successful navigation commit is identical across the two entry points
 ;; (programmatic `:rf.route/navigate` and URL-driven `:rf.route/
@@ -228,19 +259,30 @@
         ;; `:error`, visible to the `:rf/route` sub + Xray. No-op when no
         ;; Resources artefact / no `:resources` route metadata.
         route-meta (registrar/lookup :route route-id)
+        ;; EP-0037 R2: resolve the effective parent-to-leaf branch (fail-loud)
+        ;; and read the SUPERSEDED nav-token's owned identity set — the plan
+        ;; diff's previous set (`[:rf.runtime/routing :resource-plan <token>]`,
+        ;; a resources-written sibling of `:resource-blocking`). Routing owns
+        ;; the `:parent` walk; the Resources plan composes + diffs.
+        {:keys [branch branch-error]} (resolve-branch route-id)
+        prev-identities (get-in rdb [:rf.runtime/routing :resource-plan prev-nav-token])
         plan       (when-let [on-entry (late-bind/get-fn :routing/on-route-entry)]
-                     (on-entry {:route-meta     route-meta
-                                :route-id       route-id
-                                :params         params
-                                :query          query
-                                :fragment       fragment
-                                :nav-token      token
-                                :prev-id        prev-id
-                                :prev-nav-token prev-nav-token
-                                :ctx            {}
+                     (on-entry {:route-meta      route-meta
+                                :route-id        route-id
+                                :params          params
+                                :query           query
+                                :fragment        fragment
+                                :nav-token       token
+                                :prev-id         prev-id
+                                :prev-nav-token  prev-nav-token
+                                :ctx             {}
+                                ;; EP-0037 R2 branch composition + plan diff.
+                                :branch          branch
+                                :branch-error    branch-error
+                                :prev-identities prev-identities
                                 ;; Preserve the handler's causal app-db input for
                                 ;; any `{:from-db …}` resource-scope resolver.
-                                :app-db         app-db}))
+                                :app-db          app-db}))
         ;; EP-0037 R1: route readiness is the PURE resource projection over
         ;; the (leaf-only, until R2) plan — NEVER driven by `:on-match`. Seed
         ;; `:transition` / `:error` from the freshly-built plan through the one
@@ -257,7 +299,13 @@
                        (assoc-in [:rf.runtime/routing :current :error] r-error)
                        (cond-> (seq (:blocking plan))
                          (assoc-in [:rf.runtime/routing :resource-blocking token]
-                                   (:blocking plan))))
+                                   (:blocking plan)))
+                       ;; EP-0037 R2: record the plan's full owned identity set
+                       ;; under the nav-token so the NEXT full activation diffs
+                       ;; kept/added/removed for attach-before-release handoff.
+                       (cond-> (seq (:identities plan))
+                         (assoc-in [:rf.runtime/routing :resource-plan token]
+                                   (:identities plan))))
         ;; Lower the activating route's projection-relative `:sensitive` /
         ;; `:large` classification into the
         ;; per-frame elision registry, RE-ROOTED under `[:rf.runtime/routing
