@@ -211,8 +211,8 @@
   controller at all — and every intent it renders carries the generation
   the render that produced it displayed."
   {:props [:map
-           [:control :any]
-           [:reset-key :any]
+           [:control :some]
+           [:reset-key :some]
            [:text :string]
            [:on-commit :vector]]}
   [{:keys [text on-commit] :as props}]
@@ -271,6 +271,16 @@
   [thunk]
   (try (thunk) nil (catch #?(:clj Throwable :cljs :default) e (ex-data e))))
 
+(defn- caught-message
+  "The MESSAGE of the diagnostic `thunk` raises, or nil when it does not
+  raise. The id says which mistake the substrate decided this was; the
+  message is what the author actually reads, so a split that moved the id
+  and left one sentence for two mistakes would still be the defect."
+  [thunk]
+  (try (thunk) nil
+       (catch #?(:clj Throwable :cljs :default) e
+         #?(:clj (.getMessage ^Throwable e) :cljs (.-message e)))))
+
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter
                                             :init-fn register-library!}))
@@ -303,6 +313,52 @@
             nothing works at all"
     (is (= [kind address] (v/controller-key kind {:control address})))))
 
+(deftest controller-key-tells-an-absent-address-from-an-explicit-nil
+  (testing "`nil` IS NOT AN ADDRESS — it is refused, because every
+            controller passed one would share the single record keyed by
+            nil that the mandatory address exists to prevent."
+    (let [data (caught-data #(v/controller-key kind {:control nil :reset-key 0}))]
+      (is (= :rf.error/view-control-address-nil (:rf.error/id data))
+          "its own category, not the absent-prop one")
+      (is (= kind (:kind data)) "naming the offending controller family")
+      (is (= :fix-what-produced-the-nil-control-address (:recovery data))
+          "and a recovery that points UPSTREAM, where the nil was made")))
+
+  (testing "and it is a DIFFERENT diagnostic from the absent one, in the
+            id AND in the sentence the author reads. Two mistakes with
+            two fixes: an absent prop was forgotten at the call site, an
+            explicit nil came from an expression that answered nothing,
+            so a single wording would send half the readers to the one
+            place the mistake is not."
+    (let [absent-thunk #(v/controller-key kind {:reset-key 0})
+          nil-thunk    #(v/controller-key kind {:control nil :reset-key 0})]
+      (is (not= (:rf.error/id (caught-data absent-thunk))
+                (:rf.error/id (caught-data nil-thunk)))
+          "the typed ids differ")
+      (is (not= (:recovery (caught-data absent-thunk))
+                (:recovery (caught-data nil-thunk)))
+          "the recoveries differ")
+      (is (not= (caught-message absent-thunk) (caught-message nil-thunk))
+          "and so do the messages — the id alone would be a distinction
+           no author ever sees")
+      (is (some? (caught-message nil-thunk))
+          "non-vacuous: there IS a message to compare")))
+
+  (testing "PRESENCE decides, never truthiness. A falsey address is an
+            ordinary address and passes unremarked — the substrate is
+            refusing nil specifically, not everything that looks empty."
+    (is (= [kind false] (v/controller-key kind {:control false})))
+    (is (= [kind 0] (v/controller-key kind {:control 0})))
+    (is (= [kind ""] (v/controller-key kind {:control ""}))))
+
+  (testing "a non-nil scalar and a non-nil collection are both ordinary
+            addresses, so the refusal above is about nil and not about
+            the shape of what a caller passes"
+    (is (= [kind :invoice/amount] (v/controller-key kind {:control :invoice/amount})))
+    (is (= [kind [:invoice 42 :amount]]
+           (v/controller-key kind {:control [:invoice 42 :amount]})))
+    (is (= [kind {:invoice 42}] (v/controller-key kind {:control {:invoice 42}})))))
+
 ;; ===========================================================================
 ;; `v/controller-revision` — currency, taken
 ;; ===========================================================================
@@ -326,6 +382,45 @@
       (is (= :rf.error/view-control-reset-revision-missing (:rf.error/id data)))
       (is (= kind (:kind data)))
       (is (= :supply-a-reset-key (:recovery data))))))
+
+(deftest controller-revision-tells-an-absent-generation-from-an-explicit-nil
+  (testing "`nil` IS NOT A GENERATION. The fence answers NOT CURRENT for
+            an unstamped record, so a nil generation would leave every
+            draft in the control permanently invisible while the control
+            went on accepting keystrokes — the buffered defect the fence
+            exists to prevent, wearing the fence's own clothes."
+    (let [data (caught-data #(v/controller-revision kind {:control address
+                                                          :reset-key nil}))]
+      (is (= :rf.error/view-control-reset-revision-nil (:rf.error/id data))
+          "its own category, not the absent-prop one")
+      (is (= kind (:kind data)))
+      (is (= :seed-the-callers-reset-revision (:recovery data))
+          "and a recovery that points at the uninitialised counter")))
+
+  (testing "the same split, asserted the same way: id, recovery and
+            MESSAGE all differ between the absent case and the nil one"
+    (let [absent-thunk #(v/controller-revision kind {:control address})
+          nil-thunk    #(v/controller-revision kind {:control   address
+                                                     :reset-key nil})]
+      (is (not= (:rf.error/id (caught-data absent-thunk))
+                (:rf.error/id (caught-data nil-thunk))))
+      (is (not= (:recovery (caught-data absent-thunk))
+                (:recovery (caught-data nil-thunk))))
+      (is (not= (caught-message absent-thunk) (caught-message nil-thunk)))
+      (is (some? (caught-message nil-thunk))
+          "non-vacuous: there IS a message to compare")))
+
+  (testing "PRESENCE decides here too — `0` is the literal a caller that
+            never externally resets passes, and `false` is a legitimate
+            (if odd) generation. Only nil is refused."
+    (is (= 0 (v/controller-revision kind {:control address :reset-key 0})))
+    (is (= false (v/controller-revision kind {:control address :reset-key false}))))
+
+  (testing "a non-nil scalar and a non-nil collection are both ordinary
+            generations"
+    (is (= 12 (v/controller-revision kind {:control address :reset-key 12})))
+    (is (= [:accepted 3] (v/controller-revision kind {:control   address
+                                                      :reset-key [:accepted 3]})))))
 
 ;; ===========================================================================
 ;; `v/controller-current?` — the fence, as a predicate

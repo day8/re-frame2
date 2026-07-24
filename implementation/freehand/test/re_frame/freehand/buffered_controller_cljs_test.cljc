@@ -290,7 +290,9 @@
             production because development never rejects anything."
     (let [{fixture-kind :kind
            :keys        [missing-revision-error-id recovery extra-keys message-mentions
-                         control value reset-key stable-literal unbuffered-renders?]} ctrl-006
+                         control value reset-key stable-literal unbuffered-renders?
+                         nil-revision-error-id nil-recovery nil-message-mentions
+                         falsey-reset-key]} ctrl-006
           thunk #(t/render [buffered-field {:control control :value value}])]
       (seed! {})
       (is (= missing-revision-error-id (conf/caught-id thunk))
@@ -318,6 +320,44 @@
           (doseq [fragment message-mentions]
             (is (str/includes? message fragment)
                 (str "the message mentions " (pr-str fragment))))))
+
+      (testing "an EXPLICIT nil revision is refused too — and refused as
+                a DIFFERENT mistake. The prop is there, so nothing was
+                forgotten at the call site; an uninitialised counter read
+                before its baseline exists is the ordinary source, and
+                the fence would read every draft under a nil generation
+                as superseded while the control went on accepting
+                keystrokes."
+        (let [nil-thunk #(t/render [buffered-field {:control   control
+                                                    :value     value
+                                                    :reset-key nil}])
+              data      (try (nil-thunk) nil
+                             (catch #?(:clj Throwable :cljs :default) e (ex-data e)))]
+          (is (= nil-revision-error-id (conf/caught-id nil-thunk))
+              "its own catalogued id")
+          (is (not= missing-revision-error-id nil-revision-error-id)
+              "non-vacuous: the fixture's two ids really are different")
+          (is (= nil-recovery (:recovery data))
+              "and its own recovery, pointing at the uninitialised counter")
+          (is (= fixture-kind (:kind data)) "still naming the controller family")
+          (is (not= (conf/caught-message thunk) (conf/caught-message nil-thunk))
+              "and a different sentence — an id nobody reads is not a distinction")
+          (let [message (conf/caught-message nil-thunk)]
+            (doseq [fragment nil-message-mentions]
+              (is (str/includes? message fragment)
+                  (str "the nil message mentions " (pr-str fragment)))))))
+
+      (testing "PRESENCE decides, never truthiness: a falsey revision is
+                an ordinary revision, because the fence only ever asks
+                whether two of them are equal"
+        (is (= [value] (shown [buffered-field {:control   control
+                                               :value     value
+                                               :reset-key falsey-reset-key}])))
+        (is (= conf/no-throw
+               (conf/caught-id #(shown [buffered-field {:control   control
+                                                        :value     value
+                                                        :reset-key falsey-reset-key}])))
+            "a falsey revision raises nothing"))
 
       (testing "the control for the refusal: the SAME view, given both
                 required props, renders — so the rejection above cannot

@@ -38,7 +38,7 @@
   difference promotion is, and nothing else changed."
   {:props [:map
            [:open? :boolean]
-           [:control :any]]}
+           [:control :some]]}
   [{:keys [open? control]}]
   [:div {:data-component "acme/dropdown"
          :data-part      "root"

@@ -356,7 +356,7 @@
   {:props [:map
            [:name :string]
            [:label :string]
-           [:control :any]
+           [:control :some]
            [:options [:vector :any]]
            [:selected {:optional true} :any]
            [:on-change :vector]

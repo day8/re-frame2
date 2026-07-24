@@ -1,5 +1,5 @@
 {:fh/id  "FH-CTRL-003"
- :fh/law "A writable controller rendered with no :control address is refused loudly with :rf.error/view-control-address-missing naming the kind and the recovery — no default address, no synthesised one — while the same view given an address renders, and a props-only view that never asks for a record key is untouched."
+ :fh/law "A writable controller rendered with no :control address is refused loudly with :rf.error/view-control-address-missing naming the kind and the recovery — no default address, no synthesised one — and one rendered with an EXPLICIT nil address is refused just as loudly under a DIFFERENT id, :rf.error/view-control-address-nil, because a present-but-nil address is a different mistake with a fix upstream of the call site; a falsey-but-present address is ordinary and renders, as does the same view given a real address, and a props-only view that never asks for a record key is untouched."
 
  :kind :my.ui/buffered-field
 
@@ -7,6 +7,20 @@
  ;; that skipped one would otherwise share a record keyed by nil.
  :missing-address-error-id :rf.error/view-control-address-missing
  :recovery                 :supply-a-control-address
+
+ ;; nil IS NOT AN ADDRESS, and refusing it as an ABSENCE would be the
+ ;; defect. The prop is there, so nothing was forgotten at the call site:
+ ;; a nil address is an expression UPSTREAM answering nothing, and that
+ ;; is where the repair belongs. Its own id, its own recovery and its own
+ ;; sentence — an id nobody reads is not a distinction.
+ :nil-address-error-id :rf.error/view-control-address-nil
+ :nil-recovery         :fix-what-produced-the-nil-control-address
+ :nil-message-mentions ["nil" ":control"]
+
+ ;; And PRESENCE decides, never truthiness. A falsey address is an
+ ;; ordinary address: the domain of an address excludes nil and nothing
+ ;; else, so `false` keys a record like any other value.
+ :falsey-control false
 
  ;; The ex-data a programmer needs to locate the site: WHICH controller
  ;; family refused, and a bounded SHAPE summary of the props it was given

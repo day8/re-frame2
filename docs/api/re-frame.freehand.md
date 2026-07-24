@@ -696,6 +696,15 @@ an open flag is writable and not buffered, so it takes the key and no generation
   explanation. Two occurrences passed the **same** address share one record on purpose
   — that is how two views onto one draft are spelled — and it is not diagnosed.
 
+  **`nil` is not an address**, and it is refused separately, with
+  `:rf.error/view-control-address-nil`. The two are different mistakes with different
+  fixes: an absent prop is a call site that forgot the address, while an explicit
+  `nil` is a call site that supplied one from an expression which answered nothing —
+  an unresolved route parameter, a subscription that has not landed, a lookup on a key
+  that moved — so the repair belongs upstream of the render. Presence decides which
+  refusal you get, never truthiness: `false`, `0` and `""` are ordinary addresses and
+  pass unremarked.
+
   Where the record then lives is the library's choice, not the substrate's. Freehand
   fixes the identity model and no storage path, so there is no reserved app-db root to
   migrate off later.
@@ -703,7 +712,7 @@ an open flag is writable and not buffered, so it takes the key and no generation
 - **Example**:
   ```clojure
   (v/defview buffered-field
-    {:props [:map [:control :any] [:reset-key :any] [:value :string] …]}
+    {:props [:map [:control :some] [:reset-key :some] [:value :string] …]}
     [props]
     (let [k (v/controller-key ::buffered-field props)]
       ;; k => [::buffered-field [:invoice 42 :amount]]
@@ -736,6 +745,14 @@ an open flag is writable and not buffered, so it takes the key and no generation
   genuinely never resets says so with a stable literal — `:reset-key 0` reads as *do
   not externally reset an active edit*, which is a statement rather than a silence.
 
+  **`nil` is not a generation**, and it is refused separately, with
+  `:rf.error/view-control-reset-revision-nil` — the same split `controller-key` makes,
+  for the same reason. An uninitialised counter read before its baseline exists is the
+  ordinary way to produce one, and the fence answers *not current* for an unstamped
+  record, so a `nil` generation would leave every draft in the control permanently
+  invisible while the control went on accepting keystrokes. `0` says *never externally
+  reset*; `nil` says nothing.
+
 - **Example**:
   ```clojure
   (let [k (v/controller-key ::buffered-field props)
@@ -760,7 +777,9 @@ an open flag is writable and not buffered, so it takes the key and no generation
   which generation is live would commit something the user could not see.
 
   **Total, and safe in the missing direction.** An absent stamp is not current,
-  whatever `revision` is — work that cannot prove its currency does not have it. That
+  whatever `revision` is — work that cannot prove its currency does not have it. A
+  `nil` `stamped` therefore means an absent record and nothing else, because
+  `controller-revision` refuses a `nil` generation at the door. That
   is the half a hand-rolled `(= a b)` gets wrong, since two `nil`s compare equal and
   an unstamped record would read as current. It is also what makes a draft written
   from a superseded render *born stale*: it carries the generation its own render

@@ -309,8 +309,8 @@
   {:props [:map
            [:name :string]
            [:label :string]
-           [:control :any]
-           [:reset-key :any]
+           [:control :some]
+           [:reset-key :some]
            [:value :string]
            [:on-search :vector]
            [:on-select :vector]

@@ -268,7 +268,9 @@
             one would otherwise share a record keyed by nil."
     (let [{fixture-kind :kind
            :keys        [missing-address-error-id recovery extra-keys message-mentions
-                         control value props-only-renders?]} ctrl-003
+                         control value props-only-renders?
+                         nil-address-error-id nil-recovery nil-message-mentions
+                         falsey-control]} ctrl-003
           thunk #(t/render [buffered-field {:value value}])]
       (seed! {})
       (is (= missing-address-error-id (conf/caught-id thunk))
@@ -293,6 +295,39 @@
           (doseq [fragment message-mentions]
             (is (str/includes? message fragment)
                 (str "the message mentions " (pr-str fragment))))))
+
+      (testing "an EXPLICIT nil address is refused too — and refused as a
+                DIFFERENT mistake. The prop is there, so nothing was
+                forgotten at the call site: a nil address is an
+                expression upstream answering nothing, and reporting it
+                as an absence would send the author to the one place the
+                mistake is not."
+        (let [nil-thunk #(t/render [buffered-field {:control nil :value value}])
+              data      (try (nil-thunk) nil
+                             (catch #?(:clj Throwable :cljs :default) e (ex-data e)))]
+          (is (= nil-address-error-id (conf/caught-id nil-thunk))
+              "its own catalogued id")
+          (is (not= missing-address-error-id nil-address-error-id)
+              "non-vacuous: the fixture's two ids really are different")
+          (is (= nil-recovery (:recovery data))
+              "and its own recovery, pointing upstream")
+          (is (= fixture-kind (:kind data)) "still naming the controller family")
+          (is (not= (conf/caught-message thunk) (conf/caught-message nil-thunk))
+              "and a different sentence — an id nobody reads is not a distinction")
+          (let [message (conf/caught-message nil-thunk)]
+            (doseq [fragment nil-message-mentions]
+              (is (str/includes? message fragment)
+                  (str "the nil message mentions " (pr-str fragment)))))))
+
+      (testing "PRESENCE decides, never truthiness: a falsey address is
+                an ordinary address and renders. The domain of an address
+                excludes nil and nothing else."
+        (is (= [value] (:shown (render! [buffered-field {:control falsey-control
+                                                         :value   value}]))))
+        (is (= conf/no-throw
+               (conf/caught-id #(render! [buffered-field {:control falsey-control
+                                                          :value   value}])))
+            "a falsey address raises nothing"))
 
       (testing "the control for the refusal: the SAME view, given an
                 address, renders — so the rejection above cannot be green
