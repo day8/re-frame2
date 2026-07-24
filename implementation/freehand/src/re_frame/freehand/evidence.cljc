@@ -529,6 +529,46 @@
                :findings  (mapv diagnostic findings)}))
 
 ;; ---------------------------------------------------------------------------
+;; The commit occurrence-record — what a render publishes at the SELECTED commit
+;; ---------------------------------------------------------------------------
+
+(defn commit-projection
+  "The projection a mounted occurrence states when its SELECTED commit
+  publishes — an OBSERVATION of one committed generation, complete for
+  that generation and lossless.
+
+  `:observation` is the only honest basis here: the record is written from
+  what a render DID, not from what a body's grammar could prove, so it is
+  complete for the generation it names and says nothing about any other
+  run. The scope is that ONE generation, as a map, because a bare
+  `:complete? true` relative to nothing would be a completeness claim
+  about every execution — the shape [[scope?]] refuses."
+  [generation]
+  (projection {:scope     {:committed-generation generation}
+               :basis     :observation
+               :complete? true
+               :loss      nil}))
+
+(defn commit-record
+  "The evidence record a Freehand render publishes at the SELECTED commit:
+  one runtime `occurrence`, its `lowering`, its monotonic `generation`,
+  and the [[commit-projection]] — all validated through [[record]] so a
+  malformed emission is refused AT THE SEAM rather than reaching a reader.
+
+  This is the record kind the render-path emission seam
+  ([[re-frame.freehand.cell/emit-commit-evidence!]] under the dev gate)
+  states. A tool reads it without caring whether the occurrence ran
+  interpreted or compiled, because the `lowering` is NAMED rather than
+  inferred — the whole point of one schema for both modes."
+  [view-id lowering occurrence generation]
+  (record {:schema      schema
+           :view-id     view-id
+           :lowering    lowering
+           :occurrence  occurrence
+           :generation  generation
+           :projections {:commit (commit-projection generation)}}))
+
+;; ---------------------------------------------------------------------------
 ;; Retention — the existing axis, named as data
 ;; ---------------------------------------------------------------------------
 

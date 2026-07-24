@@ -497,6 +497,7 @@
               (shell/render
                 view-id
                 revision
+                :interpreted
                 (fn [cand]
                   (cell/with-capture
                     cand
@@ -590,6 +591,7 @@
                 (shell/render
                   view-id
                   revision
+                  :compiled
                   (fn [cand]
                     (cell/with-capture cand (fn [] (run body js-props)))))))
             (fn freehand-compiled-view [js-props]
@@ -626,6 +628,7 @@
               (shell/render
                 view-id
                 0
+                :interpreted
                 (fn [cand]
                   (cell/with-capture
                     cand

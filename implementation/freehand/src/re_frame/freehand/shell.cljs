@@ -115,8 +115,13 @@
   cleanup disconnects the old cell, releasing exactly the ownership the
   old body had. The two arms are decided by
   `re-frame.freehand.react/shell-signature`, which is where the rule is
-  stated."
-  [view-id body-revision render-candidate]
+  stated.
+
+  `lowering` is the occurrence's execution mode — `:interpreted` or
+  `:compiled` — passed on to [[re-frame.freehand.cell/commit!]] so the
+  dev-gated evidence record a selected commit emits names the mode it ran
+  under rather than leaving a reader to infer it."
+  [view-id body-revision lowering render-candidate]
   (let [frame-id (frame-context-frame)
         c        (use-cell view-id)
         _        (use-revision! c)
@@ -130,7 +135,7 @@
     ;; the cell, never on a render.
     (react/useLayoutEffect
       (fn reconcile []
-        (cell/commit! cand)
+        (cell/commit! cand lowering)
         js/undefined))
     ;; Connect through the commit above; cleanup releases every
     ;; dependency and retires every callback.
