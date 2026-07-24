@@ -1866,7 +1866,13 @@
         ;; — reply-driven drain misses it (the owner is already gone from the
         ;; entries, and an orphaned/aborted in-flight resource never replies).
         rdb0       (if (and (vector? owner) (= :route (first owner)))
-                     (route/clear-blocking-slot runtime-db (nth owner 2))
+                     ;; EP-0037 R2: releasing a route owner also clears the
+                     ;; superseded nav-token's plan-identity slot, symmetric
+                     ;; with the blocking slot — a superseded plan's identity
+                     ;; set must not accumulate once its owner is gone.
+                     (-> runtime-db
+                         (route/clear-blocking-slot (nth owner 2))
+                         (route/clear-plan-slot (nth owner 2)))
                      runtime-db)
         ;; rf2-9e0tyq — `owned` is a set of byte `key-id`s (the owner-index
         ;; members), so resolve each to its entry via `entry-path-by-id` (NOT
@@ -1930,6 +1936,60 @@
            (seq now-owner-free)
            (conj [:rf.resource/cancel-poll-timers
                   {:frame-id frame-id :resource/keys now-owner-free}]))}))
+
+;; ---- adopt-owner — the kept-identity attach-before-release primitive -------
+
+(defn adopt-route-owner-handler
+  "`:rf.resource/adopt-owner` — attach an owner to an EXISTING entry WITHOUT a
+  fetch. The attach-before-release primitive the route planner dispatches for a
+  KEPT branch-plan identity (EP-0037 R2 §Plan diff and owner handoff): a full
+  activation adopts the next route-plan owner `[:route route-id nav-token]` onto
+  an ancestor read shared with the superseded plan, ordered AHEAD of the prior
+  owner's `release-owner`, so the identity is never momentarily ownerless.
+
+  Three effects, no fetch: (1) attach the owner to `:active-owners` + the
+  owner-index (mirroring the `ensure` fresh-skip attach, minus any load); (2)
+  join the owner to any in-flight `:current-work` record, so the prior owner's
+  later release does NOT orphan-and-abort work the next plan still needs (the
+  no-abort-shared-work law); (3) reconcile the nav-token blocking slot from the
+  entry's ACTUAL settled state through `drain-blocking` — a kept blocking
+  identity that already has usable data drains to `:idle` NOW (no reply will
+  land to drain it), a first-load `:error` flips the route `:error`, and one
+  still `:loading` stays blocking (its own eventual settle drains it via the
+  now-adopted owner's nav-token). The PARTIAL-REVALIDATION law: navigation
+  never revalidates the kept, unchanged ancestor — `adopt-owner` issues no
+  request. A missing entry (a kept identity GC'd out from under the diff) is a
+  no-op. Payload `{:resource :scope :params :owner :cause}`; scope/params are
+  already canonical (the planner resolved them). Per Spec 016 §Effective
+  parent-chain resource plans."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id}
+   [_event-id {:keys [resource scope params owner cause]}]]
+  (let [runtime-db (or rt {})
+        scoped-key (state/scoped-resource-key* scope resource params)
+        entry      (get-in runtime-db (state/entry-path scoped-key))]
+    (if (nil? entry)
+      {:rf.db/runtime runtime-db}
+      (let [newly? (and (some? owner)
+                        (not (contains? (:active-owners entry) owner)))
+            hit    (state/attach-owner entry owner)
+            wid    (:current-work hit)
+            rdb0   (-> runtime-db
+                       (assoc-in (state/entry-path scoped-key) hit)
+                       (cond->
+                         owner (update-in (state/owner-index-path)
+                                          update owner (fnil conj #{}) (state/key-id scoped-key)))
+                       (cond->
+                         (and owner wid) (work-ledger/update-record
+                                           wid work-ledger/join-owner+cause owner cause)))
+            rdb    (cond
+                     (state/has-data? hit)    (route/drain-blocking rdb0 scoped-key hit :success)
+                     (= :error (:status hit)) (route/drain-blocking rdb0 scoped-key hit :failure)
+                     :else                    rdb0)]
+        (when newly?
+          (trace/emit! :rf.event :rf.resource/owner-attached
+                       {:rf.frame/id frame-id :resource/key scoped-key
+                        :owner owner :adopted? true}))
+        {:rf.db/runtime rdb}))))
 
 ;; ---- clear-scope — the causal logout / tenant-switch boundary --------------
 

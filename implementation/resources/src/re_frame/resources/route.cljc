@@ -138,6 +138,48 @@
     (update-in runtime-db (blocking-slots-map-path) dissoc nav-token)
     runtime-db))
 
+;; ---- routing-runtime plan-identity slot (EP-0037 R2) ----------------------
+;;
+;; The FULL set of scoped resource identities a nav-token's effective
+;; parent-to-leaf plan owns (blocking AND non-blocking) is recorded under
+;; `[:rf.runtime/routing :resource-plan <nav-token>]`, a sibling of
+;; `:resource-blocking`. The NEXT full activation reads the SUPERSEDED
+;; nav-token's slot to compute the kept/added/removed plan diff for
+;; attach-before-release owner handoff + the partial-revalidation law (Spec
+;; 016 §Effective parent-chain resource plans). Like the blocking slot it is
+;; per-nav-token EDN in the routing runtime-db, so it rides epoch restore /
+;; SSR coherently, and a superseded token's slot is cleared when its route
+;; owner is released.
+
+(defn plan-path
+  "Runtime-db-relative path to the plan-identity set for a nav-token:
+  `[:rf.runtime/routing :resource-plan <nav-token>]`. Per Spec 016
+  §Effective parent-chain resource plans."
+  [nav-token]
+  [routing-key :resource-plan nav-token])
+
+(defn plan-slots-map-path
+  "Runtime-db-relative path to the WHOLE per-nav-token plan-identity map
+  (`[:rf.runtime/routing :resource-plan]`), keyed by nav-token."
+  []
+  [routing-key :resource-plan])
+
+(defn plan-identities
+  "The set of scoped resource identities the plan for `nav-token` owned, read
+  from `runtime-db` (`#{}` when none). The plan-diff's PREVIOUS-set input."
+  [runtime-db nav-token]
+  (or (get-in runtime-db (plan-path nav-token)) #{}))
+
+(defn clear-plan-slot
+  "Pure: dissoc the ENTIRE plan-identity slot for a superseded `nav-token`.
+  Returns the updated runtime-db (a no-op when no slot exists). Cleared
+  deterministically at the route transition when the prior owner is released,
+  symmetric with `clear-blocking-slot`."
+  [runtime-db nav-token]
+  (if (contains? (get-in runtime-db (plan-slots-map-path)) nav-token)
+    (update-in runtime-db (plan-slots-map-path) dissoc nav-token)
+    runtime-db))
+
 ;; ---- blocking drain (Spec 016 §Route integration / §SSR wait point) -------
 ;;
 ;; The resource reply handlers call these PURE helpers when a route-owned
@@ -452,6 +494,193 @@
                    (into seen-ids (keep local-id ready))
                    (inc guard))))))))
 
+;; ---- EP-0037 R2 — effective parent-chain composition ----------------------
+;;
+;; A full activation composes `:resources` from every route on the active
+;; parent-to-leaf branch (Spec 016 §Effective parent-chain resource plans).
+;; `branch` arrives as `[{:route-id :route-meta} …]` parent-most-first (routing
+;; owns the `:parent` walk; resources composes). Each contributor's
+;; `:params`/`:scope`/`:when` fn receives the LEAF target as its `route`
+;; argument; the planner records the contributing route separately. Occurrences
+;; are ordered by an occurrence graph (branch-order + admitted local `:after`),
+;; then collapsed by resolved `[scope resource-id canonical-params]` identity
+;; and stable-topologically ordered; a collapse-created cycle fails the plan.
+
+(defn- materialize-occurrences
+  "Resolve every admitted occurrence across the parent-to-leaf `branch`
+  against the LEAF `route` target. Returns the vector of occurrence maps in
+  (branch-index, local-order) order. Per contributor: validate + locally order
+  its whole declared `:resources` (`order-by-after`, fail-closed on a
+  missing/cyclic local `:after`), then, for each `:when`-admitted entry,
+  resolve scope + canonical params (fail-closed) and compute its scoped-key
+  identity. A validation/`:when`/params/scope THROW propagates to the plan
+  boundary (a committed failed activation). EP-0037 R2 rules 2-4."
+  [branch route ctx app-db]
+  (first
+    (reduce
+      (fn [acc-n [branch-index {:keys [route-meta]
+                                contributor-id :route-id}]]
+        (reduce
+          (fn [[acc n] entry]
+            (if-not (when-passes? entry route ctx)
+              [acc n]
+              (let [resource-id (:resource entry)
+                    spec        (registry/require-resource-spec!
+                                  resource-id 'rf.resource/route-entry)
+                    raw-params  (resolve-entry-params entry route)
+                    route-scope (resolve-entry-scope entry route ctx app-db)
+                    scope       (registry/resolve-scope-for-event
+                                  resource-id spec {:route-scope route-scope :db app-db}
+                                  'rf.resource/route-entry)
+                    cparams     (registry/validate+canonicalize-params
+                                  resource-id spec raw-params
+                                  'rf.resource/route-entry)
+                    scoped-key  (state/scoped-resource-key* scope resource-id cparams)]
+                [(conj acc {:occ-id         [contributor-id (:id entry) n]
+                            :seq            n
+                            :branch-index   branch-index
+                            :route-id       contributor-id
+                            :local-id       (:id entry)
+                            :after          (set (:after entry))
+                            :resource       resource-id
+                            :scope          scope
+                            :cparams        cparams
+                            :scoped-key     scoped-key
+                            :blocking?      (boolean (:blocking? entry))
+                            :keep-previous? (boolean (:keep-previous? entry))})
+                 (inc n)])))
+          acc-n
+          ;; rule 2: validate + locally order the WHOLE declared vector.
+          (order-by-after (:resources route-meta))))
+      [[] 0]
+      (map-indexed vector branch))))
+
+(defn- occurrence-edges
+  "The 'must-precede' edges (`[from-occ-id to-occ-id]`) among admitted
+  occurrences: the branch-order constraint (every ancestor occurrence precedes
+  every descendant occurrence) plus admitted local `:after` (a dependency in
+  the SAME contributor precedes its dependent). EP-0037 R2 rule 5."
+  [occs]
+  (into #{}
+        (concat
+          (for [a occs, b occs
+                :when (< (:branch-index a) (:branch-index b))]
+            [(:occ-id a) (:occ-id b)])
+          (for [this occs, dep occs
+                :when (and (= (:route-id this) (:route-id dep))
+                           (not= (:occ-id this) (:occ-id dep))
+                           (contains? (:after this) (:local-id dep)))]
+            [(:occ-id dep) (:occ-id this)]))))
+
+(defn- redundant-child-advisories
+  "The redundant-child advisories: a group whose occurrences span more than one
+  contributor route means a descendant redundantly declared an identity an
+  ancestor already contributes. Names the ancestor-most declaration and each
+  redundant descendant declaration (Spec 016 §Effective parent-chain resource
+  plans — the child copy is mechanically discoverable so it can be deleted)."
+  [groups]
+  (into []
+        (mapcat
+          (fn [[scoped-key occs]]
+            (let [by-seq (sort-by :seq occs)]
+              (when (> (count (into #{} (map :route-id) occs)) 1)
+                (let [ancestor (first by-seq)]
+                  (for [child (rest by-seq)
+                        :when (not= (:route-id child) (:route-id ancestor))]
+                    {:resource   (:resource ancestor)
+                     :scoped-key scoped-key
+                     :ancestor   {:route-id (:route-id ancestor) :local-id (:local-id ancestor)}
+                     :child      {:route-id (:route-id child)    :local-id (:local-id child)}}))))))
+        groups))
+
+(defn- collapse-and-order
+  "Collapse occurrences by scoped-key identity and stable-topologically order
+  the grouped graph. Returns `{:ordered [dedup-req …] :advisories […]}` or
+  `{:cycle [scoped-key …]}` when identity collapse makes the grouped graph
+  cyclic (EP-0037 R2 rule 6 — the plan then fails and dispatches no ensures).
+  A dedup-req combines the group per the constraint-preserving rules: blocking
+  when ANY contributor blocks, `:keep-previous?` when ANY requests it, every
+  contributor retained in `:contributors`; the earliest occurrence (min `:seq`)
+  fixes the group's position + is the topo tie-breaker."
+  [occs]
+  (let [occ-by-id  (into {} (map (juxt :occ-id identity)) occs)
+        group-of   (fn [oid] (:scoped-key (occ-by-id oid)))
+        groups     (group-by :scoped-key occs)
+        gkeys      (set (keys groups))
+        gedges     (into #{}
+                         (comp (map (fn [[u v]] [(group-of u) (group-of v)]))
+                               (remove (fn [[gu gv]] (= gu gv))))
+                         (occurrence-edges occs))
+        group-rank (into {} (map (fn [[gk os]] [gk (reduce min (map :seq os))])) groups)
+        succ       (reduce (fn [m [gu gv]] (update m gu (fnil conj #{}) gv)) {} gedges)
+        indeg0     (reduce (fn [m [_ gv]] (update m gv inc))
+                           (zipmap gkeys (repeat 0)) gedges)]
+    (loop [indeg indeg0, emitted []]
+      (if (empty? indeg)
+        {:ordered
+         (mapv (fn [gk]
+                 (let [os     (sort-by :seq (groups gk))
+                       rep    (first os)]
+                   {:scoped-key     gk
+                    :resource       (:resource rep)
+                    :scope          (:scope rep)
+                    :cparams        (:cparams rep)
+                    :blocking?      (boolean (some :blocking? os))
+                    :keep-previous? (boolean (some :keep-previous? os))
+                    :contributors   (mapv (fn [o] {:route-id     (:route-id o)
+                                                   :local-id     (:local-id o)
+                                                   :branch-index (:branch-index o)})
+                                          os)}))
+               emitted)
+         :advisories (redundant-child-advisories groups)}
+        (let [ready (keep (fn [[g d]] (when (zero? d) g)) indeg)]
+          (if (empty? ready)
+            {:cycle (vec (keys indeg))}
+            (let [g      (first (sort-by group-rank ready))
+                  indeg' (reduce (fn [m s] (update m s dec))
+                                 (dissoc indeg g) (succ g))]
+              (recur indeg' (conj emitted g)))))))))
+
+(defn- branch-plan-error
+  "Build the route/resource PLANNING error MAP for a fail-loud branch-resolution
+  failure (an unresolved `:parent` or a `:parent` cycle — EP-0037 R2 rule 1),
+  handed up from routing's fail-loud branch walk as `branch-error`. The MAP
+  shape mirrors `plan-error` (the route-slice `:error` + Xray consume it)."
+  [route-id nav-token {:keys [kind route-id* chain]}]
+  {:rf.error/id :rf.error/resource-route-plan
+   :route-id    route-id
+   :nav-token   nav-token
+   :recovery    :fix-parent
+   :reason      (case kind
+                  :unknown-parent
+                  (str "route " route-id " declares a :parent chain naming the "
+                       "unregistered route " (pr-str route-id*) " — branch "
+                       "resolution is fail-loud, not silently truncated. Per Spec "
+                       "016 §Effective parent-chain resource plans.")
+                  :parent-cycle
+                  (str "route " route-id " has a :parent cycle at " (pr-str route-id*)
+                       " (chain " (pr-str chain) ") — branch resolution is fail-loud. "
+                       "Per Spec 016 §Effective parent-chain resource plans.")
+                  (str "route " route-id " branch resolution failed. Per Spec 016 "
+                       "§Effective parent-chain resource plans."))
+   :cause       {:branch-error kind :parent route-id*}})
+
+(defn- collapse-cycle-error
+  "Build the route/resource PLANNING error MAP for a collapse-created cycle
+  among the grouped identities `cyclic` (EP-0037 R2 rule 6)."
+  [route-id nav-token cyclic]
+  {:rf.error/id :rf.error/resource-route-plan
+   :route-id    route-id
+   :nav-token   nav-token
+   :recovery    :fix-after
+   :reason      (str "route " route-id " resource plan has a cyclic dependency "
+                     "after identity collapse among " (pr-str cyclic) " — a later "
+                     "occurrence's :after edge would contradict an earlier "
+                     "occurrence's position once the shared identity is deduped. "
+                     "The plan fails rather than silently dropping an edge. Per "
+                     "Spec 016 §Effective parent-chain resource plans.")
+   :cause       {:cyclic-identities (vec cyclic)}})
+
 (defn- plan-error
   "Build the structured route/resource PLANNING error for a params/scope
   failure on a route resource (Spec 016 §Route integration — a failed
@@ -532,7 +761,8 @@
   `:scope` policy) resolves against it at route entry, BEFORE planning the
   resource work (EP-0016 D3 slice 3). A reference that resolves nil is a
   fail-closed planning error (route planning MUST NOT substitute global)."
-  [route ctx {:keys [nav-token prev-id prev-nav-token app-db]}]
+  [route ctx {:keys [nav-token prev-id prev-nav-token app-db branch branch-error
+                     prev-identities]}]
   ;; rf2-ac71vm — fail closed on missing/invalid structural planning inputs.
   ;; These are seam-contract bugs (routing must thread a ctx + nav-token),
   ;; surfaced loudly rather than collapsing into an empty-ctx / no-owner read.
@@ -553,99 +783,92 @@
                   "integration.")
              {:route-id (:id route) :recovery :fix-route-integration})))
   (let [route-id  (:id route)
-        resources (:resources route)
         owner     [:route route-id nav-token]
         cause     [:route-entry route-id nav-token]
-        ;; release the PREVIOUS route's owner (route leave / supersession):
-        ;; the resource runtime drops the owner from every entry's
-        ;; :active-owners; abort-when-no-owner + stale suppression by
-        ;; nav-token handle in-flight work (Spec 016 §Route integration).
+        ;; EP-0037 R2: compose the effective parent-to-leaf branch. Routing
+        ;; owns the `:parent` walk and hands the resolved metas down as
+        ;; `:branch` (parent-most-first); a direct call with no `:branch` (or
+        ;; the leaf-only tests) synthesises a single-element branch from the
+        ;; `route`'s own `:resources`, so leaf-only planning is the 1-segment
+        ;; case of the same composer.
+        branch    (or branch [{:route-id route-id
+                               :route-meta {:resources (:resources route)}}])
+        ;; release the PREVIOUS route's owner (route leave / supersession).
+        ;; Ordered LAST in the fx (attach-before-release): the resource runtime
+        ;; drops the owner from every entry's :active-owners, but only AFTER
+        ;; this plan has attached its owner to every kept + added identity, so a
+        ;; still-in-flight ancestor shared by both plans is never momentarily
+        ;; ownerless (never aborted). Per Spec 016 §Plan diff and owner handoff.
         release-fx (when (and prev-id prev-nav-token
                               (not= [prev-id prev-nav-token] [route-id nav-token]))
                      [[:dispatch [:rf.resource/release-owner
                                   {:owner [:route prev-id prev-nav-token]}]]])
-        ;; `:after` is validated + ordered against the FULL declared set
-        ;; (route-local ids of EVERY entry, not just the `:when`-admitted
-        ;; ones) so a missing / cyclic target is a PLANNING error regardless
-        ;; of `:when` (rf2-xeb4l1). The order-by-after throw is a plan-level
-        ;; failure (no single resource id), caught here.
-        ordered-or-err
-        (try {:ordered (order-by-after resources)}
-             (catch #?(:clj Throwable :cljs :default) ex
-               (let [err (plan-error route-id nav-token nil ex)]
-                 (trace/emit-error! :rf.error/resource-route-plan err)
-                 {:plan-error err})))
-        ;; reduce the ordered entries into ensure fx + the blocking set +
-        ;; the FIRST planning error (a fail-closed when / scope / params
-        ;; throw). A plan-level `:after` error (above) short-circuits the
-        ;; reduce — no entry is ensured (FIRST-error-wins, route still
-        ;; commits).
-        {:keys [fx blocking plan-error]}
-        (reduce
-          (fn [acc entry]
-            (let [resource-id (:resource entry)]
-              (try
-                ;; `:when` is evaluated HERE (inside the fail-closed boundary)
-                ;; so a throwing predicate is a planning error, not an escape
-                ;; (rf2-ac71vm). A falsey `:when` gates the resource out — no
-                ;; ensure, no sentinel nil params.
-                (if-not (when-passes? entry route ctx)
-                  acc
-                  (let [spec       (registry/require-resource-spec!
-                                     resource-id 'rf.resource/route-entry)
-                        raw-params (resolve-entry-params entry route)
-                        ;; EP-0016 D3 slice 3: a `{:from-db …}` route-resource
-                        ;; `:scope` resolves against the route-entry app-db
-                        ;; here, BEFORE planning the resource work; a `(fn
-                        ;; [route ctx])` resolver evaluates against route+ctx.
-                        route-scope (resolve-entry-scope entry route ctx app-db)
-                        ;; fail-closed resolution: throws a PLANNING error on
-                        ;; a missing / invalid scope or non-conforming params.
-                        ;; `:db` carries the route-entry app-db so a `{:from-db
-                        ;; …}` SPEC policy (no route `:scope`) also resolves
-                        ;; against db at route entry.
-                        scope      (registry/resolve-scope-for-event
-                                     resource-id spec {:route-scope route-scope :db app-db}
-                                     'rf.resource/route-entry)
-                        cparams    (registry/validate+canonicalize-params
-                                     resource-id spec raw-params
-                                     'rf.resource/route-entry)
-                        ;; rf2-rplgkw: scope (resolve-scope-for-event →
-                        ;; canonicalize-scope) + cparams already canonical.
-                        scoped-key (state/scoped-resource-key* scope resource-id cparams)
-                        blocking?  (boolean (:blocking? entry))
-                        ensure-ev  [:rf.resource/ensure
-                                    (cond-> {:resource resource-id
-                                             :scope    scope
-                                             :params   cparams
-                                             :owner    owner
-                                             :cause    cause}
-                                      (:keep-previous? entry)
-                                      (assoc :keep-previous? true))]]
-                    (-> acc
-                        (update :fx conj [:dispatch ensure-ev])
-                        (cond-> blocking?
-                          (update :blocking conj scoped-key)))))
-                (catch #?(:clj Throwable :cljs :default) ex
-                  ;; when / params / scope PLANNING failure — surface on the
-                  ;; route slice + Xray, never a silent cache miss. FIRST error
-                  ;; wins (mirrors the :on-match first-error-wins discipline).
-                  (let [err (plan-error route-id nav-token resource-id ex)]
-                    (trace/emit-error! :rf.error/resource-route-plan err)
-                    (cond-> acc
-                      (nil? (:plan-error acc)) (assoc :plan-error err)))))))
-          {:fx [] :blocking #{} :plan-error (:plan-error ordered-or-err)}
-          (:ordered ordered-or-err))]
+        ;; Compose + collapse. A branch-resolution failure (fail-loud), a
+        ;; per-contributor `:after`/`:when`/params/scope throw, or a
+        ;; collapse-created cycle is a PLANNING error → a committed failed
+        ;; activation (empty next ownership, no ensures, prior owner released).
+        {:keys [ordered advisories plan-error]}
+        (cond
+          branch-error
+          (let [err (branch-plan-error route-id nav-token branch-error)]
+            (trace/emit-error! :rf.error/resource-route-plan err)
+            {:plan-error err})
+          :else
+          (try
+            (let [occs      (materialize-occurrences branch route ctx app-db)
+                  collapsed (collapse-and-order occs)]
+              (if-let [cyclic (:cycle collapsed)]
+                (let [err (collapse-cycle-error route-id nav-token cyclic)]
+                  (trace/emit-error! :rf.error/resource-route-plan err)
+                  {:plan-error err})
+                collapsed))
+            (catch #?(:clj Throwable :cljs :default) ex
+              ;; when / params / scope / :after PLANNING failure — surface on
+              ;; the route slice + Xray, never a silent cache miss. The error
+              ;; names the resource when the ex carries it.
+              (let [err (plan-error route-id nav-token
+                                    (:resource-id (ex-data ex)) ex)]
+                (trace/emit-error! :rf.error/resource-route-plan err)
+                {:plan-error err}))))
+        ;; EP-0037 R2 plan diff: partition the dedup'd identities into
+        ;; added (ensure with the next owner + freshness) vs kept (adopt the
+        ;; next owner WITHOUT a fetch — the partial-revalidation law: a kept,
+        ;; unchanged ancestor is not revalidated by navigation). Removed
+        ;; identities (in prev, not next) are released by the whole-prior-owner
+        ;; release-fx. Per Spec 016 §Plan diff and owner handoff.
+        prev-ids  (set prev-identities)
+        next-ids  (into #{} (map :scoped-key) ordered)
+        req-fx    (mapv
+                    (fn [{:keys [scoped-key resource scope cparams keep-previous?]}]
+                      (let [base {:resource resource :scope scope :params cparams
+                                  :owner owner :cause cause}]
+                        (if (contains? prev-ids scoped-key)
+                          ;; kept — pure owner adoption, NO fetch/revalidation
+                          [:dispatch [:rf.resource/adopt-owner base]]
+                          ;; added — ordinary ensure/freshness path
+                          [:dispatch [:rf.resource/ensure
+                                      (cond-> base
+                                        keep-previous? (assoc :keep-previous? true))]])))
+                    ordered)
+        blocking  (into #{} (comp (filter :blocking?) (map :scoped-key)) ordered)]
     (trace/emit! :rf.event :rf.resource/route-plan
-                 {:route-id route-id :nav-token nav-token
-                  :ensured (count fx) :blocking (vec blocking)})
-    ;; The blocking set + plan-error ride back to `commit-navigation`, which
-    ;; writes the blocking slot under the nav-token + records a plan-error on
-    ;; the route slice's `:error`, ATOMICALLY with the commit (so the slot is
-    ;; present before any ensure reply can drain it). The fx (prior-owner
-    ;; release + ensure dispatches) are spliced into the commit fx.
-    {:fx         (vec (concat release-fx fx))
+                 (cond-> {:route-id   route-id
+                          :nav-token  nav-token
+                          :branch     (mapv :route-id branch)
+                          :ensured    (count req-fx)
+                          :blocking   (vec blocking)
+                          :identities (vec next-ids)}
+                   (seq advisories) (assoc :redundant-children advisories)
+                   plan-error       (assoc :plan-error true)))
+    ;; The blocking set, identity set + plan-error ride back to
+    ;; `commit-navigation`, which writes the blocking + plan slots under the
+    ;; nav-token + records a plan-error on the route slice's `:error`, ATOMICALLY
+    ;; with the commit. The fx (attach effects then the prior-owner release) are
+    ;; spliced into the commit fx — attach-before-release.
+    {:fx         (vec (concat req-fx release-fx))
      :blocking   blocking
+     :identities next-ids
+     :advisories advisories
      :plan-error plan-error}))
 
 (defn on-route-entry-fx
@@ -675,20 +898,33 @@
   routing build that predates this thread) resolves references against `{}`
   — fail-closed (a `{:from-db …}` scope then resolves nil and surfaces as a
   route planning error, never a silent global). Per Spec 016 §Route
-  integration / §Resolver references."
+  integration / §Resolver references.
+
+  EP-0037 R2: `:branch` is the effective parent-to-leaf contributor chain
+  (`[{:route-id :route-meta} …]` parent-most-first) routing resolves from the
+  target's `:parent` links; `:branch-error` is a fail-loud branch-resolution
+  descriptor (an unresolved / cyclic `:parent`); `:prev-identities` is the set
+  of scoped resource identities the SUPERSEDED nav-token's plan owned (the
+  plan-diff's previous set). A routing build that predates R2 threads no
+  `:branch`, and the planner falls back to a single-segment (leaf-only) branch."
   [{:keys [route-meta route-id params query fragment nav-token
-           prev-id prev-nav-token ctx app-db]}]
-  (when (or (seq (:resources route-meta)) prev-id)
-    (let [route {:id        route-id
-                 :params    params
-                 :query     query
-                 :fragment  fragment
-                 :resources (:resources route-meta)}]
-      (route-resource-plan route ctx
-                           {:nav-token      nav-token
-                            :prev-id        prev-id
-                            :prev-nav-token prev-nav-token
-                            :app-db         app-db}))))
+           prev-id prev-nav-token ctx app-db branch branch-error prev-identities]}]
+  (let [branch (or branch [{:route-id route-id :route-meta route-meta}])]
+    (when (or branch-error prev-id
+              (some (fn [c] (seq (:resources (:route-meta c)))) branch))
+      (let [route {:id        route-id
+                   :params    params
+                   :query     query
+                   :fragment  fragment
+                   :resources (:resources route-meta)}]
+        (route-resource-plan route ctx
+                             {:nav-token       nav-token
+                              :prev-id         prev-id
+                              :prev-nav-token  prev-nav-token
+                              :app-db          app-db
+                              :branch          branch
+                              :branch-error    branch-error
+                              :prev-identities prev-identities})))))
 
 (defn install-routing-integration!
   "Publish the LATE-BOUND routing integrations: the

@@ -441,6 +441,14 @@
                      framework-authority-meta
                      (resource-events/with-classification-lowering
                        resource-events/release-owner-handler))
+;; EP-0037 R2 — the attach-before-release primitive for a KEPT branch-plan
+;; identity: attach the next route-plan owner onto a shared ancestor read
+;; WITHOUT a fetch (the partial-revalidation law), dispatched ahead of the
+;; prior owner's release. See resources.route/route-resource-plan.
+(events/reg-event :rf.resource/adopt-owner
+                     framework-authority-meta
+                     (resource-events/with-classification-lowering
+                       resource-events/adopt-route-owner-handler))
 ;; rf2-x76af2.14 — clear-scope / remove settle in-flight work rows terminal
 ;; `:cancelled`, and a cancellation is a COMPLETION: its terminal outcome carries
 ;; the event's causal `:completed-at` (from the declared-flat `:rf/time-ms`),

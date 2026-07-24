@@ -719,3 +719,197 @@
     (testing ":after topologically orders the ensure dispatches by local id"
       (is (nil? (:error (slice))) "no planning error — all :after targets are valid")
       (is (= [:a :b :c] @order) "a (no dep) → b (after a) → c (after b)"))))
+
+;; ===========================================================================
+;; 14. EP-0037 R2 — effective parent-chain resource plans
+;;     Composition parent to leaf, grouped identity dedupe + redundant-child
+;;     advisory, collapse-cycle fail-loud, the plan diff (kept adopted / added
+;;     ensured / removed released, attach-before-release), the partial-
+;;     revalidation law, and fail-loud branch resolution.
+;;     Spec 016 §Effective parent-chain resource plans.
+;; ===========================================================================
+
+(defn- plan-dispatches
+  "The event vectors dispatched by a plan's fx, in fx order."
+  [plan]
+  (into [] (keep (fn [[fx-id ev]] (when (= :dispatch fx-id) ev))) (:fx plan)))
+
+(defn- of-event [dispatches event-id]
+  (filterv (fn [ev] (= event-id (first ev))) dispatches))
+
+(deftest r2-branch-composes-parent-to-leaf
+  ;; A declared :parent composes the ancestor :resources with the leaf, parent-
+  ;; most first — the child never restates the shell read.
+  (rf/reg-resource :shell/viewer (article-spec {}) article-spec-request)
+  (rf/reg-resource :leaf/settings (article-spec {}) article-spec-request)
+  (let [branch [{:route-id   :route/account
+                 :route-meta {:resources [{:resource :shell/viewer :params (fn [_] {:slug "v"}) :blocking? true}]}}
+                {:route-id   :route/account.settings
+                 :route-meta {:resources [{:resource :leaf/settings :params (fn [_] {:slug "s"}) :blocking? true}]}}]
+        plan (route/route-resource-plan
+               {:id :route/account.settings :params {} :query {}}
+               {}
+               {:nav-token 1 :branch branch})
+        ensures (of-event (plan-dispatches plan) :rf.resource/ensure)]
+    (testing "both parent + leaf resources are ensured, parent-most first"
+      (is (nil? (:plan-error plan)))
+      (is (= [:shell/viewer :leaf/settings] (mapv #(:resource (second %)) ensures)))
+      (is (= 2 (count (:blocking plan))) "both blocking requirements enter the blocking set"))))
+
+(deftest r2-identity-dedupe-and-redundant-child-advisory
+  ;; Parent + child declare the SAME identity (same resource + scope + params):
+  ;; dedupe to ONE ensure fixed at the earliest (parent) position; blocking? is
+  ;; OR across contributors; the redundant child copy surfaces as an advisory.
+  (rf/reg-resource :shell/banner (article-spec {}) article-spec-request)
+  (rf/reg-resource :leaf/list (article-spec {}) article-spec-request)
+  (let [banner {:resource :shell/banner :params (fn [_] {:slug "u"})}
+        branch [{:route-id   :route/profile
+                 :route-meta {:resources [(assoc banner :blocking? true)]}}
+                {:route-id   :route/profile.favorites
+                 :route-meta {:resources [(assoc banner :blocking? false)     ;; redundant copy
+                                          {:resource :leaf/list :params (fn [_] {:slug "f"})}]}}]
+        plan (route/route-resource-plan
+               {:id :route/profile.favorites :params {} :query {}}
+               {}
+               {:nav-token 1 :branch branch})
+        ensures (of-event (plan-dispatches plan) :rf.resource/ensure)
+        banner-key (state/scoped-resource-key* :rf.scope/global :shell/banner {:slug "u"})]
+    (testing "the duplicated banner dedupes to one ensure at the parent position"
+      (is (nil? (:plan-error plan)))
+      (is (= [:shell/banner :leaf/list] (mapv #(:resource (second %)) ensures))
+          "banner deduped + fixed earliest; leaf list follows"))
+    (testing "blocking? is OR across contributors — the parent marked it blocking"
+      (is (contains? (:blocking plan) banner-key)))
+    (testing "the redundant child declaration surfaces as an advisory"
+      (is (= 1 (count (:advisories plan))))
+      (let [adv (first (:advisories plan))]
+        (is (= :route/profile (get-in adv [:ancestor :route-id])))
+        (is (= :route/profile.favorites (get-in adv [:child :route-id])))
+        (is (= :shell/banner (:resource adv)))))))
+
+(deftest r2-collapse-cycle-fails-the-whole-plan
+  ;; A and C resolve to one identity; B :after A; C :after B. Collapse produces
+  ;; identity(A,C) -> B and B -> identity(A,C): a cycle. The plan fails and
+  ;; dispatches no ensures (empty next ownership).
+  (rf/reg-resource :cyc/shared (article-spec {}) article-spec-request)
+  (rf/reg-resource :cyc/mid (article-spec {}) article-spec-request)
+  (let [branch [{:route-id   :route/cyc
+                 :route-meta {:resources [{:resource :cyc/shared :id :a :params (fn [_] {:slug "k"})}
+                                          {:resource :cyc/mid    :id :b :params (fn [_] {:slug "m"}) :after #{:a}}
+                                          {:resource :cyc/shared :id :c :params (fn [_] {:slug "k"}) :after #{:b}}]}}]
+        plan (route/route-resource-plan {:id :route/cyc :params {} :query {}} {}
+                                        {:nav-token 1 :branch branch})]
+    (testing "the collapse-created cycle is a planning error"
+      (is (some? (:plan-error plan)))
+      (is (= :rf.error/resource-route-plan (:rf.error/id (:plan-error plan)))))
+    (testing "no ensures are dispatched on the failed plan"
+      (is (empty? (of-event (plan-dispatches plan) :rf.resource/ensure))))))
+
+(deftest r2-plan-diff-kept-adopted-added-ensured-release-last
+  ;; Sibling-leaf navigation: the parent identity is KEPT (adopt-owner, no
+  ;; re-ensure — the partial-revalidation law); the new leaf is ADDED (ensure);
+  ;; the prior owner release is dispatched LAST (attach-before-release).
+  (rf/reg-resource :sh/v (article-spec {}) article-spec-request)
+  (rf/reg-resource :lf/a (article-spec {}) article-spec-request)
+  (rf/reg-resource :lf/b (article-spec {}) article-spec-request)
+  (let [parent-meta {:resources [{:resource :sh/v :params (fn [_] {:slug "v"}) :blocking? true}]}
+        branch1 [{:route-id :route/p   :route-meta parent-meta}
+                 {:route-id :route/p.a :route-meta {:resources [{:resource :lf/a :params (fn [_] {:slug "a"})}]}}]
+        plan1 (route/route-resource-plan {:id :route/p.a :params {} :query {}} {}
+                                         {:nav-token 1 :branch branch1})
+        ids1  (:identities plan1)
+        branch2 [{:route-id :route/p   :route-meta parent-meta}
+                 {:route-id :route/p.b :route-meta {:resources [{:resource :lf/b :params (fn [_] {:slug "b"})}]}}]
+        plan2 (route/route-resource-plan {:id :route/p.b :params {} :query {}} {}
+                                         {:nav-token 2 :prev-id :route/p.a :prev-nav-token 1
+                                          :prev-identities ids1 :branch branch2})
+        ds    (plan-dispatches plan2)
+        adopts  (of-event ds :rf.resource/adopt-owner)
+        ensures (of-event ds :rf.resource/ensure)]
+    (testing "the kept parent identity is ADOPTED, not re-ensured (partial revalidation)"
+      (is (nil? (:plan-error plan2)))
+      (is (= 1 (count adopts)))
+      (is (= :sh/v (:resource (second (first adopts))))))
+    (testing "only the added leaf is ensured"
+      (is (= 1 (count ensures)))
+      (is (= :lf/b (:resource (second (first ensures))))))
+    (testing "the prior plan owner release is dispatched LAST (attach-before-release)"
+      (is (= :rf.resource/release-owner (first (last ds))))
+      (is (= [:route :route/p.a 1] (:owner (second (last ds)))) "releases the superseded owner"))))
+
+(deftest r2-branch-resolve-fails-loud
+  ;; A :parent naming an unregistered route aborts the plan (a committed failed
+  ;; activation): empty next ownership, no partial ensure/adopt, prior owner
+  ;; released.
+  (let [plan (route/route-resource-plan
+               {:id :route/leaf :params {} :query {}} {}
+               {:nav-token 2 :prev-id :route/prev :prev-nav-token 1
+                :prev-identities #{[:rf.scope/global :old/res {}]}
+                :branch-error {:kind :unknown-parent :route-id* :route/ghost}})
+        ds (plan-dispatches plan)]
+    (testing "an unresolved :parent is a planning error"
+      (is (some? (:plan-error plan)))
+      (is (= :rf.error/resource-route-plan (:rf.error/id (:plan-error plan)))))
+    (testing "no partial next owner is attached; the prior owner is released"
+      (is (empty? (of-event ds :rf.resource/ensure)))
+      (is (empty? (of-event ds :rf.resource/adopt-owner)))
+      (is (= 1 (count (of-event ds :rf.resource/release-owner))))
+      (is (empty? (:identities plan)) "empty next-ownership set"))))
+
+(deftest r2-navigation-composes-registered-parent-chain
+  ;; End-to-end: reg-route with :parent -> navigate to the child -> both the
+  ;; parent shell resource AND the leaf resource are ensured, proving routing
+  ;; fail-loud branch walk + the resources composition seam wire together.
+  (rf/reg-resource :acct/viewer (article-spec {}) article-spec-request)
+  (rf/reg-resource :acct/settings (article-spec {}) article-spec-request)
+  (rf/reg-route :route/account
+                {:resources [{:resource :acct/viewer :params (fn [_] {:slug "v"}) :blocking? true}]}
+                "/account")
+  (rf/reg-route :route/account.settings
+                {:parent    :route/account
+                 :resources [{:resource :acct/settings :params (fn [_] {:slug "s"}) :blocking? true}]}
+                "/account/settings")
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/account.settings}])
+  (let [viewer-key   (state/scoped-resource-key* :rf.scope/global :acct/viewer {:slug "v"})
+        settings-key (state/scoped-resource-key* :rf.scope/global :acct/settings {:slug "s"})]
+    (testing "activating the child composes the ancestor resource too"
+      (is (some? (entry viewer-key)) "the parent shell resource is ensured on child activation")
+      (is (some? (entry settings-key)) "the leaf resource is ensured"))))
+
+(deftest r2-sibling-nav-adopts-kept-parent-without-refetch
+  ;; End-to-end partial revalidation: navigate to one tab, settle the shared
+  ;; banner, then navigate to the sibling tab. The banner is KEPT — its
+  ;; generation is unchanged (no refetch), it keeps its data, and the removed
+  ;; tab owner is released.
+  (rf/reg-resource :prof/banner (article-spec {}) article-spec-request)
+  (rf/reg-resource :prof/tab-one (article-spec {}) article-spec-request)
+  (rf/reg-resource :prof/tab-two (article-spec {}) article-spec-request)
+  (rf/reg-route :route/prof
+                {:resources [{:resource :prof/banner :params (fn [_] {:slug "b"}) :blocking? true}]}
+                "/prof")
+  (rf/reg-route :route/prof.one
+                {:parent    :route/prof
+                 :resources [{:resource :prof/tab-one :params (fn [_] {:slug "one"})}]}
+                "/prof/one")
+  (rf/reg-route :route/prof.two
+                {:parent    :route/prof
+                 :resources [{:resource :prof/tab-two :params (fn [_] {:slug "two"})}]}
+                "/prof/two")
+  (let [banner-key (state/scoped-resource-key* :rf.scope/global :prof/banner {:slug "b"})
+        tab1-key   (state/scoped-resource-key* :rf.scope/global :prof/tab-one {:slug "one"})]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.one}])
+    (settle-success! banner-key {:name "Ada"})
+    (settle-success! tab1-key [{:id 1}])
+    (let [gen-before (:generation (entry banner-key))]
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.two}])
+      (testing "the kept banner is not refetched by the sibling navigation"
+        (is (= gen-before (:generation (entry banner-key))) "generation unchanged — no revalidation")
+        (is (state/has-data? (entry banner-key)) "banner keeps its loaded data"))
+      (testing "the removed tab route owner is released"
+        (let [t1 (entry tab1-key)]
+          (is (or (nil? t1)
+                  (not (some (fn [o] (and (vector? o) (= :route (first o)) (= :route/prof.one (second o))))
+                             (:active-owners t1))))
+              "tab-one [:route :route/prof.one _] owner is gone")))
+      (testing "the route lands :idle (kept blocking banner already had data)"
+        (is (= :idle (:transition (slice))))))))
