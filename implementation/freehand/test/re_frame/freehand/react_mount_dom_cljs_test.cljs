@@ -61,9 +61,9 @@
         (doseq [[attr-name expected] attrs]
           (is (= expected (.getAttribute el attr-name))
               (str note " — " attr-name)))
-        (doseq [[key expected] dataset]
-          (is (= expected (gobj/get (.-dataset el) key))
-              (str note " — element.dataset." key)))))))
+        (doseq [[dataset-key expected] dataset]
+          (is (= expected (gobj/get (.-dataset el) dataset-key))
+              (str note " — element.dataset." dataset-key)))))))
 
 (deftest fh-struct-007-the-react-emitter-mounts-real-dom
   (testing "Per FH-STRUCT-007: a declared view mounted through
