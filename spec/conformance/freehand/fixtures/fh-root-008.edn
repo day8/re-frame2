@@ -1,0 +1,127 @@
+;; FH-ROOT-008 — the client-only boundary, and the one flip that completes it.
+;;
+;; A browser-only subtree is the one region of a page a server cannot render.
+;; The boundary makes that a DECLARED fact rather than a runtime accident: the
+;; author states what stands in the region's place everywhere the client
+;; runtime is absent, and the fallback is mandatory precisely because the
+;; alternative — a hole in the server's output that fills in from nowhere — is
+;; what the boundary exists to prevent.
+;;
+;; What completes it is the phase. The structural render on either host is
+;; `:server` phase and produces the fallback. An ordinary mount is born
+;; `:client` and produces the client subtree on its first and only render — so
+;; a page that never server-renders pays nothing for the boundary and behaves
+;; exactly as it did before the boundary existed. A HYDRATING root is the only
+;; case with two renders in it, and the ordering of those two is the whole of
+;; this row.
+;;
+;; It boots `:server`, so React adopts the server's own fallback markup
+;; against a client render that produces the same markup. THEN it flips. The
+;; ordering holds by construction rather than by care — the flip is a
+;; post-commit passive effect, so it cannot run until React has committed and
+;; so adopted the `:server`-phase render. A flip that beat that check would
+;; swap in a tree the server never rendered and manufacture a mismatch against
+;; a page that was never wrong. The `:different-client-subtree` case below is
+;; the falsifier: its client subtrees deliberately DISAGREE with its
+;; fallbacks, so an implementation that flipped early would report a mismatch
+;; here and this row would go red.
+;;
+;; ONE root-scoped write, and the fixture is shaped to prove it. Two sites,
+;; not one: a per-site implementation would swap them across two updates, and
+;; a page with several client-only regions would tear — some regions live
+;; while their neighbours still show fallbacks. Reading both sites after the
+;; flip, and counting exactly one flip trace for the root, is what a
+;; single-site fixture could never falsify.
+{:fh/id "FH-ROOT-008"
+ :fh/law
+ "An interpreted `v/client-only` site renders its MANDATORY capability-free fallback in `:server` phase — the structural render on either host, and a hydrating root's first render — and its client subtree in `:client` phase; a hydrating root flips `:server` -> `:client` exactly once, strictly AFTER the adoption commit, and that ONE root-scoped write swaps EVERY site in the root in a single update with no per-site state, while a non-hydrating mount is born `:client` and never flips."
+
+ ;; --- the structural render, on both hosts -------------------------------
+ ;;
+ ;; Only the fallback is walked. The client subtree is a value the structural
+ ;; walk deliberately never enters, and the fragment marker is what says the
+ ;; markup standing here is a stand-in rather than the real thing.
+ :structural
+ {:props {:left "live" :right "live"}
+  :tree  {:view-id :re-frame.freehand.client-only-views/two-sites
+          :props   {:left "live" :right "live"}
+          :children
+          [{:tag :section
+            :attrs {:id "panel"}
+            :children
+            [{:tag :h1 :attrs {:id "heading"} :children ["Dashboard"]}
+             {:rf.ui/boundary :client-only
+              :children [{:tag :p :attrs {:id "left"} :children ["left-fallback"]}]}
+             {:rf.ui/boundary :client-only
+              :children [{:tag :p :attrs {:id "right"} :children ["right-fallback"]}]}]}]}}
+
+ ;; A view whose whole body IS a client-only site keeps its marker: the
+ ;; boundary wraps the fallback node rather than adopting its children, which
+ ;; is the one shape in which the marker could silently be dropped.
+ :site-rooted
+ {:tree {:view-id :re-frame.freehand.client-only-views/site-rooted
+         :children [{:rf.ui/boundary :client-only
+                     :children [{:tag :span :attrs {:class "stand-in"}
+                                 :children ["stand in"]}]}]}}
+
+ ;; --- the refusals -------------------------------------------------------
+ ;;
+ ;; The fallback is mandatory, the option roster is closed, and both are
+ ;; refused at the call rather than rendered as an absence.
+ :refusals
+ [{:note  "no options map at all"
+   :opts  nil
+   :error :rf.error/ui-tree-malformed}
+  {:note  "an options map with no :fallback"
+   :opts  {}
+   :error :rf.error/ui-tree-malformed}
+  {:note  "an explicit nil :fallback is PRESENCE — it renders nothing, and says so"
+   :opts  {:fallback nil}
+   :error :accepted}
+  {:note  "an unknown option"
+   :opts  {:fallback [:i "x"] :timeout-ms 300}
+   :error :rf.error/ui-tree-malformed}]
+
+ ;; --- the browser: a non-hydrating mount ---------------------------------
+ ;;
+ ;; Born `:client`. The client subtree is what the first and only render
+ ;; produces, and NO flip trace fires: there is no fallback pass to flip away
+ ;; from, so a root that emitted one would be reporting a transition that did
+ ;; not happen.
+ :mount
+ {:props     {:left "A" :right "B"}
+  :text      {"#left" "left-A" "#right" "right-B"}
+  :flips     0}
+
+ ;; --- the browser: the hydrating root ------------------------------------
+ ;;
+ ;; The server rendered the FALLBACKS, because the server render is `:server`
+ ;; phase. The manifest names an id this root form would never derive, so the
+ ;; identity assertions are reading the wire rather than a coincidence.
+ :hydrate
+ {:props    {:left "A" :right "B"}
+  :manifest {:rf.root/schema-version 1
+             :root-id           :fh.root/phase-flip
+             :identifier-prefix "srv8-"}
+  :root-id  :fh.root/phase-flip
+  :server-html
+  "<section id=\"panel\"><h1 id=\"heading\">Dashboard</h1><p id=\"left\">left-fallback</p><p id=\"right\">right-fallback</p></section>"
+
+  ;; The adoption pass: the server's own nodes survive, which is what proves
+  ;; the first client render produced the fallbacks rather than the client
+  ;; subtrees. A root that booted `:client` would have replaced these.
+  :adopted-nodes ["#heading" "#left" "#right"]
+
+  ;; After the flip: BOTH sites live, read together. One update, no tearing.
+  :flipped-text {"#left" "left-A" "#right" "right-B"}
+
+  ;; The heading is outside both boundaries and is untouched by the flip.
+  :stable-text {"#heading" "Dashboard"}
+
+  ;; Exactly one flip trace for this root, carrying its id.
+  :flips 1
+  :flip-operation :rf.ssr/phase-flip
+
+  ;; And the flip is not a mismatch: the client subtrees DISAGREE with the
+  ;; fallbacks by construction, so an early flip would be reported here.
+  :mismatches 0}}

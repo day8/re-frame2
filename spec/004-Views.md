@@ -2217,6 +2217,62 @@ infer one from the foreign library.
 
 **Conformance:** FH-REACT-005.
 
+### Client-only subtrees
+
+Some subtrees only a browser can render — a map canvas, an editor bound to a
+host measurement, a widget that reads `window` before it can decide its own
+shape. `v/client-only` is where an author says so, and says what stands in the
+region's place everywhere else:
+
+```clojure
+(v/client-only {:fallback [:div.map-shell "Map loads in the browser"]}
+  [live-map {:centre centre}])
+```
+
+- **The fallback is MANDATORY.** There is no arity that omits it and no
+  default to supply. A browser-only subtree without a fallback is a hole in
+  the server's output — a region that renders as nothing on the server and
+  appears from nowhere on the client — and that hole is exactly what the
+  boundary exists to prevent. An explicit `nil` fallback is a stated answer
+  (the region renders nothing, deliberately) rather than an omission, because
+  presence is what is checked.
+- **The fallback is capability-free markup.** It is what the server, the
+  structural render and a hydrating root's first render all put in this
+  position, so it must stand without a runtime: no reactive read, no host
+  object, no committed handler. The compiled tier checks that claim
+  statically; the interpreted tier cannot, and does not pretend to — the
+  fallback is the author's undertaking there, and the render that breaks it
+  breaks it loudly at the site.
+- **Phase decides which arm renders.** A root renders in one of two phases,
+  `:server` or `:client` ([011 §Phase flip](011-SSR.md#phase-flip)). The
+  structural render on either host is `:server` phase and produces the
+  fallback; an ordinary mount is born `:client` and produces the client
+  subtree on its first and only render; a hydrating root boots `:server` and
+  flips once, swapping **every** client-only site in the root in the single
+  update that one root-scoped write produces.
+- **One spelling, two modes — but only one lowers it.** The site is written
+  identically in either mode. In the interpreted mode it is an ordinary
+  function call whose reserved-head result each walk intercepts, exactly as
+  `v/presence` is. The compiled grammar **refuses** it, naming the browser-only
+  subtree and the ladder out — extract the site into a declared child, or keep
+  the view interpreted. A compiled body cannot see through the boundary, so
+  admitting it would mean a manifest claiming a subtree's capabilities without
+  ever having analysed them.
+- **The structural tree records that a fallback is a fallback.** The
+  `:server`-phase render wraps the fallback in the `:rf.ui/boundary
+  :client-only` marker ([004B §Reserved
+  members](004B-UI-Tree-and-Conversion.md)), so a structural test can assert
+  *this region is showing its capability-free stand-in* rather than inferring
+  it from markup that looks like any other markup. The client subtree is a
+  value the structural walk never enters.
+- **Both arms are ordinary expressions.** An interpreted body evaluates both
+  and renders one — building markup is building a vector, and it is the walk
+  that touches a host. A host call written into the argument itself, rather
+  than inside the view the argument names, has been moved outside the boundary
+  that exists to contain it.
+
+**Conformance:** FH-ROOT-008.
+
 ### Structural rendering, roots, and SSR
 
 **Lands in:** F5 — composition and integration. Carries what the structural host
