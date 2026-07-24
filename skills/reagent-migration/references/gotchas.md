@@ -1,9 +1,44 @@
 # Gotchas — the traps that mangle a view silently
 
-> These are the ways a careless conversion produces a view that compiles-then-
+> These are the ways a careless conversion produces a view that loads and then
 > misbehaves, or corrupts content. Read them before a first migration.
 
-## The bare-symbol trap (the biggest one)
+## Brackets mount, parens inline — the ownership change that reads like spelling
+
+The single most consequential rule, and the easiest to skim past. `v/defview`
+binds a **descriptor**, not a function:
+
+```clojure
+[card {:title t}]     ; a BOUNDARY: own subscriptions, own memoisation, own error containment
+(card-bits t)         ; a plain defn helper: runs inside whoever called it, owns nothing
+```
+
+Two ways a Reagent codebase trips on this:
+
+- **A helper that should have stayed a helper.** Reagent authors reach for
+  `[thing …]` reflexively. If the extracted piece exists only to shorten a body,
+  leave it a `defn` and call it with parens — you keep one boundary rather than
+  minting an occurrence per call.
+- **Calling a declared view.** `(card {:title t})` raises
+  `:rf.error/view-called-directly`, naming the three legal recoveries. It does
+  **not** quietly return `nil` — but `(ifn? card)` is `true`, so a truthiness or
+  `ifn?` check will not tell you what you have. Ask `v/view?`.
+
+## The exactly-one-props-map law
+
+A view takes **one** parameter and it is the props map. There is no zero-arity
+form and no positional arity:
+
+```clojure
+(v/defview status-pill [_] …)      ; RIGHT — the parameter is declared and ignored
+(v/defview status-pill [] …)       ; WRONG — :rf.error/defview-bad-args at expansion
+```
+
+Call sites match: `[status-pill {}]`, never `[status-pill]`. Reagent's habit of
+zero-arg components is the most common mechanical miss in a first pass, and it
+fails at macro-expansion — loud and early, which is the good case.
+
+## The bare-symbol trap
 
 A hiccup child that is a **bare symbol** is *content*, not props:
 
@@ -11,46 +46,99 @@ A hiccup child that is a **bare symbol** is *content*, not props:
 [:li item]        ; `item` is the LIST ITEM CONTENT of the <li>
 ```
 
-It is tempting — and wrong — to treat a non-literal in the props slot as a spread props map and rewrite `[:li item]` → `[:li (ui/spread item)]`. That **mangles the content**: `item` was never a props map. `ui/spread` (MIG-28) applies **only** to a genuine non-literal props-map *expression* in the props position (`(merge …)`, `(assoc …)`, a symbol bound to a *props map*) — position 2 of an element, semantically a map. A bare symbol *child* (position 2+ that is the element's content) is left exactly alone. When in doubt, it is content: do not spread it.
+It is tempting — and wrong — to treat a non-literal in position 2 as a props map
+and rewrite `[:li item]` → `[:li (v/spread item)]`. That **mangles the content**:
+`item` was never a props map. `v/spread` (MIG-28) applies **only** to a genuine
+props-map expression in the props position (`(merge …)`, `(assoc …)`, a symbol
+bound to a props map). When in doubt, it is content: do not spread it.
 
-Related: **data vectors are not hiccup.** `[:buy 1]` inside `{:on-click …}` is an *event vector* (MIG-04 lifts a handler *to* it), and `[:total]` inside `(sub …)` is a *query vector*. Neither is an element to be head-respelled or spread. The element/event/query distinction is positional — an `:on-*` value and a `sub`/`dispatch` argument are data, not markup.
+Related: **data vectors are not hiccup.** `[:buy 1]` inside `{:on-click …}` is an
+*event vector*, and `[:total]` inside `(v/sub …)` is a *query vector*. Neither is
+an element to be head-respelled or spread. The distinction is positional.
 
 ## Whole-view coherence — never half-migrate a view
 
-The single most important discipline (cardinal rule 2). A view where the compiler rewrites the `sub` deref but leaves an ungateable handler, or converts the header but not a gated body form, **does not compile and does not run**. The re-frame.ui grammar is all-or-nothing per view: a converted `defview` has no ambient `subscribe`/`dispatch`, so a stray un-lifted `@(subscribe …)` inside an interaction-time closure is a compile error or a `:rf.error/no-frame-context` at runtime.
+The single most important discipline (cardinal rule 2). A converted `v/defview`
+has no ambient `subscribe`/`dispatch`, so a stray un-lifted `@(subscribe …)`
+inside an interaction-time closure is a runtime failure, not a compile error —
+and it is a failure you only see when someone clicks.
 
-So: gate the whole view first, then route by tier — not a blanket hold. An **R** hit (a genuine reject, or an unshipped capability gap) holds the **entire** view on Reagent. A **D** hit is *decided by its row* with the author — then the **whole** view converts or the **whole** view holds (a couple of D rows are non-gating, MIG-27/28: read the row). Never half-migrate a view. Coverage is not the goal; a coherent, working set of converted views is.
+So: gate the whole view first, then route by tier. An **R** hit holds the
+**entire** view on Reagent. A **D** hit is decided by its row with the author, and
+then the **whole** view converts or the **whole** view holds. Coverage is not the
+goal; a coherent, working set of converted views is.
 
-## Keyed-child extraction (loops)
+## Reads are render-scoped, not lexically scoped
 
-A `for` body in the compiled grammar has hard rules Reagent didn't enforce:
-
-- **A missing key is a build failure** (Reagent silently tolerated it).
-- **A `sub` inside a `for` body is a compile error** — reactive reads can't be per-row inline.
-- **A handler vector that captures the loop binding is a compile error.**
-
-The fix for all three is the same structural move: **extract a keyed child view** — one `defview` instance per row, keyed, with the per-row read/handler inside the child (MIG-08). The skill does not perform this cross-structure extraction automatically; it is a code-shaping move you make with the author. A capture-free literal handler and a first-collection `sub` position (evaluated once per render) are fine — it's the per-row reactive read / captured handler that forces extraction.
-
-## Dynamic tag heads
+`v/sub` is legal inside an ordinary `defn` helper the body calls — the render owns
+the read wherever the call sits, on the same thread. What is refused is a read
+with **no active render**:
 
 ```clojure
-[(if big? :h1 :h2) props …]      ; no compiled form
+;; RIGHT — hoist the read to render time, close over the VALUE
+(v/defview row [{:keys [id]}]
+  (let [locked? (v/sub [:cart/locked? id])]
+    [:button {:on-click (v/event [_] (when-not locked? [:cart/add id]))} "Add"]))
+
+;; WRONG — the callback runs later, with no render to own the read
+[:button {:on-click (v/event [_] (when-not (v/sub [:cart/locked? id]) …))}]
 ```
 
-The head must resolve statically. This has no mechanical rewrite — bind the attrs and split the branches (finite heads), or template-ise into `defview` branches, or hold the view (MIG-21, [`catalog-reject.md`](catalog-reject.md)). There is no `re-frame.ui.data` to route to today — it is a reserved future wave-2 artifact, not a namespace you can require now. Don't try to be clever with a computed head; the compiler will reject it.
+The wrong form fails loud with `:rf.error/view-read-outside-render` rather than
+returning a stale value, but it fails *at click time* — so grep the converted
+callbacks for `v/sub` rather than waiting to find them by hand.
 
-## StrictMode replays effects — `:connect` cleanup runs per-disconnect, not once
+## Migrate interpreted — don't promote mid-flight
 
-React 18 dev **StrictMode deliberately replays** the mount cycle — connect→disconnect→connect, and for a class component mount→unmount→mount — on the first mount to smoke out teardown that isn't idempotent. So `:component-will-unmount` is **not** a run-once hook in dev either, and an `(effect :connect …)` cleanup likewise runs at **each disconnect**, not once. So every teardown must be **idempotent** — safe to run more than once, and safe when its setup half ran more than once (`ui.cljc`: *"StrictMode dev replay is expected and MUST be idempotent-safe (that is what cleanup is for)"*). A cleanup that assumes exactly-once (decrement a shared counter, pop a stack, release a token a single time) double-fires in dev and corrupts that state. Write host teardown that tolerates replay: remove the exact listener you added, dispose the chart instance you created, guard a token release. This is a per-disconnect **host** concern only — it is never a place for domain dispatch (MIG-17: no dispatch-at-unmount).
+`{:compiled true}` selects a finite grammar for one declaration. During a
+migration it buys nothing and costs you: bodies that are legal interpreted
+(a runtime-chosen tag head, markup a helper returns, a bare fn at a render slot)
+become build failures, and the shape of the view is still settling. Promote a hot
+leaf **after** the migration lands, with a measurement in hand. Callers,
+structural output and the view's own tests do not move when you do.
 
-## Computed props vs the controlled-input door
+## `:ref` is refused, not ignored
 
-`ui/spread` (MIG-28) is legal, but a spread on an `:input`/`:select` **forfeits the controlled-input synchrony door**. The door needs the `:value`/`:checked` **entry to appear literally on the element's props map** — the *key* present as a literal map entry, so the compiler can see it. This is **not** a requirement that the *value* be a constant: a controlled `:value (:title draft)` is a perfectly good dynamic expression — what must be literal is the **`:value` key's presence on the element**, not the value routed in through a `(ui/spread (merge … {:value …}))`. Fold `:value` into a spread map and the compiler can no longer prove the entry is there, so you silently lose the synchrony guarantee. Lift `:value`/`:checked` (and the input's handlers) back to literal entries on the element; spread only the genuinely pass-through remainder. When you are forwarding a caller's attrs, `ui/spread-safe` **keeps the door**: its `owned` argument is a *literal* map, so a controlled `:value`/`:checked` living there stays compiler-provable (and its deny law bars the caller from overriding them) — that is the fork MIG-28 teaches.
+Freehand refuses `:ref` rather than honouring it half-way, so a Reagent ref does
+not silently become a no-op — but nor does it convert. The node is reached
+through a registered behavior (MIG-17), which is handed exactly the node it
+decorates and can reach no other. A view whose ref hands the node to something
+else stays on Reagent (MIG-29).
 
-## The staged-gap trap — never emit an unshipped form
+## Computed props vs the controlled input
 
-If a construct maps to a staged capability that hasn't landed (the explicit-frame `sub` pin MIG-03), **do not emit a placeholder for it**. There is no forward-compatible spelling to write; a made-up form will not compile when the stage does ship, and misleads the author into thinking the view converted. Name the gap, hold the view on Reagent ([`catalog-reject.md`](catalog-reject.md)). (SSR — `ui/render-static` / `ui/hydrate-root` — the compiled `route-link`, and the outward `ui/->react` bridge have shipped; those are transforms now, not gaps.)
+Forwarding a caller's attrs onto an input you own has two spellings and they are
+different bargains. `(v/spread base overrides)` is the visible-cost forward:
+whatever the map carries lands on the element. `(v/spread-safe owned caller)` is
+the bounded one — `:key`, `:ref`, `:value`, `:checked` and the component's own
+`on-*` families may not appear in `caller`, in **every** build, and an offender is
+a loud refusal rather than a silent drop. Alternate spellings don't route around
+it: a key is judged by the slot it is about to be written into.
 
-## `local` updaters vs setters (multi-writer state)
+So a control that must stay controlled forwards with `spread-safe`, keeping its
+own `:value` and handler in `owned`. Reach for the plain `spread` only when the
+props really are opaque pass-through.
 
-When converting Form-2 state to `local` (MIG-16), the three-tuple distinction is load-bearing: `set!` stores its argument *exactly* (a stored fn is a value, not an updater — there is no `useState` fn-overload), while `update!` applies `(f current & args)` to the *latest* host state. A `(swap! a f)` must become `(update! f)`, **not** `(set! (f value))` — the latter is last-write-wins across same-turn writers and silently drops concurrent updates. Render-phase mutation of either fails loud (host-only).
+## Behaviors: `:config` is data, and `:timing` is a choice
+
+Two ways a Form-3 conversion goes wrong at the behavior boundary:
+
+- **`:config` is data at every depth.** A callback, a node, a ref or a
+  preconstructed host instance is refused on both hosts — a configuration the
+  structural tree cannot record is a use site a test and a tool cannot read. If
+  the Form-3 body closed over a function, that function becomes registered code
+  or a `:commands` entry, not a config value.
+- **`:timing` defaults to `:passive`, which runs after paint.** Reagent's
+  `component-did-mount` ran before it. Measure-then-place work (a popover from an
+  anchor's geometry, an initial focus ring, a first chart draw that must be on
+  screen at first paint) must declare `:timing :layout` or it lands a frame late
+  and flickers. There is no third moment.
+
+## Mount and unmount are host facts, not domain events
+
+There is no `:on-mount` and no dispatch-at-unmount, deliberately. "Load on mount"
+becomes the root's frame `:initial-events`, a route's entry cascade, or an
+ordinary event. "Release on unmount" re-homes to whatever causally ends the thing
+— and completeness is the discipline: enumerate **every** exit path and prove each
+one releases. The classic leak is an enumeration that covers "save" and "delete"
+and misses "navigate away" (MIG-17).

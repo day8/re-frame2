@@ -28,7 +28,7 @@ The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKI
 | [**re-frame2-improver**](re-frame2-improver.md) | Critique **existing** re-frame2 code against an anti-pattern catalogue. Explicit-pull-only; surfaces findings cross-linked to canonical idioms, may propose inline fixes. |
 | [**re-frame2-setup**](re-frame2-setup.md) | Bootstrap a fresh re-frame2 ClojureScript project from nothing. Walks the author to a working counter under `shadow-cljs watch`. |
 | [**re-frame-migration** (v1→v2)](re-frame-migration.md) | Migrate an existing re-frame v1.x codebase to re-frame2. Applies the mechanical `M-rules` automatically; flags judgment calls. |
-| [**reagent-migration** (views→re-frame.ui)](reagent-migration.md) | The **optional, second** step after v1→v2: migrate Reagent **view** code to the **experimental** `re-frame.ui` compiled-view substrate. Applies the mechanical `MIG` rewrites, reasons through the judgment calls, declines what re-frame.ui doesn't yet handle. Staying on Reagent is a first-class choice. |
+| [**reagent-migration** (views→Freehand)](reagent-migration.md) | The **optional, second** step after v1→v2: migrate Reagent **view** code to **Freehand**, re-frame2's re-frame-native view layer. Applies the mechanical `MIG` rewrites, reasons through the judgment calls, declines what Freehand doesn't yet handle. Staying on Reagent is a first-class choice. |
 | [**re-frame2-implementor**](re-frame2-implementor.md) | Build a new re-frame2 implementation in a different host language or substrate. Two-phase workflow — Phase 1 locks the decisions; Phase 2 walks the spec corpus with conformance as the acceptance test. |
 | [**re-frame2-xray**](re-frame2-xray.md) | Read-only tour of the **Xray** devtools panel — how to launch it and which tab, across its Dynamic event-spine and Static registry-browse modes, shows X. |
 | [**re-frame2-pair**](re-frame2-pair.md) | Pair-program with a live, running re-frame2 app. Dispatch events, inspect `app-db`, walk epochs, hot-swap handlers — all via Tool-Pair contract. |
@@ -40,7 +40,7 @@ A quick decision flow (human-facing rendering of [`skills/README.md` §Skill rou
 
 - **Starting from nothing?** → `re-frame2-setup`. When the counter mounts, switch to `re-frame2`.
 - **Existing v1 codebase?** → `re-frame-migration`. When the migration report is signed off, switch to `re-frame2`.
-- **Already on re-frame2 and want to trial the experimental compiled-view substrate for your Reagent views?** → `reagent-migration` (optional, second step — staying on Reagent is fine).
+- **Already on re-frame2 and want to trial Freehand, the re-frame-native view layer, for your Reagent views?** → `reagent-migration` (optional, second step — staying on Reagent is fine).
 - **Writing new code in an existing v2 project?** → `re-frame2`.
 - **Writing, reviewing, or debugging `defview` views on the experimental `re-frame.ui` compiled-view substrate (or decoding a `:rf.ui.compile/*` rejection)?** → `re-frame2-ui`.
 - **Critiquing existing v2 code on explicit pull (anti-pattern audit)?** → `re-frame2-improver`.

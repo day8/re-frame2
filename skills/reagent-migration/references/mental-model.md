@@ -1,34 +1,51 @@
-# The re-frame.ui view shift (mental model)
+# The Freehand view shift (mental model)
 
-> The one shift a migrating developer must internalise. If you map Reagent's
-> "a view is a function I run every render" onto re-frame.ui's "a view is
-> something the compiler analyses", every rule below stops being a surprise.
+> The shifts a migrating developer must internalise. Map Reagent's "a view is
+> a function I run every render" onto Freehand's "a view is a declaration the
+> runtime mounts", and every rule below stops being a surprise.
 
-## Anchor: runtime `createElement`/JSX → a compiled template
+## Anchor: a React function component → a declared component
 
-If you know React, the closest analogue is the move from **hand-written `React.createElement` / JSX evaluated at runtime** to a **compiled template**: the framework can see the shape of your view *before* it runs, so it can validate props, track dependencies, and optimise re-renders statically. Reagent evaluates your hiccup every render; re-frame.ui reads it once, at build time. Everything that only worked *because* Reagent re-ran a plain function each render is exactly what changes.
+If you know React, the closest analogue is the move from a **function component you can also just call** to a **declared component you can only mount**. In React, `<Card />` and `Card()` both "work" and mean different things — one creates a boundary React owns, the other splices the body into the caller. React never made you choose; Freehand does, at the spelling.
+
+```clojure
+[card {:title t}]     ; a BOUNDARY — its own subscriptions, memoisation, error containment
+(card-bits t)         ; an ordinary defn helper — runs inside whoever called it
+```
+
+Calling a declared view raises `:rf.error/view-called-directly` rather than
+quietly returning something. Reagent's Form-1/Form-2/Form-3 folklore — "is this
+a component or a function here?" — collapses into that one rule.
 
 ## The four shifts
 
-### 1. Views COMPILE now
+### 1. A view is a declaration, not a function
 
-A Reagent view is an ordinary function returning hiccup, re-invoked on every render:
+A Reagent view is an ordinary function returning hiccup, re-invoked every render:
 
 ```clojure
 (defn greeting [name]           ; a plain fn — Reagent calls it each render
   [:h1 "Hello, " name])
 ```
 
-A re-frame.ui view is a **compiled** `ui/defview`. The compiler walks the body at build time and lowers it into an analysed template:
+A Freehand view is a `v/defview` **declaration** whose var holds a descriptor:
 
 ```clojure
-(ui/defview greeting [{:keys [name]}]
+(v/defview greeting [{:keys [name]}]
   [:h1 "Hello, " name])
 ```
 
-The consequence: **constructs the compiler can't see through are build errors, not runtime quirks.** A dynamic tag head (`[(if big? :h1 :h2) …]`), hiccup assembled at runtime by walking data (`(reduce conj [:div] …)`), a raw lazy `map` of markup — Reagent tolerates all of these because it just runs the fn. The compiler rejects them, at *build* time, with a named error. That is a feature: the wall is early and loud, not a runtime footgun.
+Two corollaries follow immediately.
 
-Corollary — **props are a map keyed by param name.** Positional params (`[name]`) become a destructured map (`[{:keys [name]}]`), and every call site passes a map: `[greeting name]` → `[greeting {:name name}]`. A zero-param view is called with an explicit empty map: `[status-pill]` → `[status-pill {}]`.
+**Props are one map, always.** A view takes **exactly one** parameter and it is
+the props map — there are no positional view arguments and no zero-arity form.
+`(defn greeting [name] …)` → `(v/defview greeting [{:keys [name]}] …)`, and every
+call site passes a map: `[greeting name]` → `[greeting {:name name}]`. A view that
+reads no props still declares the parameter: `[_]`, mounted as `[status-pill {}]`.
+
+**Helpers stay `defn`s.** A body-extracting helper is a plain function called with
+parentheses. It owns no boundary, so its `v/sub` reads belong to the view that
+called it — which is exactly what you want for "this is just some of my body".
 
 ### 2. Deref-drop
 
@@ -38,42 +55,90 @@ Reagent subscriptions are reactive atoms you deref:
 [:span @(subscribe [:total])]        ; deref a reaction
 ```
 
-re-frame.ui reads them with a compiled `sub` and **no deref**:
+Freehand reads them with `v/sub`, which returns the **value**:
 
 ```clojure
-[:span (sub [:total])]               ; the compiler tracks the dependency
+[:span (v/sub [:total])]             ; the render records the read
 ```
 
-The `@` and the reactive-atom machinery are gone; the compiler establishes the reactive dependency for you. A `subscribe` that is *stored* rather than immediately deref'd (a held reaction, a cursor) is a different animal — that is derived-state territory (MIG-19), not a deref-drop.
+There is no reaction object in application code and nothing to hold. The render
+records the read; the commit turns it into an owned dependency, so an abandoned
+render leaks nothing. Outside an active render — a timer, a callback, the REPL —
+`v/sub` fails loud with `:rf.error/view-read-outside-render`; a non-reactive
+one-shot read is `rf/subscribe-once`, deliberately a `re-frame.core` verb.
 
-### 3. The frame is EXPLICIT (carried, not ambient)
+A `subscribe` that is *stored* rather than immediately deref'd (a held reaction,
+a cursor) is derived-state territory (MIG-19), not a deref-drop.
 
-In Reagent + re-frame v1, `subscribe` and `dispatch` reach an *ambient* global frame. In re-frame2 the frame is **carried, not found** — and a compiled `defview` has **no ambient `subscribe`/`dispatch` in scope at all**. Reads go through the compiled `sub`; writes go through the compiled handler grammar; both resolve the **committed** frame at the right moment.
+### 3. Dispatch lifts to data
 
-The sharp edge you migrate around: a **plain unregistered `defn`** that makes an ambient `@(subscribe …)` / `(dispatch …)` call raises **`:rf.error/no-frame-context`** — at first render for a deref, at interaction time for a dispatch closure. You *grep for these, you don't discover them by clicking* (MIG-26). The fix is to register the fn as a view (so the frame is established), or to carry the frame explicitly.
-
-To carry a frame's ops across an async boundary, re-frame.ui gives a compiled render-body form `(frame)` — the counterpart of core's `capture-frame` — returning the `{:frame :dispatch :dispatch-sync :subscribe}` bundle, locked to the committed frame incarnation (MIG-31).
-
-### 4. Dispatch lifts to data
-
-This is the shift that makes the whole migration *analysable*. A Reagent handler is an opaque closure:
+This is the shift that makes the view tier legible to tools and to tests. A
+Reagent handler is an opaque closure:
 
 ```clojure
-{:on-click #(dispatch [:ev x])}       ; a closure — the framework can't see inside
+{:on-click #(dispatch [:ev x])}       ; a closure — nothing can see inside
 ```
 
-re-frame.ui lifts the common case to **data** the compiler retains:
+Freehand puts the intent in the tree as data:
 
 ```clojure
-{:on-click [:ev x]}                    ; an event vector — data, not a closure
+{:on-click [:ev x]}                    ; an event vector
 ```
 
-Because the handler is now data, the compiler (and the devtools) can *see* what a click does. The narrow "a bare event vector in an `:on-*` slot" law is DOM/custom-element only, and it is why re-frame.ui can offer static handler analysis at all. Handlers that do more than dispatch one literal vector — extract from the event, guard with a condition, mix in local work — have their own richer compiled forms (`ui/event`, `ui/handler`, `ui/dispatch-fn`) that are judgment calls (MIG-18), not automatic lifts.
+Live scalars ride **projection markers** instead of a lambda that reaches into
+the native event — `::v/value`, `::v/checked`, `::v/key` are the closed set:
+
+```clojure
+[:input {:value (v/sub [:email]) :on-input [:form/set-email ::v/value]}]
+```
+
+Because the handler is data, "what does this button do?" is an equality check in
+a JVM test — no browser, no click simulation. Closures still exist where the
+work genuinely is a closure (`v/event`, `v/handler`), but they are the escape,
+not the default.
+
+### 4. The view holds no state and no lifecycle
+
+Freehand has **no `local`, no `ref`, no `effect`** — and that absence is the
+design, not a gap waiting to close. Reagent's Form-2 and Form-3 exist almost
+entirely to hold those three things, so this is where a Reagent codebase changes
+shape rather than spelling:
+
+| Reagent held it in | Freehand puts it |
+|---|---|
+| `(r/atom false)` for a toggle | app-db behind an event, read back with `v/sub` |
+| Form-2 closure over a draft | app-db, or a **semantic controller** when the control owns a real protocol |
+| `component-did-mount` DOM work | a **registered behavior** (`v/defbehavior` + `[v/behavior …]`) over one node |
+| `component-did-mount` "load the thing" | an ordinary event — the frame's `:initial-events`, or a route |
+| `component-will-unmount` domain work | re-homed to whatever causally ends the thing (a route leave, an event) |
+| `component-did-catch` | `v/error-boundary` |
+
+The judgment this forces — *is this value product state or is it DOM state?* —
+is the whole of MIG-16/17, and it is the reason this skill is not a codemod.
+
+## Interpreted first; compiled is a later, optional promotion
+
+Freehand runs **interpreted** by default: the body is walked at render, so the
+things Reagent tolerated because it just ran your function — a runtime-chosen
+tag, hiccup assembled from data, markup a helper returns — keep working.
+
+`{:compiled true}` on one declaration selects the compiled tier: a finite
+grammar, lowered at build time, with refusals that name a recovery. That is a
+**post-migration performance decision on a hot leaf**, taken with measurements,
+and it does not move callers, structural output or the view's own tests.
+
+The practical consequence for this skill: **migrate interpreted.** Opting a view
+into the compiled tier mid-migration converts legal bodies into build failures
+and buys nothing while the shape is still settling.
 
 ## Why this shapes the tiers
 
-- **M-tier** rewrites are the shifts applied where they are unambiguous: deref-drop, the header/params change, the plain-hiccup pass-through, the literal-vector dispatch lift.
-- **D-tier** is where a shift meets a *decision the source can't answer*: is this `r/atom` product state (→ app-db, an event + sub) or ephemeral UI state (→ `local`)? The compiler can't tell; the human can.
-- **R-tier** is where a shift meets a construct with *no compiled spelling yet* — or ever. Those views stay on Reagent.
-
-The migration is the disciplined application of these four shifts, view by view, holding back exactly the views where a shift has no answer.
+- **M-tier** rewrites are the shifts applied where they are unambiguous: the
+  header and props change, deref-drop, the literal-vector dispatch lift, the
+  plain-hiccup pass-through.
+- **D-tier** is where a shift meets a *decision the source can't answer*: is this
+  `r/atom` product state (→ app-db) or a control protocol (→ a semantic
+  controller) or DOM state (→ a behavior)? The code can't tell you; the domain can.
+- **R-tier** is where a shift meets a surface that has **not landed** — foreign
+  React components, the outward bridge, trusted markup, author-declared refs.
+  Those views stay on Reagent, and saying so is the honest answer.

@@ -1,14 +1,14 @@
 {
   "name": "@day8/reagent-migration",
   "version": "0.1.0-alpha.1",
-  "description": "Optional, second-step migration of Reagent view code to the experimental re-frame.ui compiled-view substrate — applies the mechanical MIG rewrites, reasons through the judgment calls, and declines the cases re-frame.ui does not yet handle. A Claude Code Skill, companion to re-frame-migration and re-frame2.",
+  "description": "Optional, second-step migration of Reagent view code to Freehand, re-frame2's re-frame-native view layer — applies the mechanical MIG rewrites, reasons through the judgment calls, and declines the cases Freehand does not yet handle. A Claude Code Skill, companion to re-frame-migration and re-frame2.",
   "keywords": [
     "claude-code",
     "claude-code-skill",
     "claude-code-plugin",
     "re-frame",
     "re-frame2",
-    "re-frame.ui",
+    "freehand",
     "reagent",
     "migration",
     "clojurescript",

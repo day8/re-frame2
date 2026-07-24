@@ -2,27 +2,27 @@
 
 > ↑ [`skills/`](..) — index of all re-frame2 skills.
 
-A `Skill` that helps `Claude Code` **migrate Reagent view code to re-frame2's experimental [`re-frame.ui`](https://github.com/day8/re-frame2/blob/main/spec/004-Views.md) compiled-view substrate** — a Reagent hiccup view becomes a compiled `ui/defview`, `@(subscribe …)` becomes `(sub …)`, `#(dispatch …)` handlers lift to data, and the frame becomes explicit. The mechanical rewrites are applied directly; the judgment calls are **reasoned** (this is an AI skill, not a codemod); the cases re-frame.ui doesn't yet handle are **declined honestly** ("keep this on Reagent, or wait").
+A `Skill` that helps `Claude Code` **migrate Reagent view code to [Freehand](https://github.com/day8/re-frame2/blob/main/spec/004-Views.md)** — `re-frame.freehand`, aliased `v`, re-frame2's re-frame-native view layer. A Reagent hiccup view becomes a `v/defview` mounted in brackets and never called, `@(subscribe …)` becomes `(v/sub …)`, `#(dispatch …)` handlers lift to event vectors, and the state and lifecycle Reagent kept inside the component move to where re-frame can see them. The mechanical rewrites are applied directly; the judgment calls are **reasoned** (this is an AI skill, not a codemod); the cases Freehand does not yet handle are **declined honestly** ("keep this on Reagent, or wait").
 
-## Read this first — optional, second, experimental
+## Read this first — optional, second, pre-alpha
 
 This skill is **not on anyone's critical path**, and the README says so before anything else:
 
-- **It is the OPTIONAL, SECOND step.** The migration journey is two moves, in order: **(1)** re-frame v1 → re-frame2 (the *required* foundation — the [`re-frame-migration`](../re-frame-migration) skill; it leaves your views on Reagent), then **(2)** — optionally — Reagent views → re-frame.ui (*this* skill). Do (2) only after (1), and only if you want the compiled-view substrate.
-- **re-frame.ui is EXPERIMENTAL.** Parts are still staged (an explicit-frame `sub` pin). The skill names those gaps and holds the affected views on Reagent.
-- **Staying on Reagent views is a first-class, fully-supported choice.** A re-frame2 app running Reagent views through the Reagent adapter is a complete, supported configuration. The skill never implies you *should* move to re-frame.ui.
+- **It is the OPTIONAL, SECOND step.** The migration journey is two moves, in order: **(1)** re-frame v1 → re-frame2 (the *required* foundation — the [`re-frame-migration`](../re-frame-migration) skill; it leaves your views on Reagent), then **(2)** — optionally — Reagent views → Freehand (*this* skill).
+- **Freehand is PRE-ALPHA.** Its host boundary (foreign React components) and outward React bridge are declared and have not landed, so a view that touches a third-party React component cannot move yet. The skill names those gaps and holds the affected views on Reagent.
+- **Staying on Reagent is a first-class, fully-supported choice.** A re-frame2 app running Reagent, UIx or Helix views through its adapter is a complete, supported configuration. Freehand is a **peer view layer**, not a successor, and the skill never implies you *should* move.
 
-**When to reach for it (narrow):** you are *already on re-frame2* and *specifically want to trial the experimental `re-frame.ui` substrate* for some views. That is the whole trigger.
+**When to reach for it (narrow):** you are *already on re-frame2* and *specifically want to trial Freehand* for some views. That is the whole trigger.
 
 ## What it covers
 
-- **The mental model** — the one shift to internalise: views **compile** now (build-time analysis, not a fn re-run per render), subscriptions **deref-drop** (`@(subscribe …)` → `(sub …)`), the frame is **explicit** (no ambient `subscribe`/`dispatch`), and dispatch **lifts to data** (`#(dispatch [:e])` → `[:e]`).
-- **The transformation catalog**, organised by what you do with each rule (`MIG-NN` ids matching the framework's own rule table):
-  - **M-tier ("do this")** — unambiguous mechanical rewrites with a before→after each: `reg-view`→`defview`, deref-drop, dispatch-lifting, prop respelling, key-meta→prop, plain hiccup, mount, ns requires, `dangerouslySetInnerHTML`→`ui/html`, and more.
-  - **D-tier ("how to DECIDE")** — the judgment cases where the skill earns its keep: Form-2/`with-let` local state (app-db vs `local`), Form-3 lifecycle (effect vs domain event), derived state (`track`/`cursor`/`reaction`), the ratom-as-store restructure, computed DOM props + the bare-symbol trap, third-party Reagent wrappers.
-  - **R-tier ("don't migrate — stay on Reagent, or wait")** — the honesty backbone: genuine rejects (Reagent introspection/scheduler, dynamic tag heads) and the experimental capability gaps that remain unshipped (the explicit-frame `sub` frame-pin). (An effectful sub body is a *dataflow-side* heads-up — make the sub pure — not itself a view hold.)
-- **An incremental procedure** — migrate a closed subtree at a time, leaf → root; verify it compiles, renders, and passes tests; iterate. Never big-bang.
-- **The gotchas** — the bare-symbol trap (`[:li item]` is content, not a spread), whole-view coherence, keyed-child extraction, dynamic tag heads, and the staged-gap trap.
+- **The mental model** — the shifts to internalise: a view is a **declaration** you mount in brackets and never call, subscriptions **deref-drop** (`@(subscribe …)` → `(v/sub …)`), dispatch **lifts to data** (`#(dispatch [:e])` → `[:e]`), and the view holds **no state and no lifecycle** — there is no `local`, no `ref`, no `effect`.
+- **The transformation catalog**, organised by what you do with each rule (`MIG-NN` ids the report cites so an author can audit any change):
+  - **M-tier ("do this")** — unambiguous mechanical rewrites with a before→after each: `reg-view`→`v/defview` and the one-props-map law, deref-drop, dispatch-lifting with the `::v/value` projection markers, prop respelling, key-meta→prop, plain hiccup, mount and frame preflight, ns requires, the `route-link` head-rename.
+  - **D-tier ("how to DECIDE")** — the judgment cases where the skill earns its keep: Form-2/`with-let` state (app-db, a semantic controller, or a behavior), Form-3 lifecycle (a registered behavior, an event, or `v/error-boundary`), the `:on-*` handler split, derived state, the ratom-as-store restructure, SSR path routing, computed props, runtime-built markup.
+  - **R-tier ("don't migrate — stay on Reagent, or wait")** — the honesty backbone: foreign React heads and Reagent wrapper libraries (the host boundary has not landed), trusted markup, `:ref`, Reagent introspection and schedulers, and a frame-pinned reactive read.
+- **An incremental procedure** — migrate a closed subtree at a time, leaf → root; verify it compiles, renders, and passes tests; iterate. Never big-bang. Includes the structural test surface (`re-frame.freehand.test`), which asserts a button's intent as data without a browser.
+- **The gotchas** — brackets-mount-parens-inline, the exactly-one-props-map law, the bare-symbol trap (`[:li item]` is content, not a spread), whole-view coherence, render-scoped reads, and why you migrate interpreted rather than promoting mid-flight.
 
 ## What it deliberately does NOT cover
 
@@ -35,16 +35,18 @@ This skill is **not on anyone's critical path**, and the README says so before a
 
 ## How the skill works
 
-The skill is knowledge Claude reads and then applies to a consumer's Reagent code **with judgment** — there is no rewrite-clj tool to run (that codemod was shelved). For an ambiguous view it *reasons* about the right re-frame.ui shape rather than emitting a flag. It:
+The skill is knowledge Claude reads and then applies to a consumer's Reagent code **with judgment** — there is no rewrite tool to run. For an ambiguous view it *reasons* about the right Freehand shape rather than emitting a flag. It:
 
 - teaches the mental model (the four view shifts);
 - applies the M-tier rewrites directly (citing `MIG-NN`);
 - reasons through the D-tier decisions with the author;
-- declines the R-tier / capability-gap cases honestly, holding those views on Reagent.
+- declines the R-tier cases honestly, holding those views on Reagent.
+
+One standing rule governs all of it: **emit only what has shipped.** Freehand's design corpus describes forms — `local`, `effect`, `ref`, an outward React bridge, a trusted-markup verb — that are not exported. The skill checks the API catalogue before it writes a verb, and names the gap when there isn't one.
 
 ## Status
 
-Pre-alpha, and it migrates **to** an experimental substrate. The skill is authored; it has not yet been exercised end-to-end against a real Reagent codebase. The structure mirrors the [`re-frame-migration`](../re-frame-migration) skill; the content is grounded against the framework's `MIG-01…35` rule table, the shelved migrator's golden fixtures (read as worked examples, not revived), and Spec 004 (Views).
+Pre-alpha, and it migrates **to** a pre-alpha view layer. The skill is authored; it has not yet been exercised end-to-end against a real Reagent codebase. The structure mirrors the [`re-frame-migration`](../re-frame-migration) skill; the content is grounded against the shipped `re-frame.freehand` export surface and Spec 004 (Views).
 
 ## Layout
 
@@ -57,12 +59,12 @@ skills/reagent-migration/
 ├── .claude-plugin/
 │   └── plugin.json
 ├── references/
-│   ├── mental-model.md        # the re-frame v1→re-frame.ui view shift
+│   ├── mental-model.md        # the Reagent→Freehand view shift
 │   ├── catalog-mechanical.md  # M-tier — "do this" (before→after per rule)
 │   ├── catalog-judgment.md    # D-tier — "here's how to DECIDE"
 │   ├── catalog-reject.md      # R-tier — "don't migrate — stay on Reagent, or wait"
 │   ├── procedure.md           # incremental, closed-subtree passes
-│   └── gotchas.md             # bare-symbol trap, whole-view coherence, keyed-child, staged-gap
+│   └── gotchas.md             # brackets-vs-parens, bare-symbol trap, whole-view coherence
 ├── evals/
 │   └── evals.json             # trigger fixtures + behavioural fixtures across the M/D/R tiers
 └── spec/
@@ -79,7 +81,7 @@ skills/reagent-migration/
 
 ## Source of truth
 
-The framework's `MIG-01…35` Reagent→re-frame.ui rule table, itself grounded in [Spec 004 — Views](https://github.com/day8/re-frame2/blob/main/spec/004-Views.md) and the shipped `re-frame.ui` export surface. Every rewrite the skill applies cites a `MIG-NN` id. If the skill and the framework's rule table disagree, the framework wins.
+[Spec 004 — Views](https://github.com/day8/re-frame2/blob/main/spec/004-Views.md) is the contract, and [`spec/API.md`](https://github.com/day8/re-frame2/blob/main/spec/API.md) is the roster of what is actually exported. The `MIG-NN` ids are this skill's own vocabulary for the rewrites it applies, cited so an author can audit any change. If the skill and the spec disagree, the spec wins.
 
 ## Licence
 

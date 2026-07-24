@@ -424,5 +424,5 @@ decision, and each moves as one editorial pass.
 | `docs/core/views.md` | the view-layer overview that routes readers to the donor | REPLACE | F6 | pending |
 | `docs/api/re-frame.ui*.md` | the generated donor API pages | REPLACE | F6 | pending |
 | `skills/re-frame2-ui/*` | the donor authoring skill, its references, and its packaging | MOVE | F6 | pending |
-| `skills/reagent-migration/*` | the migration skill's donor target vocabulary | REPLACE | F6 | pending |
+| `skills/reagent-migration/*` | the migration skill's donor target vocabulary | REPLACE | F6 | done |
 | `mkdocs.yml` | navigation entries for the donor guide and API pages | REPLACE | F6 | pending |
