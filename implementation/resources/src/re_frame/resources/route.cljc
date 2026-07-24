@@ -355,11 +355,18 @@
   is never consulted; `clear-blocking-slot` drops it wholesale on owner
   release.
 
-  EDGE-TRIGGERED: the slice is rewritten only when the projection actually
-  differs from what it already carries, so re-projecting on every resource
-  settle is idle for unrelated resources and the
-  `:rf.error/resource-route-blocking` error trace (rf2-u5aj91) fires once per
-  transition INTO `:error`, not once per settle. That trace is the one
+  EDGE-TRIGGERED, on two separate edges. The SLICE is rewritten only when the
+  projection actually differs from what it already carries, so re-projecting on
+  every resource settle is idle for unrelated resources. The
+  `:rf.error/resource-route-blocking` error TRACE (rf2-u5aj91) fires on the
+  narrower edge — only when the slice was not ALREADY `:error` — so it is one
+  trace per transition INTO `:error`, not one per settle. The two edges differ
+  because `:error` is a pure function of the CURRENT outstanding set: a second
+  blocking requirement failing later can change WHICH failure is deterministically
+  first (the slice value moves, correctly) without the route ever leaving
+  `:error` (so nothing new happened to report). Reading the PRE-write
+  `:transition` off `db'` is what makes this a pure edge test — no latch, no
+  remembered first failure, no extra state (rf2-kqxe6.17). That trace is the one
   out-of-band observability side effect — the same emit-inside-the-pure-
   transform discipline `route-resource-plan` uses for
   `:rf.error/resource-route-plan`. `:emit-error? false` suppresses it for the
@@ -390,7 +397,12 @@
                   (= err        (get-in db' (conj slice-path :error))))
            db'
            (do
-             (when (and err emit-error?)
+             (when (and err emit-error?
+                        ;; rf2-kqxe6.17 — the EDGE into `:error`. `db'` still
+                        ;; carries the PREVIOUS transition here, so an already-
+                        ;; `:error` route that merely re-picks a canonically
+                        ;; earlier failure updates the slice silently.
+                        (not= :error (get-in db' (conj slice-path :transition))))
                ;; rf2-u5aj91: the route slice carries the structured :error AND
                ;; the trace/error stream sees `:rf.error/resource-route-blocking`
                ;; (tags conform to ResourceRouteBlockingTags).
@@ -902,7 +914,7 @@
   (the route-entry app-db value — see the `:app-db` paragraph below), and
   `:runtime-db` (the pre-commit runtime-db, read for the AT-COMMIT resource
   facts that decide which blocking requirements still have to resolve —
-  `requirement-met?`). Returns `{:fx [...] :blocking #{<scoped-key> …}
+  `requirement-ready?`). Returns `{:fx [...] :blocking #{<scoped-key> …}
   :plan-error err?}`.
 
   FAIL-CLOSED structural inputs (rf2-ac71vm): a `nil` `ctx` or a missing

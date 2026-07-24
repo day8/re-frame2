@@ -1035,6 +1035,79 @@
                           :error      {:rf.error/id :rf.error/resource-route-plan}}}}]
       (is (identical? rdb (route/reconcile-readiness rdb))))))
 
+;; ---- the error trace is EDGE-triggered (rf2-kqxe6.17) ----------------------
+
+(def ^:private pending-req
+  {:resource/id :article/by-slug :status :loading :data nil :attempt 1})
+
+(defn- failed-req
+  "A blocking FIRST-load failure whose envelope `:status` identifies it."
+  [http-status]
+  {:resource/id :article/by-slug :status :error :data nil :attempt 1
+   :error       {:kind :rf.http/server :status http-status}})
+
+(defn- blocking-error-traces [traces]
+  (errors-of traces :rf.error/resource-route-blocking))
+
+(deftest reconcile-readiness-emits-the-blocking-error-once-per-edge-into-error
+  ;; rf2-kqxe6.17 — `reconcile-readiness` re-picks the deterministic first
+  ;; failure over the CURRENT outstanding set on EVERY settle. When a second
+  ;; blocking requirement fails LATER but sorts canonically EARLIER, that pick
+  ;; legitimately moves — but the route never left `:error`, so there is no new
+  ;; transition to report. The trace is gated on the transition EDGE, not on
+  ;; value-inequality with the slice.
+  (testing "a second failure while ALREADY :error re-picks silently — one trace"
+    (let [[early late] (sort-by state/key-id [req-a req-b])
+          final  (volatile! nil)
+          traces (record-error-traces!
+                   (fn []
+                     ;; settle 1 — the canonically LATER requirement fails first,
+                     ;; taking the route from :loading INTO :error.
+                     (let [rdb1 (route/reconcile-readiness
+                                  (runtime-db-with "nav-1" :loading
+                                                   {early pending-req
+                                                    late  (failed-req 503)}))]
+                       ;; settle 2 — the canonically EARLIER one fails too. It
+                       ;; becomes the deterministic first failure.
+                       (vreset! final
+                                (route/reconcile-readiness
+                                  (assoc-in rdb1 (state/entry-path early)
+                                            (failed-req 500)))))))
+          rdb2   @final]
+      (is (= :error (get-in rdb2 [:rf.runtime/routing :current :transition])))
+      (is (= 500 (get-in rdb2 [:rf.runtime/routing :current :error :error :status]))
+          (str "the slice reports the CURRENT deterministic first failure — "
+               ":error is a pure function of the live outstanding set, NOT a "
+               "latched first observation that could go stale on refetch"))
+      (is (= #{early late} (get-in rdb2 (route/blocking-path "nav-1")))
+          "neither failed requirement is pruned")
+      (is (= 1 (count (blocking-error-traces traces)))
+          "ONE trace per transition INTO :error, not one per settle")))
+  (testing "a GENUINE re-entry into :error still emits — the edge gate does not over-suppress"
+    ;; The failed identity refetches successfully (route → :idle), then fails
+    ;; again. That is a real second transition into :error and must be reported.
+    (let [traces (record-error-traces!
+                   (fn []
+                     (let [rdb1 (route/reconcile-readiness
+                                  (runtime-db-with "nav-1" :loading
+                                                   {req-a (failed-req 503)}))
+                           ;; the retry lands: :error → :idle (and the now-ready
+                           ;; requirement is pruned from the slot)
+                           rdb2 (route/reconcile-readiness
+                                  (assoc-in rdb1 (state/entry-path req-a)
+                                            {:resource/id :article/by-slug
+                                             :status :loaded :data {:x 1}}))]
+                       (is (= :idle (get-in rdb2 [:rf.runtime/routing :current :transition]))
+                           "a successful load re-projects :idle — no stale error survives")
+                       ;; a fresh activation re-blocks on the same identity, which
+                       ;; fails again
+                       (route/reconcile-readiness
+                         (-> rdb2
+                             (assoc-in (route/blocking-path "nav-1") #{req-a})
+                             (assoc-in (state/entry-path req-a) (failed-req 500)))))))]
+      (is (= 2 (count (blocking-error-traces traces)))
+          "two distinct transitions INTO :error are two traces"))))
+
 ;; ---- 1. activation commit reads the facts AT COMMIT ------------------------
 
 (deftest fresh-blocking-resource-commits-idle-with-no-transient-loading
