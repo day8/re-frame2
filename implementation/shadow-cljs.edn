@@ -1175,6 +1175,15 @@
   ;; an unset environment produces an unattributable record, never an
   ;; invented revision.
   ;;
+  ;; THE HARDWARE CLASS CROSSES THE SAME BOUNDARY, and for the same reason a
+  ;; page cannot read `process.env`. Exporting `RF2_HARDWARE_CLASS` in the
+  ;; runner's environment configures the RUNNER; until this define existed
+  ;; the page itself saw nothing, `detect-hardware-class` fell through to its
+  ;; `:developer-workstation` default, and the pinned release worker
+  ;; published records labelled with a machine class it was not running on.
+  ;; Read from the same variable, through the same `#shadow/env`, with the
+  ;; same empty default that degrades honestly on an unconfigured local run.
+  ;;
   ;; The ns-regexp selects the bench's own DOM suites and nothing else, so
   ;; the captured console is the evidence rather than a 757-test transcript
   ;; to sift. Those same namespaces still run under the broader
@@ -1193,8 +1202,9 @@
    ;; Playwright runner watches, and a green suite presents as a hang.
    :compiler-options
    {:closure-defines
-    {cljs-test-display.core/printing                   true
-     re-frame.freehand.bench.provenance/build-revision #shadow/env ["RF2_REVISION" ""]}}
+    {cljs-test-display.core/printing                        true
+     re-frame.freehand.bench.provenance/build-revision      #shadow/env ["RF2_REVISION" ""]
+     re-frame.freehand.bench.provenance/build-hardware-class #shadow/env ["RF2_HARDWARE_CLASS" ""]}}
    :devtools  {:http-port 8024
                :http-root "out/browser-test-freehand-bench"}}
 

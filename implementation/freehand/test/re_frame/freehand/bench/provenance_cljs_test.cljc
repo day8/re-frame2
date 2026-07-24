@@ -142,3 +142,23 @@
     (let [build (prov/detect-build)]
       (is (keyword? (:optimizations build)))
       (is (boolean? (:instrumentation? build))))))
+
+(deftest a-configured-hardware-class-beats-the-fallback
+  (testing "The precedence [[prov/hardware-class]] enforces, proved without
+            an environment. A configured class WINS — whatever route it
+            arrived by, an environment variable where the host has one or the
+            compile-time define where it does not. This is the rule the
+            browser lane broke: the runner exported RF2_HARDWARE_CLASS, the
+            page could not read it, nothing was configured as far as the page
+            was concerned, and thirteen release-worker records were published
+            labelled :developer-workstation."
+    (is (= :release-worker (prov/hardware-class "release-worker" false))
+        "a configured class wins over the workstation fallback")
+    (is (= :release-worker (prov/hardware-class "release-worker" true))
+        "and over the CI fallback — a pinned worker is not a shared runner")
+    (is (= :shared-ci-runner (prov/hardware-class nil true))
+        "unconfigured in CI, the runner is shared and the record says so")
+    (is (= :developer-workstation (prov/hardware-class nil false))
+        "and unconfigured off CI it is a developer workstation")
+    (is (= :developer-workstation (prov/hardware-class "   " false))
+        "a blank configuration is no configuration, not a class named \"   \"")))
