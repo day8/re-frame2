@@ -8,9 +8,9 @@
 
   - a REAL scrollbar on a canvas three hundred and twenty thousand pixels
     tall, scrolled to a real offset, delivering a real `scroll` event
-    through the component's `v/event` site into an ordinary re-frame
-    event — and the next paint carrying exactly the twenty-nine rows that
-    offset selects;
+    whose offset the `::v/scroll-top` projection carries into an ordinary
+    re-frame event — and the next paint carrying exactly the twenty-nine
+    rows that offset selects;
   - the rows that STAYED in the window being the same DOM elements
     afterwards, which is the only honest reading of \"scrolling remounts
     nothing\" — a key comparison proves what the tree intended, and
@@ -221,7 +221,7 @@
 
 (deftest a-real-scroll-moves-the-window-and-leaves-the-surviving-rows-alone
   (testing "The whole loop, through the browser: a real scroll offset
-            fires a real `scroll` event, the component's `v/event` site
+            fires a real `scroll` event, the `::v/scroll-top` projection
             reads the offset off it, an ordinary re-frame event writes it
             to app-db, the subscription moves and the next paint carries
             EXACTLY the twenty-nine rows that offset selects.
@@ -329,9 +329,9 @@
             proves not only that the two emitters denote the same tree
             but that React builds the same document from them, that the
             compiled `v/slot` really lowers a caller's row content
-            through the React emitter, and that the compiled `v/event`
-            scroll site delivers a live browser event into app-db exactly
-            as the interpreted one does."
+            through the React emitter, and that the compiled
+            `::v/scroll-top` scroll site delivers a live browser event
+            into app-db exactly as the interpreted one does."
     (if-not (browser?)
       (skip! "the browser job runs the mount assertions")
       (async done

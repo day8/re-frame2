@@ -40,7 +40,7 @@
           :role               "listbox"
           :popover            :auto
           ::web/popover-open? open?
-          :on-toggle          [:acme.ui.dropdown/toggle-reported control]
+          :on-toggle          [:acme.ui.dropdown/toggle-reported control ::v/new-state]
           :style              {:position "fixed"
                                :inset    "auto"
                                :top      "var(--acme-anchor-y)"

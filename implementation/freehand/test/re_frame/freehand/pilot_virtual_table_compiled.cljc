@@ -79,8 +79,7 @@
             :aria-label    label
             :aria-rowcount total
             :style         {:height viewport-h :overflow-y "auto"}
-            :on-scroll     (v/event [e]
-                             [:acme.ui.table/scrolled table-key (ui/scroll-offset e)])}
+            :on-scroll     [:acme.ui.table/scrolled table-key ::v/scroll-top]}
       [:div {:data-part "canvas"
              :style     {:height (* total row-h) :position "relative"}}
        (for [i (range start end)

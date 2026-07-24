@@ -222,35 +222,29 @@
         {:open?  (boolean (:open? r))
          :active (:active r 0)})))
 
-  ;; --- The dismissal handshake ---------------------------------------
+  ;; --- The browser's dismissal, reconciled from `newState` -----------
   ;;
   ;; The browser reports a top-layer element's state changes through
   ;; `ToggleEvent`, and the useful field is `newState` — "open" or
-  ;; "closed". There is no reserved projection for it: the closed roster
-  ;; is `::v/value` / `::v/checked` / `::v/key`, so the report cannot ride
-  ;; a declarative event vector at all. `v/event` (the sanctioned
-  ;; conversion seam) would take it, at the cost the data-intent idiom
-  ;; exists to avoid: the site records as the OPAQUE marker, so what this
-  ;; component dispatches on a dismissal would stop being comparable data
-  ;; and no headless test could assert it.
+  ;; "closed". It rides the reserved `::v/new-state` projection, so the
+  ;; report reaches this handler as ORDINARY DATA: no live event object,
+  ;; the intent stays comparable by equality, and the whole
+  ;; reconciliation is one `=`.
   ;;
-  ;; So the library counts instead of reading. Every open session produces
-  ;; exactly one open-toggle followed by at most one close-toggle, in that
-  ;; order, so the FIRST report of a session is the one the application
-  ;; caused and any LATER one is the browser dismissing without asking.
-  ;; One boolean, no live event object, and the whole path stays data.
+  ;; Only a "closed" the application did not perform needs reconciling —
+  ;; Escape, a light dismiss, a sibling popover taking the layer. An
+  ;; "open" is the application's own doing (the record already exists),
+  ;; and a "closed" echoing a close the application already made finds no
+  ;; record and is inert. Reading the reported state rather than COUNTING
+  ;; reports is what makes a NESTED pair correct: opening a nested pair
+  ;; delivers more than one report for the ancestor, and a control that
+  ;; counted would read its own second opening as a dismissal and
+  ;; collapse.
   (rf/reg-event :acme.ui.dropdown/toggle-reported
-    (fn [{:keys [db]} [_ k]]
-      (let [r (record db k)]
-        (cond
-          ;; The report of a close the application already performed. The
-          ;; record is gone, so there is nothing to reconcile.
-          (nil? r)        {}
-          ;; The opening report. Acknowledge it and wait.
-          (not (:acked? r)) {:db (assoc-in db [records-root k :acked?] true)}
-          ;; A second report while still open: the browser closed it —
-          ;; Escape, a light dismiss, a sibling popover taking the layer.
-          :else           {:db (close db k)}))))
+    (fn [{:keys [db]} [_ k new-state]]
+      (if (and (= new-state "closed") (record db k))
+        {:db (close db k)}
+        {})))
 
   ;; --- The transitions -----------------------------------------------
 
@@ -289,14 +283,12 @@
             open?  (boolean (:open? r))
             active (:active r 0)
             last*  (max 0 (dec (count options)))
-            ;; Two narrow writes rather than a replacement, so the
-            ;; dismissal handshake's acknowledgement survives a highlight
-            ;; move. A control that forgot it had already been reported
-            ;; open would treat the browser's next dismissal as an opening
-            ;; and spring back open.
-            move   (fn [i] {:db (-> db
-                                    (assoc-in [records-root k :open?] true)
-                                    (assoc-in [records-root k :active] (clamp i 0 last*)))})]
+            ;; The record holds only `:open?` and `:active`, so a move
+            ;; sets both. There is nothing else to preserve: the dismissal
+            ;; reads `newState` directly rather than counting reports, so
+            ;; there is no acknowledgement a highlight move could disturb.
+            move   (fn [i] {:db (assoc-in db [records-root k]
+                                          {:open? true :active (clamp i 0 last*)})})]
         (cond
           (not open?) (case pressed
                         ("ArrowDown" "ArrowUp" "Enter" " ") (move (if (= "ArrowUp" pressed) last* 0))
@@ -396,7 +388,7 @@
              :role               "listbox"
              :popover            :auto
              ::web/popover-open? open?
-             :on-toggle          [:acme.ui.dropdown/toggle-reported k]
+             :on-toggle          [:acme.ui.dropdown/toggle-reported k ::v/new-state]
              ;; The placement, resolved from the properties the behavior
              ;; published on the root. `inset: auto` un-does the popover
              ;; UA rule that centres it in the viewport; the top layer

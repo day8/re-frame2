@@ -52,7 +52,7 @@
           :role               "listbox"
           :popover            :auto
           :re-frame.freehand.web/popover-open? open?
-          :on-toggle          [:acme.ui.dropdown/toggle-reported control]
+          :on-toggle          [:acme.ui.dropdown/toggle-reported control ::v/new-state]
           :style              {:position "fixed"
                                :inset    "auto"
                                :top      "var(--acme-anchor-y)"
@@ -180,7 +180,7 @@
                           [:div {:data-part "root"}
                            [:div {:popover :auto
                                   :re-frame.freehand.web/popover-open? open?
-                                  :on-toggle [:acme.ui.dropdown/toggle-reported :x]}
+                                  :on-toggle [:acme.ui.dropdown/toggle-reported :x ::v/new-state]}
                             "PDF"]]))
                      ::compiled
                      (catch Throwable e (.getMessage e)))]

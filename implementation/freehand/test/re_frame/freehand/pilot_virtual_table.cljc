@@ -4,7 +4,7 @@
   two applications that call it.
 
   Everything here is CONSUMER code: `v/defview`, `v/sub`, `v/render-fn`,
-  `v/slot`, `v/event`, event vectors, `reg-event` and `reg-sub`. It adds
+  `v/slot`, event vectors, `reg-event` and `reg-sub`. It adds
   no substrate machinery and asks for none — there is no virtualisation
   service, no scroll registry, no measurement protocol and no grid
   framework. A virtual table is a windowed `for` over a range the
@@ -28,9 +28,11 @@
   The window is a PURE FUNCTION of four numbers — the scroll offset, the
   row height, the viewport height and the overscan — and [[window]] is
   that function, exported and directly testable without a host. The
-  scroll offset is ordinary application state: a scroll event dispatches
-  an ordinary event, an ordinary `reg-event-db` writes it, and the view
-  reads it back through `v/sub`. There is no scroll subscription
+  scroll offset is ordinary application state: a scroll event carries the
+  offset as the reserved `::v/scroll-top` projection, so the intent is a
+  plain event vector assertable by equality — no `v/event` body, no
+  imperative `.-scrollTop` read. An ordinary `reg-event-db` writes it, and
+  the view reads it back through `v/sub`. There is no scroll subscription
   protocol and no imperative read of the DOM during render.
 
   The row and viewport heights are the CALLER's, declared as props. That
@@ -146,29 +148,6 @@
      :skipped (- total (- end start))}))
 
 ;; ---------------------------------------------------------------------------
-;; The scroll offset — the one host-shaped read this component needs
-;; ---------------------------------------------------------------------------
-
-(defn scroll-offset
-  "The vertical scroll offset a scroll callback reports.
-
-  This is the component's ONE piece of host interop, and it exists
-  because the substrate's closed projection roster is `::v/value`,
-  `::v/checked` and `::v/key` — the three form-control reads. A scroll
-  offset is the same SHAPE of fact (one shallow scalar off the event
-  target) but is not in the roster, so the intent cannot be spelled
-  `[:acme.ui.table/scrolled k ::v/scroll-top]` and has to be assembled
-  inside a `v/event` body instead.
-
-  The JVM arm reads the literal payload map a structural test supplies,
-  exactly as `payload-map` does for the projections, so the same body of
-  test code drives both hosts."
-  [e]
-  #?(:cljs (let [target (.-target e)]
-             (if (some? target) (long (.-scrollTop target)) 0))
-     :clj  (long (or (:scroll-top e) 0))))
-
-;; ---------------------------------------------------------------------------
 ;; The dataflow — one read, two transitions
 ;; ---------------------------------------------------------------------------
 
@@ -243,8 +222,7 @@
             :aria-label    label
             :aria-rowcount total
             :style         {:height viewport-h :overflow-y "auto"}
-            :on-scroll     (v/event [e]
-                             [:acme.ui.table/scrolled table-key (scroll-offset e)])}
+            :on-scroll     [:acme.ui.table/scrolled table-key ::v/scroll-top]}
       [:div {:data-part "canvas"
              :style     {:height (* total row-h) :position "relative"}}
        ;; Two spellings the grammar decides for you, and both are worth
