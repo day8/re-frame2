@@ -170,19 +170,48 @@
   [cells]
   (first (keep-indexed (fn [i c] (when (= "Tier" (str/trim c)) i)) cells)))
 
+(defn- namespace-shaped?
+  "True when a heading CODE SPAN NAMES a re-frame2 namespace, as opposed to an
+   ordinary API name, keyword, or other code a heading may carry. A namespace is
+   DOTTED — two or more `.`-separated lowercase identifier segments
+   (`re-frame.ui`, `re-frame.freehand`, `re-frame.freehand.test`). That shape
+   distinguishes it from a bare API-name span (`reg-sub`, `dispatch-*`,
+   `reg-flow` / `clear-flow`), a keyword span (`:rf.http/managed` — rejected by
+   its leading `:` and its `/`), or a wildcard (`dispatch-*` — rejected by the
+   `*`). So a heading whose only code span is an API name names NO namespace, and
+   an API-name child under it inherits its parent's namespace rather than adopting
+   the API name as a bogus namespace (rf2-etj5i)."
+  [span]
+  (boolean (re-matches #"[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+" span)))
+
 (defn- section-heading-namespace
   "The owning namespace a Markdown SECTION HEADING names in a back-tick code
    span — ``## Compiled views — `re-frame.ui` `` -> \"re-frame.ui\",
    ``## Freehand views — `re-frame.freehand` `` -> \"re-frame.freehand\" — or nil
-   for a non-heading line or a heading that carries no code-span namespace
-   (`## Registration`). A BARE var-row is attributed to the namespace of the
-   SECTION it sits under, never to its bare name alone: a bare root verb is a
-   `re-frame.ui` verb only inside the `re-frame.ui` section, so a future bare
-   Freehand row (the natural spelling once a section header already scopes the
-   table) can no longer be mis-attributed to `re-frame.ui` (rf2-etj5i)."
+   for a non-heading line, a heading with no code span, or a heading whose code
+   span(s) name NO namespace (`## Registration`, ``### `reg-sub` input modes``).
+
+   The heading's code spans are scanned IN ORDER and the FIRST NAMESPACE-SHAPED
+   one (`namespace-shaped?` — dotted `a.b.c`) is taken; an ORDINARY API-name span
+   is NOT a namespace, so a heading whose span is an API name
+   (``### Root lifecycle — `hydrate-root` ``, ``### `reg-sub` input-production
+   modes``) is namespace-LESS and its API-name children inherit the established
+   PARENT namespace. Blindly taking the FIRST span — the original bug — read such
+   a heading as a `hydrate-root` / `reg-sub` namespace, which then mis-excluded
+   the correct bare row and made the two-sided guard report it missing: a FALSE
+   gate failure. This is not exotic syntax — the real spec/API.md already carries
+   code-span headings for `reg-sub`, `dispatch-*`, `:rf.http/managed`, and
+   `reg-flow` / `clear-flow`, none of which name a namespace (rf2-etj5i).
+
+   A BARE var-row is attributed to the namespace of the SECTION it sits under,
+   never to its bare name alone: a bare root verb is a `re-frame.ui` verb only
+   inside the `re-frame.ui` section, so a bare Freehand row (the natural spelling
+   once a section header already scopes the table) can no longer be
+   mis-attributed to `re-frame.ui` (rf2-etj5i)."
   [line]
   (when (str/starts-with? (str/triml line) "#")
-    (second (re-find #"`([^`]+)`" line))))
+    (some (fn [[_ span]] (when (namespace-shaped? span) span))
+          (re-seq #"`([^`]+)`" line))))
 
 (defn- heading-level
   "The ATX heading LEVEL — the count of leading `#`s — of a Markdown heading
