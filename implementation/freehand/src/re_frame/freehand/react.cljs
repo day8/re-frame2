@@ -784,37 +784,56 @@
                         "shapes land with the host-lifecycle slice.")
                    {:value (shape head)})))))
 
-(defn- collect [cand acc form]
-  (cond
-    (nil? form)     acc
-    (boolean? form) acc
-    (string? form)  (conj acc form)
-    (number? form)  (conj acc (conv/js-number-str form))
-    (conv/child-run? form) (reduce (fn [a f] (collect cand a f)) acc form)
-    ;; `^{:key …}` metadata is refused by the SHARED sentence the structural
-    ;; walk raises, not by a second one here — one source has one answer,
-    ;; and a key that reached React through a spelling the JVM tree drops
-    ;; would be exactly the divergence this walk exists to not have.
-    (vector? form)  (do (node/refuse-metadata-key!
-                          're-frame.freehand.react/element form)
-                        (conj acc (node cand form)))
-    (seq? form)     (reduce (fn [a f] (collect cand a f)) acc form)
-    ;; A React element in a child position is markup a COMPILED body
-    ;; already lowered — the shape a compiled parent forwards to an
-    ;; interpreted child. It is finished work, so it passes through
-    ;; untouched: this walk has nothing left to decide about it, and
-    ;; entering it is not possible in any case.
-    (react/isValidElement form) (conj acc form)
-    :else
-    (malformed!
-      (str "A view body produced a " (type-name form) " where a child was expected. "
-           "A child is markup (a vector), text (a string or a number), a seq of "
-           "children, or nothing (nil / false).")
-      {:value (shape form)})))
+(defn- collect
+  "Fold one child value into the children accumulator.
+
+  `walk?` is the LANGUAGE BOUNDARY. The interpreted front end passes true:
+  a vector is markup, and it is walked into a React element. The compiled
+  tier's child seam ([[child-elements]]) passes false: a compiled body
+  resolved its structure at build time and produces no markup, so a runtime
+  vector is a value with nowhere to go — D010 gives the compiled tier no
+  dynamic-markup valve and no interpreter to walk one — and it is refused by
+  the SAME [[re-frame.freehand.node/opaque-child!]] sentence the structural
+  children canonicalizer raises, never interpreted here. That is what keeps
+  a compiled view from acquiring an interpreter through its browser
+  lowering (rf2-drpa3.130)."
+  ([cand acc form] (collect cand true acc form))
+  ([cand walk? acc form]
+   (cond
+     (nil? form)     acc
+     (boolean? form) acc
+     (string? form)  (conj acc form)
+     (number? form)  (conj acc (conv/js-number-str form))
+     (conv/child-run? form) (reduce (fn [a f] (collect cand walk? a f)) acc form)
+     (vector? form)
+     (if walk?
+       ;; `^{:key …}` metadata is refused by the SHARED sentence the structural
+       ;; walk raises, not by a second one here — one source has one answer,
+       ;; and a key that reached React through a spelling the JVM tree drops
+       ;; would be exactly the divergence this walk exists to not have.
+       (do (node/refuse-metadata-key! 're-frame.freehand.react/element form)
+           (conj acc (node cand form)))
+       (node/opaque-child! 're-frame.freehand/render form))
+     (seq? form)     (reduce (fn [a f] (collect cand walk? a f)) acc form)
+     ;; A React element in a child position is markup a COMPILED body
+     ;; already lowered — the shape a compiled parent forwards to an
+     ;; interpreted child. It is finished work, so it passes through
+     ;; untouched: this walk has nothing left to decide about it, and
+     ;; entering it is not possible in any case.
+     (react/isValidElement form) (conj acc form)
+     :else
+     (if walk?
+       (malformed!
+         (str "A view body produced a " (type-name form) " where a child was expected. "
+              "A child is markup (a vector), text (a string or a number), a seq of "
+              "children, or nothing (nil / false).")
+         {:value (shape form)})
+       (node/opaque-child! 're-frame.freehand/render form)))))
 
 (defn- children
-  [cand forms]
-  (reduce (fn [acc f] (collect cand acc f)) [] forms))
+  ([cand forms] (children cand true forms))
+  ([cand walk? forms]
+   (reduce (fn [acc f] (collect cand walk? acc f)) [] forms)))
 
 (defn- emit
   [cand form]
@@ -851,20 +870,20 @@
 ;; step.
 
 (defn ^:no-doc child-elements
-  "Classify ONE runtime value in a child position, and answer the React
-  children it denotes, in order.
+  "Classify ONE runtime value in a COMPILED body's child position, and
+  answer the React children it denotes, in order.
 
-  The candidate is this render's AMBIENT one, because a compiled body is
-  straight-line code with no walk between the shell and the value to
-  thread one through. Inside a compiled view that kept its ViewCell the
-  ambient candidate is that view's, so declarative intent in a forwarded
-  subtree is recorded on the same commit an interpreted body would have
-  recorded it on. Under a view whose ViewCell its own analysis ELIDED
-  there is no candidate — and no commit for such intent to belong to,
-  which is the sentence `react-props` already writes for markup with no
-  boundary above it."
+  A compiled body resolved its markup at build time, so a runtime value
+  here is text, a number, nothing, an already-lowered React child, or a
+  run of those — never a template. A runtime VECTOR is refused by name:
+  D010 gives the compiled tier no dynamic-markup valve and no interpreter
+  to walk one, so a Hiccup value in a compiled child position raises the
+  same [[re-frame.freehand.node/opaque-child!]] refusal the structural
+  children canonicalizer raises, rather than being silently interpreted
+  here (rf2-drpa3.130). No candidate is threaded, because with no walk
+  there is nothing to open or record against."
   [form]
-  (children (cell/current-candidate) [form]))
+  (children nil false [form]))
 
 (defn ^:no-doc mount-view
   "Cross a declared boundary from a compiled body. `args` is the call's

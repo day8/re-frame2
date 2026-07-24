@@ -244,10 +244,16 @@
     (string? (peek acc))  (conj (pop acc) (str (peek acc) s))
     :else                 (conj acc s)))
 
-(defn- opaque-child!
+(defn ^:no-doc opaque-child!
   "The rejection every child value that is not content lands on. `vector?`
   gets D010's ladder by name: a runtime value is not a template, and the
-  compiled tier has no interpreter to hand it to."
+  compiled tier has no interpreter to hand it to.
+
+  Public so the compiled tier's BROWSER child seam
+  ([[re-frame.freehand.react/child-elements]]) refuses a runtime markup
+  value with the SAME sentence the structural tier raises — one D010
+  refusal, reached from both hosts, rather than a second one that could
+  drift (rf2-drpa3.130)."
   [where form]
   (malformed!
     where
