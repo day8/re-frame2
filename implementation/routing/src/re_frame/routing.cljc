@@ -47,10 +47,8 @@
             [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]
             [re-frame.subs :as subs]
-            [re-frame.routing.address :as address]
             [re-frame.routing.can-leave :as can-leave]
             [re-frame.routing.events :as routing-events]
-            [re-frame.routing.resolve :as resolver]
             [re-frame.routing.history :as history]
             [re-frame.routing.link :as link]
             [re-frame.routing.nav-counters :as nav-counters]
@@ -87,17 +85,14 @@
 (def route-ids                  registry/route-ids)
 (def route-meta                 registry/route-meta)
 
-;; EP-0037 R0 — the shared RouteAddress extraction law + the one
-;; resolved-target / route-plan seam every navigation door lowers to. These
-;; are owned-namespace operations (not re-exported from `re-frame.core`); the
-;; plan-projection is the pure on-demand view a tool (Xray / trace tooling)
-;; reads to prove the shared spine (Spec 012 §Resolved target and the plan
-;; diagnostic projection).
-(def extract-address            address/extract-address)
-(def valid-address?             address/valid-address?)
-(def resolved-target            resolver/resolved-target)
-(def route-plan                 resolver/route-plan)
-(def plan-projection            resolver/plan-projection)
+;; EP-0037 R0 — the shared RouteAddress extraction law
+;; (`re-frame.routing.address`) and the one resolved-target / route-plan seam
+;; (`re-frame.routing.resolve`) are INTERNAL routing seams the navigation
+;; doors consume; they are deliberately NOT re-exported here. A tool that
+;; needs the R0 plan diagnostic projection (`resolve/plan-projection`) requires
+;; the internal namespace directly, exactly as CLJS tools require
+;; `re-frame.routing.tooling` — routing adds no public `RoutePlan` constructor
+;; (Spec 012 §Resolved target and the plan diagnostic projection).
 
 ;; Scroll positions are host-side transient state, not runtime-db state.
 (def scroll-positions-cap       scroll/scroll-positions-cap)
