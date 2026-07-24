@@ -97,9 +97,7 @@
    :frame-root     {:what "a frame root"
                     :recovery [:scope-the-frame-above-the-view :keep-interpreted]}
    :frame-provider {:what "a frame provider"
-                    :recovery [:scope-the-frame-above-the-view :keep-interpreted]}
-   :hook-prefix    {:what "host effects in the view body"
-                    :recovery [:keep-interpreted]}})
+                    :recovery [:scope-the-frame-above-the-view :keep-interpreted]}})
 
 (def ^:private id-recoveries
   "The ladder for the analyzer's own rejections. Ordered most specific

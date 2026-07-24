@@ -422,11 +422,7 @@
     ;; FALLBACK, wrapped in the `:rf.ui/boundary :client-only` fragment (§004B);
     ;; the browser-only client subtree never appears on the JVM tree.
     :client-only `(re-frame.freehand.tree/client-only-fallback
-                   ~(emit-node e (:fallback node)))
-    ;; Leading (effect …) statements: a `do` sequences the JVM effect stubs
-    ;; (no-ops) then renders the template. `local` mutators / dispatch-fn stay
-    ;; unevaluated in their statement bodies until a host test invokes them.
-    :hook-prefix `(do ~@(:statements node) ~(emit-node e (:body node)))))
+                   ~(emit-node e (:fallback node)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The compiled structural body
