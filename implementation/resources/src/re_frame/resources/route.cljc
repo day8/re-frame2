@@ -628,9 +628,9 @@
 ;; the LEAF target, so the leaf id alone cannot say WHICH declaration failed.
 
 (defn- attributed
-  "Re-throw a per-contributor planning failure `ex` with the CONTRIBUTING route
-  id (and the local declaration id, when the failure is entry-scoped) attached
-  to its ex-data under `:contributor`.
+  "The per-contributor planning failure `ex`, with the CONTRIBUTING route id
+  (and the local declaration id, when the failure is entry-scoped) attached to
+  its ex-data under `:contributor`. The caller re-throws it.
 
   WHY the throw needs enriching (rf2-kqxe6.6): a parent-chain plan resolves
   EVERY contributor's declarations against the LEAF target, so the leaf
