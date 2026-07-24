@@ -632,9 +632,10 @@
       (skip! "the browser job runs the same-id-successor remount assertions")
       (async done
         (reg!)
-        (let [node    (host-node!)
-              fid     :fh.root/succ-same-plan
-              plan    {:frame {:id fid :initial-events [[:root/seed 1]]}}
+        (let [succ    (:unprovable-incarnation root-004)
+              node    (host-node!)
+              fid     (:frame-id succ)
+              plan    {:frame {:id fid :initial-events [[:root/seed (:seeded succ)]]}}
               a-token (atom nil)
               b-token (atom nil)]
           (-> (act #(v/mount [views/counter {}] node plan))
@@ -647,15 +648,15 @@
                       "the install recorded A's exact incarnation token")
                   ;; external: destroy A, stand a same-id successor B.
                   (rf/destroy-frame! fid)
-                  (rf/make-frame {:id fid :initial-events [[:root/seed 2]]})
+                  (rf/make-frame {:id fid :initial-events [[:root/seed (:successor-seed succ)]]})
                   (reset! b-token (frame/frame-incarnation-token fid))
                   (is (not (identical? @a-token @b-token))
                       "B is a distinct incarnation")
                   ;; same-plan remount over B — the recorded token no longer matches.
                   (let [data (error-data #(v/mount [views/counter {}] node plan))]
-                    (is (= :rf.error/frame-payload-conflict (:rf.error/id data))
+                    (is (= (:error succ) (:rf.error/id data))
                         "the stale row does not assert ownership of the successor")
-                    (is (= :scope-config-less-or-own-the-lifetime (:recovery data)))
+                    (is (= (:recovery succ) (:recovery data)))
                     (is (= fid (:frame-id data))
                         "and the diagnostic names the frame at stake")
                     (is (identical? @b-token (frame/frame-incarnation-token fid))
@@ -663,12 +664,12 @@
                   (act #(v/unmount! installer))))
               (.then
                 (fn [_]
-                  (is (some? (frame/frame fid))
+                  (is (= (:successor-live succ) (some? (frame/frame fid)))
                       "final unmount destroyed EXACTLY the original incarnation
                        (already gone) and no-opped against the successor")
                   (is (identical? @b-token (frame/frame-incarnation-token fid))
                       "so B — the successor — still stands, its exact incarnation")
-                  (is (empty? (root/frame-ledger-snapshot))
+                  (is (= (:ledger-after-unmount succ) (count (root/frame-ledger-snapshot)))
                       "and the ledger is emptied: the installer released its own row")
                   (rf/destroy-frame! fid)
                   (.remove node)

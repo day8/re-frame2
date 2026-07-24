@@ -22,7 +22,7 @@
 ;; it — is untouched.
 {:fh/id "FH-ROOT-004"
  :fh/law
- "A root's frame plan runs to completion before the host root exists — the frame is live and its initial events drained by the time the first render reads a subscription — the ENSURE and SCOPE spellings own and borrow the frame's lifetime respectively, and a plan meeting one frame under a different config fingerprint fails that root with :rf.error/frame-payload-conflict before install and before React, with the installed frame and its sibling roots untouched."
+ "A root's frame plan runs to completion before the host root exists — the frame is live and its initial events drained by the time the first render reads a subscription — the ENSURE and SCOPE spellings own and borrow the frame's lifetime respectively, and a plan meeting one frame under a different config fingerprint fails that root with :rf.error/frame-payload-conflict before install and before React, with the installed frame and its sibling roots untouched; and a same-root ENSURE takes the idempotent no-op or a surgical refresh only while it can PROVE it owns the incarnation live under the id, so an EQUAL fingerprint over a same-id successor (the installed incarnation torn down and re-created under the id) is refused under :scope-config-less-or-own-the-lifetime rather than silently taking the successor over."
 
  :view :counter
  :query [:root/n]
@@ -55,6 +55,33 @@
  ;; registry entry, no second ledger record.
  :rejected-container-children 0
  :ledger-entries-after 1
+
+ ;; ---------------------------------------------------------------------
+ ;; The equal-fingerprint-but-unprovable-incarnation REFUSAL — the decisive
+ ;; companion to the still-live no-op (`:boundary :idempotent` below).
+ ;;
+ ;; The idempotent re-mount no-ops because the root can PROVE it still owns
+ ;; the incarnation live under the id. Ownership is the recorded install
+ ;; VALUE's incarnation token, NOT a non-nil installer name — so an equal
+ ;; fingerprint is not enough on its own. A root installs incarnation A;
+ ;; external code destroys A and stands a same-id SUCCESSOR B; the same-plan
+ ;; remount's recorded token no longer names the live frame, so the row
+ ;; cannot prove it owns B. The remount FAILS LOUD before make-frame — never
+ ;; the address-directed no-op an equal fingerprint alone would grant — and B
+ ;; is preserved exactly; the stale installer's own final unmount destroys
+ ;; only the incarnation it installed (already gone), no-ops against B, and
+ ;; empties the ledger.
+ ;; ---------------------------------------------------------------------
+ :unprovable-incarnation
+ {:frame-id             :fh.root/succ-same-plan
+  :seeded               1
+  :successor-seed       2
+  :error                :rf.error/frame-payload-conflict
+  :recovery             :scope-config-less-or-own-the-lifetime
+  ;; B — the successor — is untouched (the guard fired before any mutation),
+  ;; and the installer's own final unmount leaves the ledger empty.
+  :successor-live       true
+  :ledger-after-unmount 0}
 
  ;; ---------------------------------------------------------------------
  ;; The preflight is also an OWNERSHIP BOUNDARY, and it has two sides.
