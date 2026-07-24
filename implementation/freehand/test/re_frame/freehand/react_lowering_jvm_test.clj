@@ -298,3 +298,35 @@
           "and the slot body was lowered through the React emitter")
       (is (not (.contains emitted ":row nil"))
           "so the boundary is not handed an absent slot"))))
+
+(deftest a-runtime-valued-select-multiple-settles-its-empty-value-at-render
+  (testing "rf2-sf9n5 — the React emitter settled the multiple-select verdict
+            only from a build-time literal, so a runtime-valued :multiple wrote
+            the constant `false` and mis-shaped an explicitly nil value. It is
+            now settled at RENDER: the :multiple value is bound once, the
+            verdict is derived from it once, and BOTH the :multiple write and
+            the nil :value normalization read that one runtime verdict —
+            never the constant false the bug baked in. Asserted on the emitted
+            FORM; the runtime value shape is `compiled-select-multiple-cljs-test`."
+    (let [[e ast]  (analyzed '[:select {:multiple (:flag props) :value nil}])
+          form     (emit-react/emit-react-body e '[props] ast)
+          nodes    (tree-seq coll? seq form)
+          attr!s   (filter #(and (seq? %)
+                                 (= 're-frame.freehand.compiled-react/attr! (first %)))
+                           nodes)
+          value-write   (first (filter #(= :value (nth % 3 nil)) attr!s))
+          verdict-forms (filter #(and (seq? %)
+                                      (= 're-frame.freehand.controlled/multiple-select?
+                                         (first %)))
+                                nodes)]
+      (is (= 1 (count verdict-forms))
+          "the runtime multiple-select verdict is computed exactly once")
+      (is (some? value-write)
+          "the explicitly nil :value is written at runtime")
+      (let [verdict-arg (nth value-write 5 nil)]
+        (is (symbol? verdict-arg)
+            "the :value write's verdict is the once-bound runtime verdict, not a constant")
+        (is (not (false? verdict-arg))
+            "and specifically NOT the build-time constant false the bug baked in"))
+      (is (= 1 (count (filter #(= '(:flag props) %) nodes)))
+          "and the runtime :multiple expression is evaluated exactly once"))))

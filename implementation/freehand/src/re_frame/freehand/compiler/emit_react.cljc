@@ -318,14 +318,13 @@
         top         (cond-> top (seq top) (into (top-layer-context props)))
         attrs       (remove (fn [{:keys [k]}] (contains? top-layer-keys k)) all-attrs)
         controlled? (controlled/controlled-props? (map :k attrs))
-        ;; The multiple-select verdict, from the LITERAL `multiple` — the
-        ;; only spelling a build-time constant can be read from. It decides
-        ;; one thing: what an EMPTY `<select>` value is. Acceptance of a
-        ;; collection value deliberately does NOT turn on it (see
-        ;; `controlled/select-value-slot?`), so a `multiple` this tier
-        ;; cannot see can cost React's own shape warning on an explicitly
-        ;; nil value and can never refuse a declaration the interpreted
-        ;; walk renders.
+        ;; The multiple-select verdict for a LITERAL `multiple`, settled at
+        ;; build time as the constant it is. It decides one thing: what an
+        ;; EMPTY `<select>` value is. Acceptance of a collection value
+        ;; deliberately does NOT turn on it (see
+        ;; `controlled/select-value-slot?`). A RUNTIME `multiple` — a value
+        ;; this constant cannot read — is settled at render time instead,
+        ;; by `dyn-multi` below; this arm is the literal case only.
         multi?      (controlled/multiple-select?
                       tag
                       (keep (fn [{:keys [k value] :as attr}]
@@ -343,13 +342,31 @@
                       (and sty (:static? sty) (static-style-obj sty))
                       (conj ["style" (static-style-obj sty)]))
         dynamics    (remove build-time-attr? attrs)
+        ;; A `<select>`'s `multiple` may be a value only the render knows.
+        ;; When it is, the multiple-select verdict — the one fact that
+        ;; decides what an EMPTY value is — is itself a RUNTIME fact, so it
+        ;; is bound once beside the props object and shared by the `multiple`
+        ;; write and every nil-value normalization, the way the structural
+        ;; builder settles it over both attribute sources. A fully literal
+        ;; `multiple` keeps the build-time constant `multi?` above; a runtime
+        ;; `multiple` this tier could not see used to settle it `false` and
+        ;; mis-shape an explicitly nil value (rf2-sf9n5).
+        dyn-multi   (when (= :select tag)
+                      (first (filter #(= (controlled/prop-slot (:k %))
+                                         (controlled/prop-slot :multiple))
+                                     dynamics)))
+        mval        (when dyn-multi (gensym "rf-fh-multi-val"))
+        mverdict    (when dyn-multi (gensym "rf-fh-multi?"))
+        multi-arg   (if dyn-multi mverdict multi?)
         o           (gensym "rf-fh-props")
         writes      (cond-> []
                       (and cls (not (:static? cls))) (conj (dynamic-class-form o tag cls))
                       (and sty (not (:static? sty))) (conj (style-write o tag sty))
-                      true (into (map (fn [{:keys [k value]}]
+                      true (into (map (fn [{:keys [k value] :as a}]
                                         `(re-frame.freehand.compiled-react/attr!
-                                          ~o ~tag ~k ~value ~multi?))
+                                          ~o ~tag ~k
+                                          ~(if (identical? a dyn-multi) mval value)
+                                          ~multi-arg))
                                       dynamics))
                       true (into (handler-writes o tag controlled? (:events props)))
                       ;; Both forwards write LAST, and for the same reason: a
@@ -366,8 +383,13 @@
                                         ~o ~tag ~top))
                       (:present? key-info)
                       (conj `(cljs.core/unchecked-set ~o "key" ~(:expr key-info))))
+        multi-binds (when dyn-multi
+                      [mval     (:value dyn-multi)
+                       mverdict `(re-frame.freehand.controlled/multiple-select?
+                                  ~tag [[~(:k dyn-multi) ~mval]] nil)])
         props-form  (if (seq writes)
-                      `(let [~o (cljs.core/js-obj ~@(mapcat identity literals))]
+                      `(let [~o (cljs.core/js-obj ~@(mapcat identity literals))
+                             ~@multi-binds]
                          ~@writes
                          ~o)
                       `(cljs.core/js-obj ~@(mapcat identity literals)))]

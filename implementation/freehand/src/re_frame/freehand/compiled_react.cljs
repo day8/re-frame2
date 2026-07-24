@@ -126,8 +126,12 @@
   "Write ONE entry of a forwarded author-space attribute map.
   `sugar` composes with a forwarded `:class` — `put-attr!`'s own `:class`
   arm composes with nothing, which is right for a per-attribute write and
-  wrong here, where the element's `.class` sugar has to survive the map."
-  [o tag sugar site-id controlled? k raw]
+  wrong here, where the element's `.class` sugar has to survive the map.
+
+  `multiple?` is the WHOLE forwarded map's multiple-select verdict, settled
+  once by the caller — the one fact that decides what an EMPTY `<select>`
+  value is."
+  [o tag sugar site-id controlled? multiple? k raw]
   (let [k (conv/attr-key k)]
     (cond
       (conv/handler-key? k)
@@ -143,7 +147,7 @@
           (gobj/set o slot proxy)))
 
       (= :class k) (fr/put-class! o tag sugar raw)
-      :else        (fr/put-attr! o tag k raw)))
+      :else        (fr/put-attr! o tag k raw multiple?)))
   o)
 
 (defn ^:no-doc spread!
@@ -158,8 +162,15 @@
   arrived, exactly as the interpreted walk decides it."
   [o tag sugar site-id m]
   (let [attrs       (top-layer/without m)
-        controlled? (controlled/controlled-props? (keys attrs))]
-    (reduce-kv (fn [_ k raw] (forward-entry! o tag sugar site-id controlled? k raw) nil)
+        controlled? (controlled/controlled-props? (keys attrs))
+        ;; The multiple-select verdict is a property of the WHOLE forwarded
+        ;; map, settled over it once — the interpreted walk settles it over
+        ;; the same merged map before writing any attribute. Without it a
+        ;; forwarded `<select multiple>`'s explicitly nil `value` writes the
+        ;; scalar empty string React reports as a shape error (rf2-sf9n5).
+        multiple?   (controlled/multiple-select? tag attrs nil)]
+    (reduce-kv (fn [_ k raw]
+                 (forward-entry! o tag sugar site-id controlled? multiple? k raw) nil)
                nil attrs)
     ;; The DOM top layer's desired-state pair is Freehand vocabulary, not an
     ;; attribute, so a forwarded one becomes the commit-time host call here
