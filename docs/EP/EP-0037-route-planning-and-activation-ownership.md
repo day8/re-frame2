@@ -155,7 +155,8 @@ The canonical contract homes on graduation are:
   props, and in-place edits are never part of this value.
 - **`RouteDestination`** is the closed replay union of a `RouteAddress` and the
   raw-URL escape. Pending-leave and entry-denial payloads use it when they must
-  preserve intent that may not have a named route spelling.
+  preserve intent that may not have a named route spelling. It never absorbs
+  navigation policy; a pending leave stores explicit policy beside it.
 - **`ResolvedTarget`** is planner output: canonical route id, params, query,
   fragment, and URL after matching, defaults, and validation. It is fact, not
   another accepted input spelling.
@@ -252,15 +253,20 @@ Presence chooses the request branch before validation:
    `:rf.error/navigate-bad-request` reason `:params-requires-destination`;
    changing path params always requires a destination.
 
-Policy keys are extracted and validated separately. A public boundary validates
-its whole control-key roster before extraction, so extraction cannot silently
-discard a misspelled address, policy, or edit key. `route-link` additionally
-validates `:prefetch` as its one routing-specific behavior key, strips the
-address and behavior keys before DOM emission, and passes its documented DOM
-attributes and children to the view substrate. A caller's `:on-click` and
-ordinary anchor attributes are view props, not destination or routing-policy
-keys. Thus the schema is closed over the extracted address, not over the
-convenient flat map accepted by every host API.
+Policy keys are extracted and validated separately. Closed control-map
+boundaries such as navigation, URL generation, prefetch, and stored-destination
+replay validate their whole accepted-key roster before extraction, so
+extraction cannot silently discard a misspelled address, policy, or edit key.
+
+`route-link` is deliberately different because its props map is also an open
+DOM-attribute map. It validates the recognized routing controls, including
+`:prefetch`, strips the exact address and behavior keys before DOM emission, and
+passes the remaining attributes and children to the view substrate. It does not
+pretend that routing can distinguish every misspelled control from a
+caller-authored DOM attribute; host/view DOM diagnostics own unknown attributes.
+A caller's `:on-click` and ordinary anchor attributes are view props, not
+destination or routing-policy keys. Thus the schema is closed over the
+extracted address, not over the convenient flat props map accepted by a link.
 
 #### Raw URL escape
 
@@ -409,6 +415,13 @@ application work. The planning error and trace are the causal facts an
 application observes. A retry is a fresh navigation and dispatches `:on-match`
 only after its plan forms successfully.
 
+Plan execution is atomic at this boundary. A failed plan contributes an empty
+next ownership set: after the failed target/error facts are installed, every
+owner held only by the previous route plan is released, no partially planned
+next owner is attached, and no partial ensure is dispatched. Keeping previous
+route owners after committing a different failed target would leak liveness and
+misrepresent the active plan.
+
 A full activation allocates a fresh nav-token. A fragment-only transition and a
 no-op do not. Prefetch is not activation and allocates none.
 
@@ -488,6 +501,10 @@ Planning follows these rules:
    The diagnostic names the cyclic identity groups and contributor/local ids.
    Silently dropping an `:after` or branch-order edge to keep an arbitrary
    occurrence is forbidden.
+
+The occurrence graph and identity collapse are internal planning mechanics. A
+collapse-created cycle is only a resource-plan failure; it does not introduce a
+public graph API, a public graph value, or a new router abstraction.
 
 When more than one requirement resolves to the same identity:
 
@@ -673,8 +690,9 @@ the Resources artefact in warm mode.
 
 Warm mode has a deliberately narrow contract:
 
-- every ensure is ownerless, carries a prefetch cause, and is scoped to the
-  frame that received the prefetch event;
+- every ensure is ownerless, carries cause
+  `[:route-prefetch <destination-route-id>]`, and is scoped to the frame that
+  received the prefetch event;
 - warmed entries remain governed by ordinary resource freshness, dedupe, and GC;
 - `:blocking?` does not block anything;
 - no route state, nav-token, URL, history, scroll, focus, or pending navigation
@@ -691,8 +709,8 @@ invariant applies to planning, trace attribution, cache entries, and teardown.
 
 An invalid prefetch address rejects before planning with the operation-specific
 `:rf.error/prefetch-bad-address`. A resource-planning failure emits the ordinary
-structured route/resource planning diagnostic with cause `:prefetch`, dispatches
-no partial ensures, and does not alter current route readiness.
+structured route/resource planning diagnostic with `:plan-cause :prefetch`,
+dispatches no partial ensures, and does not alter current route readiness.
 When the Resources artefact is absent, the effective warm plan is empty and the
 event performs no work; prefetch does not make Resources a mandatory routing
 dependency.
@@ -717,7 +735,9 @@ nothing more. Activation still evaluates and may deny entry.
 `:intent` warms on credible user intent such as focus, pointer hover, or touch
 intent. It never fires merely because a view rendered. A caller may dispatch the
 event directly for non-link intent (for example, after a search result becomes
-the keyboard selection).
+the keyboard selection). On both link surfaces, the installed intent handlers
+compose with rather than replace caller-supplied handlers and dispatch to the
+render-time-captured frame, exactly as the delayed click handler does.
 
 `:prefetch` is a route-link control key and is stripped before DOM emission,
 like `:to`/`:params`/`:query`/`:fragment`; it never appears as an unknown anchor
@@ -759,17 +779,25 @@ reparse an original event vector:
                    :fragment nil
                    :url "/"}
  :cause           :navigate
+ :policy          {:replace? true
+                   :scroll :preserve}
  :requested-url   "/"
  :rejecting-route :route/editor
  :rejecting-guard :editor/can-leave?
  :url-restored?   false}
 ```
 
+`:policy` is a normalized map of the caller-authored `:replace?` and `:scroll`
+overrides; it is `{}` when neither was supplied. It never stores
+`:bypass-leave?`: a request carrying a true bypass could not have entered the
+pending slot, and continuation owns its own one-shot internal bypass.
+
 `:rf.route/continue` and `:rf.route/cancel` apply only to this leave slot.
-Continue clears the slot and executes the stored `RouteDestination` through the
-normal pipeline with a one-shot leave bypass; entry is still evaluated normally.
-Cancel clears the slot and stays. A blocked popstate restores the current URL as
-today.
+Continue clears the slot and executes the stored `RouteDestination` plus stored
+policy through the normal pipeline with a one-shot leave bypass; entry is still
+evaluated normally. If a blocked URL-driven transition restored the prior URL,
+continue first moves the host URL back to `:requested-url`, preserving that
+door's no-extra-push semantics. Cancel clears the slot and stays.
 
 A non-boolean leave result fails closed and emits the existing structured
 programmer error. This proposal recommends the public `:bypass-leave? true`
@@ -973,8 +1001,10 @@ general-purpose public plan debugger.
 
 `:rf.resource/route-plan` is the existing Spec 016 route/resource graph
 operation and is extended rather than replaced by a parallel trace. Prefetch
-emits one `:rf.route/prefetched` summary trace; its plan/ensure traces carry
-cause `:prefetch`. The underlying ensures retain their normal resource traces.
+emits one `:rf.route/prefetched` summary trace; its plan trace carries
+`:plan-cause :prefetch`, and its ensures carry
+`:cause [:route-prefetch <destination-route-id>]`. The underlying ensures retain
+their normal resource traces.
 
 The Spec 009 graduation roster is explicit:
 
@@ -995,6 +1025,16 @@ The Spec 009 graduation roster is explicit:
   `:rf.route/on-match-id`/`:rf.route/on-match-frame` attribution fields, and
   the internal `:rf.route/enter-attempts` resume rider.
 
+The retained `:rf.error/resource-route-plan` schema is widened deliberately for
+the shared planner. Its tags require `:route-id` and `:plan-cause` (one of
+`:link`, `:navigate`, `:popstate`, `:initial`, `:ssr`, or `:prefetch`);
+`:nav-token` is present only for an activation attempt, and `:resource-id` is
+present only when one declaration owns the failure. The existing `:cause` field
+keeps its existing meaning—underlying failure/ex-data—and is never overloaded
+with `:prefetch`; a plan-wide collapse cycle records its projected
+identity-group and contributor/local-id evidence there. The
+`:rf.resource/route-plan` trace uses the same `:plan-cause` vocabulary.
+
 The stray `:rf.error/resource-route-plan-failed` spelling in Spec 012 is not a
 second category; graduation replaces it with the existing canonical
 `:rf.error/resource-route-plan`. Route metadata `:on-error` and
@@ -1012,10 +1052,14 @@ Graduation requires executable proof of the following:
    of valid/invalid `RouteAddress` values drives `route-url`, navigation,
    `rf/route-link`, `v/route-link`, named entry/pending payloads, and prefetch on
    JVM and CLJS. Flat wrapper maps prove that only the extracted address reaches
-   the closed schema and that policy/edit/DOM values neither leak into it nor
-   hide misspelled control keys. The raw destination branch is tested
-   separately. Unknown keys and malformed combinations—including in-place
-   `:params` with reason `:params-requires-destination`—fail identically.
+   the closed schema. Closed request maps reject misspelled controls; both link
+   surfaces strip the exact routing keys and preserve the remaining DOM props
+   without asking routing to classify arbitrary attributes. The raw destination
+   branch is tested separately. Unknown keys and malformed combinations on
+   closed maps—including in-place `:params` with reason
+   `:params-requires-destination`—fail identically. An in-place
+   `{:query ...}` request proves the complementary rule: it follows the edit
+   branch and never reaches the closed `:rf/route-address` schema.
 2. **Door parity (R0 target/leaf-plan spine; R2 effective branch plan).** Named
    address, matching raw URL, link, programmatic, popstate, initial, and SSR
    inputs resolve to the same target/branch/resource plan. Only cause-specific
@@ -1030,7 +1074,9 @@ Graduation requires executable proof of the following:
    parent/child occurrences that dynamically converge on one identity exercise
    grouped ordering: satisfiable graphs dispatch once without losing an edge,
    collapse-created cycles fail the whole plan, and a redundant child copy
-   appears as an advisory on `:rf.resource/route-plan`.
+   appears as an advisory on `:rf.resource/route-plan`. Every planning-failure
+   arm attaches and ensures none of the partial next plan and releases owners
+   held only by the previous plan after the failed target/error commit.
 5. **Partial activation (R2).** Sibling-leaf navigation retains unchanged parent
    identities, attaches before release, does not abort shared in-flight work,
    ensures newly added identities (including a requirement whose resolved
@@ -1046,7 +1092,9 @@ Graduation requires executable proof of the following:
 7. **Prefetch isolation (R3).** Prefetch runs the full effective resource plan
    ownerlessly in the dispatching frame, dedupes repeated intent, remains
    GC-eligible, reuses work on activation, and runs no guard, URL, route-state,
-   scroll, `:on-match`, sibling-frame, or SSR side effect.
+   scroll, `:on-match`, sibling-frame, or SSR side effect. Both link surfaces
+   preserve caller intent handlers and target their render-time-captured frame;
+   prefetch planning failures carry `:plan-cause :prefetch` and no nav-token.
 8. **Guard parity (R4).** Leave and entry decisions cover link, programmatic,
    popstate, initial, and SSR doors. Exact no-ops run neither guard; full
    transitions—including changed in-place query—run both in order;
@@ -1055,7 +1103,8 @@ Graduation requires executable proof of the following:
    denial handler is safe and no-op; client/popstate preserves or restores the
    current URL; SSR hard denial with no replacement produces `403`; and an
    application redirect supersedes that default. A post-login return is a fresh
-   address navigation.
+   address navigation. Leave continuation preserves the stored destination,
+   explicit replace/scroll policy, cause, and restored-popstate URL behavior.
 9. **Query explicitness (R5).** `:query-retain` is rejected at registration;
    defaults and in-place merge remain; every in-tree call site, fixture,
    promotion source, and classification-advisory reference is migrated; and
@@ -1082,9 +1131,9 @@ guide/examples; there is no spec-only waterfall and no one giant router rewrite.
 | **R1 — honest activation** | `:on-match` fire-and-forget only after a valid plan; resource-derived transition/error; removal of global on-match correlation and route `:on-error`; SSR wait semantics and the post-v1 `:load` seam note corrected | R0 |
 | **R2 — branch resource plan** | parent-to-leaf resource composition, constraint-preserving grouped identity dedupe and redundant-child advisory, plan diff, attach-before-release, partial revalidation, SSR/hydration parity | R0, R1 |
 | **R3 — intent prefetch** | `:rf.route/prefetch`; `:prefetch :intent` on both `rf/route-link` and `v/route-link`; frame-scoped ownerless full-plan warm ensures; traces and reuse/GC proof | R2 |
-| **R4 — terminal entry** | leave-only pending protocol, classified guard matrix, terminal `:can-enter`, `:rf.route/entry-denied`, default hard-deny/SSR `403`, fresh auth return, all-door/SSR coverage, auth how-to and RealWorld update in the same cut, obsolete resume/loop machinery removed | R0; serialized after R3 by default |
+| **R4 — terminal entry** | leave-only, policy-preserving pending protocol; guard behavior for full, fragment-only, and no-op transitions; terminal `:can-enter`; `:rf.route/entry-denied`; default hard-deny/SSR `403`; fresh auth return; all-door/SSR coverage; auth how-to and RealWorld update in the same cut; obsolete resume/loop machinery removed | R0; serialized after R3 by default |
 | **R5 — explicit query carry and surface cleanup** | remove `:query-retain`, preserve defaults/in-place edits, migrate every in-tree retain call site/fixture and every promotion/advisory dependency it supplied, ship the explicit carry recipe, reject obsolete metadata/policy keys, final API/schema/error inventory | R0; serialized after R4 by default |
-| **R6 — integrated proof** | all conformance rows and guides coherent; RealWorld or equivalent routed app proves parent shell reads, leaf reads, intent warmup, auth denial/return, SSR, and no render-caused work | R5 |
+| **R6 — integrated proof** | all conformance rows and guides coherent; RealWorld or equivalent routed app proves parent shell reads, leaf reads, intent warmup, auth denial/return, SSR, and no render-caused work | R1–R5 |
 
 The default landing order is R0 → R1 → R2 → R3 → R4 → R5 → R6. Every
 contract slice touches the hot-zone `spec/012-Routing.md`, so those edits and
@@ -1322,8 +1371,9 @@ deprecated aliases:
   pending values, `continue`-after-login, attempt counters, loop errors, and
   enter bypass are removed;
 - pending navigation becomes leave-only and stores
-  `:destination`/`:target`/`:cause` instead of the original event as its primary
-  replay description;
+  `:destination`/`:target`/`:cause` plus normalized explicit `:policy` instead
+  of the original event as its replay description, so confirmation does not
+  discard replace/scroll intent;
 - subject to the acceptance ruling in Open Issue 3, `:bypass-guards?` becomes
   the public boolean `:bypass-leave?`;
 - route transition/error reads keep their names but change to managed-resource
@@ -1355,10 +1405,13 @@ Resolved Decisions with the acceptance date before R0 is cut.
 Acceptance must also knowingly ratify the closed extracted
 `:rf/route-address`; the `RouteDestination`/`:rf/route-destination` replay
 union; `:rf.route/entry-blocked` → `:rf.route/entry-denied`; the
-leave-only pending value's `:destination`/`:target`/`:cause` shape;
-`:bypass-guards?` → `:bypass-leave?`; the prefetch event/error/trace ids; and
-the exact retirement roster under Tooling and observability. These are not a
-later “cleanup” bundle or accidental consequences of the headline features.
+leave-only pending value's
+`:destination`/`:target`/`:cause`/`:policy` shape;
+`:bypass-guards?` → `:bypass-leave?`; the prefetch event/error/trace ids; the
+shared planner's `:plan-cause` diagnostic vocabulary and widened
+`:rf.error/resource-route-plan` tags; and the exact retirement roster under
+Tooling and observability. These are not a later “cleanup” bundle or accidental
+consequences of the headline features.
 
 ### 1. Boolean `:can-enter` plus denial event, or a closed terminal decision?
 
