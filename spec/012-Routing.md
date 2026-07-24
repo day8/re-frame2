@@ -41,6 +41,7 @@ Audience column: **user** = an event apps dispatch or handle directly. Every v1 
 | `:rf.route/entry-blocked` | user | Dispatched by the runtime when a `:can-enter` (enter) guard rejects — the mirror of `:rf.route/navigation-blocked`. | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
 | `:rf.route/continue` | user | User-dispatched: confirm pending navigation (re-runs `:can-enter`). | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
 | `:rf.route/cancel` | user | User-dispatched: cancel pending navigation. | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
+| `:rf.route/prefetch` | user | Warm-mode resource-only intent preload — runs a named destination's effective resource plan ownerlessly WITHOUT navigating (no route state, guards, `:on-match`, or readiness change). | [§Route-plan prefetch — warm-mode intent preload](#route-plan-prefetch--warm-mode-intent-preload) |
 
 ### Effects (`reg-fx`)
 
@@ -97,6 +98,7 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 - `:rf.route.nav-token/allocated` — a fresh navigation drain begins with a new nav-token. Carries `:tags {:route-id <id> :nav-token <token> :frame <navigating-frame>}`.
 - `:rf.route.nav-token/stale-suppressed` — async result carrying a now-superseded token.
 - `:rf.route/fragment-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime URL-change events `:rf.route/transitioned` / `:rf.route/handle-url-change`, which carry a full route transition. The op-name says what fires it (only a `#fragment` differed) and disambiguates from those runtime events.
+- `:rf.route/prefetched` — the single summary trace a `:rf.route/prefetch` emits once per warm-mode preload (see [§Route-plan prefetch — warm-mode intent preload](#route-plan-prefetch--warm-mode-intent-preload)). Carries `:tags {:route-id <destination-id> :warmed <n> :frame <dispatching-frame>}` — `:warmed` is the count of unique effective-plan requirements run through Resources in warm mode (`0` when Resources is absent or the plan is empty). A planning failure additionally sets `:plan-error true`; the underlying resource plan / ensure traces carry `:plan-cause :prefetch` and no nav-token (per [016 §Route integration](016-Resources.md#route-integration)). It is **not** an activation trace: no `:rf.route/activated` / `:rf.route.nav-token/allocated` pair fires for a prefetch.
 - `:rf.route/navigation-blocked` — `:can-leave` (leave) guard rejected a navigation. Carries `:tags :phase :can-leave :direction :leave`.
 - `:rf.route/entry-blocked` — `:can-enter` (enter) guard rejected a navigation; the mirror of `:rf.route/navigation-blocked`. Carries `:tags :phase :can-enter :direction :enter`.
 - `:rf.error/can-leave-non-boolean` — `:can-leave` sub returned a non-boolean value; the runtime BLOCKED the navigation. Closed contract; see [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
@@ -108,6 +110,7 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 - `:rf.error/invalid-route-classification` — `reg-route`'s `:sensitive` / `:large` data-classification declaration is structurally malformed (a non-vector axis, a non-sequential path entry, or a non-EDN-identity path segment). Thrown at registration (caller bug; dev *and* prod), before any state mutates and before the route can activate. Names the offending `:axis` and `:bad-path`; a bad segment surfaces the inner `:rf.error/bad-path` under `:rf.error/cause`. `:where 'rf/reg-route`, `:recovery :fix-route-classification`. See [§Route data classification](#route-data-classification).
 - `:rf.error/unsupported-scroll-strategy` — the `:rf.nav/scroll` fx was handed a `:strategy` outside the closed `:top` / `:restore` / `:preserve` vocabulary (classically a map, the form earlier drafts advertised as host-extensible). No scroll is performed and the navigation is otherwise unaffected. The dev trace names the offending `:strategy`; the always-on record — which ships off-box and bypasses the elision seam — carries only the `:supported` set and a closed-vocabulary `:strategy-type` shape tag, never the value itself (rf2-s3n6h). See [§Scroll restoration](#scroll-restoration) and [§Custom scroll strategies](#custom-scroll-strategies).
 - `:rf.error/navigate-bad-request` — `[:rf.route/navigate {request}]` carried a structurally-invalid request map. The always-on structural gate rejected it BEFORE any guard ran (slice unchanged, no push); `:where :event`, `:reason` names the first violation. See [§Validity rules](#validity-rules--the-always-on-structural-gate).
+- `:rf.error/prefetch-bad-address` — `[:rf.route/prefetch {address}]` carried a value that is not a closed `:rf/route-address` (a missing / non-keyword `:to`, a raw `:url` escape, a policy / edit key, or any unknown key). The always-on structural gate rejected it BEFORE any planning ran — no ensures dispatched, current route readiness untouched; `:where :event`, `:reason` names the first violation. Distinct from a resource *planning* failure, which is a well-formed address whose plan could not be built and surfaces as the ordinary `:rf.error/resource-route-plan` diagnostic with `:plan-cause :prefetch`. See [§Route-plan prefetch — warm-mode intent preload](#route-plan-prefetch--warm-mode-intent-preload).
 - `:rf.warning/route-shadowed-by-equal-score` — registration-time warning when ranking ties on rule 6 **between co-matchable patterns** (some URL matches both — equal structural rank alone never warns; see rule 6 in [§Route ranking algorithm](#route-ranking-algorithm)).
 - `:rf.warning/no-not-found-route` — runtime fell back to the built-in placeholder because `:rf.route/not-found` is not registered (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)).
 
@@ -604,6 +607,29 @@ surface. Migrating a routed Reagent app is a mechanical head-rename, because the
 href and the click law are the same law in every spelling — only the substrate
 differs.
 
+**`:prefetch :intent` — the opt-in warm-mode trigger.** A link accepts one
+behaviour value, `:prefetch :intent`, which warms the destination's resources on
+credible **user intent** — pointer hover, focus, or touch-start — by dispatching
+`[:rf.route/prefetch {address}]` for the link's own address to the
+render-time-captured frame (see [§Route-plan prefetch](#route-plan-prefetch--warm-mode-intent-preload)).
+
+```clojure
+[v/route-link {:to :route/article :params {:slug slug} :prefetch :intent} title]
+```
+
+`:intent` is the **only** accepted value; there is no render mode, viewport mode,
+global default, or hover-delay knob (Governing Law 1 — a passive render dispatches
+nothing, so prefetch never fires merely because a view rendered or scrolled into
+view). `:prefetch` is a routing control key on every link surface: it is validated
+and **stripped before DOM emission** alongside `:to` / `:params` / `:query` /
+`:fragment`, so it never reaches the `<a>` as an unknown attribute. The installed
+intent handlers **compose with**, rather than replace, a caller-supplied
+`:on-mouse-enter` / `:on-focus` / `:on-touch-start`, and dispatch to the same
+render-time-captured frame the click handler targets — so a prefetch warms the
+frame that rendered the link, never a sibling. A caller who wants prefetch on a
+non-link intent (a search result becoming the keyboard selection) dispatches
+`:rf.route/prefetch` directly; the link opt is sugar over that event.
+
 **Why the runtime doesn't auto-intercept.** A global `click` listener that calls `match-url` on every link is a host concern (DOM-bound, browser-only, conflicts with non-routed `<a>` tags inside iframes / shadow DOM / third-party widgets). The host adapter has the context to install or skip it; the runtime stays portable.
 
 Users who want plain anchors to be interceptable register their own delegating handler at the host layer, dispatching `:rf.route/url-requested` on match — this re-uses the same decision-point event the runtime already exposes, so the test surface and policy are unchanged.
@@ -884,6 +910,36 @@ The table uses [Spec 016](016-Resources.md) resource terms, not router-local gue
 This projection has **one pure implementation** used by the `:rf.route/transition` / `:rf.route/error` subscriptions, SSR wait / render decisions, Xray, and any cached route-slice fields. A runtime **may** cache the projected `:transition` / `:error` in the stored slice (runtime-db) for efficient whole-route reads and incremental updates, but the cache is **not** independent authority: it must be reconstructible from the active plan plus managed-resource / planning state, and it is reconciled through the same projector on **hydration**, **epoch restore**, and **every resource settlement**. Hydration and epoch restore must not preserve a route `:loading` (or `:error`) value that the restored resource state contradicts (per OI-2, 2026-07-24).
 
 R1 applies this projector to R0's behaviour-preserving **leaf-only** resource plan. R2 replaces that input with the effective **parent-to-leaf** branch plan; it does not change the readiness table or fork the projector. This staging lets activation honesty land before branch composition without an interim readiness contract.
+
+<a id="route-plan-prefetch--warm-mode-intent-preload"></a>
+### Route-plan prefetch — warm-mode intent preload
+
+Routing adds one public event that warms a destination's data **before** the user commits to navigating — hovering a link warms the article it points at, so the click lands on data already in flight or cached (EP-0037 §Resource-only intent prefetch, OI-3):
+
+```clojure
+[:rf.route/prefetch {:to :route/article :params {:slug slug}}]
+```
+
+It accepts a named `:rf/route-address` (never a raw `:url`), resolves the destination, builds the **same** effective parent-to-leaf resource plan a full activation would (the same `:parent` walk, the same per-entry `:when` / `:params` / `:scope` resolution, the same identity dedupe), and runs each unique requirement through the [Resources artefact](016-Resources.md#route-integration) in **warm mode**. It is frame-scoped: the event runs in — and warms only — the frame it was dispatched to.
+
+Warm mode has a deliberately narrow contract (EP-0037 §Resource-only intent prefetch; [016 §Route integration](016-Resources.md#route-integration)):
+
+- every ensure is **ownerless** and carries cause `[:route-prefetch <destination-route-id>]`, so a warmed entry no navigation ever claims stays GC-eligible under ordinary resource freshness / dedupe / GC — a prefetch that is never followed leaves no durable owner;
+- `:blocking?` is **inert** — a prefetch never blocks anything and records no blocking slot;
+- **no** route state changes: no `:rf/route` slice write, no nav-token, no URL, no history, no scroll, no focus, no pending-navigation, and no `:rf.route/transition` / `:rf.route/error` change on the live route;
+- **no** `:can-leave`, `:can-enter`, or `:on-match` runs — warmup is not activation;
+- a resource **failure stays a resource failure** on its own trace / status channel; it never becomes a route error or touches route readiness; and
+- a later activation of the same destination **reuses** the fresh or in-flight warmed work and attaches its real `[:route route-id nav-token]` owner before normal activation proceeds — the ordinary `ensure` dedupe / freshness path, so a prefetch followed by a click issues no duplicate fetch.
+
+A prefetch never warms or attaches work in a **sibling frame** merely because that frame resolves the same address or scoped resource identity — the carried-frame invariant applies to planning, trace attribution, cache entries, and teardown, exactly as it does for navigation.
+
+**Bad address vs planning failure are distinct.** An **invalid address** — anything that is not a closed `:rf/route-address` — rejects *before* planning with `:rf.error/prefetch-bad-address`, dispatches no ensures, and leaves current readiness untouched. A well-formed address whose **resource plan cannot be built** (a fail-closed `:params` / `:scope` / `:when` throw, a missing / cyclic `:after`, or an unresolved / cyclic `:parent`) emits the ordinary `:rf.error/resource-route-plan` diagnostic with `:plan-cause :prefetch`, dispatches **no partial ensures**, and — because prefetch owns no route state — does not alter current route readiness. When the Resources artefact is absent (or the effective plan is empty), the warm plan is empty and the event performs **no work** beyond its summary trace; prefetch does not make Resources a mandatory routing dependency.
+
+**Prefetch is a performance hint, not an authorization boundary.** Resource requests already enforce scope and server authorization; running entry guards during warmup would make prefetch a partial navigation and still would not be a security boundary. Prefetching a destination whose `:can-enter` would later **deny** is therefore permitted — it may warm an already-authorized resource cache and means nothing more. Activation still evaluates and may deny entry.
+
+**One summary trace.** A prefetch emits exactly one `:rf.route/prefetched` trace (`:route-id` / `:warmed` / `:frame`, `:plan-error true` on a planning failure); its underlying resource-plan and ensure traces carry `:plan-cause :prefetch` and no nav-token, distinguishing warm work from a navigation commit on the trace / Xray stream.
+
+**Non-goals (this slice).** There is no global default, render mode, viewport mode, hover-delay option, separate preload cache, or prefetch-stale clock — resource freshness and dedupe already answer whether work is useful. Raw URLs, external links, guards, `:on-match`, and route-driven code chunks are not prefetched. A future trigger or code-loading consumer can be proposed without changing warm-mode semantics.
 
 ## Route-not-found — `:rf.route/not-found` (canonical)
 
