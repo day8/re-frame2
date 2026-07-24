@@ -270,3 +270,18 @@
    so an edit to the sidecar recompiles this call site."
   []
   (-> (read-sidecar &env) :ui-test-signatures))
+
+(defmacro emit-signature-contract
+  "Expand to the sidecar's signature authority map under `sidecar-key`
+   (a keyword literal) — the generalisation of `emit-ui-test-signature-contract`
+   to any host-aware signature block (rf2-drpa3.99 added
+   `:freehand-test-signatures` alongside `:ui-test-signatures`; both are the
+   same `{:namespace :vars {var {:kind :clj #{..} :cljs #{..}}}}` shape and are
+   reconciled by the same `cljs-probe/signature-problems`). Read from
+   `spec/api-manifest-metadata.edn` at macro-expansion time, so — like the
+   sibling emitters — the value is pinned to the same committed sidecar the JVM
+   lane joins against with no runtime filesystem dependency, and in
+   ClojureScript carries a build dependency so a sidecar edit recompiles this
+   call site."
+  [sidecar-key]
+  (-> (read-sidecar &env) (get sidecar-key)))

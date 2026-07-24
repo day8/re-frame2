@@ -84,7 +84,8 @@
   (:require-macros [re-frame.api-manifest.cljs-publics
                     :refer [emit-ns-publics emit-cljs-only-rows
                             emit-classification-rows emit-ns-surface
-                            emit-ui-test-signature-contract]])
+                            emit-ui-test-signature-contract
+                            emit-signature-contract]])
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame.api-manifest.cljs-probe :as probe]
@@ -546,3 +547,109 @@
         "the fixture really does carry the host difference")
     (is (empty? (probe/signature-problems synthetic-contract
                                           synthetic-live-in-sync)))))
+
+;; ---------------------------------------------------------------------------
+;; re-frame.freehand.test HOST-SIGNATURE guard — CLJS (:cljs) lane (rf2-drpa3.99).
+;;
+;; The SIBLING of the re-frame.ui.test CLJS lane above, reusing the SAME pure
+;; reconciler `probe/signature-problems`. The manifest + the enrolment probe
+;; carry name + :kind but NO arity, so a freehand.test fn/macro could reshape a
+;; supported arity and stay green (the reproduction: `render` grew a second
+;; `[form opts]` arity while name/kind held and every gate stayed green — so
+;; `(t/render form)` could silently break). This enumerates the live CLJS
+;; analyzer surface of re-frame.freehand.test and reconciles the FUNCTION
+;; arities against the `:cljs` half of the sidecar :freehand-test-signatures
+;; authority; `with-render` is host-invariant (pinned on the JVM lane, its two
+;; halves required equal). All six names are host-identical `.cljc` — no
+;; CLJS-only (`:clj nil`) verb, unlike ui.test's flush verbs.
+;; ---------------------------------------------------------------------------
+
+(def live-freehand-test-surface
+  "`{var-name {:kind kw :arities (#{arity} | nil)}}` for re-frame.freehand.test's
+   live CLJS public surface, enumerated off the analyzer at compile time — the
+   live classification (kind) + host arities the signature contract is
+   reconciled against."
+  (emit-ns-surface re-frame.freehand.test))
+
+(def freehand-test-signature-contract
+  "The sidecar `:freehand-test-signatures` authority, embedded at compile time
+   (no runtime filesystem). `:vars` is the per-var host-aware contract."
+  (emit-signature-contract :freehand-test-signatures))
+
+(deftest freehand-test-cljs-signatures-in-sync
+  (testing "the live CLJS classification + function arities of
+            re-frame.freehand.test match the signature contract (kind
+            reconciled; render/find/find-all/attrs/text arities pinned)"
+    (let [problems (probe/signature-problems (:vars freehand-test-signature-contract)
+                                             live-freehand-test-surface)]
+      (is (empty? problems) (probe/signature-report problems)))))
+
+(deftest freehand-test-signature-contract-is-non-vacuous
+  (testing "the embedded contract carries the SIX blessed freehand.test vars and
+            the analyzer surfaced render's live CLJS :fn 1-arity — guards against
+            a vacuous green from an unread sidecar or un-analysed namespace"
+    (is (= "re-frame.freehand.test" (:namespace freehand-test-signature-contract)))
+    (is (= 6 (count (:vars freehand-test-signature-contract))))
+    (is (= freehand-test-names (set (keys (:vars freehand-test-signature-contract))))
+        "the signature authority names exactly the six blessed vars")
+    (is (= :fn (get-in live-freehand-test-surface ["render" :kind]))
+        "render must be classified :fn by the live analyzer — the kind authority")
+    (is (= #{[1]} (get-in live-freehand-test-surface ["render" :arities]))
+        "render must be observed 1-arity on CLJS — the contract the reproduction broke")
+    (is (= :macro (get-in live-freehand-test-surface ["with-render" :kind]))
+        "with-render must be classified :macro by the live analyzer")))
+
+(deftest freehand-test-cljs-render-arity-reshape-goes-red
+  (testing "THE REPRODUCTION (rf2-drpa3.99): render reshaped from 1-arity to
+            2-arity ([form] → [form opts]) fails against the contract's
+            :cljs #{[1]}, while its name + :kind (a :fn) are unchanged — the
+            exact false-green every prior gate let through"
+    (let [problems (probe/signature-problems
+                    (:vars freehand-test-signature-contract)
+                    (assoc-in live-freehand-test-surface ["render" :arities] #{[1] [2]}))]
+      (is (= [:arity-mismatch] (map :kind problems)))
+      (is (= "render" (:var (first problems))))
+      (is (= #{[1]} (:expected (first problems))))
+      (is (= #{[1] [2]} (:got (first problems)))))))
+
+(deftest freehand-test-cljs-added-arity-goes-red
+  (testing "ADDING a CLJS arity (text gains a 2-arity) fails — a superset is
+            drift, not a pass"
+    (let [problems (probe/signature-problems
+                    (:vars freehand-test-signature-contract)
+                    (assoc-in live-freehand-test-surface ["text" :arities] #{[1] [2]}))]
+      (is (= [:arity-mismatch] (map :kind problems)))
+      (is (= "text" (:var (first problems)))))))
+
+(deftest freehand-test-cljs-with-render-host-variance-goes-red
+  (testing "with-render is one .cljc defmacro, so its :clj and :cljs halves
+            cannot differ — mutating the :cljs half alone is host-variance a
+            single defmacro cannot have, and is RED (the JVM lane pins :clj to
+            the live macro :arglists)"
+    (let [problems (probe/signature-problems
+                    (assoc-in (:vars freehand-test-signature-contract)
+                              ["with-render" :cljs] #{[3 :&]})
+                    live-freehand-test-surface)]
+      (is (= [:macro-host-variance] (map :kind problems)))
+      (is (= "with-render" (:var (first problems))))
+      (is (= #{[0 :&]} (:expected (first problems))) "the :clj half")
+      (is (= #{[3 :&]} (:got (first problems)))      "the mutated :cljs half"))))
+
+(deftest freehand-test-cljs-sidecar-kind-flip-goes-red
+  (testing "a sidecar entry whose :kind was flipped :fn→:macro is REJECTED
+            against the live analyzer kind (:fn) — the declared kind is
+            reconciled, never trusted to select checks"
+    (let [problems (probe/signature-problems
+                    (assoc-in (:vars freehand-test-signature-contract)
+                              ["render" :kind] :macro)
+                    live-freehand-test-surface)]
+      (is (= [:kind-mismatch] (map :kind problems)))
+      (is (= "render" (:var (first problems))))
+      (is (= :macro (:declared (first problems))))
+      (is (= :fn (:live-kind (first problems)))))))
+
+(deftest freehand-test-cljs-restored-surface-is-green
+  (testing "POSITIVE CONTROL: the UNMUTATED live surface reconciles clean, so
+            the reds above are the mutation talking and not a standing failure"
+    (is (empty? (probe/signature-problems (:vars freehand-test-signature-contract)
+                                          live-freehand-test-surface)))))
