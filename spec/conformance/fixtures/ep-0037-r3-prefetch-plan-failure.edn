@@ -1,0 +1,55 @@
+;; Conformance fixture: ep-0037/r3-prefetch-plan-failure
+;;
+;; EP-0037 R3 — resource-only intent prefetch (conformance row 7: planning
+;; failures carry :plan-cause :prefetch and no nav-token). A well-formed address
+;; whose effective resource plan CANNOT be built is a resource PLANNING failure
+;; — distinct from a bad address. Prefetching :route/child, whose :parent names
+;; an UNREGISTERED route, fails branch resolution (fail-loud): it emits the
+;; ordinary :rf.error/resource-route-plan diagnostic with :plan-cause :prefetch
+;; (and NO nav-token — a preload owns no route state), dispatches NO partial
+;; ensures (:warmed 0, :plan-error true), and — because prefetch owns no route
+;; state — alters no route readiness (the live route stays :route/home :idle).
+;;
+;; Per [016 §Route-plan prefetch — warm-mode](../../016-Resources.md#route-plan-prefetch--warm-mode).
+
+{:fixture/id           :ep-0037/r3-prefetch-plan-failure
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :resources/ensure :core/event-handler}
+ :fixture/doc          "EP-0037 R3: prefetching a destination whose :parent names an unregistered route fails branch resolution — emitting :rf.error/resource-route-plan with :plan-cause :prefetch (no nav-token), dispatching no partial ensures (:warmed 0), and leaving the live route (:route/home :idle) untouched."
+
+ :fixture/registry
+ {:route
+  {:route/home  {:path "/"}
+   ;; :parent names :route/ghost, which is never registered → fail-loud branch
+   ;; resolution at prefetch/plan time.
+   :route/child {:path      "/child"
+                 :parent    :route/ghost
+                 :resources [{:resource :child/res :blocking? true}]}}
+
+  :resource
+  {:child/res {:scope :rf.scope/global :params-schema [:map] :url-template "/api/child"}}
+
+  :fx {:rf.http/managed {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:fx {:rf.http/managed [[:noop]]}}
+
+ :fixture/dispatches
+ [[:rf.route/transitioned "/"]
+  [:rf.route/prefetch {:to :route/child}]]
+
+ :fixture/expect
+ {;; The live route is unchanged — a prefetch planning failure owns no route
+  ;; state and never touches current readiness.
+  :final-runtime-db
+  {:rf.runtime/routing {:current {:route-id   :route/home
+                                  :transition :idle
+                                  :error      nil}}}
+
+  :trace-emissions
+  [;; The planning diagnostic carries :plan-cause :prefetch (and no nav-token).
+   {:operation :rf.error/resource-route-plan
+    :tags      {:route-id :route/child :plan-cause :prefetch}}
+   ;; The summary trace records the failure — no partial ensures ran.
+   {:operation :rf.route/prefetched
+    :tags      {:route-id :route/child :warmed 0 :plan-error true}}]}}

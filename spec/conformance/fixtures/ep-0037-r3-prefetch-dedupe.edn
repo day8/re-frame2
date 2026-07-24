@@ -1,0 +1,50 @@
+;; Conformance fixture: ep-0037/r3-prefetch-dedupe
+;;
+;; EP-0037 R3 — resource-only intent prefetch (conformance row 7: dedupe).
+;; Repeated intent must not re-fetch: prefetching the SAME destination twice
+;; warms the identity once and JOINS the in-flight work on the second — the
+;; second warm `ensure` deduplicates (:rf.resource/deduped) rather than starting
+;; a new fetch. Both prefetches emit their own :rf.route/prefetched summary; the
+;; resource holds ONE :loading entry throughout.
+;;
+;; Per [016 §Route-plan prefetch — warm-mode](../../016-Resources.md#route-plan-prefetch--warm-mode).
+
+{:fixture/id           :ep-0037/r3-prefetch-dedupe
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :resources/ensure :core/event-handler}
+ :fixture/doc          "EP-0037 R3: prefetching the same destination twice warms the identity once — the second warm ensure JOINS the in-flight work (:rf.resource/deduped), not a fresh fetch. Both prefetches emit :rf.route/prefetched; the resource holds one :loading entry."
+
+ :fixture/registry
+ {:route
+  {:route/article {:path      "/articles/:slug"
+                   :params    [:map [:slug :string]]
+                   :resources [{:resource :article/by-slug :blocking? true}]}}
+
+  :resource
+  {:article/by-slug {:scope :rf.scope/global :params-schema [:map] :url-template "/api/article"}}
+
+  :fx {:rf.http/managed {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:fx {:rf.http/managed [[:noop]]}}
+
+ :fixture/dispatches
+ [[:rf.route/prefetch {:to :route/article :params {:slug "routing"}}]
+  [:rf.route/prefetch {:to :route/article :params {:slug "routing"}}]]
+
+ :fixture/expect
+ {;; ONE warmed :loading entry after two prefetches (the second deduped).
+  :sub-values
+  {[:rf/resource {:resource :article/by-slug :scope :rf.scope/global :params {}}]
+   {:status :loading :data nil :error nil :refresh-error nil
+    :loading? true :fetching? false :stale? false :has-data? false :previous? false}}
+
+  :trace-emissions
+  [;; First prefetch warms the identity (its own summary).
+   {:operation :rf.route/prefetched :tags {:route-id :route/article :warmed 1}}
+   ;; Second prefetch's summary.
+   {:operation :rf.route/prefetched :tags {:route-id :route/article :warmed 1}}
+   ;; The second warm ensure JOINED the in-flight work — no new fetch. Its
+   ;; :cause is the warm-mode [:route-prefetch <route-id>] cause (ownerless).
+   {:operation :rf.resource/deduped
+    :tags      {:cause [:route-prefetch :route/article]}}]}}
