@@ -377,24 +377,31 @@ tab and the inline issue surfacing (rf2-gbz39 Option (c) — the Epoch panel
 
 #### R.2 — "My route's `:on-match` events didn't fire."
 
-**Bug class:** URL changed; the per-route loaders never dispatched.
-Possibilities: route's `:on-match` is `nil`; nav-token was already
-advanced (race); event handler threw silently; `:transition` is stuck on
-`:error` from a prior nav.
+**Bug class:** URL changed; the per-route `:on-match` events never
+dispatched. Possibilities: route's `:on-match` is `nil`; the plan failed
+to form, so the target committed as a planning-failure and dispatched
+none of its `:on-match` events (EP-0037 R1 — `:on-match` runs only after a
+valid plan); an event handler threw silently.
 
 **Insight Xray provides:** When the focused cascade is a routing cascade,
 the Epoch panel's "EFFECTS HANDLERS RAN" section adds a dedicated **`:on-match`
-dispatch chain** sub-section showing the loader events, their drain
-durations, and any `:on-error` consequences:
+dispatch chain** sub-section showing the fire-and-forget loader events and
+their drain durations. `:on-match` is fire-and-forget (EP-0037 R1): a
+throwing event surfaces as an ordinary Spec 009 `:rf.error/handler-exception`
+attributed to the **event**, not rewritten into route state, and it neither
+stops the later loaders nor changes route readiness:
 
 ```
 :on-match dispatch chain (3 events, drained 124ms):
   ✓ [:cart/load-items]       drained 87ms     src/cart/events.cljs:42 ↗
   ✓ [:user/load-prefs]       drained 31ms     src/user/events.cljs:18 ↗
   ✗ [:cart/load-promotions]  errored 6ms      src/cart/events.cljs:65 ↗
-       → exception :promotions-service-unavailable
-       → :on-error fired: [:route/cart-load-failed]
+       → :rf.error/handler-exception (attributed to [:cart/load-promotions])
+       → route readiness unaffected — :on-match never drives :transition
 ```
+
+Managed page-read readiness (`:transition` / `:error`) is the resource
+projection, surfaced separately from this fire-and-forget chain.
 
 **Affordance:** Epoch panel — `:on-match` chain inline in "EFFECTS HANDLERS RAN" (R-C4). <!-- TODO(rf2-yylmr): future-design — the chain's record-panel embed point under the Epoch panel needs an explicit micro-spec when implementation lands. -->
 
