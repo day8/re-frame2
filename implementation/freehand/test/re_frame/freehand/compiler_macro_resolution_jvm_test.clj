@@ -5,11 +5,9 @@
             [cljs.compiler :as cljs-comp]
             [cljs.core]
             [cljs.env :as cljs-env]
-            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
             [re-frame.freehand.compiler.analyze :as analyze]
-            [re-frame.freehand.compiler.emit-cljs :as emit-cljs]
             [re-frame.freehand.compiler.emit-jvm :as emit-jvm]
             [re-frame.freehand.compiler.env :as env]
             [re-frame.freehand.compiler.header :as header]
@@ -286,22 +284,6 @@
      :closed-keys nil
      :children? false}))
 
-(defn- jsx-tag-syms
-  "The symbol component heads the CLJS emitter placed in jsx-runtime `js*`
-  calls (`(0,<rt>.jsx)(<tag>,<props>)`); the tag is the 3rd js* argument after
-  the template and the runtime alias."
-  [form]
-  (let [hits (atom [])]
-    (walk/postwalk
-     (fn [x]
-       (when (and (seq? x) (= 'js* (first x)) (string? (second x))
-                  (str/includes? (second x) ".jsx"))
-         (let [tag (nth x 3 nil)]
-           (when (symbol? tag) (swap! hits conj tag))))
-       x)
-     form)
-    @hits))
-
 (defn- mount-head-syms
   "Every descriptor a structural emit MOUNTS whose name matches `verb`.
 
@@ -331,42 +313,24 @@
 
 (deftest real-cljs-self-head-emits-against-current-namespace-var
   ;; rf2-rr26cq accept rows. Reverting the emitter to the raw authored `:sym`
-  ;; re-captures `re-frame.freehand/<verb>` in the emitted JavaScript and drops the
-  ;; forward declaration, failing every row below.
+  ;; re-captures `re-frame.freehand/<verb>` as the head, failing every row below.
+  ;;
+  ;; The browser half of this claim rode the deleted second CLJS emitter, whose
+  ;; jsx-runtime heads it walked; what survives is the STRUCTURAL emit, which
+  ;; carries the same `:fqn` rule through `*self-fqn*`.
   (with-referred-cljs-env
     (fn [aenv]
       (doseq [verb '[sub frame]]
         (let [self-fqn  (symbol "cljs.user" (name verb))
               args      (self-emit-args aenv verb)
-              cljs-form (emit-cljs/emit-defview args)
-              jvm-form  (emit-jvm/emit-defview args)
-              cljs-heads (jsx-tag-syms cljs-form)]
-          (testing (str "CLJS: the self head is the current-namespace fqn (" verb ")")
-            (is (seq cljs-heads) "a self component call is emitted")
-            (is (every? #(= self-fqn %) cljs-heads)
-                (str "every self head is cljs.user/" verb ", never the bare refer"))
-            (is (not-any? #(= verb %) cljs-heads)
-                "the raw authored spelling never reaches a jsx head"))
-          (testing (str "CLJS: the view forward-declares its own Var (" verb ")")
-            (is (some #(and (seq? %) (= 'clojure.core/declare (first %))
-                            (= verb (second %)))
-                      cljs-form)
-                "a (declare <verb>) precedes the render fn")
-            (is (some #(and (seq? %) (= 'def (first %)) (= verb (second %)))
-                      cljs-form)
-                "the def still targets the bare current-namespace name"))
-          (testing (str "CLJS: the emitted self head compiles to cljs.user." (name verb))
-            (doseq [h cljs-heads]
-              (let [js (emit-var-js aenv h)]
-                (is (= (str "cljs.user." (name verb)) js)
-                    (str "self head " h " munges to the current-namespace Var"))
-                (is (not (str/includes? js (str "re_frame.freehand." (name verb))))
-                    "zero authoring-Var reference in the emitted JavaScript"))))
+              jvm-form  (emit-jvm/emit-defview args)]
           (testing (str "structural: the self mount targets the current-namespace fqn (" verb ")")
             (let [jvm-heads (mount-head-syms jvm-form verb)]
               (is (seq jvm-heads) "a self boundary mount is emitted")
               (is (every? #(= self-fqn %) jvm-heads)
-                  (str "every structural self mount names cljs.user/" verb)))))))))
+                  (str "every structural self mount names cljs.user/" verb))
+              (is (not-any? #(= verb %) jvm-heads)
+                  "the raw authored spelling never reaches a mount head"))))))))
 
 (deftest a-bare-authored-self-head-would-capture-the-authoring-var
   ;; The counterfactual the fix defeats: were the emitter to keep the raw
@@ -382,89 +346,11 @@
                (emit-var-js aenv (symbol "cljs.user" (name verb))))
             (str "the qualified " verb " head resolves to the current-namespace Var"))))))
 
-;; ---------------------------------------------------------------------------
-;; rf2-eukmp — the WHOLE production do-form, not isolated symbols
-;; ---------------------------------------------------------------------------
-;;
-;; PR #6053 fixed the recursive JSX HEAD (self-fqn) but left the view's own
-;; declare/def on the raw bare name. The focused rows above compile EXTRACTED
-;; reference symbols in isolation and check the raw def is bare — a FALSE GREEN:
-;; a bare `(def sub …)` in a ns referring re-frame.freehand/sub resolves the def NAME
-;; through the same-named `:refer` (cljs.analyzer/resolve-var ranks `:uses` above
-;; `:defs` and IGNORES `:excludes`), so the WHOLE form both clobbers the public
-;; authoring Var (`re_frame.freehand.sub = …`) and leaves the qualified self head
-;; (`cljs.user.sub`) undefined — the split identity. The row below analyzes AND
-;; compiles the ENTIRE emitted `(declare/defn/def)` do-form as one unit through
-;; real cljs.analyzer + cljs.compiler. Against pre-fix output every assertion is
-;; RED (the def targets re-frame.freehand/<verb>, the JS assigns re_frame.freehand.<verb>).
-
-(defn- analyze-whole-form
-  "Analyze the COMPLETE production do-form in the referred cljs.user ns (warnings
-  silenced) and compile it to JS as ONE unit — never extracted symbols in
-  isolation. `emit-defview` has already run for `do-form`, so any same-named
-  refer shadowing it completes is live in the analyzer state this reads."
-  [aenv do-form]
-  (binding [cljs-analyzer/*cljs-warnings*
-            (zipmap (keys cljs-analyzer/*cljs-warnings*) (repeat false))]
-    (let [ast       (cljs-analyzer/analyze (assoc aenv :context :statement) do-form)
-          def-names (atom [])]
-      (walk/postwalk
-       (fn [x]
-         (when (and (map? x) (= :def (:op x))) (swap! def-names conj (:name x)))
-         x)
-       ast)
-      {:def-names @def-names :js (cljs-comp/emit-str ast)})))
-
-(defn- munged-ref?
-  "True iff `js` references the exact munged Var `pre.<verb>` at an identifier
-  boundary (so `re_frame.freehand.frame` does not spuriously match
-  `re_frame.freehand.frames`, nor `cljs.user.sub` match `cljs.user.sub$render`)."
-  [js pre verb]
-  (boolean (re-find (re-pattern (str (java.util.regex.Pattern/quote (str pre "." (name verb)))
-                                     "(?![A-Za-z0-9_$])"))
-                    js)))
-
-(deftest real-cljs-recursive-defview-whole-form-defines-current-ns-var
-  ;; rf2-eukmp acceptance. Reverting the emitter's canonical-Var alignment
-  ;; (leaving the def/declare to resolve through the refer) fails every row.
-  (with-referred-cljs-env
-    (fn [aenv]
-      (doseq [verb '[sub frame]]
-        (let [self-fqn      (symbol "cljs.user" (name verb))
-              authoring-fqn (symbol "re-frame.freehand" (name verb))
-              args          (self-emit-args aenv verb)
-              do-form       (emit-cljs/emit-defview args)
-              {:keys [def-names js]} (analyze-whole-form aenv do-form)]
-          (testing (str "whole form: the view def defines the current-ns Var (" verb ")")
-            (is (some #(= self-fqn %) def-names)
-                (str "a def in the whole form targets cljs.user/" verb))
-            (is (not-any? #(= authoring-fqn %) def-names)
-                (str "no def targets the authoring Var re-frame.freehand/" verb)))
-          (testing (str "whole form: emitted JS assigns the current-ns Var, never the authoring Var (" verb ")")
-            (is (str/includes? js (str "cljs.user." (name verb) " ="))
-                (str "the emitted JS assigns cljs.user." (name verb)))
-            (is (not (str/includes? js (str "re_frame.freehand." (name verb) " =")))
-                (str "the emitted JS never assigns (clobbers) re_frame.freehand." (name verb))))
-          (testing (str "whole form: def + recursive head share ONE current-ns Var, authoring Var untouched (" verb ")")
-            (is (munged-ref? js "cljs.user" verb)
-                (str "the recursive head references cljs.user." (name verb)))
-            (is (not (munged-ref? js "re_frame.freehand" verb))
-                (str "zero re_frame.freehand." (name verb)
-                     " reference anywhere in the whole emitted form"))))))))
-
-(deftest a-non-recursive-defview-emits-no-self-declaration
-  ;; Preserve unrelated behavior: a view that does NOT reference itself emits no
-  ;; forward declaration and no fqn rewrite — the self-head machinery is inert.
-  (with-referred-cljs-env
-    (fn [aenv]
-      (let [e    (referred-env aenv 'panel)
-            ast  (analyze/analyze e [:div "x"])
-            args {:vname 'panel :self-fqn 'cljs.user/panel :view-id :cljs.user/panel
-                  :display-name "cljs.user/panel" :docstring nil
-                  :header (header/parse-header []) :slots []
-                  :ast ast
-                  :manifest {:view-id :cljs.user/panel :sites {} :children? false}
-                  :closed-keys nil :children? false}
-            form (emit-cljs/emit-defview args)]
-        (is (not-any? #(and (seq? %) (= 'clojure.core/declare (first %))) form)
-            "a non-recursive view emits no (declare …)")))))
+;; rf2-eukmp's rows analyzed and compiled the WHOLE emitted `(declare/defn/def)`
+;; do-form through real cljs.analyzer + cljs.compiler, proving the view's own def
+;; targeted the current-namespace Var rather than resolving its NAME through a
+;; same-named `:refer`. That do-form was the deleted second CLJS emitter's, and
+;; the surviving browser emitter emits no view def at all — the declaration's def
+;; is `re-frame.freehand/expand-defview`'s, and it holds a descriptor. The
+;; counterfactual above still pins the underlying analyzer ranking that made the
+;; defect possible.
