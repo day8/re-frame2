@@ -48,15 +48,17 @@
   ## The one thing the library does NOT do
 
   It never forwards the caller's event vector into a controlled `:on-input`
-  position. A forwarded vector is a DYNAMIC handler expression: the
-  interpreted walk classifies it at render time and opens the synchronous
-  door, but the compiled analyzer can only classify it `:dynamic`, which
-  no door roster admits — so the identical library would take the
-  synchronous round trip interpreted and batch once promoted. The library
-  therefore owns a LITERAL vector at every door site and carries the
-  caller's event as an ARGUMENT inside it. The site proof stays static,
-  the prefix stays a runtime value, and promotion cannot move the field
-  from synchronous to batched.
+  position. A forwarded vector is a DYNAMIC handler expression, and nothing
+  static pins its class. The DOOR is not what that costs — the compiled
+  element's facts are constants and the door is decided at commit from the
+  runtime handler value, so a forwarded vector reaches it in both modes.
+  What it costs is the EVIDENCE: the site is opaque, its intent is absent
+  from the compiled manifest, and no structural test or tool can say what
+  the field dispatches before it fires. The library therefore owns a
+  LITERAL vector at every door site and carries the caller's event as an
+  ARGUMENT inside it. The site's proof stays static, the prefix stays a
+  runtime value, and a caller can read the intent off the declaration in
+  either mode.
 
   ## The domain it is piloted against
 
