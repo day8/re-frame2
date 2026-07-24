@@ -53,17 +53,23 @@
   A browser has no environment and no git. `re-frame.freehand.bench.provenance`
   says what to do about that: a bundle that is going to be measured names
   its revision at compile time through the documented closure-define, and
-  a bundle that does not cannot emit a citable record. This test build
-  does not set it, so the record published below is complete in every
-  field EXCEPT the revision — which is gated, so a record that lost its
-  fixture scale, build mode or host would red. A release-lane run sets
-  the define and the record becomes emittable with no change here.
+  a bundle that does not cannot emit a citable record. The default
+  `:browser-test` build — the per-PR correctness gate — sets none, so a
+  record published under it is complete in every field EXCEPT the revision.
+  Every other field is gated either way, so a record that quietly lost its
+  fixture scale, build mode or host reds under both builds.
+
+  The EVIDENCE lane sets it. `:browser-test-freehand-bench` reads the sha
+  from `RF2_REVISION` through `#shadow/env` and compiles it in, so the code
+  below publishes a citable record with no change here — which is the whole
+  reason that define exists rather than a literal.
 
   The records go to the browser console as EDN, which the browser runner
   buffers and flushes on failure or under `RF2_VERBOSE_TESTS=1`. A run
   that wants the evidence therefore asks for it:
 
-      RF2_VERBOSE_TESTS=1 npm run test:browser
+      RF2_REVISION=$(git rev-parse HEAD) RF2_VERBOSE_TESTS=1 \\
+        npm run bench:freehand-browser
 
   Normative owner: `docs/design/freehand/decisions/`
   `D021-performance-budgets-and-release-evidence.md`."
@@ -353,10 +359,10 @@
   A citable record goes through `provenance/result` — the ONE documented
   emission door — so the same validation that governs the JVM lane governs
   a browser record too, rather than a bypass that console-logs whatever it
-  was handed. A record missing only its revision (this build compiles none
-  in) is printed as NOT CITABLE without forcing it through the door, which
-  would throw; a release-lane build that sets the revision closure-define
-  makes it citable with no change here."
+  was handed. A record missing only its revision (a build that compiles
+  none in) is printed as NOT CITABLE without forcing it through the door,
+  which would throw; the evidence lane's build sets the revision
+  closure-define and the very same call becomes citable."
   [record]
   (let [ds (prov/defects record)]
     (if (seq ds)
@@ -476,19 +482,29 @@
     (is (zero? (b2/omitted (b2/plan b2i/free-views stress-scale)))
         "and an interpreted plan predicts no omissions at all")))
 
-(deftest the-published-record-names-everything-but-the-revision
+(deftest the-published-record-names-every-field-its-build-can
   (testing "The published evidence is gated on its PROVENANCE, which is
             the one thing about a number that is deterministic. Every
             field D021 requires must be named — fixture scale, build
             mode, runtime, hardware class, sampling policy, baseline,
             distribution — and only the revision may be missing, because
-            a browser has no git and this test build does not compile one
-            in. A record that quietly lost its scale or its build mode
-            would red here."
+            a browser has no git and only a build that compiles one in can
+            name one. A record that quietly lost its scale or its build
+            mode would red here.
+
+            The second assertion is the citability claim itself, and it
+            fires only under a build that named a revision: given one,
+            the record must survive `provenance/result` — the one
+            emission door — unchanged. Under the plain `:browser-test`
+            gate there is no revision to have, and the claim is correctly
+            not made rather than faked."
     (let [census {:omitted-shell-occurrences 8 :retained-shell-occurrences 0}
           record (evidence-record (first arms) small-scale census [2 2 2 2] [1.0 2.0 3.0])]
       (is (empty? (remove #(= [:revision] (:path %)) (prov/defects record)))
           "every provenance field a browser can name is named")
+      (when (prov/detect-revision)
+        (is (= record (prov/result record))
+            "and a build that names the revision publishes a CITABLE record"))
       (is (= 3 (:n (:B2/mount-ms (:distribution record))))
           "the distribution summarises the samples it was given")
       (is (= :duration-ms (:observable (:B2/mount-ms (:distribution record))))

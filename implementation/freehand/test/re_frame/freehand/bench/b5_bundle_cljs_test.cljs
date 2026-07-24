@@ -178,6 +178,26 @@
       (js/console.log (str ";; B5 shipped-cost evidence — citable\n"
                            (pr-str (prov/result record)))))))
 
+(defn- unattributable!
+  "Report the byte facts of an artefact this run cannot attribute to a
+  revision, and build NO result record for it.
+
+  A run with no `RF2_REVISION`, no `GITHUB_SHA` and no compiled-in
+  `build-revision` genuinely does not know which commit produced the bundle
+  on disk. The provenance door promises no default that invents a field the
+  run did not observe, so there is no revision to substitute — not a
+  placeholder, not the string `unattributed-local-build`, which reads as a
+  named revision to `defects` and quietly turns an unattributable
+  measurement into a citable-looking one. The bytes are still a true fact
+  about a file and are printed as exactly that, under a header that says
+  they are not evidence anyone may cite."
+  [measured]
+  (js/console.log
+    (str ";; B5 shipped-cost — NOT CITABLE (this run cannot name the source revision; "
+         "set RF2_REVISION, or run in CI). Byte facts only: no result record was built, "
+         "because a record must name the revision its artefact was compiled from.\n"
+         (pr-str (dissoc measured :source)))))
+
 (deftest the-release-bundle-is-measured-when-it-has-been-built
   (testing "The real artefact's shipped cost, measured off
             out/freehand-release/main.js when it is on disk. The encodings
@@ -190,28 +210,30 @@
       (is true (str "no release bundle on disk — run `npm run build:freehand-release` first; "
                     "skipping the real-artefact measurement"))
       (let [measured (b5/measure-bundle b5/default-bundle-path)
-            w        (b5/workload {:id       :B5/freehand-release
-                                   :doc      "the shipped Freehand release bundle"
-                                   :sampling sampling}
-                                  measured)
-            record   (bench/run-workload w (assoc fixture-provenance
-                                                  :revision (or (prov/detect-revision)
-                                                                "unattributed-local-build")))]
+            revision (prov/detect-revision)]
         (is (< (:gzip6-bytes measured) (:raw-bytes measured))
             "the shipped bundle compresses under gzip")
         (is (<= (:brotli-bytes measured) (:gzip9-bytes measured))
             "and brotli is at least as small as maximum gzip")
         (is (= 64 (count (:sha256 measured))) "the artefact has a digest")
-        (is (empty? (:gate-failures record)) "the measurement reds nothing — it is all evidence")
-        (is (= :advanced (get-in record [:build :optimizations]))
-            "the record describes the advanced artefact")
-        ;; Method correctness, NOT a performance budget: a genuine cold parse
-        ;; of a multi-hundred-KB bundle is milliseconds; a V8 compilation-cache
-        ;; HIT is microseconds. This loose floor sits ~an order of magnitude
-        ;; below the real reading and ~25x above a cache hit, so it reds only
-        ;; if the nonce that defeats the cache were removed and the figure
-        ;; collapsed to a lookup — the exact regression the audit named. It
-        ;; does not, and cannot, red a release for being slow.
-        (is (> (get-in record [:distribution :B5/parse-compile-ms :p50]) 1.0)
-            "parse/compile is a real cold compile, not a compilation-cache lookup")
-        (publish! record)))))
+        (if-not revision
+          (unattributable! measured)
+          (let [w      (b5/workload {:id       :B5/freehand-release
+                                     :doc      "the shipped Freehand release bundle"
+                                     :sampling sampling}
+                                    measured)
+                record (bench/run-workload w (assoc fixture-provenance :revision revision))]
+            (is (empty? (:gate-failures record))
+                "the measurement reds nothing — it is all evidence")
+            (is (= :advanced (get-in record [:build :optimizations]))
+                "the record describes the advanced artefact")
+            ;; Method correctness, NOT a performance budget: a genuine cold parse
+            ;; of a multi-hundred-KB bundle is milliseconds; a V8 compilation-cache
+            ;; HIT is microseconds. This loose floor sits ~an order of magnitude
+            ;; below the real reading and ~25x above a cache hit, so it reds only
+            ;; if the nonce that defeats the cache were removed and the figure
+            ;; collapsed to a lookup — the exact regression the audit named. It
+            ;; does not, and cannot, red a release for being slow.
+            (is (> (get-in record [:distribution :B5/parse-compile-ms :p50]) 1.0)
+                "parse/compile is a real cold compile, not a compilation-cache lookup")
+            (publish! record)))))))

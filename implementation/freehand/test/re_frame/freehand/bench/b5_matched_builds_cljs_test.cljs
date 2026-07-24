@@ -129,17 +129,28 @@
            "\n" (pr-str (if (seq ds) record (prov/result record)))))))
 
 (defn- measure-and-record
-  "Measure one shape's bundle and run it through the SAME B5 workload the
-  mixed lane uses, answering the measured map and the harness record."
+  "Measure one shape's bundle and, when this run can name the revision it
+  was built from, run it through the SAME B5 workload the mixed lane uses.
+
+  `revision` may be nil — a local run with no `RF2_REVISION` and no
+  `GITHUB_SHA` genuinely does not know which commit produced the bundles on
+  disk. No record is built in that case and none is faked: the provenance
+  door promises no default that invents a field the run did not observe, and
+  a placeholder string reads to `defects` as a named revision, which is
+  precisely how an unattributable measurement comes to look citable. The
+  bytes are true about the files either way, so they are always answered."
   [shape-key path revision]
-  (let [measured (b5/measure-bundle path)
-        w        (b5/workload {:id       (keyword "B5" (str "freehand-release-" (name shape-key)))
-                               :doc      (str "the " (name shape-key)
-                                              "-shape Freehand release bundle")
-                               :sampling sampling}
-                              measured)
-        record   (bench/run-workload w (assoc fixture-provenance :revision revision))]
-    {:measured measured :record record}))
+  (let [measured (b5/measure-bundle path)]
+    (cond-> {:measured measured}
+      revision
+      (assoc :record
+             (bench/run-workload
+               (b5/workload {:id       (keyword "B5" (str "freehand-release-" (name shape-key)))
+                             :doc      (str "the " (name shape-key)
+                                            "-shape Freehand release bundle")
+                             :sampling sampling}
+                            measured)
+               (assoc fixture-provenance :revision revision))))))
 
 (deftest the-three-shapes-and-their-delta-are-measured-when-built
   (testing "The matched build lane's real reading, published when the three
@@ -157,7 +168,7 @@
                       "freehand-release-interpreted, freehand-release and "
                       "freehand-release-compiled first; skipping the matched "
                       "build-lane measurement (present: " (keys present) ")"))
-        (let [revision (or (prov/detect-revision) "unattributed-local-build")
+        (let [revision (prov/detect-revision)
               results  (into {}
                              (map (fn [[k p]] [k (measure-and-record k p revision)]))
                              b5/matched-bundle-paths)
@@ -165,16 +176,19 @@
               compiled (get-in results [:compiled :measured])
               mixed    (get-in results [:mixed :measured])
               delta    (b5/promotion-delta interp compiled)]
-          ;; Every shape's own readings are honest facts about its file.
+          ;; Every shape's own readings are honest facts about its file. The
+          ;; RECORD claims are made only when the run could name a revision;
+          ;; without one there is nothing to publish and nothing is invented.
           (doseq [[k {:keys [measured record]}] results]
             (is (< (:gzip6-bytes measured) (:raw-bytes measured))
                 (str (name k) " shape compresses under gzip"))
             (is (= 64 (count (:sha256 measured))) (str (name k) " shape has a digest"))
-            (is (empty? (:gate-failures record))
-                (str (name k) " shape reds nothing — it is all evidence"))
-            (is (= :advanced (get-in record [:build :optimizations]))
-                (str (name k) " shape is an advanced artefact"))
-            (publish! (str "B5 matched shape — " (name k)) record))
+            (when record
+              (is (empty? (:gate-failures record))
+                  (str (name k) " shape reds nothing — it is all evidence"))
+              (is (= :advanced (get-in record [:build :optimizations]))
+                  (str (name k) " shape is an advanced artefact"))
+              (publish! (str "B5 matched shape — " (name k)) record)))
           ;; The three digests are distinct: three different bundles.
           (is (= 3 (count (set (map (comp :sha256 :measured val) results))))
               "the three shapes are three distinct artefacts")
@@ -187,7 +201,12 @@
           (is (= (:sha256 compiled) (:compiled-sha256 delta))
               "and to the compiled bundle")
           (js/console.log
-            (str ";; B5 per-promotion byte delta (compiled minus interpreted) — evidence, no threshold\n"
+            (str ";; B5 per-promotion byte delta (compiled minus interpreted) — "
+                 (if revision
+                   "evidence, no threshold"
+                   (str "NOT CITABLE (this run cannot name the source revision; set "
+                        "RF2_REVISION, or run in CI)"))
+                 "\n"
                  (pr-str {:revision      revision
                           :interpreted   {:raw    (:raw-bytes interp)
                                           :gzip6  (:gzip6-bytes interp)

@@ -40,17 +40,27 @@ name: freehand bench
 # as a duplicate of the PR gate but because a harness whose gate direction
 # has rotted would otherwise publish evidence nobody should trust.
 #
-# TWO LANES, ONE HARNESS. `clojure -M:bench` is a JVM process and reaches
+# THREE LANES, ONE HARNESS. `clojure -M:bench` is a JVM process and reaches
 # every `.cljc` workload; the React arm measures the interpreted React
-# emitter, which is ClojureScript-only. So there is a second job below
-# running the same registry, the same provenance record and the same
-# gate/evidence split through a Node entry
-# (`re-frame.freehand.bench.node`), and uploading its EDN beside the JVM
-# one. Two artefacts because they are two hosts — a result record names
-# its own `:host` and `:build`, and pooling a V8 `:none` number with a
-# JIT-warmed JVM one would be the pooling D021 forbids — but ONE harness,
-# because a second report shape is a second place a threshold could be
-# added.
+# emitter, which is ClojureScript-only; and B2's mounted storm, B4's latency
+# row and B5's initial-mount reading only exist in a real browser. So there
+# are three jobs below running the same registry, the same provenance record
+# and the same gate/evidence split, each uploading its own artefact. Three
+# artefacts because they are three hosts — a result record names its own
+# `:host` and `:build`, and pooling a Chromium number with a V8 `:none` one
+# or a JIT-warmed JVM one would be the pooling D021 forbids — but ONE
+# harness, because a second report shape is a second place a threshold could
+# be added.
+#
+# THE REVISION. A browser has no environment and no git, so a mounted
+# workload can only learn the revision it was compiled from at BUILD time,
+# through the closure-define `re-frame.freehand.bench.provenance` documents.
+# The browser lane's build reads it from `RF2_REVISION` via `#shadow/env`
+# and this workflow sets that to `github.sha`. Without it every record the
+# mount publishes prints NOT CITABLE and is worth reading but not citing —
+# which is why the lane asserts on the WORD, not on any number: a lane that
+# publishes unattributable evidence has failed at its one job, while a
+# distribution that moved has not.
 
 on:
   schedule:
@@ -189,5 +199,137 @@ jobs:
         with:
           name: freehand-bench-node-${{ github.sha }}
           path: implementation/out/freehand-bench-node.edn
+          if-no-files-found: error
+          retention-days: 90
+
+  # The BROWSER half of the same suite (rf2-drpa3.147, rf2-drpa3.52). See
+  # THREE LANES, ONE HARNESS and THE REVISION above: this job adds a host and
+  # the revision that host cannot otherwise learn.
+  #
+  # B2's mounted storm, B4's contended-latency row and B5's initial-mount
+  # reading each mount real components over `react-dom/client` and publish a
+  # result record from inside the page. Neither lane above runs them: a JVM
+  # has no DOM and Node has no browser, so before this job existed the three
+  # rows were asserted on every PR and their evidence was never captured
+  # anywhere.
+  #
+  # THE ARTEFACT IS THE CONSOLE. A browser has no stdout, so the records are
+  # published to the console as EDN (`;;`-prefixed headers, exactly the
+  # comment convention the other two lanes' stdout artefacts use). The
+  # Playwright runner buffers every console line and flushes it under
+  # RF2_VERBOSE_TESTS=1, so the lane asks for the trail and keeps it verbatim
+  # — the artefact and the thing a reviewer reads are the same bytes.
+  browser-evidence:
+    name: Freehand B-spine evidence — browser lane (pinned worker)
+    # PINNED for the same reason the other two lanes are. See THE PIN above.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: implementation
+    env:
+      # The same configured class as the sibling lanes; the HOST difference
+      # stays visible in each record's `:host`, where it belongs.
+      RF2_HARDWARE_CLASS: release-worker
+      # What makes a mounted record CITABLE. Read at compile time by the
+      # :browser-test-freehand-bench build's `#shadow/env`, baked into the
+      # bundle as the provenance namespace's `build-revision` define, and
+      # answered by `detect-revision` in a page that has no git and no
+      # environment of its own.
+      RF2_REVISION: ${{ github.sha }}
+      # The runner buffers the browser console and flushes it only on failure
+      # or under this flag. Here the console IS the evidence, so it is always
+      # wanted.
+      RF2_VERBOSE_TESTS: '1'
+      # The default 120s covers a normal DOM suite; this page mounts B2's
+      # storm at two scales through four arms, B4's contended row and B5's
+      # sampled mounts, so it is given room rather than raced.
+      BROWSER_TEST_TIMEOUT_MS: '300000'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      # Keyed on the locked Playwright version, so a Playwright bump busts it
+      # — the same cache the PR-time browser gates use.
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Playwright (Chromium + system deps)
+        run: npx playwright install --with-deps chromium
+
+      # The buffered console arrives on stderr; stdout carries the runner's
+      # one-line summary. The log is kept whatever the exit code, so a red
+      # run's trail is still uploaded, and the runner's own status is what
+      # this step exits with.
+      - name: Mount the browser workloads and capture the published records
+        run: |
+          mkdir -p out
+          status=0
+          npm run bench:freehand-browser 2> out/freehand-bench-browser.log || status=$?
+          cat out/freehand-bench-browser.log
+          exit $status
+
+      # The one thing this lane is allowed to fail on, and it is not a
+      # number. D021 forbids an automatic numeric pass/fail, and nothing here
+      # asserts a millisecond or a byte. What it asserts is PROVENANCE: a
+      # record that cannot name its revision is not evidence anyone may cite,
+      # so a lane that published only unattributable records did not do its
+      # job — most likely because RF2_REVISION never reached the compile.
+      - name: Refuse to publish unattributable evidence
+        run: |
+          log=out/freehand-bench-browser.log
+          if grep -q 'NOT CITABLE' "$log"; then
+            echo "This lane published unattributable evidence:" >&2
+            grep -n 'NOT CITABLE' "$log" >&2
+            echo "RF2_REVISION was '${RF2_REVISION}'. It is read at COMPILE time by" >&2
+            echo "the :browser-test-freehand-bench build and reaches the page as the" >&2
+            echo "provenance namespace's build-revision define." >&2
+            exit 1
+          fi
+          citable=$(grep -c 'citable$' "$log" || true)
+          if [ "$citable" -eq 0 ]; then
+            echo "This lane published no result records at all — the workloads" >&2
+            echo "either did not run or stopped publishing. An empty evidence" >&2
+            echo "artefact is worse than a red one, because it looks green." >&2
+            exit 1
+          fi
+          echo "Published $citable citable result record(s) at ${RF2_REVISION}."
+
+      - name: Upload the browser result records
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: freehand-bench-browser-${{ github.sha }}
+          path: implementation/out/freehand-bench-browser.log
           if-no-files-found: error
           retention-days: 90
