@@ -149,6 +149,28 @@ Freehand’s growth path is: write freely interpreted → measure → optionally
 tests stay the same. That is different from both “always interpret” and from
 re-frame.ui’s compile-first day-one feel.
 
+### 8. A key is a prop, never metadata
+
+`^{:key (:id r)} [row-view r]` is *the* Reagent spelling for a list row, and it is
+the habit most likely to survive a rewrite unnoticed. Freehand does not read it.
+Nothing in this substrate carries a contract in metadata, so a key written there
+reaches neither the structural tree nor React, and the list renders silently
+unkeyed — which surfaces much later, as rows that reuse each other's state.
+
+Both modes therefore refuse the metadata spelling outright rather than dropping
+it, and the key goes where every other prop goes:
+
+```clojure
+;; Reagent
+(for [r rows] ^{:key (:id r)} [row-view r])
+
+;; Freehand
+(for [r rows] [row-view {:key (:id r) :row r}])
+```
+
+Content with no props map of its own takes a keyed fragment instead:
+`[:<> {:key k} (v/slot row r)]`.
+
 ## Side-by-side: a tiny screen
 
 ```clojure

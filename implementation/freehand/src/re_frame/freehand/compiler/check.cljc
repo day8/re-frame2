@@ -149,6 +149,7 @@
    :rf.ui.compile/constant-list-key    :list-key-does-not-vary
    :rf.ui.compile/nested-for-body      :iteration-is-not-lexically-flat
    :rf.ui.compile/indirect-list-body   :iteration-is-not-lexically-flat
+   :rf.ui.compile/metadata-key         :key-is-in-metadata
    :rf.ui.compile/sub-in-loop          :reactive-site-is-not-finite
    :rf.ui.compile/frame-in-loop        :reactive-site-is-not-finite
    :rf.ui.compile/void-children        :void-element-carries-children

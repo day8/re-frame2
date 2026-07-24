@@ -263,6 +263,37 @@
            "nothing (nil / false)."))
     {:value (shape form)}))
 
+(defn refuse-metadata-key!
+  "Refuse a markup vector carrying `^{:key …}` METADATA.
+
+  Freehand reads no metadata-carried contract, so nothing on either
+  interpreted walk looked for one and the key was simply GONE: the tree
+  came out well-formed, unkeyed, and silent, and the only symptom was
+  React reusing the wrong rows at run time. It is the Reagent spelling, so
+  it is the one a hand arriving from re-frame v1 reaches for first, and
+  the compiled tier had been refusing it as a build failure all along —
+  one source, two answers.
+
+  Both walks refuse it here instead, with the same sentence: a key is a
+  PROPS slot in this substrate, and there is exactly one spelling of it.
+
+  `where` names the raising site. Cheap enough to sit in the child fold:
+  a vector with no metadata answers `nil` and the `contains?` never runs."
+  [where form]
+  (when (contains? (meta form) :key)
+    (malformed!
+      where
+      (str "A child carries a :key in its METADATA — ^{:key …}. Freehand "
+           "reads no metadata-carried contract, so this key would reach "
+           "neither the tree nor React, and the list it belongs to would "
+           "render silently unkeyed. A key is a PROPS slot here, in both "
+           "modes and on both hosts: write [:li {:key k} …], or "
+           "[:<> {:key k} …] around content that has no props map of its "
+           "own. (Reagent honours the metadata spelling; this substrate "
+           "has one spelling for a key, and refuses the other rather than "
+           "dropping it.)")
+      {:value (shape form)})))
+
 (defn collect
   "Fold one child value into the canonical children accumulator `acc`.
 
@@ -284,7 +315,8 @@
     (conv/child-run? form) (reduce #(collect walk where %1 %2) acc form)
     (node? form)           (conj acc form)
     (seq? form)            (reduce #(collect walk where %1 %2) acc form)
-    (and walk (vector? form)) (conj acc (walk form))
+    (and walk (vector? form)) (do (refuse-metadata-key! where form)
+                                  (conj acc (walk form)))
     :else                  (opaque-child! where form)))
 
 (defn children

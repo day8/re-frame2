@@ -111,6 +111,7 @@
    :rf.ui.compile/lazy-seq-child      [:make-template-visible :pass-computed-value]
    :rf.ui.compile/unkeyed-list-item   [:key-each-row :extract-declared-child]
    :rf.ui.compile/indirect-list-body  [:bind-with-for-let :extract-declared-child]
+   :rf.ui.compile/metadata-key        [:key-in-the-props-map]
    :rf.ui.compile/constant-list-key   [:key-each-row]
    :rf.ui.compile/nested-for-body     [:make-template-visible]
    :rf.ui.compile/sub-in-loop         [:extract-declared-child]
@@ -147,6 +148,8 @@
    "give every row of the list a :key that varies with the row"
    :bind-with-for-let
    "bind the row's values with for's own :let modifier — (for [x xs :let [y (f x)]] …) — so the body stays the keyed row"
+   :key-in-the-props-map
+   "move the key out of ^{:key …} metadata and into the props map — [:li {:key k} …]"
    :scope-the-frame-above-the-view
    "scope the frame above this view rather than inside it"
    :keep-interpreted

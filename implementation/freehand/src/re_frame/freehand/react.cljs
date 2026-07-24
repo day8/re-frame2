@@ -759,7 +759,13 @@
     (string? form)  (conj acc form)
     (number? form)  (conj acc (conv/js-number-str form))
     (conv/child-run? form) (reduce (fn [a f] (collect cand a f)) acc form)
-    (vector? form)  (conj acc (node cand form))
+    ;; `^{:key …}` metadata is refused by the SHARED sentence the structural
+    ;; walk raises, not by a second one here — one source has one answer,
+    ;; and a key that reached React through a spelling the JVM tree drops
+    ;; would be exactly the divergence this walk exists to not have.
+    (vector? form)  (do (node/refuse-metadata-key!
+                          're-frame.freehand.react/element form)
+                        (conj acc (node cand form)))
     (seq? form)     (reduce (fn [a f] (collect cand a f)) acc form)
     ;; A React element in a child position is markup a COMPILED body
     ;; already lowered — the shape a compiled parent forwards to an
