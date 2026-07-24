@@ -886,8 +886,14 @@
         ;; element, exactly as the controlled-input door's element half is,
         ;; so it is settled once — over both attribute sources, because a
         ;; compiled element's `multiple` may be a literal the compiler
-        ;; folded or a value only this render knows.
-        multi?     (controlled/multiple-select? tag attrs dyn)
+        ;; folded or a value only this render knows. A `v/spread-safe` caller
+        ;; may legally carry `:multiple`, and it folds UNDER the owned props
+        ;; only after this verdict decides what an owned nil `value` means, so
+        ;; the caller is a THIRD source settled here — before the fold, not
+        ;; after it (rf2-sf9n5).
+        multi?     (or (controlled/multiple-select? tag attrs dyn)
+                       (and (some? caller)
+                            (controlled/multiple-select? tag caller nil)))
         ;; `:class` and `:style` ride the accumulator because an ALIASED
         ;; spelling of either arrives through `:dyn` — the front end
         ;; discriminates on the exact keyword — and has to reach the one

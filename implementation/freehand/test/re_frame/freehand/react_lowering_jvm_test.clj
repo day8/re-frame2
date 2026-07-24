@@ -330,3 +330,57 @@
             "and specifically NOT the build-time constant false the bug baked in"))
       (is (= 1 (count (filter #(= '(:flag props) %) nodes)))
           "and the runtime :multiple expression is evaluated exactly once"))))
+
+(deftest a-runtime-select-multiple-evaluates-value-before-multiple-in-source-order
+  (testing "rf2-sf9n5 gap #2 — the runtime verdict used to be hoisted into the
+            outer let ahead of every write, so the :multiple expression was
+            evaluated BEFORE the :value expression, diverging from the
+            interpreted walk (which evaluates the whole authored map in source
+            order before deciding anything). The owned dynamic values are now
+            bound once in source order and the verdict reads them, so the
+            observable evaluation order matches — each expression still once."
+    (let [[e ast] (analyzed '[:select {:value (:v props) :multiple (:m props) :on-change [:e]}])
+          form    (emit-react/emit-react-body e '[props] ast)
+          nodes   (vec (tree-seq coll? seq form))
+          v-idx   (.indexOf nodes '(:v props))
+          m-idx   (.indexOf nodes '(:m props))]
+      (is (<= 0 v-idx) "the :value expression is present in the emitted body")
+      (is (<= 0 m-idx) "the :multiple expression is present in the emitted body")
+      (is (< v-idx m-idx)
+          "the :value expression is bound — and so evaluated — before the :multiple one")
+      (is (= 1 (count (filter #(= '(:v props) %) nodes)))
+          "the :value expression is evaluated exactly once")
+      (is (= 1 (count (filter #(= '(:m props) %) nodes)))
+          "and the :multiple expression exactly once"))))
+
+(deftest a-safe-spread-caller-multiple-shapes-the-owned-nil-value
+  (testing "rf2-sf9n5 gap #1 — a v/spread-safe caller may legally carry
+            :multiple, and it folds UNDER the owned props. The compiled emitter
+            now settles the multiple-select verdict over the guarded caller too,
+            BEFORE the owned nil :value is normalized: the caller map is bound
+            once, the verdict derives from it, and the :value write reads that
+            verdict — never the build-time false that mis-shaped it under a
+            caller-supplied multiple."
+    (let [[e ast]      (analyzed '[:select (v/spread-safe {:value nil} {:multiple true})])
+          form         (emit-react/emit-react-body e '[props] ast)
+          nodes        (tree-seq coll? seq form)
+          caller-binds (filter #(and (seq? %)
+                                     (= 're-frame.freehand.node/safe-caller-attrs (first %)))
+                               nodes)
+          verdicts     (filter #(and (seq? %)
+                                     (= 're-frame.freehand.controlled/multiple-select? (first %)))
+                               nodes)
+          attr!s       (filter #(and (seq? %)
+                                     (= 're-frame.freehand.compiled-react/attr! (first %)))
+                               nodes)
+          value-write  (first (filter #(= :value (nth % 3 nil)) attr!s))]
+      (is (= 1 (count caller-binds))
+          "the guarded caller map is evaluated exactly once, bound before the writes")
+      (is (= 1 (count verdicts))
+          "the runtime multiple-select verdict is computed exactly once, over the caller")
+      (is (some? value-write) "the explicitly nil owned :value is written at runtime")
+      (let [verdict-arg (nth value-write 5 nil)]
+        (is (symbol? verdict-arg)
+            "the :value write's verdict is the once-bound runtime verdict, not a constant")
+        (is (not (false? verdict-arg))
+            "and specifically NOT the build-time false the bug baked in")))))
