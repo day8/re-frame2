@@ -189,25 +189,38 @@
 ;; The one pure materializer
 ;; ---------------------------------------------------------------------------
 
+(defn- available-markers
+  "The markers `payload` supplies, in a stable printable order.
+
+  A payload's keys are HETEROGENEOUS by construction — a named marker is a
+  keyword and a general door is a vector — and those do not compare, so
+  `sort` throws a raw host comparison error on the very payload a missing
+  projection is most likely to be diagnosed from. Ordering by the printed
+  form is total over every marker shape the door admits, and it is the form
+  the diagnostic shows anyway."
+  [payload]
+  (vec (sort-by pr-str (keys payload))))
+
 (defn- payload-value
   [marker event payload]
   (if (contains? payload marker)
     (get payload marker)
-    (error/throw-error!
-      :rf.error/view-missing-payload
-      'v/materialize-event
-      (str "This event site asks for " marker " but the callback that fired it supplies "
-           "no such payload" (if (seq payload)
-                               (str " (it supplies " (pr-str (vec (sort (keys payload)))) ")")
-                               "")
-           ". Nothing is dispatched — a malformed event vector is worse than none. Ask for "
-           "a projection the site's own callback carries, or convert the argument "
-           "explicitly with v/event.")
-      {:recovery :ask-for-a-projection-the-callback-supplies
-       :extra    {:projection marker
-                  :available  (vec (sort (keys payload)))
-                  :event-id   (nth event 0 nil)
-                  :event      (error/diag-value-summary event)}})))
+    (let [available (available-markers payload)]
+      (error/throw-error!
+        :rf.error/view-missing-payload
+        'v/materialize-event
+        (str "This event site asks for " (pr-str marker) " but the callback that fired it "
+             "supplies no such payload" (if (seq payload)
+                                          (str " (it supplies " (pr-str available) ")")
+                                          "")
+             ". Nothing is dispatched — a malformed event vector is worse than none. Ask for "
+             "a projection the site's own callback carries, or convert the argument "
+             "explicitly with v/event.")
+        {:recovery :ask-for-a-projection-the-callback-supplies
+         :extra    {:projection marker
+                    :available  available
+                    :event-id   (nth event 0 nil)
+                    :event      (error/diag-value-summary event)}}))))
 
 (defn- bad-read-shape!
   [marker]
@@ -231,23 +244,37 @@
     :read-a-shallow-scalar-or-use-v-event
     {:projection marker :value (error/diag-value-summary v)}))
 
+(defn- read-projection
+  "The substituted value for ONE marker — the payload the callback supplied
+  under it, proved to be a shallow scalar.
+
+  ONE function for both spellings, deliberately. `::v/value` IS
+  `[::v/read [:target :value]]` (see [[sugar-paths]]), so a named marker
+  that accepted a host object while its own expansion refused one would
+  make the roster a second law wearing the door's name — and the whole
+  point of naming the common paths was that they read through the same
+  door, not beside it."
+  [marker event payload]
+  (let [v (payload-value marker event payload)]
+    (if (read-scalar? v) v (read-non-scalar! marker v))))
+
 (defn- materialize-arg
   "Replace ONE top-level argument. A named roster keyword and a
   `[::v/read <path>]` door are both substituted from `payload` — keyed by
-  the marker itself, so the lookup is one law — and a door additionally
-  proves its shape and that what it read is a shallow scalar. Any other
-  value is ordinary application data and is left exactly as it is."
+  the marker itself, so the lookup is one law — and both must land on a
+  shallow scalar; a door additionally proves its own shape first, since a
+  malformed one has no path to read. Any other value is ordinary
+  application data and is left exactly as it is."
   [x event payload]
   (cond
     (contains? projections x)
-    (payload-value x event payload)
+    (read-projection x event payload)
 
     (read-marker? x)
     (do
       (when-not (and (= 2 (count x)) (read-path? (read-marker-path x)))
         (bad-read-shape! x))
-      (let [v (payload-value x event payload)]
-        (if (read-scalar? v) v (read-non-scalar! x v))))
+      (read-projection x event payload))
 
     :else x))
 
@@ -275,10 +302,11 @@
     a `[::v/read <path>]` door in an argument position is substituted;
     the SAME form nested inside a map or a deeper vector is ordinary
     application data and is left alone, as is every non-marker value;
-  - **a door must read a shallow scalar.** A `[::v/read <path>]` whose
-    read lands on a host object, a collection or nothing is a typed error
-    naming `v/event` — that scalar law is what keeps a projected read
-    equality-assertable and host-neutral;
+  - **a projection must read a shallow scalar** — a named marker and a
+    `[::v/read <path>]` door alike, since the named ones are sugar over the
+    door. A read that lands on a host object, a collection or nothing is a
+    typed error naming `v/event`; that scalar law is what keeps a projected
+    read equality-assertable and host-neutral;
   - **every occurrence is replaced**, not merely the first;
   - **a requested but unavailable payload is a typed error** and nothing
     is dispatched, rather than a malformed event reaching a handler;
@@ -1101,13 +1129,18 @@
 #?(:cljs
    (defn- read-projections
      "Add the GENERAL door's reads to `base` — for each `[::v/read <path>]`
-     in the committed event vector, the scalar that path names off the
-     live event `e`, keyed by the door itself so [[materialize-event]]
-     substitutes it exactly as it does a named member. The named roster is
-     already in `base` from [[native-payload]]; a malformed door is left
-     unread here and diagnosed at materialization, and a read that lands on
-     nothing is simply absent, which the materializer reports as a missing
-     payload like any other unmet projection."
+     in `event`, the scalar that path names off the live event `e`, keyed by
+     the door itself so [[materialize-event]] substitutes it exactly as it
+     does a named member. The named roster is already in `base` from
+     [[native-payload]]; a malformed door is left unread here and diagnosed
+     at materialization, and a read that lands on nothing is simply absent,
+     which the materializer reports as a missing payload like any other
+     unmet projection.
+
+     `event` is the vector ABOUT TO BE MATERIALIZED — a declarative site's
+     committed vector, or the one a `v/event` body just returned. Both are
+     scanned against the same live callback argument, which is what makes
+     the two spellings one door."
      [base event e]
      (if (vector? event)
        (reduce (fn [m x]
@@ -1127,9 +1160,21 @@
      base))
 
 (defn- payload
-  [plan args]
+  "The live payload for the event vector `event` about to be materialized —
+  the site's own extractor over `args`, plus the general door's reads taken
+  off the live callback argument.
+
+  `event` is passed rather than read off the plan because the two roles hold
+  their vector in different places: a declarative site's vector IS
+  `(:event plan)`, while a `v/event` site's vector is what its body just
+  RETURNED, and a plan for that role carries no `:event` at all. Scanning
+  the plan for both meant a door in a returned vector was scanned for in
+  `nil` and reported as a missing payload — the public contract says every
+  path runs through one materializer, and this is the argument that makes it
+  true."
+  [plan event args]
   (when-some [pf (:payload plan)]
-    (read-projections (apply pf args) (:event plan) (first args))))
+    (read-projections (apply pf args) event (first args))))
 
 (defn- lane
   "The dispatcher this site fires through — the SYNCHRONOUS one when the
@@ -1159,7 +1204,7 @@
         (fire! (assoc branch :payload (:payload plan)) state args))
 
       (:event-vector :event-options)
-      (dispatch (materialize-event (:event plan) (payload plan args)))
+      (dispatch (materialize-event (:event plan) (payload plan (:event plan) args)))
 
       :event
       (let [result (apply (:f plan) args)]
@@ -1167,8 +1212,13 @@
         ;; anything that is not a vector is rejected by the materializer,
         ;; which is the one place that law lives. `nil` also needs no door
         ;; flush — no state moved, so nothing has to round-trip.
+        ;;
+        ;; The payload is read for THIS result: a body returning
+        ;; `[:table/scrolled [::v/read [:target :scrollTop]]]` gets its door
+        ;; read off the live callback argument, exactly as the same vector
+        ;; written declaratively would.
         (when (some? result)
-          (dispatch (materialize-event result (payload plan args)))))
+          (dispatch (materialize-event result (payload plan result args)))))
 
       (:handler :bare-fn)
       (apply (:f plan) args)))
