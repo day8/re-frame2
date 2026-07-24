@@ -415,6 +415,113 @@
           (finally
             (.remove node)))))))
 
+(deftest fh-toplayer-004-a-generation-retiring-during-the-flush-does-not-act
+  (testing "Per FH-TOPLAYER-004: the ownership fence has to travel INTO the
+            ordered flush, not merely gate its entry. The batch is performed
+            in document order, so the flush is a LOOP — and every top-layer
+            host call has a synchronous callback seam: `beforetoggle` fires
+            inside `showPopover()`, and Freehand permits a plain handler
+            there. An earlier ordered call can therefore retire a later
+            generation while the loop is still running. A flush that dropped
+            the owner as it sorted would have nothing left to withdraw, and
+            the retired generation's node would be opened on behalf of a
+            generation that had already let go — before paint, one frame
+            after it stopped speaking for that node."
+    (if-not (browser?)
+      (skip! "the browser job owns the ordered-flush assertions")
+      (let [log    (atom [])
+            outer  (js/document.createElement "div")
+            inner  (js/document.createElement "div")
+            ref!   (fn []
+                     (gobj/get (top-layer/install! #js {} :div
+                                                   {:popover            :auto
+                                                    :on-toggle          identity
+                                                    ::web/popover-open? true})
+                               "ref"))
+            watch! (fn [^js node tag]
+                     ;; Only the OPEN transition: a browser-initiated close of
+                     ;; an ancestor is the platform reconciling, not a host
+                     ;; call this batch made.
+                     (.addEventListener node "beforetoggle"
+                                        (fn [^js e]
+                                          (when (= "open" (.-newState e))
+                                            (swap! log conj tag)))))]
+        ;; NESTED, so document order is unambiguous (an ancestor sorts ahead
+        ;; of its descendant) and both may legally be open at once.
+        (.setAttribute outer "popover" "auto")
+        (.setAttribute inner "popover" "auto")
+        (.appendChild outer inner)
+        (.appendChild js/document.body outer)
+        (watch! outer :outer)
+        (watch! inner :inner)
+        (try
+          (let [a (ref!)
+                b (ref!)]
+            ;; The seam: the FIRST ordered host call retires the SECOND
+            ;; generation, synchronously, from inside `showPopover()`.
+            (.addEventListener outer "beforetoggle" (fn [_] (b nil)))
+            (a outer)
+            (b inner)
+            (is (= 2 (top-layer/pending-count)) "both generations queued")
+            (top-layer/flush-top-layer!)
+            (is (= [:outer] @log)
+                (str "the retired generation's host call did not happen. Saw: "
+                     (pr-str @log)))
+            (is (true? (.matches outer ":popover-open"))
+                "the generation that still spoke opened its node")
+            (is (false? (.matches inner ":popover-open"))
+                "and the one that had let go left its node closed")
+            (is (zero? (top-layer/pending-count)) "the batch drained whole"))
+          (finally
+            (.remove outer)))))))
+
+(deftest fh-toplayer-004-a-mid-flush-retirement-spares-a-successors-claim
+  (testing "Per FH-TOPLAYER-004: the same identity check that cancels a
+            retired generation's own work is what stops it taking a NEWER
+            generation's claim on the same node down with it — and that has
+            to hold DURING the flush too, not only before it. A predecessor
+            retiring from inside an earlier ordered host call finds an entry
+            that is not its own, and the successor's operation happens."
+    (if-not (browser?)
+      (skip! "the browser job owns the ordered-flush assertions")
+      (let [log   (atom [])
+            outer (js/document.createElement "div")
+            inner (js/document.createElement "div")
+            ref!  (fn []
+                    (gobj/get (top-layer/install! #js {} :div
+                                                  {:popover            :auto
+                                                   :on-toggle          identity
+                                                   ::web/popover-open? true})
+                              "ref"))]
+        (.setAttribute outer "popover" "auto")
+        (.setAttribute inner "popover" "auto")
+        (.appendChild outer inner)
+        (.appendChild js/document.body outer)
+        (doseq [[^js node tag] [[outer :outer] [inner :inner]]]
+          (.addEventListener node "beforetoggle"
+                             (fn [^js e]
+                               (when (= "open" (.-newState e))
+                                 (swap! log conj tag)))))
+        (try
+          (let [a     (ref!)
+                older (ref!)
+                newer (ref!)]
+            (.addEventListener outer "beforetoggle" (fn [_] (older nil)))
+            (a outer)
+            (older inner)
+            (newer inner)                                  ; the successor's claim
+            (is (= 2 (top-layer/pending-count))
+                "one entry per node — the successor replaced the predecessor's")
+            (top-layer/flush-top-layer!)
+            (is (= [:outer :inner] @log)
+                (str "the successor's claim survived the mid-flush retirement. Saw: "
+                     (pr-str @log)))
+            (is (true? (.matches inner ":popover-open"))
+                "and its desired state is the one the node landed in")
+            (is (zero? (top-layer/pending-count)) "the batch drained whole"))
+          (finally
+            (.remove outer)))))))
+
 (deftest fh-toplayer-004-a-generation-retires-through-a-composed-release
   (testing "Per FH-TOPLAYER-004: retirement survives ref COMPOSITION. On an
             element sharing its node with another mechanism the install

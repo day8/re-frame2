@@ -449,7 +449,12 @@
   SUCCESSOR down with it: a newer generation's enqueue has already
   replaced the entry and its owner, so the retiring one finds an entry
   that is not its own and leaves it exactly where it is — in whichever
-  order the host runs attach and detach."
+  order the host runs attach and detach.
+
+  This reaches into an OPEN flush as well as a merely queued batch:
+  [[flush-top-layer!]] drains the batch map entry by entry rather than
+  emptying it up front, so a generation retired by an earlier ordered host
+  call is withdrawn from work that has not happened yet."
   [owner]
   (when-some [^js m @pending]
     (.forEach m (fn [entry node]
@@ -475,21 +480,46 @@
 
   A node that left the document before the flush is SKIPPED: it took its
   top-layer state with it when it left, and asking a disconnected node to
-  open is the one call the browser refuses outright. An entry whose
-  generation retired is not here to skip at all — [[retire!]] withdrew it
-  when the generation let go."
+  open is the one call the browser refuses outright.
+
+  Generation ownership is re-read PER ENTRY, immediately before the host
+  call — not once as the flush opens. The batch is ordered, so the flush
+  is a loop, and every top-layer host call has a synchronous callback seam
+  (`beforetoggle` fires inside `showPopover()`, and Freehand permits a
+  plain handler there). An earlier ordered call can therefore retire a
+  later generation while this very loop is running. Sorting an entry into
+  a plain `[node fact]` pair up front would drop the owner before any host
+  call ran, leaving [[retire!]] nothing to withdraw and the stale
+  operation free to open a node its generation had already let go of.
+
+  So the batch map stays the batch map for the whole flush and each entry
+  is drained out of it as it is performed: an entry still standing in `m`
+  under the identity this loop sorted is one whose generation is still the
+  one that speaks, and anything [[retire!]] removed mid-flush is simply no
+  longer there to find. A SUCCESSOR that claimed the same node during the
+  flush replaced the entry, so the superseded operation is skipped for the
+  same reason and the successor's runs on its own batch — a predecessor's
+  retirement still cannot cancel it."
   []
   (reset! flush-scheduled? false)
   (when-some [^js m @pending]
-    (reset! pending nil)
     (let [entries (array)]
-      (.forEach m (fn [entry node] (.push entries #js [node (aget entry 0)])))
+      (.forEach m (fn [entry node] (.push entries #js [node entry])))
       (.sort entries (fn [a b] (doc-order (aget a 0) (aget b 0))))
       (.forEach entries
-                (fn [entry]
-                  (let [^js node (aget entry 0)]
-                    (when (.-isConnected node)
-                      (apply-desired! node (aget entry 1))))))))
+                (fn [sorted]
+                  (let [^js node (aget sorted 0)
+                        entry    (aget sorted 1)]
+                    ;; The fence, INSIDE the loop: still this generation's
+                    ;; entry, and not one an earlier host call withdrew.
+                    (when (identical? entry (.get m node))
+                      (.delete m node)
+                      (when (.-isConnected node)
+                        (apply-desired! node (aget entry 0)))))))
+      ;; Anything left is a batch a mid-flush commit opened; it owns the
+      ;; microtask that enqueue scheduled for it. Otherwise: retain nothing.
+      (when (zero? (.-size m))
+        (reset! pending nil))))
   nil)
 
 (defn- reconciling-handlers
