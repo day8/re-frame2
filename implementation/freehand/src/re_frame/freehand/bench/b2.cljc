@@ -60,12 +60,16 @@
   is the count AT SCALE — the exact number of ViewCell shells a mount of
   this roster omits, `verdict × mount count`, summed over the plan.
 
-  The mount TIME distribution and the live-heap retained-object reading
-  that D021's fuller B2 row also asks for are a different instrument: they
-  need the compiled tier's browser lowering (rf2-drpa3.113), which mounts
-  a compiled boundary in a real root, and join this workload with that
-  slice. Until then B2 measures the exact quantity that IS decidable
-  without a mount, and does not sell a static count as a runtime one.
+  The mount TIME distribution and the runtime retained-shell reading that
+  D021's fuller B2 row also asks for are a different instrument, and they
+  live where a mount can happen: `re-frame.freehand.bench.b2-dom-cljs-test`
+  mounts this very roster — beside its interpreted twins in
+  [[re-frame.freehand.bench.b2.interpreted]] — in a real browser, counts
+  the occurrences off `document`, reads back the wrapper React actually
+  reconciled for each declaration, and cross-checks the runtime omission
+  total against [[omitted]] over the same plan. What is measured here is
+  the exact quantity that is decidable WITHOUT a mount, and nothing in
+  this namespace sells a static count as a runtime one.
 
   ## A small case beside the stress case
 
@@ -154,21 +158,30 @@
 ;; The roster and the mount plan
 ;; ---------------------------------------------------------------------------
 
-(def ^:private free-views
+(def free-views
   "The capability-free arm's declaration types. Every one is proven
   elidable by its manifest — a claim the workload re-checks each run
-  rather than trusts this vector for."
+  rather than trusts this vector for.
+
+  Public because the mount storm mounts this roster rather than a copy of
+  it: a browser fixture that listed its own four types could drift from
+  the four the gate counts, and then the two halves of B2 would be about
+  different rosters."
   [free-label free-card free-list free-nested])
 
-(def ^:private read-views
+(def read-views
   "The three-read arm's declaration types. Every one carries three
-  reactive reads and keeps its ViewCell."
+  reactive reads and keeps its ViewCell. Public for the same reason
+  [[free-views]] is."
   [read-panel read-row read-widget])
 
-(defn- plan
+(defn plan
   "A mount plan for `views` at `scale`: `[[view mount-count] …]`, each type
   mounted `scale` times. Scale is a fixture parameter — the storm's size
-  is a size, not a language constant."
+  is a size, not a language constant.
+
+  Public so the browser mount builds its plan the same way this workload
+  does, and can hand the very plan it mounted to [[omitted]]."
   [views scale]
   (mapv (fn [view] [view scale]) views))
 
@@ -176,11 +189,17 @@
   [view]
   (:view-cell (v/manifest view)))
 
-(defn- omitted
+(defn omitted
   "The exact number of boundaries in `mount-plan` whose compiled lowering
   OMITS the ViewCell — each type's manifest verdict times its mount count.
   Read off the manifest every call, so a type that stopped eliding drops
-  its whole mount count out of this total and reds the gate."
+  its whole mount count out of this total and reds the gate.
+
+  Public so the browser mount can put this static prediction beside the
+  omissions it counted off a page, and require them to agree. An
+  interpreted plan answers zero here — an interpreted declaration carries
+  no manifest and therefore no verdict, which is the honest arithmetic
+  for a mode that cannot prove a body sub-free."
   [mount-plan]
   (reduce (fn [n [view mounts]]
             (+ n (if (= :elided (verdict view)) mounts 0)))
