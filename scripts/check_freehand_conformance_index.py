@@ -66,6 +66,11 @@ and, from the execution census:
     * ORPHAN FIXTURE       — a fixture file on disk no `active` row names.  A
                              deletion that removes the row but leaves the bytes
                              is how a resurrected id acquires a stale meaning.
+    * EMPTY AREA           — a roster area carrying no `active` row.  The area
+                             roster is a claim that the substrate has laws in all
+                             fifteen; an area with none means the law was never
+                             written, and an index of empty sections satisfies
+                             every structural rule above trivially.
 
 Every defect names the offending row (its id, or its raw first cell when the id
 itself is the defect) and its line number.
@@ -543,10 +548,10 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
 
     The manifest is DERIVED — from the `(conf/fixture :FH-…)` sites in
     `implementation/freehand/test/` and the lane each file runs in — so there is
-    no second copy of the mapping to keep in step.  Three facts fall out, and
-    each is a defect shape: a row nothing reads, a row read only from lanes that
-    do not serve the hosts it claims, and a fixture or a proof site left behind
-    by a row that no longer exists.
+    no second copy of the mapping to keep in step.  Four facts fall out, and each
+    is a defect shape: a row nothing reads, a row read only from lanes that do
+    not serve the hosts it claims, a fixture or a proof site left behind by a row
+    that no longer exists, and a roster area holding no proven law at all.
     """
     index = repo_root / INDEX_REL
     if not index.is_file():
@@ -593,6 +598,19 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
             ",".join(l for l in LANES if l in lanes) or "-",
             ", ".join(p.name for p in proving) or "-",
         ))
+
+    # Acceptance: no area is empty.  Every structural rule above is satisfied by
+    # an index of bare section headers, so without this the strongest claim the
+    # gate can make about a roster area is that nobody wrote it down wrong.
+    populated = {_ID_RE.match(row_id).group(1) for _, row_id, _, _ in rows}
+    for area in AREAS:
+        if area not in populated:
+            defects.append(
+                f"  EMPTY AREA: {INDEX_REL.as_posix()} has no `active` row in "
+                f"### FH-{area}; the roster carries an area because a law lives "
+                "there, so an area with no proven law is a law that was never "
+                "written"
+            )
 
     active_ids = {row_id for _, row_id, _, _ in rows}
     for row_id in sorted(set(sites) - active_ids):
@@ -650,8 +668,9 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
         )
     elif verbose:
         sys.stderr.write(
-            f"Freehand conformance census OK: {len(table)} active row(s), each "
-            "read by a test in every lane its hosts name.\n"
+            f"Freehand conformance census OK: {len(table)} active row(s) across "
+            f"{len(AREAS)} area(s), none empty, each row read by a test in every "
+            "lane its hosts name.\n"
         )
 
     return len(defects)
@@ -687,25 +706,44 @@ def _row(
     )
 
 
-def _write_fixture(root: Path, sections: dict[str, str]) -> None:
-    """Write a mini-repo whose index carries `sections` (area -> row block)."""
+def _filler_id(area: str) -> str:
+    return f"FH-{area}-001"
+
+
+def _write_fixture(root: Path, sections: dict[str, str], fill: bool = False) -> None:
+    """Write a mini-repo whose index carries `sections` (area -> row block).
+
+    `fill` gives every area the caller did not name its own clean row, so a
+    census fixture can isolate one defect without also tripping the
+    every-area-carries-a-law rule.  The structural cases leave it off: they
+    predate that rule, and an index of empty sections is exactly the shape
+    several of them exist to walk over.  Naming an area with an EMPTY block
+    keeps it empty under `fill`, which is how the rule is driven red.
+    """
     (root / "mkdocs.yml").write_text("site_name: fixture\n", encoding="utf-8")
     spec = root / "spec"
-    (spec / "conformance" / "freehand" / "fixtures").mkdir(parents=True, exist_ok=True)
+    fixtures = root / FIXTURES_REL
+    fixtures.mkdir(parents=True, exist_ok=True)
     (spec / "004-Views.md").write_text(
         "# Views\n\n## Template grammar\n\nx\n", encoding="utf-8"
     )
     (root / "docs").mkdir(exist_ok=True)
     (root / "docs" / "note.md").write_text("# Note\n\n## Template grammar\n\nx\n",
                                            encoding="utf-8")
-    (spec / "conformance" / "freehand" / "fixtures" / "fh-call-001.edn").write_text(
-        "{}\n", encoding="utf-8"
-    )
+    (fixtures / "fh-call-001.edn").write_text("{}\n", encoding="utf-8")
     body = ["# Freehand Conformance Index\n"]
     for area in AREAS:
         body.append(f"\n### FH-{area} — {area.title()}\n\n")
         body.append(_HEADER)
-        body.append(sections.get(area, ""))
+        block = sections.get(area)
+        if block is None and fill:
+            name = f"fh-{area.lower()}-001.edn"
+            (fixtures / name).write_text("{}\n", encoding="utf-8")
+            block = _row(
+                row_id=_filler_id(area),
+                fixture=f"`{(FIXTURES_REL / name).as_posix()}`",
+            )
+        body.append(block or "")
     (root / INDEX_REL).write_text("".join(body), encoding="utf-8")
 
 
@@ -715,12 +753,23 @@ def _write_census_fixture(
     tests: dict[str, str],
     extra_fixtures: tuple[str, ...] = (),
 ) -> None:
-    """A census mini-repo: an index, plus a test tree that reads (or fails to
-    read) its fixtures.  `tests` maps a filename under
-    `implementation/freehand/test/re_frame/freehand/` to its source."""
-    _write_fixture(root, sections)
+    """A census mini-repo: a FULL index — every area carrying a clean row unless
+    the caller overrode it — plus a test tree that reads (or fails to read) its
+    fixtures.  `tests` maps a filename under
+    `implementation/freehand/test/re_frame/freehand/` to its source; the filler
+    rows get one `.cljc` suite of their own, so each case's own tests carry only
+    the defect it is isolating."""
+    _write_fixture(root, sections, fill=True)
     test_dir = root / TESTS_REL / "re_frame" / "freehand"
     test_dir.mkdir(parents=True, exist_ok=True)
+    filler = "".join(
+        f"(def fx-{area.lower()} (conf/fixture :{_filler_id(area)}))\n"
+        for area in AREAS
+        if area not in sections
+    )
+    (test_dir / "filler_cljs_test.cljc").write_text(
+        "(ns filler)\n" + filler, encoding="utf-8"
+    )
     for name, source in tests.items():
         (test_dir / name).write_text(source, encoding="utf-8")
     for name in extra_fixtures:
@@ -787,6 +836,13 @@ def _build_census_fixtures(base: Path) -> None:
             {"CALL": _row()},
             {"a_cljs_test.cljc": _proof()},
             ("fh-call-002.edn",),
+        ),
+        # Red: a roster area holding no proven law — the shape an index of bare
+        # section headers has, which every structural rule passes trivially.
+        "census_empty_area": (
+            {"CALL": _row(), "DIAG": ""},
+            {"a_cljs_test.cljc": _proof()},
+            (),
         ),
     }
     for name, (sections, tests, extra) in cases.items():
@@ -931,6 +987,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("census_qualified_host_needs_a_browser", 1),
         ("census_dangling_proof", 1),
         ("census_orphan_fixture", 1),
+        ("census_empty_area", 1),
     ]
     failures = 0
     with tempfile.TemporaryDirectory(prefix="fh_index_selftest_") as tmp:
