@@ -2046,11 +2046,12 @@ HMR is a designed contract with fixtures, not a hope; the REPL path *is* the HMR
 - **The Pair's hot-swap is this same mechanism** invoked over nREPL.
 
 Cell/ownership reconciliation under reload is owned by
-[006](006-ReactiveSubstrate.md) — including the guard that a re-registration landing in a
-cell's render→commit gap never paints the old body: commit checks body authority (the
-cell-local generation *and* the registered view revision) at **both** the render→commit
-boundary and again immediately before publication, releasing any newly-staged handles and
-re-rendering rather than committing a stale capture ([006 §Body authority under hot
+[006](006-ReactiveSubstrate.md) — including the guard that a cell never publishes
+ownership on behalf of a body it did not execute: the shell raises the cell to the
+boundary's current body revision before a candidate opens, and commit re-checks that
+authority at **both** the render→commit boundary and again immediately before publication,
+returning `:abandoned` — releasing any newly-staged handles and leaving the prior committed
+set installed — rather than publishing a superseded capture ([006 §Body authority under hot
 reload](006-ReactiveSubstrate.md#body-authority-under-hot-reload--the-two-point-commit-fence)).
 Compile budgets (expansion p95, watch-loop rebuild) are gated per
 [008](008-Testing.md) G-14.
