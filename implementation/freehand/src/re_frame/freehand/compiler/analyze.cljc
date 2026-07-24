@@ -61,9 +61,14 @@
 ;; The frozen re-frame.freehand.react interop tier (Spec 004 §The React interop tier)
 ;; plus the promoted substrate host hook `re-frame.freehand/ref` (rf2-u53yy.9). All are
 ;; recognised in expression (let-binding value) position by the same finite-site
-;; machinery as `local`, position-checked, and lowered to `re-frame.freehand.hooks/*`
-;; (ref's lowering target stays the `use-ref` runtime fn). `lazy` is def-level
-;; only — recognised in a view body solely to reject it.
+;; machinery as `local`, position-checked, and — once the host-hook runtime slice
+;; lands — lowered to it. That slice HAS NOT LANDED (Spec 004B §refs "arrive with
+;; the host-lifecycle slice"; there is no host-hook runtime yet), so the analyzer
+;; recognises and position-checks these forms but REFUSES to lower them with an
+;; intentional Freehand diagnostic rather than emitting a call to a runtime var
+;; that is defined nowhere (rf2-1a9au — the same class as the dead JVM host-op arms
+;; rf2-drpa3.174 replaced with `env/fail!`). `lazy` is def-level only — recognised
+;; in a view body solely to reject it.
 (def ^:private ui-ref-fqns                 #{'re-frame.freehand/ref})
 (def ^:private react-use-effect-fqns       #{'re-frame.freehand.react/use-effect})
 (def ^:private react-use-layout-effect-fqns #{'re-frame.freehand.react/use-layout-effect})
@@ -72,19 +77,21 @@
 (def ^:private react-use-id-fqns           #{'re-frame.freehand.react/use-id})
 (def ^:private react-lazy-fqns             #{'re-frame.freehand.react/lazy})
 ;; :authored = the full authored head spelling used in diagnostics; :kind keyword
-;; + runtime lowering target + call arity, keyed by fqn set.
+;; + call arity, keyed by fqn set. No `:runtime` lowering target: the host-hook
+;; runtime slice has not landed, so a recognised hook is REFUSED, never lowered
+;; (rf2-1a9au).
 (def ^:private react-hook-specs
-  [{:fqns ui-ref-fqns                 :kind :ref          :runtime 're-frame.freehand.hooks/use-ref
+  [{:fqns ui-ref-fqns                 :kind :ref
     :min-args 0 :max-args 1 :authored "v/ref"}
-   {:fqns react-use-effect-fqns       :kind :effect       :runtime 're-frame.freehand.hooks/use-effect
+   {:fqns react-use-effect-fqns       :kind :effect
     :min-args 1 :max-args 2 :authored "react/use-effect" :deferred-cb 0 :deps-arg 1}
-   {:fqns react-use-layout-effect-fqns :kind :layout-effect :runtime 're-frame.freehand.hooks/use-layout-effect
+   {:fqns react-use-layout-effect-fqns :kind :layout-effect
     :min-args 1 :max-args 2 :authored "react/use-layout-effect" :deferred-cb 0 :deps-arg 1}
-   {:fqns react-use-effect-event-fqns :kind :effect-event :runtime 're-frame.freehand.hooks/use-effect-event
+   {:fqns react-use-effect-event-fqns :kind :effect-event
     :min-args 1 :max-args 1 :authored "react/use-effect-event" :deferred-cb 0}
-   {:fqns react-use-context-fqns      :kind :context      :runtime 're-frame.freehand.hooks/use-context
+   {:fqns react-use-context-fqns      :kind :context
     :min-args 1 :max-args 1 :authored "react/use-context"}
-   {:fqns react-use-id-fqns           :kind :id           :runtime 're-frame.freehand.hooks/use-id
+   {:fqns react-use-id-fqns           :kind :id
     :min-args 0 :max-args 0 :authored "react/use-id"}])
 
 (defn- react-hook-spec-for
@@ -365,10 +372,13 @@
 
 (def ^:private runtime-sub-fqn 're-frame.freehand.reactive/sub-read)
 (def ^:private runtime-frame-ops-fqn 're-frame.freehand.frames/frame-ops)
-(def ^:private runtime-local-fqn 're-frame.freehand.hooks/local-state)
-(def ^:private runtime-effect-value-fqn 're-frame.freehand.hooks/effect-value)
-(def ^:private runtime-effect-connect-fqn 're-frame.freehand.hooks/effect-connect)
-(def ^:private runtime-dispatch-fn-fqn 're-frame.freehand.hooks/dispatch-fn)
+;; The `local` / `effect` / `dispatch-fn` / react-interop lowering targets that
+;; used to live here named `re-frame.freehand.hooks/*` — a runtime namespace that
+;; is defined nowhere (its slice has not landed). Emitting them produced an
+;; unresolved host-op var in every compiled/structural view that used a host hook.
+;; They are GONE: the analyzer now refuses a recognised host hook with an
+;; intentional Freehand diagnostic instead of lowering to a phantom var
+;; (rf2-1a9au). The targets return with the host-hook runtime slice.
 (def ^:private deferred-scope ::deferred-scope)
 (def ^:private transparent-macro-fqns
   "Closed macro set whose arguments are host-independent expression slots,
@@ -734,6 +744,26 @@
                   "part MOUNTS a defview that owns its own state")
              {:form form}))
 
+(defn- host-hook-unavailable!
+  "Refuse a recognised host-hook form whose runtime lowering target does not exist
+  yet. The `local` / `effect` / `dispatch-fn` / `re-frame.freehand.react` interop
+  forms are real Freehand grammar, position-checked by the finite-site machinery,
+  but their runtime — a per-host lowering target — arrives with the host-hook /
+  host-lifecycle slice, which HAS NOT LANDED (Spec 004B §refs: they \"arrive with
+  the host-lifecycle slice\"). Until it does, the analyzer refuses the form with an
+  intentional compile diagnostic rather than lowering it to a var that is defined
+  nowhere — the unresolved host-op symbol rf2-1a9au closed, the same class of bug
+  rf2-drpa3.174 fixed on the JVM emitter's dead host-op arms. `authored` is the
+  head spelling for the diagnostic; `kind` is the reserved capability keyword."
+  [e authored kind form]
+  (env/fail! e :rf.ui.compile/unsupported-form
+             (str "(" authored " …) is a host hook, but Freehand's host-hook "
+                  "runtime slice has not landed — there is no lowering target for "
+                  "it yet, so the analyzer recognises and position-checks the form "
+                  "but cannot compile it. Remove the host-hook use until the "
+                  "host-lifecycle slice ships.")
+             {:form form :host-hook kind}))
+
 (defn rewrite-expr
   "Rewrite an opaque expression, lowering resolved unshadowed `(sub q)` calls
   to the serialized two-argument runtime shape and recording stable lexical
@@ -1029,14 +1059,11 @@
                                           "callback, render-fn slot, or root expression "
                                           "(host hooks run once per render in fixed order)")
                                      {:form f})))
-                      (let [sid (lexical-site-id e :local f p)]
-                        (env/next-hook-ordinal! e) ; a local advances the shared body-hook ordinal
-                        (env/add-site! e :locals {:sid sid :path (:path e)
-                                                  :expr-path (vec p)})
-                        (with-same-meta
-                          f
-                          (list runtime-local-fqn
-                                (rw (second f) locals (conj p 1))))))
+                      ;; Position is legal, but the `local` runtime lowering target
+                      ;; (the host-hook slice) has not landed — refuse the form
+                      ;; loudly rather than lower it to a var defined nowhere
+                      ;; (rf2-1a9au).
+                      (host-hook-unavailable! e "local" :local f))
 
                     ;; Host hooks — the substrate `v/ref` and the re-frame.freehand.react
                     ;; interop hooks (use-effect / use-layout-effect /
@@ -1044,10 +1071,11 @@
                     ;; host hooks obeying the SAME position law as `local`: legal
                     ;; only where they evaluate unconditionally, once per render
                     ;; (the straight-line top region — an outer let binding).
-                    ;; Lowered to hooks/*.
+                    ;; Recognised and position-checked, then REFUSED — the runtime
+                    ;; lowering target has not landed (rf2-1a9au).
                     (and (symbol? head) (not (contains? locals head))
                          (react-hook-spec-for e* head))
-                    (let [{:keys [kind runtime min-args max-args authored deps-arg]}
+                    (let [{:keys [kind min-args max-args authored deps-arg]}
                           (react-hook-spec-for e* head)
                           call-args (rest f)
                           argc      (count call-args)]
@@ -1082,24 +1110,11 @@
                                         "literal vector (compared by rf= value equality); "
                                         "got " (pr-str (nth call-args deps-arg)))
                                    {:form f}))
-                      (let [sid   (lexical-site-id e kind f p)
-                            order (env/next-hook-ordinal! e)
-                            args* (map-indexed
-                                   (fn [i a]
-                                     (if (and deps-arg (= i deps-arg))
-                                       ;; deps vector: walk each slot in ambient
-                                       ;; scope (render-time values).
-                                       (with-same-meta a
-                                         (mapv (fn [j d] (rw d locals (conj p (inc i) j)))
-                                               (range) a))
-                                       ;; setup fn / ctx / initial: ordinary
-                                       ;; expressions (a setup fn is a deferred
-                                       ;; callback — rw-fn rejects reactive sites).
-                                       (rw a locals (conj p (inc i)))))
-                                   call-args)]
-                        (env/add-site! e :react {:sid sid :kind kind :order order
-                                                 :path (:path e) :expr-path (vec p)})
-                        (with-same-meta f (apply list runtime args*))))
+                      ;; Position/arity/deps are legal, but the interop hook's
+                      ;; runtime lowering target (the host-hook slice) has not landed
+                      ;; — refuse the form loudly rather than lower it to a var
+                      ;; defined nowhere (rf2-1a9au).
+                      (host-hook-unavailable! e authored kind f))
 
                     ;; (react/lazy …) is DEF-LEVEL only — recognised in a body
                     ;; solely to reject it (per-render construction remount-loops).
@@ -1137,10 +1152,11 @@
                                           "expression. Capture it in the view body and use "
                                           "it from an (effect …) or foreign callback")
                                      {:form f})))
-                      (let [sid (lexical-site-id e :dispatch-fn f p)]
-                        (env/add-site! e :dispatch-fns {:sid sid :path (:path e)
-                                                        :expr-path (vec p)})
-                        (with-same-meta f (list runtime-dispatch-fn-fqn))))
+                      ;; Position is legal, but the `dispatch-fn` runtime lowering
+                      ;; target (the host-hook slice) has not landed — refuse the
+                      ;; form loudly rather than lower it to a var defined nowhere
+                      ;; (rf2-1a9au).
+                      (host-hook-unavailable! e "v/dispatch-fn" :dispatch-fn f))
 
                     ;; (effect …) is a leading STATEMENT, spliced before the
                     ;; final template by analyze-hooks-body. Reaching rw means it
@@ -3601,10 +3617,12 @@
        (env/resolves-to? e (first form) effect-fqns)))
 
 (defn- analyze-effect-statement
-  "Analyze one leading `(effect …)` statement -> the lowered runtime call form.
-  `(effect [deps…] body…)` compares deps by rf= (value deps); `(effect :connect
-  body…)` runs at each connect. The body is a DEFERRED callback (sub/frame
-  inside are rejected); it is spliced before the template by `analyze-hooks-body`."
+  "Analyze one leading `(effect …)` statement. `(effect [deps…] body…)` compares
+  deps by rf= (value deps); `(effect :connect body…)` runs at each connect. The
+  position and deps SHAPE are still validated, but the `effect` runtime lowering
+  target (the host-hook slice) has not landed, so a well-formed statement is
+  REFUSED with an intentional Freehand diagnostic rather than lowered to a var
+  that is defined nowhere (rf2-1a9au)."
   [e index form]
   ;; The purity fence is TRANSITIVE: a render-fn slot body inherits the enclosing
   ;; hooks region, so a leading (effect …) would otherwise reach this seam and be
@@ -3624,37 +3642,22 @@
                     "defview's UNCONDITIONAL top region (or a top-region let/do "
                     "body), before the final template")
                {:form form}))
-  (let [[_ deps-or-kw & body] form
-        sid (lexical-site-id e :effect form [:effect index])]
+  (let [[_ deps-or-kw & body] form]
     (when (empty? body)
       (env/fail! e :rf.ui.compile/bad-effect
                  (str "(effect [deps…] body…) / (effect :connect body…) needs a "
                       "body form after the deps")
                  {:form form}))
-    (letfn [(body-fn [] ; the deferred callback fn — the fn walk rejects sub/frame
-              (walk-expr e [:effect index :body]
-                         (with-meta (apply list 'fn [] body) (meta form))))]
-      (cond
-        (= :connect deps-or-kw)
-        (do
-          (env/add-site! e :effects {:sid sid :kind :connect :index index
-                                     :path (:path e) :expr-path [:effect index]})
-          (with-meta (list runtime-effect-connect-fqn (body-fn)) (meta form)))
-
-        (vector? deps-or-kw)
-        (let [deps* (mapv (fn [i d] (walk-expr e [:effect index :dep i] d))
-                          (range) deps-or-kw)]
-          (env/add-site! e :effects {:sid sid :kind :deps :index index
-                                     :path (:path e) :expr-path [:effect index]})
-          (with-meta (list runtime-effect-value-fqn (body-fn) (vec deps*))
-            (meta form)))
-
-        :else
-        (env/fail! e :rf.ui.compile/bad-effect
-                   (str "(effect …) first argument must be a literal deps VECTOR "
-                        "(value deps compared by rf=) or the keyword :connect; got "
-                        (pr-str deps-or-kw))
-                   {:form form})))))
+    (when-not (or (= :connect deps-or-kw) (vector? deps-or-kw))
+      (env/fail! e :rf.ui.compile/bad-effect
+                 (str "(effect …) first argument must be a literal deps VECTOR "
+                      "(value deps compared by rf=) or the keyword :connect; got "
+                      (pr-str deps-or-kw))
+                 {:form form}))
+    ;; Position and deps shape are legal, but the `effect` runtime lowering target
+    ;; (the host-hook slice) has not landed — refuse the statement loudly rather
+    ;; than lower it to a var defined nowhere (rf2-1a9au).
+    (host-hook-unavailable! e "effect" :effect form)))
 
 (defn- analyze-hooks-body
   "Analyze a hooks-region body: zero or more leading `(effect …)` STATEMENTS,
