@@ -117,26 +117,25 @@
           "at the anchor's position and the panel's, in document order"))))
 
 ;; ===========================================================================
-;; THE FINDING — the measure-then-place half cannot be promoted
+;; THE FINDING, RESOLVED — the measure-then-place half now promotes
 ;; ===========================================================================
 
 #?(:clj
-   (deftest a-behavior-boundary-is-refused-by-the-compiled-grammar
-     (testing "A compiled body that attaches a behavior is REFUSED:
-               `[v/behavior {…} node]` classifies as a foreign component
-               boundary, which `:re-frame.freehand/v1` does not admit.
+   (deftest a-behavior-boundary-is-admitted-by-the-compiled-grammar
+     (testing "A compiled body that attaches a behavior now COMPILES
+               (rf2-drpa3.116/.127/.153): `[v/behavior {…} node]` lowers to
+               the grammar's own `:op :behavior`, not a foreign component
+               boundary.
 
-               That is the pilot's most consequential parity result.
-               `v/defbehavior` is the ONE sanctioned imperative boundary
-               and `:timing :layout` is the only declared moment before
-               paint, so measure-then-place work has exactly one home — and
-               a view that goes there can never take the compiled tier. A
-               dropdown that measures its anchor is interpreted forever,
-               and the recovery the diagnostic names (extract a declared
-               child, keep it interpreted) does not change that: it moves
-               the interpreted boundary, it does not remove it.
+               That is the pilot's most consequential parity result, now
+               resolved. `v/defbehavior` is the ONE sanctioned imperative
+               boundary and `:timing :layout` is the only declared moment
+               before paint, so measure-then-place work has exactly one home
+               — and a view that goes there can now take the compiled tier
+               rather than being interpreted forever. A dropdown that measures
+               its anchor is promotable.
 
-               The refusal is macro-expansion-time, so this row expands the
+               Acceptance is macro-expansion-time, so this row expands the
                declaration itself rather than describing it."
        (let [form '(re-frame.freehand/defview promoted-with-a-behavior
                      {:compiled true}
@@ -146,33 +145,29 @@
                        :target [:toolbar :doc-1]
                        :config {:open? open?}}
                       [:div {:data-part "root"} "x"]])
-             ;; `macroexpand-1` wraps a macro's own refusal in a
-             ;; CompilerException, so the ex-data is one cause down.
-             ;; `macroexpand-1` wraps a macro's own refusal in a
-             ;; CompilerException whose own ex-data is compiler bookkeeping,
-             ;; so the grammar's refusal is found by walking the causes.
-             data (try (macroexpand-1 form) nil
-                       (catch Throwable e
-                         (->> (iterate ex-cause e)
-                              (take-while some?)
-                              (keep ex-data)
-                              (filter :rf.ui.compile/error)
-                              first)))]
-         (is (some? data) "the declaration really is refused")
-         (is (= :rf.ui.compile/unsupported-form (:rf.ui.compile/error data))
-             "with the grammar's own refusal id")
-         (is (= :foreign (:op data))
-             "classified FOREIGN — the compiled tier sees a component it cannot lower")
-         (is (= :re-frame.freehand/v1 (:re-frame.freehand/grammar data))
-             "against the versioned grammar the marker selects")
-         (is (some #{:keep-interpreted} (:recovery data))
-             "and the only recovery on offer is to stay interpreted")))))
+             ;; `macroexpand-1` would wrap a compiled-grammar refusal in a
+             ;; CompilerException, so a refusal is found by walking the causes
+             ;; for the grammar's own ex-data — there must be none.
+             refusal (try (macroexpand-1 form) nil
+                          (catch Throwable e
+                            (->> (iterate ex-cause e)
+                                 (take-while some?)
+                                 (keep ex-data)
+                                 (filter :rf.ui.compile/error)
+                                 first)))]
+         (is (nil? refusal)
+             (str "the declaration compiles — no compiled-grammar refusal; got "
+                  (pr-str refusal)))
+         (is (some? (macroexpand-1 form))
+             "and the behavior attachment expands to real lowered code")))))
 
 #?(:clj
-   (deftest the-refusal-is-the-behavior-and-not-the-overlay
-     (testing "Non-vacuous: the SAME body without the behavior compiles.
-               So the boundary the compiled grammar refuses is precisely
-               the imperative one, not the overlay markup around it."
+   (deftest the-overlay-and-its-behavior-both-compile
+     (testing "Parity restored, non-vacuously: the SAME body without the
+               behavior compiles, as it always did, and the row above proves
+               the body WITH the behavior compiles too. Both the overlay markup
+               and the imperative boundary that decorates it take the compiled
+               tier now, so the measure-then-place half is no longer stranded."
        (let [ok (try (macroexpand-1
                        '(re-frame.freehand/defview promoted-without-a-behavior
                           {:compiled true}
