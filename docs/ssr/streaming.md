@@ -155,6 +155,16 @@ job, stated once.
     `:rf.error/suspense-boundary-duplicate-id`, last-registered chunk wins, earlier
     boundary stuck on fallback (fail-soft, not a 500).
 
+## Troubleshooting
+
+| Symptom | Error / behaviour | Fix |
+|---|---|---|
+| Boundary on non-streaming emitter | `:rf.error/ssr-suspense-boundary-outside-stream` | Use `stream-handler`, not plain `ssr-handler` / `render-to-string` |
+| Duplicate boundary `:id` | `:rf.error/suspense-boundary-duplicate-id` — earlier region stuck on fallback | Unique, stable ids per region |
+| One region throws on the server | `:rf.ssr/suspense-boundary-failed` — that region keeps fallback; page continues | Fix the region's data path; rest of page still streams |
+| Hydrate mid-stream / on a timer | Structural mismatch; React may discard streamed markup | Hydrate only from `streaming-install!`'s `:on-ready` |
+| No JS client | Shell structure only; no skeletons until final payload | Expected — fallbacks need the client runtime to paint |
+
 ## See also
 
 - [ssr_streaming example](../../examples/capabilities/ssr/ssr_streaming)

@@ -8,7 +8,7 @@ Server-side rendering: rendering your app to an HTML string on the server (per r
 
 ### **render-to-string**
 
-The pure function at the heart of SSR — `hiccup → HTML string`, no browser, no DOM, JVM-runnable. It runs your real [views](../core/glossary.md#view) against a [per-request frame](#per-request-frame), which is what makes "one app, runs twice" hold. Lives in `re-frame.ssr`; re-exported on the `rf/` facade.
+Pure function from hiccup to an HTML string — no browser, no DOM, JVM-runnable. It runs your real [views](../core/glossary.md#view) against a [per-request frame](#per-request-frame), which is what makes "one app, runs twice" hold. Lives in `re-frame.ssr`; re-exported on the `rf/` facade.
 
 ### **per-request frame**
 
