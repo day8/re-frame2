@@ -304,9 +304,9 @@
   {:props [:map
            [:name :string]
            [:label :string]
-           [:control :any]
+           [:control :some]
            [:value :string]
-           [:reset-key :any]
+           [:reset-key :some]
            [:on-commit :vector]
            [:error {:optional true} [:maybe :string]]
            [:busy? {:optional true} :boolean]]}

@@ -1143,7 +1143,7 @@
   the controller `kind` and the `:control` address carried by `props`.
 
       (v/defview buffered-field
-        {:props [:map [:control :any] …]}
+        {:props [:map [:control :some] …]}
         [props]
         (let [k (v/controller-key ::buffered-field props)]
           …))
@@ -1166,7 +1166,12 @@
   `:rf.error/view-control-address-missing` rather than defaulted: every
   controller that skipped the address would otherwise share ONE record keyed
   by `nil`, which presents as one field editing another and has no local
-  explanation. Two occurrences passed the SAME address share one record on
+  explanation. `nil` IS NOT AN ADDRESS — it is refused separately, with
+  `:rf.error/view-control-address-nil`, because a call site that passed one
+  forgot nothing and the fix is upstream of the render, in whatever
+  expression answered nothing. `false`, `0` and `\"\"` are ordinary
+  addresses and pass unremarked; presence decides the refusal, never
+  truthiness. Two occurrences passed the SAME address share one record on
   purpose — that is how two views onto one draft are spelled — and it is not
   diagnosed.
 
@@ -1206,6 +1211,14 @@
   literal — `:reset-key 0` reads as \"do not externally reset an active edit\",
   which is a statement rather than a silence.
 
+  `nil` IS NOT A GENERATION, and it is refused separately, with
+  `:rf.error/view-control-reset-revision-nil` — an uninitialised counter read
+  before its baseline exists is the ordinary way to produce one, and the fence
+  answers `not current` for an unstamped record, so a nil generation would
+  leave every draft permanently invisible while the control went on accepting
+  keystrokes. `0` is the literal that says \"never externally reset\"; `nil`
+  says nothing.
+
   Per [Spec 004 §The buffered controller and the reset generation](../../../../spec/004-Views.md#the-buffered-controller-and-the-reset-generation)."
        :arglists '([kind props])}
   controller-revision control/reset-revision)
@@ -1231,7 +1244,10 @@
 
   TOTAL, AND SAFE IN THE MISSING DIRECTION. An absent stamp is not current,
   whatever `revision` is — work that cannot prove its currency does not have
-  it. That is also what makes a draft written from a superseded render BORN
+  it. A `nil` here means an absent record and nothing else, because
+  [[controller-revision]] refuses a `nil` generation at the door, so no live
+  record can carry one. That is also what makes a draft written from a
+  superseded render BORN
   STALE rather than quietly authoritative: it carries the generation its own
   render displayed, so if the caller has moved on it is neither shown nor
   committed. This is the half a hand-rolled `(= a b)` gets wrong: two

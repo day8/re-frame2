@@ -1004,6 +1004,17 @@ state, never a DOM id, a React key, a callback, or a runtime token.
   writable — a props-only view asks for nothing and pays nothing. The verb is
   `v/controller-key`, and it forms the pair and raises the refusal in one call, so a
   controller cannot half-implement the rule.
+- **`nil` is not an address, and it is a different mistake from omitting one.** An
+  explicit `:control nil` is refused under its own id,
+  `:rf.error/view-control-address-nil`. The prop is present, so nothing was forgotten
+  at the call site; a `nil` address is an expression *upstream* answering nothing — an
+  unresolved route parameter, a subscription that has not landed, a lookup on a key
+  that moved — and a diagnostic claiming the prop was absent points at the one place
+  the mistake is not. What decides between the two refusals is PRESENCE, never
+  truthiness: `false`, `0` and `""` are ordinary addresses and are keyed like any
+  other value. Component schemas that name `:control` MUST therefore spell it `:some`
+  rather than `:any`, so the catalogue and the view agree about what a caller may
+  pass.
 - **The same address twice is deliberate sharing.** Two occurrences passed one
   `:control` value read and write ONE record, on purpose: the address is the caller's
   statement about which state this is, so two views onto one draft are spelled by
@@ -1103,6 +1114,13 @@ So a buffered control is **generation-fenced**, and its generation is the caller
   genuinely never resets says so — `:reset-key 0` reads as *do not externally reset
   an active edit*, which is a statement rather than a silence. The verb is
   `v/controller-revision`, which takes the caller's revision and raises the refusal.
+- **`nil` is not a generation.** An explicit `:reset-key nil` is refused under its own
+  id, `:rf.error/view-control-reset-revision-nil` — the same split the address makes,
+  for the same reason, and an uninitialised counter read before its baseline exists is
+  the ordinary way to produce one. The fence answers *not current* for an unstamped
+  record, so a `nil` generation would leave every draft in the control permanently
+  invisible while the control went on accepting keystrokes. As with the address,
+  presence decides and a schema naming `:reset-key` spells it `:some`.
 - **It is a revision, never the value.** It is any immutable EDN the caller advances
   when it establishes a new baseline decision, compared only for `rf=` equality. A
   caller that passed the value as its own reset key would have written the bug above.

@@ -1,5 +1,5 @@
 {:fh/id  "FH-CTRL-006"
- :fh/law "A buffered controller rendered with no :reset-key is refused loudly with :rf.error/view-control-reset-revision-missing naming the kind and the recovery — the reset generation is required, never optional and never inferred from the value — while the same control given a revision renders, and a non-buffered controller that never asks for one is untouched."
+ :fh/law "A buffered controller rendered with no :reset-key is refused loudly with :rf.error/view-control-reset-revision-missing naming the kind and the recovery — the reset generation is required, never optional and never inferred from the value — and one rendered with an EXPLICIT nil revision is refused just as loudly under a DIFFERENT id, :rf.error/view-control-reset-revision-nil, because nil is not a generation and the fence would read every draft under it as superseded; a falsey-but-present revision is ordinary and renders, as does the same control given a real revision or a stable literal, and a non-buffered controller that never asks for one is untouched."
 
  :kind :my.ui/buffered-field
 
@@ -8,6 +8,20 @@
  ;; then loses it, and no call site would show which kind it was.
  :missing-revision-error-id :rf.error/view-control-reset-revision-missing
  :recovery                  :supply-a-reset-key
+
+ ;; nil IS NOT A GENERATION, and it is a different mistake from omitting
+ ;; one: the prop is there, so the call site forgot nothing — an
+ ;; uninitialised counter read before its baseline exists is the ordinary
+ ;; source, and the repair is upstream. Refusing it as an ABSENCE would
+ ;; send the author to the one place the mistake is not.
+ :nil-revision-error-id :rf.error/view-control-reset-revision-nil
+ :nil-recovery          :seed-the-callers-reset-revision
+ :nil-message-mentions  ["nil" ":reset-key" "0"]
+
+ ;; And PRESENCE decides, never truthiness — a falsey revision is an
+ ;; ordinary revision, because the fence only ever asks whether two of
+ ;; them are equal.
+ :falsey-reset-key false
 
  ;; The same catalogued ex-data slots the address refusal carries — one
  ;; shape for both of a controller's required props.

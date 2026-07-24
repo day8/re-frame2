@@ -46,7 +46,9 @@ order of how often they are right:
   `v/controller-key` pairs the library's own `kind` keyword with the caller's
   `:control` address — immutable EDN naming the domain thing that owns the state
   (`[:invoice 42 :amount]`), never a DOM id or anything derived from render
-  position. An absent `:control` is refused rather than defaulted. Asking for
+  position. An absent `:control` is refused rather than defaulted, and an
+  explicit `nil` is refused separately — `nil` is not an address, and the two
+  are different mistakes with different fixes. Asking for
   the key is what makes a controller **writable**; asking for the revision is
   what makes it **buffered**, and the two are separable.
   `v/controller-current?` is the generation fence, asked at both boundaries — a

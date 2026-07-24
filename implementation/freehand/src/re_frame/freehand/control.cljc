@@ -26,9 +26,10 @@
   and never by renderer occurrence identity. A derived anchor makes a
   sort, a view rename or a parent extraction into a silent state
   migration, whereas `[:invoice 42 :amount]` survives all of them.
-  [[record-key]] is where the pair is formed and where an absent address
-  is refused, so a controller cannot half-implement the rule — asking for
-  the key IS what makes a controller writable.
+  [[record-key]] is where the pair is formed and where an address that is
+  absent — or explicitly `nil`, which is a different mistake and gets its
+  own diagnostic — is refused, so a controller cannot half-implement the
+  rule; asking for the key IS what makes a controller writable.
 
   **CURRENCY.** Per D016 a BUFFERED controller — one that holds a draft
   the user is editing and commits it later — additionally belongs to a
@@ -36,9 +37,19 @@
   only while its generation is the caller's current one; work from a
   superseded generation must not land, and must not land in EITHER
   direction — it is neither displayed nor committed. [[reset-revision]]
-  is where the caller's generation is taken and where its absence is
-  refused; [[current?]] is the fence itself, asked identically on the
-  read side and the write side so the two cannot drift.
+  is where the caller's generation is taken and where its absence — or an
+  explicit `nil`, again a separate diagnostic — is refused; [[current?]]
+  is the fence itself, asked identically on the read side and the write
+  side so the two cannot drift.
+
+  Neither `nil` refusal is a truthiness test wearing a presence test's
+  clothes. `false`, `0` and `\"\"` are perfectly good addresses and
+  generations and pass unremarked; what is refused is `nil` specifically,
+  because the domain of an ADDRESS and the domain of a GENERATION exclude
+  it — a controller keyed by `nil` collides with every other address-less
+  controller, and [[current?]] exists precisely because `(= nil nil)` is
+  true, so a `nil` generation would read as current against an unstamped
+  record.
 
   The fence is a comparison over ORDINARY FRAME DATA, and that is the
   whole design: a draft carries the generation it was made under, so a
@@ -81,6 +92,24 @@
   spelling, for the same reason."
   're-frame.freehand/controller-revision)
 
+;; ABSENCE AND ILLEGALITY ARE TWO DIFFERENT MISTAKES, so they are two
+;; different diagnostics.
+;;
+;; `nil` is not in the value domain of an address or of a generation, so a
+;; caller who passes one has not omitted anything — they have supplied a
+;; value the contract does not admit, and almost always because an
+;; expression UPSTREAM of the call answered nothing (a route param not yet
+;; resolved, a subscription that has not landed, a `get` on the wrong key).
+;; Reporting that as "rendered with no :control" points the author at the
+;; call site, which is the one place the mistake is not. The prop is right
+;; there.
+;;
+;; The two are told apart by PRESENCE, never by truthiness — the discipline
+;; the controlled-input rulings fixed. A truthiness test standing in for a
+;; presence test is wrong wherever the value domain has falsey members; here
+;; the domains exclude `nil` outright, so `contains?` decides which of the
+;; two refusals is the honest one and the refusal itself is total either way.
+
 (defn- missing-address!
   [kind props]
   (error/throw-error!
@@ -94,6 +123,25 @@
          "no state of its own, drop the controller and take the value and the intent as "
          "ordinary props.")
     {:recovery :supply-a-control-address
+     :extra    {:kind  kind
+                :props (error/diag-value-summary props)}}))
+
+(defn- nil-address!
+  [kind props]
+  (error/throw-error!
+    :rf.error/view-control-address-nil
+    where
+    (str "A writable controller of kind " (pr-str kind) " was rendered with :control nil. "
+         "The prop IS there, so nothing was forgotten at the call site — nil is simply not "
+         "an address. An address names the domain thing that owns the state, and every "
+         "controller passed nil would share ONE record keyed by nil, which presents as one "
+         "field editing another and has no local explanation. A nil here is almost always "
+         "an expression UPSTREAM answering nothing: a route parameter not yet resolved, a "
+         "subscription that has not landed, a lookup on a key that moved. Fix what produced "
+         "the nil, render the control only once its identity exists, or — if this control "
+         "has no state of its own — drop the controller and take the value and the intent "
+         "as ordinary props.")
+    {:recovery :fix-what-produced-the-nil-control-address
      :extra    {:kind  kind
                 :props (error/diag-value-summary props)}}))
 
@@ -116,6 +164,23 @@
      :extra    {:kind  kind
                 :props (error/diag-value-summary props)}}))
 
+(defn- nil-revision!
+  [kind props]
+  (error/throw-error!
+    :rf.error/view-control-reset-revision-nil
+    where-revision
+    (str "A buffered controller of kind " (pr-str kind) " was rendered with :reset-key nil. "
+         "The prop IS there, so nothing was forgotten at the call site — nil is simply not "
+         "a generation. The fence answers `not current` for an UNSTAMPED record, so a nil "
+         "generation would make every draft in this control permanently invisible while the "
+         "control went on accepting keystrokes. A nil here is usually an uninitialised "
+         "counter read before its baseline exists. Seed the caller's revision, or say "
+         "outright that this control never externally resets by passing a stable literal — "
+         ":reset-key 0 — which is a statement rather than a silence.")
+    {:recovery :seed-the-callers-reset-revision
+     :extra    {:kind  kind
+                :props (error/diag-value-summary props)}}))
+
 (defn record-key
   "The key the record of a writable controller of `kind` lives under: the
   pair of the controller KIND and the `:control` address carried by
@@ -135,15 +200,25 @@
   keyed by `nil` — a collision that presents as one field editing another
   and has no local explanation.
 
+  `nil` IS NOT AN ADDRESS, and it is refused separately, with
+  `:rf.error/view-control-address-nil`. The two are different mistakes:
+  an absent prop is a call site that forgot something, while an explicit
+  `nil` is a call site that supplied a value from an expression which
+  answered nothing, and the fix for the second is upstream of the render.
+  Presence decides which — never truthiness — so a refusal never has to
+  guess at an author's intent from a falsey value.
+
   Two occurrences passed the SAME address share one record ON PURPOSE:
   the address is the caller's statement about which state this is, and
   sharing is how two views onto one draft are spelled. It is not
   diagnosed here."
   [kind props]
-  (let [address (:control props)]
-    (when (nil? address)
-      (missing-address! kind props))
-    [kind address]))
+  (if (and (map? props) (contains? props :control))
+    (let [address (:control props)]
+      (when (nil? address)
+        (nil-address! kind props))
+      [kind address])
+    (missing-address! kind props)))
 
 (defn reset-revision
   "The GENERATION a buffered controller of `kind` is currently rendering
@@ -166,12 +241,22 @@
   cannot tell the two apart. Requiring it makes the obligation visible at
   every call site, and a caller that genuinely never resets says so with
   a stable literal: `:reset-key 0` reads as \"do not externally reset an
-  active edit\", which is a statement rather than a silence."
+  active edit\", which is a statement rather than a silence.
+
+  `nil` IS NOT A GENERATION, and it is refused separately, with
+  `:rf.error/view-control-reset-revision-nil` — the same split
+  [[record-key]] makes, for the same reason. [[current?]] answers `not
+  current` for an unstamped record, so a nil generation would leave every
+  draft in the control permanently invisible while the control went on
+  accepting keystrokes; an uninitialised counter read before its baseline
+  exists is the ordinary way to produce one, and the fix is upstream."
   [kind props]
-  (let [revision (:reset-key props)]
-    (when (nil? revision)
-      (missing-revision! kind props))
-    revision))
+  (if (and (map? props) (contains? props :reset-key))
+    (let [revision (:reset-key props)]
+      (when (nil? revision)
+        (nil-revision! kind props))
+      revision)
+    (missing-revision! kind props)))
 
 (defn current?
   "The GENERATION FENCE. Is work `stamped` with one generation still
@@ -203,7 +288,10 @@
   **Total, and safe in the missing direction.** An absent stamp is not
   current, whatever `revision` is: a record with no generation cannot
   prove it belongs to this one, and the safe answer for work that cannot
-  prove its currency is that it does not have it. That is also what makes
+  prove its currency is that it does not have it. A `nil` `stamped` is
+  therefore an ABSENT RECORD and nothing else — [[reset-revision]] refuses
+  a `nil` generation at the door, so no live record can carry one. That is
+  also what makes
   a draft written from a superseded render BORN STALE rather than
   quietly authoritative — it is stamped with the generation its render
   displayed, and if the caller has moved on it is never shown and never
