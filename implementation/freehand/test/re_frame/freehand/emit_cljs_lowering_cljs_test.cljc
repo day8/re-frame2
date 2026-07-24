@@ -144,8 +144,10 @@
                                   (forms-of uncontrolled)))]
     (is (some? ev-call)
         "a v/event handler lowers to the compiler-known event-handler seam")
-    (is (= 'fn (first (nth ev-call 2)))
-        "the compiled fn body is passed for invocation with the native event")
+    (is (= 're-frame.freehand.events/callback (first (nth ev-call 2)))
+        (str "the analyzer's ONE lowering of (v/event …) — the roster constructor "
+             "the interpreted macro expands to — is passed for invocation with "
+             "the native event"))
     (is (odd? (nth ev-call 3))
         "bit 0 rides the controlled-input synchronous door, as a literal vector does")
     (is (some? un-call))

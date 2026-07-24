@@ -1444,6 +1444,23 @@
           (rest form))
     (meta form)))
 
+(defn- roster-callback
+  "The lowered value for one of the body-taking roster forms — the EXACT
+  constructor call the interpreted `v/event` / `v/handler` macro expands
+  to.
+
+  A compiled body must lower a roster form to the ROSTER VALUE and not to
+  the bare function it carries, because the runtime classifies the value
+  PRESENT: [[re-frame.freehand.events/event-plan]] reads a bare fn as
+  `:bare-fn`, whose firing arm applies the function and DISCARDS what it
+  answered. A `v/event` lowered bare therefore dispatched nothing at all
+  while the compiled site's own door verdict said `:event` — a silent
+  no-op the build could not see and no diagnostic named (rf2-berc2). The
+  constructor makes the two halves agree by construction: one value, one
+  classification, one firing arm, whichever front end wrote it."
+  [role f arity]
+  (list 're-frame.freehand.events/callback role f arity))
+
 (defn- analyze-ui-event-fn
   "The `(v/event [e] body…)` seq form, lowered to the `(fn [e] body…)` the
   runtime callback carries. One reader for the two positions a `v/event` is
@@ -1542,7 +1559,7 @@
     (ui-event-form? e form)
     ;; The interpreted `v/event` macro expands to this exact constructor, so the
     ;; branch the runtime classifies is the same roster value in both modes.
-    (list 're-frame.freehand.events/callback :event (analyze-ui-event-fn e k form) 1)
+    (roster-callback :event (analyze-ui-event-fn e k form) 1)
 
     :else
     (env/fail! e :rf.ui.compile/bad-handler-options
@@ -1693,7 +1710,13 @@
                    {:prop k :form form}))
 
       (ui-event-form? e form)
-      (let [form* (analyze-ui-event-fn e k form)]
+      ;; The WHOLE-handler `v/event`, lowered to the same roster constructor a
+      ;; key-condition BRANCH lowers to, and to the same one the interpreted
+      ;; `v/event` macro expands to. Nothing between here and the DOM wraps it,
+      ;; so the value the analyzer writes IS the value `events/event-plan`
+      ;; classifies — and a bare fn there is the `:bare-fn` arm, which applies
+      ;; the body and throws its event vector away (rf2-berc2).
+      (let [form* (roster-callback :event (analyze-ui-event-fn e k form) 1)]
         (add-event-site! e identity
                          {:prop k :handler :opaque
                           :classification :ui-event :serializable? false})
@@ -1716,9 +1739,18 @@
                           ". To DISPATCH a vector, use v/event")
                      {:prop k :form form}))
         (let [binders (set (env/binding-syms bindings))
-              form*   (walk-expr e [:handler k :ui-handler]
-                                 (with-meta (apply list 'fn bindings body)
-                                   (meta form)))]
+              ;; The roster constructor, for the reason the `v/event` arm above
+              ;; gives. `v/handler` and a bare fn happen to FIRE alike, so the
+              ;; drop here is not a lost dispatch — it is the recorded fact: a
+              ;; bare fn records `{:rf.ui/opaque :fn}` on the structural tree
+              ;; where the interpreted twin records `{:rf.ui/opaque :v/handler}`.
+              ;; One spelling, one roster value, one recorded marker.
+              form*   (roster-callback
+                       :handler
+                       (walk-expr e [:handler k :ui-handler]
+                                  (with-meta (apply list 'fn bindings body)
+                                    (meta form)))
+                       1)]
           (check-loop-capture! (update e :loop-syms #(reduce disj % binders))
                                (str "v/handler at " k) form)
           (add-event-site! e identity

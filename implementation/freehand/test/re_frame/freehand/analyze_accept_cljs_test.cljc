@@ -282,8 +282,12 @@
         "a v/event handler is its own compiler-known committed-callback class")
     (is (false? (:serializable? h)))
     (is (false? (:hoistable? h)))
-    (is (= 'fn (first (:form h)))
-        "the v/event body lowers to a fn the runtime calls with the native event"))
+    (is (= '(re-frame.freehand.events/callback
+             :event (fn [e] [:form/typed (.. e -target -value)]) 1)
+           (:form h))
+        (str "the v/event body lowers to the ROSTER CONSTRUCTOR the interpreted "
+             "v/event macro expands to — not the bare fn it carries, which "
+             "event-plan classifies :bare-fn and fires without dispatching")))
   (let [el (ana* '[:button {:on-click (if a [:x/a] [:x/b])} "x"])]
     (is (= :dynamic (:classification (first (get-in el [:props :events]))))))
   (let [{:keys [ast sites]}
@@ -303,8 +307,11 @@
     (is (= :handler (:classification h))
         "v/handler — the explicit imperative committed callback (bare-fn shorthand)")
     (is (false? (:serializable? h)))
-    (is (= 'fn (first (:form h)))
-        "the body lowers to a fn the runtime calls with the native event"))
+    (is (= '(re-frame.freehand.events/callback
+             :handler (fn [e] (.preventDefault e)) 1)
+           (:form h))
+        (str "the body lowers to the roster constructor v/handler expands to — one "
+             "lowering for the form, at the whole-handler position as everywhere else")))
   ;; v/handler is NOT a controlled-input sync-door class (imperative, not a vector)
   (let [el (ana* '[:input {:value v :on-input (handler [e] (do-something e))}])
         h  (first (get-in el [:props :events]))]
@@ -445,7 +452,9 @@
                              (event [e] (conj on-value (.. e -target -value)))}])
           h  (first (get-in el [:props :events]))]
       (is (= :ui-event (:classification h)))
-      (is (= '(conj on-value (.. e -target -value)) (last (:form h)))
+      ;; `(events/callback :event (fn [e] …) 1)` — the carried fn is the third
+      ;; element, and its body the last form of that fn.
+      (is (= '(conj on-value (.. e -target -value)) (last (nth (:form h) 2)))
           "the interop macro survives into the compiled fn body")))
   (testing "a bare fn handler body keeps its interop macro verbatim"
     (let [el (ana* '[:button {:on-click (fn [e] (.. e -target -value))} "x"])]
