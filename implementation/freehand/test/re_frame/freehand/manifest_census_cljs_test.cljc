@@ -127,7 +127,7 @@
       ;;     node it was minted from and carries no `:source-coord`, so the
       ;;     per-entry coordinate law below cannot govern it. Its own fixture
       ;;     row is a conformance change and is sequenced separately
-      ;;     (rf2-hytu5); `re-frame.freehand.tool-reader-jvm-test` pins the
+      ;;     (rf2-hytu5); `re-frame.freehand.tool-reader-cljs-test` pins the
       ;;     roster's shape and non-emptiness meanwhile.
       (is (= (set (keys required))
              (set (keys (dissoc (v/manifest (census-view :label))
