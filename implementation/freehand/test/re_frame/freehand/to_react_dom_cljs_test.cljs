@@ -35,9 +35,18 @@
 (def react-004 (conf/fixture :FH-REACT-004))
 
 (use-fixtures :each
+  ;; `:async? true` is required rather than stylistic — `cljs.test` hard-errors
+  ;; on a fn-form fixture around an `(async done …)` test. `:ambient-frame nil`
+  ;; is load-bearing for a different reason, and a subtler one: the shell
+  ;; prefers a bound `re-frame.frame/*current-frame*` over the React context,
+  ;; so a fixture that established one would let the ambient-resolution row
+  ;; below pass through the dynamic tier without the context ever being
+  ;; consulted — a green over the wrong mechanism entirely.
   (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn (fn [] (to-react/reset-exports!) (fr/reset-boundaries!))}))
+    {:adapter        plain-atom/adapter
+     :async?         true
+     :ambient-frame  nil
+     :init-fn        (fn [] (to-react/reset-exports!) (fr/reset-boundaries!))}))
 
 (defn- browser? []
   (and (exists? js/document) (some? (.-createElement js/document))))
@@ -202,22 +211,28 @@
       (skip! "the browser job runs the assertions")
       (async done
         (seed!)
-        (let [before (v/->react views/generation-1)
-              after  (v/->react views/generation-2)]
-          (is (= (:same-component (:reload react-003)) (identical? before after))
-              "one component object across the reload")
+        ;; The two exports are deliberately SEQUENCED around the first commit.
+        ;; Exporting both up front would republish the reloaded descriptor
+        ;; before anything rendered, and the first assertion would be reading
+        ;; the second generation's output — a test that passed on the behaviour
+        ;; it exists to distinguish.
+        (let [before (v/->react views/generation-1)]
           (-> (mount! (react/createElement
                         before
                         #js {"frame" (:frame-id react-004) "person-id" 7}))
               (.then (fn [pair]
                        (is (= (:before (:reload react-003)) (text (aget pair 0) "span.cell"))
                            "the first generation's body rendered")
-                       (-> (act #(.render (aget pair 1)
-                                          (react/createElement
-                                            after
-                                            #js {"frame" (:frame-id react-004)
-                                                 "person-id" 7})))
-                           (.then (fn [_] pair)))))
+                       (let [after (v/->react views/generation-2)]
+                         (is (= (:same-component (:reload react-003))
+                                (identical? before after))
+                             "the reload answered one component object")
+                         (-> (act #(.render (aget pair 1)
+                                            (react/createElement
+                                              after
+                                              #js {"frame" (:frame-id react-004)
+                                                   "person-id" 7})))
+                             (.then (fn [_] pair))))))
               (.then (fn [pair]
                        (is (= (:after (:reload react-003)) (text (aget pair 0) "span.cell"))
                            "and the reloaded body rendered through the same boundary")
