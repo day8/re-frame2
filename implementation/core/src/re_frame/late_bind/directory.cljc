@@ -512,6 +512,14 @@
     :producer-ns 're-frame.routing
     :design-bead "rf2-vxgfnd.95.5"
     :description "CLJS-only route-link activation op `(fn [event on-click render-frame payload native?])` consumed by every non-Reagent route-link view (the compiled `re-frame.ui/route-link` defview, the Freehand `v/route-link` descriptor): THE router-attributed click decision — run the caller `:on-click` first, defer to the browser on `defaultPrevented` / native? / a non-plain-left (modifier or auxiliary-button) click, else `.preventDefault` + `router/dispatch!` the payload to the captured render frame with `:source :router`. Keeps the modifier/native/veto click law inside routing so a view artefact reimplements NONE of it (footgun-ownership). Unbound on the JVM (SSR emits a handler-free anchor) and when routing is absent."}
+   {:key         :routing/prefetch-payload
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-kqxe6.7"
+    :description "PURE substrate-neutral prefetch-payload seam `(fn [props]) -> [:rf.route/prefetch {address}] | nil` published on BOTH hosts (EP-0037 R3 §Resource-only intent prefetch). Synthesises the address-only `:rf.route/prefetch` dispatch vector for a route-link whose props request `:prefetch :intent` (nil when the link does not opt in), selecting the address through the ONE shared extractor so it is byte-identical to the link's own destination. Consumed by every non-Reagent route-link view (the compiled `re-frame.ui/route-link` defview, the Freehand `v/route-link` descriptor) so it reimplements none of the prefetch law — the warm-mode-intent sibling of `:routing/link-model`. Unbound when routing is absent. Per Spec 012 §Route-plan prefetch."}
+   {:key         :routing/prefetch-on-intent!
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-kqxe6.7"
+    :description "CLJS-only prefetch intent-dispatch op `(fn [event caller-handler render-frame payload])` consumed by every non-Reagent route-link view (the compiled `re-frame.ui/route-link` defview, the Freehand `v/route-link` descriptor): warms the destination on credible user intent — run the caller-supplied intent handler first (compose, not replace), then `router/dispatch!` the `:rf.route/prefetch` payload to the captured render frame with `:source :router` (a nil payload dispatches nothing — passive by construction). The hover/focus/touch sibling of `:routing/activate-link!`; keeps the intent-dispatch law inside routing so a view artefact reimplements none of it. Unbound on the JVM (SSR emits no intent handlers) and when routing is absent. Per Spec 012 §Route-plan prefetch."}
    {:key         :routing/preflight-frame-config!
     :producer-ns 're-frame.routing
     :design-bead "rf2-ktmto9"
@@ -627,6 +635,10 @@
     :producer-ns 're-frame.resources.route
     :design-bead "rf2-vdyrls"
     :description "Cross-feature LATE-BOUND route-entry resource plan (Spec 016 §Route integration). Routing's commit-navigation (the shared successful-commit assembler for both the programmatic + URL-driven nav paths) consults it by key with {:route-meta :route-id :params :query :fragment :nav-token :prev-id :prev-nav-token :ctx}; the Resources artefact returns {:fx [...] :blocking #{<scoped-key> …} :plan-error err?} — the :rf.resource/ensure dispatches (owner [:route route-id nav-token], cause [:route-entry route-id nav-token]) + the prior route's :rf.resource/release-owner are spliced into the commit fx; the blocking set is written into [:rf.runtime/routing :resource-blocking nav-token] atomically with the commit; a params/scope PLANNING failure (:plan-error) is recorded on the route slice's :error. No-op (nil) when no Resources artefact / no :resources route metadata + no prior owner. Consumed by re-frame.routing.events/commit-navigation."}
+   {:key         :routing/on-route-prefetch
+    :producer-ns 're-frame.resources.route
+    :design-bead "rf2-kqxe6.7"
+    :description "Cross-feature LATE-BOUND warm-mode resource preload (Spec 016 §Route-plan prefetch — warm-mode). Routing's :rf.route/prefetch handler consults it by key with {:route-id :params :query :fragment :branch :branch-error :app-db} (the resolved destination + the effective parent-to-leaf branch routing walked from the target's :parent links); the Resources artefact returns {:fx [ensure-dispatch …] :warmed <n> :plan-error err?} — each unique branch requirement dispatches an OWNERLESS :rf.resource/ensure (cause [:route-prefetch route-id]; :blocking? inert, no plan diff / owner handoff / release), so a warmed value no navigation adopts stays GC-eligible and a later activation JOINS it. A planning failure carries :plan-cause :prefetch and NO nav-token, dispatches no partial ensures, and touches no route state (a preload owns none). No-op (nil) when no Resources artefact / no branch resources. The warm-mode sibling of :routing/on-route-entry. Consumed by re-frame.routing.prefetch/prefetch-handler."}
    {:key         :routing/route-blocking?
     :producer-ns 're-frame.resources.route
     :design-bead "rf2-vdyrls"
