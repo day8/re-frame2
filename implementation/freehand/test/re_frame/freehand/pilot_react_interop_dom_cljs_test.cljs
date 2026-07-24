@@ -2,22 +2,26 @@
   "F5i, the MOUNTED half — a React library really on a real page, and the
   exact count of what is left behind when it goes.
 
-  The headless sibling proves which host shapes an adopter can REACH. This
-  file proves what the one reachable shape actually does, against a real
-  `react-dom/client` commit:
+  The headless sibling proves which host SHAPES an adopter can REACH. This
+  file proves what those shapes — and the child path that needs none — do
+  against a real `react-dom/client` commit:
 
     * a SpreadJS-class imperative widget, connected once from a committed
       render, reconciled from config, commanded through the bounded channel
       by the semantic id its use site authored, and released totally;
     * a REAL third-party React component (`@xyflow/react`, already a
-      dependency of this repo) on the page, reached the only way it can be
-      reached today — a nested React root inside the node an `{:opaque
-      true}` behavior owns;
+      dependency of this repo) on the page through a nested React root
+      inside the node an `{:opaque true}` behavior owns — the shape for a
+      widget you want that node to own;
     * the ABI that nested root can carry: props, children, a forwarded ref,
       an imperative handle reached through a command, and a `window`
       listener that must come back off;
-    * the emitter's refusal for a foreign component at a vector head, which
-      is the OTHER half of why the nested root is necessary.
+    * a React component reached the SIMPLER way — as an ordinary child value
+      in one shared tree, no nested root, synchronous teardown — measured
+      beside the nested root above;
+    * the emitter's refusal for a foreign component at a vector HEAD, the
+      one place a React component may NOT go (it enters as a child value,
+      not as a view head).
 
   Every cleanup claim is an exact integer measured against a CONTROL mount
   of the same markup with no behavior at all, so a zero cannot be a counter
@@ -310,7 +314,10 @@
   (testing "The headless suite proved the structural emitter refuses a host
             descriptor. The React emitter refuses it too, and names the same
             missing slice — so an adopter meets exactly one answer on both
-            hosts, and the nested-root workaround below is not a preference."
+            hosts. That refusal is about a host DESCRIPTOR at a vector head,
+            the shape that lands later; it is orthogonal to the child path,
+            where a React component is an ordinary child VALUE rather than a
+            descriptor at a head."
     (let [d (try (fr/element [pilot/foreign-leaf {:spec "bar"}]) nil
                  (catch :default e (ex-data e)))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
@@ -324,24 +331,28 @@
 ;; ===========================================================================
 
 (deftest a-nested-react-root-carries-the-whole-react-abi
-  (testing "The workaround, exercised against a component built the way a
-            real library builds one: value props, React children, a
+  (testing "The NESTED-ROOT path, exercised against a component built the
+            way a real library builds one: value props, React children, a
             forwarded ref, an imperative handle, and a mount effect that
-            installs a real `window` listener.
+            installs a real `window` listener. This is the path for a
+            genuinely imperative widget you want an `{:opaque true}` node to
+            own; a component that is itself React takes the child path (see
+            `a-third-party-react-component-is-an-ordinary-child…`).
 
-            All of it works. What it costs is that the component's subtree is
-            a SEPARATE React tree — no shared context, no shared event path,
-            no Suspense participation, no SSR — and the boundary is one-way:
-            the `{:opaque true}` rule that makes the nested root safe is the
-            same rule that forbids interleaving Freehand content into the
-            foreign component's children.
+            All of it works. What it COSTS relative to the child path is
+            that the component's subtree is a SEPARATE React tree — no
+            shared context, no shared event path, no Suspense participation,
+            no SSR — and the boundary is one-way: the `{:opaque true}` rule
+            that makes the nested root safe is the same rule that forbids
+            interleaving Freehand content into the foreign component's
+            children.
 
             And it costs one more thing, asserted below rather than described:
-            the nested root's TEARDOWN cannot be synchronous. React refuses to
-            unmount a root from inside a render, and a behavior's
-            `:disconnect` runs inside the outer tree's unmount, so the second
-            React tree is still open at the instant the substrate's own
-            release has finished."
+            the nested root's TEARDOWN cannot be synchronous, where the child
+            path's is. React refuses to unmount a root from inside a render,
+            and a behavior's `:disconnect` runs inside the outer tree's
+            unmount, so the second React tree is still open at the instant
+            the substrate's own release has finished."
     (if-not (browser?)
       (skip! "the browser job runs the nested-root assertions")
       (async done
@@ -402,10 +413,13 @@
             pilot — mounted from Freehand through the nested root, rendering
             its own DOM, and released completely on unmount.
 
-            This is the pilot's answer to `can I use a third-party React
-            component?`: yes, today, through one workaround that costs a
-            second React tree. It is NOT the qualified leaf the design calls
-            for, and this test will need rewriting the day that lands."
+            The nested root is ONE way to put React Flow on the page, and
+            the right one when you want an `{:opaque true}` node to own the
+            widget. But React Flow IS a React component, so its simplest
+            path is as an ordinary child in one shared tree — the child-path
+            row proves that — and this row is the more expensive alternative
+            measured beside it, not the only answer to `can I use a
+            third-party React component?`."
     (if-not (browser?)
       (skip! "the browser job runs the React Flow mount")
       (async done
@@ -458,12 +472,12 @@
             still on it — is measurably still open at that same instant, and
             closed one microtask later.
 
-            WHAT IT CANNOT ASSERT, and no test can while the nested root is
-            the integration path: that the foreign component was released
-            synchronously. It was not. That is the cost, and it disappears
-            the day a qualified host leaf lands, because a leaf renders
-            inside the Freehand tree's own React root and has no second root
-            to close."
+            WHAT IT CANNOT ASSERT for the nested root: that the foreign
+            component was released synchronously. It was not — that is the
+            nested root's cost. It EVAPORATES on the child path, which
+            renders inside the Freehand tree's own React root and has no
+            second root to close: the child-path row unmounts outside `act`
+            and reads a listener count of zero in the same turn."
     (if-not (browser?)
       (skip! "the browser job runs the deferred-release measurement")
       (async done
@@ -498,6 +512,65 @@
                        (is (= 0 (rpilot/live-probe-listeners))
                            "and the foreign listener came back off — the release
                             is total, it is simply one tick behind")
+                       (.remove container)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "mount rejected: " e))
+                        (done)))))))))
+
+;; ===========================================================================
+;; 3b — THE CHILD PATH: a React component as an ordinary child value
+;; ===========================================================================
+;;
+;; The finding the nested-root rows above are measured against. A raw React
+;; element in a child position passes the fold's total `react/isValidElement`
+;; arm straight into the Freehand tree's OWN React root — so a third-party
+;; React component is an ordinary child value, not a second tree.
+
+(deftest a-third-party-react-component-is-an-ordinary-child-in-one-shared-tree
+  (testing "THE CHILD PATH, mounted. A raw React element in a child position
+            renders in the Freehand tree's own React root, and this row
+            proves the four things the nested root cannot give: ONE React
+            tree (no root opened), a context Provider reaching its consumer,
+            interleaving in BOTH directions, and SYNCHRONOUS teardown.
+
+            It is the row that makes the nested-root cost above a comparison
+            rather than an only-option: the same real React component that
+            reaches the page through a second tree in section 3 reaches it
+            here as a child, in the shared tree, for none of those costs."
+    (if-not (browser?)
+      (skip! "the browser job runs the child-path mount")
+      (async done
+        (setup!)
+        (let [container (host-node!)]
+          (-> (act #(mount! container [rpilot/react-child-page {:label "beta"}]))
+              (.then (fn [mounted]
+                       (is (= 0 (rpilot/live-roots))
+                           "NO nested React root was opened — the component renders in
+                            the Freehand tree's own root, one tree")
+                       (is (= 1 (rpilot/live-probe-mounts))
+                           "and the React component really mounted, as a child")
+                       (is (= "beta" (.getAttribute (q container ".acme-widget") "data-label"))
+                           "its value props crossed")
+                       (is (= "from freehand"
+                              (.-textContent (q container ".acme-widget .fh-badge")))
+                           "and Freehand content, exported with v/->react, rendered INSIDE
+                            the React component's children — interleaving both directions")
+                       (is (= "outer" (.-textContent (q container ".theme-probe")))
+                           "a React context Provider reached its consumer — 'outer', not
+                            the context default, which only holds inside ONE React tree")
+                       ;; SYNCHRONOUS teardown, in one turn and with NO
+                       ;; microtask — the cost the nested root pays (see the
+                       ;; deferred-release row above) and the child path does
+                       ;; not.
+                       (unmount-outside-act! mounted)
+                       (is (nil? (q container ".acme-widget"))
+                           "unmount removed the component's DOM in the SAME turn")
+                       (is (= 0 (rpilot/live-probe-listeners))
+                           "and its window listener came off SYNCHRONOUSLY — no tick, unlike
+                            the nested root's deferred release")
+                       (is (= 0 (behaviors/connection-count))
+                           "and nothing connected — the child path opened no behavior")
                        (.remove container)
                        (done)))
               (.catch (fn [e]
@@ -555,13 +628,14 @@
                         (done)))))))))
 
 (deftest the-nested-root-is-not-free-and-the-cost-is-named
-  (testing "The honest cost accounting, asserted rather than asserted away.
-            The nested root is opened by the behavior at COMMIT — so a
-            candidate React abandons opens none — and closed at disconnect.
-            The `roots-opened` / `roots-closed` totals after a mount/unmount
-            cycle are the proof that the second tree's lifetime is exactly
-            the behavior's, which is the one guarantee that makes the
-            workaround tolerable."
+  (testing "The honest cost accounting, asserted rather than asserted away,
+            and named RELATIVE to the child path — which opens no second
+            tree at all. The nested root is opened by the behavior at COMMIT
+            — so a candidate React abandons opens none — and closed at
+            disconnect. The `roots-opened` / `roots-closed` totals after a
+            mount/unmount cycle are the proof that the second tree's lifetime
+            is exactly the behavior's, which is the one guarantee that makes
+            the extra tree tolerable when a widget genuinely needs it."
     (if-not (browser?)
       (skip! "the browser job runs the nested-root lifetime assertions")
       (async done

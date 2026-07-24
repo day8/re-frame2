@@ -19,26 +19,31 @@
   | registered behavior          | opaque, mutable host state over a node  |
   | the outward bridge           | a library that wants a COMPONENT value  |
 
-  Exactly one of those four — the registered behavior — is reachable from
-  the door in this tree. The other three are named by the substrate's own
+  Of those four, the registered behavior and the outward bridge `v/->react`
+  are reachable from the door in this tree (the bridge has since landed —
+  see `the-outward-bridge-is-the-one-shape-that-landed`). The qualified host
+  leaf and the explicit React wrapper are named by the substrate's own
   diagnostics as landing later, and this pilot asserts those diagnostics
   verbatim rather than routing around them.
 
   ## What that leaves an adopter with
 
-  One shape, and it is a good one: `v/defbehavior` + `[v/behavior …]` is a
-  genuinely complete imperative boundary — commit-only connection, a closed
-  timing set, a bounded command roster addressed by a semantic id the caller
-  authored, and a teardown a test can assert as an exact zero. The
-  spreadsheet-class integration below is built entirely on it, and nothing
-  about it feels like a workaround.
+  A genuinely complete imperative boundary: `v/defbehavior` + `[v/behavior …]`
+  — commit-only connection, a closed timing set, a bounded command roster
+  addressed by a semantic id the caller authored, and a teardown a test can
+  assert as an exact zero. The spreadsheet-class integration below is built
+  entirely on it, and nothing about it feels like a workaround.
 
   What it is NOT is a React boundary. A behavior receives a DOM node, not a
-  React parent, so the only way to put a third-party REACT component on the
-  page from Freehand today is to open a SECOND React root inside the node
-  the behavior owns. That works — `pilot-react-interop-dom-cljs-test` mounts
-  a real `@xyflow/react` graph that way — and it is a workaround, with costs
-  this pilot measures rather than asserts away.
+  React parent — so for a genuinely NON-React imperative widget, a nested
+  React root inside the node the behavior owns is the shape you reach for. A
+  component that is ITSELF React needs none of that: it enters as an ordinary
+  child value through the React emitter's child fold, in the Freehand tree's
+  own React root. `pilot-react-interop-dom-cljs-test` mounts BOTH — a real
+  `@xyflow/react` graph through a nested root, and a React component as a
+  plain child — and measures what the nested root costs beside the child
+  path. (The React halves live in `pilot-react-interop-react`, because a
+  `.cljc` cannot `:require` an npm module.)
 
   ## The four integrations in this file
 

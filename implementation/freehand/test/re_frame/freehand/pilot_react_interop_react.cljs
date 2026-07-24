@@ -1,34 +1,45 @@
 (ns re-frame.freehand.pilot-react-interop-react
-  "The F5i pilot's REACT half — the only way a third-party React component
-  reaches the page from Freehand in this tree, and what it costs.
+  "The F5i pilot's REACT half — how a third-party React component reaches
+  the page from Freehand, and what each path costs.
 
-  `pilot-react-interop` explains why: the qualified host leaf and the
-  explicit React wrapper are both refused by the emitters today, and
-  `v/->react` does not exist. The one shape that IS reachable — a registered
-  behavior — hands its implementation a DOM NODE, not a React parent. So an
-  adopter who needs `<ReactFlow>`, `<VegaLite>`, `<AgGridReact>` on the page
-  right now has exactly one move available:
+  There are TWO paths, and the pilot exercises both.
 
-      open a SECOND React root inside the node an `{:opaque true}` behavior
-      owns, and render the foreign component into it.
+  ## The child path — a React component as an ordinary child value
 
-  That works. This namespace does it twice — once against a purpose-built
-  component that exercises the whole React ABI (props, children, a forwarded
-  ref, an imperative handle, mount/unmount effects, a listener it must
-  release), and once against `@xyflow/react`, a real third-party React
-  component already in this repo's dependency tree.
+  A raw React element in a child position passes through the child fold's
+  total `react/isValidElement` arm straight into the Freehand tree's OWN
+  React root. So a genuine React component — `<ReactFlow>`, `<VegaLite>`,
+  `<AgGridReact>` — is an ordinary child value: ONE React tree, shared
+  context, events bubbling through the outer tree's handlers, interleaving
+  in BOTH directions (`v/->react` exports Freehand back into a React
+  component's children), and SYNCHRONOUS teardown. It is the adopter's
+  simplest move for anything that is itself a React component, and
+  [[react-child-page]] mounts it.
 
-  ## The costs, stated up front
+  ## The nested-root path — for a non-React imperative widget
 
-  The nested root is a SEPARATE React tree. It does not inherit React context
-  from the Freehand tree above it, its events do not bubble through the
-  Freehand tree's React handlers, it does not participate in the outer tree's
-  Suspense boundaries or transitions, and it has no server rendering at all.
-  It is also ONE-WAY: the foreign component's children are React's, so
-  Freehand content cannot be interleaved into them. `Radix`-shaped compound
-  components and `flexRender`-shaped cell APIs need exactly that
-  interleaving, which is why they are reported blocked rather than
-  worked-around.
+  The other path opens a SECOND React root inside the node an `{:opaque
+  true}` behavior owns, and renders into it. It stays the right shape for a
+  genuinely non-React imperative widget — a SpreadJS-class grid, an editor,
+  a charting library reached through an imperative handle — where `{:opaque
+  true}` ownership of the node is exactly what you want. This namespace
+  exercises it twice — once against a purpose-built component that runs the
+  whole React ABI (props, children, a forwarded ref, an imperative handle,
+  mount/unmount effects, a listener it must release), and once against
+  `@xyflow/react`, a real third-party React component already in this repo's
+  dependency tree — because the ABI it can carry is the measure of the path.
+
+  ## The nested root's costs, stated up front
+
+  For a component that is ITSELF React, these costs are why the child path
+  is preferable. The nested root is a SEPARATE React tree: it does not
+  inherit React context from the Freehand tree above it, its events do not
+  bubble through the Freehand tree's React handlers, it does not participate
+  in the outer tree's Suspense boundaries or transitions, and it has no
+  server rendering at all. It is also ONE-WAY — the foreign component's
+  children are React's, so Freehand content cannot be interleaved into them —
+  which is exactly what the child path is not. And its teardown is
+  ASYNCHRONOUS (see [[close-root!]]), while the child path's is synchronous.
 
   Everything here is counted. `live-roots`, `live-probe-mounts` and
   `live-probe-listeners` are read by the mounted suite AFTER teardown, and
@@ -295,3 +306,49 @@
   [_]
   [:section.widget-page
    [:div.widget-host]])
+
+;; ===========================================================================
+;; THE CHILD PATH — a third-party React component as an ordinary child value
+;; ===========================================================================
+;;
+;; The child fold's `react/isValidElement` arm is TOTAL, so a raw React
+;; element in a child position passes straight through into the Freehand
+;; tree's OWN React root. No nested root, no `{:opaque true}` behavior, and
+;; none of the nested root's costs. This is the adopter's simplest move for
+;; a genuine React component, and it is why the nested root is not the only
+;; one.
+
+(defonce theme-context
+  ;; A React context whose DEFAULT is "default": a consumer reached from a
+  ;; DIFFERENT tree than its provider would read the default, so "outer"
+  ;; read back is proof of one shared tree.
+  (react/createContext "default"))
+
+(def ^:private theme-probe
+  "A raw React consumer element: reads the shared context and renders it."
+  (fn [_props]
+    (react/createElement "span" #js {:className "theme-probe"}
+                         (react/useContext theme-context))))
+
+(v/defview freehand-badge
+  "A Freehand view exported back into a React component's children with
+  `v/->react` — the Freehand-INTO-React half of the interleave."
+  [_]
+  [:em.fh-badge "from freehand"])
+
+(v/defview react-child-page
+  "A third-party-shaped React component AND a React context Provider, both
+  as ordinary child values in ONE Freehand tree — no nested root anywhere."
+  {:props [:map [:label {:optional true} :string]]}
+  [{:keys [label]}]
+  [:section.react-child-page
+   ;; React-IN-Freehand: a raw React component as a direct child, and a
+   ;; Freehand view exported back INTO its React children — both directions.
+   (react/createElement acme-widget
+                        #js {:label (or label "beta")}
+                        (react/createElement (v/->react freehand-badge) #js {}))
+   ;; A React Provider whose value its consumer reads back as "outer", not
+   ;; the context default — which only holds inside one React tree.
+   (react/createElement (.-Provider theme-context)
+                        #js {:value "outer"}
+                        (react/createElement theme-probe nil))])
