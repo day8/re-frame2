@@ -814,6 +814,12 @@
   ;; Sibling-leaf navigation: the parent identity is KEPT (adopt-owner, no
   ;; re-ensure — the partial-revalidation law); the new leaf is ADDED (ensure);
   ;; the prior owner release is dispatched LAST (attach-before-release).
+  ;;
+  ;; rf2-kqxe6.6 — "kept" is prior-plan membership AND a genuinely reusable
+  ;; entry, so this threads the AT-COMMIT `:runtime-db` carrying the loaded
+  ;; parent identity (routing always threads it; membership alone would adopt
+  ;; into a void). `r2-retained-identity-is-adopted-only-when-genuinely-reusable`
+  ;; below pins the unusable cases.
   (rf/reg-resource :sh/v (article-spec {}) article-spec-request)
   (rf/reg-resource :lf/a (article-spec {}) article-spec-request)
   (rf/reg-resource :lf/b (article-spec {}) article-spec-request)
@@ -823,11 +829,18 @@
         plan1 (route/route-resource-plan {:id :route/p.a :params {} :query {}} {}
                                          {:nav-token 1 :branch branch1})
         ids1  (:identities plan1)
+        shared-key (state/scoped-resource-key* :rf.scope/global :sh/v {:slug "v"})
+        ;; plan1's shared identity has since LOADED — the reusable kept case.
+        rdb   {:rf.runtime/resources
+               {:entries {(state/key-id shared-key)
+                          {:resource/id :sh/v :resource/key shared-key
+                           :status :loaded :data {:n 1} :attempt 1}}}}
         branch2 [{:route-id :route/p   :route-meta parent-meta}
                  {:route-id :route/p.b :route-meta {:resources [{:resource :lf/b :params (fn [_] {:slug "b"})}]}}]
         plan2 (route/route-resource-plan {:id :route/p.b :params {} :query {}} {}
                                          {:nav-token 2 :prev-id :route/p.a :prev-nav-token 1
-                                          :prev-identities ids1 :branch branch2})
+                                          :prev-identities ids1 :branch branch2
+                                          :runtime-db rdb})
         ds    (plan-dispatches plan2)
         adopts  (of-event ds :rf.resource/adopt-owner)
         ensures (of-event ds :rf.resource/ensure)]
@@ -1159,3 +1172,353 @@
     (is (= :idle (get-in rdb [:rf.runtime/routing :current :transition]))
         "hydration must not preserve a :loading the hydrated entries contradict")
     (is (empty? (get-in rdb (route/blocking-path "nav-1"))))))
+
+;; ===========================================================================
+;; 16. rf2-kqxe6.6 — EP-0037 R2 follow-through
+;;
+;;     (a) RETAINED-ENTRY LOSS. Prior-plan MEMBERSHIP alone does not make an
+;;         identity adoptable. `:rf.resource/adopt-owner` issues no fetch, so
+;;         adopting an identity whose entry has vanished (clear / remove / GC /
+;;         a hydration-like mismatch) or cannot progress (settled with no data
+;;         and no live work) commits a blocking slot nothing can ever drain —
+;;         a permanent `:loading`. A retained identity is adopted only when it
+;;         is genuinely REUSABLE (own usable data, or genuinely live work);
+;;         anything else takes the ordinary ensure/readiness path.
+;;
+;;     (b) CONTRIBUTOR ATTRIBUTION. A parent-chain plan resolves every
+;;         contributor's declarations against the LEAF target, so the leaf
+;;         `:route-id` alone cannot say WHICH declaration failed. Spec 016
+;;         §Effective parent-chain resource plans rule 3 requires the error to
+;;         identify both the contributor route id and the resource declaration.
+;; ===========================================================================
+
+;; ---- (a) the adoptability predicate ---------------------------------------
+
+(defn- ledger-with
+  "A `:rf.runtime/work-ledger` map carrying `work-id` at `status`, keyed the way
+  the runtime keys it (the CEDN-1 byte identity, not the work-id itself)."
+  [work-id status]
+  {(work-ledger/work-id-id work-id) {:work/id work-id :status status}})
+
+(deftest adoptable-splits-reusable-from-unusable-retained-identities
+  ;; Derived from the ONE projector's `requirement-state` classification — this
+  ;; is not a second readiness table. The only split it adds is INSIDE
+  ;; `:pending`, which deliberately conflates "work is in flight" with "no work
+  ;; yet, the plan is about to ensure it": readiness treats both as "the route
+  ;; waits", adoption must not.
+  (let [live-work {:rf.runtime/work-ledger (ledger-with "w-live" :running)}
+        dead-work {:rf.runtime/work-ledger (ledger-with "w-dead" :cancelled)}
+        doomed    {:rf.runtime/work-ledger (ledger-with "w-doom" :abort-requested)}]
+    (testing "own usable data is reusable — adopt, never revalidate"
+      (is (route/adoptable? {} {:status :loaded :data {:a 1} :attempt 1})))
+    (testing "genuinely live work is reusable — its own settle will drain the slot"
+      (is (route/adoptable? live-work {:status :loading :data nil :attempt 1
+                                       :current-work "w-live"})))
+    (testing "an ABSENT entry is not adoptable — adopt-owner would be a no-op"
+      (is (not (route/adoptable? {} nil))))
+    (testing "an enqueued but never-attempted entry is not adoptable — no work exists"
+      (is (not (route/adoptable? {} {:status :idle :data nil :attempt 0}))))
+    (testing "settled with no data and nothing left to settle it is not adoptable"
+      (is (not (route/adoptable? {} {:status :idle :data nil :attempt 1}))))
+    (testing "a failed first load is not adoptable — there is nothing to reuse"
+      (is (not (route/adoptable? {} {:status :error :data nil :attempt 1
+                                     :error {:kind :rf.http/server}}))))
+    (testing "an in-flight-LOOKING entry whose work is dead is not adoptable"
+      ;; `:current-work` alone is not proof of work — the LINKED RECORD'S status
+      ;; is (the same liveness `ensure`'s dedupe gate reads).
+      (is (not (route/adoptable? dead-work {:status :loading :data nil :attempt 1
+                                            :current-work "w-dead"})))
+      (is (not (route/adoptable? doomed {:status :loading :data nil :attempt 1
+                                         :current-work "w-doom"})))
+      (is (not (route/adoptable? {} {:status :loading :data nil :attempt 1
+                                     :current-work "w-pruned"}))
+          "a pointer with no record at all is dead work too"))))
+
+;; ---- (a) the planner routes unusable retained identities to ensure ---------
+
+(defn- rdb-with-entries
+  "A runtime-db carrying only durable cache `entries-by-key` (plus an optional
+  work ledger) — the AT-COMMIT facts routing threads into the plan hook."
+  ([entries-by-key] (rdb-with-entries entries-by-key nil))
+  ([entries-by-key ledger]
+   (cond-> {:rf.runtime/resources {:entries (into {} (map (fn [[k e]] [(state/key-id k) e]))
+                                                  entries-by-key)}}
+     ledger (assoc :rf.runtime/work-ledger ledger))))
+
+(deftest r2-retained-identity-is-adopted-only-when-genuinely-reusable
+  (rf/reg-resource :sh/v (article-spec {}) article-spec-request)
+  (rf/reg-resource :lf/b (article-spec {}) article-spec-request)
+  (let [parent-meta {:resources [{:resource :sh/v :params (fn [_] {:slug "v"}) :blocking? true}]}
+        branch      [{:route-id :route/p   :route-meta parent-meta}
+                     {:route-id :route/p.b :route-meta {:resources [{:resource :lf/b :params (fn [_] {:slug "b"})}]}}]
+        shared-key  (state/scoped-resource-key* :rf.scope/global :sh/v {:slug "v"})
+        plan-for    (fn [runtime-db]
+                      (route/route-resource-plan
+                        {:id :route/p.b :params {} :query {}} {}
+                        {:nav-token 2 :prev-id :route/p.a :prev-nav-token 1
+                         :prev-identities #{shared-key} :branch branch
+                         :runtime-db runtime-db}))]
+    (testing "a LOADED retained identity is adopted — the partial-revalidation law"
+      (let [plan (plan-for (rdb-with-entries {shared-key {:resource/id :sh/v :status :loaded
+                                                          :data {:n 1} :attempt 1}}))
+            ds   (plan-dispatches plan)]
+        (is (= [:sh/v] (mapv #(:resource (second %)) (of-event ds :rf.resource/adopt-owner))))
+        (is (= [:lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))
+        (is (not (contains? (:blocking plan) shared-key))
+            "already has usable data — nothing left to wait for")))
+    (testing "an IN-FLIGHT retained identity is adopted — its own settle drains the slot"
+      (let [plan (plan-for (rdb-with-entries
+                             {shared-key {:resource/id :sh/v :status :loading :data nil
+                                          :attempt 1 :current-work "w-1"}}
+                             (ledger-with "w-1" :running)))
+            ds   (plan-dispatches plan)]
+        (is (= [:sh/v] (mapv #(:resource (second %)) (of-event ds :rf.resource/adopt-owner))))
+        (is (contains? (:blocking plan) shared-key) "still outstanding")))
+    (testing "a MISSING retained identity takes the ordinary ensure path"
+      ;; The bead's repro: prior-plan membership alone dispatched adopt-owner,
+      ;; which is a NO-OP on an absent entry — the committed blocking slot then
+      ;; had nothing that could ever drain it.
+      (let [plan (plan-for (rdb-with-entries {}))
+            ds   (plan-dispatches plan)]
+        (is (empty? (of-event ds :rf.resource/adopt-owner)))
+        (is (= [:sh/v :lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))
+        (is (contains? (:blocking plan) shared-key)
+            "recorded blocking — and an ensure now exists to drain it")))
+    (testing "an UNUSABLE retained identity (settled, no data, no work) is ensured"
+      (let [plan (plan-for (rdb-with-entries {shared-key {:resource/id :sh/v :status :idle
+                                                          :data nil :attempt 1}}))
+            ds   (plan-dispatches plan)]
+        (is (empty? (of-event ds :rf.resource/adopt-owner)))
+        (is (= [:sh/v :lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))
+        (is (contains? (:blocking plan) shared-key)
+            "a blocking requirement with no usable data at commit must hold the route")))
+    (testing "a retained identity whose work is DEAD is ensured, not adopted"
+      (let [plan (plan-for (rdb-with-entries
+                             {shared-key {:resource/id :sh/v :status :loading :data nil
+                                          :attempt 1 :current-work "w-doomed"}}
+                             (ledger-with "w-doomed" :abort-requested)))
+            ds   (plan-dispatches plan)]
+        (is (empty? (of-event ds :rf.resource/adopt-owner)))
+        (is (= [:sh/v :lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))))
+    (testing "attach-before-release holds on every route — the release is LAST"
+      (doseq [rdb [(rdb-with-entries {shared-key {:resource/id :sh/v :status :loaded
+                                                  :data {:n 1} :attempt 1}})
+                   (rdb-with-entries {})]]
+        (let [ds (plan-dispatches (plan-for rdb))]
+          (is (= :rf.resource/release-owner (first (last ds))))
+          (is (= [:route :route/p.a 1] (:owner (second (last ds))))))))))
+
+;; ---- (a) end-to-end liveness: the route must actually settle ---------------
+
+(defn- abort-current-work!
+  "Abort the entry's live attempt through the internal abort reply. The first
+  load settles to a non-error `:idle` with `:current-work` cleared — the
+  `idle / no data / no work` retained entry the bead names."
+  [scoped-key]
+  (let [e (entry scoped-key)]
+    (rf/dispatch-sync [:rf.resource.internal/aborted
+                       {:resource/key scoped-key
+                        :work/id      (:current-work e)
+                        :generation   (:generation e)}])))
+
+(defn- reg-shell-branch! []
+  (rf/reg-resource :prof/banner (article-spec {}) article-spec-request)
+  (rf/reg-resource :prof/tab-one (article-spec {}) article-spec-request)
+  (rf/reg-resource :prof/tab-two (article-spec {}) article-spec-request)
+  (rf/reg-route :route/prof
+                {:resources [{:resource :prof/banner :params (fn [_] {:slug "b"}) :blocking? true}]}
+                "/prof")
+  (rf/reg-route :route/prof.one
+                {:parent :route/prof
+                 :resources [{:resource :prof/tab-one :params (fn [_] {:slug "one"})}]}
+                "/prof/one")
+  (rf/reg-route :route/prof.two
+                {:parent :route/prof
+                 :resources [{:resource :prof/tab-two :params (fn [_] {:slug "two"})}]}
+                "/prof/two"))
+
+(deftest r2-sibling-nav-recovers-a-retained-identity-that-vanished
+  ;; LIVENESS. The shared parent banner is removed out from under the plan diff
+  ;; (a public `:rf.resource/remove` — GC / clear-scope / reconciliation have
+  ;; the same shape). The sibling navigation still sees it in the previous
+  ;; plan's identity set. Before this fix it dispatched a no-op adopt-owner
+  ;; against an absent entry while committing a blocking slot for it, so the
+  ;; route stayed :loading with no entry, no work and no reply that could ever
+  ;; drain it.
+  (reg-shell-branch!)
+  (let [banner-key (state/scoped-resource-key* :rf.scope/global :prof/banner {:slug "b"})
+        tab1-key   (state/scoped-resource-key* :rf.scope/global :prof/tab-one {:slug "one"})]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.one}])
+    (settle-success! banner-key {:name "Ada"})
+    (settle-success! tab1-key [{:id 1}])
+    (is (= :idle (:transition (slice))) "precondition: the first activation landed")
+    (rf/dispatch-sync [:rf.resource/remove {:resource :prof/banner :params {:slug "b"}}])
+    (is (nil? (entry banner-key)) "precondition: the retained identity is gone")
+
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.two}])
+    (let [nav-token (:nav-token (slice))]
+      (testing "the vanished identity is re-ensured, not adopted into the void"
+        (is (some? (entry banner-key)) "an entry exists again — the ensure path ran")
+        (is (= :loading (:status (entry banner-key))))
+        (is (some? (:current-work (entry banner-key)))
+            "live work exists, so the committed blocking slot can drain"))
+      (testing "the blocking slot settles — no permanent :loading"
+        (is (= :loading (:transition (slice))) "the route legitimately waits")
+        (is (contains? (blocking-slot nav-token) banner-key))
+        (settle-success! banner-key {:name "Ada"})
+        (is (= :idle (:transition (slice))))
+        (is (empty? (blocking-slot nav-token)))
+        (is (state/has-data? (entry banner-key)))))))
+
+(deftest r2-sibling-nav-recovers-a-retained-identity-that-cannot-progress
+  ;; LIVENESS. Same branch, but the retained banner EXISTS and is unusable: its
+  ;; first load was aborted, so it sits `:idle` with no data and no current
+  ;; work. Adopting it attaches an owner to a dead entry and issues no fetch —
+  ;; the blocking requirement is silently never satisfied.
+  (reg-shell-branch!)
+  (let [banner-key (state/scoped-resource-key* :rf.scope/global :prof/banner {:slug "b"})
+        tab1-key   (state/scoped-resource-key* :rf.scope/global :prof/tab-one {:slug "one"})]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.one}])
+    (settle-success! tab1-key [{:id 1}])
+    (abort-current-work! banner-key)
+    (let [aborted (entry banner-key)]
+      (is (= :idle (:status aborted)) "precondition: settled with no data")
+      (is (nil? (:current-work aborted)) "precondition: no work left")
+      (is (not (state/has-data? aborted)))
+      (is (= :inert (route/requirement-state aborted))))
+
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.two}])
+    (let [nav-token (:nav-token (slice))
+          banner    (entry banner-key)]
+      (testing "the unusable retained identity takes the ordinary ensure path"
+        (is (= :loading (:status banner)) "a fresh load started")
+        (is (some? (:current-work banner)))
+        (is (some (fn [o] (= [:route :route/prof.two nav-token] o)) (:active-owners banner))
+            "the next owner is attached"))
+      (testing "and the ordinary readiness path — it blocks, then settles"
+        (is (contains? (blocking-slot nav-token) banner-key))
+        (is (= :loading (:transition (slice))))
+        (settle-success! banner-key {:name "Ada"})
+        (is (= :idle (:transition (slice))))
+        (is (state/has-data? (entry banner-key)))))))
+
+(deftest r2-adoption-of-in-flight-work-neither-revalidates-nor-aborts
+  ;; The counterweight to the two liveness regressions: a genuinely reusable
+  ;; retained identity is still adopted WITHOUT revalidation, and releasing the
+  ;; prior owner cannot abort work the next plan still needs.
+  (reg-shell-branch!)
+  (let [banner-key (state/scoped-resource-key* :rf.scope/global :prof/banner {:slug "b"})]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.one}])
+    (let [before (entry banner-key)
+          work   (:current-work before)]
+      (is (= :loading (:status before)) "precondition: the banner is in flight")
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.two}])
+      (let [after (entry banner-key)]
+        (testing "the in-flight identity is adopted, not restarted"
+          (is (= (:generation before) (:generation after)) "no new generation")
+          (is (= work (:current-work after)) "the same work record — no refetch"))
+        (testing "releasing the prior owner did not abort the shared work"
+          (is (not (work-ledger/terminal? (:status (work-ledger/get-record
+                                                     (:rf.db/runtime (rf/frame-state-value :rf/default))
+                                                     work))))))
+        (testing "the adopted work's own settle lands the route"
+          (settle-success! banner-key {:name "Ada"})
+          (is (= :idle (:transition (slice))))))
+      (testing "a LOADED retained identity is likewise never revalidated"
+        (let [gen (:generation (entry banner-key))]
+          (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.one}])
+          (is (= gen (:generation (entry banner-key))) "generation unchanged")
+          (is (= :idle (:transition (slice)))))))))
+
+;; ---- (b) contributor attribution on an ancestor planning failure -----------
+
+(defn- ancestor-branch
+  "A two-segment branch whose ANCESTOR carries `anc-entry` and whose leaf
+  carries a plain resource. The leaf is the plan target."
+  [anc-entry]
+  [{:route-id :route/ancestor :route-meta {:resources [anc-entry]}}
+   {:route-id :route/leaf
+    :route-meta {:resources [{:resource :audit/leaf :id :lf :params (fn [_] {:slug "l"})}]}}])
+
+(defn- ancestor-plan-error
+  "Plan the leaf over `branch`; return `[plan error-traces]`."
+  [branch]
+  (let [plan   (atom nil)
+        traces (record-error-traces!
+                 (fn [] (reset! plan (route/route-resource-plan
+                                       {:id :route/leaf :params {} :query {}} {}
+                                       {:nav-token 1 :branch branch}))))]
+    [@plan traces]))
+
+(deftest r2-ancestor-planning-failure-names-the-contributing-declaration
+  (rf/reg-resource :audit/ancestor (article-spec {}) article-spec-request)
+  (rf/reg-resource :audit/leaf (article-spec {}) article-spec-request)
+  (testing "an ancestor :params resolver returning nil"
+    (let [[plan traces] (ancestor-plan-error
+                          (ancestor-branch {:resource :audit/ancestor :id :anc
+                                            :params (fn [_] nil)}))
+          err (:plan-error plan)]
+      (is (= :rf.error/resource-route-plan (:rf.error/id err)))
+      (testing "the LEAF target and the resource are named (unchanged)"
+        (is (= :route/leaf (:route-id err)))
+        (is (= :audit/ancestor (:resource-id err))))
+      (testing "and so is the CONTRIBUTING route + local declaration"
+        (is (= {:route-id :route/ancestor :local-id :anc} (:contributor err))))
+      (testing "the error TRACE carries the same attribution"
+        (let [tags (:tags (first (errors-of traces :rf.error/resource-route-plan)))]
+          (is (some? tags))
+          (is (= :route/leaf (:route-id tags)) "the leaf target")
+          (is (= :audit/ancestor (:resource-id tags)))
+          (is (= {:route-id :route/ancestor :local-id :anc} (:contributor tags)))))
+      (testing "the plan stays fail-closed — no partial ensures or adoptions"
+        (let [ds (plan-dispatches plan)]
+          (is (empty? (of-event ds :rf.resource/ensure)))
+          (is (empty? (of-event ds :rf.resource/adopt-owner)))
+          (is (empty? (:identities plan)))))))
+  (testing "an ancestor :scope resolver returning nil"
+    (let [[plan _] (ancestor-plan-error
+                     (ancestor-branch {:resource :audit/ancestor :id :anc
+                                       :params (fn [_] {:slug "a"})
+                                       :scope  (fn [_ _] nil)}))]
+      (is (= {:route-id :route/ancestor :local-id :anc} (:contributor (:plan-error plan))))
+      (is (= :fix-scope (:recovery (:plan-error plan))) "the specific recovery survives")))
+  (testing "an ancestor :when predicate that throws"
+    (let [[plan _] (ancestor-plan-error
+                     (ancestor-branch {:resource :audit/ancestor :id :anc
+                                       :params (fn [_] {:slug "a"})
+                                       :when   (fn [_ _] (throw (ex-info "boom" {})))}))]
+      (is (= {:route-id :route/ancestor :local-id :anc} (:contributor (:plan-error plan))))))
+  (testing "an ancestor :after naming an id no contributor declares"
+    ;; The local `:after` validation runs over the contributor's WHOLE declared
+    ;; vector before `:when` filters it, so the contributor route is the only
+    ;; thing the leaf-shaped error was missing.
+    (let [[plan _] (ancestor-plan-error
+                     (ancestor-branch {:resource :audit/ancestor :id :anc
+                                       :params (fn [_] {:slug "a"})
+                                       :after  #{:not-a-local-id}}))
+          err (:plan-error plan)]
+      (is (= :route/ancestor (get-in err [:contributor :route-id])))
+      (is (= :fix-after (:recovery err)))))
+  (testing "a LEAF failure is attributed to the leaf — attribution is not ancestor-only"
+    (let [[plan _] (ancestor-plan-error
+                     [{:route-id :route/ancestor
+                       :route-meta {:resources [{:resource :audit/ancestor :id :anc
+                                                 :params (fn [_] {:slug "a"})}]}}
+                      {:route-id :route/leaf
+                       :route-meta {:resources [{:resource :audit/leaf :id :lf
+                                                 :params (fn [_] nil)}]}}])]
+      (is (= {:route-id :route/leaf :local-id :lf} (:contributor (:plan-error plan)))))))
+
+(deftest r2-warm-prefetch-planning-failure-is-attributed-too
+  ;; The warm plan shares `materialize-occurrences`, so the same attribution
+  ;; rides its planning error (with :plan-cause :prefetch and no nav-token).
+  (rf/reg-resource :audit/ancestor (article-spec {}) article-spec-request)
+  (rf/reg-resource :audit/leaf (article-spec {}) article-spec-request)
+  (let [plan (route/route-resource-warm-plan
+               {:id :route/leaf :params {} :query {}}
+               {:branch (ancestor-branch {:resource :audit/ancestor :id :anc
+                                          :params (fn [_] nil)})})
+        err  (:plan-error plan)]
+    (is (= :prefetch (:plan-cause err)))
+    (is (= {:route-id :route/ancestor :local-id :anc} (:contributor err)))
+    (is (empty? (:fx plan)) "fail-closed — no partial warm ensures")))

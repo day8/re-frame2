@@ -482,6 +482,28 @@
   [runtime-db work-id]
   (get-in runtime-db (record-path work-id)))
 
+(defn live-work?
+  "True iff `work-id` names GENUINELY LIVE work in `runtime-db` — its record
+  exists and its status is neither TERMINAL (`:completed` / `:failed` /
+  `:cancelled` / `:suppressed` / …) nor `:abort-requested` (doomed: the last
+  owner released it and an opportunistic abort was issued).
+
+  An entry's `:current-work` POINTER is not proof of work. A stale pointer
+  survives a route supersession (`release-owner` marks the record
+  `:abort-requested` but leaves the pointer set) and a direct / internal
+  aborted settlement, so the LINKED RECORD'S status is the liveness fact. This
+  is the one definition of that question (rf2-v4ygg5): `ensure`'s dedupe gate
+  asks it to decide whether to JOIN or start a fresh attempt, `load-more`'s
+  page dedupe asks it for the same reason, and the route planner
+  (`re-frame.resources.route/adoptable?`) asks it to decide whether a retained
+  plan identity can be adopted without a fetch. A nil `work-id` is not live.
+  Per Spec 016 §Race and in-flight semantics."
+  [runtime-db work-id]
+  (let [status (:status (get-record runtime-db work-id))]
+    (boolean (and (some? status)
+                  (not (terminal? status))
+                  (not= :abort-requested status)))))
+
 (defn update-record
   "Apply `f` (and `args`) to the work record under `work-id` in
   `runtime-db`, writing the result back. No-op when no record exists (a
