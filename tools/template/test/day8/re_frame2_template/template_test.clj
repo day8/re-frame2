@@ -119,20 +119,22 @@
             :uix     (is (nil? (get-in app [:devtools :preloads]))
                          ":uix shadow-cljs :app build wires NO preloads —
                           no Xray on the element substrates (rf2-p6f6u)"))
-          ;; re-frame.ui build-hook — the ONE re-frame.ui build setting,
-          ;; REQUIRED for any browser build to boot. re-frame.ui compiles the
-          ;; views and the hook harvests its whole-build registries from
-          ;; cache-durable analyzer data; without the hook the :app bundle
-          ;; throws on namespace load. The old top-level :cache-blockers tax was
-          ;; removed at the S6 cut-over (rf2-u53yy.1): the registries no longer
-          ;; depend on macro-expansion side effects, so a warm daemon reuses the
-          ;; disk cache and no cache blocker is needed.
+          ;; NO build hooks (rf2-vwum3). Both scaffolds used to wire the
+          ;; compiled-view substrate's compiler build hook into
+          ;; `:build-defaults`, but that hook's namespace ships inside
+          ;; `day8/re-frame2-ui` and NEITHER emitted deps.edn declares a
+          ;; coordinate that provides it — the adapter
+          ;; substrates render through Reagent / UIx, not through the
+          ;; compiled-view substrate. Shadow does not fail on an unloadable
+          ;; hook (it warns and continues, exit 0), so the scaffold shipped a
+          ;; hook that silently did nothing. A scaffold names a build hook only
+          ;; when its own deps.edn carries the artefact that supplies it.
           (is (not (contains? (set (keys scs)) :cache-blockers))
               "shadow-cljs.edn no longer carries the removed :cache-blockers tax")
-          (is (some #{'(re-frame.ui.compiler.build-hook/hook)}
-                    (get-in scs [:build-defaults :build-hooks]))
-              "shadow-cljs.edn wires the re-frame.ui compiler build-hook into
-               every build (else a browser build throws on namespace load)"))
+          (is (empty? (get-in scs [:build-defaults :build-hooks]))
+              "shadow-cljs.edn wires NO build hooks — the scaffold's deps.edn
+               supplies no artefact carrying one, and shadow only warns on a
+               hook it cannot load (rf2-vwum3)"))
 
         ;; -- Xray coord in deps.edn — REAGENT-ONLY (rf2-p6f6u) --
         (let [deps (read-edn (io/file root "deps.edn"))]

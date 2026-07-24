@@ -148,12 +148,16 @@ _SECTION = re.compile(r"^##+\s+(.*?)\s*$")
 # is deleted. Nothing looser: incidental prose is deliberately not policed.
 #
 #   require     a Clojure/EDN libspec naming a `re-frame.ui…` namespace —
-#               `[re-frame.ui :as ui]`, `[re-frame.ui.tree :as tree]`, or a
-#               build's `:entries [re-frame.ui.g13.dev]` vector.
+#               `[re-frame.ui :as ui]`, `[re-frame.ui.tree :as tree]`, a
+#               build's `:entries [re-frame.ui.g13.dev]` vector, or a
+#               shadow-cljs `:build-hooks [(re-frame.ui.compiler.build-hook/hook)]`
+#               entry. That last shape needs the optional `(` and the `/`
+#               terminator: without them the census silently missed every
+#               shadow-cljs.edn that wires the donor's build hook (rf2-vwum3).
 #   coordinate  the donor artifact coordinate in DEPENDENCY position —
 #               `day8/re-frame2-ui {…}` in a deps.edn, a generated scaffold, or
 #               an install instruction. A bare mention in prose does not match.
-CENSUS_REQUIRE_RE = re.compile(r"\[re-frame\.ui[A-Za-z0-9._-]*[\s\]]")
+CENSUS_REQUIRE_RE = re.compile(r"\[\(?re-frame\.ui[A-Za-z0-9._-]*[\s\]/]")
 CENSUS_COORD_RE = re.compile(r"day8/re-frame2-ui\s+\{")
 
 # The require signal only means anything in a file that can carry a libspec.
@@ -756,6 +760,19 @@ def _run_self_tests(*, verbose: bool = False) -> int:
     expect("H3 signals are named",
            census["implementation/ssr/test/re_frame/ssr/hydrate_cljs_test.cljs"],
            ("require",))
+
+    # The shadow-cljs build-hook shape (rf2-vwum3): `[(re-frame.ui…/hook)]`.
+    # The leading paren and the `/` terminator both used to defeat the require
+    # signal, so a generated scaffold wiring the donor's build hook was invisible
+    # to the census.
+    hook_tracked = ["app/shadow-cljs.edn"]
+    hook_read = _fixture_reader({
+        "app/shadow-cljs.edn":
+            "{:build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}}",
+    })
+    expect("H3a census sees a wired build hook",
+           live_consumers(hook_tracked, hook_read),
+           {"app/shadow-cljs.edn": ("require",)})
 
     rows, _ = parse_ledger(full)
     problems = check_consumers(rows, census)
