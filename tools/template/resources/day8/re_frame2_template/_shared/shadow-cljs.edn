@@ -14,15 +14,6 @@
 
  :dev-http {8280 "resources/public"}
 
- ;; re-frame.ui compiles your views (reg-view / defui / defnc). The build hook
- ;; harvests its whole-build registries (view digests, root/plan indexes, Root
- ;; Descriptors, custom-element declarations) from cache-durable per-namespace
- ;; analyzer data at build time. This ONE setting is load-bearing — without it
- ;; the app throws on namespace load. Because the registries no longer depend on
- ;; macro-expansion side effects, a warm daemon start REUSES Shadow's disk cache
- ;; (no cache blocker needed).
- :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
-
  :builds
  {:app
   {:target     :browser
