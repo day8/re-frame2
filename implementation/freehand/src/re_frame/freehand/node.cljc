@@ -746,25 +746,47 @@
   spelling-dependent split: the interpreted walk answered the BASE and
   the compiled one the override, for one declaration whose only stated
   rule is later-arg-wins. Projecting first makes the collision visible to
-  the merge, which is the one place the rule is written down."
-  [base overrides]
-  (assert-forwardable-attrs! 're-frame.freehand/spread base)
-  (assert-forwardable-attrs! 're-frame.freehand/spread overrides)
-  ;; Always a MAP, so `(v/spread nil)` is an element with no attributes in
-  ;; both modes rather than an attribute map in one and an absent child in
-  ;; the other — the two happen to render the same tree, and agreement by
-  ;; coincidence is the thing this whole slice is written against.
-  (let [merged (merge (canonical-slot-keys base) (canonical-slot-keys overrides))]
-    ;; The id-slot CARDINALITY, over the MERGED map both front ends fold onto
-    ;; the element. A spread carries no tag, so its only id ambiguity is two
-    ;; distinct spellings surviving the merge — `(v/spread {:id "a"} {:x/id
-    ;; "b"})`; two exact `:id` writes are later-arg-wins and merge to one, no
-    ;; conflict. This is the ONE seam BOTH modes reach, so the compiled spread
-    ;; — which bypasses the literal analyzer's id guard — refuses the pair
-    ;; here at runtime exactly as the interpreted walk does (rf2-5r1af).
-    (when-some [{:keys [message]} (conv/id-conflict nil nil (keys merged))]
-      (malformed! 're-frame.freehand/spread message {:value (shape merged)}))
-    merged))
+  the merge, which is the one place the rule is written down.
+
+  `tag`/`sugar-id` are the element's `#id` sugar fact, supplied ONLY by the
+  compiled lowering (the interpreted public seam has no element in hand and
+  passes neither). A compiled `v/spread` bypasses the literal analyzer's id
+  guard AND folds through this seam without reaching the element-fold id
+  check the interpreted walks apply, so the sugar-vs-forwarded-id ambiguity
+  would slip through both — `[:div#sugar (v/spread {:id \"a\"})]` emitting a
+  single id where its interpreted twin refuses. Threading the fact here holds
+  it identically, in the same two-step ORDER the interpreted walks reach it:
+  the spread's own cardinality first (tag-less, exactly what the public seam
+  throws), then the element's sugar (rf2-5r1af)."
+  ([base overrides] (spread-attrs base overrides nil nil))
+  ([base overrides tag sugar-id]
+   (assert-forwardable-attrs! 're-frame.freehand/spread base)
+   (assert-forwardable-attrs! 're-frame.freehand/spread overrides)
+   ;; Always a MAP, so `(v/spread nil)` is an element with no attributes in
+   ;; both modes rather than an attribute map in one and an absent child in
+   ;; the other — the two happen to render the same tree, and agreement by
+   ;; coincidence is the thing this whole slice is written against.
+   (let [merged (merge (canonical-slot-keys base) (canonical-slot-keys overrides))]
+     ;; The id-slot CARDINALITY, over the MERGED map both front ends fold onto
+     ;; the element. A spread carries no tag, so its only id ambiguity is two
+     ;; distinct spellings surviving the merge — `(v/spread {:id "a"} {:x/id
+     ;; "b"})`; two exact `:id` writes are later-arg-wins and merge to one, no
+     ;; conflict. This is the ONE seam BOTH modes reach, and the interpreted
+     ;; public seam throws HERE, tag-less, before any element is built — so
+     ;; the compiled seam checks it tag-less FIRST too, for one message.
+     (when-some [{:keys [message]} (conv/id-conflict nil nil (keys merged))]
+       (malformed! 're-frame.freehand/spread message {:value (shape merged)}))
+     ;; Then the element's `#id` sugar against the surviving forwarded id —
+     ;; the check the interpreted walks make at the ELEMENT fold, replayed at
+     ;; the compiled seam that never reaches that fold. Gated on `sugar-id`,
+     ;; so the public interpreted seam (which passes none) is untouched and a
+     ;; sugar-less spread is unaffected. A spread that already tripped the
+     ;; cardinality check above never arrives here, so this fires only for the
+     ;; discriminating shape: one forwarded id beside the sugar (rf2-5r1af).
+     (when sugar-id
+       (when-some [{:keys [message]} (conv/id-conflict tag sugar-id (keys merged))]
+         (malformed! 're-frame.freehand/spread message {:value (shape merged)})))
+     merged)))
 
 (defn- owned-handler-keys
   "The `on-*` keys of a `v/spread-safe` OWNED props map — the handler families
@@ -917,9 +939,17 @@
         ;; only after this verdict decides what an owned nil `value` means, so
         ;; the caller is a THIRD source settled here — before the fold, not
         ;; after it (rf2-sf9n5).
-        multi?     (or (controlled/multiple-select? tag attrs dyn)
-                       (and (some? caller)
-                            (controlled/multiple-select? tag caller nil)))
+        ;; EFFECTIVE-source precedence, not a union: `v/spread-safe` folds the
+        ;; caller UNDER the owned props (owned wins), so an owned `:multiple`
+        ;; declaration decides the verdict even when it is false — the caller
+        ;; is consulted only when the owned props do not declare the slot at
+        ;; all. ORing the two sources let a caller's `:multiple true` shape an
+        ;; owned nil `value` as the empty collection though the element's final
+        ;; `multiple` was owned-false (rf2-sf9n5 #6847 audit).
+        multi?     (if (controlled/multiple-declared? attrs dyn)
+                     (controlled/multiple-select? tag attrs dyn)
+                     (and (some? caller)
+                          (controlled/multiple-select? tag caller nil)))
         ;; `:class` and `:style` ride the accumulator because an ALIASED
         ;; spelling of either arrives through `:dyn` — the front end
         ;; discriminates on the exact keyword — and has to reach the one

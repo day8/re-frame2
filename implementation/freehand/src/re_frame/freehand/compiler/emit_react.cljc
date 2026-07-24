@@ -265,7 +265,12 @@
   [o tag cls spread]
   `(re-frame.freehand.compiled-react/spread!
     ~o ~tag ~(vec (:sugar cls)) ~(:sid spread)
-    (re-frame.freehand.node/spread-attrs ~(:base spread) ~(:overrides spread))))
+    ;; The element's `#id` sugar fact rides into the shared seam so a forwarded
+    ;; id beside `#id` refuses here at runtime, exactly as the interpreted
+    ;; element fold does — the compiled react path never reaches that fold
+    ;; (rf2-5r1af).
+    (re-frame.freehand.node/spread-attrs ~(:base spread) ~(:overrides spread)
+                                         ~tag ~(:sugar-id spread))))
 
 (defn- safe-spread-write
   "The runtime fold of `(v/spread-safe owned caller)`'s guarded caller map,
@@ -390,6 +395,16 @@
                       (first (filter #(= (controlled/prop-slot (:k %))
                                          (controlled/prop-slot :multiple))
                                      dynamics)))
+        ;; Whether the OWNED props declare the `multiple` slot at all — by
+        ;; presence, over every owned attr, literal or dynamic. The v/spread-
+        ;; safe caller folds UNDER the owned props (owned wins), so it settles
+        ;; the verdict only when the owned props are silent on the slot. An
+        ;; owned literal `:multiple false` is build-time (so it is NOT in
+        ;; `dynamics`, and `dyn-multi` misses it) yet still an owned decision
+        ;; that must silence a caller's true (rf2-sf9n5 #6847 audit).
+        owned-multi? (boolean (some #(= (controlled/prop-slot (:k %))
+                                        (controlled/prop-slot :multiple))
+                                    attrs))
         ;; The verdict is a runtime fact only where there is an owned dynamic
         ;; write to shape (a nil `value`/`checked`) AND a runtime source that
         ;; could flip it: a dynamic `:multiple`, or a safe-spread caller on a
@@ -454,13 +469,27 @@
                                              `(re-frame.freehand.node/safe-caller-attrs
                                                ~(:base safe-spread) ~(:owned-handler-keys safe-spread)))
                       runtime-verdict?
+                      ;; EFFECTIVE-source precedence, not a union. The verdict is
+                      ;; the owned declaration's when the owned props declare the
+                      ;; slot — a dynamic owned `:multiple` reads its bound value,
+                      ;; a literal owned one is the compile-time constant, false
+                      ;; here (a literal TRUE keeps the constant path and never
+                      ;; reaches this binding). Only a slot the owned props leave
+                      ;; undeclared hands the decision to the safe-spread caller.
+                      ;; ORing them shaped an owned nil `value` as the empty
+                      ;; collection though the caller's `multiple` loses to owned
+                      ;; at `caller-spread!` (rf2-sf9n5 #6847 audit).
                       (conj mverdict
-                            `(cljs.core/or
-                              ~@(cond-> []
-                                  dyn-multi  (conj `(re-frame.freehand.controlled/multiple-select?
-                                                     ~tag [[~(:k dyn-multi) ~dyn-multi-sym]] nil))
-                                  caller-sym (conj `(re-frame.freehand.controlled/multiple-select?
-                                                     ~tag ~caller-sym nil)))))
+                            (cond
+                              dyn-multi
+                              `(re-frame.freehand.controlled/multiple-select?
+                                ~tag [[~(:k dyn-multi) ~dyn-multi-sym]] nil)
+                              owned-multi?
+                              literal-multi?
+                              caller-sym
+                              `(re-frame.freehand.controlled/multiple-select?
+                                ~tag ~caller-sym nil)
+                              :else false))
                       (seq reconciler-binds) (into reconciler-binds))
         props-form  (if (seq writes)
                       `(let [~o (cljs.core/js-obj ~@(mapcat identity literals))

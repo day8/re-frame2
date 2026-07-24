@@ -512,6 +512,18 @@
           (is (= :rf.error/ui-tree-malformed (:rf.error/id (ex-data ex)))
               "through the interpreted seam's diagnostic — a runtime map, so a runtime refusal"))))))
 
+(defn- refusal-id
+  "The `:rf.error/id` of the ExceptionInfo `thunk` throws, or nil if it
+  returns. Used to prove a compiled lowering refuses at RUNTIME."
+  [thunk]
+  (try (thunk) nil
+       (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
+
+(defn- refusal-msg
+  [thunk]
+  (try (thunk) nil
+       (catch clojure.lang.ExceptionInfo e (ex-message e))))
+
 (deftest id-sugar-beside-a-spread-that-carries-an-id-is-refused
   (testing "rf2-5r1af probed defect. `#id` sugar wrote the element's id, and a
             forwarded map spells it again. Interpreted, the post-spread map
@@ -530,7 +542,53 @@
                   nil (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "and compiled, the two-id spread map is refused at the shared seam")
       (when ex
-        (is (= :rf.error/ui-tree-malformed (:rf.error/id (ex-data ex))))))))
+        (is (= :rf.error/ui-tree-malformed (:rf.error/id (ex-data ex)))))))
+  (testing "rf2-5r1af #6837 audit — the DISCRIMINATING case the prior fix
+            missed: `#id` sugar beside a spread that carries exactly ONE id.
+            The spread's own cardinality guard passes (one id merges to one),
+            so nothing catches it until the element fold — which the compiled
+            lowering never reaches. The earlier test used a spread that was
+            ITSELF two ids, so `spread-attrs` refused before the sugar was ever
+            compared. Threading the sugar fact into the compiled seam refuses
+            it in both compiled structural and compiled React, the diagnostic
+            and message identical to the interpreted element fold. The
+            interpreted arms are UNQUOTED so the spread actually runs to the
+            map the element fold refuses; the compiled arms are QUOTED so the
+            compiler lowers the form."
+    (is (= :rf.error/ui-tree-malformed
+           (refusal-id #(compiled-tree '[:div#sugar (v/spread {:id "a"})])))
+        "exact :id — the compiled structural spread refuses at the shared seam")
+    (is (= (refusal-msg #(tree/render [:div#sugar (v/spread {:id "a"})]))
+           (refusal-msg #(compiled-tree '[:div#sugar (v/spread {:id "a"})])))
+        "exact :id — interpreted and compiled name the collision identically")
+    (is (= :rf.error/ui-tree-malformed
+           (refusal-id #(compiled-tree '[:div#sugar (v/spread {:x/id "a"})])))
+        "alias :x/id — the compiled structural spread refuses at the shared seam")
+    (is (= (refusal-msg #(tree/render [:div#sugar (v/spread {:x/id "a"})]))
+           (refusal-msg #(compiled-tree '[:div#sugar (v/spread {:x/id "a"})])))
+        "alias :x/id — interpreted and compiled name the collision identically")
+    ;; The parity messages name the ELEMENT and its two spellings ("The element
+    ;; :div … #sugar sugar … :id"), the interpreted element-fold sentence — not
+    ;; the tag-less "forwarded attribute map" one the spread's own two-id
+    ;; conflict throws. That is what proves the compiled seam replays the FOLD.
+    (is (re-find #"element :div"
+                 (or (refusal-msg #(compiled-tree '[:div#sugar (v/spread {:id "a"})])) ""))
+        "the sentence names the element, matching the fold it replays")
+    (is (re-find #"twice"
+                 (or (refusal-msg #(compiled-tree '[:div#sugar (v/spread {:id "a"})])) ""))
+        "and says the id is spelled twice"))
+  (testing "non-vacuity controls — the guard refuses only the CONFLICT, not the
+            act of forwarding an id. A single forwarded id with NO sugar is an
+            ordinary attribute in both modes, and two EXACT :id writes in one
+            standalone spread are later-arg-wins (one id survives)."
+    (is (map? (compiled-tree '[:div (v/spread {:id "a"})]))
+        "no sugar, one forwarded id — accepted, compiled")
+    (is (nil? (refusal-id #(compiled-tree '[:div (v/spread {:id "a"})])))
+        "and it does not throw")
+    (is (= {:id "b"} (v/spread {:id "a"} {:id "b"}))
+        "two EXACT :id writes merge to one — later-arg-wins, no conflict")
+    (is (map? (compiled-tree '[:div#sugar (v/spread {:class "c"})]))
+        "sugar with a forwarded NON-id attr — no id ambiguity, accepted")))
 
 ;; ---------------------------------------------------------------------------
 ;; The scope fence

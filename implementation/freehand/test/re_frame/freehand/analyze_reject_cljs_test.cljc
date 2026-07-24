@@ -96,7 +96,7 @@
       (is (= :rf.ui.compile/indirect-list-body (reject-id wrapped))
           "the wrapped body is its own id, not the missing-key one")
       (let [msg (reject-msg wrapped)]
-        (is (str/includes? msg "must BE the keyed node")
+        (is (str/includes? msg "must BE the row node")
             "the sentence states the real rule")
         (is (str/includes? msg ":let")
             "and names for's :let modifier as the fix")
@@ -119,8 +119,38 @@
                             [:div {:key (:id r)} r])))))
   (testing "a wrapper that :let cannot fix is told to extract a child view"
     (let [msg (reject-msg '(for [x xs] (if x [:li {:key x} 1] [:li {:key x} 2])))]
-      (is (str/includes? msg "must BE the keyed node"))
+      (is (str/includes? msg "must BE the row node"))
       (is (str/includes? msg "Extract a declared child view"))))
+  (testing "rf2-drpa3.164 audit (#6837): the wrapper sentence must not
+            claim the wrapped markup is KEYED — the analyzer never inspects
+            the key one form deeper, so an unkeyed markup wrapper gets the
+            SAME id and the SAME sentence as a keyed one. Asserting a key it
+            never proved sent an author who took the recovery into a second
+            build failure for the missing key. `wraps-markup-node?`
+            establishes only that markup is one form deeper; keyedness is a
+            requirement the sentence STATES, not a fact it claims."
+    (let [keyed   '(for [x xs] (let [y x] [:li {:key x} y]))
+          unkeyed '(for [x xs] (let [y x] [:li y]))]
+      (is (= :rf.ui.compile/indirect-list-body (reject-id unkeyed))
+          "an unkeyed markup wrapper is still the wrapper diagnostic")
+      (is (= (reject-msg keyed) (reject-msg unkeyed))
+          "and the sentence is byte-identical either way — it never
+           depended on, nor asserted, a key one form deeper")
+      (is (not (str/includes? (reject-msg unkeyed) "wrapping one"))
+          "the retired sentence claimed the body was 'wrapping one' keyed
+           node; the honest one names only the markup that is there")))
+  (testing "rf2-drpa3.164 audit (#6837): a mixed markup/scalar branch —
+            one arm renders markup, the other a scalar — is still the
+            wrapper diagnostic (markup IS one form deeper on a rendered
+            arm) and never claims that markup is keyed"
+    (let [mixed '(for [x xs] (if x [:li x] (str x)))]
+      (is (= :rf.ui.compile/indirect-list-body (reject-id mixed))
+          "the if wraps markup on its then-arm, so it is the wrapper case")
+      (let [msg (reject-msg mixed)]
+        (is (str/includes? msg "must BE the row node"))
+        (is (str/includes? msg "Extract a declared child view"))
+        (is (not (str/includes? msg "missing :key"))
+            "and never reports a missing key it did not check for"))))
   (testing "a body carrying no row at all keeps the general message —
             whether the scalar is bare or wrapped. rf2-drpa3.164 audit: a
             wrapper is a CANDIDATE for indirect-list-body, not a verdict.

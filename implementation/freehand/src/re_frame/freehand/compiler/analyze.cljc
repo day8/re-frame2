@@ -2320,7 +2320,13 @@
                             :sync? false})
           {:key {:present? false} :class (analyze-class e (:classes tag-info) nil)
            :style nil :attrs [] :events []
-           :spread (merge identity {:base base* :overrides overrides*})
+           ;; The `#id` sugar fact rides the spread slot so the compiled
+           ;; lowering can thread it into `node/spread-attrs` — a forwarded id
+           ;; beside `#id` sugar is the same two-spelling ambiguity the literal
+           ;; path refuses, but a spread never reaches the literal analyzer, so
+           ;; the runtime seam holds it with the sugar in hand (rf2-5r1af).
+           :spread (merge identity {:base base* :overrides overrides*
+                                    :sugar-id (:id tag-info)})
            :safe-spread nil
            :ref nil :property-props #{} :static? false}))
 
@@ -3727,7 +3733,7 @@
   A body of one of these kinds is a candidate for the `indirect-list-body`
   sentence rather than the missing-`:key` one, but only once
   [[wraps-markup-node?]] confirms a markup row is actually in there: the
-  mistake that sentence names is a keyed row with something standing between
+  mistake that sentence names is a markup row with something standing between
   it and the `for`, and a wrapper bottoming out at an `:expr`/`:text`/`:slot`
   has no row to stand in front of and keeps the general message."
   #{:let :letfn :if :case})
@@ -3736,12 +3742,16 @@
   "Does this analyzed `for`-body wrapper reach a MARKUP ROW — an element,
   view, foreign or fragment — in a rendered position?
 
-  That is the fact the `indirect-list-body` diagnostic asserts (\"the keyed
-  row is present, one form deeper\"), so it is established BEFORE the
-  diagnostic claims it. A `:let`/`:letfn`/`:if`/`:case` bottoming out at an
-  `:expr`/`:text`/`:slot` carries no row at all, and reporting it as a
-  wrapper around a keyed node would state a fact the analyzer has not proved
-  (rf2-drpa3.164). The walk mirrors [[presence-keyed-child?]]'s node shapes:
+  That is the fact the `indirect-list-body` diagnostic asserts (\"markup is
+  present, one form deeper — the body wraps it rather than being it\"), so it
+  is established BEFORE the diagnostic claims it. Whether that markup carries
+  its own `:key` is a separate requirement the sentence STATES but does not
+  verify through the wrapper (rf2-drpa3.164 #6837 audit); a keyed and an
+  unkeyed markup wrapper are the same mistake and get the same sentence. A
+  `:let`/`:letfn`/`:if`/`:case` bottoming out at an `:expr`/`:text`/`:slot`
+  carries no row at all, and reporting it as a wrapper around a row would
+  state a fact the analyzer has not proved (rf2-drpa3.164). The walk mirrors
+  [[presence-keyed-child?]]'s node shapes:
   a branch reaches markup when ANY rendered arm does — one wrapped row is
   enough to make the wrapper the thing between the `for` and it."
   [ast]
@@ -3827,27 +3837,33 @@
             body-ast  (analyze e-body body-form)]
         ;; The WRAPPED body is its own rejection, because it is its own
         ;; mistake (rf2-drpa3.164). `(for [i is] (let [r (nth rows i)] [:div
-        ;; {:key (:id r)} …]))` is the natural Clojure spelling, and the row
-        ;; inside it IS keyed — reporting a missing key sends the author to a
-        ;; line that has one. The rule they need is that the body must BE the
-        ;; node, and the fix is `for`'s own `:let` modifier, which this
-        ;; grammar fully supports. But the sentence claims a row is present
-        ;; one form deeper, so it is raised only once `wraps-markup-node?`
-        ;; proves one is: `(for [x xs] (let [y x] (str y)))` wraps a scalar,
-        ;; not a keyed node, and keeps the general unkeyed-list-item answer
-        ;; rather than a sentence about a row that isn't there.
+        ;; {:key (:id r)} …]))` is the natural Clojure spelling — reporting a
+        ;; missing key when the row inside it has one sends the author to a
+        ;; line that already keys it. The rule they need is that the body
+        ;; must BE the row node, and the fix is `for`'s own `:let` modifier,
+        ;; which this grammar fully supports. The sentence only claims what
+        ;; `wraps-markup-node?` establishes — that MARKUP sits one form
+        ;; deeper — and NOT that the markup is keyed, which the analyzer does
+        ;; not inspect through the wrapper (rf2-drpa3.164 #6837 audit). So a
+        ;; keyed and an unkeyed markup wrapper get the same honest sentence,
+        ;; while `(for [x xs] (let [y x] (str y)))` wraps a scalar — no row
+        ;; is one form deeper — and keeps the general unkeyed-list-item
+        ;; answer rather than a sentence about a row that isn't there.
         (when (and (contains? wrapper-body-ops (:op body-ast))
                    (wraps-markup-node? body-ast))
           (env/fail! e :rf.ui.compile/indirect-list-body
-                     (str "a for body must BE the keyed node — an element, a "
-                          "view or a fragment, with nothing standing between "
-                          "the for and it — and this body is a "
-                          (name (:op body-ast)) " wrapping one. A keyed list "
-                          "lowers to a direct JS array of rows, so the row has "
-                          "to be what the body evaluates to."
+                     (str "a for body must BE the row node — an element, a "
+                          "view or a fragment carrying its own :key — "
+                          "directly, with nothing standing between the for "
+                          "and it. This body is a "
+                          (name (:op body-ast)) " with the markup one form "
+                          "deeper. A keyed list lowers to a direct JS array "
+                          "of rows, so the body has to evaluate to that row "
+                          "node itself."
                           (if (= :let (:op body-ast))
                             (str " Bind the row's values with for's OWN :let "
-                                 "modifier: (for [i (range start end) "
+                                 "modifier so the body stays the keyed row: "
+                                 "(for [i (range start end) "
                                  ":let [r (nth rows i)]] [:div {:key (:id r)} …])")
                             (str " Extract a declared child view that does the "
                                  "wrapping, and key it at the call site")))

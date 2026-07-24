@@ -266,7 +266,14 @@
         ;; and it folds UNDER the owned props (`put-caller!`) only after the
         ;; owned nil `value` is normalized here — so the caller is settled
         ;; into this one verdict, before that normalization (rf2-sf9n5).
-        multi?      (controlled/multiple-select? tag attrs caller)
+        ;; EFFECTIVE source, not a union: an owned `:multiple` declaration
+        ;; wins even when false (owned wins), and the caller decides only when
+        ;; the owned props are silent on the slot. ORing them shaped an owned
+        ;; nil `value` as the empty collection under an owned-false element
+        ;; whose caller happened to carry `:multiple true` (rf2-sf9n5 #6847).
+        multi?      (if (controlled/multiple-declared? attrs)
+                      (controlled/multiple-select? tag attrs nil)
+                      (controlled/multiple-select? tag caller nil))
         ;; The exact `:class` and any alias projecting onto the class slot
         ;; COMPOSE — sugar first, then the exact `:class`, then the aliases —
         ;; rather than the last one written winning. They are collected
