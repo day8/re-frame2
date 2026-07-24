@@ -215,23 +215,35 @@
           "the library's only host boundary has nothing to release")
       (is (= "auto" (:popover (attrs-of tree "panel")))
           "dismissal is the platform's, off the popover mode")
-      (is (= [:acme.ui.dropdown/toggle-reported [ui/dropdown-kind address]]
+      (is (= [:acme.ui.dropdown/toggle-reported [ui/dropdown-kind address] ::v/new-state]
              (:on-toggle (attrs-of tree "panel")))
-          "and the library's whole contribution is reconciling the report"))))
+          "and the library's whole contribution is reconciling the reported state"))))
 
-(deftest r-b3-the-dismissal-handshake-is-data-because-newstate-cannot-be
+(deftest r-b3-the-dismissal-reads-newstate-as-a-projection-and-v-event-still-records-opaque
   (testing "R-B3 (headless half), and a FINDING. Reconciling a
             browser-initiated dismissal means reading `ToggleEvent.newState`,
-            and there is no reserved projection for it — the closed roster
-            is `::v/value` / `::v/checked` / `::v/key`. The sanctioned
-            escape for exactly this shape is `v/event`, and what a view
-            that reaches for it GIVES UP is the property the whole
-            data-intent idiom is for: the site renders, but it records as
-            the opaque marker, so what it dispatches is no longer
-            assertable by equality and the library's contract stops being
-            comparable data. That is why this library counts reports
-            instead of reading them."
+            and it now IS a reserved projection: `::v/new-state` joined the
+            closed roster — `::v/value` / `::v/checked` / `::v/key` /
+            `::v/scroll-top` / `::v/new-state` — when this pilot and the
+            virtual table demonstrated the need. So the report rides a
+            declarative event vector and reaches dispatch as ORDINARY DATA,
+            assertable by equality without a browser, and the library
+            reconciles by reading the reported state rather than counting
+            reports.
+
+            The contrast the finding was really about still holds for the
+            shapes the roster does NOT carry: a `v/event` callback — the
+            sanctioned escape for anything needing traversal, measurement or
+            a live host object — records as the OPAQUE marker, so what it
+            dispatches is no longer assertable by equality. That is the
+            property the data-intent idiom exists to protect, and it is why
+            a projection is worth admitting when a real component needs one."
     (seed! {})
+    (is (contains? v/projections :re-frame.freehand/new-state)
+        "the newState read is a reserved projection now, not an opaque escape")
+    (is (= [:acme.ui.dropdown/toggle-reported [ui/dropdown-kind address] ::v/new-state]
+           (:on-toggle (attrs-of (render! (dropdown-form)) "panel")))
+        "so the dismissal site is a plain event vector carrying the projection")
     (is (= {:rf.ui/opaque :fn}
            (:on-toggle
              (t/attrs
@@ -239,26 +251,31 @@
                                 :on-toggle (v/event [_]
                                              [:acme.ui.dropdown/dismissed :x])}]))))
         "a v/event callback at a handler site renders — and records OPAQUE, so
-         the intent behind it cannot be compared")
+         the intent behind it cannot be compared: the contrast the finding is
+         about, still true for a shape the roster does not carry")
     (is (= [:acme.ui.dropdown/dismissed :x]
            (:on-click (t/attrs (t/render [:div {:on-click [:acme.ui.dropdown/dismissed :x]}]))))
         "against an ordinary event vector at the same site, which records
          VERBATIM and is assertable by equality — the difference the finding
          is about")
 
-    (testing "and the handshake the library uses instead: the first report
-              of a session acknowledges, a later one closes, and a report
-              after the application already closed is inert"
+    (testing "and the reconciliation the library performs off the reported
+              state: a browser 'closed' the application did not cause closes
+              the record, an 'open' is inert, and a 'closed' after the
+              application already closed is inert"
       (let [k [ui/dropdown-kind address]]
         (send! [:acme.ui.dropdown/anchor-clicked k])
-        (send! [:acme.ui.dropdown/toggle-reported k])
-        (is (= {:open? true :active 0 :acked? true} (record address))
-            "the opening report is acknowledged, not acted on")
-        (send! [:acme.ui.dropdown/toggle-reported k])
-        (is (nil? (record address)) "a second report is the browser dismissing")
+        (is (= {:open? true :active 0} (record address))
+            "opened by the application")
+        (send! [:acme.ui.dropdown/toggle-reported k "open"])
+        (is (= {:open? true :active 0} (record address))
+            "the platform's opening report is inert — the record already exists")
+        (send! [:acme.ui.dropdown/toggle-reported k "closed"])
+        (is (nil? (record address))
+            "a browser 'closed' the application did not cause dismisses it")
         (let [before (app-db)]
-          (send! [:acme.ui.dropdown/toggle-reported k])
-          (is (= before (app-db)) "and a report with no record left is inert"))))))
+          (send! [:acme.ui.dropdown/toggle-reported k "closed"])
+          (is (= before (app-db)) "and a 'closed' with no record left is inert"))))))
 
 ;; ===========================================================================
 ;; R-B4 — the focus contract, per overlay class

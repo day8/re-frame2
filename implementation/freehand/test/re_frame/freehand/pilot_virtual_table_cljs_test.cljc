@@ -19,8 +19,10 @@
   not the other is a promotion that changed the page. The mounted claims
   — a real scrollbar, real reconciliation, a real remount, and the same
   parity read off the document — belong to
-  `pilot-virtual-table-dom-cljs-test`; the JVM half of the scroll-offset
-  reader belongs to `pilot-virtual-table-scroll-seam-jvm-test`."
+  `pilot-virtual-table-dom-cljs-test`; the scroll offset itself now rides
+  the reserved `::v/scroll-top` projection, so a scroll is a plain event
+  vector this suite asserts by equality with no host reader to prove
+  separately."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.set :as set]

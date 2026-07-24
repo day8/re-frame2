@@ -208,17 +208,17 @@
         [:div {:role "option"} "This page"]]]]]]])
 
 (v/defview nest-stateful
-  "The fourth rung, and the decisive one. Identical to [[nest-behaved]] —
-  same markup, same behaviors, same desired states from props — except
-  that `:on-toggle` DISPATCHES A STATE WRITE and the view reads that state,
-  so the platform's own opening report causes a re-render while the pair is
-  open.
+  "The fourth rung. Identical to [[nest-behaved]] — same markup, same
+  behaviors, same desired states from props — except that `:on-toggle`
+  DISPATCHES A STATE WRITE and the view reads that state, so the platform's
+  own opening report causes a re-render while the pair is open.
 
-  That is not a contrivance. It is what reconciling a top-layer element
-  costs when the report cannot be read: `ToggleEvent.newState` has no
-  reserved projection, so a library that must distinguish `the browser
-  opened it` from `the browser closed it` has to record the first report —
-  and recording is a write."
+  It is the control for what a reconciling library actually does. A toggle
+  handler that writes on every report re-renders the pair mid-open, and the
+  pair still survives PROVIDED the desired state does not follow the write
+  into `closed`. The pilot's dropdown is exactly such a handler: it reads
+  `::v/new-state` and closes only on a genuine `closed`, so an opening
+  report leaves the desired state untouched and the ancestor stays up."
   [{:keys [outer? inner?]}]
   (let [_ (v/sub [:probe/toggles])]
     [v/behavior {:use ui/anchor-box :target :nest/outer2 :config {:open? outer? :gap 0}}
@@ -263,7 +263,7 @@
           :role               "listbox"
           :popover            :auto
           ::web/popover-open? open?
-          :on-toggle          [:acme.ui.dropdown/toggle-reported control]
+          :on-toggle          [:acme.ui.dropdown/toggle-reported control ::v/new-state]
           :style              {:position "fixed"
                                :inset    "auto"
                                :top      "var(--acme-anchor-y)"
@@ -521,17 +521,18 @@
               (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
 
 ;; ===========================================================================
-;; R-B3 — the browser dismisses, and the handshake reconciles
+;; R-B3 — the browser dismisses, and the pilot reconciles from newState
 ;; ===========================================================================
 
-(deftest r-b3-a-browser-dismissal-reaches-the-handshake-and-does-not-spring-back
+(deftest r-b3-a-browser-dismissal-reconciles-from-newstate-and-does-not-spring-back
   (testing "R-B3 (mounted). The substrate writes NO application state when
             the browser dismisses, so an unreconciled control re-opens on
-            the next render. The pilot reconciles by counting reports: the
-            opening toggle acknowledges, the dismissal toggle closes. This
-            row drives a real `hidePopover()` — what Escape and a light
-            dismiss both come down to — and then RE-RENDERS, which is the
-            step that would expose a spring-back."
+            the next render. The pilot reconciles by reading `newState`: the
+            opening toggle is inert (the record already exists), the
+            dismissal toggle carries `closed` and retires it. This row
+            drives a real `hidePopover()` — what Escape and a light dismiss
+            both come down to — and then RE-RENDERS, which is the step that
+            would expose a spring-back."
     (if-not (browser?)
       (skip! "the browser job runs the dismissal assertions")
       (async done
@@ -545,14 +546,14 @@
               (.then (fn [_] (settle)))
               (.then (fn [_]
                        (is (true? (open? (panel-id))) "open")
-                       (is (true? (:acked? (record)))
-                           "the platform's opening report reached the handshake")
-                       ;; Let every render the acknowledgement scheduled
-                       ;; commit BEFORE the browser dismisses: a render
-                       ;; still in flight would re-assert the desired state
-                       ;; after the dismissal and re-open the node, which is
-                       ;; a race about test sequencing rather than about the
-                       ;; handshake.
+                       (is (= {:open? true :active 0} (record))
+                           "the platform's opening report was inert — the record
+                            is unchanged, an `open` newState reconciles nothing")
+                       ;; Let any render still in flight commit BEFORE the
+                       ;; browser dismisses: a render mid-flight would
+                       ;; re-assert the desired state after the dismissal and
+                       ;; re-open the node, which is a race about test
+                       ;; sequencing rather than about the reconciliation.
                        (act (fn [] nil))))
               (.then (fn [_]
                        ;; The browser closing it of its own accord — what
@@ -581,8 +582,8 @@
 
 (defn- open-record [] {:open? true :active 0})
 
-(deftest r-b9-nested-dropdowns-collapse-because-a-counting-handshake-cannot-tell-open-from-closed
-  (testing "R-B9 (mounted), and THE PILOT'S SHARPEST FINDING.
+(deftest r-b9-nested-dropdowns-stay-open-because-newstate-tells-open-from-closed
+  (testing "R-B9 (mounted), and THE PILOT'S SHARPEST FINDING, now RESOLVED.
 
             The requirement is met by the platform and by the substrate:
             the attribution ladder above proves that the minimal pair, the
@@ -590,22 +591,18 @@
             markup with a state-writing toggle handler ALL nest correctly
             and stay nested across further commits.
 
-            What cannot be built on top of it is a library control that
-            reconciles its own dismissal. `ToggleEvent.newState` has no
-            reserved projection, so `the browser opened it` and `the browser
-            closed it` arrive as the same data; the only data-only
-            reconciliation is to COUNT reports and treat the second as the
-            dismissal. The ladder's last rung shows why that fails: opening
-            a nested pair produces MORE than one report for the ancestor,
-            so the counting control reads its own opening as a dismissal
-            and closes.
+            What could not be built on top of it was a library control that
+            reconciled its OWN dismissal. Opening a nested pair produces
+            MORE than one report for the ancestor (the ladder's last rung),
+            so a control that COUNTED reports read its own second opening as
+            a dismissal and closed. Reading `ToggleEvent.newState` — now the
+            reserved `::v/new-state` projection — tells `the browser opened
+            it` from `the browser closed it` directly: an opening report is
+            inert, and only a genuine `closed` retires the record.
 
-            The row asserts the collapse rather than describing it. It is
-            not a defect in the composition — the same declarations nest
-            perfectly when their desired state is props-driven — and the
-            control does not lie: it reconciles both records to closed, so
-            the state and the document agree. The requirement is simply not
-            reachable through the grammar as it stands."
+            The row asserts the pair STAYS OPEN rather than collapsing —
+            the flip that deleting the counting handshake bought. The
+            document and the state agree, and now they agree on `open`."
     (if-not (browser?)
       (skip! "the browser job runs the nesting assertions")
       (async done
@@ -629,15 +626,17 @@
                                         " inner-popover=" (some-> (by-id inner) (.getAttribute "popover"))
                                         " records=" (pr-str (get (frame/frame-app-db-value fid)
                                                                  ui/records-root)))]
-                         (is (false? (open? outer))
-                             (str "THE FINDING: the ancestor closed itself — " state))
-                         (is (false? (open? inner))
-                             (str "and the nested half went with the subtree that stopped "
-                                  "rendering — " state)))
+                         (is (true? (open? outer))
+                             (str "THE FLIP: the ancestor stayed open — an opening report "
+                                  "is inert under `::v/new-state` — " state))
+                         (is (true? (open? inner))
+                             (str "and the nested half with it — " state)))
                        (is (.contains (by-id outer) (by-id inner))
                            "non-vacuous: the inner really is a DOM descendant of the outer")
-                       (is (empty? (get (frame/frame-app-db-value fid) ui/records-root))
-                           "and the control does not lie: both records reconciled to closed")
+                       (is (= {outer-k (open-record) inner-k (open-record)}
+                              (get (frame/frame-app-db-value fid) ui/records-root))
+                           "and both records are still open — the control did not close
+                            itself on its own opening reports")
                        (teardown! container root)
                        (done)))
               (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
@@ -709,14 +708,15 @@
                        ;; report is a state write, and the write re-renders
                        ;; while the pair is open — so the pair survives a
                        ;; reconciling toggle handler, PROVIDED the desired
-                       ;; state does not depend on what the handler wrote.
+                       ;; state does not follow the write into `closed`.
                        ;;
-                       ;; The transcript is the finding: the OUTER popover
+                       ;; The transcript is the mechanism the ancestor's
+                       ;; reconciliation has to cope with: the OUTER popover
                        ;; is reported more than once for one opening. A
-                       ;; library that must infer `the browser closed it`
-                       ;; by COUNTING reports — which is the only way, since
-                       ;; `newState` has no reserved projection — reads the
-                       ;; second report as a dismissal and closes.
+                       ;; library that COUNTED reports would read the second
+                       ;; as a dismissal and close; reading `::v/new-state`
+                       ;; keeps an opening report inert instead, which is
+                       ;; what the pilot's dropdown now does (r-b9 above).
                        (is (true? (open? "stateful-outer"))
                            (str "RUNG 4 (a state write on toggle): the pair survives — ops="
                                 (top-layer/operation-count)
@@ -732,25 +732,24 @@
                        (done)))
               (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
 
-(deftest a-nested-panel-opened-in-a-LATER-commit-collapses-the-pair
-  (testing "R-B9, and a FINDING. The document-order flush repairs nesting
-            WITHIN one commit. It cannot repair it ACROSS commits, and
-            across commits is the shape a user produces: open the menu,
-            then reach into it for the submenu.
+(deftest a-nested-panel-opened-in-a-LATER-commit-also-stays-nested
+  (testing "R-B9, and a FINDING now RESOLVED. The one-commit row proves a
+            nested pair opened TOGETHER stays open. This row proves the
+            harder shape — the one a user actually produces: open the menu,
+            THEN reach into it for the submenu, in a later commit.
 
-            What happens is total. Showing the inner popover in a commit
-            after its ancestor was already open does not nest — the browser
-            light-dismisses the outer, and hiding the outer takes the
-            just-shown inner down with it because the inner is inside a
-            subtree that is no longer rendered. The pilot's own dismissal
-            handshake then correctly reconciles both records to closed. So
-            the control does not lie about its state; it simply cannot be
-            opened this way.
+            Opening the inner popover in a commit after its ancestor was
+            already open fires more toggle reports on the outer, and a
+            control that COUNTED reports read one of them as a dismissal and
+            collapsed the whole pair — the ancestor light-dismissing itself
+            on its own descendant's opening. Reading `::v/new-state` keeps
+            every opening report inert, so the ancestor stays up and the
+            submenu opens inside it. This row asserts the pair STAYS nested
+            across commits.
 
-            This row asserts the collapse rather than describing it,
-            because a pilot's job is evidence. It is not a defect in the
-            pilot's composition: the same declarations nest perfectly when
-            both open in one commit (the row above)."
+            It is not defect-free by luck: the same declarations collapsed
+            here under the counting handshake, so the flip is exactly what
+            reading the reported state — rather than counting — bought."
     (if-not (browser?)
       (skip! "the browser job runs the nesting assertions")
       (async done
@@ -768,18 +767,21 @@
                        (is (true? (open? outer)) "the outer panel opened, alone, first")
                        (is (.contains (by-id outer) (by-id inner))
                            "and the inner popover is inside it in the DOM, closed")
+                       (is (false? (open? inner)) "the inner is not open yet")
                        ;; The second commit — the user reaching into the menu.
                        (send! [:acme.ui.dropdown/anchor-clicked inner-k])
                        (render)))
               (.then (fn [_] (settle)))
               (.then (fn [_]
-                       (is (false? (open? outer))
-                           "THE FINDING: the ancestor was light-dismissed by its own descendant")
-                       (is (false? (open? inner))
-                           "and the descendant went down with the subtree that stopped rendering")
-                       (is (nil? (get-in (frame/frame-app-db-value fid) [ui/records-root outer-k]))
-                           "the handshake reconciled the outer's state to closed — the control
-                            does not claim to be open")
+                       (is (true? (open? outer))
+                           "THE FLIP: the ancestor stayed open across the second commit —
+                            an opening report is inert under `::v/new-state`")
+                       (is (true? (open? inner))
+                           "and the submenu opened inside it")
+                       (is (= {:open? true :active 0}
+                              (get-in (frame/frame-app-db-value fid) [ui/records-root outer-k]))
+                           "the outer record is still open — no opening report was read
+                            as a dismissal")
                        (teardown! container root)
                        (done)))
               (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
@@ -1103,8 +1105,8 @@
             they arrived.
 
             The pilot's dropdown reconciles its own dismissal (that is
-            what `:on-toggle` and the counting handshake are for), so
-            neither mode may accuse it. A promoted popover that really
+            what `:on-toggle` and its `::v/new-state` reconciliation are
+            for), so neither mode may accuse it. A promoted popover that really
             declares no reconciliation IS accused, in the same mode, at
             the same commit — which is what makes the pilot's silence a
             reading rather than a dead channel."
