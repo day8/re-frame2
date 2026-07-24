@@ -20,6 +20,8 @@ reply arrives later as an **ordinary [event](../core/events.md)**:
 No `await`, no callback nesting, no resumed stack frame. Success and failure each
 have a name on the same wire as everything else.
 
+<a id="in-this-section"></a>
+
 **Prerequisites.** [Effects](../core/effects.md) — returning an effect map from a
 handler. Managed HTTP plugs into that pipeline; it does not replace events or app-db.
 
