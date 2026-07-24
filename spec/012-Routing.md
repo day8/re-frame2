@@ -901,7 +901,7 @@ The public `:rf.route/transition` and `:rf.route/error` reads name the route's *
 The table uses [Spec 016](016-Resources.md) resource terms, not router-local guesses:
 
 - a blocking requirement has **usable data** when its active resource identity projects `:rf.resource/has-data? true`;
-- a blocking **first load is pending** when that identity has no usable data and is absent / `:idle`, or projects `:rf.resource/loading? true`;
+- a blocking **first load is pending** when that identity has no usable data and work capable of settling it exists — it projects `:rf.resource/loading? true`, or it is absent / `:idle` with its first attempt still to come. An identity that has *already spent* an attempt and settled with no usable data and no error (a first load that was **aborted**) is neither pending nor failed: nothing will ever settle it, so it stops blocking rather than holding the route `:loading` forever;
 - a blocking **first load failed** when the identity has no usable data and its resource status is `:error`; and
 - `:fetching` **with** usable data is a background **refresh** (including a stale revalidation). It never makes the route `:loading`, and a refresh failure stays on the resource's `:refresh-error` channel — it does not make the route `:error`.
 
