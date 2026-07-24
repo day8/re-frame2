@@ -1748,10 +1748,13 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 (def ResourceRouteBlockingTags
   ;; a BLOCKING route resource FAILED its first load — the runtime flips the
   ;; route transition to :error and populates [:rf.runtime/routing :current
-  ;; :error] with this structured error (mirroring the :on-match error trap),
-  ;; so a failed required server-state read is observable in route state
-  ;; rather than a permanent skeleton. The envelope carries the resource's own
-  ;; first-load failure :error. Per Spec 016 §Route integration.
+  ;; :error] with this structured error, so a failed required server-state
+  ;; read is observable in route state rather than a permanent skeleton. It is
+  ;; the readiness projection that flips the transition (Spec 012 §Route
+  ;; readiness is a resource projection); the EP-0037 R1 purge retired the
+  ;; :on-match error trap, which no longer writes route state. The envelope
+  ;; carries the resource's own first-load failure :error. Per Spec 016 §Route
+  ;; integration.
   [:map
    [:category    :keyword]
    [:resource-id :keyword]
