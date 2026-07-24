@@ -417,3 +417,140 @@
                   (is false (str "shared-frame suite rejected: " e))
                   (.remove installer-node) (.remove borrower-node)
                   (done)))))))))
+
+;; ===========================================================================
+;; FH-ROOT-005 — HMR migration of a pre-#6818 legacy ledger row (rf2-4pvsy)
+;;
+;; `frame-ledger` is `defonce`, so a row a pre-#6818 build wrote survives a hot
+;; reload WITHOUT an `:installed-value`. The reloaded code meets that row on the
+;; ordinary same-plan remount, where `make-frame` does not run — so nothing
+;; supplies the install value, and left nil the final `release-frame!` would
+;; `destroy-frame!` a nil: no incarnation token, no teardown, the root-owned
+;; frame left LIVE and untracked past its last root. The remount must MIGRATE
+;; the row instead, recovering the frame's exact current incarnation as the
+;; teardown authority so the surrounding `defonce` hot-reload path stays honest.
+;; ===========================================================================
+
+(deftest fh-root-005-a-legacy-row-is-migrated-on-remount-and-torn-down-exactly
+  (testing "Per FH-ROOT-005 / rf2-4pvsy (browser): a defonce ledger row a
+            pre-#6818 build carried across a hot reload has :installed-by but no
+            :installed-value. The same-plan remount MIGRATES it — recovering the
+            live frame's EXACT incarnation token as the row's install value
+            WITHOUT re-running the plan — so the final unmount destroys exactly
+            that incarnation and empties the ledger, where the un-migrated nil
+            would no-op the teardown and orphan the frame the root owns."
+    (if-not (browser?)
+      (skip! "the browser job runs the legacy-migration assertions")
+      (async done
+        (reg!)
+        (let [node   (host-node!)
+              fid    :fh.root/legacy
+              seeded 11
+              setup  (atom 0)
+              token  (atom nil)
+              plan   {:frame {:id             fid
+                              :initial-events [[:root/seed seeded]
+                                               [:root/legacy-setup]]}}]
+          (rf/reg-event :root/legacy-setup (fn [_ _] {:fx [[:root/legacy-setup true]]}))
+          (rf/reg-fx :root/legacy-setup (fn [_ _] (swap! setup inc)))
+          (-> (act #(v/mount [views/counter {}] node plan))
+              (.then
+                (fn [_mounted]
+                  (is (= (str seeded) (text node ".count")))
+                  (is (= 1 @setup) "the plan seeded once")
+                  ;; capture the frame that will survive the reload, so the
+                  ;; migration can be proved to recover THIS exact incarnation.
+                  (reset! token (frame/frame-incarnation-token fid))
+                  (is (some? (frame/frame-value-incarnation-token
+                               (:installed-value (get (root/frame-ledger-snapshot) fid))))
+                      "a fresh install records an incarnation-bearing value")
+                  ;; simulate the pre-#6818 shape the defonce ledger carried
+                  ;; across the reload: installer kept, install value gone.
+                  (root/downgrade-ledger-row-to-pre-6818! fid)
+                  (is (some? (:installed-by (get (root/frame-ledger-snapshot) fid)))
+                      "the legacy row still names its installer")
+                  (is (nil? (:installed-value (get (root/frame-ledger-snapshot) fid)))
+                      "but carries no install value — the pre-#6818 shape")
+                  ;; the reloaded code re-runs mount over the surviving row.
+                  (act #(v/mount [views/counter {}] node plan))))
+              (.then
+                (fn [remounted]
+                  (is (= (str seeded) (text node ".count")) "the remount re-rendered")
+                  (is (= 1 @setup)
+                      "and did NOT re-seed — the same-plan remount is the ratified
+                       no-op even over a legacy row")
+                  (is (identical? @token (frame/frame-incarnation-token fid))
+                      "the frame is the SAME incarnation across the reload — the
+                       migration recovered it, it did not recreate it")
+                  (is (identical? @token
+                                  (frame/frame-value-incarnation-token
+                                    (:installed-value (get (root/frame-ledger-snapshot) fid))))
+                      "and the migrated row now carries that EXACT incarnation as its
+                       teardown authority — the healed row is indistinguishable from a
+                       normally-installed one")
+                  (act #(v/unmount! remounted))))
+              (.then
+                (fn [_]
+                  (is (nil? (frame/frame fid))
+                      "final unmount destroyed the frame the root owned — the migrated
+                       authority tore it down, where the un-migrated nil would have
+                       no-opped and left it live and untracked")
+                  (is (empty? (root/frame-ledger-snapshot))
+                      "and the ledger is empty")
+                  (.remove node)
+                  (done))
+                (fn [e]
+                  (is false (str "legacy-migration suite rejected: " e))
+                  (.remove node)
+                  (done)))))))))
+
+(deftest fh-root-005-a-migrated-legacy-authority-is-incarnation-exact
+  (testing "Per FH-ROOT-005 / rf2-4pvsy (browser): the migration recovers an
+            INCARNATION-EXACT authority, not an address-directed one. After the
+            legacy row is migrated on remount, tear the recovered incarnation
+            down and stand a same-id SUCCESSOR in its place; unmounting the now
+            stale root must destroy the incarnation it owned — already gone — and
+            never reach through the id to kill the successor. A migration that
+            recovered a bare id would destroy whatever is live now, leaving the
+            id naming nothing at all."
+    (if-not (browser?)
+      (skip! "the browser job runs the migrated-exactness assertions")
+      (async done
+        (reg!)
+        (let [node       (host-node!)
+              fid        :fh.root/legacy-exact
+              plan       {:frame {:id fid :initial-events [[:root/seed 1]]}}
+              succ-token (atom nil)]
+          (-> (act #(v/mount [views/counter {}] node plan))
+              (.then
+                (fn [_installer]
+                  ;; downgrade to the legacy shape, then remount to migrate it.
+                  (root/downgrade-ledger-row-to-pre-6818! fid)
+                  (act #(v/mount [views/counter {}] node plan))))
+              (.then
+                (fn [remounted]
+                  ;; tear down the migrated incarnation and reseat a same-id
+                  ;; successor, retaining ITS exact token, THEN unmount the now
+                  ;; stale root.
+                  (rf/destroy-frame! fid)
+                  (rf/make-frame {:id fid :initial-events [[:root/seed 2]]})
+                  (reset! succ-token (frame/frame-incarnation-token fid))
+                  (act #(v/unmount! remounted))))
+              (.then
+                (fn [_]
+                  (is (some? (frame/frame fid))
+                      "the same-id successor is still live — the migrated authority
+                       tore down the incarnation it recovered, which was already gone,
+                       and never reached the successor")
+                  (is (identical? @succ-token (frame/frame-incarnation-token fid))
+                      "and it is the SUCCESSOR's exact incarnation, untouched — a
+                       bare-id migration would have destroyed it")
+                  (is (empty? (root/frame-ledger-snapshot))
+                      "the stale root released its own ledger reference")
+                  (rf/destroy-frame! fid)
+                  (.remove node)
+                  (done))
+                (fn [e]
+                  (is false (str "migrated-exactness suite rejected: " e))
+                  (.remove node)
+                  (done)))))))))
