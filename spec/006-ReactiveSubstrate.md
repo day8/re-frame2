@@ -1412,18 +1412,20 @@ named Stage-2 obligation.
 
 Distinct from the value-movement guards (invariant 5, above), a commit also verifies the
 cell's **body authority** — that the body generation the capture was rendered against is
-still current — so an HMR re-registration landing in the render→commit gap can never
-publish a stale body. Authority is **dual** ⟨rf2-vxgfnd.214⟩:
+still the cell's — so a candidate can never publish ownership on behalf of a body it did
+not execute.
 
-- the cell-local **generation** — bumped on an explicit sync/remount; and
-- the **registered-view-revision** — the authoritative body revision the view registry
-  holds for the view-id, which closes the harder `render(old) → re-registration(new) →
-  layout(old)` window even when the cell has not rendered again. A direct/headless caller
-  with no registered slot falls back to the cell-local half alone (the registry half
-  no-ops).
+Authority is **one number**: the cell-local **generation**. Each stable boundary holds the
+body revision its emitter currently publishes, advanced only at the reload seam — a
+genuinely new body, never an ordinary re-walk of an unchanged tree — and the shell raises
+the cell to that revision **before the candidate opens**. A candidate therefore carries the
+revision its own render ran against, and the commit consults nothing but its own cell. The
+raise is monotone, so an occurrence minted after a reload catches up on its first render
+rather than walking a live cell backwards, and a direct or headless caller with no shell
+above it advances the generation itself.
 
-The capture is rejected as **`:stale`** when either half has advanced past the captured
-generation, checked at **two points**:
+The capture is rejected as **`:abandoned`** when the generation has advanced past the
+captured one, checked at **two points**:
 
 1. **Render→commit (step 1).** Commit entry samples the authority once and rejects a
    stale capture before touching any ownership — the host simply re-renders.
@@ -1436,12 +1438,20 @@ generation, checked at **two points**:
    to publish a stale capture: it releases **only the newly-staged handles** (reverse
    acquisition order),
    leaves the prior committed set, published values, and lifecycle untouched, and returns
-   `:stale`. No revision advances, because the re-registration already notified the shell
-   and a fresh render at the new body is inbound.
+   `:abandoned`. No revision advances, because a reload publishes its new body through a
+   render already in flight — a fresh candidate at that body is inbound without the cell
+   asking for one.
 
-The whole fence is **dev/HMR-only**: production mints every cell at body revision 0 and
-never advances it, so both points constant-fold away under `goog.DEBUG=false` — no
-registry lookup on the commit hot path (I-12 production erasure).
+Body authority is one half of the commit's currency check; the other is the frame
+incarnation the render resolved ([§Frame binding and
+retarget](#frame-binding-and-retarget)). A candidate that fails either half is abandoned
+at whichever of the two points sees it first.
+
+The body half is a development concern in effect rather than by compilation: a production
+boundary is minted at revision 0 and nothing ever advances it, so the comparison always
+holds and costs one integer compare. It is not gated out, because it shares a predicate
+with the frame half, which is load-bearing in every build. Neither point consults a view
+registry, in any build.
 
 ### Callback and reentrancy rules
 
@@ -1867,13 +1877,13 @@ dependencies came from two different renders — is not a state the shell can re
 
 ### Body authority across a live cell
 
-A candidate rendered against a body revision the cell has since replaced is **stale** and
-publishes nothing. Authority is checked at the two points
+A candidate rendered against a body revision the cell has since replaced is **`:abandoned`**
+and publishes nothing. Authority is checked at the two points
 [§Body authority under hot reload](#body-authority-under-hot-reload--the-two-point-commit-fence)
 fixes: once at commit entry, before any ownership is touched, and once again at the
 narrowest publication boundary — after the callback-capable staging work, with nothing
-callback-capable between the check and the publish. A candidate that goes stale at the
-second point releases **only** what its own staging acquired.
+callback-capable between the check and the publish. A candidate abandoned at the second
+point releases **only** what its own staging acquired.
 
 Reload that replaces a whole declaration is the ordinary case and needs no fence: a
 declared view is a descriptor VALUE, so a redeclared view is a different boundary, the
