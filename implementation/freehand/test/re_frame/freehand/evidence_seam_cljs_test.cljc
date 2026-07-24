@@ -5,11 +5,23 @@
   The seam sits at the SELECTED commit — the one place a render's whole
   bundle is live — and, when a sink is installed under the dev gate, emits
   ONE evidence record per commit, validated through
-  `re-frame.freehand.evidence/record`. This suite pins the three things the
-  slice owes: that a real commit delivers a well-formed record naming the
-  occurrence's lowering and generation; that a malformed record is REFUSED
-  at the seam rather than reaching the sink; and that the seam is inert —
-  no throw, no delivery — when no sink is installed.
+  `re-frame.freehand.evidence/record`. This suite pins what the slice owes:
+  that a real commit delivers a well-formed record naming the occurrence's
+  lowering and generation; and that the seam is inert — no throw, no
+  delivery — when no sink is installed.
+
+  It also pins the TWO-PLANE invariant the seam holds along the publication
+  line. The installed sink is an observability CONSUMER of the commit, never
+  an authority over it, so the record is built and VALIDATED before the bundle
+  publishes and the sink is called only after:
+
+    - a CONSUMER sink that THROWS is contained — the commit still reports
+      `:published`, the cell owns its bundle, the sink ran exactly once (the
+      report never recurses through it), and the escape is surfaced rather than
+      swallowed; while
+    - a malformed FRAMEWORK record stays FAIL-LOUD and all-or-nothing — it
+      throws BEFORE publication, so the cell publishes nothing, and the
+      containment guard is proven NOT to have been over-broadened to swallow it.
 
   The PRODUCTION-ISOLATION half of the acceptance (the record and the
   evidence schema it reaches DCE out of the `:advanced` / `goog.DEBUG=false`
@@ -113,18 +125,99 @@
           "the lowering the commit was given rides the record"))))
 
 ;; ---------------------------------------------------------------------------
-;; A malformed record is refused AT the seam
+;; A throwing sink is CONTAINED — it cannot fail a published commit
 ;; ---------------------------------------------------------------------------
 
-(deftest a-malformed-record-is-refused-at-the-seam
-  (testing "The seam validates through `evidence/record`, so an occurrence
-            whose identity cannot form a legal record throws at the commit
-            rather than delivering junk to the sink. A cell minted under a
-            NON-qualified view-id is exactly that: `:view-id` must be a
-            namespace-qualified keyword, and a bare one fails the door. Driven
-            directly (not through `commit-under!`, whose own `:published`
-            assertion would intercept the throw) so the refusal reaches
-            `thrown?`."
+(deftest a-throwing-sink-does-not-fail-the-commit
+  (testing "The evidence sink is an observability CONSUMER of the commit, not an
+            authority over it. A sink that throws while consuming the record must
+            NOT make `commit!` throw: the record is built and validated before
+            the bundle publishes, the bundle publishes, and only THEN is the sink
+            called — behind a guard. The load-bearing proof is the ATTRIBUTED
+            terminal state, never merely 'no exception': a well-formed
+            `:published`, a `:connected` cell that owns exactly the dependency it
+            read, and its committed frame. On the unfixed seam the sink was
+            called AFTER the publish with no guard, so this same throw propagated
+            out of `commit!` — the regression this test pins."
+    (register!)
+    (seed! {:count 7})
+    (let [c    (cell/cell ::seam-throwing)
+          cand (cell/candidate c fid)
+          prev (cell/set-evidence-sink!
+                 (fn [_] (throw (ex-info "audit-sink-failure" {:probe true}))))]
+      (try
+        (cell/with-capture cand (fn [] (t/render [counter {}])))
+        (is (= :published (cell/commit! cand :interpreted))
+            "a throwing sink is contained; the commit still reports :published")
+        (is (= :connected (cell/lifecycle c))
+            "the cell is connected — it owns the published bundle")
+        (is (= [[::count]] (cell/dependency-queries c))
+            "and the published dependency is exactly the one the render read")
+        (is (some? (cell/committed-frame c))
+            "the frame was published too — the whole bundle is live")
+        (finally (cell/set-evidence-sink! prev))))))
+
+(deftest a-throwing-sink-is-invoked-once-and-cannot-recurse
+  (testing "The contained throw is reported through the bounded escape slot and
+            the host console, NEVER back through the sink. So a throwing sink is
+            invoked EXACTLY ONCE per commit — the report does not re-enter it —
+            and the escape is surfaced for a tool to read (`view-id` + cause)
+            rather than swallowed silently."
+    (register!)
+    (seed! {:count 1})
+    (let [calls (atom 0)
+          c     (cell/cell ::seam-once)
+          cand  (cell/candidate c fid)
+          prev  (cell/set-evidence-sink!
+                  (fn [_]
+                    (swap! calls inc)
+                    (throw (ex-info "audit-sink-failure" {}))))]
+      (try
+        (cell/with-capture cand (fn [] (t/render [counter {}])))
+        (is (= :published (cell/commit! cand :interpreted))
+            "the commit stands despite the throw")
+        (is (= 1 @calls)
+            "the sink ran exactly once — the report never routes back through it")
+        (let [escape (cell/last-evidence-sink-escape)]
+          (is (= ::seam-once (:view-id escape))
+              "the contained escape names the offending view")
+          (is (some? (:error escape))
+              "and carries the cause, so the escape is never silent"))
+        (finally (cell/set-evidence-sink! prev))))))
+
+(deftest a-normal-sink-receives-the-record-once-per-commit
+  (testing "Containment does not cost a normal sink its delivery: a
+            non-throwing sink still receives the captured pre-clear record
+            EXACTLY ONCE for each selected commit. Two commits on one cell hand
+            it two records, in order — once per flushed commit, never zero and
+            never twice."
+    (register!)
+    (seed! {:count 0})
+    (let [seen (with-capturing-sink
+                 (fn []
+                   (commit-under! ::seam-twice :interpreted)
+                   (commit-under! ::seam-twice :interpreted)))]
+      (is (= 2 (count seen)) "one record per commit — exactly once each")
+      (is (every? #(= ::seam-twice (:view-id %)) seen)
+          "each names the committing view"))))
+
+;; ---------------------------------------------------------------------------
+;; A malformed FRAMEWORK record stays FAIL-LOUD, before publication
+;; ---------------------------------------------------------------------------
+
+(deftest a-malformed-framework-record-fails-loud-before-publication
+  (testing "The FRAMEWORK plane stays fail-loud and all-or-nothing: a record the
+            evidence schema refuses — a cell minted under a NON-qualified
+            view-id, which `:view-id` rejects — throws from the seam BEFORE the
+            bundle is published. The containment guard is for the CONSUMER's
+            throw ONLY; it must not have been over-broadened to swallow a
+            framework error. Proof is the terminal state: the commit THREW, and
+            because validation runs before publication the cell owns nothing —
+            not `:connected`, no dependency, no committed frame. On the unfixed
+            seam the record was built AFTER the publish, so this same cell was
+            already `:connected` when it threw — an all-or-nothing violation this
+            test now pins. Driven directly (not through `commit-under!`, whose
+            own `:published` assertion would intercept the throw)."
     (register!)
     (seed! {:count 0})
     (let [c    (cell/cell :bare-unqualified)
@@ -134,7 +227,13 @@
       (try
         (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs :default)
               (cell/commit! cand :interpreted))
-            "the refused record throws at the seam, not past it")
+            "the malformed framework record fails loud at the seam")
+        (is (not= :connected (cell/lifecycle c))
+            "the cell never connected — publication did not happen")
+        (is (empty? (cell/dependency-queries c))
+            "and it published no dependency: a refused record publishes nothing")
+        (is (nil? (cell/committed-frame c))
+            "nor a frame — the all-or-nothing boundary held before publication")
         (finally (cell/set-evidence-sink! prev))))))
 
 ;; ---------------------------------------------------------------------------
