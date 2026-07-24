@@ -100,7 +100,7 @@ How it behaves:
 In tests, transitions advance on a fake clock with `ui.test/flush-presence!` —
 never a wall-clock sleep ([Testing](testing.md#mounted-tests--when-the-dom-is-the-point)).
 
-## When it goes wrong
+## Troubleshooting
 
 | If you write | What you see | The fix |
 |---|---|---|
@@ -115,5 +115,5 @@ never a wall-clock sleep ([Testing](testing.md#mounted-tests--when-the-dom-is-th
 - Anything beyond enter/exit retention — springs, orchestrated sequences, layout
   animation — is a foreign animation library's job, embedded at an explicit interop
   boundary ([Interop and the closed grammar](interop-and-limits.md)).
-- And the standing note: `re-frame.ui` is experimental — the retained adapters are
-  the default choice, with the React ecosystem's own transition tooling.
+- Reminder: `re-frame.ui` is experimental — the retained adapters are the default
+  choice, with the React ecosystem's own transition tooling.

@@ -98,7 +98,7 @@ destructuring, as above, stays valid when you don't need the updater.
 - Both are **host-only**: call them from a committed handler or an `effect`
   callback, never during render.
 
-Note the seam in the search box: the *keystroke* stays local; the *intent*
+Note the split in the search box: the *keystroke* stays local; the *intent*
 (`[:search/run text]`) is data — the moment the draft crosses into an event vector
 is exactly the moment it becomes product state. When another view must react to
 every keystroke, the keystroke already *is* product state — skip `local` and
@@ -137,7 +137,7 @@ bound in the top-region `let`, handed to `:ref`, and read via `(.-current node)`
 from the effect (it attaches at commit, *before* the effect fires). Assignment
 never re-renders (contrast `local`). For the expert case where the node's
 *identity* change must itself trigger work, a `(ui/raw-fn f)` callback ref is the
-honest seam.
+honest escape.
 
 Deps are **values** — a rebuilt-but-equal vector is the same dep. No identity
 traps, no `useCallback`, no stale closures. The returned cleanup runs on dep
@@ -188,7 +188,7 @@ The resource system itself — registration, caching, refetch, the transport, an
 the causal owners that keep an entry alive — is the
 [Resources corpus](../../resources/concepts.md).
 
-## When you get it wrong
+## Troubleshooting
 
 The three inputs have few rules, and the ones they have fail where you can see them:
 
@@ -206,7 +206,6 @@ The three inputs have few rules, and the ones they have fail where you can see t
   for `local` only for keystroke-latency ephemera.
 - `effect` is for the host world, not app logic — fetching in an `effect` bypasses
   events, epochs, and every tool that watches them.
-- And the standing note for this whole section: `re-frame.ui` is experimental. The
-  retained adapters (Reagent, reagent-slim, UIx) are the default choice, and this
-  same state discipline — app-db, events, narrow subscriptions — applies there
-  unchanged.
+- Reminder: `re-frame.ui` is experimental. The retained adapters (Reagent,
+  reagent-slim, UIx) are the default choice, and this same state discipline —
+  app-db, events, narrow subscriptions — applies there unchanged.

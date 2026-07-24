@@ -4,8 +4,7 @@ The [build-a-view walkthrough](build-a-view.md) leaned on one sentence — "when
 `[:count]` changes, the view re-renders" — without saying how. This page opens
 that up to the level a view author needs: what re-computes when, and why a
 compiled view's subscriptions never leak. You don't have to manage any of it, but
-knowing the shape makes the framework's behaviour predictable rather than
-magical.
+knowing the shape makes the framework's behaviour predictable.
 
 ## What re-computes when
 
@@ -41,24 +40,21 @@ bookkeeping.
 
 ## Why subscriptions never leak
 
-This is the part that earns the "compiled substrate designed for modern React"
-description, and it's worth understanding even though you never touch it.
+Worth understanding even though you never touch the machinery yourself.
 
 Under concurrent React a *render* is speculative: React may run it, restart it,
 or throw it away without ever showing it. Any design that grabs a resource —
-opens a subscription, takes a lock — *during* render is therefore wrong by
-construction, because the render that grabbed it might be abandoned, and the grab
-would leak.
+opens a subscription, takes a lock — *during* render is wrong by construction:
+the render that grabbed it might be abandoned, and the grab would leak.
 
 `re-frame.ui` sidesteps this with a strict rule: **render only reads; commit
 owns.** When a view renders, it *resolves and reads* its subscriptions but takes
 no ownership. Only when React *commits* that render — actually puts it on screen —
 does the view acquire its subscriptions, and it releases them when the view
 unmounts or is hidden. Because ownership is keyed to the commit, an abandoned
-render owns nothing to leak, and a StrictMode double-invoke balances out. This is
-why you can lean on subscriptions freely in a compiled view without ever thinking
-about cleanup — the leak classes that plague render-time ownership are closed off
-below the surface.
+render owns nothing to leak, and a StrictMode double-invoke balances out. That is
+why you can use subscriptions freely in a compiled view without thinking about
+cleanup — the leak classes that hit render-time ownership never open.
 
 ## Frames survive hot reload
 

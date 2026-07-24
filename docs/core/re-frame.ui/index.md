@@ -18,10 +18,10 @@ recipe is the one-time setup.
 
 Pairing with an AI agent to write views? The
 [re-frame2-ui skill](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-ui)
-is the canonical agent-facing authoring surface — teaching prose over the valid
+is the canonical agent-facing authoring guide — teaching prose over the valid
 `defview` forms, the state/subscription/event/effect decision table, and the
 foreign-boundary rules, with the full compile-rejection roster behind it as an
-on-demand reference. The roster is generated from the compiler's own didactic
+on-demand reference. The roster is generated from the compiler's own error
 messages, so it never drifts from what the compiler actually enforces.
 
 !!! warning "re-frame.ui is experimental"
@@ -29,7 +29,7 @@ messages, so it never drifts from what the compiler actually enforces.
     It is pre-alpha, delivered in staged slices, and some surfaces are still
     landing. The Maven coordinates aren't on Clojars yet. Treat it as a track you
     can *trial* today, not one to bet a shipping product on. The
-    [adapters](../how-to/use-uix-or-slim.md) are where the stable ground is.
+    [adapters](../how-to/use-uix-or-slim.md) are the stable path.
 
 ## What stays the same
 
@@ -69,8 +69,8 @@ Reach for it when you specifically want:
 
 Stay on the adapters when you need stability now, when you have an existing
 Reagent or re-com application (a migration wave lands later), or when you'd
-rather not ride pre-alpha churn. Choosing an adapter is not a fallback — it is a
-supported, first-class choice.
+rather not ride pre-alpha churn. Choosing an adapter is a supported, first-class
+choice — not a consolation prize.
 
 ## This section
 
