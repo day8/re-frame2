@@ -38,15 +38,6 @@
             [re-frame.freehand.node :as node]
             [re-frame.freehand.rules :as rules]))
 
-(def ^:private props-sym 'rf-ui-props)
-
-;; The canonical current-namespace Var of the view being emitted, bound by
-;; `emit-defview` around its body. A self-recursive component head targets THIS
-;; fqn (matching its `:fqn`) rather than the authored spelling, so the emitted
-;; call names the current-namespace Var explicitly instead of relying on the
-;; enclosing `defn`'s intern order to shadow a same-named `:refer` (rf2-rr26cq).
-(def ^:dynamic *self-fqn* nil)
-
 (declare emit-node)
 
 ;; ---------------------------------------------------------------------------
@@ -235,10 +226,8 @@
                         (map (fn [{:keys [k] :as en}] [k (prop-value-form e en)]))
                         entries)
         props-map (cond-> props-map
-                    (:present? key-info) (assoc :key (:expr key-info)))
-        self?     (and (some? *self-fqn*) (= (:fqn node) *self-fqn*))
-        head-sym  (if self? (:fqn node) (:sym node))]
-    `(node/mount ~head-sym [~props-map ~@child-forms])))
+                    (:present? key-info) (assoc :key (:expr key-info)))]
+    `(node/mount ~(:sym node) [~props-map ~@child-forms])))
 
 (defn- emit-behavior
   "A `v/behavior` attachment on the structural host: an INERT MARKER. It
@@ -433,99 +422,3 @@
   [e params ast]
   `(fn ~params ~(emit-node e ast)))
 
-;; ---------------------------------------------------------------------------
-;; defview
-;; ---------------------------------------------------------------------------
-
-(defn- mark-host-root-annotation
-  "Stamp the view-evidence DOM-annotation marker onto the view's effective host
-  root(s) — the DOM `:element`(s) the compiler owns at the top of the render. The
-  UNCONDITIONAL wrappers (`:hook-prefix` effect prefix, an authored `:let` /
-  `:letfn`) are transparent — the marker rides through to the element they wrap.
-
-  A COMMON CONDITIONAL root is narrowly DESCENDED so its concrete DOM arms are
-  tagged: `if` / `if-not` / `when` / `when-not` / `cond` (each an `:if`), `case`
-  (its clauses + default), and the if-let family (`if-let` / `when-let` /
-  `if-some` / `when-some`, which desugar to `:let` over `:if`). So a view rooted
-  at `(if loading? [:spinner] [:page])` tags whichever arm renders. Spec 006
-  exempts only the render that yields nil; a later concrete DOM output must be
-  tagged. The recursion RETAINS the per-branch host-root exemptions: a branch
-  that is nil (`:nothing`, e.g. a one-arm `when`'s absent else), a fragment,
-  another view/foreign component, or a loop (`:for`) is NOT a single
-  compiler-owned host node and carries no annotation — the same exemption the
-  CLJS emit and the adapter source-coord walk apply to a non-DOM root.
-
-  `emit-element` reads the marker off the plain element and merges the annotation
-  into its `:static` attrs behind the `interop/debug-enabled?` gate (see
-  `static-form`). A prop/attribute annotation is inherently cross-emitter, so any
-  browser-side twin of this walk MUST descend the same forms or a
-  conditional-rooted view diverges under the JVM<->CLJS parity gate and
-  SSR/client hydration."
-  [ast annotate]
-  (case (:op ast)
-    :element (assoc ast :rf.ui/annotate annotate)
-    (:hook-prefix :let :letfn) (update ast :body mark-host-root-annotation annotate)
-    :if   (-> ast
-              (update :then mark-host-root-annotation annotate)
-              (update :else mark-host-root-annotation annotate))
-    :case (-> ast
-              (update :clauses
-                      (fn [clauses]
-                        (mapv (fn [[test branch]]
-                                [test (mark-host-root-annotation branch annotate)])
-                              clauses)))
-              (update :default
-                      (fn [d]
-                        (if (= ::ana/none d) d
-                            (mark-host-root-annotation d annotate)))))
-    ast))
-
-(defn emit-defview
-  [{:keys [vname view-id docstring header ast manifest closed-keys children?
-           self-fqn]}]
-  (let [;; The DEV view-evidence DOM annotation for this view's compiler-owned
-        ;; host root — the source coordinate + view id, in today's attribute
-        ;; vocabulary (Spec 004 §View identity), via the cross-host
-        ;; `re-frame.source-coords` projections (byte-identical to the CLJS emit
-        ;; and the adapter walks by construction). Marked onto the effective root
-        ;; element and merged behind the `interop/debug-enabled?` gate; a
-        ;; non-element root carries none.
-        annotate {:source-coord (source-coord/format-source-coord
-                                 view-id (:source manifest))
-                  :view-tag     (source-coord/format-view-id view-id)}
-        rendered (binding [*self-fqn* self-fqn]
-                   (emit-node nil (mark-host-root-annotation ast annotate)))
-        bind     (:binding-form header)
-        var-meta (cond-> {:rf.ui/view true
-                          :rf.ui/view-id view-id
-                          ;; Kept byte-identical to the CLJS emitter's view
-                          ;; descriptor (rf2-u53yy.1 S2). On the JVM host the
-                          ;; whole-build view registry still rides the per-source
-                          ;; slice (there is no Shadow disk cache to survive), so
-                          ;; this metadata is not the harvest carrier here; it is
-                          ;; carried for parity so `(meta #'view)` reads the same
-                          ;; descriptor on both hosts.
-                          :rf.ui/view-digest [(:template-fingerprint manifest)
-                                              (:hook-signature manifest)]
-                          :rf.ui/children? children?}
-                   docstring   (assoc :doc docstring)
-                   closed-keys (assoc :rf.ui/closed-prop-keys (vec closed-keys)))]
-    ;; The emitted view fn returns the structural `rendered` body directly.
-    ;; The donor's runtime boundary/registry wrappers —
-    ;; `re-frame.freehand.tree/view-boundary` and `.../register-view!` — were
-    ;; transplanted here with their CALL SITES, but the functions they name were
-    ;; never built: neither exists in `re-frame.freehand.tree`. Nothing on the
-    ;; live `v/defview` path reaches this emitter (it routes through
-    ;; `re-frame.freehand/expand-defview` -> `compile-structural-view` /
-    ;; `descriptor/declare-view`, which own boundary creation and view
-    ;; registration), so the two calls only ever rode this emitter's RETURNED
-    ;; FORM and were never in an evaluated one — which is why the compiled tier
-    ;; stayed green rather than failing at load with unresolved-var errors.
-    ;; Emitting a call to a function that does not exist violates this emitter's
-    ;; own law (emit only what can run, or refuse the shape loudly), so the dead
-    ;; wrappers are removed: the fn now returns the structural body, and
-    ;; registration/boundaries stay the live path's concern (rf2-drpa3.108).
-    `(do
-       (defn ~(vary-meta vname merge var-meta) [~props-sym]
-         ~(if bind `(let [~bind ~props-sym] ~rendered) rendered))
-       (var ~vname))))

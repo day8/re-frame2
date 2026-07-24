@@ -23,9 +23,14 @@
   On the Freehand door the client mount verbs (`v/mount` / `v/hydrate-root` /
   `v/unmount!`) are runtime fns, so `v/render-static` is the only entry point
   that indexes a root site — `register-root-site!` is driven directly here, the
-  way render-static drives it. `defview` and `v/custom-element` run their real
-  macro bodies under a bound `*ns*` so distinct declaring namespaces (the
-  ledger's source key, rf2-df9873) are addressable."
+  way render-static drives it. `v/custom-element` runs its real macro body
+  under a bound `*ns*` so distinct declaring namespaces (the ledger's source
+  key, rf2-df9873) are addressable. The view-registry arm of these tests
+  retired with the dead `compiler/defview*` chain (rf2-drpa3.177): the LIVE
+  cross-source view-id uniqueness law runs at compile-finish
+  (`build/harvest-view-registries`) and is covered by
+  compiler_build_hook_jvm_test; the generic pass/isolation machinery is
+  exercised here through `::probe` and the custom-element / root registries."
   (:require [cljs.env :as cljs-env]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.freehand.compiler :as compiler]
@@ -45,22 +50,15 @@
 ;; controllable declaring namespace (the ledger source key).
 ;; ---------------------------------------------------------------------------
 
-(defn- declare-view!
-  "Run the real `defview` macro body (JVM emitter path) with `ns-sym` bound as
-  the declaring namespace — contributes [template-fp hook-sig] under the
-  derived view-id, owned by `ns-sym`."
-  [ns-sym vname template]
-  (binding [*ns* (create-ns ns-sym)]
-    (compiler/defview* (with-meta (list 'defview vname [] template) {:line 1})
-                       {} vname (list [] template))))
-
-(defn- declare-explicit-view!
-  "Run the real defview body with an explicit registry id."
-  [ns-sym vname view-id template line]
-  (binding [*ns* (create-ns ns-sym)]
-    (compiler/defview*
-     (with-meta (list 'defview vname {:id view-id} [] template) {:line line})
-     {} vname (list {:id view-id} [] template))))
+;; `declare-view!` / `declare-explicit-view!` retired with the dead
+;; `compiler/defview*` chain (rf2-drpa3.177). They drove `defview*` purely to
+;; exercise the plain-JVM view-registry uniqueness (`build/contribute-view-checked!`),
+;; whose sole producer was the dead `defview**`; the LIVE cross-source
+;; view-id uniqueness law runs at compile-finish in `build/harvest-view-registries`
+;; and is covered end-to-end by compiler_build_hook_jvm_test
+;; (cross-source-view-id-collision, cache-hit survival, eviction, ownership
+;; transfer). The generic slice machinery those tests also touched is covered
+;; here through `::probe` and the live `custom-element` / root registries.
 
 (defn- declare-element!
   "Run the real `v/custom-element` macro body with `ns-sym` bound as the
@@ -464,90 +462,6 @@
              (get-in finished [:snapshot :registries 'app.a build/views]))
           "carrying app.a's own committed row"))))
 
-(deftest explicit-view-id-collision-fails-in-either-compile-order
-  (doseq [[first-ns second-ns] [['app.alpha 'app.beta]
-                                ['app.beta 'app.alpha]]]
-    (build/reset-build!)
-    (build/begin-build! :app)
-    (binding [build/*build-id* :app]
-      (declare-explicit-view! first-ns 'first-view :shared/card [:div] 1)
-      (let [ex (try
-                 (declare-explicit-view! second-ns 'second-view
-                                         :shared/card [:section] 2)
-                 nil
-                 (catch clojure.lang.ExceptionInfo ex ex))]
-        (is (= :rf.ui.compile/bad-view-id
-               (:rf.ui.compile/error (ex-data ex)))
-            (str "cross-namespace explicit :id collision fails with "
-                 first-ns " compiled before " second-ns))
-        (is (= [first-ns 'first-view]
-               (:existing-declaration (ex-data ex))))
-        (is (= [second-ns 'second-view]
-               (:declaration (ex-data ex))))
-        (is (re-find #"different defview declaration" (ex-message ex)))
-        (is (= 1 (count (build/aggregate build/views :app)))
-            "the rejected declaration never overwrites the first row")))))
-
-(deftest same-namespace-distinct-vars-cannot-share-an-explicit-view-id
-  (doseq [[first-var second-var] [['alpha-view 'beta-view]
-                                  ['beta-view 'alpha-view]]]
-    (build/reset-build!)
-    (build/begin-build! :app)
-    (binding [build/*build-id* :app]
-      (declare-explicit-view! 'app.cards first-var :shared/card [:div] 1)
-      (let [ex (try
-                 (declare-explicit-view! 'app.cards second-var
-                                         :shared/card [:section] 2)
-                 nil
-                 (catch clojure.lang.ExceptionInfo ex ex))]
-        (is (= :rf.ui.compile/bad-view-id
-               (:rf.ui.compile/error (ex-data ex)))
-            (str "same-namespace distinct vars collide with " first-var
-                 " declared before " second-var))
-        (is (= ['app.cards first-var]
-               (:existing-declaration (ex-data ex))))
-        (is (= ['app.cards second-var]
-               (:declaration (ex-data ex))))
-        (is (= 1 (count (build/aggregate build/views :app)))
-            "the rejected same-namespace declaration does not overwrite")))))
-
-(deftest same-var-explicit-view-id-reexpansion-remains-legal
-  (build/begin-build! :app)
-  (binding [build/*build-id* :app]
-    (declare-explicit-view! 'app.cards 'card :shared/card [:div "v1"] 1)
-    (let [v1 (get (build/aggregate build/views :app) :shared/card)]
-      (is (some? (declare-explicit-view! 'app.cards 'card
-                                         :shared/card [:section "v2"] 1))
-          "the same declaration may replace itself during an open pass")
-      (is (not= v1 (get (build/aggregate build/views :app) :shared/card))
-          "same-var HMR publishes the replacement view identity"))
-    (build/commit-build! :app)
-    (is (= 1 (count (build/aggregate build/views :app)))))
-  ;; No-pass REPL re-evaluation is the other same-var replacement path.
-  (build/reset-build!)
-  (binding [build/*build-id* :repl]
-    (declare-explicit-view! 'app.cards 'card :shared/card [:div "v1"] 1)
-    (let [v1 (get (build/aggregate build/views :repl) :shared/card)]
-      (is (some? (declare-explicit-view! 'app.cards 'card
-                                         :shared/card [:section "v2"] 1)))
-      (is (not= v1 (get (build/aggregate build/views :repl) :shared/card))))
-    (is (= 1 (count (build/aggregate build/views :repl))))))
-
-(deftest fresh-namespace-pass-may-replace-an-old-declaration-owner
-  ;; The source namespace remains the whole-pass replacement unit: a var rename
-  ;; between passes is not a simultaneous duplicate and may retain the stable
-  ;; explicit registry id.
-  (build/begin-build! :app)
-  (binding [build/*build-id* :app]
-    (declare-explicit-view! 'app.cards 'old-card :shared/card [:div "old"] 1))
-  (build/commit-build! :app)
-  (build/begin-build! :app)
-  (binding [build/*build-id* :app]
-    (is (some? (declare-explicit-view! 'app.cards 'renamed-card
-                                       :shared/card [:div "new"] 1))))
-  (build/commit-build! :app)
-  (is (= 1 (count (build/aggregate build/views :app)))))
-
 ;; ---------------------------------------------------------------------------
 ;; MULTI-BUILD ISOLATION — the headline regression (rf2-df9873)
 ;; ---------------------------------------------------------------------------
@@ -583,19 +497,6 @@
                    (root/register-root-site! 'v/render-static :page/one :authored 'app.c
                                              {:file "app/c.cljs" :line 1})))
         "a genuine duplicate in app fires — the interleaved build did not erase :page/one")))
-
-(deftest real-defview-contributions-are-isolated-per-build
-  ;; drive the REAL defview macro body under two build ids
-  (binding [build/*build-id* :app]       (declare-view! 'app.a 'foo [:div "foo"]))
-  (binding [build/*build-id* :node-test] (declare-view! 'app.a 'bar [:section "bar"]))
-  (is (contains? (build/aggregate build/views :app) :app.a/foo)
-      "the app build keeps its view")
-  (is (contains? (build/aggregate build/views :node-test) :app.a/bar)
-      "the node-test build keeps its view")
-  (is (not (contains? (build/aggregate build/views :app) :app.a/bar))
-      "the node-test build's view never reaches the app slice")
-  (is (not (contains? (build/aggregate build/views :node-test) :app.a/foo))
-      "and vice versa"))
 
 (deftest builds-are-isolated-per-build-id
   (build/begin-build! :app)
@@ -669,16 +570,17 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- declare-edited-source! []
-  ;; the EDITED namespace app.a: a renamed view, a different root, a renamed
-  ;; custom-element (originally foo / :page/shop / :x-el)
-  (declare-view!   'app.a 'bar [:section "bar"])
+  ;; the EDITED namespace app.a: a different root and a renamed custom-element
+  ;; (originally :page/shop / :x-el). The defview arm retired with the dead
+  ;; compiler/defview* chain (rf2-drpa3.177) — the live view registry's
+  ;; incremental==clean parity is covered end-to-end by
+  ;; compiler_build_hook_jvm_test (cache-hit survival, eviction, ownership).
   (register-root!  'app.a "app/a.cljs" :page/cart :authored)
   (declare-element! 'app.a :y-el #{:label}))
 
 (deftest incremental-edit-equals-clean-build
   ;; 1) the ORIGINAL namespace app.a, built in this JVM
   (build/begin-build! :app)
-  (declare-view!   'app.a 'foo [:div "foo"])
   (register-root!  'app.a "app/a.cljs" :page/shop :authored)
   (declare-element! 'app.a :x-el #{:help-text})
   (build/commit-build! :app)
@@ -698,18 +600,15 @@
       (testing "no ghost of the pre-edit source survives"
         (is (= #{:page/cart} (set (keys (:roots incremental))))       "root :page/shop gone")
         (is (contains? (:elements incremental) :y-el))
-        (is (not (contains? (:elements incremental) :x-el))          "custom-element :x-el gone")
-        (is (= 1 (count (:views incremental)))                        "view foo gone, only bar")))))
+        (is (not (contains? (:elements incremental) :x-el))          "custom-element :x-el gone")))))
 
 (deftest repeated-rebuilds-stay-bounded
   ;; correctness across a watch session — re-declaring the same namespace N
   ;; times replaces (never grows).
   (dotimes [_ 25]
     (build/begin-build! :app)
-    (declare-view! 'app.a 'only [:div "only"])
     (register-root! 'app.a "app/a.cljs" :page/shop :authored)
     (build/commit-build! :app))
-  (is (= 1 (count (build/aggregate build/views :app))) "views bounded across repeated rebuilds")
   (is (= #{:page/shop} (set (keys (root/build-roots)))) "roots bounded"))
 
 ;; ---------------------------------------------------------------------------
