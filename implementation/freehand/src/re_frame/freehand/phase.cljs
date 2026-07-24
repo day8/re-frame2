@@ -117,10 +117,12 @@
   ;; presentable UI the reader has been looking at since first paint — so
   ;; there is nothing to race and no `flushSync` here.
   ;;
-  ;; The same `:server` commit CLOSES the root's adoption window, which is the
-  ;; job `re-frame.freehand.root/adoption-window-closer` does for a root that
-  ;; installs no flipper: the hydration commit has landed, so a later
-  ;; recoverable error is no longer a hydration mismatch.
+  ;; The same `:server` commit CLOSES the root's adoption window: the hydration
+  ;; commit has landed, so a later recoverable error is no longer a hydration
+  ;; mismatch. A hydrating root installs this flipper unconditionally on
+  ;; adoption, so closing the window and scheduling the flip are the one effect
+  ;; here — there is no separate no-flipper hydration path that would need
+  ;; another closer.
   ;;
   ;; A root that FAILS to boot never commits this component, so its effect
   ;; never runs and it never flips: its server fallback markup stays on the
@@ -168,8 +170,10 @@
 
   `adoption` is the root-local `#js {:adopting true}` window flag the
   hydration-mismatch reporter reads: the flipper clears it on its `:server`
-  commit, which is the same moment `adoption-window-closer` would have
-  cleared it for a root without a flipper."
+  commit — the hydration commit — after which the reporter still delegates but
+  no longer labels a recoverable error a hydration mismatch. Every hydrating
+  root installs this flipper, so its `:server` commit is the one path that
+  closes the window."
   [root-id element adoption]
   (react/createElement PhaseFlipper
                        #js {:key "rf-phase" :rfRootId root-id :rfAdoption adoption}
