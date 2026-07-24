@@ -110,6 +110,7 @@
    :rf.ui.compile/markup-returning-map [:make-template-visible :extract-declared-child]
    :rf.ui.compile/lazy-seq-child      [:make-template-visible :pass-computed-value]
    :rf.ui.compile/unkeyed-list-item   [:key-each-row :extract-declared-child]
+   :rf.ui.compile/indirect-list-body  [:bind-with-for-let :extract-declared-child]
    :rf.ui.compile/constant-list-key   [:key-each-row]
    :rf.ui.compile/nested-for-body     [:make-template-visible]
    :rf.ui.compile/sub-in-loop         [:extract-declared-child]
@@ -144,6 +145,8 @@
    "name the element or view literally; heads are not runtime values"
    :key-each-row
    "give every row of the list a :key that varies with the row"
+   :bind-with-for-let
+   "bind the row's values with for's own :let modifier — (for [x xs :let [y (f x)]] …) — so the body stays the keyed row"
    :scope-the-frame-above-the-view
    "scope the frame above this view rather than inside it"
    :keep-interpreted
