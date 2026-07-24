@@ -1885,9 +1885,20 @@ narrowest publication boundary — after the callback-capable staging work, with
 callback-capable between the check and the publish. A candidate abandoned at the second
 point releases **only** what its own staging acquired.
 
-Reload that replaces a whole declaration is the ordinary case and needs no fence: a
-declared view is a descriptor VALUE, so a redeclared view is a different boundary, the
-host remounts it, and the old cell's teardown releases exactly what the old body owned.
+The live cell the fence protects is the **compatible** reload, and it is the ordinary
+case. A declared view is a descriptor VALUE, so an edit mints a fresh descriptor object;
+but the emitter keys its boundary on the qualified view id, not on that object, and hands
+the host the component type it already mounted. The cell and everything below it survive,
+and only the published body revision advances. That surviving cell is what makes a
+candidate rendered against the superseded revision reachable at all — abandoning it is the
+fence's whole job.
+
+A reload sidesteps the fence only when the redefinition is **incompatible** — when it
+moves the boundary's hook skeleton, as a mode promotion (adding `{:compiled true}` and
+reloading) does. That mints a new boundary, so the host remounts once, cleanly, and the
+old cell's teardown releases exactly what the old body owned.
+[Spec 004C §Compatible shell versus clean remount](004C-Roots-and-Mount.md#compatible-shell-versus-clean-remount)
+owns that compatible/incompatible boundary law.
 
 ### Frame binding and retarget
 
