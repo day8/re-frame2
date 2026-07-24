@@ -1,8 +1,8 @@
 # D014 — Outward React bridge
 
-Status: **Ruled**
+Status: **Ruled** (amended 2026-07-24 — see §Amendment, 2026-07-24)
 Ruling: **Ship `v/->react` for descriptors, with shallow uncoerced props, a
-reserved `frame` prop, one `:map-props` adapter, and descriptor-keyed caching.**
+reserved `frame` prop, one `:map-props` adapter, and view-id-keyed caching.**
 
 Horizon: **Upcoming**
 
@@ -176,6 +176,11 @@ This is precisely the gold-plating boundary the designs intend to avoid.
 Choose **Option C**: a small `v/->react` bridge with one optional, explicit
 prop adapter.
 
+> **Clauses 3, 5, 7 and 8 below are superseded** by
+> [§Amendment, 2026-07-24](#amendment-2026-07-24--the-contract-as-shipped),
+> which states what each of them binds to now. Read them as the reasoning that
+> produced the ruling, not as the instruction.
+
 The bridge contract should be:
 
 1. **Descriptor only.** Passing a plain function or arbitrary Hiccup is a
@@ -243,6 +248,89 @@ The pilots must prove:
 - teardown leaves no subscriptions or callbacks;
 - client-only fallback and one truthful SSR-capable case; and
 - evidence names the underlying view rather than only the generated wrapper.
+
+## Amendment, 2026-07-24 — the contract as shipped
+
+The bridge shipped, and four points of this ruling do not describe what shipped.
+Per [§Graduation discipline](README.md#graduation-discipline), the affected
+ruling is amended rather than left to be reconciled by each reader: two live
+texts giving incompatible instructions is exactly the shape that produces a
+locally well-supported but wrong implementation or usage answer.
+
+Each item below **replaces** the recommendation clause it names. Every one is a
+correction to this DOCUMENT: in each case the obligation the clause states is
+intact and discharged, and it is the mechanism the clause reached for that
+belonged to the donor era or to an earlier guess about the design.
+
+**Clause 5 — React children cross by slot identity; refs are refused
+outright.** The clause said children were "not guessed", which was written when
+the design still expected the bridge to have no view of them at all. It has a
+better answer than a guess and a better answer than silence: React's `children`
+prop IS a content slot and a Freehand boundary HAS a content slot, so `children`
+becomes the boundary's **trailing children** and each element rides the ordinary
+child walk, which already carries a finished React element through untouched.
+That is an identity, not an inference, and nothing about the elements is
+converted. The view's own declared `:children-policy` still decides, so a view
+accepting no children refuses them with its own diagnostic rather than a
+bridge-specific one. Refs move the other way and are made stricter than the
+clause: a `ref` prop is **refused**, because Freehand retired the neutral ref
+tier and a ref resolving silently to nothing leaves a foreign owner holding a
+handle that never fills. Host callbacks remain unguessed, and a protocol needing
+hooks, a lifecycle or an imperative handle returned is still a wrapper.
+
+**Clause 7 — the bridge has no server arm, and a use site owns any fallback.**
+The clause offered a use site two ways to be server-truthful: a truthful SSR
+adapter, or `v/client-only` with a declared fallback. The first is not reachable
+under the shipped design — the verb does not exist on the JVM, so there is no
+adapter to be truthful — and the second names a Freehand-tree form for a
+call that lives in host code on the React side. What survives, and is contract,
+is the clause's own second sentence: the bridge infers nothing from the foreign
+library it is handed to, and it never renders a stand-in of its own choosing. A
+use site that must appear in server output supplies its own server-truthful
+fallback. Freehand's server render is `v/render-static`, a structural fold with
+no React in it, so nothing a server render can reach is an exported component —
+which is why the bridge maintains no server-renderer context path and reads no
+React internal to make one work.
+
+**Clause 8 — host-only execution is spelled as ABSENCE, not as a typed raise.**
+The obligation stands unchanged: the bridge is host-only, and a structural use
+site declares its own fallback policy. Only the mechanism is corrected. The verb
+is published under a `:cljs` reader conditional and is simply **not on the JVM
+surface**, exactly as `v/mount`, `v/hydrate-root` and `v/unmount!` are — the
+three sibling host verbs it shares that conditional with. The typed
+host-operation error the clause named is donor vocabulary: Freehand deleted the
+donor's whole host-op tier as a stated absence, carries no such error in its own
+roster, and raises it nowhere. Resurrecting the tier for one var whose only JVM
+behaviour would be to throw would make the substrate less honest than the
+absence its three siblings already carry, and would leave `v/->react` the one
+host verb that answers a JVM caller at all. An absence is worth asserting only
+beside the presence, so it is pinned in both directions: the JVM roster names
+the four verbs that must not be on that surface, and a control roster names the
+JVM verbs that must.
+
+**Clause 3 and the headline — caching is keyed on the VIEW ID.** "Descriptor
+identity" was the wrong axis and would have defeated the guarantee clause 3
+exists to give. A hot reload mints a fresh descriptor object for the same view,
+so a descriptor-keyed cache misses on every reload — technically memoised, and a
+remount of the foreign library's subtree in practice. The key is the declared
+**view id** plus the adapter's identity: the two facts that decide what the
+exported component does. A reload is then a republication — the new body reaches
+the component React is already reconciling on. "Descriptor-only" remains true of
+the ARGUMENT, which is what the register's one-line ruling records.
+
+**Clause 4, additionally — the option's PRESENCE selects the adapter arm.** Not
+its truthiness. Omitting `:map-props` asks for the shallow rule; writing it asks
+for an adapter, and a `nil` or `false` value is refused rather than read as an
+omitted key. A falsey adapter is a lookup that found nothing or a branch that
+fell through, and reading it as "no adapter" would select the default rule and
+mount the view with a props map its caller never asked for — the silent wrong
+render this ruling refuses an unknown option key to prevent, with the key
+spelled correctly. This mirrors the reserved `frame` PROP one level down, where
+own-property presence already decides which arm runs.
+
+Normative home: [`spec/004-Views.md` §The outward React bridge](../../../../spec/004-Views.md),
+[`spec/011-SSR.md` §The outward React bridge has no server arm](../../../../spec/011-SSR.md).
+Executable home: FH-REACT-001 … FH-REACT-005.
 
 ## Dependencies and what this unlocks
 
