@@ -231,9 +231,10 @@ conceptual separation.
 The shared extractor operates on closed key classes:
 
 ```clojure
-address keys  #{:to :params :query :fragment}
-policy keys   #{:replace? :scroll :bypass-leave?}
-edit keys     #{:query :query-merge :fragment}
+address keys       #{:to :params :query :fragment}
+policy keys        #{:replace? :scroll :bypass-leave?}
+edit keys          #{:query :query-merge :fragment}
+link behavior keys #{:prefetch}
 ```
 
 Presence chooses the request branch before validation:
@@ -247,15 +248,19 @@ Presence chooses the request branch before validation:
    `:fragment` overrides the URL-embedded fragment under the existing rule.
 3. When neither `:to` nor `:url` is present, `:query`, `:query-merge`, and
    `:fragment` are in-place edits. They are never validated or stored as a
-   `RouteAddress`.
+   `RouteAddress`. A `:params` key in this branch retains the existing named
+   `:rf.error/navigate-bad-request` reason `:params-requires-destination`;
+   changing path params always requires a destination.
 
 Policy keys are extracted and validated separately. A public boundary validates
 its whole control-key roster before extraction, so extraction cannot silently
 discard a misspelled address, policy, or edit key. `route-link` additionally
-passes its documented DOM attributes and children to the view substrate; those
-wrapper values are not inputs to `:rf/route-address`. Thus the schema is closed
-over the extracted address, not over the convenient flat map accepted by every
-host API.
+validates `:prefetch` as its one routing-specific behavior key, strips the
+address and behavior keys before DOM emission, and passes its documented DOM
+attributes and children to the view substrate. A caller's `:on-click` and
+ordinary anchor attributes are view props, not destination or routing-policy
+keys. Thus the schema is closed over the extracted address, not over the
+convenient flat map accepted by every host API.
 
 #### Raw URL escape
 
@@ -340,6 +345,18 @@ An internal route plan is plain data containing at least:
 - history and scroll policy; and
 - the old/new resource identity diff needed for ownership handoff.
 
+Transition kind is derived from resolved facts, not from the request spelling:
+
+- **full** when there is no current target or `:route-id`, `:params`, or
+  `:query` differs;
+- **fragment-only** when those three facts are equal and only `:fragment`
+  differs; and
+- **no-op** when all four facts are equal.
+
+Consequently, a changed in-place `:query` or `:query-merge` request is a full,
+data-bearing activation. “In-place” describes how caller intent is resolved; it
+does not create a weaker activation or guard path.
+
 This EP does not require a public `RoutePlan` constructor or promise-returning
 router object. The plan is an implementation and tooling seam. Its observable
 laws are public; its diagnostic projection is visible in trace/Xray.
@@ -352,11 +369,23 @@ Every navigation door must lower to the same ordered stages:
 |---|---|---|
 | 1. Validate intent | accepted address/raw URL/in-place edit plus policy | malformed request rejects before any guard or history effect |
 | 2. Resolve target | canonical target, URL, named address when possible, parent branch | schema/URL failures follow the existing not-found or caller-error contract |
-| 3. Decide leave | allow, or a leave-only pending navigation | pending leave preserves the current route; popstate restores its URL |
-| 4. Decide entry | allow, or terminal entry denial | denial commits no target and creates no pending entry |
-| 5. Classify transition | full, fragment-only, or no-op | fragment-only/no-op retain the existing nav-token/resource plan rules |
-| 6. Build activation plan | effective branch resource plan and old/new identity diff | planning failure produces a failed plan; no partial resource plan executes |
+| 3. Classify transition | full, fragment-only, or no-op | no-op terminates before guards, pending state, history, scroll, or activation |
+| 4. Decide leave | allow, or a leave-only pending navigation | full and fragment-only transitions consult the current route; pending leave preserves it and popstate restores its URL |
+| 5. Decide entry | allow, or terminal entry denial | full and fragment-only transitions consult the target route; denial commits no target and creates no pending entry |
+| 6. Build activation plan | for a full transition, effective branch resource plan and old/new identity diff | fragment-only skips activation planning; planning failure produces a failed plan and no partial resource plan executes |
 | 7. Commit and activate | route facts/plan ownership, history/scroll effects, resource ensures, activation events | stale completions remain fenced by token/generation |
+
+Guard coverage is therefore explicit. An exact no-op evaluates neither guard:
+nothing is being left or entered, and a redundant request cannot create pending
+state. A full transition evaluates `:can-leave` and then `:can-enter`, including
+a same-route activation whose canonical params or query changed. Query is
+data-bearing and may change resource identity or discard route-local workflow,
+so the in-place request form is not an implicit guard bypass; a route that wants
+to allow a safe subset of query edits can compare the resolved target in its
+guard subscription. A fragment-only transition continues to evaluate both
+guards, preserving Spec 012's existing fragment-check contract; it skips
+resource planning and activation only after they allow it. Initial load has no
+current leave guard but evaluates target entry policy normally.
 
 The programmatic, link, URL-change, initial-load, and SSR handlers may remain
 separate public events for cause-specific tests and host integration. They must
@@ -428,11 +457,12 @@ Planning follows these rules:
 
 1. Resolve the branch parent first. Existing unknown-parent and parent-cycle
    errors remain fail-loud.
-2. Within each contributor, retain declaration order and resolve local `:id` /
-   `:after` edges exactly as Spec 016 requires. An `:after` edge may name only an
-   id declared by the same route. Parent and child local ids never share a
-   namespace. Parent contribution order already puts every parent ensure before
-   every child ensure; no cross-route `:after` edge is needed.
+2. Within each contributor, validate local `:id` / `:after` edges exactly as
+   Spec 016 requires, against the whole declared vector before `:when` filters
+   occurrences. An `:after` edge may name only an id declared by the same route;
+   a missing target or local cycle fails the plan. Parent and child local ids
+   never share a namespace. Declaration order is the stable tie-breaker among
+   otherwise-ready occurrences.
 3. Evaluate `:when`, then resolve params and scope against the target/frame and
    validate them. Every contributor's route function receives the resolved
    **leaf target** as its `route` argument; the planner records the contributor
@@ -445,18 +475,40 @@ Planning follows these rules:
 4. Materialize a requirement containing contributor route id, local id,
    declaration index, resolved scoped resource identity, `:blocking?`, and
    `:keep-previous?`.
-5. Group requirements by canonical scoped resource identity. Dispatch one
-   `ensure` per identity. This is identity dedupe, not a generic route-metadata
-   merge.
+5. Form an occurrence graph over materialized requirements. It contains the
+   admitted local `:after` edges and the branch-order constraint that every
+   ancestor contributor precedes every descendant contributor. Then collapse
+   occurrences by canonical scoped resource identity: union each identity
+   group's incoming/outgoing edges, discard edges whose two ends collapsed into
+   the same group, and stable-topologically order the grouped graph. Dispatch
+   one `ensure` per identity. This is identity dedupe, not a generic
+   route-metadata merge.
+6. If identity collapse makes the grouped graph cyclic, fail the whole plan with
+   the canonical `:rf.error/resource-route-plan` error and dispatch no ensures.
+   The diagnostic names the cyclic identity groups and contributor/local ids.
+   Silently dropping an `:after` or branch-order edge to keep an arbitrary
+   occurrence is forbidden.
 
 When more than one requirement resolves to the same identity:
 
-- the earliest parent-to-leaf/topological occurrence fixes its dispatch
-  position;
+- the grouped graph fixes dispatch position; the earliest
+  parent-to-leaf/declaration occurrence is only the stable tie-breaker when no
+  dependency constrains the group;
 - the work is blocking when any contributor marks it blocking;
 - `:keep-previous?` is true when any contributor requests it; and
 - every contributor remains present in the diagnostic plan, so dedupe does not
   erase why the resource is needed.
+
+For example, if `B` declares `:after #{A}`, `C` declares `:after #{B}`, and
+`A` and `C` resolve to the same identity, collapse produces both
+`identity(A/C) -> B` and `B -> identity(A/C)`. The plan fails. Dispatching the
+identity at `A` and forgetting `C`'s edge would lie about `:after`.
+
+When a child redundantly declares an identity already contributed by an
+ancestor, the existing `:rf.resource/route-plan` trace carries an advisory that
+names both declarations. Dedupe remains valid and the plan remains executable
+when its grouped graph is acyclic; the advisory merely makes the redundant
+copy mechanically discoverable so the child declaration can be removed.
 
 These are the only cross-requirement combination rules. Other metadata does not
 gain an implicit merge policy.
@@ -498,10 +550,14 @@ add a route-loader cache.
 
 #### `:on-match` is activation work
 
-`:on-match` remains a vector of ordinary event vectors dispatched in order when
-the matched leaf activates or its data-bearing params/query change. It is useful
-for synchronous seeding, analytics/host notification, and application-owned work
-that naturally begins at activation.
+`:on-match` remains a vector of ordinary event vectors dispatched in order after
+a successful full activation. It runs when there is no prior target, the
+canonical route id changes, or the canonical resolved `:params` or `:query`
+value changes. Repeating the same route id/params/query does not run it, and a
+fragment-only change does not run it. This is the exact re-fire key set; request
+spelling and policy keys are irrelevant. The events are useful for synchronous
+seeding, analytics/host notification, and application-owned work that naturally
+begins at activation.
 
 Its contract is fire-and-forget:
 
@@ -569,6 +625,12 @@ active plan plus managed-resource/planning state. Hydration and epoch restore
 must not preserve a route `:loading` value that the restored resource state
 contradicts.
 
+R1 applies this projector to R0's behavior-preserving leaf-only resource plan.
+R2 replaces that input with the effective parent-to-leaf branch plan; it does
+not change the readiness table or fork the projector. This staging lets
+activation honesty land before branch composition without creating an interim
+readiness contract.
+
 The recommended acceptance ruling keeps `:transition` and `:error` in the
 public `:rf/route` read for ergonomic whole-route reads and derives them through
 that projector. Runtime-db may cache the projected values, but only as a
@@ -611,7 +673,8 @@ the Resources artefact in warm mode.
 
 Warm mode has a deliberately narrow contract:
 
-- every ensure is ownerless and carries a prefetch cause;
+- every ensure is ownerless, carries a prefetch cause, and is scoped to the
+  frame that received the prefetch event;
 - warmed entries remain governed by ordinary resource freshness, dedupe, and GC;
 - `:blocking?` does not block anything;
 - no route state, nav-token, URL, history, scroll, focus, or pending navigation
@@ -621,6 +684,10 @@ Warm mode has a deliberately narrow contract:
   route errors; and
 - a later activation reuses fresh/in-flight work and attaches its real owner
   before normal activation proceeds.
+
+A prefetch never warms or attaches work in a sibling frame merely because that
+frame resolves the same address or scoped resource identity. The carried-frame
+invariant applies to planning, trace attribution, cache entries, and teardown.
 
 An invalid prefetch address rejects before planning with the operation-specific
 `:rf.error/prefetch-bad-address`. A resource-planning failure emits the ordinary
@@ -781,10 +848,12 @@ because this is a normal new attempt:
 ```
 
 The example shows the client arm. On a server frame the application handler
-normally emits `:rf.server/redirect` to the login URL, allowing Spec 011's
-redirect response to replace the default `403`; merely rendering the login route
-inside the same server frame intentionally keeps the `403` unless the handler
-also changes the response.
+normally emits Spec 011's canonical
+[`:rf.server/redirect`](../../spec/011-SSR.md#standard-fx) effect to the login
+URL. Its [redirect-precedence](../../spec/011-SSR.md#redirect-precedence)
+contract truncates HTML and replaces the default `403` response; merely
+rendering the login route inside the same server frame intentionally keeps the
+`403` unless the handler also changes the response.
 
 For a group of protected routes, application code may use a small route-metadata
 helper that associates the same `:can-enter` subscription with each
@@ -799,7 +868,9 @@ Initial load and SSR take the same denial path. On a server frame, denial stamps
 a default `403` response before dispatching the denial event. Because re-frame
 drains that handler before render, an application may replace the result with
 the canonical `:rf.server/redirect` response (normally to login) or explicitly
-set another status under Spec 011's existing response-precedence rules. If no
+set another status under Spec 011's
+[standard response effects](../../spec/011-SSR.md#standard-fx) and
+[multiple-status policy](../../spec/011-SSR.md#multiple-status-policy). If no
 replacement navigation or redirect is established, the protected route remains
 uncommitted and the host renders the ordinary application shell under `403`
 against the unchanged route projection (absent on a first request). No
@@ -847,7 +918,9 @@ Deleting `:query-retain` does not change the query parser, defaults, validation,
 solely because `:query-retain` named it now remains a string unless the route's
 `:query` schema or `:query-defaults` declares it. R5 must migrate those
 declarations explicitly rather than preserving keyword promotion as hidden
-residue.
+residue. The same cut removes `:query-retain` from the promotion vocabulary
+used by the `:rf.warning/route-classification-query-key-unpromoted` advisory and
+updates its fixtures/advice text to name only `:query` and `:query-defaults`.
 
 ### View and link consequences
 
@@ -891,6 +964,13 @@ shows:
 - resource owners and activation/prefetch causes; and
 - any leave block, entry denial, or planning failure.
 
+This projection graduates with the planner. R0 exposes only the source,
+resolved target, cause, branch, and behavior-preserving leaf plan needed to
+prove the shared spine. R2 adds occurrence/dependency groups, contributor
+dedupe advisories, the grouped order, and the identity diff. R6 proves the
+integrated view. No slice is permission to build a second Xray graph or a
+general-purpose public plan debugger.
+
 `:rf.resource/route-plan` is the existing Spec 016 route/resource graph
 operation and is extended rather than replaced by a parallel trace. Prefetch
 emits one `:rf.route/prefetched` summary trace; its plan/ensure traces carry
@@ -928,48 +1008,61 @@ must not turn a sensitive URL/query/resource declaration into a new egress leak.
 
 Graduation requires executable proof of the following:
 
-1. **Address parity.** One table of valid/invalid `RouteAddress` values drives
-   `route-url`, navigation, both route-link implementations, named entry/pending
-   payloads, and prefetch on JVM and CLJS. Flat wrapper maps prove that only the
-   extracted address reaches the closed schema and that policy/edit/DOM values
-   neither leak into it nor hide misspelled control keys. The raw destination
-   branch is tested separately. Unknown keys and malformed combinations fail
-   identically.
-2. **Door parity.** Named address, matching raw URL, link, programmatic,
-   popstate, initial, and SSR inputs resolve to the same target/branch/resource
-   plan. Only cause-specific history and scroll effects differ.
-3. **Passive render.** Rendering a route link or routed view dispatches no
-   navigation, prefetch, resource ensure, or application event. Intent
-   interaction dispatches at most the expected prefetch/navigation events.
-4. **Branch composition.** Automatic composition for every declared `:parent`,
-   parent-to-leaf order, local `:after` scope, `:when`, params/scope failure,
-   duplicate identity policy, and contributor diagnostics are pinned.
-5. **Partial activation.** Sibling-leaf navigation retains unchanged parent
+1. **Address parity (R0 foundation; R3 prefetch and R4 replay arms).** One table
+   of valid/invalid `RouteAddress` values drives `route-url`, navigation,
+   `rf/route-link`, `v/route-link`, named entry/pending payloads, and prefetch on
+   JVM and CLJS. Flat wrapper maps prove that only the extracted address reaches
+   the closed schema and that policy/edit/DOM values neither leak into it nor
+   hide misspelled control keys. The raw destination branch is tested
+   separately. Unknown keys and malformed combinations—including in-place
+   `:params` with reason `:params-requires-destination`—fail identically.
+2. **Door parity (R0 target/leaf-plan spine; R2 effective branch plan).** Named
+   address, matching raw URL, link, programmatic, popstate, initial, and SSR
+   inputs resolve to the same target/branch/resource plan. Only cause-specific
+   history and scroll effects differ.
+3. **Passive render (R0; R3 adds the intent arm).** Rendering either route-link
+   or a routed view dispatches no navigation, prefetch, resource ensure, or
+   application event. Intent interaction dispatches at most the expected
+   prefetch/navigation events.
+4. **Branch composition (R2).** Automatic composition for every declared
+   `:parent`, parent-to-leaf constraints, local `:after` scope, `:when`,
+   params/scope failure, and contributor diagnostics are pinned. Same-route and
+   parent/child occurrences that dynamically converge on one identity exercise
+   grouped ordering: satisfiable graphs dispatch once without losing an edge,
+   collapse-created cycles fail the whole plan, and a redundant child copy
+   appears as an advisory on `:rf.resource/route-plan`.
+5. **Partial activation (R2).** Sibling-leaf navigation retains unchanged parent
    identities, attaches before release, does not abort shared in-flight work,
    ensures newly added identities (including a requirement whose resolved
    identity changed), and releases removed identities.
-6. **Readiness honesty.** No-resources, blocking first load, non-blocking load,
-   cached fresh data, `:fetching` with usable data, background-refresh failure,
-   planning failure, first-load failure, previous-data projection,
-   supersession, restore, and hydration all project the specified transition and
-   error. Refresh never flips the route to `:loading`; projector reconciliation
-   corrects any cached fields. `:on-match` never changes readiness and is not
-   dispatched when planning fails.
-7. **Prefetch isolation.** Prefetch runs the full effective resource plan
-   ownerlessly, dedupes repeated intent, remains GC-eligible, reuses work on
-   activation, and runs no guard, URL, route-state, scroll, `:on-match`, or SSR
-   side effect.
-8. **Guard parity.** Leave and entry decisions cover link, programmatic,
-   popstate, initial, and SSR doors. Leave alone creates pending state. Entry
-   denial never does. The framework default denial handler is safe and no-op;
-   client/popstate preserves or restores the current URL; SSR hard denial with
-   no replacement produces `403`; and an application redirect supersedes that
-   default. A post-login return is a fresh address navigation.
-9. **Query explicitness.** `:query-retain` is rejected at registration; defaults
-   and in-place merge remain; every in-tree call site and fixture is migrated;
-   and every cross-route carried key appears in the authored address after the
+6. **Readiness honesty (R1 over the leaf plan; R2 over the branch plan).**
+   No-resources, blocking first load, non-blocking load, cached fresh data,
+   `:fetching` with usable data, background-refresh failure, planning failure,
+   first-load failure, previous-data projection, supersession, restore, and
+   hydration all project the specified transition and error. Refresh never
+   flips the route to `:loading`; projector reconciliation corrects any cached
+   fields. `:on-match` never changes readiness and is not dispatched when
+   planning fails.
+7. **Prefetch isolation (R3).** Prefetch runs the full effective resource plan
+   ownerlessly in the dispatching frame, dedupes repeated intent, remains
+   GC-eligible, reuses work on activation, and runs no guard, URL, route-state,
+   scroll, `:on-match`, sibling-frame, or SSR side effect.
+8. **Guard parity (R4).** Leave and entry decisions cover link, programmatic,
+   popstate, initial, and SSR doors. Exact no-ops run neither guard; full
+   transitions—including changed in-place query—run both in order;
+   fragment-only transitions preserve the existing both-guard contract. Leave
+   alone creates pending state. Entry denial never does. The framework default
+   denial handler is safe and no-op; client/popstate preserves or restores the
+   current URL; SSR hard denial with no replacement produces `403`; and an
+   application redirect supersedes that default. A post-login return is a fresh
+   address navigation.
+9. **Query explicitness (R5).** `:query-retain` is rejected at registration;
+   defaults and in-place merge remain; every in-tree call site, fixture,
+   promotion source, and classification-advisory reference is migrated; and
+   every cross-route carried key appears in the authored address after the
    application's pure carry helper runs.
-10. **Frame isolation and teardown.** Plans, owners, prefetch work, pending leave
+10. **Frame isolation and teardown (established in R0, exercised by every
+    slice, integrated in R6).** Plans, owners, prefetch work, pending leave
     state, traces, and host listeners stay frame-scoped and release completely
     on frame destroy.
 
@@ -985,27 +1078,37 @@ guide/examples; there is no spec-only waterfall and no one giant router rewrite.
 
 | Slice | User-visible outcome | Depends on |
 |---|---|---|
-| **R0 — address and plan spine** | `:rf/route-address`, shared address extraction/validation, one resolved-target/plan seam used by every door, diagnostic plan projection, passive-view governing-law docs and fixture; existing runtime behavior otherwise preserved | accepted EP |
+| **R0 — address and plan spine** | `:rf/route-address`, shared address extraction/validation across navigation, `route-url`, `rf/route-link`, and `v/route-link`; one resolved-target/plan seam used by every door; the minimum source/target/cause/branch/leaf-plan diagnostic projection; passive-view governing-law docs and fixture; existing runtime behavior otherwise preserved | accepted EP |
 | **R1 — honest activation** | `:on-match` fire-and-forget only after a valid plan; resource-derived transition/error; removal of global on-match correlation and route `:on-error`; SSR wait semantics and the post-v1 `:load` seam note corrected | R0 |
-| **R2 — branch resource plan** | parent-to-leaf resource composition, fixed identity dedupe, plan diff, attach-before-release, partial revalidation, SSR/hydration parity | R0, R1 |
-| **R3 — intent prefetch** | `:rf.route/prefetch`, route-link `:prefetch :intent`, ownerless full-plan warm ensures, traces and reuse/GC proof | R2 |
-| **R4 — terminal entry** | leave-only pending protocol, terminal `:can-enter`, `:rf.route/entry-denied`, default hard-deny/SSR `403`, fresh auth return, all-door/SSR coverage, obsolete resume/loop machinery removed | R3 |
-| **R5 — explicit query carry and surface cleanup** | remove `:query-retain`, preserve defaults/in-place edits, migrate every in-tree retain call site/fixture and any keyword-promotion declaration it supplied, ship the explicit carry recipe, reject obsolete metadata/policy keys, final API/schema/error inventory | R4 |
+| **R2 — branch resource plan** | parent-to-leaf resource composition, constraint-preserving grouped identity dedupe and redundant-child advisory, plan diff, attach-before-release, partial revalidation, SSR/hydration parity | R0, R1 |
+| **R3 — intent prefetch** | `:rf.route/prefetch`; `:prefetch :intent` on both `rf/route-link` and `v/route-link`; frame-scoped ownerless full-plan warm ensures; traces and reuse/GC proof | R2 |
+| **R4 — terminal entry** | leave-only pending protocol, classified guard matrix, terminal `:can-enter`, `:rf.route/entry-denied`, default hard-deny/SSR `403`, fresh auth return, all-door/SSR coverage, auth how-to and RealWorld update in the same cut, obsolete resume/loop machinery removed | R0; serialized after R3 by default |
+| **R5 — explicit query carry and surface cleanup** | remove `:query-retain`, preserve defaults/in-place edits, migrate every in-tree retain call site/fixture and every promotion/advisory dependency it supplied, ship the explicit carry recipe, reject obsolete metadata/policy keys, final API/schema/error inventory | R0; serialized after R4 by default |
 | **R6 — integrated proof** | all conformance rows and guides coherent; RealWorld or equivalent routed app proves parent shell reads, leaf reads, intent warmup, auth denial/return, SSR, and no render-caused work | R5 |
 
 The default landing order is R0 → R1 → R2 → R3 → R4 → R5 → R6. Every
 contract slice touches the hot-zone `spec/012-Routing.md`, so those edits and
 their branches are serialized even where the runtime concepts are otherwise
-independent. Work may proceed concurrently only on fenced implementation or
-guide surfaces that do not touch Spec 012 and only after the corresponding
-012 ruling has landed. R3 waits for the effective plan because prefetching a
-leaf-only approximation would make the temporary behavior the wrong contract.
+independent: at most one open PR may edit Spec 012. Work may proceed
+concurrently only on fenced implementation or guide surfaces that do not touch
+Spec 012 and only after the corresponding 012 ruling has landed. R3 waits for
+the effective plan because prefetching a leaf-only approximation would make the
+temporary behavior the wrong contract. R4's table position after R3 encodes
+this hot-zone lane, not a logical dependency on prefetch; the operator may move
+R4 earlier after R0 if terminal-entry/auth honesty is the higher priority,
+provided the same single-PR Spec 012 fence is preserved.
 
 Future beads should be cut smaller than these rows where useful, but every bead
 must name the vertical outcome, exact spec/conformance clauses, affected hosts,
 migration/deletion work, and commands/evidence that close it. Beads are created
 after this proposal is audited and accepted; this EP does not pre-create or
 pretend to resolve their implementation details.
+
+A slice is complete only when the conformance arms mapped to it above are green
+on their named hosts and its schema/API/error migrations land in the same cut.
+The mapping is the EP's acceptance statement; approximate file ownership and
+the eventual bead topology remain live-tree implementation planning in `bd`,
+not a second plan frozen into this proposal.
 
 ### Deliberate non-goals
 
@@ -1173,6 +1276,7 @@ the feature a hint rather than a scheduling subsystem.
 | Keep leaf-only resources and use app helpers for parents | rejected; hides the effective plan and duplicates declarations/prefetch logic |
 | Require `:inherit-resources? true` on each child | not recommended; duplicates the meaning of `:parent`, creates silent incomplete-plan omissions, and becomes noisier down deep branches; acceptance must explicitly ratify automatic composition |
 | Inherit all parent metadata | rejected; unrelated keys need incompatible merge/ordering rules |
+| Sort occurrences, then dedupe by keeping the first identity | rejected; a later duplicate may carry an `:after` edge that first-occurrence selection silently erases; collapse the occurrence graph and fail closed on an incompatible cycle |
 | Make `:on-match` an awaited promise/loader API | rejected; creates a second async/cache model and makes events return router-owned data |
 | Keep global event-error correlation | rejected; event-vector coincidence is not causal ownership |
 | Remove `:on-match` entirely | rejected; ordered activation events are a small, useful event-native seam |
@@ -1181,6 +1285,8 @@ the feature a hint rather than a scheduling subsystem.
 | Trigger ensures from views | rejected; violates passive render and loses SSR/prefetch planning |
 | Keep resumable entry and improve its loop handling | rejected; the machinery treats a fresh policy decision as continuation |
 | Return a closed allow/redirect/deny value from entry policy | viable future refinement; see Open Issue 1 |
+| Run guards before transition classification | rejected; an exact no-op could create pending/denied state even though no target fact changes |
+| Let every in-place request bypass guards | rejected; changed params/query are data-bearing full activations regardless of request spelling, while exact no-op and fragment behavior are ruled explicitly |
 | Run entry guards during prefetch | rejected; warmup is not activation or an authorization boundary |
 | Add render/viewport/default prefetch modes now | deferred pending measured demand |
 | Keep `:query-retain` or add generic search middleware | rejected; final addresses become ambient transformations |
@@ -1209,8 +1315,9 @@ deprecated aliases:
 - declaring `:parent` now opts a route into automatic ancestor `:resources`.
   This is a deliberate semantic expansion for every existing parent chain, not
   a compatibility-preserving opt-in marker. Child copies resolving to the same
-  identity dedupe, but applications should delete redundant copies so the plan
-  has one clear contributor;
+  identity dedupe when their collapsed constraint graph is valid, and the plan
+  trace advises on the redundant child contributor; applications should delete
+  those copies so the plan has one clear declaration;
 - `:rf.route/entry-blocked` becomes `:rf.route/entry-denied`; enter-shaped
   pending values, `continue`-after-login, attempt counters, loop errors, and
   enter bypass are removed;
@@ -1300,7 +1407,9 @@ The recommendation is automatic parent-to-leaf resource composition:
 `:parent` declares membership in the active branch, so shared requirements
 declared by that branch apply without a second marker. It keeps common
 registrations terse and prevents a forgotten flag from making navigation,
-prefetch, and SSR disagree with the rendered parent shell.
+prefetch, and SSR disagree with the rendered parent shell. The effective-plan
+projection and the redundant-child advisory on `:rf.resource/route-plan` keep
+the inherited contribution and accidental child copies mechanically visible.
 
 The alternative requires `:inherit-resources? true` on each child. It preserves
 the runtime behavior of existing `:parent` registrations and makes the choice
