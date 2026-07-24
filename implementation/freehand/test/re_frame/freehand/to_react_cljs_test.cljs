@@ -85,6 +85,19 @@
     (doseq [[k value] m] (gobj/set o k value))
     o))
 
+(defn- props-or-refusal
+  "The props map an export of `person-cell` under `opts` mounts its boundary
+  with, or `::refused` when the export raised.
+
+  The one shape that tells a REFUSAL apart from a silent fallback. A bridge
+  that quietly selected the default rule answers a perfectly well-formed
+  component and a perfectly well-formed render, so neither `fn?` nor
+  `isValidElement` nor a non-empty tree can see the difference — only the props
+  map the view is actually mounted with can."
+  [opts foreign]
+  (try (mounted-props ((apply v/->react views/person-cell opts) (obj foreign)))
+       (catch :default _ ::refused)))
+
 ;; ===========================================================================
 ;; FH-REACT-001 — only a declared view crosses, and there is one option
 ;; ===========================================================================
@@ -120,22 +133,61 @@
         (is (re-find #"wrapper" m))))))
 
 (deftest fh-react-001-the-option-roster-is-closed-at-one-key
-  (testing "Per FH-REACT-001: `:map-props` is the whole roster. An unknown
-            option is REFUSED rather than ignored — ignoring it would hand the
-            caller the default shallow rule and a subtly wrong render, with
-            nothing anywhere saying the option did not exist."
+  (testing "Per FH-REACT-001: `:map-props` is the whole roster, and every way
+            of getting it wrong is REFUSED rather than ignored — ignoring one
+            would hand the caller the default shallow rule and a subtly wrong
+            render, with nothing anywhere saying the option had not been read."
     (is (= [:map-props] (:roster (:options react-001))))
     (is (fn? (v/->react views/person-cell {:map-props (fn [_] {})}))
         "the one option is accepted")
 
-    (doseq [{:keys [note opts recovery]} (:rejected (:options react-001))]
-      (let [value (cond
-                    (not (map? opts))           opts
-                    (contains? opts :map-porps) {:map-porps (fn [_] {})}
-                    :else                       {:map-props :not-a-fn})
+    (is (= 5 (count (:rejected (:options react-001))))
+        "non-vacuous: five ways to get the roster wrong")
+    (doseq [{:keys [note kind recovery]} (:rejected (:options react-001))]
+      (let [value (case kind
+                    :unknown-key {:map-porps (fn [_] {})}
+                    :not-a-fn    {:map-props :not-a-fn}
+                    :not-a-map   :not-a-map
+                    :nil         {:map-props nil}
+                    :false       {:map-props false})
             d     (caught #(v/->react views/person-cell value))]
         (is (= (:error react-001) (:rf.error/id d)) note)
         (is (= recovery (:recovery d)) (str note " — names the recovery"))))))
+
+(deftest fh-react-001-key-presence-selects-the-adapter-arm-not-truthiness
+  (testing "Per FH-REACT-001: WRITING `:map-props` is what asks for an adapter,
+            exactly as writing the reserved `frame` PROP is what states a frame
+            target (FH-REACT-004). A present nil or false is an expression that
+            produced nothing — a lookup that missed, a branch that fell through
+            — and reading it as an omitted key would select the default shallow
+            rule and mount the view with a props map its caller never asked
+            for.
+
+            That failure is INVISIBLE to every coarse assertion: the export
+            still answers a component, the component still renders, and the
+            render is still well formed. So the assertion here is the props map
+            the boundary is mounted with, and the control arm is asserted the
+            same way — a refusal only means something once the arm it refuses
+            to fall into is shown reachable."
+    (let [{:keys [selected-by foreign props]} (:default-arm (:options react-001))]
+      (is (= [:omitted :empty-map] selected-by)
+          "non-vacuous: the fixture names the two spellings that DO select it")
+      (is (seq props) "non-vacuous: the control arm has a props map to look at")
+
+      (is (= props (props-or-refusal [] foreign))
+          "omitted opts mount the shallow props map")
+      (is (= props (props-or-refusal [{}] foreign))
+          "and an empty options map is the same request, spelled out")
+
+      (is (= ::refused (props-or-refusal [{:map-props nil}] foreign))
+          "a present nil is REFUSED — never the shallow map")
+      (is (= ::refused (props-or-refusal [{:map-props false}] foreign))
+          "and so is a present false"))
+
+    (testing "and the refusal tells the caller how to ask for the arm it declined"
+      (let [m (message #(v/->react views/person-cell {:map-props nil}))]
+        (is (re-find #"OMIT the key" m))
+        (is (re-find #"function of one argument" m))))))
 
 ;; ===========================================================================
 ;; FH-REACT-002 — one shallow rule, or one adapter; three owned names

@@ -16,9 +16,21 @@
 ;; ignoring is silent: a caller who writes `:map-props?` or `:props-mapper` gets
 ;; the default shallow rule and a subtly wrong render, with nothing anywhere
 ;; saying the option did not exist.
+;;
+;; KEY PRESENCE is what selects an adapter, and that is the same law the
+;; reserved `frame` PROP runs under (FH-REACT-004) one level down. `nil` and
+;; `false` are therefore in `:rejected` beside `:not-a-fn` rather than being
+;; read as an absent key: a falsey value is a lookup that found nothing or a
+;; branch that fell through, and taking it as "no adapter" would select the
+;; default rule and hand the view a props map its caller never asked for —
+;; exactly the silent-wrong-render failure the unknown-key refusal exists to
+;; prevent, with the key spelled correctly. `:default-arm` is the control half:
+;; the arm those refusals must NOT silently reach is proved reachable, and
+;; proved by reading the props map the boundary is actually mounted with, so
+;; "it threw" can never be green for the wrong reason.
 {:fh/id "FH-REACT-001"
  :fh/law
- "The outward bridge exports a DECLARED view and nothing else — a plain function, a hiccup vector, a view id keyword and a rendered form are each refused naming a declared view or an explicit wrapper as the recovery — and its option roster is closed at the single `:map-props` adapter, which must be a function: an unknown option is refused rather than ignored."
+ "The outward bridge exports a DECLARED view and nothing else — a plain function, a hiccup vector, a view id keyword and a rendered form are each refused naming a declared view or an explicit wrapper as the recovery — and its option roster is closed at the single `:map-props` adapter, whose PRESENCE selects the adapter arm and whose value must be a function: an unknown option is refused rather than ignored, and a present-but-falsey `:map-props` is refused rather than read as an omitted key."
 
  ;; The one diagnostic every refusal on this row carries.
  :error :rf.error/ui-tree-malformed
@@ -50,11 +62,27 @@
   :accepted {:note "the one adapter, a function of the foreign props object"}
   :rejected
   [{:note     "an unknown option is refused, never ignored"
-    :opts     {:map-porps :fn}
+    :kind     :unknown-key
     :recovery :use-map-props-or-write-a-wrapper}
    {:note     "the adapter must be a function"
-    :opts     {:map-props :not-a-fn}
+    :kind     :not-a-fn
     :recovery :supply-a-one-argument-function}
    {:note     "the options slot is a map"
-    :opts     :not-a-map
-    :recovery :supply-an-options-map}]}}
+    :kind     :not-a-map
+    :recovery :supply-an-options-map}
+   {:note     "a nil adapter — the lookup that found nothing"
+    :kind     :nil
+    :recovery :supply-a-one-argument-function}
+   {:note     "a false adapter — the branch that fell through"
+    :kind     :false
+    :recovery :supply-a-one-argument-function}]
+
+  ;; The control. Every refusal above claims the bridge did NOT take the
+  ;; default shallow arm, so that arm has to be shown reachable and shown by
+  ;; its OUTPUT — the props map the boundary is mounted with — rather than by
+  ;; the export merely returning something.
+  :default-arm
+  {:selected-by [:omitted :empty-map]
+   :foreign     {"person-id" 3 "column-id" "total"}
+   :props       {:person-id 3 :column-id "total"}
+   :note        "an omitted key and an empty options map both ask for the shallow rule; a present falsey value does not"}}}

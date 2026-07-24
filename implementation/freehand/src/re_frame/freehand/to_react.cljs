@@ -28,6 +28,9 @@
      would be expensive and semantically false. A library that hands over
      such an object supplies a `:map-props` adapter instead, which is
      ordinary top-level code at the host edge and is testable as such.
+     KEY PRESENCE picks the arm, not truthiness: omitting `:map-props`
+     asks for the shallow rule, and a present `nil` or `false` is a
+     refusal rather than a quiet fall back onto it.
 
   3. **The bridge owns three names, and the view sees none of them.**
      `frame` selects the frame (below). `children` is React's content
@@ -136,7 +139,15 @@
   nil. One key, and the roster is closed for the reason D014 gives: the
   moment a bridge grows prop schemas, child conversion and callback maps it
   has become a second React component model, and a short wrapper is clearer
-  than any of it."
+  than any of it.
+
+  KEY PRESENCE decides whether an adapter was asked for, not truthiness — the
+  same law the reserved `frame` PROP runs under one level down. Omitting
+  `:map-props` selects the shallow rule; writing it selects an adapter, and a
+  `nil` or `false` there is an expression that produced nothing rather than a
+  request for the default. Reading it as absent would hand the view a props map
+  its caller never asked for, silently, which is the failure the closed roster
+  refuses an unknown key to avoid."
   [opts]
   (when (some? opts)
     (when-not (map? opts)
@@ -155,14 +166,18 @@
                "visibly React's protocol rather than the substrate's vocabulary.")
           {:recovery :use-map-props-or-write-a-wrapper
            :extra    {:unknown (vec unknown)}})))
-    (when-let [f (:map-props opts)]
-      (when-not (fn? f)
-        (malformed!
-          (str ":map-props is the ONE adapter from the foreign props object to the "
-               "view's props map, so it must be a function of one argument; received "
-               (pr-str f) ".")
-          {:recovery :supply-a-one-argument-function
-           :extra    {:value (error/diag-value-summary f)}}))))
+    (when (contains? opts :map-props)
+      (let [f (:map-props opts)]
+        (when-not (fn? f)
+          (malformed!
+            (str ":map-props is the ONE adapter from the foreign props object to the "
+                 "view's props map, so it must be a function of one argument; received "
+                 (pr-str f) ". Writing the key is what asks for an adapter, so a nil or "
+                 "a false there is a lookup that found nothing or a branch that fell "
+                 "through — not a request for the default shallow rule. OMIT the key "
+                 "entirely to ask for that rule.")
+            {:recovery :supply-a-one-argument-function
+             :extra    {:value (error/diag-value-summary f)}})))))
   (:map-props opts))
 
 (defn- refuse-ref!
