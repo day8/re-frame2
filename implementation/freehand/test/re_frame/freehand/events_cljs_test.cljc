@@ -899,3 +899,79 @@
                 @seen)
              "each report carries its OWN state, so the handler never has
               to infer a dismissal by counting")))))
+
+#?(:cljs
+   (deftest fh-read-door-reads-the-live-event-through-the-production-path
+     (testing "Per rf2-drpa3.162 (browser host): the general
+               `[::v/read <path>]` door reads a shallow scalar off the live
+               event object end to end — a keyword path off the event, a
+               vector path walked as a chain from it — and materializes it
+               into the dispatched vector. No reader conditional, no host
+               object; the SCALAR is what reaches the handler."
+       (let [{:keys [dispatch seen]} (recorder)
+             owner (events/owner :acme/table)
+             cand  (events/candidate owner)
+             proxy (events/site cand :on-scroll
+                     [:acme.table/scrolled [:ledger :q3]
+                      [:re-frame.freehand/read [:target :scrollTop]]])]
+         (events/commit! cand dispatch)
+         (proxy #js {:target #js {:scrollTop 3200}})
+         (is (= [[:acme.table/scrolled [:ledger :q3] 3200]] @seen)
+             "a vector path walks event.target.scrollTop off the live event"))
+       (let [{:keys [dispatch seen]} (recorder)
+             owner (events/owner :acme/menu)
+             cand  (events/candidate owner)
+             proxy (events/site cand :on-toggle
+                     [:acme.menu/toggle-reported :format
+                      [:re-frame.freehand/read :newState]])]
+         (events/commit! cand dispatch)
+         (proxy #js {:newState "open" :target #js {}})
+         (is (= [[:acme.menu/toggle-reported :format "open"]] @seen)
+             "a keyword path reads event.newState directly"))
+       ;; A read that lands on a HOST OBJECT is refused end to end, in
+       ;; favour of v/event — the browser proof of the scalar law.
+       (let [{:keys [dispatch seen]} (recorder)
+             owner (events/owner :acme/table)
+             cand  (events/candidate owner)
+             proxy (events/site cand :on-scroll
+                     [:acme/read [:re-frame.freehand/read :target]])]
+         (events/commit! cand dispatch)
+         (is (= :rf.error/view-bad-event
+                (conf/caught-id #(proxy #js {:target #js {:scrollTop 0}})))
+             "reading the whole target — a host object — is refused")
+         (is (= [] @seen) "and nothing is dispatched")))))
+
+#?(:cljs
+   (deftest fh-read-door-is-the-live-counterpart-of-the-named-sugar
+     (testing "Per rf2-drpa3.162 (browser host): the named roster is SUGAR
+               over the general door. Fired against the SAME live event, a
+               named marker and its `[::v/read <path>]` spelling reach
+               dispatch with the identical scalar — one reader, one law,
+               two spellings — which is the whole claim that the members
+               are sugar rather than a private mechanism the door lacks."
+       (letfn [(fire-one [intent e]
+                 (let [{:keys [dispatch seen]} (recorder)
+                       owner (events/owner :probe/owner)
+                       cand  (events/candidate owner)
+                       proxy (events/site cand :probe/site intent)]
+                   (events/commit! cand dispatch)
+                   (proxy e)
+                   @seen))]
+         (is (= (fire-one [:x :re-frame.freehand/scroll-top]
+                          #js {:target #js {:scrollTop 512}})
+                (fire-one [:x [:re-frame.freehand/read [:target :scrollTop]]]
+                          #js {:target #js {:scrollTop 512}})
+                [[:x 512]])
+             "::v/scroll-top is [::v/read [:target :scrollTop]]")
+         (is (= (fire-one [:x :re-frame.freehand/new-state]
+                          #js {:newState "open"})
+                (fire-one [:x [:re-frame.freehand/read :newState]]
+                          #js {:newState "open"})
+                [[:x "open"]])
+             "::v/new-state is [::v/read :newState]")
+         (is (= (fire-one [:x :re-frame.freehand/value]
+                          #js {:target #js {:value "hi"}})
+                (fire-one [:x [:re-frame.freehand/read [:target :value]]]
+                          #js {:target #js {:value "hi"}})
+                [[:x "hi"]])
+             "::v/value is [::v/read [:target :value]]")))))

@@ -84,20 +84,37 @@
 ;; Props
 ;; ---------------------------------------------------------------------------
 
+(defn- style-into!
+  "Write one authored `:style` value onto `o`, or MERGE a compose vector
+  into it left to right. A later entry wins per React style property and
+  both survive on a non-conflict, which is what makes an exact `:style`
+  beside an alias projecting onto the style slot compose rather than the
+  last one written winning (rf2-8jqw7). The recursion flattens the
+  incrementally-built pair the folder produces, the same shape `:class`
+  composes through [[conv/class-parts]]."
+  [o tag v]
+  (if (vector? v)
+    ;; A nil contributor is ABSENT — the nil-is-absent law, carried into the
+    ;; compose so an exact value beside a nil alias survives rather than
+    ;; rejecting the whole element.
+    (reduce (fn [o one] (if (some? one) (style-into! o tag one) o)) o v)
+    (do
+      (when-not (map? v)
+        (malformed! (str "The :style value on " tag " is a " (type-name v)
+                         "; :style is a map of CSS property to value.")
+                    {:attr :style :value (shape v)}))
+      (reduce-kv (fn [o k x]
+                   (if (nil? x)
+                     o
+                     (let [css-name (name k)]
+                       (gobj/set o (conv/react-style-name css-name)
+                                 (conv/css-value css-name x))
+                       o)))
+                 o v))))
+
 (defn- react-style
   [tag v]
-  (when-not (map? v)
-    (malformed! (str "The :style value on " tag " is a " (type-name v)
-                     "; :style is a map of CSS property to value.")
-                {:attr :style :value (shape v)}))
-  (reduce-kv (fn [o k x]
-               (if (nil? x)
-                 o
-                 (let [css-name (name k)]
-                   (gobj/set o (conv/react-style-name css-name)
-                             (conv/css-value css-name x))
-                   o)))
-             #js {} v))
+  (style-into! #js {} tag v))
 
 (defn- react-control-value
   "One semantic control value in the shape React takes it. Every scalar is
@@ -285,9 +302,31 @@
                                   (when (and (not= :class k)
                                              (= :class (conv/attr-key k)))
                                     raw))
+                                attrs))
+        ;; The exact `:style` and any alias projecting onto the style slot
+        ;; COMPOSE — the exact value first, then the aliases — merged property
+        ;; by property rather than the last one written winning, exactly as
+        ;; `:class` composes just above. Collected exact-first and written
+        ;; ONCE, so the walk skips every style-slot key below and an alias
+        ;; never overwrites the exact spelling (rf2-8jqw7; parallel to
+        ;; rf2-c9kus).
+        ;; A nil style value is ABSENT (the nil-is-absent law a conditional
+        ;; `:style (when …)` relies on, which the per-key walk applied before
+        ;; this collection subsumed the slot), so nils are dropped here — an
+        ;; all-nil slot writes no style at all, exactly as it did before.
+        style-forms (into (if (some? (:style attrs)) [(:style attrs)] [])
+                          (keep (fn [[k raw]]
+                                  (when (and (not= :style k)
+                                             (= :style (conv/attr-key k))
+                                             (some? raw))
+                                    raw))
                                 attrs))]
     (when (or (seq sugar-classes) (seq class-forms))
       (put-class! o tag sugar-classes class-forms))
+    (when (seq style-forms)
+      (put-style! o tag (if (= 1 (count style-forms))
+                          (first style-forms)
+                          (vec style-forms))))
     (when sugar-id
       (gobj/set o "id" sugar-id))
     ;; The id-slot CARDINALITY, judged by the emitted SLOT rather than by the
@@ -339,8 +378,11 @@
         (= :class k)
         nil
 
+        ;; Likewise composed once above, so the walk skips every style-slot
+        ;; key here rather than writing (and last-wins-overwriting) each
+        ;; (rf2-8jqw7).
         (= :style k)
-        (put-style! o tag raw)
+        nil
 
         :else (put-plain-attr! o tag k raw)))
     ;; Key PRESENCE, not key truth. React string-coerces whatever key it is

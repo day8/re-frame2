@@ -276,3 +276,130 @@
           "state-keyed: the platform said closed, so the control closes")
       (is (= {:outer false} (counting dismissed))
           "and this is the single-overlay case the two reducers agree on"))))
+
+;; ---------------------------------------------------------------------------
+;; The general door — `[:re-frame.freehand/read <path>]`, rf2-drpa3.162
+;; ---------------------------------------------------------------------------
+;;
+;; The named roster stops being a closed set the next scalar has to join
+;; and becomes SUGAR over one shallow-scalar read: `[:re-frame.freehand/read <path>]`
+;; reads any single scalar off the event or its target the same way, so a
+;; read no longer needs a name — it needs a path. What stays closed is the
+;; PROPERTY, not the members: the door admits a read only when it resolves
+;; to a shallow scalar, which is what keeps a projected intent
+;; equality-assertable, printable and host-neutral. Anything richer is
+;; still `v/event`'s opaque job.
+
+(deftest fh-read-door-records-as-data-like-the-named-roster
+  (testing "Per rf2-drpa3.162: a site projecting through the general
+            `[:re-frame.freehand/read <path>]` door records its intent VERBATIM, exactly
+            as a named member does — the manifest a tool reads carries the
+            authored vector, so the component's intent is assertable by
+            equality before anything mounts. The same read written through
+            `v/event` records as the OPAQUE marker, which is the cost the
+            door removes."
+    (let [scroll '[:acme.table/scrolled [:ledger :q3]
+                   [:re-frame.freehand/read [:target :scrollTop]]]]
+      (let [{:keys [handler site]}
+            (analyzed '[:div {:on-scroll [:acme.table/scrolled
+                                          [:ledger :q3]
+                                          [:re-frame.freehand/read [:target :scrollTop]]]}])]
+        (is (= scroll (:form handler)) "the read-door intent lowers to itself")
+        (is (= scroll (:handler site)) "and the manifest records that data verbatim")))
+    (let [{:keys [site]}
+          (analyzed '[:div {:on-scroll (event [e]
+                                         [:acme.table/scrolled
+                                          [:ledger :q3]
+                                          (.. e -target -scrollTop)])}])]
+      (is (= :opaque (:handler site))
+          "the v/event spelling of the SAME read is opaque to the manifest"))))
+
+(deftest fh-read-door-is-the-same-plan-in-both-front-ends
+  (testing "Per rf2-drpa3.162: the compiled lowering IS the interpreted
+            site plan for the general door, so a declaration cannot mean
+            one thing interpreted and another under `{:compiled true}`. The
+            plan is compared as a VALUE — a lowering that produced a
+            different but well-formed plan would render perfectly and be
+            wrong."
+    (let [template '[:div {:on-scroll [:acme.table/scrolled
+                                       [:ledger :q3]
+                                       [:re-frame.freehand/read [:target :scrollTop]]]}]
+          authored (get-in template [1 :on-scroll])
+          {:keys [handler]} (analyzed template)]
+      (is (= (events/event-plan authored)
+             (events/event-plan (:form handler)))
+          "the compiled lowering is the interpreted plan")
+      (is (= :event-vector (:role (events/event-plan (:form handler))))
+          "and it is the plain vector form, not a callback"))))
+
+(deftest fh-read-door-materializes-a-shallow-scalar-as-ordinary-data
+  (testing "Per rf2-drpa3.162: a read-door site materializes the live
+            scalar the path names into its argument position, on the
+            structural host, with no reader conditional and no host object
+            anywhere near the intent. Each firing reads its OWN payload —
+            the intent is a value the view holds, not a snapshot of one
+            render. The SCALAR is the assertion: a door that read the wrong
+            property would still dispatch a well-formed vector."
+    (let [intent [:acme.table/scrolled table-key [:re-frame.freehand/read [:target :scrollTop]]]]
+      (is (= [[:acme.table/scrolled table-key 3200]]
+             (fired intent [{[:re-frame.freehand/read [:target :scrollTop]] 3200}]))
+          "the offset the payload carried, at the position the author wrote")
+      (is (= [[:acme.table/scrolled table-key 0]
+              [:acme.table/scrolled table-key 640]]
+             (fired intent [{[:re-frame.freehand/read [:target :scrollTop]] 0}
+                            {[:re-frame.freehand/read [:target :scrollTop]] 640}]))
+          "and each firing reads its own payload"))
+    ;; A keyword path reads one property off the EVENT itself — the shape
+    ;; `::v/key` and `::v/new-state` are sugar for.
+    (is (= [[:menu/toggle-reported :format "open"]]
+           (fired [:menu/toggle-reported :format [:re-frame.freehand/read :newState]]
+                  [{[:re-frame.freehand/read :newState] "open"}]))
+        "a single keyword path reads the event property it names")))
+
+(deftest fh-read-door-refuses-a-non-scalar-in-favour-of-v-event
+  (testing "Per rf2-drpa3.162: the door's whole discipline is that a
+            projected read is a SHALLOW SCALAR. A read that lands on a
+            collection or a host object is a typed error naming `v/event`,
+            not intent data — which is the line that keeps the projection
+            equality-assertable. Asserted on both hosts through the one
+            materializer."
+    (let [owner (events/owner :acme/probe)
+          cand  (events/candidate owner)
+          proxy (events/site cand :probe/site
+                  [:acme/read [:re-frame.freehand/read [:target :value]]]
+                  events/payload-map)]
+      (events/commit! cand (fn [_]))
+      (is (= :rf.error/view-bad-event
+             (conf/caught-id #(proxy {[:re-frame.freehand/read [:target :value]] {:not "a scalar"}})))
+          "a read landing on a map is refused, not dispatched")
+      (is (= :rf.error/view-bad-event
+             (conf/caught-id #(proxy {[:re-frame.freehand/read [:target :value]] [1 2 3]})))
+          "and so is a read landing on a vector"))
+    ;; A malformed door — no path, or a non-keyword path — is refused with
+    ;; the SAME id and a didactic message, at firing, before any dispatch.
+    (let [owner (events/owner :acme/probe)
+          cand  (events/candidate owner)
+          proxy (events/site cand :probe/site
+                  [:acme/read [:re-frame.freehand/read]]
+                  events/payload-map)]
+      (events/commit! cand (fn [_]))
+      (is (= :rf.error/view-bad-event
+             (conf/caught-id #(proxy {})))
+          "a [:re-frame.freehand/read] with no path is a shape error, not silent data"))))
+
+(deftest fh-read-door-with-no-payload-dispatches-nothing
+  (testing "Per rf2-drpa3.162: the general door carries the same law as
+            the named roster — a site asking a callback that reports no
+            such property is a TYPED error and nothing is dispatched,
+            rather than a nil argument reaching a handler."
+    (let [seen  (atom [])
+          owner (events/owner :acme/probe)
+          cand  (events/candidate owner)
+          proxy (events/site cand :probe/site
+                  [:acme.table/scrolled table-key [:re-frame.freehand/read [:target :scrollTop]]]
+                  events/payload-map)]
+      (events/commit! cand (fn [ev] (swap! seen conj ev)))
+      (is (= :rf.error/view-missing-payload
+             (conf/caught-id #(proxy {:re-frame.freehand/value "typed"})))
+          "a callback offering a value but no scroll offset")
+      (is (= [] @seen) "and nothing is dispatched"))))

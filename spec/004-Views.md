@@ -489,64 +489,73 @@ Because the intent is a vector rather than a closure, a reusable control can
 control knowing anything about the caller's domain, and the whole site stays
 inspectable — and structurally testable — before anything mounts.
 
-**The closed scalar projections.** The reserved markers are `::v/value`,
-`::v/checked`, `::v/key`, `::v/scroll-top` and `::v/new-state`, and that roster
-is **closed**. Each marker is the kebab-case spelling of the one host property
-it reads — `target.value`, `target.checked`, `event.key`, `target.scrollTop`,
-`event.newState` — so the roster is read off the platform rather than invented,
-and a member is present in the payload exactly when the host carries the property
-it reads. A `<div>` has no `value`, so a click on one cannot ask for `::v/value`;
-every element has a scroll offset, so `::v/scroll-top` is available wherever an
-element target is, truthfully at 0.
+**The scalar projection door.** A projected read is **one shallow scalar** off
+the live event or its target, and there are two spellings of the same read:
 
-Closedness is what a projected read is FOR. Because the marker is a keyword and
-the materialized argument is a scalar, the site's intent is assertable by
-equality, printable, comparable, and identical on both hosts; a general "read any
-property off the host event" escape hatch would buy convenience by destroying
-every one of those properties, and it is a
-[normative absence](#absent-at-the-event-surface) along with a nested path
-language.
+- the **named roster** — `::v/value`, `::v/checked`, `::v/key`, `::v/scroll-top`,
+  `::v/new-state` — the reads common enough to have earned a name; and
+- the general door **`[::v/read <path>]`**, which reads any other shallow scalar
+  the same way: a property keyword read off the event (`[::v/read :key]` is
+  `event.key`), or a vector of keywords walked as a chain from it
+  (`[::v/read [:target :scrollTop]]` is `event.target.scrollTop`).
 
-Closed does not mean guessed up front. **Membership is extended by demonstrated
-need, and the test is one sentence: a shallow scalar off the event target, needed
-by a real component, demonstrated by that component.** `::v/scroll-top` and
-`::v/new-state` are members because two independent components bent their designs
-around their absence — a windowed table that had to assemble its scroll offset
-inside a `v/event` body, which made the component's most important intent opaque
-and dragged a reader conditional into an otherwise host-neutral library; and a
-top-layer overlay that could not read a toggle's new state and resorted to
-counting reports instead, which is correct for one overlay and wrong for a nested
-pair. Anything needing traversal, measurement, or a live host object is not a
-projection at all and is `v/event`'s job. There is no mechanism for adding
-members: the next one arrives the way these did, through a component that needed
-it.
+```clojure
+[:input {:type :number
+         :on-input [:form/edit :qty [::v/read [:target :valueAsNumber]]]}]
+```
 
-Admitting `::v/new-state` is also what makes the top layer's dismissal advisory
-answerable. A controlled popover or dialog whose state the browser changes on its
-own is [told to reconcile that report "with ordinary event
-intent"](#the-dom-top-layer); before this member the grammar carried no spelling
-for the report's own state, so the substrate advised a path it refused.
+The named markers are **sugar** over the door: each is a `::v/read` of the one
+host property it names — `::v/value` is `[::v/read [:target :value]]`,
+`::v/scroll-top` is `[::v/read [:target :scrollTop]]`, and so on — so there is one
+reader, one law, and one place the payload is assembled. A member is present in
+the payload exactly when the host carries the property it reads: a `<div>` has no
+`value`, so a click on one cannot ask for `::v/value`; every element has a scroll
+offset, so `[::v/read [:target :scrollTop]]` is available wherever an element
+target is, truthfully at 0.
+
+What stays closed is the **property every projection keeps, not the set of
+members**. A read is admitted only when the path resolves to a scalar in the
+accepted-identity domain — a string, number, boolean or keyword — because that is
+exactly what makes the site's intent assertable by equality, printable,
+comparable, and identical on both hosts. A read that lands on a host object, a
+collection, or nothing is a typed error naming `v/event`, not intent data. So the
+door is open to more **paths** and never to more than a **scalar's** worth of
+intent: reading a scalar off the platform is a projection, and **anything richer
+— multiple reads, indexing, computation, a live host object, a side effect — is
+`v/event`'s opaque job**, a [normative absence](#absent-at-the-event-surface)
+along with a selector or transform language. Admitting `::v/new-state` — now
+`[::v/read :newState]` under a name — is also what makes the top layer's dismissal
+advisory answerable: a controlled popover or dialog whose state the browser
+changes on its own is [told to reconcile that report "with ordinary event
+intent"](#the-dom-top-layer), and the door is the spelling for the report's own
+state.
 
 **One materializer, at firing time.** At firing time the native or qualified host
 adapter obtains the live scalar payload, and one pure materializer —
 `v/materialize-event` — replaces the markers before the resulting plain vector
 reaches ordinary re-frame dispatch. Its rules are deliberately small:
 
-1. **Position zero may not be a marker.** An event id is a name, not a projection.
+1. **Position zero may not be a marker.** An event id is a name, not a projection
+   or a `[::v/read <path>]` door.
 2. **Only top-level argument positions are replaced.** Projection is shallow and
-   by value: a marker nested inside a map, a vector or any other value is
+   by value: a named marker or a `[::v/read <path>]` door in an argument position
+   is substituted, while the same form nested inside a map or a deeper vector is
    ordinary application data and survives untouched.
-3. **Every occurrence is replaced**, not merely the first.
-4. **A requested but unavailable payload is a typed error, and nothing is
+3. **A door must read a shallow scalar.** A `[::v/read <path>]` whose read lands
+   on a host object, a collection or nothing is a typed error naming `v/event` —
+   the scalar law is what keeps a projected read equality-assertable and
+   host-neutral.
+4. **Every occurrence is replaced**, not merely the first.
+5. **A requested but unavailable payload is a typed error, and nothing is
    dispatched.** A malformed event reaching a handler is worse than no event; a
    silently `nil` argument is worse still.
-5. **The result is a plain vector.** An event carrying no marker is returned
+6. **The result is a plain vector.** An event carrying no marker is returned
    unchanged, so an unprojected site allocates nothing.
 
-The marker and the payload key are **the same keyword** — a site asks for
-`::v/value` and the adapter supplies `::v/value` — so "did this callback offer
-what this event asked for?" is one lookup and there is no second vocabulary to
-keep in step. Projection reads the payload the *callback* supplies, never a
+The marker and the payload key are **the same value** — a site asks for
+`::v/value` (or `[::v/read [:target :value]]`) and the adapter supplies exactly
+that key — so "did this callback offer what this event asked for?" is one lookup
+and there is no second vocabulary to keep in step. Projection reads the payload the *callback* supplies, never a
 render-captured value, so the same intent vector materializes differently on
 successive keystrokes without being rebuilt.
 
@@ -2420,10 +2429,13 @@ A Freehand implementation MUST NOT provide:
   `:re-frame.freehand/*` trio, which materializes identically in a literal, a
   forwarded and a computed vector, so the donor's "placeholder in a dynamic
   vector" advisory has nothing left to warn about.
-- **a projection path or expression language.** No `[:target :files 0 :name]`,
-  no transforms. The replacement is `v/event`, which converts the uncommon
-  residue honestly instead of growing a miniature expression language with its
-  own validation, missing-value semantics and host coupling.
+- **a projection expression or selector language.** The `[::v/read <path>]` door
+  reads one shallow scalar off a keyword path (`[::v/read [:target :scrollTop]]`)
+  and nothing more: no indexing (`[:target :files 0 :name]`), no transforms, and
+  no read that resolves to anything but a string, number, boolean or keyword. The
+  replacement for the uncommon richer residue is `v/event`, which converts it
+  honestly instead of growing a miniature expression language with its own
+  validation, missing-value semantics and host coupling.
 - **multi-intent handler vectors.** A site yields one event or none; the
   replacement for a multi-step reaction is one named semantic event whose
   re-frame handler returns the effects.
