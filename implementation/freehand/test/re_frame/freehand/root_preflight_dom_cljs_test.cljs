@@ -591,3 +591,130 @@
                     (is false (str "scope non-transfer suite rejected: " e))
                     (.remove node)
                     (done))))))))))
+
+;; ===========================================================================
+;; FH-ROOT-004 — the ownership proof is the incarnation TOKEN, not a non-nil
+;; :installed-by (rf2-drpa3.110, third reopen — the same-id-successor residual)
+;;
+;; The AC4 arm above refuses a config-bearing ENSURE over a frame with no
+;; :installed-by. But a non-nil :installed-by is not itself proof that the frame
+;; live under the id NOW is the one that root installed: the core frame id is
+;; address-directed, so a same-id SUCCESSOR (the installed incarnation torn down
+;; and re-created under the same id) is a distinct frame carrying a distinct
+;; token. A row still naming the original install value owns that successor of
+;; nothing. `owns-live-incarnation?` proves ownership by matching the recorded
+;; install-value token to the live frame's current token, so a stale row does
+;; NOT assert ownership of a successor — whatever the remount's fingerprint.
+;; ===========================================================================
+
+(deftest fh-root-004-a-config-bearing-remount-over-a-same-id-successor-fails-loud
+  (testing "Per FH-ROOT-004 / rf2-drpa3.110 (browser): install-own → same-id
+            teardown+reincarnation → remount. A root installs incarnation A (its
+            value token recorded); external code destroys A and stands a same-id
+            successor B; the root remounts under the SAME plan. :installed-by
+            still names the root, but its recorded token no longer identifies the
+            live frame, so the stale row does NOT assert ownership of B — the
+            remount fails loud before mutation, B is untouched, and the final
+            unmount of the original installer destroys exactly the original
+            incarnation (already gone), no-ops against B, and empties the ledger."
+    (if-not (browser?)
+      (skip! "the browser job runs the same-id-successor remount assertions")
+      (async done
+        (reg!)
+        (let [node    (host-node!)
+              fid     :fh.root/succ-same-plan
+              plan    {:frame {:id fid :initial-events [[:root/seed 1]]}}
+              a-token (atom nil)
+              b-token (atom nil)]
+          (-> (act #(v/mount [views/counter {}] node plan))
+              (.then
+                (fn [installer]
+                  (reset! a-token (frame/frame-incarnation-token fid))
+                  (is (identical? @a-token
+                                  (frame/frame-value-incarnation-token
+                                    (:installed-value (get (root/frame-ledger-snapshot) fid))))
+                      "the install recorded A's exact incarnation token")
+                  ;; external: destroy A, stand a same-id successor B.
+                  (rf/destroy-frame! fid)
+                  (rf/make-frame {:id fid :initial-events [[:root/seed 2]]})
+                  (reset! b-token (frame/frame-incarnation-token fid))
+                  (is (not (identical? @a-token @b-token))
+                      "B is a distinct incarnation")
+                  ;; same-plan remount over B — the recorded token no longer matches.
+                  (let [data (error-data #(v/mount [views/counter {}] node plan))]
+                    (is (= :rf.error/frame-payload-conflict (:rf.error/id data))
+                        "the stale row does not assert ownership of the successor")
+                    (is (= :scope-config-less-or-own-the-lifetime (:recovery data)))
+                    (is (= fid (:frame-id data))
+                        "and the diagnostic names the frame at stake")
+                    (is (identical? @b-token (frame/frame-incarnation-token fid))
+                        "B is untouched — the guard fired before any mutation"))
+                  (act #(v/unmount! installer))))
+              (.then
+                (fn [_]
+                  (is (some? (frame/frame fid))
+                      "final unmount destroyed EXACTLY the original incarnation
+                       (already gone) and no-opped against the successor")
+                  (is (identical? @b-token (frame/frame-incarnation-token fid))
+                      "so B — the successor — still stands, its exact incarnation")
+                  (is (empty? (root/frame-ledger-snapshot))
+                      "and the ledger is emptied: the installer released its own row")
+                  (rf/destroy-frame! fid)
+                  (.remove node)
+                  (done))
+                (fn [e]
+                  (is false (str "same-id-successor remount suite rejected: " e))
+                  (.remove node)
+                  (done)))))))))
+
+(deftest fh-root-004-a-config-refresh-over-a-same-id-successor-cannot-take-it-over
+  (testing "Per FH-ROOT-004 / rf2-drpa3.110 (browser): the CHANGED-fingerprint
+            arm of the same breach. With a config edit the remount's fingerprint
+            differs, so make-frame WANTS to run — and address-directed it would
+            run against the successor B, surgically rewriting B's config and
+            recording B's token as the install value: a silent takeover the final
+            unmount would consummate by destroying B. The ownership proof fires
+            FIRST, before make-frame: the recorded token names the dead original,
+            not B, so the refresh is refused and B is preserved exactly."
+    (if-not (browser?)
+      (skip! "the browser job runs the same-id-successor refresh assertions")
+      (async done
+        (reg!)
+        (let [node    (host-node!)
+              fid     :fh.root/succ-refresh
+              plan-x  {:frame {:id fid :initial-events [[:root/seed 1]]}}
+              plan-y  {:frame {:id fid :initial-events [[:root/seed 1] [:root/noop]]}}
+              b-token (atom nil)]
+          (rf/reg-event :root/noop (fn [{:keys [db]} _] {:db db}))
+          (-> (act #(v/mount [views/counter {}] node plan-x))
+              (.then
+                (fn [installer]
+                  ;; external: destroy A, stand a same-id successor B.
+                  (rf/destroy-frame! fid)
+                  (rf/make-frame {:id fid :initial-events [[:root/seed 2]]})
+                  (reset! b-token (frame/frame-incarnation-token fid))
+                  ;; a config EDIT (different fingerprint) over B — make-frame would
+                  ;; run address-directed against B if the guard did not precede it.
+                  (let [data (error-data #(v/mount [views/counter {}] node plan-y))]
+                    (is (= :rf.error/frame-payload-conflict (:rf.error/id data))
+                        "the config refresh cannot take over a frame it cannot prove it owns")
+                    (is (= :scope-config-less-or-own-the-lifetime (:recovery data)))
+                    (is (identical? @b-token (frame/frame-incarnation-token fid))
+                        "B's EXACT incarnation is untouched — the guard fired before
+                         make-frame could rewrite its config or record its token"))
+                  (act #(v/unmount! installer))))
+              (.then
+                (fn [_]
+                  (is (some? (frame/frame fid))
+                      "and the final unmount never reached B — the install value still
+                       named the original incarnation, so teardown no-opped against
+                       the successor rather than destroying it")
+                  (is (identical? @b-token (frame/frame-incarnation-token fid)))
+                  (is (empty? (root/frame-ledger-snapshot)))
+                  (rf/destroy-frame! fid)
+                  (.remove node)
+                  (done))
+                (fn [e]
+                  (is false (str "same-id-successor refresh suite rejected: " e))
+                  (.remove node)
+                  (done)))))))))
