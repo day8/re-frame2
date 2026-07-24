@@ -816,16 +816,16 @@
 
   Shared harness primitive (rf2-wy414k)."
   [steps]
-  (let [out (atom #{})]
-    ((fn walk [form]
-       (cond
-         (and (vector? form) (= :cofx-key (first form)))
-         (swap! out conj (second form))
-
-         (coll? form)
-         (doseq [x form] (walk x))))
-     steps)
-    @out))
+  ;; `tree-seq` flattens the step tree; the transducer picks the `[:cofx-key K]`
+  ;; nodes and takes their `K` (rf2-b8goi — was a scratch atom + `doseq` walk).
+  ;; `tree-seq` also descends INTO a matched node where the hand-rolled walk
+  ;; stopped, so a `[:cofx-key K]` whose K nested a further `[:cofx-key …]`
+  ;; would now also be collected. Unreachable under the DSL grammar (a cofx-id
+  ;; is a keyword), and a superset either way — never a miss.
+  (into #{}
+        (comp (filter #(and (vector? %) (= :cofx-key (first %))))
+              (map second))
+        (tree-seq coll? seq steps)))
 
 (defn realise-cofx-supplier
   "DSL body `steps` → a value-returning cofx supplier `(fn [] value)` (EP-0017
