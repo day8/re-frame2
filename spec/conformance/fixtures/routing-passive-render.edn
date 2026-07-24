@@ -1,0 +1,93 @@
+;; Conformance fixture: routing/passive-render
+;; EP-0037 Governing Law 1 — views are derivative projections. Rendering
+;; reads; only an interaction crosses the causal boundary.
+;;
+;; The host-agnostic corpus has no render harness (see
+;; spec/conformance/README.md "Render-time observables (out of scope)"), so
+;; this fixture pins the law over the pure-data SUBSTRATE a render is built
+;; from rather than a mounted component tree:
+;;
+;;   * a routed view and a route-link view REGISTER cleanly — the reg-view
+;;     path every render depends on;
+;;   * reading the current route through the :rf/route sub RETURNS the
+;;     projected slice and changes nothing (rendering reads);
+;;   * a route-link's href is a PURE projection — route-url of the address,
+;;     computed without navigating (rendering computes an href; it does not
+;;     travel to it);
+;;   * after all of that the current route is UNCHANGED and no
+;;     :rf.route/navigate, resource ensure, or application event has fired.
+;;
+;; The complementary INTERACTION arm — a click dispatching :rf.route/navigate
+;; — is pinned by routing-navigate.edn (the one causal boundary); the INTENT
+;; arm (:prefetch :intent) is added by EP-0037 R3. Passivity is enforced by
+;; STATE here (the :final-runtime-db current-route and the :sub-values read
+;; are unchanged), because a spurious render-side navigate/ensure would move
+;; the current route or leave residue.
+
+{:fixture/id           :routing/passive-render
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler :core/sub}
+ :fixture/doc          "EP-0037 Governing Law 1 (views are derivative projections): registering a routed view + a route-link view, seeding a route, reading the :rf/route sub, and computing a link href via route-url produce NO navigation, resource ensure, or application event — the current route is unchanged and the trace carries only the seed. Rendering reads; only interaction (routing-navigate.edn) crosses the causal boundary; the intent/prefetch arm is EP-0037 R3."
+
+ :fixture/registry
+ {:event {:rf/init           {:doc "Seed the current route slice."}
+          :rf.route/navigate {:doc "Available for a click handler to CAUSE navigation — deliberately NOT dispatched here, because rendering must never invoke it."}}
+  :sub   {:rf/route {:doc "Current route slice — read passively by a routed view; the framework route-sub-fn projects it."}}
+  :route {:route/home     {:path "/"}
+          :route/articles {:path "/articles"}
+          :route/article  {:path   "/articles/:slug"
+                           :params [:map [:slug :string]]}}
+  :view  {:articles-index {:doc "A routed view. Its body READS the active route id at render time and projects it — a derivative projection, no cause."}
+          :home-link      {:doc "A route-link view. It renders an anchor whose href is a pure route-url projection (asserted by the :route-url calls below), not a navigation."}}}
+
+ :fixture/handlers
+ {:event {:rf/init [[:set-runtime [:rf.runtime/routing :current]
+                     {:route-id :route/home :params {} :query {}
+                      :fragment nil :transition :idle :error nil}]]}
+
+  ;; View bodies are realised by the conformance DSL as render fns (never
+  ;; invoked during a Mode-A drain — render-time observables are out of
+  ;; scope). The routed view's [:db-get ...] is a render-time READ; the link
+  ;; view is an ordinary anchor. Neither body causes anything.
+  :view  {:articles-index
+          [[:hiccup [:section.articles
+                     [:h1 "Articles"]
+                     [:span.route [:db-get [:rf.runtime/routing :current :route-id]]]]]]
+          :home-link
+          [[:hiccup [:a.nav {:href "/"} "Home"]]]}}
+
+ :fixture/frame-config {:initial-events [[:rf/init]] :platform :client}
+
+ ;; No interaction. The whole run is the passive act of setting up + reading.
+ :fixture/dispatches []
+
+ ;; The route-link "renders" its href by calling route-url — a pure
+ ;; projection of the address. These never navigate: the current route
+ ;; asserted below is still :route/home after they run.
+ :fixture/calls
+ [{:call :route-url :route-id :route/articles :params {}
+   :expect "/articles"}
+  {:call :route-url :route-id :route/article :params {:slug "intro"}
+   :expect "/articles/intro"}
+  {:call :route-url :route-id :route/article :params {:slug "intro"}
+   :query {:tab "notes"} :fragment "reply"
+   :expect "/articles/intro?tab=notes#reply"}
+  {:call :round-trip :url "/articles/intro"}]
+
+ :fixture/expect
+ ;; PASSIVITY, pinned by STATE: the seeded route is UNCHANGED. Registering the
+ ;; routed view + the link, reading the sub, and computing hrefs neither
+ ;; navigated, ensured a resource, nor dispatched an application event.
+ {:final-runtime-db
+  {:rf.runtime/routing
+   {:current {:route-id :route/home :params {} :query {}
+              :fragment nil :transition :idle :error nil}}}
+
+  ;; Reading the route sub returns the projected slice, unchanged by the read.
+  :sub-values {[:rf/route] {:route-id :route/home :params {} :query {}
+                            :fragment nil :transition :idle :error nil}}
+
+  ;; The only event in the whole run is the seed. No :rf.route/navigate, no
+  ;; resource ensure, no application event was caused by rendering.
+  :trace-emissions
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/init}}]}}

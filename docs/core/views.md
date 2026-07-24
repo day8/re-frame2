@@ -393,6 +393,45 @@ most common way re-frame2 apps get accidentally slow; the hunt and the fix are i
 You can compose registered views, subscribe in / dispatch out, keep computation in
 subs, and seed setup via `:initial-events`. That closes the pure pipeline stages.
 
+## Rendering reads; interaction dispatches
+
+A view is a *derivative projection*: it turns state into hiccup, and that is all it
+does. Reading is its whole job — props, local pure values, and any subscription
+(`:rf.route/id`, `:rf/resource`, your own derived subs) are all fair game inside a
+render body, because reading a value cannot change the world. What a view must never
+do is *cause*: it does not fetch, ensure a resource, navigate, or dispatch merely
+because it rendered.
+
+That line is the causal boundary. Rendering sits on the reading side of it; a *user
+or host interaction* — a click, a keypress, an `:on-*` callback — is what crosses to
+the causing side. Dispatch from a click handler is exactly right; a fetch on the
+render path is exactly wrong.
+
+```clojure
+;; RIGHT — render reads; the click causes.
+(rf/reg-view article-link [slug]
+  (let [current @(subscribe [:rf.route/id])]            ; read in render — fine
+    [:a {:class    (when (= current :route/article) "active")
+         :on-click #(dispatch [:rf.route/navigate       ; cause on interaction — fine
+                               {:to :route/article :params {:slug slug}}])}
+     "Read it"]))
+
+;; WRONG — the ensure runs because the view rendered, so it re-fires on every
+;; re-render and races every other view showing the same article.
+(rf/reg-view article [slug]
+  (dispatch [:rf.resource/ensure {:resource :article/by-slug   ; DON'T
+                                  :params   {:slug slug}}])
+  [:article @(subscribe [:rf/resource {:resource :article/by-slug
+                                       :params   {:slug slug}}])])
+```
+
+Calling `fetch`, a resource `ensure`, `navigate`, or `dispatch` *during* render is not
+a supported pattern. Every fix moves the cause to where it belongs: a
+[route's `:resources`](../routing/concepts.md) declaration, an event handler's `:fx`,
+or the `:on-*` handler an interaction fires. And there is no escape hatch coming —
+**no load-from-view API will ever ship.** A view that seems to need one is really
+telling you a *cause* is registered in the wrong place.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
