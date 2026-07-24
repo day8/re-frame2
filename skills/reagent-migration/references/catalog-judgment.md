@@ -24,20 +24,17 @@ order of how often they are right:
   a reload cares about — a selected filter, a draft the app acts on, a panel the
   URL should reflect. A `reg-event` writes it, a `reg-sub` reads it, the view
   becomes a pure render. This is a dataflow change the skill *names* for the
-  author (cardinal rule 5), not a view rewrite.
-
-  Do not be squeamish about "app-db for a dropdown flag". Frame state is cheap,
-  and it is what makes the toggle inspectable, replayable and testable. A
-  Reagent codebase reaches for `r/atom` because the alternative was ceremony;
-  here the alternative is two small registrations.
+  author (cardinal rule 5), not a view rewrite. Do not be squeamish about
+  "app-db for a dropdown flag": frame state is cheap, and it is what makes the
+  toggle inspectable, replayable and testable.
 
 - **A control that owns a genuine multi-interaction protocol → a semantic
   controller.** A field that drafts and commits on blur-or-Enter, a typeahead
-  holding a typed query beside a settled one, a dropdown holding an open flag
-  beside an active option. A controller is **not a new kind of thing**: it is an
-  ordinary `v/defview` plus ordinary `reg-sub` / `reg-event`, whose state is
-  ordinary frame data. What the substrate adds is three verbs answering *where*
-  the record lives and *when* it is still the one the caller means:
+  holding a typed query beside a settled one. A controller is **not a new kind
+  of thing**: it is an ordinary `v/defview` plus ordinary `reg-sub` /
+  `reg-event`, whose state is ordinary frame data. What the substrate adds is
+  three verbs answering *where* the record lives and *when* it is still the one
+  the caller means:
 
   ```clojure
   (v/defview buffered-field [props]
@@ -52,11 +49,10 @@ order of how often they are right:
   position. An absent `:control` is refused rather than defaulted. Asking for
   the key is what makes a controller **writable**; asking for the revision is
   what makes it **buffered**, and the two are separable.
-
   `v/controller-current?` is the generation fence, asked at both boundaries — a
   draft is *displayed* only while current, and only a current record may produce
   the caller's intent. It is total and safe in the missing direction: an absent
-  stamp is not current. That is the half a hand-rolled `(= a b)` gets wrong.
+  stamp is not current, which is the half a hand-rolled `(= a b)` gets wrong.
 
   **Reach for this only when the control really owns a protocol.** A view that
   takes a value and emits an intent is props-only, calls none of these verbs,
@@ -107,21 +103,14 @@ The mapping from Form-3 is direct, and better-specified than what it replaces:
 | `component-did-update` | `:update` — runs **only** when the committed `:config` moves by `rf=`, with `:prev-config` alongside |
 | `component-will-unmount` | `:disconnect` — exactly once per committed connection, after release |
 
-Two things that need a decision rather than a translation:
-
-- **`:timing` is a closed pair and you must choose.** `:layout` runs before the
-  browser paints — the only honest home for measure-then-place work (placing a
-  popover from an anchor's geometry, sizing a viewport, an initial focus ring
-  that must be on screen at first paint). `:passive` (the default) runs after
-  paint, and is right for listeners and deferrable setup. Reagent's
-  `component-did-mount` fired pre-paint, so work that would flicker under
-  `:passive` belongs in `:layout`. There is no third moment.
-- **`:config` is data at every depth.** A callback, a node, a ref or a
-  preconstructed host instance is refused on both hosts. If the Form-3 body
-  closed over a function the library needs, that function has to become
-  registered code or a `:commands` entry, not a config value. A one-shot
-  operation on a live connection is an ordinary effect against
-  `:re-frame.freehand.host/command`, addressed by `:target`.
+Two things need a decision rather than a translation, and both are traps
+([`gotchas.md`](gotchas.md) §Behaviors): **`:timing`** is a closed pair and the
+default (`:passive`, after paint) is *not* where `component-did-mount` ran, so
+measure-then-place work has to declare `:layout`; and **`:config` is data at
+every depth**, so a function the Form-3 body closed over becomes registered code
+or a `:commands` entry rather than a config value. A one-shot operation on a
+live connection is an ordinary effect against
+`:re-frame.freehand.host/command`, addressed by `:target`.
 
 `:opaque true` declares that the behavior owns the node's descendants, which
 makes Freehand children on that node an error rather than content the host would
@@ -142,13 +131,11 @@ equivalent, by design** — and a behavior's `:disconnect` is not a place to
 smuggle it back in. Mount and unmount are host facts, not domain facts.
 
 So re-home the lifetime to whatever **causally** ends the thing: a route's
-`:resources` entry released on every route leave, a machine actor, an SSR
-request, or a semantic app event that mints an owner and a matching event that
-ends it. The discipline is completeness — enumerate **every** exit path and
-prove each one releases. Naming a plausible end event is not completion: the
+`:resources` entry released on every route leave, a machine actor, or a semantic
+app event that mints an owner and a matching event that ends it. The discipline
+is completeness — enumerate **every** exit path and prove each one releases. The
 classic leak is an enumeration that covers "save" and "delete" and misses
-"navigate away". Scope that owner with the author (cardinal rule 5); the skill
-names it, the author writes it.
+"navigate away". Scope that owner with the author (cardinal rule 5).
 
 ### `:component-did-catch` → `v/error-boundary`
 

@@ -1,9 +1,13 @@
 ---
 name: re-frame2-ui
 description: >
-  Writes, reviews, and debugs view code for re-frame2's experimental
-  compiled-view substrate `re-frame.ui` (artefact `day8/re-frame2-ui`,
-  alias `ui/`) — `defview` components, the closed template grammar,
+  Writes, reviews, and debugs view code for `re-frame.ui` (artefact
+  `day8/re-frame2-ui`, alias `ui/`) — re-frame2's compiled-view substrate,
+  now the DONOR being absorbed into Freehand. Use it for an app that
+  ALREADY depends on `day8/re-frame2-ui`; for new view work on the
+  re-frame-native view layer, or for porting Reagent views onto it, route
+  to `reagent-migration` and `spec/004-Views.md` instead —
+  `defview` components, the closed template grammar,
   reactive `(sub …)` reads, handlers-as-data (event vectors, `ui/event`,
   `ui/handler`, the bare-fn shorthand), view-local state and effects
   (`ui/local`, `ui/effect`, `ui/ref`), presence, frames and roots
@@ -34,9 +38,26 @@ allowed-tools:
 
 # Writing re-frame.ui views
 
-`re-frame.ui` is re-frame2's **compiled-view substrate** — an **experimental,
-opt-in** alternative to the Reagent, UIx, and reagent-slim adapters, which
-remain first-class. You write hiccup as data; a compiler reads it at *build*
+!!! warning "`re-frame.ui` is the donor substrate"
+
+    **Freehand** (`re-frame.freehand`, alias `v`) is re-frame2's re-frame-native
+    view layer, and it **absorbs** `re-frame.ui` — the compiled tier below is
+    the machinery Freehand is taking over, and the standalone `day8/re-frame2-ui`
+    artefact is scheduled for deletion once absorption completes. Nothing here is
+    a target for **new** view work.
+
+    Load this skill for an app that **already depends on `day8/re-frame2-ui`**:
+    reading, reviewing, debugging or maintaining views it already has. For
+    porting Reagent views onto the re-frame-native layer, use
+    [`reagent-migration`](../reagent-migration); for Freehand's own contract and
+    exported roster, read `spec/004-Views.md` and `spec/API.md` §Freehand views.
+    Freehand's shapes are deliberately **not** `ui/` shapes — it has no `local`,
+    no `ref`, no `effect` and no `frame-root`, so do not carry an idiom across
+    from this page by analogy.
+
+`re-frame.ui` is re-frame2's **compiled-view substrate** — an opt-in
+alternative to the Reagent, UIx, and reagent-slim adapters, which remain
+first-class. You write hiccup as data; a compiler reads it at *build*
 time and lowers it to direct React construction in the browser and a versioned
 structural tree on the JVM. There is no runtime hiccup interpreter in the
 production bundle, so anything the compiler cannot prove is a **compile error
@@ -450,9 +471,13 @@ default): `render`, `attrs`, `text`. CLJS mounted (Tier-3): `with-root`,
 
 Routing is single-sourced at `skills/README.md` §Skill routing. In brief:
 events, subs, effects, machines, schemas, and everything upstream of the
-view → **`re-frame2`**; porting existing Reagent views onto this substrate →
+view → **`re-frame2`**; porting existing Reagent views onto **Freehand**, the
+re-frame-native view layer this substrate is being absorbed into →
 **`reagent-migration`** (optional; staying on Reagent/UIx/reagent-slim is
 first-class); a running app to inspect or drive → **`re-frame2-pair`**.
+
+**New view work does not start here.** This skill maintains what an app
+already has on `day8/re-frame2-ui`.
 
 Deep references, in the re-frame2 repo:
 

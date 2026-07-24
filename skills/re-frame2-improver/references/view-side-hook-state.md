@@ -31,6 +31,8 @@ Move the state to `app-db` behind a `reg-sub`. Reads use `(subscribe [:sub-id])`
 
 Spec source: [`spec/Principles.md`](../../../spec/Principles.md) (single source of truth for application state) and [`spec/004-Views.md`](../../../spec/004-Views.md) (views as pure projections).
 
+**On Freehand this anti-pattern has no spelling.** `re-frame.freehand` deliberately exports no `local`, no `ref` and no `effect`, so a `v/defview` cannot hold state at all — the fix above is the only shape available, and the finding degenerates into "this view is not Freehand yet". The two carve-outs the Reagent version allows land elsewhere: a control that genuinely owns a multi-interaction protocol (a field that drafts and commits, a typeahead) becomes a **semantic controller** — an ordinary `v/defview` plus `reg-sub`/`reg-event`, addressed through `v/controller-key` and fenced by `v/controller-revision` / `v/controller-current?`, so its state is still ordinary frame data a tool can see — and state that really is the DOM's becomes a **registered behavior** (`v/defbehavior` + `[v/behavior …]`) bounded to one node. Reviewing a Freehand codebase, the equivalent smell is a behavior whose `:config` is carrying application state rather than configuration.
+
 ## Worked example
 
 **Before** — view-side atom shared across components:

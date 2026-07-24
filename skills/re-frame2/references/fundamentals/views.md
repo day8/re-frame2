@@ -89,6 +89,24 @@ The shape is identical; the registration surface differs by adapter (cross-ref t
 
 The `reg-view` macro (and its injected locals) is **Reagent-only** — it does not cover UIx (spec 004, Decision 4). On the hooks adapter a UIx component is an ordinary `defui`: it reads subs through the adapter's `use-subscribe` hook (no injected `subscribe`) and carries the frame — for dispatch, and for any async callback that fires after render — through the **`use-frame`** hook (the hook-position spelling of `capture-frame`, reading the surrounding `frame-provider` / `frame-root` from React context). `reg-view*` on this adapter is optional, only when a component needs registry-keyed view addressing — never the source of the frame wiring.
 
+## Freehand — the re-frame-native peer
+
+Everything above is the **adapter** story: re-frame2 drives a React view layer someone else wrote (Reagent, reagent-slim, UIx, Helix), and `reg-view` is how a component becomes frame-aware inside it. Those adapters are first-class and stay that way.
+
+**Freehand** (`re-frame.freehand`, conventionally aliased `v`) is the other option — a view layer re-frame2 owns, so the view tier stays in the same data story as the rest of the app. The differences that matter when you are choosing:
+
+- A view is a **declaration**, not a function. `(v/defview card [{:keys [title]}] …)` binds a descriptor; `[card {:title t}]` mounts a boundary and `(card {…})` raises `:rf.error/view-called-directly`. There is no Form-1/2/3 question and no `:contextType` footgun, because there is no way to accidentally call a view inline.
+- A view takes **exactly one** parameter, its props map — no positional arguments, and `[_]` for a view that reads none.
+- Subscriptions are read with `(v/sub [:query …])`, which returns the **value**. Nothing to deref, and no injected locals — the render owns the read, including through an ordinary `defn` helper it calls.
+- Handlers are **event vectors as data**: `{:on-click [:cart/add id]}`, with `::v/value` / `::v/checked` / `::v/key` as the closed roster of live-scalar markers. A structural test can then assert what a button does with `=`, no browser involved.
+- The view holds **no state and no lifecycle**: there is no `local`, no `ref` and no `effect`. Product state is app-db behind events, a control that owns a real protocol is a semantic controller, and DOM-owning work is a registered behavior over one node (`v/defbehavior` + `[v/behavior …]`).
+
+Everything upstream of the view is unchanged — the same `reg-event`, `reg-sub`, app-db, effects, frames, machines and routing this skill teaches. Only the view spelling and its host move.
+
+**Status: pre-alpha.** `day8/re-frame2-freehand` has no published coordinate yet, and its host boundary for foreign React components has not landed, so a view mounting a third-party React component still belongs on an adapter. Choosing an adapter today is a good decision, not a deferred one.
+
+Porting existing Reagent views across is the [`reagent-migration`](../../../reagent-migration) skill. The contract is `spec/004-Views.md`, and the exported roster is `spec/API.md` §Freehand views — check a verb there before writing it, because the design corpus describes several that are not exported.
+
 ## Common gotchas
 
 - **A plain `(defn …)` view raises `:rf.error/no-frame-context` under a non-default frame.** A plain Reagent fn carries no `:contextType`, so it **cannot read the surrounding `frame-provider`'s frame** — its ambient `rf/subscribe` / `rf/dispatch` resolve to nil and fail loud (EP-0002 — no `:rf/default` fall-through; `:recovery :supply-frame`). The fix is `reg-view` (picks up the frame via the injected wiring) or, to keep it a plain fn, carrying the frame explicitly — `(rf/capture-frame frame-id)`, a `{:frame …}` opt, or a frame api threaded down from a registered ancestor. A **bare** no-arg `(rf/capture-frame)` inside the plain fn does not help: with no scope to read it re-raises the same error (no-arg capture works only from a live scope — a registered view, or a synchronous `with-frame` around the operation). See [frames.md §`frame-provider` and `frame-root` in views](frames.md#frame-provider-and-frame-root-in-views).
