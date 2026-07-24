@@ -3891,6 +3891,26 @@
                                {:form form})
     (vector? form)
     (let [head (nth form 0 nil)]
+      ;; `^{:key …}` is the Reagent spelling, and it is refused HERE — at
+      ;; the form that carries it — rather than where its absence is later
+      ;; noticed (rf2-drpa3.163). A `for` body written this way used to be
+      ;; reported as MISSING a key while the author was looking at one, and
+      ;; the same metadata on an ordinary child was ignored outright while
+      ;; the interpreted walk silently dropped it. One rule, one sentence,
+      ;; every position.
+      (when (contains? (meta form) :key)
+        (env/fail! e :rf.ui.compile/metadata-key
+                   (str "a :key in METADATA — ^{:key …} — on " (pr-str form)
+                        ". Freehand reads no metadata-carried contract, so "
+                        "this key reaches neither the tree nor React. A key "
+                        "is a PROPS slot here, in both modes and on both "
+                        "hosts: write [:li {:key k} …], or [:<> {:key k} …] "
+                        "around content with no props map of its own. "
+                        "(Reagent honours the metadata spelling; this "
+                        "substrate has one spelling for a key, and the "
+                        "interpreted walk refuses the other rather than "
+                        "dropping it.)")
+                   {:form form}))
       (cond
         (= :<> head)     (analyze-fragment e form)
         (keyword? head)  (analyze-element e form)

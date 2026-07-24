@@ -469,9 +469,15 @@
             nothing to promote. What cost something was the view around it:
             the compiled grammar refused `[:th {:on-click [:ledger/sorted
             key]}]` because the event vector captures a `for` binding, and
-            refused `^{:key k}` metadata because a compiled list row carries
-            a literal `:key` PROP. Both refusals are right and both messages
+            refused `^{:key k}` metadata because a list row carries a
+            literal `:key` PROP. Both refusals are right and both messages
             are excellent. Neither is a one-line change.
+
+            The metadata refusal was the compiled tier's ALONE when this
+            pilot was written, and the interpreted twin above therefore
+            rendered an unkeyed table with every assertion here green
+            (rf2-drpa3.163). Both modes refuse it now, and the interpreted
+            declaration keys through the props slot like its twin.
 
             The trees are therefore text-equal rather than shape-equal: the
             recovery introduced child boundaries the interpreted twin does

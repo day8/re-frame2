@@ -113,6 +113,35 @@
   (testing "a body carrying no row at all keeps the general message"
     (is (= :rf.ui.compile/unkeyed-list-item (reject-id '(for [x xs] (str x)))))))
 
+(deftest a-metadata-key-is-refused-where-it-is-written
+  (testing "rf2-drpa3.163. `^{:key …}` is the Reagent spelling, so it is
+            the one a v1 hand writes first. It used to be a hard build
+            failure reported as a MISSING key — pointing the author at a
+            row that has one — while the interpreted walk dropped it in
+            silence. It is refused HERE now, at the form that carries it,
+            with the sentence that names metadata."
+    (let [row (with-meta '[:li x] {:key 'x})]
+      (is (= :rf.ui.compile/metadata-key (reject-id row))
+          "the form carrying the metadata is the form refused")
+      (let [msg (reject-msg row)]
+        (is (str/includes? msg "METADATA") "the sentence names metadata")
+        (is (str/includes? msg "[:li {:key k} …]")
+            "and gives the props-slot spelling")
+        (is (not (str/includes? msg "missing :key"))
+            "and never reports as missing a key that is present"))))
+  (testing "a for body written the Reagent way reports the metadata, not
+            an absent key — the two diagnostics no longer contradict each
+            other about the same source"
+    (is (= :rf.ui.compile/metadata-key
+           (reject-id (list 'for '[x xs] (with-meta '[:li x] {:key 'x}))))))
+  (testing "the ladder says the one thing there is to do"
+    (is (= [:key-in-the-props-map :keep-interpreted]
+           (grammar/recovery :rf.ui.compile/metadata-key)))
+    (is (= :key-is-in-metadata (check/reason :rf.ui.compile/metadata-key))))
+  (testing "and the recovery compiles — the props spelling is accepted at
+            exactly the site the metadata one was refused"
+    (is (nil? (reject-id '(for [x xs] [:li {:key x} x]))))))
+
 (deftest finite-sites
   (is (= :rf.ui.compile/sub-in-loop
          (reject-id '(for [x xs] [:li {:key x} (sub [:q x])]))))

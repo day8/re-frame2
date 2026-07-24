@@ -371,19 +371,25 @@
 (v/defview headless-table
   "A headless table core rendered as ORDINARY Freehand markup. No behavior,
   no leaf, no bridge, no wrapper — the integration needed no host shape at
-  all, which is the honest answer for this whole class of library."
+  all, which is the honest answer for this whole class of library.
+
+  Every row is keyed through the PROPS slot. This pilot was written with
+  the Reagent `^{:key …}` metadata spelling, which is what a hand arriving
+  from v1 reaches for — and which both interpreted walks dropped in
+  silence, leaving this table unkeyed while every assertion below stayed
+  green (rf2-drpa3.163). Both modes refuse the metadata spelling now, so
+  the correction is here rather than in a future adopter's tree."
   [_]
   (let [{:keys [header rows]} (v/sub [:ledger/table])]
     [:table.ledger
      [:thead
       [:tr (for [{:keys [key label]} header]
-             ^{:key key} [:th [:button.sort {:on-click [:ledger/sorted key]} label]])]]
+             [:th {:key key} [:button.sort {:on-click [:ledger/sorted key]} label]])]]
      [:tbody
       (for [{:keys [id cells]} rows]
-        ^{:key id}
-        [:tr {:data-row-id (str id)}
+        [:tr {:key id :data-row-id (str id)}
          (for [{:keys [key value]} cells]
-           ^{:key key} [:td {:data-col (name key)} (str value)])])]]))
+           [:td {:key key :data-col (name key)} (str value)])])]]))
 
 ;; ===========================================================================
 ;; Refusal probes — the shapes that are NOT reachable
