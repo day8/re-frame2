@@ -505,9 +505,20 @@ root**. These are independent axes, and preflight keeps them independent: no pro
 may claim a root or its DOM committed merely because `root.render` returned, a host
 update was scheduled, or a frame remained live.
 
-**Authority — who may write the record.** An `:installed-by` record is root-OWNED: that
-root, and only that root, may refresh it (a same-root fingerprint change is the surgical
-HMR refresh above, not a conflict). An `:adopted-by` + `:adopted true` record merely
+**Authority — who may write the record.** An `:installed-by` record names the root that
+ENSUREd the frame, but that name alone does not prove the incarnation live under the id
+NOW is the one that root installed. Ownership is proven against the LIVE incarnation
+token: the value the install recorded carries the frame's `:rf.frame/incarnation-token`,
+and the record owns the current live frame only while that recorded token is identically
+the live frame's token. On that proof — and only on it — that root, and only that root,
+may refresh the record or take the ratified no-op (a same-root fingerprint change is the
+surgical HMR refresh above, not a conflict). A recorded token that names a torn-down
+incarnation — the installed frame was destroyed and re-created under the same id, so the
+row now names a same-id SUCCESSOR it never installed — proves nothing, and neither does a
+token-less legacy row a `defonce` ledger carried across a reload; a config-bearing plan
+that meets such a live-but-unprovable frame fails under the SAME
+`:scope-config-less-or-own-the-lifetime` recovery as the boot-authoritative case below.
+An `:adopted-by` + `:adopted true` record merely
 SCOPES a boot/external frame — adoption is create-if-absent scoping and never transfers
 ownership. A config-BEARING plan that meets a boot-authoritative frame (plan-less and
 live, or already adopted) therefore fails the arriving root with
@@ -850,13 +861,22 @@ different lifetimes:
 
 The ENSURE shape creates the frame if it is absent and drains its
 `:initial-events`; meeting the same plan again is the ratified idempotent
-no-op, and re-seeding is precisely what it must not do. The SCOPE shape
-creates nothing, and a target naming no live frame fails loud rather than
-scoping every read below the root to a frame that is not there.
+no-op, and re-seeding is precisely what it must not do — but the no-op is
+admitted only while the root can PROVE it still owns the incarnation live
+under the id (§7.1): the value its install recorded carries the live
+frame's current `:rf.frame/incarnation-token`. An equal fingerprint over a
+frame the root can no longer prove it owns — the installed incarnation was
+destroyed and re-created under the same id by external code, or a
+token-less legacy row survived a reload — is NOT a no-op; it fails loud
+under `:scope-config-less-or-own-the-lifetime`, before `make-frame` and
+before React, rather than silently adopting a successor the root never
+installed. The SCOPE shape creates nothing, and a target naming no live
+frame fails loud rather than scoping every read below the root to a frame
+that is not there.
 
 Plans meeting one frame are reconciled by the §7 rule, unchanged: an equal
-config fingerprint is the no-op, and a DIFFERENT fingerprint recorded by a
-DIFFERENT root fails **that root** with
+config fingerprint over a PROVEN-owned incarnation is the no-op, and a
+DIFFERENT fingerprint recorded by a DIFFERENT root fails **that root** with
 `:rf.error/frame-payload-conflict`, before install and before React. The
 installed frame and the roots already using it are untouched — a bad plan
 affects exactly the roots carrying it.
@@ -871,8 +891,16 @@ container or prefix claim; the host root is unmounted, so every ViewCell
 beneath it has disconnected and released every dependency it owned and
 retired every callback it published; and the root's reference to its frame
 is gone. A frame the root ENSUREd is DESTROYED once no live root still
-references it; a frame the root merely SCOPED is left exactly as it was
-found, because the root borrowed it.
+references it — and destroyed by the EXACT incarnation value the install
+recorded, never by the bare frame-id. The recorded value carries the
+installed incarnation's token, so teardown consumes precisely that
+incarnation: a stale installer whose frame was already destroyed and
+re-created under the same id no-ops rather than reaching through to kill
+the successor, and a token-less legacy row — one a `defonce` ledger carried
+across a reload without a recorded value — likewise leaves the live frame
+untouched rather than destroying an incarnation it cannot prove it owns. A
+frame the root merely SCOPED is left exactly as it was found, because the
+root borrowed it.
 
 The count that matters is zero, and it is asserted as zero — not as
 "small", and not as the absence of a visible symptom. A leak here is a

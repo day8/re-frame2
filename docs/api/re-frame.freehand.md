@@ -152,7 +152,10 @@ elements — the child path is browser-only, like the mount verbs.
   (`:rf.error/duplicate-root-id`, `:rf.error/root-container-in-use`,
   `:rf.error/duplicate-identifier-prefix`) with the roots already on the page
   untouched. The `:frame` plan runs to completion before `createRoot`, so a body that
-  reads a subscription on its first render finds a frame that is already seeded.
+  reads a subscription on its first render finds a frame that is already seeded. A
+  config-bearing ENSURE meeting a frame already live whose incarnation this root cannot
+  prove it owns — a boot/external frame, or a same-id successor of the one it installed —
+  fails loud (`:scope-config-less-or-own-the-lifetime`) rather than taking it over.
   See [spec/004C-Roots-and-Mount.md](../../spec/004C-Roots-and-Mount.md#the-minimal-one-root-mount).
 - **Example**:
   ```clojure
@@ -214,8 +217,11 @@ elements — the child path is browser-only, like the mount verbs.
   unmounts, every ViewCell below it disconnects (releasing every dependency and
   retiring every published callback), and the root's reference to its frame is
   released. A frame the root **ENSUREd** is destroyed once no live root still
-  references it; a frame it merely **scoped** is left alone, because the root borrowed
-  it.
+  references it — and by the **exact incarnation** the install recorded, not the bare
+  frame-id, so a stale installer whose frame was already destroyed and re-created under
+  the same id, or a token-less legacy row a reload carried over, no-ops rather than
+  tearing down a successor it cannot prove it owns; a frame it merely **scoped** is left
+  alone, because the root borrowed it.
 
   **Guarded**, and a no-op rather than a throw when the guard fails: a root already
   unmounted, or superseded by a newer root claiming its id, has nothing left to
