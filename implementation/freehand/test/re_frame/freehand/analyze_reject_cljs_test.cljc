@@ -767,6 +767,20 @@
   (is (= :rf.ui.compile/bad-handler-options
          (reject-id '[:button {:on-click {:prevent-default true}} "x"]))
       "options maps need a literal :event vector")
+  ;; D007, discharged DELETE (rf2-drpa3.178): a map at an event position is
+  ;; the OPTIONS map and nothing else. The exact spelling the closed
+  ;; key-condition form used to claim is now an ordinary unknown-option
+  ;; reject at BUILD — not silently reinterpreted, and not passed through.
+  (is (= :rf.ui.compile/bad-handler-options
+         (reject-id '[:input {:on-key-down {"Enter" [:picker/accept]}}]))
+      "a string-keyed map on a key listener is an unknown listener option")
+  (is (= :rf.ui.compile/bad-handler-options
+         (reject-id '[:input {:on-key-down {"Enter" [:picker/accept]
+                                            :prevent-default true}}]))
+      "and mixing a string key into a real options map is the same reject")
+  (is (= :rf.ui.compile/bad-handler-options
+         (reject-id '[:button {:on-click {}} "x"]))
+      "an empty map is an options map with no :event")
   (is (= :rf.ui.compile/bad-ui-event
          (reject-id '[:input {:on-input (event [] [:x])}]))
       "v/event binds exactly the native event")

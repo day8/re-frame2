@@ -1,8 +1,18 @@
 # D007 — Should key-condition event maps be part of the grammar?
 
-Status: **Ruled**
+Status: **Ruled — gate discharged, outcome DELETE**
 Ruling: **Ship the closed key-condition map, including the normative
 composition rule, subject to its delete-before-release pilot gate.**
+Amendment (2026-07-25, rf2-drpa3.178): the gate is **discharged with
+outcome DELETE**. All four F5 pilots (rf2-drpa3.44) used the form ZERO
+times — including the dropdown this record names as the exemplar — so
+the gate's own wording discharges literally and the form is removed from
+the substrate rather than kept for symmetry. A map at an event position
+is the listener-options map and nothing else; keyboard branching is an
+ordinary registered event carrying `::v/key`, with `(v/event [e] …)` the
+escape where a browser mechanic must be decided synchronously. Nothing
+below is edited: the body stands as the historical record of the fork
+the gate existed to settle.
 
 Horizon: **Immediate**
 

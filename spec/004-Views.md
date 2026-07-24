@@ -601,14 +601,22 @@ options map:
 | `:capture` | native listener-attachment fact |
 
 The roster is closed, and an unknown key is rejected — an option that silently
-does nothing is an event site that looks correct and is not. The exact-key
-condition map for `:on-key-down` / `:on-key-up` is a **separate** closed form with
-its own section ([§Key-condition event maps](#key-condition-event-maps)); it is not
-a variant of this map, and mixing the two is an
-error. Native attachment for `:passive` or `:once` is internal event-adapter
-lifecycle, not a public effect system. The structural host runs no browser
-mechanics because it fires no native event; the options still normalize and
-still ride the site plan, so both hosts read one shape.
+does nothing is an event site that looks correct and is not. A **map** at an event
+position is this form and no other, so the roster is the whole grammar of a map
+there: a string key is an unknown option like any other, and an empty map is an
+options map that never stated its `:event`. Native attachment for `:passive` or
+`:once` is internal event-adapter lifecycle, not a public effect system. The
+structural host runs no browser mechanics because it fires no native event; the
+options still normalize and still ride the site plan, so both hosts read one
+shape.
+
+Keyboard branching is therefore an ordinary event: dispatch
+`[:picker/key-pressed ::v/key]` and branch in the registered handler, which can
+weigh committed application state; where the browser mechanic must be decided
+synchronously in the listener, write `(v/event [e] …)`. A closed exact-key
+condition map was shipped subject to a delete-before-release pilot gate and
+**deleted** when the pilots showed no use of it — see
+[D007](../docs/design/freehand/decisions/D007-key-condition-event-maps.md).
 
 **One event, or none.** After the shallow options are interpreted, a site yields
 exactly one event vector or `nil`. `nil` dispatches nothing — that is how a
@@ -627,86 +635,6 @@ an ordinary re-frame event.
 
 **Conformance:** [FH-EVENT-001](conformance/freehand/conformance-index.md#fh-event--events),
 FH-EVENT-002.
-
-### Key-condition event maps
-
-An accessible listbox, menu, dialog or typeahead needs a distinct intent *and*
-distinct browser mechanics per key, and `preventDefault` cannot be decided after
-dispatch — the browser wants its answer while the listener is still running. So a
-key listener may state its branches as data:
-
-```clojure
-[:input {:on-key-down {"Enter"     {:event [:picker/accept] :prevent-default true}
-                       "Escape"    [:picker/close]
-                       "ArrowDown" {:event [:picker/move 1] :prevent-default true}}}]
-```
-
-This is a **separate** closed form from the listener options map, not a variant of
-it, and it is deliberately small — the common finite part of keyboard handling, not
-a keyboard language. The ruling is
-[D007](../docs/design/freehand/decisions/D007-key-condition-event-maps.md).
-
-**Where it is legal, and what a branch may be.** Only on `:on-key-down` and
-`:on-key-up`, the two listeners that carry a key. The map's keys are exact
-`KeyboardEvent.key` strings, and each value is an event form that already exists: an
-event vector, an options map carrying `:event`, a `v/event`, or `nil`. Selection is
-**one level** and by exact equality — a nested map selects nothing, because a
-keystroke carries one key.
-
-**Selection, exactly.** A key with no branch dispatches nothing and runs no
-mechanics. A chord modifier — Ctrl, Alt or Meta — matches nothing, and neither does a
-keystroke arriving while an IME composition is in flight. Shift is deliberately not a
-chord: it is already reflected in `KeyboardEvent.key`, where `"?"` is not `"/"`, so
-excluding it would make every shifted key unmatchable. The selected branch then runs
-**its own** pre-dispatch mechanics and dispatches its intent, exactly as if that
-branch had been written at the site alone, and it inherits the site's payload
-materializer — so a branch intent may carry `::v/key` or any other projection.
-
-**A branch is narrower than a listener.** Its option roster is `:event`,
-`:prevent-default` and `:stop-propagation`: the mechanics that can still be run once
-the key is known. `:capture` and `:passive` are attachment facts settled when the
-listener goes onto the node, and `:once` retires the whole **site** rather than one
-key — all three are decided before any key has been read, so a branch cannot honour
-one, and naming one inside a branch is an error rather than an option quietly
-discarded. The consequence is worth stating plainly: a key-map site fires every time
-its key arrives, so two presses of Enter dispatch twice, and one-shot acceptance is
-state the receiving handler owns better than a listener does.
-
-**What is rejected.** A map mixing exact-key strings with listener options, an empty
-map — which is neither form — a branch that is not itself one intent, and a key map
-on a listener that carries no key. A `v/handler`, a bare function and a nested key
-map are all outside the branch roster for the same reason: a keyboard site that looks
-correct and selects nothing is worse than one that refuses.
-
-**One grammar, two front ends.** A map is the one shape the two closed forms share,
-and both front ends split it identically: listener options first, then the
-string-keyed exact-key form, with the empty and the mixed map named as the authoring
-errors they are. The compiled analyzer applies that split at **build** over the
-literal map and raises the same boundaries before a keystroke exists, under its
-build-time diagnostic id rather than the render one, so a declaration cannot mean one
-thing interpreted and another under `{:compiled true}`. A branch that is data lowers
-to itself; a `v/event` branch lowers to the same callback the interpreted spelling
-expands to, and one such branch makes the whole site opaque to the manifest exactly
-as a whole-handler `v/event` does.
-
-**Key listeners are not door sites.** The controlled-input synchronous door is two
-attributes wide and neither is a key listener
-([§Controlled inputs](#controlled-inputs)), so a key map on a controlled field is an
-ordinary batched site. There is nothing for the door to weigh, which is why the form
-carries no synchrony rule of its own.
-
-**Everything richer is `v/event`'s job.** No wildcard, no ordering, no regex, no
-modifier syntax, no platform alias and no state predicate. A control that genuinely
-handles composition keys, a modifier chord, or a decision that depends on live
-application state writes `(v/event [e] …)`, reads what it needs, and returns one
-intent — the honest escape, rather than a map language that grows a validator and a
-platform-correctness problem with every addition.
-
-**The form ships subject to a gate.** D007 admits it as evidence-seeking, not
-ornamental: if the component-library pilots show no repeated real use, it is deleted
-before release rather than kept for symmetry.
-
-**Conformance:** [FH-EVENT-005](conformance/freehand/conformance-index.md#fh-event--events).
 
 ### Callback roles and identity
 

@@ -51,7 +51,7 @@ settled when the first row in a candidate area lands.
 |---|---|---|
 | `CALL` | Calls | The declared boundary: vector-called descriptors, plain-helper direct calls, statically named children crossing the boundary, `:key`, occurrence identity and hot reload, and the rejected local/effect/ref declaration forms. |
 | `PROPS` | Props | One props map: reserved `:children`, stripped `:key`, shared equality and conversion, and the optional schema's metadata and validation semantics. |
-| `EVENT` | Events | The projection materializer, the options and key-map grammar, site and proxy lifetime, and the atomic selected bundle. |
+| `EVENT` | Events | The projection materializer, the closed listener-options grammar, site and proxy lifetime, and the atomic selected bundle. |
 | `INPUT` | Controlled input | The one exact door predicate, the frame-scoped synchronous flush, and the real-browser contention matrix. |
 | `SUB` | Subscriptions | Render-only subscription reads: value, resolution, invalidation, and commit safety; separately named one-shot reads; frame-context observation and the proof a compiled elision demands. |
 | `CTRL` | Controllers | Props-only by default; ordinary frame data keyed by kind plus an explicit address; semantic transitions and owner cleanup. |

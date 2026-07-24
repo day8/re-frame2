@@ -1212,27 +1212,29 @@
                   "while three of the four fields render byte-identical output"))))))))
 
 ;; ===========================================================================
-;; D007 — CASE A's datum: one data event, and the cost it pays
+;; The paved keyboard spelling — one data event, and the cost it pays
 ;; ===========================================================================
 
-(deftest d007-case-a-wants-suppression-not-prevent-default
-  (testing "rf2-drpa3.124, evidence for D007. The gate asks whether the
-            closed key-condition map earns its place. CASE A's datum is
-            that it did NOT use one, and the reason is the useful part.
+(deftest keyboard-intent-is-one-data-event-carrying-the-live-key
+  (testing "rf2-drpa3.124. CASE A's keyboard spelling, and the datum that
+            discharged D007 with outcome DELETE (rf2-drpa3.178): none of
+            the four F5 pilots reached for a closed key-condition map, so
+            the form was removed rather than kept for symmetry. What is
+            asserted here is the spelling that survived it.
 
             (1) Its two key intents — Enter commits, Escape reverts — ride
-            ONE registered event that branches on the live key string, so
-            the key map buys CASE A nothing on the per-key preventDefault
-            grounds D007 argues from. (2) The one preventDefault CASE A
-            wants is form-level submission, and the options map already
-            carries it — no keyboard site asks for one. (3) The cost a key
-            map WOULD pay for is dispatch SUPPRESSION: the data site fires
-            on every key, so an unmatched key still settles a no-op that a
-            closed map would elide. That argument applies to every
-            keyboard-bearing control, not only the ones that preventDefault,
-            and it is the one to weigh on its own. The MEASURED per-keystroke
-            cost lives in `r-a12-the-per-keystroke-cost-of-a-four-field-form`;
-            this row records the datum as a decision input."
+            ONE registered event carrying the live key as `::v/key`, so the
+            branch sits in a handler that can weigh authoritative
+            application state, and a JVM structural test drives it by
+            equality. (2) The one preventDefault CASE A wants is form-level
+            submission, and the options map already carries it — no keyboard
+            site asks for one. (3) The cost this pays is dispatch traffic:
+            the data site fires on every key, so an unmatched key still
+            settles a no-op epoch. That cost is observational rather than
+            computational (an unmatched handler returns `{}`, so nothing
+            commits) and it belongs at the trace surface, not at the
+            listener. The MEASURED per-keystroke cost lives in
+            `r-a12-the-per-keystroke-cost-of-a-four-field-form`."
     (each-mode
       (fn [mode]
         (seed-line! 1)
@@ -1241,14 +1243,14 @@
               c         (control-of (buffered-node tree "reference"))
               down      (:on-key-down (t/attrs c))]
 
-          (testing "the keys are ONE data event, not a closed key map"
+          (testing "the keys are ONE data event"
             (is (= :acme.ui.buffered/key-pressed (first down))
                 "every key routes through one registered event")
             (is (= ::v/key (last down))
                 "carrying the live key as data — a JVM test drives it by equality")
             (is (empty? (filter #{"Enter" "Escape" "Tab" "ArrowUp"} down))
                 "no key literal sits at the site: the branch is in the handler,
-                 so there is no closed key MAP here for D007 to weigh"))
+                 which is where it can weigh committed application state"))
 
           (testing "the one preventDefault CASE A wants is form submission,
                     and it rides the options map"
@@ -1263,7 +1265,7 @@
 
           (testing "the ONE event decides Enter, Escape and everything else —
                     and an unmatched key still DISPATCHES, which is the no-op
-                    a key map would suppress"
+                    the spelling pays for"
             (fire! c :on-input "REF-DRAFT")
             (is (some? (record [:invoice 1 :reference])) "a live draft exists to settle")
             (let [seen (atom [])]
@@ -1273,7 +1275,7 @@
                 (is (= before (app-db))
                     "an unmatched key moves NO state — 'a missing key is a no-op'")
                 (is (= [:acme.ui.buffered/key-pressed] @seen)
-                    "yet it DID dispatch: exactly the traffic a key map would elide"))
+                    "yet it DID dispatch: the observational cost the spelling pays"))
               (rf/unregister-listener! :events ::key-probe))
             (send! (v/materialize-event down {::v/key "Escape"}))
             (is (nil? (record [:invoice 1 :reference]))

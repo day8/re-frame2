@@ -302,7 +302,7 @@ interpreted ones where the form is visible:
 
 - Hiccup tags, classes, props, trailing `:children`
 - `(v/sub …)` when sites are finite and visible (including conditional branches)
-- Event vectors, options maps, `::v/value` / `::v/checked` / `::v/key`, key-condition maps
+- Event vectors, options maps, `::v/value` / `::v/checked` / `::v/key`
 - `v/event` / `v/handler` / `v/render-fn` / `v/raw-fn` at the right phases
 - `v/presence`, top-layer desired-state props, when forms are statically recognized
 - Qualified host leaves and behaviors when **statically named**

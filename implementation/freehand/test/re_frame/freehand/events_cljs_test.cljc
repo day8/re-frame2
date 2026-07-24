@@ -289,8 +289,8 @@
                               events/payload-map
                               {:tag :input :controlled? false :slot "onKeyDown"})]
       (is (= :rf.error/view-bad-event (conf/caught-id run)))
-      (is (= :use-the-closed-listener-options (:rf.error/hint (conf/caught-data run)))
-          "the ordinary closed-roster hint, not a key-condition one")
+      (is (= :use-the-closed-listener-options (:recovery (conf/caught-data run)))
+          "the ordinary closed-roster recovery, not a key-condition one")
       (is (= ["Enter"] (:unknown-keys (conf/caught-data run)))
           "the string key is reported as the unknown OPTION it is"))))
 

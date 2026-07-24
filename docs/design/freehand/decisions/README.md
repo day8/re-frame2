@@ -61,7 +61,7 @@ code; after that migration there is one owner.
 | [D004](D004-state-identity-and-addressing.md) | explicit caller-supplied `:control` addresses for writable state; occurrence identity remains tool-plane evidence |
 | [D005](D005-sub-outside-render.md) | `v/sub` is render-only; `rf/subscribe-once` is the one-shot read |
 | [D006](D006-event-projections-and-payload-injection.md) | the Freehand adapter materializes the closed projection trio; general dispatch has no payload arity |
-| [D007](D007-key-condition-event-maps.md) | closed exact-key maps ship subject to their delete-before-release pilot gate |
+| [D007](D007-key-condition-event-maps.md) | gate discharged DELETE (2026-07-25): the pilots used the form zero times, so a map at an event position is listener options and nothing else |
 | [D008](D008-callback-forms-and-stable-identity.md) | closed callback roster with committed per-site slots; no generic dispatcher helper |
 | [D009](D009-controlled-input-synchronous-flush.md) | narrow controlled-input door with a frame-scoped synchronous flush |
 | [D010](D010-compiled-dynamic-markup-crossing.md) | no dynamic-markup valve in v1; use the declared `v/markup` boundary |
