@@ -4,9 +4,8 @@
   Routing is one of the legitimate runtime-db writers Spec 002 §Write
   authority names (alongside machines / elision / ssr). Its event handlers
   (`:rf.route/navigate`, `:rf.route/transitioned` / `:rf.route/handle-url-change`,
-  `:rf.route/url-requested` / `:rf.route/continue` / `:rf.route/cancel`,
-  `:rf.route.internal/settle-transition`) read AND return the reserved
-  `:rf.db/runtime` route slice. Before the fix `assemble-initial-ctx` minted
+  `:rf.route/url-requested` / `:rf.route/continue` / `:rf.route/cancel`)
+  read AND return the reserved `:rf.db/runtime` route slice. Before the fix `assemble-initial-ctx` minted
   framework-write authority from `:rf/machine?` ONLY, so every navigation
   tripped the `:rf.warning/app-handler-runtime-effect` ownership diagnostic
   in dev — polluting the Xray Issues lens and training users that the
@@ -115,10 +114,11 @@
       (is (empty? @warns)
           "url-requested / continue / cancel are framework-authority writers — no diagnostic"))))
 
-(deftest settle-transition-mints-framework-authority
-  (testing ":rf.route.internal/settle-transition (per-route data-load settle) stays silent"
-    ;; A route with :on-match runs the FIFO settle handler, which writes the
-    ;; :transition state into the runtime-db slice via :rf.db/runtime.
+(deftest on-match-navigation-mints-framework-authority
+  (testing "a navigation to an :on-match route (fire-and-forget) stays silent"
+    ;; EP-0037 R1: :on-match is fire-and-forget with no settle event, but the
+    ;; commit assembler still writes the route slice via :rf.db/runtime — a
+    ;; framework-authority write that must not trip the ownership diagnostic.
     (rf/reg-event :load/noop (fn [{:keys [db]} _] {:db db}))
     (rf/reg-route :route/loaded
                   {:on-match [[:load/noop]]} "/loaded")
@@ -127,9 +127,9 @@
       (rf/dispatch-sync [:rf.route/transitioned "/loaded"])
       (is (= :route/loaded (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current :route-id]))
-          "the :on-match route settled onto the slice")
+          "the :on-match route committed onto the slice")
       (is (empty? @warns)
-          "the settle-transition path is a framework-authority writer — no diagnostic"))))
+          "the commit-navigation path is a framework-authority writer — no diagnostic"))))
 
 ;; ===========================================================================
 ;; The diagnostic still fires for a genuine non-framework writer (control)

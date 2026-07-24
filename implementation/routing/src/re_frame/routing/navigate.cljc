@@ -496,8 +496,11 @@
                   ;; resolved `:target` (facts) plus the resolved transition.
                   (routing-events/commit-navigation
                     rdb
-                    (assoc (:target route-plan)
-                           :transition (if (seq on-match-vec) :loading :idle))
+                    ;; EP-0037 R1: :on-match never drives readiness. The base
+                    ;; transition is :idle; commit-navigation projects
+                    ;; :loading / :error from the resource plan (readiness/
+                    ;; project-at-commit).
+                    (assoc (:target route-plan) :transition :idle)
                     on-match-vec
                     {:prev-id        (get-in rdb [:rf.runtime/routing :current :route-id])
                      :prev-nav-token (get-in rdb [:rf.runtime/routing :current :nav-token])

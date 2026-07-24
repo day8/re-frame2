@@ -639,16 +639,16 @@
                     @traces)
           "well-formed URL → no malformed-URL trace"))))
 
-;; ---- rf2-oaj2s: :transition computed from :on-match on URL-driven nav ----
+;; ---- EP-0037 R1: :on-match is fire-and-forget, never drives readiness ----
 ;;
-;; Per Spec 012 §URL changes are events the :transition slice key must be
-;; :loading while :on-match drains, :idle when nothing to dispatch.
-;; Pre-fix the URL-driven handler hardcoded :idle, so URL-driven loaders
-;; never observed the :loading state.
+;; Per Spec 012 §Per-route data loading, `:on-match` never sets
+;; `:rf.route/transition`. Route readiness is the resource-derived projection;
+;; a route with no `:resources` is `:idle` throughout, including while its
+;; `:on-match` events dispatch.
 
-(deftest transitioned-transition-loading-when-on-match-fires
-  (testing ":rf.route/transitioned sets :transition :loading when the route
-            declares :on-match events"
+(deftest transitioned-on-match-does-not-drive-loading
+  (testing ":rf.route/transitioned does NOT set :transition :loading for a
+            route's :on-match — readiness is the resource projection (EP-0037 R1)"
     (rf/reg-event :prefs/loaded (fn [{:keys [db]} _] {:db (assoc db :prefs/loaded? true)}))
     (rf/reg-route :route/cart
                   {:on-match [[:prefs/loaded]]} "/cart")
@@ -656,18 +656,10 @@
     (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    ;; Capture transition mid-drain via a custom interceptor that snapshots
-    ;; the slice between the :db write and the :on-match dispatch. The
-    ;; cleanest assertion is: a route WITHOUT :on-match observes :idle;
-    ;; a route WITH :on-match observes :loading immediately after the
-    ;; :db write — we read the slice between the synchronous slice-write
-    ;; and the :on-match drain, using a manual two-step pattern.
-    ;;
-    ;; Simpler observation: register an :on-match handler that captures
-    ;; the slice at its dispatch time. Per spec, the slice is written
-    ;; FIRST and then :on-match dispatches — so the handler observes
-    ;; the new slice's :transition.
-    (let [observed (atom nil)]
+    ;; The slice is written FIRST and then :on-match dispatches, so the
+    ;; handler observes the new slice's :transition. Under R1 that is :idle
+    ;; (no :resources → no blocking requirement), never :loading.
+    (let [observed (atom :unset)]
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
       ;; state — the :on-match observer reads :transition off :rf.db/runtime.
       (rf/reg-event :prefs/loaded
@@ -676,20 +668,20 @@
                                  (get-in rt [:rf.runtime/routing :current :transition]))
                          {:db (assoc db :prefs/loaded? true)}))
       (rf/dispatch-sync [:rf.route/transitioned "/cart"])
-      (is (= :loading @observed)
-          ":on-match handler observed :transition :loading mid-drain"))
+      (is (= :idle @observed)
+          ":on-match handler observed :transition :idle (never :loading)"))
     ;; Route without :on-match → :idle.
     (rf/dispatch-sync [:rf.route/transitioned "/"])
     (is (= :idle (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/routing :current :transition]))
         "route with no :on-match — transition stays :idle")))
 
-;; ---- T6: :on-match dispatches AND :transition :loading observable ----
+;; ---- :on-match dispatches in order, fire-and-forget, readiness stays :idle ----
 
-(deftest on-match-dispatches-and-loading-observable
-  (testing ":rf.route/navigate fires every :on-match event in order, and
-            :transition :loading is observable to the :on-match handlers
-            themselves (Spec 012 §Per-route data loading)"
+(deftest on-match-dispatches-fire-and-forget-idle
+  (testing ":rf.route/navigate fires every :on-match event in order (fire-and-
+            forget); the transition observed by the handlers and after the drain
+            is :idle — :on-match never drives readiness (EP-0037 R1)"
     (let [observed (atom [])]
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
       ;; state, so the :on-match observers read `:transition` off the
@@ -709,14 +701,14 @@
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/dashboard}])
 
-      (is (= [[:a :loading] [:b :loading]] @observed)
-          "both :on-match events fired in declaration order; both observed :loading")
+      (is (= [[:a :idle] [:b :idle]] @observed)
+          "both :on-match events fired in declaration order; both observed :idle")
       (let [db (rf/app-db-value :rf/default)
             rt (:rf.db/runtime (rf/frame-state-value :rf/default))]
         (is (true? (:load/a-done? db)) "first :on-match handler ran")
         (is (true? (:load/b-done? db)) "second :on-match handler ran")
         (is (= :idle (get-in rt [:rf.runtime/routing :current :transition]))
-            ":transition settles back to :idle after the drain")))))
+            ":transition remains :idle after the fire-and-forget drain")))))
 
 ;; ---- T7: :rf.route/fragment-changed (fragment-only) trace event payload ----
 

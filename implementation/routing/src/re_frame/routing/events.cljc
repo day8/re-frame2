@@ -1,6 +1,5 @@
 (ns re-frame.routing.events
-  "Shared navigation-event helpers + the runtime-internal
-  `:rf.route.internal/settle-transition` event for re-frame2 routing.
+  "Shared navigation-event helpers for re-frame2 routing.
 
   Owns:
     - `emit-activation-traces!` — the `:rf.route/activated` /
@@ -14,20 +13,22 @@
       rf2-g8tzb);
     - `commit-navigation` — the shared successful-commit assembler
       (nav-token alloc + allocated/activation traces + slice publish +
-      fx vector) used by both nav entry points;
-    - `:rf.route.internal/settle-transition` — the FIFO-drain
-      `:loading → :idle` settle (nav-token-aware so a newer navigation
-      mid-drain bumps `:nav-token` and the stale settle becomes a no-op).
+      fire-and-forget `:on-match` dispatch + resource-derived readiness
+      projection) used by both nav entry points.
 
-  Internal namespace; the public facade is `re-frame.routing`. The
-  facade's `(events/reg-event :rf.route.internal/settle-transition ...)`
-  wires `settle-transition-handler` into the registrar — keeping the
-  registration in the facade so a `(require 're-frame.routing :reload)`
-  on a fresh registrar (`clear-all!` test fixture) re-runs it. Per the
+  EP-0037 R1: `:on-match` is FIRE-AND-FORGET — it dispatches (in order,
+  run-to-completion) only after a valid plan, never sets the transition,
+  and there is no `:loading → :idle` settle event. Route readiness is the
+  pure resource projection (`re-frame.routing.readiness`); a blocking
+  route resource lands `:idle` / `:error` through the Resources reply
+  handlers' reconciliation (Spec 016 §Route integration).
+
+  Internal namespace; the public facade is `re-frame.routing`. Per the
   rf2-2yabr cohesion split: SHARED-EVENT-HELPERS seam."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.routing.classification :as classification]
+            [re-frame.routing.readiness :as readiness]
             [re-frame.trace :as trace]))
 
 ;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
@@ -122,9 +123,9 @@
 ;; `:rf.route/handle-url-change`) write the same merge shape after
 ;; allocating a nav-token. This helper encodes the slice-shape contract
 ;; in ONE place so the two writers and the layer-1 read
-;; (`re-frame.routing.subs/route-sub-fn`) stay symmetric. `:error` is
-;; always nil on a successful commit; the error-trap path
-;; (`re-frame.routing.on-match-error`) sets it independently.
+;; (`re-frame.routing.subs/route-sub-fn`) stay symmetric. `:error` starts nil
+;; here; `commit-navigation` then projects readiness (`:transition` / `:error`)
+;; from the resource plan via `readiness/project-at-commit`.
 ;;
 ;; The merge targets `:current`, not the routing root, so sibling state is
 ;; untouched. Siblings include `:pending-navigation` and, when the resources
@@ -137,9 +138,9 @@
   updated db.
 
   `slice` is a map of `{:route-id :params :query :fragment :transition
-  :nav-token}`. `:error` is forced to `nil` (the successful-commit
-  contract); callers needing an error-state slice go through the
-  `:rf.route/on-match-error` trap which writes `:error` explicitly."
+  :nav-token}`. `:error` is forced to `nil` here; `commit-navigation`
+  overwrites `:transition` / `:error` with the resource-derived readiness
+  projection (`readiness/project-at-commit`) after building the plan."
   [db {:keys [route-id params query fragment transition nav-token]}]
   (update-in db [:rf.runtime/routing :current] merge
              {:route-id   route-id
@@ -166,9 +167,10 @@
 ;;   4. assemble the fx vector: the nav-counter bump (`:rf.route/commit-
 ;;      nav-counter`) → capture-scroll (the leaving route's position) →
 ;;      [push-fx, when the programmatic path must drive the browser URL]
-;;      → the `:on-match` dispatches → the FIFO `settle-transition` (only
-;;      when an `:on-match` drain exists, Spec 012 §Per-route data loading
-;;      §2) → the scroll fx.
+;;      → the fire-and-forget `:on-match` dispatches (ONLY on a valid plan —
+;;      a planning failure dispatches none, Spec 012 §Failed activation) →
+;;      the resource ensure/release fx → the scroll fx. There is NO settle
+;;      event: readiness is the resource projection.
 ;; The URL-driven path passes no `push-fx` (the browser URL already
 ;; changed); the programmatic path passes `[:rf.nav/push-url ...]` /
 ;; `[:rf.nav/replace-url ...]`. Holding the commit shape in ONE place
@@ -239,19 +241,23 @@
                                 ;; Preserve the handler's causal app-db input for
                                 ;; any `{:from-db …}` resource-scope resolver.
                                 :app-db         app-db}))
-        committed  (cond-> committed
-                     (seq (:blocking plan))
-                     (-> (assoc-in [:rf.runtime/routing :resource-blocking token]
-                                   (:blocking plan))
-                         ;; a blocking route resource keeps the transition
-                         ;; :loading (its SSR wait point) even when the route
-                         ;; declares no `:on-match` (the caller computed
-                         ;; :transition :idle from on-match absence). Per Spec
-                         ;; 016 §Route integration.
-                         (assoc-in [:rf.runtime/routing :current :transition] :loading))
-                     (:plan-error plan)
-                     (assoc-in [:rf.runtime/routing :current :error]
-                               (:plan-error plan)))
+        ;; EP-0037 R1: route readiness is the PURE resource projection over
+        ;; the (leaf-only, until R2) plan — NEVER driven by `:on-match`. Seed
+        ;; `:transition` / `:error` from the freshly-built plan through the one
+        ;; projector (`readiness/project-at-commit`): a planning failure →
+        ;; `:error`, a pending blocking first load → `:loading`, otherwise
+        ;; `:idle`. A blocking route resource additionally records its scoped
+        ;; keys under the nav-token so the Resources reply handlers reconcile
+        ;; `:loading` → `:idle` / `:error` (its SSR wait point) as each settles
+        ;; through the same table. Per Spec 012 §Route readiness is a resource
+        ;; projection + Spec 016 §Route integration.
+        {r-transition :transition r-error :error} (readiness/project-at-commit plan)
+        committed  (-> committed
+                       (assoc-in [:rf.runtime/routing :current :transition] r-transition)
+                       (assoc-in [:rf.runtime/routing :current :error] r-error)
+                       (cond-> (seq (:blocking plan))
+                         (assoc-in [:rf.runtime/routing :resource-blocking token]
+                                   (:blocking plan))))
         ;; Lower the activating route's projection-relative `:sensitive` /
         ;; `:large` classification into the
         ;; per-frame elision registry, RE-ROOTED under `[:rf.runtime/routing
@@ -283,70 +289,18 @@
                         {:counter-key :nav-token-counter :value counter}]]
                       (when capture-fx [capture-fx])
                       (when push-fx    [push-fx])
-                      (mapv (fn [ev] [:dispatch ev]) on-match-vec)
+                      ;; EP-0037 R1: `:on-match` is FIRE-AND-FORGET and runs
+                      ;; ONLY after a valid plan — a committed planning-failure
+                      ;; target dispatches NONE of its events (Spec 012 §Failed
+                      ;; activation / §Per-route data loading). Dispatch order +
+                      ;; run-to-completion; it never drives readiness and there
+                      ;; is no settle event.
+                      (when-not (:plan-error plan)
+                        (mapv (fn [ev] [:dispatch ev]) on-match-vec))
                       ;; rf2-vdyrls: the resource ensure dispatches + prior-
-                      ;; owner release (Spec 016 §Route integration).
+                      ;; owner release (Spec 016 §Route integration). Route
+                      ;; readiness reconciles to :idle / :error through the
+                      ;; Resources reply handlers as blocking resources settle
+                      ;; — no routing-side settle event.
                       (:fx plan)
-                      ;; Per Spec 012 §Per-route data loading §2: settle
-                      ;; :loading → :idle after the on-match drain. FIFO
-                      ;; order means the settle runs after every on-match
-                      ;; event already queued above. rf2-vdyrls: also settle
-                      ;; after a resources plan so a route with `:resources`
-                      ;; but no `:on-match` still lands :idle (the settle is
-                      ;; blocking-aware — it stays :loading while a blocking
-                      ;; resource is pending, draining when the slot empties).
-                      (when (or (seq on-match-vec) (:fx plan))
-                        [[:dispatch [:rf.route.internal/settle-transition token]]])
                       (when scroll-fx [scroll-fx])))}))
-
-;; Per Spec 012 §Per-route data loading §2. FIFO drain queues
-;; :rf.route.internal/settle-transition after the :on-match events so
-;; :transition lands at :idle once the synchronous portion completes.
-;; The settle is nav-token-aware: a newer navigation mid-drain bumps
-;; :nav-token, and the stale settle becomes a no-op so the new :loading
-;; isn't clobbered.
-;;
-;; Per Spec 012 §Per-route error handling, an :on-match throw queues the
-;; internal error event behind work already in the FIFO. The settle may run
-;; first and briefly write :idle; the later error event writes the final
-;; :error state. The transition guard matters when an earlier error event has
-;; already changed the slice, and also prevents redundant settles from
-;; rewriting a non-loading route.
-;;
-;; Per rf2-576on: this event is RUNTIME-INTERNAL — fired by the runtime
-;; itself; never user-dispatched. The `:rf.route.internal/*` sub-
-;; namespace separates the runtime's plumbing events from the user-
-;; facing `:rf.route/*` surface (`:rf.route/navigate`, `:rf.route/
-;; continue`, etc.). Same audience-split principle as
-;; `:rf.route.nav-token/*` (Spec 012 §Navigation tokens).
-(defn settle-transition-handler
-  "`:rf.route.internal/settle-transition` event handler. Registered by
-  the `re-frame.routing` façade so a `:reload` of the façade re-runs the
-  registration.
-
-  EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
-  state, so this reads the `:rf.db/runtime` coeffect and returns a
-  `:rf.db/runtime` effect (the runtime-db sibling of a `reg-event`
-  handler's `:db` effect)."
-  [{rt :rf.db/runtime} [_ token]]
-  (let [runtime-db (or rt {})
-        current    (get-in runtime-db [:rf.runtime/routing :current :nav-token])
-        ;; rf2-vdyrls: a BLOCKING route resource keeps the transition
-        ;; :loading past the `:on-match` drain — it is the route's SSR wait
-        ;; point. The Resources artefact publishes the LATE-BOUND
-        ;; `:routing/route-blocking?` predicate (true while any blocking
-        ;; resource for the current nav-token is unsettled); the resource
-        ;; reply handlers drain the slot + land :idle themselves when the
-        ;; last blocking resource settles. So this settle is a no-op while a
-        ;; blocking resource is pending — it would otherwise prematurely flip
-        ;; :loading → :idle ahead of the data. No-op consult (false) when no
-        ;; Resources artefact is loaded. Per Spec 016 §Route integration.
-        blocking?  (boolean
-                     (when-let [pred (late-bind/get-fn :routing/route-blocking?)]
-                       (pred runtime-db)))]
-    {:rf.db/runtime
-     (if (and (= current token)
-              (not blocking?)
-              (= :loading (get-in runtime-db [:rf.runtime/routing :current :transition])))
-       (assoc-in runtime-db [:rf.runtime/routing :current :transition] :idle)
-       runtime-db)}))

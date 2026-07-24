@@ -751,23 +751,22 @@
                    (pr-str target))))))))
 
 ;; ============================================================================
-;; rf2-25i7r7 — finding 3: route failure semantics across multiple :on-match
-;;              events (continuation + first-error-wins + final :error)
+;; EP-0037 R1 — :on-match is fire-and-forget; a throw does not flip readiness
 ;; ============================================================================
 ;;
-;; The navigation cascade runs inside the locked FIFO run-to-completion
-;; drain (Spec 002), which does not cancel already-queued events.
-;; `commit-navigation` queues every :on-match dispatch (and the FIFO
-;; settle) up front; the on-match-error trap dispatches its :error flip to
-;; the BACK of the queue. So a later loader runs after an earlier one
-;; fails (documented continuation), and the slice lands :error regardless
-;; of interleaving. When MULTIPLE loaders throw, first-error-wins.
+;; Per Spec 012 §Per-route data loading / §Per-route error handling, `:on-match`
+;; runs fire-and-forget and NEVER drives route readiness (there is no
+;; settle-transition event and no on-match error trap). A synchronous handler
+;; throw stays on the ordinary Spec 009 event error channel, attributed to the
+;; event that threw — it is NOT rewritten into route-loader state. Later loaders
+;; still run (ordinary FIFO events); the route slice stays :idle (no :resources).
 
-(deftest on-match-later-loader-runs-after-earlier-failure
-  (testing "rf2-25i7r7 finding 3: an :on-match [[:load/fail] [:load/next]]
-            where the first event throws still RUNS the later loader
-            (continuation under the locked FIFO drain), and the slice
-            settles to :transition :error attributed to the FIRST failure"
+(deftest on-match-throw-does-not-flip-route-and-later-loader-runs
+  (testing "an :on-match [[:load/fail] [:load/next]] where the first event
+            throws does NOT flip :rf.route/transition to :error (readiness is
+            the resource projection, not the :on-match drain); the later loader
+            still runs, and the route slice carries NO routing-domain
+            attribution — the throw is an ordinary event exception (EP-0037 R1)"
     (let [order (atom [])]
       (rf/reg-event :load/fail
                        (fn [{:keys [db]} _]
@@ -784,73 +783,13 @@
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/transitioned "/two-loaders"])
       (is (= [:fail :next] @order)
-          "the later loader RAN after the earlier one threw (FIFO continuation)")
+          "the later loader RAN after the earlier one threw (fire-and-forget FIFO)")
       (is (true? (:load/next-ran? (rf/app-db-value :rf/default)))
           "the later loader's :db write committed")
       (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
-        (is (= :error (:transition slice))
-            "final :transition is :error regardless of queue interleaving")
-        (is (= :load/fail (:event-id (:error slice)))
-            ":rf.route/error is attributed to the FIRST failing loader")
-        (is (= :load/fail (:rf.route/on-match-id (:error slice)))
-            ":rf.route/on-match-id names the first failure, not the later loader")))))
-
-(deftest on-match-first-error-wins-when-multiple-loaders-throw
-  (testing "rf2-25i7r7 finding 3: when BOTH :on-match loaders throw in the
-            same transition, the FIRST attributed failure is the recorded
-            :rf.route/error (the second does NOT clobber it) and a declared
-            :on-error dispatches EXACTLY ONCE — xstate-v5 errored-transition
-            semantics"
-    (let [on-error-count (atom 0)]
-      (rf/reg-event :load/fail-1
-                       (fn [{:keys [db]} _] {:db (throw (ex-info "boom-1" {:n 1}))}))
-      (rf/reg-event :load/fail-2
-                       (fn [{:keys [db]} _] {:db (throw (ex-info "boom-2" {:n 2}))}))
-      (rf/reg-event :route/double-fail-on-error
-                       (fn [{:keys [db]} _]
-                         (swap! on-error-count inc)
-                         {:db db}))
-      (rf/reg-route :route/double-fail
-                    {:on-match [[:load/fail-1] [:load/fail-2]]
-                     :on-error [:route/double-fail-on-error]} "/double-fail")
-      (fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ _] nil))
-      (rf/dispatch-sync [:rf.route/transitioned "/double-fail"])
-      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
-        (is (= :error (:transition slice))
-            "final :transition is :error after both loaders throw")
-        (is (= :load/fail-1 (:event-id (:error slice)))
-            "first-error-wins: :rf.route/error is the FIRST failure, not clobbered by the second")
-        (is (= :load/fail-1 (:rf.route/on-match-id (:error slice)))
-            "first-error-wins: attribution names the first failing loader")
-        (is (= 1 @on-error-count)
-            ":on-error dispatched exactly once despite two throws in one transition")))))
-
-(deftest on-match-error-then-newer-navigation-records-new-failure
-  (testing "rf2-25i7r7 finding 3: the first-error-wins guard is scoped to
-            the CURRENT nav-token — a NEWER navigation resets the slice off
-            :error through its own commit, so a failure on the later
-            navigation still records (failure-after-recovery is not
-            suppressed)"
-    (rf/reg-event :load/ok
-                     (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
-    (rf/reg-event :load/late-fail
-                     (fn [{:keys [db]} _] {:db (throw (ex-info "late-boom" {}))}))
-    (rf/reg-route :route/clean {:on-match [[:load/ok]]} "/clean")
-    (rf/reg-route :route/dirty {:on-match [[:load/late-fail]]} "/dirty")
-    (fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    ;; First navigation succeeds (slice :idle), then a second navigation to
-    ;; a failing route must still record :error.
-    (rf/dispatch-sync [:rf.route/transitioned "/clean"])
-    (is (= :idle (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                         [:rf.runtime/routing :current :transition]))
-        "clean navigation settles to :idle")
-    (rf/dispatch-sync [:rf.route/transitioned "/dirty"])
-    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
-      (is (= :error (:transition slice))
-          "the newer failing navigation records :error (not suppressed by a prior token's state)")
-      (is (= :load/late-fail (:event-id (:error slice)))
-          "the new failure is attributed to the new navigation's loader"))))
+        (is (= :idle (:transition slice))
+            ":on-match never drives readiness — the route stays :idle despite the throw")
+        (is (nil? (:error slice))
+            ":rf.route/error stays nil — an :on-match throw is not a route error")
+        (is (nil? (:rf.route/on-match-id (:error slice)))
+            "no retired on-match attribution slot is written")))))
