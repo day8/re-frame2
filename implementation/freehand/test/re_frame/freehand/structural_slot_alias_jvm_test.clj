@@ -172,6 +172,63 @@
       (is (= tree (compiled-tree body props)) (str note " — compiled")))))
 
 ;; ---------------------------------------------------------------------------
+;; The one-map case — an exact :class beside an alias COMPOSES — rf2-c9kus
+;; ---------------------------------------------------------------------------
+
+(def compose-rows
+  "One attrs map carrying BOTH the exact :class and an alias projecting onto the
+  class slot. The ruling is COMPOSE, not last-wins: the two class values MERGE —
+  sugar first, then the exact :class, then the alias — identically in both
+  modes. A last-wins fold silently dropped whichever entry the map yielded
+  first, and for a map past the array-map threshold which one that is depends on
+  iteration order, contract on no host (rf2-c9kus)."
+  [{:note "exact :class beside a namespaced alias composes, sugar-first"
+    :body '[:div.a {:class "b" :x/class "c"}]
+    :tree {:tag :div :attrs {:class "a b c"}}}
+
+   {:note "the source order of the two keys does not change the verdict — exact-first either way"
+    :body '[:div.a {:x/class "c" :class "b"}]
+    :tree {:tag :div :attrs {:class "a b c"}}}
+
+   {:note "no sugar — the exact and the alias still compose, exact-first"
+    :body '[:div {:class "b" :x/class "c"}]
+    :tree {:tag :div :attrs {:class "b c"}}}
+
+   {:note "the whole class grammar survives the compose — a flag-map alias renders lexicographically"
+    :body '[:div.a {:class "b" :x/class {:open true :busy false}}]
+    :tree {:tag :div :attrs {:class "a b open"}}}
+
+   {:note "a vector alias keeps its order after the exact class"
+    :body '[:div {:class "b" :x/class ["c" "d"]}]
+    :tree {:tag :div :attrs {:class "b c d"}}}])
+
+(deftest an-exact-class-and-an-alias-in-one-map-compose-in-both-modes
+  (testing "rf2-c9kus ruling: COMPOSE. An exact :class and an alias projecting
+            onto the class slot in one map MERGE — sugar first, then the exact
+            :class, then the alias — identically interpreted and compiled. This
+            is the one-map case of the .93 routing rule, previously mis-behaving
+            as last-wins; it reuses that same compose path with no new
+            diagnostic. Distinct from the id slot (rf2-5r1af REFUSE): an id is
+            referential and nondeterministic on conflict, so it is rejected; a
+            class is set-valued with an obvious deterministic union, so it
+            composes."
+    (doseq [{:keys [note body tree]} compose-rows]
+      (is (= tree (interpreted-tree body)) (str note " — interpreted"))
+      (is (= tree (compiled-tree body)) (str note " — compiled")))))
+
+(deftest the-composed-class-keeps-every-value-in-both-modes
+  (testing "The correctness obligation stated on its own: neither the exact
+            :class value nor the alias value may be silently dropped. Asserted as
+            a SET membership so a last-wins regression — which drops one — fails
+            here even if the surviving order changed."
+    (doseq [[mode tree] [["interpreted" (interpreted-tree '[:div.a {:class "b" :x/class "c"}])]
+                         ["compiled"    (compiled-tree    '[:div.a {:class "b" :x/class "c"}])]]]
+      (let [classes (set (str/split (get-in tree [:attrs :class]) #" "))]
+        (is (contains? classes "a") (str mode " — the shorthand class survived"))
+        (is (contains? classes "b") (str mode " — the exact :class value survived"))
+        (is (contains? classes "c") (str mode " — and the aliased value was not dropped"))))))
+
+;; ---------------------------------------------------------------------------
 ;; The refused slot — `:key`
 ;; ---------------------------------------------------------------------------
 

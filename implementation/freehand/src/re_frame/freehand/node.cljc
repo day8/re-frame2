@@ -609,7 +609,13 @@
   (let [k (conv/attr-key k)]
     (cond
       (= :key k)            [attrs events class style]
-      (= :class k)          [attrs events v style]
+      ;; An exact `:class` and an alias projecting onto the class slot both
+      ;; reach here canonicalized to `:class`, and they COMPOSE — the exact
+      ;; value (already in the accumulator) first, then this one — rather than
+      ;; the last one folded winning. `class-parts` recurses into the pair, so
+      ;; `[existing v]` composes both beneath the sugar exactly as one value
+      ;; does (rf2-c9kus; same rule .93 gave a routed alias beside the sugar).
+      (= :class k)          [attrs events (if (some? class) [class v] v) style]
       (= :style k)          [attrs events class v]
       (conv/handler-key? k) [attrs (if-let [c (classify-event tag k v)]
                                      (assoc events k c)

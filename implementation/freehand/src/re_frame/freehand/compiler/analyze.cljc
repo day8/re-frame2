@@ -2024,7 +2024,28 @@
     (when-some [{:keys [message offenders]} (conv/id-conflict tag (:id tag-info) (keys m))]
       (env/fail! e :rf.ui.compile/id-sugar-conflict message
                  {:tag tag :props offenders}))
-    (let [m          (reduce-kv #(assoc %1 (rules/canonical-attr-key %2) %3) {} m)
+    (let [;; c9kus: an exact :class and any alias projecting onto the class slot
+          ;; COMPOSE — the exact value first, then the aliases — rather than the
+          ;; last canonicalized key winning. Collect the class-slot values
+          ;; exact-first from the raw map, canonicalize the rest, and hand
+          ;; analyze-class the composed value. A lone class stays a single value,
+          ;; so it keeps its static / flag-map analysis; a pair becomes a vector
+          ;; that analyze-class composes part by part beneath the sugar.
+          class-forms (into (if (contains? m :class) [(get m :class)] [])
+                            (keep (fn [[k v]]
+                                    (when (and (not= :class k)
+                                               (= :class (rules/canonical-attr-key k)))
+                                      v))
+                                  m))
+          m          (reduce-kv (fn [acc k v]
+                                  (let [ck (rules/canonical-attr-key k)]
+                                    (cond-> acc (not= :class ck) (assoc ck v))))
+                                {} m)
+          m          (cond-> m
+                       (seq class-forms)
+                       (assoc :class (if (= 1 (count class-forms))
+                                       (first class-forms)
+                                       (vec class-forms))))
               key-form   (get m :key)
               m*         (dissoc m :key :class :style :ref)
               ref-form   (get m :ref)

@@ -266,9 +266,21 @@
         ;; and it folds UNDER the owned props (`put-caller!`) only after the
         ;; owned nil `value` is normalized here — so the caller is settled
         ;; into this one verdict, before that normalization (rf2-sf9n5).
-        multi?      (controlled/multiple-select? tag attrs caller)]
-    (when-let [c (conv/class-string sugar-classes)]
-      (gobj/set o "className" c))
+        multi?      (controlled/multiple-select? tag attrs caller)
+        ;; The exact `:class` and any alias projecting onto the class slot
+        ;; COMPOSE — sugar first, then the exact `:class`, then the aliases —
+        ;; rather than the last one written winning. They are collected
+        ;; exact-first and composed ONCE through the same class rule the sugar
+        ;; uses, so `className` is written once and an alias never overwrites
+        ;; the exact spelling (rf2-c9kus; .93's routing, one-map case).
+        class-forms (into (if (contains? attrs :class) [(:class attrs)] [])
+                          (keep (fn [[k raw]]
+                                  (when (and (not= :class k)
+                                             (= :class (conv/attr-key k)))
+                                    raw))
+                                attrs))]
+    (when (or (seq sugar-classes) (seq class-forms))
+      (put-class! o tag sugar-classes class-forms))
     (when sugar-id
       (gobj/set o "id" sugar-id))
     ;; The id-slot CARDINALITY, judged by the emitted SLOT rather than by the
@@ -315,8 +327,10 @@
           (when-some [proxy (handler-proxy cand tag controlled? slot raw)]
             (gobj/set o slot proxy)))
 
+        ;; Composed once above, exact-first with any alias, so the walk skips
+        ;; every class-slot key here (rf2-c9kus).
         (= :class k)
-        (put-class! o tag sugar-classes raw)
+        nil
 
         (= :style k)
         (put-style! o tag raw)
