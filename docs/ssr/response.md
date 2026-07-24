@@ -69,6 +69,17 @@ framework does **not** quietly strip it:
 
 Fail-fast over strip-and-warn — silent normalisation masks the bug.
 
+## Troubleshooting
+
+| Symptom | Error / behaviour | Fix |
+|---|---|---|
+| Status set twice in one drain | Last write wins; `:rf.warning/multiple-status-set` | One intentional status, or accept last-write |
+| Multiple redirects | Last write wins; `:rf.warning/multiple-redirects` | One intentional redirect |
+| CR/LF in a header value | `:rf.error/header-invalid-value` | Sanitize before `:set-header` / `:append-header` |
+| CR/LF/NUL in redirect location | `:rf.error/redirect-invalid-location` | Don't pass raw user input to `:redirect` |
+| Bad cookie attribute | CRLF check on every field before serialise | Structured cookie map only |
+| User-supplied `?next=` open redirect | `:rf.error/safe-redirect-invalid-url` / `-scheme-rejected` / `-host-disallowed` | Use `:rf.server/safe-redirect` with `:relative-only?` or `:allow` |
+
 ## Where this fits
 
 - Form POST success → `[:rf.server/redirect {:status 303 :location …}]` — see

@@ -68,6 +68,15 @@ app-db.
     `<` so an attacker-supplied title cannot close the script tag. You write data; the
     emitter applies the position-correct escape at every leaf.
 
+## Troubleshooting
+
+| Symptom | Error / behaviour | Fix |
+|---|---|---|
+| `reg-head` throws at first call | `:rf.error/ssr-artefact-missing` | Require `re-frame.ssr` |
+| Path put in route metadata | Route never matches as expected | Path is the **third** positional arg of `reg-route`, not a metadata key |
+| SPA route change leaves stale `<title>` | No automatic DOM-head reconciler in v1 | App- or host-level head manager after hydrate |
+| Expecting automatic head-hash compare | Runtime compares body `:rf/render-hash` only | Host recomputes `(rf/active-head frame-id)` vs `:rf/head-hash` if wanted |
+
 ## See also
 
 - [Routing concepts](../routing/concepts.md) — route metadata including `:head`

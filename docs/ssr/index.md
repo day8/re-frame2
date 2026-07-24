@@ -21,16 +21,16 @@ in the browser; only genuinely one-sided code is fenced with `:platforms`.
 ## Start here
 
 1. **[Tutorial](tutorial.md)** — build the lifecycle by hand (REPL → frame per request →
-   payload → hydrate → mismatch → platforms → Ring). Best first hour.
+   payload → hydrate → mismatch → platforms → Ring).
 2. **[The model](concepts.md)** — why the same code runs on a JVM; request lifecycle;
    fail-closed payload; hydrate-then-verify; platform gates; error projection.
-3. Growth pages only when a need appears:
+3. Open only when a need appears:
    [response](response.md) · [head](head.md) · [streaming](streaming.md).
 
 **Prerequisites.** [Core introduction](../core/introduction.md) — events, app-db, views,
 frames. SSR plugs into those; it does not replace them.
 
-Optional later: [testing](testing.md), [examples](examples.md),
+Also: [testing](testing.md), [examples](examples.md),
 [Next.js mapping](coming-from-nextjs.md), [glossary](glossary.md).
 
 ## When *not* to use SSR

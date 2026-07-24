@@ -3,8 +3,8 @@
 You can [author](tutorial.md) and [understand](concepts.md) SSR. This page is how you
 **prove** the server half.
 
-The pleasant surprise: **your server tests are just JVM tests.** The same handlers,
-subs, and views run on the JVM against a per-request frame — exactly what your
+**Your server tests are JVM tests.** The same handlers, subs, and views run on the
+JVM against a per-request frame — exactly what your
 [handler](../core/testing/event-handlers.md), [subscription](../core/testing/subscriptions.md),
 and [pipeline-run](../core/testing/pipeline-runs.md) suites already exercise. What's
 left is the thin SSR-owned layer: rendered string, boot guards, pure projectors,
@@ -14,7 +14,7 @@ platform gating.
 
 ## 1. Render a request to a string
 
-`render-to-string` is a pure function — hiccup in, HTML string out — and the test shape is the request lifecycle in miniature: a fresh frame booted through `:initial-events`, render, assert on the markup. That's not just tidiness — `:initial-events` is the *same key* `ssr-handler` uses to seed every per-request frame, so a test frame built this way boots through exactly the path a production request's frame does:
+`render-to-string` is a pure function — hiccup in, HTML string out — and the test shape is the request lifecycle in miniature: a fresh frame booted through `:initial-events`, render, assert on the markup. `:initial-events` is the *same key* `ssr-handler` uses to seed every per-request frame, so a test frame built this way boots through the same path a production request's frame does:
 
 ```clojure
 (ns my-app.ssr-test

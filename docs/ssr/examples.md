@@ -1,6 +1,6 @@
 # Examples
 
-Runnable SSR apps in the repo. Build the lifecycle yourself first
+Runnable SSR apps in the repo. Walk the lifecycle first
 ([tutorial](tutorial.md) or [the model](concepts.md)), then open these in order.
 
 | Example | What it shows | Read first |

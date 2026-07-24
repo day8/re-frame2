@@ -32,9 +32,9 @@ throws `:rf.error/ssr-artefact-missing`.
 
 ## Step 1 — render a view to a string, no server anywhere
 
-Here's the whole trick of SSR in re-frame2, and you can see it at a JVM REPL before any HTTP exists. A view produces [hiccup](../core/glossary.md#hiccup) — nested vectors and maps, plain data — and `render-to-string` is a pure function from that data to an HTML string. No browser, no DOM, no React.
+Here's the whole move of SSR in re-frame2, and you can see it at a JVM REPL before any HTTP exists. A view produces [hiccup](../core/glossary.md#hiccup) — nested vectors and maps, plain data — and `render-to-string` is a pure function from that data to an HTML string. No browser, no DOM, no React.
 
-First, the app — three registrations you could have written on day one:
+First, the app — three ordinary registrations:
 
 ```clojure
 ;; cf. examples/capabilities/ssr/ssr/core.cljc (condensed)
@@ -70,7 +70,7 @@ Now install the headless SSR adapter, stand up a frame, seed it, render:
 
 **What you see:** real HTML, from your real view, on a machine with no browser. (`render-to-string` is also re-exported on the `rf/` facade — the example file spells it `rf/render-to-string`; same function.)
 
-**Notice:** nothing about the app changed to make this work. The event handler was already pure, the subscription was already a pure derivation, the view was already data-in-hiccup-out. `render-to-string` just walks the result. This is the fact the rest of the tutorial builds on: **the app was always able to run on a server — SSR is mostly deciding when to render and what to ship.**
+Nothing about the app changed to make this work. The event handler was already pure, the subscription was already a pure derivation, the view was already data-in-hiccup-out. `render-to-string` just walks the result. The rest of the tutorial builds on that: **the app was always able to run on a server — SSR is mostly deciding when to render and what to ship.**
 
 !!! note "Why is `subscribe` unqualified in the view?"
 
@@ -128,7 +128,7 @@ And because a handler is just a function, you can serve a "request" right at the
 ;; => "<div class=\"page\"><h1>Recent articles</h1><ul><li><h3>Hello, server</h3></li></ul></div>"
 ```
 
-**Notice two load-bearing details.** `make-frame` runs its `:initial-events` synchronously and the runtime **drains** — it keeps processing events (and the events those dispatch) until the queue settles — so by the time you render, app-db holds the finished state, never a half-loaded one. And `destroy-frame!` sits in a `finally`: on a server that runs for weeks, tearing the frame down on *every* exit path is what stops you leaking a frame per request. Teardown also clears the request slot for you.
+**Two details that matter.** `make-frame` runs its `:initial-events` synchronously and the runtime **drains** — it keeps processing events (and the events those dispatch) until the queue settles — so by the time you render, app-db holds the finished state, never a half-loaded one. And `destroy-frame!` sits in a `finally`: on a server that runs for weeks, tearing the frame down on *every* exit path is what stops you leaking a frame per request. Teardown also clears the request slot for you.
 
 One more thing you may have caught: Step 1 handed `render-to-string` the hiccup vector `[(rf/view :app/root)]`, while this code **calls** the view — `((rf/view :app/root))` — and passes the result. `rf/view` looks up the view fn, and calling it returns the hiccup it renders to. `render-to-string` accepts either shape; the reason to hold the called tree in a local shows up in Step 3, when the same tree gets hashed.
 
@@ -297,7 +297,7 @@ When a server-side drain meets a `#{:client}` effect it skips it and emits a `:r
 
 ## Step 7 — swap in the Ring adapter
 
-You've now built every step of the lifecycle by hand: stash the request, create the frame, drain, render, build the payload, respond, tear down. In production you don't hand-roll that — `day8/re-frame2-ssr-ring` packages it as one handler constructor, and because you built it yourself in Steps 2–3, every option below reads as narration rather than magic:
+You've now built every step of the lifecycle by hand: stash the request, create the frame, drain, render, build the payload, respond, tear down. In production you don't hand-roll that — `day8/re-frame2-ssr-ring` packages it as one handler constructor, and because you built it yourself in Steps 2–3, every option below reads as the same sequence, not a new API to learn:
 
 ```clojure
 (require '[ring.adapter.jetty :as jetty]
@@ -335,7 +335,4 @@ Everything above, as the two halves you ship:
 Hand-rolled lifecycle (Steps 2–3) is still the right mental model when something
 misbehaves — the adapter is that sequence, packaged. Full copy-paste with both
 sides: [The model → A complete loop](concepts.md#a-complete-loop-server--client).
-
-Growth pages when you need them: [response](response.md), [head](head.md),
-[streaming](streaming.md). Vocabulary and mismatch rules:
-[The model](concepts.md).
+Vocabulary and mismatch rules: [The model](concepts.md).

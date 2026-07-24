@@ -22,7 +22,7 @@ To *build* the lifecycle by hand (REPL → frame → payload → hydrate → Rin
 
 ## Why the same code runs on a JVM
 
-SSR is hard in most stacks because the app is entangled with the browser: `window`, `document`, side effects firing in the middle of render. re-frame2 never had that entanglement — and not because of SSR. The framework committed to three properties for testing, replay, and observability, long before rendering on a server was on the table. SSR simply falls out of them:
+SSR is hard in most stacks because the app is entangled with the browser: `window`, `document`, side effects firing in the middle of render. re-frame2 never had that entanglement — and not because of SSR. Three properties were already there for testing, replay, and observability; SSR falls out of them:
 
 - **Event handlers are pure.** An [event](../core/glossary.md#event) is an inert "something happened" fact; its [handler](../core/glossary.md#event-handler) is `(coeffects, event) → effect map`. No `window`, no lifecycle. A JVM runs them fine.
 - **Subscriptions are pure derivations.** State in, value out — nodes on [the derivation graph](../core/glossary.md#the-derivation-graph), rooted at app-db.
@@ -91,7 +91,7 @@ Three opts do the work:
 - **`:root-view`** — the render tree the adapter renders once the frame settles (step 4). Its head is a **callable** view reference — the Var `rf/reg-view` defs, or `(rf/view :id)`. A bare keyword head is an HTML element, never a view.
 - **`:payload`** — the allowlist of top-level app-db keys to serialise for the client (step 5). It's a security boundary with its [own section below](#payload--the-fail-closed-allowlist).
 
-That's a working SSR server. Everything below refines one step of the lifecycle. (The [tutorial](tutorial.md) builds this same lifecycle by hand first — `set-request!`, `make-frame`, `render-to-string`, `destroy-frame!` — which is the better order if the adapter feels like magic.)
+That's a working SSR server. Everything below refines one step of the lifecycle. (The [tutorial](tutorial.md) builds this same lifecycle by hand first — `set-request!`, `make-frame`, `render-to-string`, `destroy-frame!` — which is the better order if the adapter's options don't yet read as a sequence you already know.)
 
 ??? info "From re-frame v1"
 
@@ -122,7 +122,7 @@ Declare `:rf.cofx/requires [:rf.server/request]` once, and the request map arriv
 
 One rule governs this coeffect, and it's worth stating plainly before the fine print: **use the request for decisions, but when a request-derived fact needs to live in app-db, put that fact on an event's payload rather than copying it from the ambient read.** The handler above obeys it — the URI it reads lands on the `[:rf.route/handle-url-change …]` event, so the value is recorded with the dispatch. The tempting shortcut it avoids is a direct copy into durable state, `(assoc db :session-user (-> request :session :user))`. Why that's a replay hole, and the two legal shapes for durable request-derived facts:
 
-??? note "Going deeper — why a durable write must be recorded, and how to fix it"
+??? note "Why a durable write must be recorded — and how to fix it"
 
     [Time-travel](../core/observability.md) replays a run only if every input a handler used was captured. The request coeffect is the exception: like `localStorage` or the wall clock, it reads a live per-request slot and its value is **never recorded** — an *[ambient](../core/glossary.md#recordable-vs-ambient-coeffects)* coeffect, not a *recordable* one stamped onto the [event envelope](../core/glossary.md#event-envelope).
 
@@ -215,7 +215,7 @@ Two rules to hold onto:
 - **The hydration target is carried, never guessed.** `:frame` is required, and the *same* frame goes to `hydrate!` and the root `frame-provider {:frame …}`. That's [frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found), applied at boot. An absent `:frame` raises `:rf.error/no-frame-context`; the runtime never invents a default.
 - **Hydration replaces; the server is authoritative.** `:rf/hydrate` installs the server's [app-db](../core/glossary.md#app-db) *and* its serialisable [runtime-db](../core/glossary.md#runtime-db) slice in one atomic step — [both partitions](../core/glossary.md#the-two-partitions) at once — replacing whatever the client pre-seeded. A malformed payload is rejected wholesale (fail-closed); a missing one just means a normal client-only load — the `when-not` branch above.
 
-??? note "Going deeper — replace-not-merge, frame-id evidence, and the malformed-payload rules"
+??? note "Replace-not-merge, frame-id evidence, and the malformed-payload rules"
 
     **Why replace, not merge.** The merge policy is locked to *replace the whole frame-state* (app-db **and** the serialisable runtime-db projection) because a defaulting merge would bury "which side won?" bugs at every key. If you need client-only state to survive hydration, the customisation point is *re-registering* `:rf/hydrate` with your own explicit merge — you own the order and the semantics.
 
@@ -231,7 +231,7 @@ Server state declared as a [resource](../resources/glossary.md#resource) makes t
 
 A resource a route declares **blocking** does more than ride the payload — it gives the server a *wait point before render*. The runtime drains the route's blocking resources until they settle, **then** renders, so the HTML never captures a half-loaded `:loading` skeleton for data the server was always going to have. Non-blocking route resources don't hold up the render: whatever's settled at render time serialises, and anything still in flight refetches on the client.
 
-??? note "Going deeper — the render budget"
+??? note "The render budget"
 
     The wait has a deadline, because a server has one render moment. A blocking fetch that hangs past the render budget settles as a structured first-load failure — the resource enters `:error` with `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`, so the view renders a clean error state rather than a hung page — and the runtime records `:rf.error/resource-ssr-blocking-timeout`. A blocking resource that can't resolve in time fails closed instead of stalling the request.
 
@@ -268,7 +268,7 @@ Be clear about what the hash buys you: it proves *that* the renders diverged —
 
     That trace rides the dev trace surface, so it's [elided](../core/glossary.md#elide) from production client builds like the rest of the trace stream. The hash comparison itself still runs (disable it with `:ssr {:detect-mismatch? false}` to reclaim the first-render work). To watch for drift in production you instrument deliberately: the strict-mode exception carries both hashes, so the boot site can catch it around `hydrate!` and ship it through your [observability](../core/observability.md) sinks.
 
-??? note "Going deeper — the hash is structural, not textual"
+??? note "The hash is structural, not textual"
 
     Byte-for-byte HTML equality is *not* required: different serialisers emit semantically-equivalent strings that differ in attribute order or whitespace. The contract is structural — the FNV-1a hash runs over a canonical-EDN traversal of the render-tree (depth-first, attribute maps in sorted-key order, nil pruned). FNV-1a is fast and carries zero platform dependencies (no `crypto`). The hash is a tamper-evident structural marker between *one* server and *one* client of the same build, not a security primitive.
 
@@ -361,6 +361,21 @@ SSR isn't free of rules:
 
 Enforced by the platform gate and caught by the hash.
 
+## Troubleshooting
+
+| Symptom | Error / behaviour | Fix |
+|---|---|---|
+| First `render-to-string` / `reg-head` throws at boot | `:rf.error/ssr-artefact-missing` | Require `re-frame.ssr` (`day8/re-frame2-ssr`) |
+| `ssr-handler` construction throws | `:rf.error/ssr-missing-payload-policy` (also empty `[]`) | Set `:payload` allowlist, or `:rf.ssr.payload/whole-app-db` |
+| Unknown / string allowlist entries | `:rf.error/ssr-unknown-payload-policy` or `:rf.error/ssr-malformed-payload-allowlist` | Keywords only; sequential, not a set |
+| `hydrate!` without `:frame` | `:rf.error/no-frame-context` | Pass the same `:frame` as `frame-provider` |
+| Bad payload shape | `:rf.error/malformed-hydration-payload` — client state left untouched | Fix the server payload; never ship a non-map |
+| Payload frame id disagrees | `:rf.error/hydration-frame-id-mismatch` | Treat `:rf/frame-id` as evidence, not a target |
+| Client first render ≠ server HTML | `:rf.ssr/hydration-mismatch` trace; default warn-and-replace | Deterministic views; `:ssr {:on-mismatch :hard-error}` in CI |
+| `#{:client}` fx during JVM drain | `:rf.fx/skipped-on-platform` trace — skipped, not thrown | Expected; declare `:platforms` on the fx/cofx |
+| Blocking resource hangs past budget | `:rf.error/resource-ssr-blocking-timeout` — resource enters `:error` | Fix the fetch or accept the structured first-load failure |
+| Retired frame boot key | `:rf.error/on-create-retired` | Use `:initial-events`, not `:on-create` |
+
 ## A complete loop (server + client)
 
 Copy-paste shape. The adapter owns create / drain / render / payload / teardown;
@@ -413,8 +428,9 @@ Same `:frame` on `hydrate!` and `frame-provider`. Full walk-through:
 [tutorial](tutorial.md). APIs: [re-frame.ssr](../api/re-frame.ssr.md),
 [re-frame.ssr.ring](../api/re-frame.ssr.ring.md).
 
-## When the table grows
+## Advanced
 
+<a id="when-the-table-grows"></a>
 <a id="controlling-the-response--rfserver"></a>
 <a id="head-metadata----opengraph-json-ld"></a>
 <a id="streaming-rfsuspense-boundary"></a>
