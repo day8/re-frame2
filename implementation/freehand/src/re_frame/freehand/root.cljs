@@ -211,13 +211,13 @@
   [`spec/004C-Roots-and-Mount.md`](../../../../../spec/004C-Roots-and-Mount.md);
   hydration and the fallback are
   [`spec/011-SSR.md`](../../../../../spec/011-SSR.md)."
-  (:require ["react" :as react]
-            ["react-dom/client" :as rdc]
+  (:require ["react-dom/client" :as rdc]
             [clojure.string :as str]
             [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.fingerprint :as fingerprint]
+            [re-frame.freehand.phase :as phase]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.root-id :as root-id]
             [re-frame.freehand.shell :as shell]
@@ -828,21 +828,12 @@
         (emit-hydration-mismatch! root-id error*))
       (delegate error* error-info))))
 
-(defn ^:no-doc adoption-window-closer
-  "A React component that CLOSES a hydrating root's adoption window on its
-  first commit. It reads the window flag off its `rfAdoption` prop and
-  clears it from a passive effect with empty deps, so it runs exactly once
-  and strictly AFTER the hydration commit React reports mismatches
-  against. Renders nil, so it adds nothing to adopt and cannot itself
-  mismatch."
-  [^js props]
-  (react/useEffect
-    (fn close-window []
-      (when-some [adoption (.-rfAdoption props)]
-        (set! (.-adopting adoption) false))
-      js/undefined)
-    #js [])
-  nil)
+;; The adoption window is CLOSED by the phase flipper's `:server` commit —
+;; the same commit that schedules the flip (see
+;; [[re-frame.freehand.phase/with-phase-flip]]). A hydrating root installs the
+;; flipper unconditionally, so there is exactly one component doing that job
+;; and no separate closer: the window shuts when the hydration commit lands,
+;; whether or not the root holds a single `v/client-only` site.
 
 (defn- root-options
   "The React root options object: `identifierPrefix` and the three stable
@@ -864,16 +855,18 @@
 
 (defn- root-element
   "The element a root renders: the root form's own element, wrapped in the
-  frame provider when the root bound a frame, plus any extra children the
-  mount kind needs (the hydration window closer). The provider is the
-  outermost wrapper because a `useContext` read anywhere below it must
-  resolve, including inside the mounted view's own boundary."
-  [root-form frame-id extra]
+  frame provider when the root bound a frame. The provider is the outermost
+  wrapper HERE because a `useContext` read anywhere below it must resolve,
+  including inside the mounted view's own boundary.
+
+  A hydrating root wraps this again, in the phase flipper, so the root's
+  phase provider sits above the frame provider — the phase is a fact about
+  the ROOT and is read by sites that may sit under any frame or none."
+  [root-form frame-id]
   (let [element (fr/element root-form)]
-    (cond
-      (some? frame-id) (apply shell/provide-frame frame-id element extra)
-      (seq extra)      (apply react/createElement react/Fragment nil element extra)
-      :else            element)))
+    (if (some? frame-id)
+      (shell/provide-frame frame-id element)
+      element)))
 
 ;; ---------------------------------------------------------------------------
 ;; mount
@@ -970,7 +963,7 @@
          ;; back. It needs the frame's id and nothing else, which the plan
          ;; already carries: the provider wrapper names a frame, it does
          ;; not read one.
-         element        (root-element root-form frame-id nil)
+         element        (root-element root-form frame-id)
          acquired?      (and (some? frame-id) (not (frame-ref-held? frame-id root-id)))]
      ;; The fourth admission claim — the immutable identifierPrefix — is
      ;; asserted inside `claim!` above, before preflight and with precedence
@@ -1076,7 +1069,7 @@
         existing (claim! 'v/hydrate-root dom-node root-id prefix)]
     ;; Before preflight, because a rejected root must not have run one.
     (require-fresh-root! existing root-id)
-    (let [element   (root-element root-form frame-id nil)
+    (let [element   (root-element root-form frame-id)
           acquired? (and (some? frame-id) (not (frame-ref-held? frame-id root-id)))]
       (preflight! 'v/hydrate-root plan root-id)
       (attempt!
@@ -1112,9 +1105,17 @@
     (let [callbacks (volatile! (select-keys opts host-opt-keys))
           adoption  #js {:adopting true}
           reporter  (hydration-reporter adoption root-id callbacks)
-          closer    (react/createElement adoption-window-closer
-                                         #js {:key "rf-adoption" :rfAdoption adoption})
-          element   (root-element root-form frame-id [closer])
+          ;; The phase flipper wraps the WHOLE root element, so its provider
+          ;; sits above every `v/client-only` site the root can contain —
+          ;; including one inside the mounted view's own boundary. It boots
+          ;; `:server`, so this first render is the fallback-bearing render
+          ;; React adopts the server markup against; its `:server` commit
+          ;; closes the adoption window and schedules the flip to `:client`.
+          ;; Only THIS path installs one: a fresh `v/mount` has no server
+          ;; render to adopt, so it is born `:client` and never flips.
+          element   (phase/with-phase-flip root-id
+                                           (root-element root-form frame-id)
+                                           adoption)
           acquired? (and (some? frame-id) (not (frame-ref-held? frame-id root-id)))]
       (preflight! 'v/hydrate-root plan root-id)
       (attempt!
