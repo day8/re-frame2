@@ -859,6 +859,47 @@
                       :closure-defines {goog.DEBUG false}}
    :modules {:main {:init-fn re-frame.freehand.release-app/-main}}}
 
+  ;; The two MATCHED twins of :freehand-release above, differing from it and
+  ;; from each other ONLY in view lowering. :freehand-release is the MIXED
+  ;; shape — one interpreted leaf and its compiled twin under one root. These
+  ;; two hold the same entry structure (a root mounting two counter leaves,
+  ;; the same handlers, the same body character-for-character) and flip every
+  ;; view to a single tier: :freehand-release-interpreted has no compiled
+  ;; view, :freehand-release-compiled has no interpreted one.
+  ;;
+  ;; Same :advanced optimisation and the same goog.DEBUG false as the mixed
+  ;; build, so the ONLY variable across the three bundles is lowering. That is
+  ;; what makes the per-promotion BYTE DELTA — the difference between the
+  ;; interpreted and compiled bundles — attributable to lowering and nothing
+  ;; else. The three are EVIDENCE artefacts: measured by
+  ;; re-frame.freehand.bench.b5 (bytes + parse/compile, published with no
+  ;; threshold), never served. This is a complement to the control build
+  ;; below, which holds lowering and flips goog.DEBUG to prove the evidence
+  ;; seam DCEs out of production; here lowering is the variable, not the flag.
+  ;;
+  ;; Built with `shadow-cljs release freehand-release-interpreted
+  ;; freehand-release-compiled`; the bundles land at
+  ;; out/freehand-release-interpreted/main.js and
+  ;; out/freehand-release-compiled/main.js. No :dev-http — like every other
+  ;; advanced build here they are compiled and measured, never served.
+  :freehand-release-interpreted
+  {:target     :browser
+   :output-dir "out/freehand-release-interpreted"
+   :asset-path "."
+   :compiler-options {:optimizations :advanced
+                      :infer-externs :auto
+                      :closure-defines {goog.DEBUG false}}
+   :modules {:main {:init-fn re-frame.freehand.release-app-interpreted/-main}}}
+
+  :freehand-release-compiled
+  {:target     :browser
+   :output-dir "out/freehand-release-compiled"
+   :asset-path "."
+   :compiler-options {:optimizations :advanced
+                      :infer-externs :auto
+                      :closure-defines {goog.DEBUG false}}
+   :modules {:main {:init-fn re-frame.freehand.release-app-compiled/-main}}}
+
   ;; rf2-drpa3.166 — the CONTROL twin of :freehand-release, and the only
   ;; thing that differs between the two is `goog.DEBUG`. It is one half of
   ;; the F4g production-isolation ELISION PROBE PAIR: build both, and the
