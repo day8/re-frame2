@@ -217,8 +217,13 @@ The four questions get you there the first time. This table is for the *second* 
 | A **machine wrapping a single fetch** — `:loading`, `:loaded`, nothing else. | No real branching, timers, or cancellation isn't a process; it's a remote read with a status. | A **resource** — its status model already *is* the loading/loaded/error lifecycle. |
 | **Remote data hand-rolled into `app-db`** with `:loading?` / `:error?` booleans set in success/failure handlers. | The resource cache — identity, staleness, dedupe, the leak boundary — re-implemented per feature, races included. | A **resource** — register once, let the runtime own the bookkeeping. |
 | A **boolean trio** (`:validating?` / `:awaiting?` / `:error?`) handlers keep re-deriving "which one are we really in" from. | A finite-state process flattened into independent flags, most of whose combinations are illegal. | A **machine** — name the states, make the illegal combinations unrepresentable. |
+| A **view that causes** — dispatches, fetches, ensures a resource, or navigates *while rendering*. | Rendering is a pure projection of state; a view that reaches out has a cause in the wrong place, and it re-fires on every re-render. | The **cause's real home** — a [route's `:resources`](../routing/concepts.md), an event's `:fx`, or the `:on-*` handler the interaction fires. |
 
 Each wrong home is a value asked to do a job its home isn't shaped for. Move it, and the code defending against impossible states simply evaporates.
+
+!!! note "A view is a derivative projection — it reads, it never causes"
+
+    Rendering may read anything — props, pure values, subscriptions. It must not fetch, ensure a resource, navigate, or dispatch *because it rendered*. The causal boundary is the interaction, not the render: a click handler that dispatches is correct; a fetch on the render path is the resource footgun from Question 3 above, re-fired on every re-render and racing every twin view. There is no load-from-view escape hatch, and none is coming — **no load-from-view API will ever ship.** When a view seems to need one, a *cause* is missing from a route or an event.
 
 ## The rule, stated once
 

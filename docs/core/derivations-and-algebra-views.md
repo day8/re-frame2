@@ -413,6 +413,17 @@ target stays `:parametric` in the static graph — the don't-execute rule again 
 the realized owner edge (`[:route route-id nav-token]` → the concrete scoped key)
 appears only in the live graph, once a navigation has actually committed a match.
 
+!!! note "A UI view is the graph's terminal reader"
+
+    Every node so far *produces* a value; a UI view *consumes* them. It sits at the
+    leaf of this graph — it derefs subscriptions, resources, and the route fact and
+    projects them to hiccup — and it fires no edge of its own. The activation edge a
+    route's `:resources` declaration adds, and the dispatch an event makes, are
+    *causes*: they advance the graph. Reading a node never does. That is the whole of
+    the passive-view law — rendering reads the graph; interaction and routes write it
+    — and it is why no load-from-view API will ever ship: a view has no causal edge
+    to offer.
+
 ## Reading the assembled graph
 
 A tool stitches the per-family views into one value — a map of `:nodes` and a list of
