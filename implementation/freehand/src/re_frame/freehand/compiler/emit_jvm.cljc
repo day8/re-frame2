@@ -479,11 +479,22 @@
                           :rf.ui/children? children?}
                    docstring   (assoc :doc docstring)
                    closed-keys (assoc :rf.ui/closed-prop-keys (vec closed-keys)))]
+    ;; The emitted view fn returns the structural `rendered` body directly.
+    ;; The donor's runtime boundary/registry wrappers —
+    ;; `re-frame.freehand.tree/view-boundary` and `.../register-view!` — were
+    ;; transplanted here with their CALL SITES, but the functions they name were
+    ;; never built: neither exists in `re-frame.freehand.tree`. Nothing on the
+    ;; live `v/defview` path reaches this emitter (it routes through
+    ;; `re-frame.freehand/expand-defview` -> `compile-structural-view` /
+    ;; `descriptor/declare-view`, which own boundary creation and view
+    ;; registration), so the two calls only ever rode this emitter's RETURNED
+    ;; FORM and were never in an evaluated one — which is why the compiled tier
+    ;; stayed green rather than failing at load with unresolved-var errors.
+    ;; Emitting a call to a function that does not exist violates this emitter's
+    ;; own law (emit only what can run, or refuse the shape loudly), so the dead
+    ;; wrappers are removed: the fn now returns the structural body, and
+    ;; registration/boundaries stay the live path's concern (rf2-drpa3.108).
     `(do
        (defn ~(vary-meta vname merge var-meta) [~props-sym]
-         (re-frame.freehand.tree/view-boundary
-          ~view-id
-          ~props-sym
-          ~(if bind `(let [~bind ~props-sym] ~rendered) rendered)))
-       (re-frame.freehand.tree/register-view! ~view-id ~vname (quote ~manifest))
+         ~(if bind `(let [~bind ~props-sym] ~rendered) rendered))
        (var ~vname))))
