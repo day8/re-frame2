@@ -392,6 +392,27 @@ against a bound would pass a corpus that silently stopped eliding one view, and
 the integer does not. `:reactive?` and `:view-cell` are two facets of one
 verdict and can never disagree.
 
+### The render-static static-facts summary
+
+`:static-facts` is the manifest's last key, and — like the elision verdict, and
+unlike every roster above it — a **summary the analyzer computes over the sites,
+not another lexical-site roster**. It is the render-static server-reachable
+`{:caps :deps}` projection: `:caps` the set of runtime-requiring capability tokens
+a pure `:server` render could not honour (a `sub` read, a committed handler, an
+effect, a `ref`, a foreign or lazy head), and `:deps` the set of directly
+referenced view-ids to close over transitively. It names no site and carries no
+`:source-coord` — a roster answers *which site*, this answers *what would this view
+need at runtime, and which views must be proven alongside it*.
+
+The value is computed once, from the same sites the rosters project, and is BOTH
+carried here and contributed to the ambient per-build `view-static` index — one
+projection published twice, never two calls that could disagree. Carrying it on the
+manifest is what keeps a view compiled in ANOTHER build — an AOT or precompiled
+artefact — fact-bearing when the consuming build's ambient index knows nothing of
+it: `v/render-static`'s no-silent-elision proof resolves a dependency's facts from
+its registered manifest's `:static-facts` when the ambient index cannot answer
+([Spec 011 §The server render on the Freehand paved path](011-SSR.md#the-server-render-on-the-freehand-paved-path)).
+
 ### The elision oracle
 
 An omitted shell is an ABSENCE, and an absence is only as good as the instrument
