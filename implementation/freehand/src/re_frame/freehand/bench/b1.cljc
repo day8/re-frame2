@@ -33,16 +33,21 @@
       far it moves. B1 is not allowed to conclude that compiled must win
       — the numbers are the input to that judgement, not the judgement.
 
-  ## The DOM half of the equal-output claim is not yet runnable
+  ## The DOM half of the equal-output claim
 
   D021's B1 row asks for equal tree AND equal DOM. The structural half is
-  gated here on both hosts. The browser half cannot be run yet: the
-  compiled tier's React lowering does not exist — `re-frame.freehand.react`
-  refuses a compiled declaration by name with
-  `:rf.error/view-lowering-unavailable` — so there is no compiled DOM to
-  compare an interpreted one against. The workload takes the structural
-  gate now and the DOM row joins it with that lowering, rather than the
-  measurement waiting for it.
+  gated here, on both hosts, every measured iteration. The DOM half is
+  gated in `re-frame.freehand.bench.b1-dom-cljs-test`, which mounts these
+  same two arms through `v/mount` into two real hosts and compares what
+  the browser built — element counts against this namespace's arithmetic,
+  and the hosts' own `innerHTML` serialisations against each other.
+
+  The two halves are deliberately in two places. Equal STRUCTURE is a
+  property of the workload and is checked on the iteration it measures,
+  so the timing it publishes is a timing of trees that were proven equal.
+  Equal DOM needs a browser, and a browser is not where a JVM sampling
+  run happens — so it is gated where a browser is, over the same
+  declarations, at the same fixture sizes.
 
   ## A small case beside the stress case
 
