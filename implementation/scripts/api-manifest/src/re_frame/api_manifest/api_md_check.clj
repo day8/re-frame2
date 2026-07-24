@@ -184,6 +184,19 @@
   (when (str/starts-with? (str/triml line) "#")
     (second (re-find #"`([^`]+)`" line))))
 
+(defn- heading-level
+  "The ATX heading LEVEL — the count of leading `#`s — of a Markdown heading
+   line, or nil for a non-heading line (``## Compiled views`` -> 2,
+   ``### Root lifecycle`` -> 3). Used to decide whether a namespace-less heading
+   is a DESCENDANT of the heading that established the current owning namespace
+   (strictly deeper -> inherit) or a sibling/ancestor (same-or-shallower -> clear
+   it), so an intervening namespace-less subsection can no longer drop the owning
+   namespace a bare row is attributed to (rf2-etj5i)."
+  [line]
+  (let [t (str/triml line)]
+    (when (str/starts-with? t "#")
+      (count (take-while #(= \# %) t)))))
+
 (defn parse-var-rows
   "Pure var-row parser over `[[line-no line-text] ...]` indexed API.md lines
    (rf2-asxo3 — extracted from `parse-api-md-var-rows` so parser DISAPPEARANCE
@@ -194,35 +207,53 @@
    such heading), the context a BARE row is attributed to rather than its bare
    name (rf2-etj5i).
 
+   HEADING-LEVEL–AWARE NAMESPACE INHERITANCE (rf2-etj5i). A section heading that
+   NAMES a namespace establishes it, and records the heading LEVEL it was
+   established at. A following NAMESPACE-LESS heading (``### Root lifecycle``)
+   INHERITS that owning namespace when it is a DESCENDANT — strictly deeper than
+   the establishing heading — so a bare root verb under an ordinary nested
+   subsection stays attributed to its section's namespace; a namespace-less
+   heading at the SAME-OR-SHALLOWER level is a sibling/ancestor and CLEARS the
+   namespace (a new sibling section owns no inherited namespace). Without this, an
+   intervening namespace-less child heading dropped `section-ns` to nil and a bare
+   Freehand root verb under it was silently re-attributed to `re-frame.ui`.
+
    A row whose `M/Fn` cell is NOT a recognised var-kind marker (`var-kind-
    marker?` — e.g. the marker drifted to an unknown spelling like `Macro`) is
    SKIPPED: it never becomes a var-row. That is the disappearance the two-sided
    root-verb kind guard must not silently pass — it turns a dropped root-verb
    row into a caught `:kind-row-missing`, not a green (rf2-asxo3)."
   [indexed-lines]
-  (loop [lines      indexed-lines
-         tier-idx   nil
-         section-ns nil
-         acc        (transient [])]
+  (loop [lines            indexed-lines
+         tier-idx         nil
+         section-ns       nil
+         section-ns-level nil
+         acc              (transient [])]
     (if-let [[[n line] & more] (seq lines)]
       (let [cells (table-row-cells line)]
         (cond
           (nil? cells)
-          ;; A non-table line ends the current table's column context; a
-          ;; SECTION HEADING additionally re-establishes the owning namespace a
-          ;; bare row is attributed to (rf2-etj5i). A non-heading line (prose,
-          ;; blank, blockquote) keeps the current section namespace.
-          (recur more nil
-                 (if (str/starts-with? (str/triml line) "#")
-                   (section-heading-namespace line)
-                   section-ns)
-                 acc)
+          ;; A non-table line ends the current table's column context. A SECTION
+          ;; HEADING additionally re-establishes the owning namespace a bare row
+          ;; is attributed to (rf2-etj5i): a heading that NAMES a namespace sets
+          ;; it (recording the level it was established at); a NAMESPACE-LESS
+          ;; heading INHERITS the current owning namespace when it is a DESCENDANT
+          ;; (strictly deeper than the establishing heading) and CLEARS it when it
+          ;; is a sibling/ancestor (same-or-shallower level). A non-heading line
+          ;; (prose, blank, blockquote) keeps the current section context.
+          (if-let [level (heading-level line)]
+            (if-let [ns' (section-heading-namespace line)]
+              (recur more nil ns' level acc)
+              (if (and section-ns (> level section-ns-level))
+                (recur more nil section-ns section-ns-level acc)
+                (recur more nil nil nil acc)))
+            (recur more nil section-ns section-ns-level acc))
 
           (header-row? cells)
-          (recur more (tier-col-index cells) section-ns acc)
+          (recur more (tier-col-index cells) section-ns section-ns-level acc)
 
           (separator-row? cells)
-          (recur more tier-idx section-ns acc)
+          (recur more tier-idx section-ns section-ns-level acc)
 
           :else
           (let [first-cell (first cells)
@@ -232,7 +263,7 @@
                      (< tier-idx (count cells)))
               (if-let [tier (first-tier-token (nth cells tier-idx))]
                 (let [[qualifier bare] (parse-first-cell-ident (second m))]
-                  (recur more tier-idx section-ns
+                  (recur more tier-idx section-ns section-ns-level
                          (conj! acc {:var        bare
                                      :qualifier  qualifier
                                      :tier       tier
@@ -240,8 +271,8 @@
                                      :section-ns section-ns
                                      :line       n
                                      :raw        (second m)})))
-                (recur more tier-idx section-ns acc))
-              (recur more tier-idx section-ns acc)))))
+                (recur more tier-idx section-ns section-ns-level acc))
+              (recur more tier-idx section-ns section-ns-level acc)))))
       (persistent! acc))))
 
 (defn parse-api-md-var-rows
