@@ -323,15 +323,24 @@ writes: [Invalidate after a mutation](how-to/invalidate-after-a-mutation.md).
     Invalidation is **causal** — a declared consequence of the mutation, visible on
     the event record.
 
-## When things fail loud
+## Troubleshooting
 
 <a id="when-it-fails-loud--the-errors-and-warnings"></a>
 
 Registration and use-time errors fail closed (missing scope policy, bad request
-shape, unresolved scope on sub, …). The property: there is no path from "forgot
-the viewer" to "served another user's cache." Named ids live in the
+shape, unresolved scope on sub, …). There is no path from "forgot the viewer" to
+"served another user's cache." Named ids live in the
 [API](../api/re-frame.resources.md) and error catalogue; [testing](testing.md)
 turns the same failures into assertions.
+
+| Symptom | Signal | Fix |
+|---|---|---|
+| Permanent `:idle` / skeleton | No cause fired | Route `:resources` or `[:rf.resource/ensure …]` |
+| `:rf.error/resource-missing-scope-policy` | Scope omitted on `reg-resource` | Add `:scope` (`:rf.scope/global` or a resolver) |
+| `:rf.error/resource-sub-unresolved-scope` | Scope resolver returned `nil` | Resolve only when logged in, or don't subscribe |
+| `:rf.warning/resource-sub-scope-mismatch` | Sub scope ≠ active ensure scope | One named resolver for register, route, and sub |
+| Invalidation refreshes nothing | Wrong scope on `:invalidates` | Name the matching scope per descriptor; watch the dev warning |
+| `:rf.error/resources-artefact-missing` | Forgot the require | `(:require [re-frame.resources])` at boot |
 
 ## A complete read loop
 
@@ -407,5 +416,5 @@ Register → route causes → view projects. Copy-paste skeleton:
 | Named stage machine | [Machines](../machines/index.md) |
 | No server yet | app-db + events |
 
-**Cached server reads that multiply** are the load-bearing concept — not every
-network call.
+**Cached server reads that multiply** are the reason to reach for this artefact —
+not every network call.

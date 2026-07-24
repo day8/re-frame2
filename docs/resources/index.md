@@ -61,7 +61,7 @@ Optional later: [examples](examples.md), [TanStack mapping](coming-from-tanstack
 
 ## Three lanes
 
-Hold this split and the whole surface stays clear:
+Hold this split and the API stays clear:
 
 | Lane | Job | Spelling |
 |---|---|---|
@@ -81,6 +81,6 @@ The model page ends with a [complete register + route + view skeleton](concepts.
 | Named lifecycle stages (login, websocket) | [machines](../machines/index.md) |
 | No server yet | Tutorial [Part 1](tutorial/01-pages-and-state.md) only |
 
-Reach for resources when **cached server reads start multiplying** — not on day one of
-a counter. [Where should this value live?](../core/where-state-lives.md) has the full
+Reach for resources when **cached server reads start multiplying** — not for a
+local counter. [Where should this value live?](../core/where-state-lives.md) has the full
 decision table.

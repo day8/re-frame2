@@ -1,18 +1,19 @@
 # Build RealWorld — what you'll make, and setup
 
-The [Core introduction](../../core/introduction.md) taught the loop in a browser
-cell. This tutorial grows it into **Conduit** — a Medium-style app with feeds,
-auth, favoriting, and a production build — on the real toolchain. Server-cache
-vocabulary lives in [the model](../concepts.md); this path is **do → observe → explain**.
+The [Core introduction](../../core/introduction.md) taught the pure pipeline in a
+browser cell. This tutorial grows it into **Conduit** — a Medium-style app with
+feeds, auth, favoriting, and a production build — on the real toolchain.
+Server-cache vocabulary lives in [the model](../concepts.md); this path is
+**do → observe → explain**.
 
 This page orients you (five parts) and scaffolds the project. Budget five minutes
 from `npm install` to pixels.
 
-Conduit follows the [RealWorld spec](https://github.com/gothinkster/realworld), the ecosystem's shared benchmark — which means the same app already exists in React, Vue, Svelte, Solid, and Elm. So every pattern you write here has a direct counterpart in a stack you already know. By the end of Part 5 you'll have built a real app, not a toy: **one app, grown a part at a time.** And you'll grow it the same way you worked the quickstart — *do* a thing, *observe* what the app actually did, *explain* why. (That **do → observe → explain** loop is the spine of this whole tutorial; the *observe* step is where [Xray](../../core/glossary.md#xray), the inspector you'll set up below, earns its keep.)
+Conduit follows the [RealWorld spec](https://github.com/gothinkster/realworld), the ecosystem's shared benchmark — which means the same app already exists in React, Vue, Svelte, Solid, and Elm. So every pattern you write here has a direct counterpart in a stack you already know. By the end of Part 5 you'll have built a real app, not a toy: **one app, grown a part at a time.** And you'll grow it the same way you worked the quickstart — *do* a thing, *observe* what the app actually did, *explain* why. That **do → observe → explain** rhythm runs through the whole tutorial; the *observe* step is where [Xray](../../core/glossary.md#xray), the inspector you'll set up below, earns its keep.
 
 !!! note "Haven't done the Core intro yet?"
 
-    [Start with the introduction](../../core/introduction.md) (and [app-db](../../core/app-db.md)). They teach the loop — [events](../../core/glossary.md#event) → [app-db](../../core/glossary.md#app-db) → [subs](../../core/glossary.md#subscription) → [views](../../core/glossary.md#view) — right in your browser, with nothing installed. This page assumes you've felt that rhythm at least once.
+    [Start with the introduction](../../core/introduction.md) (and [app-db](../../core/app-db.md)). They teach the pure pipeline — [events](../../core/glossary.md#event) → [app-db](../../core/glossary.md#app-db) → [subs](../../core/glossary.md#subscription) → [views](../../core/glossary.md#view) — right in your browser, with nothing installed. This page assumes you've felt that rhythm at least once.
 
 ## One app, five parts
 
@@ -190,7 +191,7 @@ Your page owns the layout; Xray owns only the content inside `[data-rf-xray-host
      [shell]]))
 ```
 
-The events, subs, and views here are just the quickstart's loop again — an [event](../../core/glossary.md#event) updates [app-db](../../core/glossary.md#app-db) (your app's single state map), a [subscription](../../core/glossary.md#subscription) reads from it, and a [view](../../core/glossary.md#view) renders that read. Two bits of syntax look new only because the browser cells smoothed them over:
+The events, subs, and views here are just the quickstart's pipeline again — an [event](../../core/glossary.md#event) updates [app-db](../../core/glossary.md#app-db) (your app's single state map), a [subscription](../../core/glossary.md#subscription) reads from it, and a [view](../../core/glossary.md#view) renders that read. Two bits of syntax look new only because the browser cells smoothed them over:
 
 - **`reg-view`** is a macro (that's why it's `:require-macros`'d at the top, not plain `:require`'d). It defines a view *and* wires its body to the current frame, so inside `header` you can write a bare `subscribe` / `dispatch` and it just finds the right app-db — no frame argument to thread through. The functions-only browser cells couldn't run macros, so the quickstart used plain `defn` views with an explicit `rf/subscribe`; on the real toolchain `reg-view` is the idiomatic shape.
 - **`@(subscribe …)`** — a subscription doesn't hand you a value, it hands you a *reactive reference* that re-runs the view whenever its slice of app-db changes. The leading `@` (Clojure's deref) reads the current value out of it. Read `@(subscribe [:session/user])` as "the live value of who's signed in."
@@ -203,7 +204,7 @@ What's genuinely new beyond syntax is the **boot**, the part the quickstart's br
 
 **Move 3 — `with-frame` + `dispatch-sync` seeds state.** Out here, outside the rendered tree, there's no provider in scope, so `with-frame` scopes the dispatch lexically to `:rf/default`. And it's [`dispatch-sync`](../../core/glossary.md#dispatch-sync) — a dispatch that runs the [event pipeline](../../core/glossary.md#event-pipeline) immediately rather than queuing it — because plain [`dispatch`](../../core/glossary.md#dispatch) would let the first render race it and paint an empty app-db. Seeding synchronously at the boot boundary is one of the handful of legitimate uses of `dispatch-sync`; the others are tests and REPL exploration. What they share is that they all run *outside* any handler — `dispatch-sync` from inside a running handler is rejected with `:rf.error/dispatch-sync-in-handler`, because the pipeline is already draining synchronously and a second one would convey nothing.
 
-**Move 4 — `frame-provider` wraps the tree.** The [provider](../../core/glossary.md#frame-provider) carries the already-registered `:rf/default` frame down through React context, so every bare `dispatch` / `subscribe` inside a `reg-view` body resolves to it without naming it. The `{:frame …}` config shape is load-bearing: handed a `:frame` key, the provider **scopes** the tree to a frame that already exists (you registered it in Move 2). It creates nothing and destroys nothing — it only routes ambient calls. It's the React-side counterpart to `with-frame`, which can't reach across React's render boundary because a child renders *after* the `with-frame` form has already returned. (`defonce` guards the root because a hot reload must not call `create-root` twice on the same element.)
+**Move 4 — `frame-provider` wraps the tree.** The [provider](../../core/glossary.md#frame-provider) carries the already-registered `:rf/default` frame down through React context, so every bare `dispatch` / `subscribe` inside a `reg-view` body resolves to it without naming it. The `{:frame …}` config shape is the one that matters: handed a `:frame` key, the provider **scopes** the tree to a frame that already exists (you registered it in Move 2). It creates nothing and destroys nothing — it only routes ambient calls. It's the React-side counterpart to `with-frame`, which can't reach across React's render boundary because a child renders *after* the `with-frame` form has already returned. (`defonce` guards the root because a hot reload must not call `create-root` twice on the same element.)
 
 That's the whole boot. Four moves: install the substrate, register the frame, seed it, scope the tree to it.
 
@@ -246,9 +247,9 @@ There are two frame-boundary components, one verb each — **roots ensure; provi
 
     `frame-root` ensures and takes `:id`; `frame-provider` scopes and takes `:frame`. Cross them and each fails loud naming its sibling: a `frame-provider` given `:id` raises `:rf.error/frame-provider-given-id`, a `frame-root` given `:frame` raises `:rf.error/frame-root-given-frame`, and a `frame-root` with no keyword `:id` raises `:rf.error/frame-root-missing-id`. The fix is in the message: `frame-provider {:frame …}` to *scope* an existing frame, or `frame-root {:id …}` to *ensure* one.
 
-### When the boot goes wrong
+### Troubleshooting
 
-Each of the four moves has a named way of failing. The good news: every failure arrives as a *structured* [error record](../../core/glossary.md#error-record) — in the console **and** as a row in Xray, under a stable `:rf.error/*` category — so you're never reduced to guessing ([fail loud, not silent](../../core/glossary.md#fail-loud-not-silent) is the whole posture). If you hit an error on first run, match its category here:
+Each of the four moves has a named way of failing. Every failure arrives as a *structured* [error record](../../core/glossary.md#error-record) — in the console **and** as a row in Xray, under a stable `:rf.error/*` category — so you're never reduced to guessing ([fail loud, not silent](../../core/glossary.md#fail-loud-not-silent)). If you hit an error on first run, match its category here:
 
 | `:rf.error/*` category | What happened | The fix |
 |---|---|---|
@@ -272,7 +273,7 @@ When the build reports `Build completed`, open **<http://localhost:8020>**. You 
 
 Xray auto-opened with the app, and `Ctrl+Shift+C` toggles it. Take a moment to look at what minute one already gives you, before you've written a single line of feature code:
 
-- **The event spine** shows one row: `:app/initialise`. That's not a log line you wrote — it's the runtime's own record of the only thing that has happened so far.
+- **The event timeline** shows one row: `:app/initialise`. That's not a log line you wrote — it's the runtime's own record of the only thing that has happened so far.
 - **app-db** shows `{:session {:user nil}}` — exactly the value the boot event returned.
 
-One event, one state, nothing else. **Keep Xray open for the whole tutorial.** This is the *observe* step of the do → observe → explain loop in the flesh — so when something misbehaves later, you won't reach for print statements, you'll just read what the app actually did. (The framework keeps *its* own state in a separate partition, [runtime-db](../../core/glossary.md#runtime-db), which Xray will also show you once routing and resources start using it.) [Debug with Xray](../../xray/index.md) is the deeper tour when you want it.
+One event, one state, nothing else. **Keep Xray open for the whole tutorial.** This is the *observe* step of do → observe → explain in the flesh — so when something misbehaves later, you won't reach for print statements, you'll just read what the app actually did. (The framework keeps *its* own state in a separate partition, [runtime-db](../../core/glossary.md#runtime-db), which Xray will also show you once routing and resources start using it.) [Debug with Xray](../../xray/index.md) is the deeper tour when you want it.

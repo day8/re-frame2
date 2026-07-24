@@ -5,9 +5,9 @@ arrive in [Part 2](02-server-data.md).
 
 You left [the setup page](index.md) with an empty Conduit shell. By the end of this part it has two real pages — the home feed and the article page — and the URL decides which one you see. Type `/article/welcome-to-conduit` into the address bar and that article renders; press Back and the feed returns. Along the way you'll write your first [event](../../core/glossary.md#event), your first [subscriptions](../../core/glossary.md#subscription), and your first [views](../../core/glossary.md#view).
 
-That trio — events write, subs read, views render — is the loop everything else in re-frame2 builds on. Get comfortable with it here and the rest of the guide is variations on a theme.
+That trio — events write, subs read, views render — is the pure pipeline everything else in re-frame2 builds on. Get comfortable with it here and the rest of the guide is variations on a theme.
 
-Real server data arrives in [Part 2](02-server-data.md). This part is offline: nothing fetches, nothing ticks, so you can watch the state loop run on its own with nothing else moving around it.
+Real server data arrives in [Part 2](02-server-data.md). This part is offline: nothing fetches, nothing ticks, so you can watch that pipeline run on its own with nothing else moving around it.
 
 **The takeaway: the URL is a sub, and a page is just a view of it.**
 
@@ -46,7 +46,7 @@ So even seeding canned data is an event — there's no back door for "the first 
     :author      {:username "octocat"}}
    {:slug        "events-write-subs-read"
     :title       "Events write, subs read"
-    :description "The one-way loop at the heart of the app."
+    :description "The one-way event pipeline that drives the app."
     :body        "Views dispatch events. Handlers compute new state. Subs deliver it back."
     :tagList     ["re-frame2"]
     :createdAt   "2026-06-02T09:00:00Z"
@@ -68,7 +68,7 @@ So even seeding canned data is an event — there's no back door for "the first 
                      :error  nil}}}))
 ```
 
-`reg-event` registers an [event handler](../../core/glossary.md#event-handler): a pure function, two arguments in, one map out. Let's take both sides in turn, because they're the load-bearing shape you'll write a hundred times.
+`reg-event` registers an [event handler](../../core/glossary.md#event-handler): a pure function, two arguments in, one map out. Let's take both sides in turn, because this is the shape you'll write a hundred times.
 
 **The two arguments in** are the [**coeffects**](../../core/glossary.md#coeffect) and the event. Coeffects are the facts the handler is *handed* so it can stay pure — it never reaches out to the world itself; the world is delivered to it. The one you'll reach for constantly is `:db`, the current app-db. (This particular handler ignores both arguments, written `_cofx` and `_event`. The leading underscore is the Clojure convention for "yes, I know this parameter is here; no, I'm not using it" — it keeps the linter quiet and signals intent to the next reader.)
 
@@ -300,7 +300,7 @@ Then the chrome and the root view:
      [not-found-page])])
 ```
 
-This `case` is the whole router, and it's the heart of this part: **the root view subscribes to `:rf.route/id` and maps route ids to pages.** No route components, no `<Outlet>`, no nesting tree — a page is just the view your `case` picks for the current value of a sub. The trailing `[not-found-page]` is the `case` default, catching any route id you haven't wired in yet — register a route but forget to add its page and it lands here, rather than rendering a blank screen and leaving you guessing.
+This `case` is the whole router, and it's the point of this part: **the root view subscribes to `:rf.route/id` and maps route ids to pages.** No route components, no `<Outlet>`, no nesting tree — a page is just the view your `case` picks for the current value of a sub. The trailing `[not-found-page]` is the `case` default, catching any route id you haven't wired in yet — register a route but forget to add its page and it lands here, rather than rendering a blank screen and leaving you guessing.
 
 Three route subscriptions cover most needs:
 

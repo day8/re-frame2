@@ -61,7 +61,7 @@ Two reads, sharing tags on purpose. The detail read tags itself with its own ide
 
 ## 2. Declare what the write breaks
 
-A [mutation](../glossary.md#mutation) is a managed server-state *write* — the write counterpart to a resource read. Its `:invalidates` key names the tags this write makes stale on success. That single key is the causal heart of the whole page.
+A [mutation](../glossary.md#mutation) is a managed server-state *write* — the write counterpart to a resource read. Its `:invalidates` key names the tags this write makes stale on success. That single key is the whole causal story of this page.
 
 ```clojure
 (rf/reg-mutation :article/save
@@ -335,7 +335,7 @@ A descriptor can only name scopes you already know. Occasionally you need the op
                  :cause        [:admin/article-purged article-id]}])
 ```
 
-Because it can stale or refetch data across *every* user, tenant, story frame, and SSR request, it's load-bearing to spell out and is treated as a privacy-relevant operation:
+Because it can stale or refetch data across *every* user, tenant, story frame, and SSR request, spell it out — the runtime treats it as a privacy-relevant operation:
 
 - it **must** carry `:cause` evidence — a cross-scope invalidation with no `:cause` is a loud `:rf.error/resource-cross-scope-cause-required`, never a silent unaudited sweep (the mutation engine stamps `:cause` for you when you supply one on the descriptor);
 - it shows up as a privacy-relevant [trace event](../../core/glossary.md#trace-event), recording that a mutation reached outside its own scope;
