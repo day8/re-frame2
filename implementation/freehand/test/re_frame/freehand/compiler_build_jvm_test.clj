@@ -14,18 +14,18 @@
       source's contribution and keeps untouched sources; a WHOLE-build
       reconcile drops sources that did not re-declare; an ABORTED pass
       republishes the last-known-good, not a partial.
-    - ATOMICITY: `register-root-site!` / `register-plan-site!` check-then-write
-      inside ONE transition, so parallel compilation neither drops a
-      concurrent write nor misses a genuine duplicate.
+    - ATOMICITY: `register-root-site!` check-then-write inside ONE transition,
+      so parallel compilation neither drops a concurrent write nor misses a
+      genuine duplicate.
     - REPL UPSERT: with no pass open a contribution upserts one key straight
       into committed (no begin/commit cycle, no sibling eviction).
 
-  The mount-surface macros are client entry points (JVM-host expansion is a
-  compile error), so the Layer-1 / descriptor writes are driven the way
-  `re-frame.freehand.compiler.root/mount-form` drives them — `mount-site!` runs the
-  REAL assembly path. `defview` and `v/custom-element` run their real macro
-  bodies under a bound `*ns*` so distinct declaring namespaces (the ledger's
-  source key, rf2-df9873) are addressable."
+  On the Freehand door the client mount verbs (`v/mount` / `v/hydrate-root` /
+  `v/unmount!`) are runtime fns, so `v/render-static` is the only entry point
+  that indexes a root site — `register-root-site!` is driven directly here, the
+  way render-static drives it. `defview` and `v/custom-element` run their real
+  macro bodies under a bound `*ns*` so distinct declaring namespaces (the
+  ledger's source key, rf2-df9873) are addressable."
   (:require [cljs.env :as cljs-env]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.freehand.compiler :as compiler]
@@ -73,46 +73,22 @@
                                          {:line 1})
                               {} tag {:properties properties})))
 
-(def ^:private resolver
-  "Injected Q5 resolution stub for the root-form analyzer driven by
-  `mount-site!` (mirrors root-analysis-cljs-test's stub)."
-  (fn [sym]
-    (case sym
-      frame-root {:fqn 're-frame.freehand/frame-root :meta {}}
-      app-view   {:fqn 'app.views/app-view
-                  :meta {:rf.ui/view true :rf.ui/view-id :app.views/app-view}}
-      nil)))
-
-(defn- mount-site!
-  "Drive the REAL `mount-form` descriptor path for one root site owned by
-  `ns-sym` (file only feeds the error coords): analyze the LITERAL root form,
-  resolve identity, index the root-id + each EXTRACTED frame plan, and
-  contribute the Root Descriptor built by the actual `root/root-descriptor`
-  assembly — exactly the sequence a `v/mount` expansion performs."
-  [ns-sym file root-form opts]
-  (binding [*file* file]
-    (let [coords {:file file :line 1}
-          e (env/make-env {:host :clj :ns-sym 'app.test :resolver resolver})
-          {:keys [ast views plans]} (root/analyze-root e 'v/mount root-form)
-          {:keys [root-id provenance]} (root/resolve-root-identity
-                                        'v/mount opts views)]
-      (root/register-root-site! 'v/mount root-id provenance ns-sym coords)
-      (doseq [p plans] (root/register-plan-site! 'v/mount p ns-sym coords))
-      (root/register-descriptor! root-id
-                                 (root/root-descriptor
-                                  {:root-id root-id :provenance provenance
-                                   :views views :plans plans :ast ast})
-                                 ns-sym))))
+(defn- register-root!
+  "Index one root site owned by `ns-sym` the way `v/render-static` does — the
+  ONLY live Freehand entry point that indexes a root site (the client mount
+  verbs are runtime fns). `file` feeds the error coords."
+  [ns-sym file root-id provenance]
+  (root/register-root-site! 'v/render-static root-id provenance ns-sym
+                            {:file file :line 1}))
 
 (defn- snapshot
-  "The observable state of all five build registries for the ambient build.
-  The descriptor index is read through `root/descriptor-index`."
+  "The observable state of the build registries a live Freehand writer feeds:
+  views (`defview`), the Layer-1 root-site index (`v/render-static`), and the
+  custom-element property classification (`v/custom-element`)."
   []
-  {:views       (build/aggregate build/views)
-   :roots       (root/build-roots)
-   :plans       (root/build-plans)
-   :descriptors (root/descriptor-index)
-   :elements    (build/aggregate build/elements)})
+  {:views    (build/aggregate build/views)
+   :roots    (root/build-roots)
+   :elements (build/aggregate build/elements)})
 
 ;; ---------------------------------------------------------------------------
 ;; The pure-transition model itself (re-frame.freehand.compiler.build)
@@ -585,15 +561,15 @@
   (build/begin-build! :app)
   (build/begin-build! :node-test)
   (binding [build/*build-id* :app]
-    (root/register-root-site! 'v/mount :page/one :authored 'app.a
+    (root/register-root-site! 'v/render-static :page/one :authored 'app.a
                               {:file "app/a.cljs" :line 1}))
   ;; the node-test build compiles the SAME namespaces — its :page/one is a
   ;; different build's row, must not touch app's slice
   (binding [build/*build-id* :node-test]
-    (root/register-root-site! 'v/mount :page/one :authored 'ntest.x
+    (root/register-root-site! 'v/render-static :page/one :authored 'ntest.x
                               {:file "app/a.cljs" :line 1}))
   (binding [build/*build-id* :app]
-    (root/register-root-site! 'v/mount :page/two :authored 'app.b
+    (root/register-root-site! 'v/render-static :page/two :authored 'app.b
                               {:file "app/b.cljs" :line 1}))
   (is (= #{:page/one :page/two}
          (set (keys (build/aggregate build/roots :app))))
@@ -604,7 +580,7 @@
   (testing "app STILL detects its own cross-namespace duplicate"
     (is (thrown? clojure.lang.ExceptionInfo
                  (binding [build/*build-id* :app]
-                   (root/register-root-site! 'v/mount :page/one :authored 'app.c
+                   (root/register-root-site! 'v/render-static :page/one :authored 'app.c
                                              {:file "app/c.cljs" :line 1})))
         "a genuine duplicate in app fires — the interleaved build did not erase :page/one")))
 
@@ -649,7 +625,7 @@
                 (future
                   (binding [build/*build-id* b]
                     (root/register-root-site!
-                     'v/mount (keyword "page" (str (name b) "-" i))
+                     'v/render-static (keyword "page" (str (name b) "-" i))
                      :authored (symbol (str "ns." (name b) "." i))
                      {:file (str (name b) "-" i ".cljs") :line 1})))))]
     (run! deref futs)
@@ -671,7 +647,7 @@
                (future
                  (binding [build/*build-id* :app]
                    (try
-                     (root/register-root-site! 'v/mount :page/dup :authored
+                     (root/register-root-site! 'v/render-static :page/dup :authored
                                                (symbol (str "ns.dup." i))
                                                {:file (str "dup-" i ".cljs") :line 1})
                      :ok
@@ -688,27 +664,22 @@
         "exactly one root is committed")))
 
 ;; ---------------------------------------------------------------------------
-;; Integration — clean-vs-incremental parity across all five registries
+;; Integration — clean-vs-incremental parity across views, the root-site index,
+;; and custom-elements (the registries a live Freehand writer feeds)
 ;; ---------------------------------------------------------------------------
 
 (defn- declare-edited-source! []
-  ;; the EDITED namespace app.a: a renamed view, a different root + frame
-  ;; plan, a renamed custom-element (originally foo / :page/shop / :shop / :x-el)
+  ;; the EDITED namespace app.a: a renamed view, a different root, a renamed
+  ;; custom-element (originally foo / :page/shop / :x-el)
   (declare-view!   'app.a 'bar [:section "bar"])
-  (mount-site!     'app.a "app/a.cljs"
-                   '[frame-root {:id :cart :initial-events [[:cart/boot]]}
-                     [app-view {:promo :winter}]]
-                   {:root-id :page/cart})
+  (register-root!  'app.a "app/a.cljs" :page/cart :authored)
   (declare-element! 'app.a :y-el #{:label}))
 
 (deftest incremental-edit-equals-clean-build
   ;; 1) the ORIGINAL namespace app.a, built in this JVM
   (build/begin-build! :app)
   (declare-view!   'app.a 'foo [:div "foo"])
-  (mount-site!     'app.a "app/a.cljs"
-                   '[frame-root {:id :shop :initial-events [[:shop/boot]]}
-                     [app-view {:promo :spring}]]
-                   {:root-id :page/shop})
+  (register-root!  'app.a "app/a.cljs" :page/shop :authored)
   (declare-element! 'app.a :x-el #{:help-text})
   (build/commit-build! :app)
   ;; 2) EDIT app.a in the SAME JVM (no restart) — incremental rebuild
@@ -726,8 +697,6 @@
           "incremental output after edit/rename/delete EQUALS a clean build")
       (testing "no ghost of the pre-edit source survives"
         (is (= #{:page/cart} (set (keys (:roots incremental))))       "root :page/shop gone")
-        (is (= #{:cart} (set (keys (:plans incremental))))            "plan :shop gone")
-        (is (= #{:page/cart} (set (keys (:descriptors incremental)))) "descriptor :page/shop gone")
         (is (contains? (:elements incremental) :y-el))
         (is (not (contains? (:elements incremental) :x-el))          "custom-element :x-el gone")
         (is (= 1 (count (:views incremental)))                        "view foo gone, only bar")))))
@@ -738,73 +707,61 @@
   (dotimes [_ 25]
     (build/begin-build! :app)
     (declare-view! 'app.a 'only [:div "only"])
-    (mount-site!   'app.a "app/a.cljs" '[app-view {}] {:root-id :page/shop})
+    (register-root! 'app.a "app/a.cljs" :page/shop :authored)
     (build/commit-build! :app))
   (is (= 1 (count (build/aggregate build/views :app))) "views bounded across repeated rebuilds")
-  (is (= #{:page/shop} (set (keys (root/build-roots)))) "roots bounded")
-  (is (= #{:page/shop} (set (keys (build/aggregate build/descriptors :app)))) "descriptors bounded"))
+  (is (= #{:page/shop} (set (keys (root/build-roots)))) "roots bounded"))
 
 ;; ---------------------------------------------------------------------------
-;; The false cross-file duplicate/conflict from a DELETED site
+;; The false cross-file duplicate from a DELETED root site
 ;; ---------------------------------------------------------------------------
 
 (deftest deleted-root-site-does-not-falsely-duplicate-a-later-file
-  ;; original: app.a mounts :page/shop
+  ;; original: app.a registers :page/shop
   (build/begin-build! :app)
-  (root/register-root-site! 'v/mount :page/shop :authored 'app.a {:file "a.cljs" :line 1})
+  (register-root! 'app.a "a.cljs" :page/shop :authored)
   (build/commit-build! :app)
-  ;; edit app.a: the :page/shop site is DELETED (app.a now mounts :page/cart)
+  ;; edit app.a: the :page/shop site is DELETED (app.a now registers :page/cart)
   (build/begin-build! :app)
-  (root/register-root-site! 'v/mount :page/cart :authored 'app.a {:file "a.cljs" :line 1})
+  (register-root! 'app.a "a.cljs" :page/cart :authored)
   ;; app.b legitimately takes over the now-free :page/shop — the deleted
   ;; app.a site must NOT raise a false :rf.error/duplicate-root-id
-  (is (nil? (root/register-root-site! 'v/mount :page/shop :authored 'app.b
-                                      {:file "b.cljs" :line 1}))
+  (is (nil? (register-root! 'app.b "b.cljs" :page/shop :authored))
       "a deleted root site cannot fail a later file (rf2-df9873)")
   (build/commit-build! :app)
   (is (= #{:page/cart :page/shop} (set (keys (root/build-roots))))))
 
 (deftest genuine-current-cross-file-duplicate-still-fails
   (build/begin-build! :app)
-  (root/register-root-site! 'v/mount :page/dup :authored 'app.a {:file "a.cljs" :line 1})
-  (let [ex (try (root/register-root-site! 'v/mount :page/dup :authored 'app.b
-                                          {:file "b.cljs" :line 2})
+  (register-root! 'app.a "a.cljs" :page/dup :authored)
+  (let [ex (try (register-root! 'app.b "b.cljs" :page/dup :authored)
                 nil (catch clojure.lang.ExceptionInfo e e))]
     (is (some? ex) "two LIVE sites for one root-id still fail the build")
     (is (= :rf.error/duplicate-root-id (:rf.error/id (ex-data ex))))
     (is (= 2 (count (:sites (ex-data ex)))) "both current sites named with coords")))
 
-(deftest deleted-frame-plan-does-not-falsely-conflict-a-later-file
-  ;; original: app.a carries a :shop plan
-  (build/begin-build! :app)
-  (root/register-plan-site! 'v/mount {:frame-id :shop :config-fingerprint "cf1-a"}
-                            'app.a {:file "a.cljs" :line 1})
-  (is (contains? (root/build-plans) :shop))
-  (build/commit-build! :app)
-  ;; edit app.a: the :shop plan is DELETED — app.a now declares only a root
-  ;; (it no longer touches the plan registry at all). Re-touching app.a must
-  ;; still evict its stale :shop plan (cross-registry sweep at commit).
-  (build/begin-build! :app)
-  (root/register-root-site! 'v/mount :page/a :authored 'app.a {:file "a.cljs" :line 1})
-  (is (not (contains? (root/build-plans) :shop))
-      "re-touching the recompiled app.a evicted its dropped :shop plan")
-  ;; app.b now carries :shop with a DIFFERENT fingerprint — no false conflict
-  (is (nil? (root/register-plan-site! 'v/mount
-                                      {:frame-id :shop :config-fingerprint "cf1-b"}
-                                      'app.b {:file "b.cljs" :line 1}))
-      "a deleted plan cannot fail a later file's differing plan (rf2-df9873)")
-  (build/commit-build! :app)
-  (is (= "cf1-b" (:config-fingerprint (get (root/build-plans) :shop)))))
+;; ---------------------------------------------------------------------------
+;; Intra-form frame-plan conflict — the surviving compile-time frame-payload
+;; authority. The cross-FILE plan registry retired with the compiled mount door
+;; (no Freehand writer registers plan sites); `check-plan-set!` — reached by
+;; `v/render-static` through `analyze-root` — still rejects two plans for ONE
+;; frame-id carrying DIFFERING config fingerprints inside one root form. The
+;; runtime tier proves the same law at mount preflight
+;; (root_preflight_dom_cljs_test FH-ROOT-004).
+;; ---------------------------------------------------------------------------
 
-(deftest genuine-current-cross-file-plan-conflict-still-fails
-  (build/begin-build! :app)
-  (root/register-plan-site! 'v/mount {:frame-id :shop :config-fingerprint "cf1-a"}
-                            'app.a {:file "a.cljs" :line 1})
-  (let [ex (try (root/register-plan-site! 'v/mount
-                                          {:frame-id :shop :config-fingerprint "cf1-b"}
-                                          'app.b {:file "b.cljs" :line 2})
+(deftest intra-form-frame-plan-conflict-fails-in-check-plan-set
+  (is (= 1 (count (root/check-plan-set!
+                   'v/render-static
+                   [{:frame-id :shop :config {:a 1} :config-fingerprint "cf-a"}
+                    {:frame-id :shop :config {:a 1} :config-fingerprint "cf-a"}])))
+      "identical [frame-id fingerprint] pairs dedupe to one plan (idempotent no-op)")
+  (let [ex (try (root/check-plan-set!
+                 'v/render-static
+                 [{:frame-id :shop :config {:a 1} :config-fingerprint "cf-a"}
+                  {:frame-id :shop :config {:a 2} :config-fingerprint "cf-b"}])
                 nil (catch clojure.lang.ExceptionInfo e e))]
-    (is (some? ex) "two LIVE differing plans for one frame still fail the build")
+    (is (some? ex) "two DIFFERING plans for one frame-id in one root form fail")
     (is (= :rf.error/frame-payload-conflict (:rf.error/id (ex-data ex))))))
 
 ;; ---------------------------------------------------------------------------

@@ -930,10 +930,10 @@
   `:descriptors`) in the live analyzer map's SYNTHETIC per-namespace descriptor for
   `ns-sym` — the S4 variant-B carrier, extended to carry the Root Descriptor index
   too (rf2-u53yy.1 S5): all three call-site registries ride ONE carrier. Called at
-  macro expansion on a real Shadow build pass (`register-root-site!` /
-  `register-plan-site!` / `register-descriptor!` gate on `shadow-build-pass?`) in
-  place of the per-source slice contribution: the whole-build roots/plans/descriptor
-  registries are then harvested from this carrier at compile-finish, present
+  macro expansion on a real Shadow build pass (`register-root-site!` gates on
+  `shadow-build-pass?`; on the Freehand door only the root-site registry has a live
+  writer) in place of the per-source slice contribution: the whole-build root-site
+  registry is then harvested from this carrier at compile-finish, present
   identically for a cache-hit member and a freshly compiled one. A `:roots` site is
   `{:root-id .. :row {:file .. :line .. :provenance ..}}`; a `:plans` site is
   `{:frame-id .. :row {:config-fingerprint .. :file .. :line ..}}`; a `:descriptors`
@@ -1185,9 +1185,9 @@
           view-registries (harvest-view-registries build-state members)
           ;; Roots + plans + Root Descriptors ride the disk-cache-durable SYNTHETIC
           ;; per-namespace analyzer-map descriptor on the Shadow path (rf2-u53yy.1
-          ;; S4 roots/plans, S5 folds descriptors onto the same carrier). Their
-          ;; register-*-site! / register-descriptor! macros contribute NO slice row
-          ;; under a Shadow build pass, so harvest every authoritative member's
+          ;; S4 roots/plans, S5 folds descriptors onto the same carrier). The
+          ;; register-root-site! macro contributes NO slice row under a Shadow build
+          ;; pass, so harvest every authoritative member's
           ;; root/plan/descriptor sites from the carrier and overlay them onto the
           ;; slice-derived rows of the other registries — a cache-hit member
           ;; contributes its RESTORED sites identically to a freshly compiled one. The

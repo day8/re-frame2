@@ -164,7 +164,7 @@ Every tracked file under `implementation/ui/src/`.
 | Donor row | What it is | Disposition | Slice | Status |
 |---|---|---|---|---|
 | `implementation/ui/src/re_frame/ui.cljc` | the donor public facade — `defview`, `custom-element`, `sub`, interop forms, `local`, `effect`, `ref`, `presence`, `route-link`, mount | REPLACE | F1 | pending |
-| `implementation/ui/src/re_frame/ui/client.cljs` | Root handle, live-root claim registry, mount / render! / hydrate-root / unmount! | MOVE | F1 | pending |
+| `implementation/ui/src/re_frame/ui/client.cljs` | Root handle, live-root claim registry, mount / render! / hydrate-root / unmount! — REPLACED by `re-frame.freehand.root`, which owns the whole client lifecycle behind the ratified runtime-fn mount door (no `create-root` / `render!`); the donor file stays as the re-frame.ui substrate's own | REPLACE | F1 | done |
 | `implementation/ui/src/re_frame/ui/compiler.cljc` | the declaration expansion pipeline: arity and options parsing, header analysis, manifest and fingerprint assembly, per-host emission | MOVE | F3 | done |
 | `implementation/ui/src/re_frame/ui/compiler/a11y.cljc` | compile-tier accessibility diagnostics minted from literal template facts | MOVE | F3 | done |
 | `implementation/ui/src/re_frame/ui/compiler/analyze.cljc` | the template-grammar analyzer and its closed normalized AST | MOVE | F3 | done |
@@ -187,7 +187,7 @@ Every tracked file under `implementation/ui/src/`.
 | `implementation/ui/src/re_frame/ui/reactive.cljc` | the ViewCell, the render-side probe/record protocol, the layout-commit reconciler, the lifecycle | MOVE | F2 | pending |
 | `implementation/ui/src/re_frame/ui/route_link_seam.cljc` | runtime helpers consuming the late-bound routing link-model and activate hooks | MOVE | F5 | pending |
 | `implementation/ui/src/re_frame/ui/rules.cljc` | the one DOM prop-conversion rule table shared by analyzers, emitters, and the JVM tree | MOVE | F3 | done |
-| `implementation/ui/src/re_frame/ui/runtime.cljs` | the small client vocabulary emitted code calls, including the one sanctioned runtime conversion | MOVE | F3 | pending |
+| `implementation/ui/src/re_frame/ui/runtime.cljs` | the small client vocabulary emitted code calls, including the one sanctioned runtime conversion — REPLACED by the shipped Freehand runtime; the donor file stays as the re-frame.ui substrate's own | REPLACE | F3 | done |
 | `implementation/ui/src/re_frame/ui/semantic.cljc` | semantic normalization — the parity and fingerprint input | MOVE | F1 | pending |
 | `implementation/ui/src/re_frame/ui/sub_overrides.cljs` | the React carriage for story-supplied subscription overrides | MOVE | F2 | pending |
 | `implementation/ui/src/re_frame/ui/substrate.cljs` | the first-party React adapter machinery, frame-context reader, and root-scoped adapter disposal | MOVE | F2 | pending |
