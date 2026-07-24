@@ -470,6 +470,15 @@ ordinary data, written where it happens:
                     :prevent-default true}}
  …]
 
+[:div {:style {:overflow-y "auto"}
+       :on-scroll [:table/scrolled table-key ::v/scroll-top]}
+ …]
+
+[:div {:popover :auto
+       ::web/popover-open? open?
+       :on-toggle [:menu/toggle-reported menu-key ::v/new-state]}
+ …]
+
 [:canvas {:on-pointer-down (v/event [e]
                              [:canvas/pressed (point-in-canvas e)])}]
 ```
@@ -481,10 +490,38 @@ control knowing anything about the caller's domain, and the whole site stays
 inspectable — and structurally testable — before anything mounts.
 
 **The closed scalar projections.** The reserved markers are `::v/value`,
-`::v/checked` and `::v/key`, and that roster is closed. Adding a fourth is a
-grammar decision, not an implementation detail; anything richer than a shallow
-scalar read is `v/event`'s job, and a nested path language is a
-[normative absence](#absent-at-the-event-surface).
+`::v/checked`, `::v/key`, `::v/scroll-top` and `::v/new-state`, and that roster
+is **closed**. Each marker is the kebab-case spelling of the one host property
+it reads — `target.value`, `target.checked`, `event.key`, `target.scrollTop`,
+`event.newState` — so the roster is read off the platform rather than invented.
+
+Closedness is what a projected read is FOR. Because the marker is a keyword and
+the materialized argument is a scalar, the site's intent is assertable by
+equality, printable, comparable, and identical on both hosts; a general "read any
+property off the host event" escape hatch would buy convenience by destroying
+every one of those properties, and it is a
+[normative absence](#absent-at-the-event-surface) along with a nested path
+language.
+
+Closed does not mean guessed up front. **Membership is extended by demonstrated
+need, and the test is one sentence: a shallow scalar off the event target, needed
+by a real component, demonstrated by that component.** `::v/scroll-top` and
+`::v/new-state` are members because two independent components bent their designs
+around their absence — a windowed table that had to assemble its scroll offset
+inside a `v/event` body, which made the component's most important intent opaque
+and dragged a reader conditional into an otherwise host-neutral library; and a
+top-layer overlay that could not read a toggle's new state and resorted to
+counting reports instead, which is correct for one overlay and wrong for a nested
+pair. Anything needing traversal, measurement, or a live host object is not a
+projection at all and is `v/event`'s job. There is no mechanism for adding
+members: the next one arrives the way these did, through a component that needed
+it.
+
+Admitting `::v/new-state` is also what makes the top layer's dismissal advisory
+answerable. A controlled popover or dialog whose state the browser changes on its
+own is [told to reconcile that report "with ordinary event
+intent"](#the-dom-top-layer); before this member the grammar carried no spelling
+for the report's own state, so the substrate advised a path it refused.
 
 **One materializer, at firing time.** At firing time the native or qualified host
 adapter obtains the live scalar payload, and one pure materializer —

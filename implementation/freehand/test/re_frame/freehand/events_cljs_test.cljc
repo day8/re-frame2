@@ -2,7 +2,7 @@
   "FH-EVENT-001 … FH-EVENT-004 — intent is data.
 
   One user action yields exactly one semantic event vector or `nil`. The
-  Freehand event site materializes the closed projection trio from the
+  Freehand event site materializes the closed projection roster from the
   live callback payload, so general re-frame dispatch keeps no payload
   arity; the callback roster is closed; and every site owns one stable
   committed proxy.
@@ -53,14 +53,33 @@
     {:dispatch #(swap! seen conj %) :seen seen}))
 
 ;; ---------------------------------------------------------------------------
-;; FH-EVENT-001 — the projection trio and the one pure materializer
+;; FH-EVENT-001 — the projection roster and the one pure materializer
 ;; ---------------------------------------------------------------------------
 
 (def event-001 (conf/fixture :FH-EVENT-001))
 
-(deftest fh-event-001-the-trio-materializes-from-the-live-payload
-  (testing "Per FH-EVENT-001: `::v/value`, `::v/checked` and `::v/key`
-            are replaced in TOP-LEVEL argument positions from the live
+(deftest fh-event-001-the-projection-roster-is-closed-and-exactly-these-members
+  (testing "Per FH-EVENT-001: the reserved roster is CLOSED, and its
+            membership is the whole grammar — there is no escape hatch
+            that reads an arbitrary host property, because a projected
+            read is only assertable, printable and host-neutral while
+            the set of markers is finite and named. Equality in BOTH
+            directions is the claim: a member silently dropped and a
+            member silently smuggled in are the same defect."
+    (is (= (:roster event-001) v/projections)
+        "the published roster is exactly the fixture's roster")
+    (is (= #{:re-frame.freehand/value
+             :re-frame.freehand/checked
+             :re-frame.freehand/key
+             :re-frame.freehand/scroll-top
+             :re-frame.freehand/new-state}
+           v/projections)
+        "value, checked, key, scroll offset, and a top-layer new state")))
+
+(deftest fh-event-001-the-roster-materializes-from-the-live-payload
+  (testing "Per FH-EVENT-001: `::v/value`, `::v/checked`, `::v/key`,
+            `::v/scroll-top` and `::v/new-state` are replaced in
+            TOP-LEVEL argument positions from the live
             payload, every occurrence, and a marker nested in another
             value stays ordinary application data. The vector that
             reaches re-frame is plain."
@@ -741,10 +760,10 @@
 #?(:cljs
    (deftest fh-event-001-native-payload-reads-the-live-event
      (testing "Per FH-EVENT-001 (browser host): the ClojureScript
-               adapter reads the closed scalar trio off the live event
+               adapter reads the closed scalar roster off the live event
                object — and nothing else. No DOM node, synthetic event
-               or other host object enters the intent vector; a key the
-               event does not carry is ABSENT, so asking a click for
+               or other host object enters the intent vector; a member
+               the event does not carry is ABSENT, so asking a click for
                `::v/key` is a typed error rather than a silent nil."
        (is (= {:re-frame.freehand/value "mike@example.com"}
               (events/native-payload #js {:target #js {:value "mike@example.com"}})))
@@ -752,7 +771,27 @@
               (events/native-payload #js {:target #js {:checked true}})))
        (is (= {:re-frame.freehand/value "" :re-frame.freehand/key "Enter"}
               (events/native-payload #js {:key "Enter" :target #js {:value ""}})))
-       (is (= {} (events/native-payload #js {:target #js {}}))))))
+       (is (= {} (events/native-payload #js {:target #js {}})))
+       ;; The two demonstrated-need members, read from the same live
+       ;; object under the same presence law. The scroll offset comes off
+       ;; the TARGET, the toggle's new state off the EVENT — each is the
+       ;; one host property its marker is named for, and the VALUE is the
+       ;; assertion: a reader that returned the wrong scalar would still
+       ;; produce a well-formed payload map.
+       (is (= {:re-frame.freehand/scroll-top 3200}
+              (events/native-payload #js {:target #js {:scrollTop 3200}}))
+           "the viewport's own scroll offset, not a nested handle to it")
+       (is (= {:re-frame.freehand/new-state "closed"}
+              (events/native-payload #js {:newState "closed"}))
+           "the toggle report's new state, verbatim from the platform")
+       (is (= {:re-frame.freehand/new-state "open"}
+              (events/native-payload #js {:newState "open" :target #js {}}))
+           "and 'open' is the other half of the same vocabulary")
+       (is (= {:re-frame.freehand/value ""
+               :re-frame.freehand/scroll-top 0}
+              (events/native-payload #js {:target #js {:value "" :scrollTop 0}}))
+           "a zero offset is PRESENT — the target has a scroll offset and
+            it is zero, which is a fact rather than an absence"))))
 
 #?(:cljs
    (deftest fh-event-001-a-committed-site-materializes-from-a-live-event
@@ -782,4 +821,29 @@
          (is (= :rf.error/view-missing-payload
                 (conf/caught-id #(proxy #js {:target #js {}})))
              "a click carries no key, so asking for one is a typed error")
-         (is (= [] @seen) "and nothing is dispatched")))))
+         (is (= [] @seen) "and nothing is dispatched"))
+       ;; The two demonstrated-need members, end to end. The intent is a
+       ;; VECTOR at the site — which is the whole point of admitting
+       ;; them — so what reaches dispatch is plain data carrying the
+       ;; live scalar, not an opaque callback marker.
+       (let [{:keys [dispatch seen]} (recorder)
+             owner (events/owner :acme/table)
+             cand  (events/candidate owner)
+             proxy (events/site cand :on-scroll
+                     [:acme.table/scrolled [:ledger :q3] :re-frame.freehand/scroll-top])]
+         (events/commit! cand dispatch)
+         (proxy #js {:target #js {:scrollTop 3200}})
+         (is (= [[:acme.table/scrolled [:ledger :q3] 3200]] @seen)))
+       (let [{:keys [dispatch seen]} (recorder)
+             owner (events/owner :acme/menu)
+             cand  (events/candidate owner)
+             proxy (events/site cand :on-toggle
+                     [:acme.menu/toggle-reported :format :re-frame.freehand/new-state])]
+         (events/commit! cand dispatch)
+         (proxy #js {:newState "open" :target #js {}})
+         (proxy #js {:newState "closed" :target #js {}})
+         (is (= [[:acme.menu/toggle-reported :format "open"]
+                 [:acme.menu/toggle-reported :format "closed"]]
+                @seen)
+             "each report carries its OWN state, so the handler never has
+              to infer a dismissal by counting")))))
