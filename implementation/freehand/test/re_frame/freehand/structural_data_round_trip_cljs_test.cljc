@@ -50,7 +50,7 @@
   [{:keys [label]}]
   [:span label])
 
-(defrecord Box [v])
+(defrecord RoundTripBox [v])
 
 (def ^:private a-queue
   "A persistent queue: a first-class collection on both hosts, and the
@@ -114,8 +114,8 @@
   [["a queue — a collection whose EDN status differs by host" a-queue]
    ["a queue nested in a map"                   {:jobs a-queue}]
    ["a queue nested in a vector"                [:a [:b a-queue]]]
-   ["a record — map?, and no EDN spelling"      (->Box 1)]
-   ["a record nested at depth"                  {:a {:b (->Box 1)}}]
+   ["a record — map?, and no EDN spelling"      (->RoundTripBox 1)]
+   ["a record nested at depth"                  {:a {:b (->RoundTripBox 1)}}]
    ["##NaN — reads back, never equal to itself" ##NaN]
    ["##NaN nested at depth"                     {:ratio {:value ##NaN}}]
    ["##NaN inside a vector"                     [1 ##NaN]]

@@ -819,16 +819,12 @@
    :main      re-frame.test-quiet.shadow-node/main
    ;; The load-bearing watch hook is inherited from :build-defaults.
    ;;
-   ;; rf2-41igl: :redef stays OFF on this build alone. With it ON the
-   ;; build reports exactly one warning — `->Box`, the positional
-   ;; constructor `(defrecord Box …)` generates in
-   ;; structural_data_round_trip_cljs_test.cljc, shadowing cljs.core/->Box.
-   ;; That is a test namespace, in scope here but not in :freehand-release,
-   ;; so the redef is a test-only artefact. shadow-cljs toggles :redef per
-   ;; build, not per symbol, so the class toggle scoped to this one build
-   ;; is the narrowest lever. (The bench build below no longer needs it.)
-   :compiler-options {:warnings      {:redef false}
-                      :infer-externs false}}
+   ;; rf2-41igl: this build carries no :redef suppression. The lone redef
+   ;; it once needed it for — the test-local `(defrecord Box …)`, whose
+   ;; generated `->Box` shadowed cljs.core/->Box — is gone: the fixture
+   ;; record is now `RoundTripBox`, so the build reports 0 warnings with
+   ;; the class toggle removed rather than silenced.
+   :compiler-options {:infer-externs false}}
 
   ;; rf2-8kas5 — the Freehand artefact's RELEASE build: the substrate
   ;; compiled the way a consumer ships it.
