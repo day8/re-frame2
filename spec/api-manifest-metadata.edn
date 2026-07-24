@@ -104,6 +104,37 @@
    "with-root" {:kind :macro :clj #{[1 :&]}  :cljs #{[1 :&]}}}}
 
  ;; --------------------------------------------------------------------------
+ ;; :freehand-test-signatures — the host-aware signature authority for
+ ;; re-frame.freehand.test (rf2-drpa3.99), the SIBLING guard to
+ ;; :ui-test-signatures above, consumed by the SAME two reconcilers
+ ;; (api-md-check/ui-test-arity-problems on the JVM lane, cljs-probe/
+ ;; signature-problems on the CLJS lane — the mechanism is reused, not
+ ;; duplicated). The manifest carries name + :kind but NO arity, so a
+ ;; freehand.test fn/macro could keep its NAME and :kind while losing / adding
+ ;; / reshaping a supported arity and every ordinary manifest / gen --check /
+ ;; enrolment gate stayed green — the false-green rf2-drpa3.99 closes
+ ;; (`(t/render form)` silently becoming a two-arity call is a compile/runtime
+ ;; break the API boundary must catch).
+ ;;
+ ;; Unlike ui.test, ALL SIX names are host-identical `.cljc` — the surface
+ ;; runs headlessly on both hosts (Spec 008), so there is no `:clj nil`
+ ;; CLJS-only verb: every var carries the same `:clj` and `:cljs` arities. The
+ ;; five queries are plain `defn`s; `with-render` is the single `.cljc`
+ ;; `defmacro` bracket, host-invariant like ui.test's `render` / `with-root`
+ ;; (its `:clj` = `:cljs`, enforced by :macro-host-variance). The macro's
+ ;; `&form`/`&env` are stripped to the programmer-visible `[0 :&]`.
+ :freehand-test-signatures
+ {:namespace "re-frame.freehand.test"
+  :vars
+  {"render"      {:kind :fn    :clj #{[1]}    :cljs #{[1]}}
+   "find"        {:kind :fn    :clj #{[2]}    :cljs #{[2]}}
+   "find-all"    {:kind :fn    :clj #{[2]}    :cljs #{[2]}}
+   "attrs"       {:kind :fn    :clj #{[1]}    :cljs #{[1]}}
+   "text"        {:kind :fn    :clj #{[1]}    :cljs #{[1]}}
+   ;; The discardable-render bracket — one `.cljc` defmacro, host-invariant.
+   "with-render" {:kind :macro :clj #{[0 :&]} :cljs #{[0 :&]}}}}
+
+ ;; --------------------------------------------------------------------------
  ;; CLJS-ONLY surfaces — public vars in ClojureScript-only namespaces that
  ;; cannot be `require`d on the JVM, so the generator carries them verbatim.
  ;; Each row is the FULL manifest row, and carries its own
