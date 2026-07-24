@@ -63,6 +63,7 @@
             [re-frame.freehand.errors :as eb]
             [re-frame.freehand.events :as events]
             [re-frame.freehand.node :as node]
+            [re-frame.freehand.phase :as phase]
             [re-frame.freehand.presence-runtime :as presence-runtime]
             [re-frame.freehand.shell :as shell]
             [re-frame.freehand.top-layer :as top-layer]
@@ -728,6 +729,22 @@
         kids (children cand (drop 2 form))]
     (presence-runtime/presence-boundary (:timeout-ms opts) (into-array kids))))
 
+(defn- client-only-node
+  "A `(v/client-only …)` boundary in interpreted markup — `[client-only-tag
+  opts child]`. BOTH arms are walked into React elements HERE, under the
+  candidate the enclosing body is rendering on, and handed to the
+  phase-conditional boundary that picks one.
+
+  Walking both is what makes the client subtree's event sites belong to the
+  body that wrote them: the boundary renders later, in its own component,
+  where there is no candidate to record against. Building an element is not
+  rendering it — the arm the phase does not select is a value React never
+  looks at — so the unselected arm costs one vdom construction and runs
+  nothing."
+  [cand form]
+  (phase/boundary (emit cand (:fallback (second form)))
+                  (emit cand (nth form 2))))
+
 (defn- node
   [cand form]
   (let [head (first form)]
@@ -737,6 +754,9 @@
 
       (= descriptor/presence-tag head)
       (presence-node cand form)
+
+      (= descriptor/client-only-tag head)
+      (client-only-node cand form)
 
       :else
       (case (descriptor/classify-head head)

@@ -334,6 +334,17 @@
   intercepted by both interpreted walks before head classification."
   :re-frame.freehand/presence)
 
+(def client-only-tag
+  "The reserved head of the vector `v/client-only` returns in interpreted
+  mode. Namespaced and intercepted exactly as [[presence-tag]] is.
+
+  A vector — not a host value — because BOTH interpreted walks must be able
+  to read it. The structural walk answers one tree on the JVM and in
+  ClojureScript, so a value that only the React walk could interpret would
+  make `v/client-only` unrenderable in the very cross-host structural test
+  the substrate's parity rests on."
+  :re-frame.freehand/client-only)
+
 ;; ---------------------------------------------------------------------------
 ;; Vector-head classification — total
 ;; ---------------------------------------------------------------------------

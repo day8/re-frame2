@@ -1322,6 +1322,77 @@
   presence-phase presence-runtime/presence-phase)
 
 ;; ---------------------------------------------------------------------------
+;; Client-only — the browser-only subtree, and its mandatory fallback
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §Client-only subtrees; the phase it reads is Spec 011 §Phase flip.
+;; The site is an ordinary function call in interpreted markup, exactly as
+;; `v/presence` is, and it returns a reserved-head vector both interpreted
+;; walks intercept. The structural walk renders the FALLBACK and never enters
+;; the client subtree; the React walk builds both arms and hands them to the
+;; phase-conditional boundary that picks one.
+;;
+;; The COMPILED tier does not lower this form. `:re-frame.freehand/v1` refuses
+;; it with the didactic "a browser-only subtree" rejection and the ladder out
+;; (extract a declared child, or keep the view interpreted) — a compiled body
+;; that could not see through the boundary would have to claim the client
+;; subtree's capabilities without ever analysing them.
+
+(defn client-only
+  "(v/client-only {:fallback tpl} client-tpl) — a subtree that only the
+  BROWSER may render, and the capability-free markup that stands in its
+  place everywhere else.
+
+      (v/client-only {:fallback [:div.map-shell \"Map loads in the browser\"]}
+        [live-map {:centre centre}])
+
+  `:fallback` is MANDATORY. A browser-only subtree with no fallback is a hole
+  in the server's output — a region that renders as nothing on the server and
+  appears from nowhere on the client — so the boundary has no arity that
+  omits it and no default to supply.
+
+  A root renders in one of two PHASES. The structural render on either host
+  is `:server` phase and produces the fallback; an ordinary `v/mount` is born
+  `:client` and produces the client subtree on its first and only render. A
+  HYDRATING root boots `:server` — so React adopts the server's own fallback
+  markup — and then flips to `:client` in ONE root-scoped update, swapping
+  every client-only site in the root together. There is no per-site state to
+  swap, so several regions can never tear against one another
+  ([Spec 011 §Phase flip](../../../../spec/011-SSR.md#phase-flip)).
+
+  Both arms are ordinary Clojure expressions, so an interpreted body
+  EVALUATES both and renders one. Evaluating markup is building a vector; it
+  is the WALK that touches a host, and the walk enters only the selected arm.
+  Reach for a real host object in the argument itself — rather than inside
+  the view the argument names — and you have moved the browser call outside
+  the boundary that exists to contain it.
+
+  Per [Spec 004 §Client-only subtrees](../../../../spec/004-Views.md#client-only-subtrees)."
+  [opts client-tpl]
+  (when-not (map? opts)
+    (error/throw-error!
+      :rf.error/ui-tree-malformed 'v/client-only
+      (str "(v/client-only {:fallback tpl} client-tpl) needs an options map "
+           "carrying the mandatory capability-free :fallback; the options map "
+           "is missing.")
+      {:recovery :no-recovery :extra {:opts (error/diag-value-summary opts)}}))
+  (when-not (contains? opts :fallback)
+    (error/throw-error!
+      :rf.error/ui-tree-malformed 'v/client-only
+      (str ":fallback is MANDATORY on (v/client-only …) — it is what the server, "
+           "the structural render and the first hydration render put in this "
+           "position, and a boundary without one renders nothing there.")
+      {:recovery :no-recovery :extra {}}))
+  (let [extra (seq (disj (set (keys opts)) :fallback))]
+    (when extra
+      (error/throw-error!
+        :rf.error/ui-tree-malformed 'v/client-only
+        (str "the only (v/client-only …) option is :fallback; got also "
+             (pr-str (vec extra)) ".")
+        {:recovery :no-recovery :extra {:unknown-options (vec extra)}})))
+  [descriptor/client-only-tag opts client-tpl])
+
+;; ---------------------------------------------------------------------------
 ;; `route-link` — a framework view, declared the ordinary way
 ;; ---------------------------------------------------------------------------
 ;;

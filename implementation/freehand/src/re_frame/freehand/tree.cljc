@@ -260,6 +260,29 @@
    :children (vec (apply node/children xs))})
 
 ;; ---------------------------------------------------------------------------
+;; Client-only — the structural node a browser-only subtree leaves behind
+;; ---------------------------------------------------------------------------
+
+(defn client-only-fallback
+  "The structural node for `(v/client-only {:fallback tpl} client-tpl)`: a
+  fragment carrying the `:rf.ui/boundary :client-only` diagnostic marker
+  (§004B), wrapping the FALLBACK and nothing else.
+
+  The structural render is the `:server`-phase render on both hosts, so the
+  client subtree is not walked here at all — which is the whole point of the
+  boundary. What the structural tree records is that the fallback standing in
+  this position IS a fallback, so a structural test can say *this region is
+  showing its capability-free stand-in* rather than having to infer it from
+  markup that looks like any other markup.
+
+  `xs` are already-evaluated fallback child VALUES, canonicalised through
+  [[re-frame.freehand.node/children]]. `:children` is retained when empty,
+  like a fragment: it is the node's discriminator."
+  [& xs]
+  {:rf.ui/boundary :client-only
+   :children (vec (apply node/children xs))})
+
+;; ---------------------------------------------------------------------------
 ;; The walk
 ;; ---------------------------------------------------------------------------
 
@@ -286,6 +309,14 @@
       ;; interpreted `(v/presence …)` and a compiled one produce the SAME node.
       (= descriptor/presence-tag head)
       (apply presence (:timeout-ms (second form)) (children (drop 2 form)))
+
+      ;; A client-only boundary: `v/client-only` returns `[client-only-tag opts
+      ;; child]` in interpreted markup. The structural render is the
+      ;; `:server`-phase render, so ONLY the fallback is walked — the client
+      ;; subtree is a value this walk deliberately never enters, which is what
+      ;; lets a browser-only subtree sit in a view a server renders.
+      (= descriptor/client-only-tag head)
+      (apply client-only-fallback (children [(:fallback (second form))]))
 
       :else
       (case (descriptor/classify-head head)

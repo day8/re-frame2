@@ -856,7 +856,10 @@
   marker is a LOAD-BEARING child node that must survive as its own node — a
   presence-rooted view is a boundary wrapping a presence node, not a boundary
   that adopted the presence children. So a marker-bearing fragment is never
-  plain, and is never adopted."
+  plain, and is never adopted. `:rf.ui/boundary` — the marker a `v/client-only`
+  fallback wears — is the same kind of fact for the same reason: a view whose
+  whole body IS a client-only site would otherwise adopt the fallback's
+  children and lose the one thing that says they are a fallback."
   [x]
   (and (map? x)
        (contains? x :children)
@@ -864,7 +867,8 @@
        (not (contains? x :view-id))
        (not (contains? x :html))
        (not (contains? x :key))
-       (not (contains? x :rf.ui/presence))))
+       (not (contains? x :rf.ui/presence))
+       (not (contains? x :rf.ui/boundary))))
 
 (defn boundary
   "Assemble one internal-view expansion into a boundary node. The boundary
