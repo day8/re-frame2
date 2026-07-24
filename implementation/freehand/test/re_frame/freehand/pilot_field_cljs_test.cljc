@@ -257,12 +257,15 @@
 
             The library owns that literal vector deliberately. Forwarding
             the caller's event vector into the `:on-input` position would
-            leave the site a DYNAMIC handler expression, which the
-            interpreted walk classifies at render time and the compiled
-            analyzer cannot classify at all — the one promotion parity
-            break D009 names. Carrying the caller's event as an ARGUMENT
-            inside the library's own literal vector keeps the site's proof
-            static and the prefix a runtime value.
+            leave the site a DYNAMIC handler expression the compiled
+            analyzer cannot classify. The door is not what that costs —
+            it is decided at commit from the runtime handler value, in
+            both modes — but the EVIDENCE is: the site would be opaque,
+            its intent absent from the compiled manifest, and none of the
+            four facts below assertable before it fires. Carrying the
+            caller's event as an ARGUMENT inside the library's own literal
+            vector keeps the site's proof static and the prefix a runtime
+            value.
 
             The user-visible half — that a keystroke's state change lands
             before the browser restores the node — is owed to

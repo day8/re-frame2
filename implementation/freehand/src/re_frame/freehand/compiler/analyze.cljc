@@ -2057,6 +2057,16 @@
                                    ;; shape. A site the door can never admit
                                    ;; (`:on-before-input`, a `:div`) gets no
                                    ;; unactionable nag.
+                                   ;;
+                                   ;; What it reports is the loss of STATIC
+                                   ;; EVIDENCE, not a change of dispatch lane.
+                                   ;; The emitted element facts (tag,
+                                   ;; controlled?, slot) are constants and
+                                   ;; `controlled/door?` decides at COMMIT from
+                                   ;; the runtime handler value, so a forwarded
+                                   ;; vector reaches the door in both modes.
+                                   ;; What it cannot do is prove anything
+                                   ;; beforehand.
                                    (when (and controlled?
                                               (contains? controlled/controlled-tags tag)
                                               (controlled/door-slot? (door-slot handler))
@@ -2066,16 +2076,23 @@
                                       {:id :rf.ui.compile/controlled-input-async-handler
                                        :msg (str (:k handler)
                                                  " is paired with a controlled "
-                                                 ":value/:checked prop, but its "
-                                                 "handler outcome is not synchronously "
-                                                 "known, so it stays on the ordinary "
-                                                 "batched path. Open the controlled-input "
-                                                 "sync door with a literal event vector, "
+                                                 ":value/:checked prop, but nothing "
+                                                 "static pins this handler's class, so "
+                                                 "the site is OPAQUE: its intent is "
+                                                 "absent from the compiled manifest, and "
+                                                 "no structural test or tool can say what "
+                                                 "this control dispatches before it "
+                                                 "fires. The door itself still opens — it "
+                                                 "is decided at commit, from the runtime "
+                                                 "handler value, in both modes; what is "
+                                                 "lost is the proof. Keep the site "
+                                                 "readable with a literal event vector, "
                                                  "an options map carrying one, or a "
                                                  "(v/event …) handler when the native "
-                                                 "payload must flow — and not behind a "
-                                                 ":capture/:passive listener, which is a "
-                                                 "different native attachment lane")
+                                                 "payload must be converted — and not "
+                                                 "behind a :capture/:passive listener, "
+                                                 "which is a different native attachment "
+                                                 "lane")
                                        :form (:form handler)}))
                                    (assoc handler :sync? sync?)))
                                events0)

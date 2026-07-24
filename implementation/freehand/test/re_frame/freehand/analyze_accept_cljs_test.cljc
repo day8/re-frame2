@@ -636,7 +636,7 @@
           (ana-full '[:div {:value value :on-input [:form/typed :rf.ui/value]}])]
       (is (false? (get-in ast [:props :events 0 :sync?])))
       (is (empty? warnings) "a :div has no value React restores, so no advisory")))
-  (testing "ordinary sites and non-data handlers stay batched"
+  (testing "ordinary sites and non-data handlers leave :sync? unproven"
     (is (false? (-> (ana* '[:button {:value value :on-click [:form/go]}])
                     (get-in [:props :events 0 :sync?]))))
     (let [{:keys [ast warnings]}
@@ -655,8 +655,17 @@
         (is (re-find #"literal event vector" msg)
             "the diagnostic still names the literal-event-vector door")
         (is (re-find #"v/event" msg)
-            "the diagnostic ALSO names the (v/event …) door")))
-    (testing "a bare fn at a controlled site still batches with the diagnostic"
+            "the diagnostic ALSO names the (v/event …) door")
+        ;; rf2-pv0ne — the advisory reports the loss of STATIC EVIDENCE, not
+        ;; a change of dispatch lane. The emitted element facts are constants
+        ;; and `controlled/door?` decides at COMMIT from the runtime handler
+        ;; value, so a site the analyzer cannot classify still reaches the
+        ;; door in both modes; what it cannot do is prove anything first.
+        (is (re-find #"(?i)opaque" msg)
+            "the diagnostic names the opaque site")
+        (is (not (re-find #"(?i)batch" msg))
+            "and never claims the site moves to the batched path")))
+    (testing "a bare fn at a controlled site is unprovable with the diagnostic"
       (let [{:keys [ast warnings]}
             (ana-full '[:input {:value value :on-input (fn [e] (js/console.log e))}])]
         (is (false? (get-in ast [:props :events 0 :sync?])))
