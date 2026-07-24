@@ -718,6 +718,8 @@
           "two punctuation-only identities are two ids, neither dropped")
       (is (not= (id "!") (id nil))
           "and a punctuation identity is not the same as no identity")
+      (is (not= (id "") (id nil))
+          "nor is a supplied empty string dropped onto the absent-instance id")
       (is (not= (pilot/error-region-id "acme-field" "a" "b-c")
                 (pilot/error-region-id "acme-field" "a-b" "c"))
           "the join cannot blur where one identity part ends and the next begins"))))
@@ -749,6 +751,53 @@
     (is (= (pilot/error-region-id "acme-buffered" [:invoice 1 :reference])
            (pilot/error-region-id "acme-buffered" [:invoice 1 :reference]))
         "including a control-address identity")))
+
+(deftest a-supplementary-code-point-is-encoded-whole-on-both-hosts
+  (testing "rf2-drpa3.146, audit reopen. A supplementary code point is ONE
+            two-unit match on the JVM but TWO one-unit matches in ClojureScript.
+            Encoding only the first unit collapsed 😀 (U+1F600) and 😁 (U+1F601)
+            — which share a high surrogate — onto one JVM id, and disagreed with
+            ClojureScript besides. Encoding EVERY unit keeps the two emoji
+            distinct AND yields the same id on both hosts, which this `.cljc`
+            test proves by running on each and asserting the exact string. The
+            emoji are built from their surrogate units, so the assertion never
+            depends on how a host reads a literal out of source."
+    (let [grin (str (char 0xD83D) (char 0xDE00))    ; 😀 U+1F600
+          beam (str (char 0xD83D) (char 0xDE01))    ; 😁 U+1F601
+          id   (fn [instance] (pilot/error-region-id "acme-field" instance "description"))]
+      (is (= "acme-field-_d83d__de00_-description-error" (id grin))
+          "😀's two surrogate units are BOTH spelled, identically on both hosts")
+      (is (= "acme-field-_d83d__de01_-description-error" (id beam))
+          "and 😁 differs only in its low unit — no longer a shared _d83d_")
+      (is (not= (id grin) (id beam))
+          "so the two emoji are two ids, the JVM collision closed"))))
+
+(deftest an-unordered-identity-is-refused-loudly
+  (testing "rf2-drpa3.146, audit reopen. An identity's PRINT must be its
+            identity, and a map's or set's is not: `=` ignores an element order
+            the print preserves, so `(array-map :a 1 :b 2)` and its equal
+            reordered twin `(array-map :b 2 :a 1)` would print two ids for one
+            instance. Rather than emit a silently unstable id, the library
+            refuses the ambiguous identity at the boundary with an actionable
+            reason — criterion 3's 'fail loud, no silent aliasing'."
+    (let [reason (fn [identity]
+                   (try (pilot/error-region-id "acme-buffered" identity)
+                        nil
+                        (catch #?(:clj Throwable :cljs :default) e
+                          (:acme.ui/error (ex-data e)))))]
+      (is (= :unstable-field-identity (reason (array-map :a 1 :b 2)))
+          "a map identity fails loud with an actionable reason")
+      (is (= :unstable-field-identity (reason (array-map :b 2 :a 1)))
+          "and so does its equal-but-reordered twin — neither silently aliases")
+      (is (= :unstable-field-identity (reason #{:a :b}))
+          "a set is refused for the same reason its print is not its identity")
+      (is (= :unstable-field-identity (reason [:invoice {:a 1} :reference]))
+          "including an unordered collection NESTED inside an ordered address"))
+    (testing "while the ordered identity carrying the same information is
+              accepted and stable across calls"
+      (is (= (pilot/error-region-id "acme-buffered" [:invoice 1 :reference])
+             (pilot/error-region-id "acme-buffered" [:invoice 1 :reference]))
+          "a vector address is a stable identity, refused nothing"))))
 
 ;; ===========================================================================
 ;; R-A9 — asynchronous transform race safety

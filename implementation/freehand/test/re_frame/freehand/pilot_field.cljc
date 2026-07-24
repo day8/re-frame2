@@ -200,47 +200,88 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- hex-escape
-  "One non-alphanumeric character `c` as the reversible token `_<hex>_`."
+  "The matched non-alphanumeric run `c` as reversible `_<hex>_` tokens, ONE
+  per UTF-16 code unit. Encoding EVERY unit — not just the first — is what
+  keeps the two hosts in step and the encoding injective past the BMP: a
+  supplementary code point (an emoji) is one two-unit match on the JVM but two
+  one-unit matches in ClojureScript, and spelling both units makes each host
+  emit the same `_hi__lo_`. Reading only `.charAt 0` collapsed 😀 (U+1F600)
+  and 😁 (U+1F601) — which share a high surrogate — onto one JVM token, and
+  disagreed with ClojureScript's per-unit walk besides."
   [c]
-  (str "_"
-       #?(:clj  (Integer/toString (int (.charAt ^String c 0)) 16)
-          :cljs (.toString (.charCodeAt c 0) 16))
-       "_"))
+  (str/join
+    (map (fn [n] (str "_" #?(:clj  (Integer/toString n 16)
+                             :cljs (.toString n 16))
+                      "_"))
+         #?(:clj  (map int c)
+            :cljs (map #(.charCodeAt c %) (range (.-length c)))))))
 
 (defn- dom-escape
-  "Escape `s` to a DOM-safe token over `[A-Za-z0-9_]`, INJECTIVELY: an ASCII
-  alphanumeric passes through unchanged — so an ordinary name stays itself —
-  and every other character, INCLUDING `_` and the `-` the id join reserves
-  as its separator, becomes `_<hex>_`. Distinct strings therefore yield
-  distinct tokens, and a token never carries a bare `-`, so parts joined by
-  `-` cannot blur their boundary."
+  "Escape `s` to a DOM-safe token over `[A-Za-z0-9_]`, INJECTIVELY and
+  IDENTICALLY on both hosts: an ASCII alphanumeric passes through unchanged —
+  so an ordinary name stays itself — and every other UTF-16 code unit,
+  INCLUDING `_` and the `-` the id join reserves as its separator, becomes
+  `_<hex>_`. Distinct strings therefore yield distinct tokens on either host,
+  and a token never carries a bare `-`, so parts joined by `-` cannot blur
+  their boundary."
   [s]
   (str/replace s #"[^A-Za-z0-9]" hex-escape))
 
+(defn- ordered-identity?
+  "Does `v`'s printed form carry its identity? An atom's does, and a
+  SEQUENTIAL collection recursively of such does — order IS identity there. An
+  unordered collection's does NOT: `=` ignores a map's or a set's element
+  order, but a printed id cannot, so two `=` maps differing only in insertion
+  order would print two ids for ONE identity. Those answer false and are
+  refused at the boundary rather than emitted as a silently unstable id."
+  [v]
+  (cond
+    (map? v)  false
+    (set? v)  false
+    (coll? v) (every? ordered-identity? v)
+    :else     true))
+
 (defn- id-token
-  "A DOM-safe, INJECTIVE token for one part of a control's identity, or nil
-  when the part is absent. Distinct SUPPORTED identities yield distinct
-  tokens — the library promises the caller so and points an
-  `aria-describedby` at the result — so the encoding must not lose the
-  difference a lossy slug did: `\"a/b\"` and `\"a-b\"` are two identities,
-  `:invoice` and `\"invoice\"` are two, `1` and `\"1\"` are two, and `\"!\"`
-  and `\"@\"` are two rather than both nothing.
+  "A DOM-safe, INJECTIVE, host-stable token for one part of a control's
+  identity, or nil when the part is absent. Distinct SUPPORTED identities
+  yield distinct tokens — the library promises the caller so and points an
+  `aria-describedby` at the result — so the encoding loses no difference:
+  `\"a/b\"` and `\"a-b\"` are two, `:invoice` and `\"invoice\"` are two, `1`
+  and `\"1\"` are two, `\"!\"` and `\"@\"` are two, and 😀 and 😁 are two on
+  every host.
 
   A string is escaped directly, so an ordinary name — `\"description\"` —
   stays itself and a single-instance field keeps its short, readable id. Any
   other value carries a reserved `_v_` prefix ahead of its escaped `pr-str`:
   the prefix is one a string can never produce — a string's own `_` escapes
-  to `_5f_` — so a typed value and a string of the same characters never
-  collide, and `pr-str` keeps distinct values distinct (a `:control` vector
-  address escapes as one unambiguous token). Pure and stable: the same
-  identity yields the same token on every render and after a list reorder,
-  and nothing is allocated, counted or policed."
+  to `_5f_`, so no bare `_` survives — meaning a typed value and a string of
+  the same characters never collide, and `pr-str` keeps distinct values
+  distinct (a `:control` vector address escapes as one unambiguous token).
+
+  For that `pr-str` to BE an identity the value's print must be order-stable,
+  so a non-string identity is required to be `ordered-identity?`: an unordered
+  map or set — whose `=` ignores an order its print preserves — is refused
+  loudly rather than emitted as an id two equal identities would not share. A
+  supplied string is never dropped, so an empty-string identity stays distinct
+  from an absent one rather than silently aliasing it. Pure and stable: the
+  same supported identity yields the same token on every render and after a
+  list reorder, and nothing is allocated, counted or policed."
   [part]
   (when (some? part)
-    (let [t (if (string? part)
-              (dom-escape part)
-              (str "_v_" (dom-escape (pr-str part))))]
-      (when-not (str/blank? t) t))))
+    (if (string? part)
+      (dom-escape part)
+      (if (ordered-identity? part)
+        (str "_v_" (dom-escape (pr-str part)))
+        (throw (ex-info
+                 (str "acme.ui: a field identity must be a value whose print "
+                      "is its identity — an atom or an ordered collection of "
+                      "them — but got an unordered collection: " (pr-str part)
+                      ". A map's or set's `=` ignores an element order its "
+                      "printed id cannot, so this identity could point two "
+                      "controls at two different error regions for one "
+                      "instance. Use an ordered identity such as a vector.")
+                 {:acme.ui/error    :unstable-field-identity
+                  :acme.ui/identity part}))))))
 
 (defn error-region-id
   "The id of a field's error region, and the target its control points
@@ -251,9 +292,12 @@
   `acme-field-<instance>-<name>-error` and two same-named instances no
   longer collide.
 
-  The library trusts the caller's identity to be distinct — exactly as
-  the buffered controller trusts its `:control` address (D004) — and
-  allocates, counts and polices nothing."
+  The library trusts the caller's identity to be distinct — exactly as the
+  buffered controller trusts its `:control` address (D004) — and requires
+  only that it be order-stable, so its id is the same across a rerender and a
+  list reorder. It allocates, counts and polices nothing; an identity whose
+  print is not its identity (an unordered map or set) is refused loudly by
+  `id-token` rather than given an ambiguous id."
   [prefix & parts]
   (str/join "-" (concat [prefix] (keep id-token parts) ["error"])))
 
