@@ -755,9 +755,13 @@
   check the interpreted walks apply, so the sugar-vs-forwarded-id ambiguity
   would slip through both — `[:div#sugar (v/spread {:id \"a\"})]` emitting a
   single id where its interpreted twin refuses. Threading the fact here holds
-  it identically, in the same two-step ORDER the interpreted walks reach it:
-  the spread's own cardinality first (tag-less, exactly what the public seam
-  throws), then the element's sugar (rf2-5r1af)."
+  it identically, in the same ORDER the interpreted walks reach it: the
+  spread's own cardinality first (tag-less, exactly what the public seam
+  throws), then the element's sugar against the surviving forwarded id
+  (rf2-5r1af), and — when that leaves the id slot free — the sugar id
+  RESTORED onto the map, so a sugar-less spread keeps the `#id` in the
+  compiled tier exactly as the interpreted element fold does rather than
+  silently dropping it (rf2-ll1ah)."
   ([base overrides] (spread-attrs base overrides nil nil))
   ([base overrides tag sugar-id]
    (assert-forwardable-attrs! 're-frame.freehand/spread base)
@@ -786,7 +790,20 @@
      (when sugar-id
        (when-some [{:keys [message]} (conv/id-conflict tag sugar-id (keys merged))]
          (malformed! 're-frame.freehand/spread message {:value (shape merged)})))
-     merged)))
+     ;; The surviving `#id` sugar RESTORED onto the forwarded map, the last of
+     ;; the same two-step order. The conflict check above already refused a
+     ;; forwarded id beside the sugar, so reaching here with a `sugar-id` means
+     ;; the id slot is free — write it, the same `:id` the interpreted element
+     ;; fold writes from the sugar for a sugar-less spread. Without this the
+     ;; compiled lowering (which returns `:attrs []` and threads the sugar fact
+     ;; ONLY through this seam) silently DROPPED the id while every interpreted
+     ;; walk kept it — `[:div#sugar (v/spread {:class "c"})]` answering
+     ;; `{:class "c"}` compiled against `{:id "sugar" :class "c"}` interpreted.
+     ;; Gated on `sugar-id`, so the interpreted public seam (which passes none)
+     ;; is untouched, and its own element fold still owns the interpreted id
+     ;; (rf2-ll1ah).
+     (cond-> merged
+       sugar-id (assoc :id sugar-id)))))
 
 (defn- owned-handler-keys
   "The `on-*` keys of a `v/spread-safe` OWNED props map — the handler families
