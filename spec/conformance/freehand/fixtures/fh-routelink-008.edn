@@ -1,0 +1,91 @@
+;; FH-ROUTELINK-008 — `:prefetch :intent` binds the three intent
+;; positions, and binds nothing else.
+;;
+;; The whole value of a prefetch is that it fires BEFORE the user commits,
+;; and the whole risk is that it fires when they never intended to commit
+;; at all. So the law has two halves and the second is the one worth
+;; testing: an opted-in link warms its destination on hover, focus and
+;; touch — and a link that did not opt in binds nothing, a render
+;; dispatches nothing, and `:prefetch` never reaches the `<a>` as an
+;; attribute (`prefetch="intent"` is not HTML).
+;;
+;; The third claim is composition. An opted-in link takes the three
+;; positions over, so a caller's own hover handler would be the natural
+;; casualty: it must still run, and it must run FIRST. Because the
+;; framework CALLS it, the accepted grammar at those positions narrows to
+;; the same closed roster `:on-click` carries — and only on a link that
+;; opted in, which is why the passive link below carries an event VECTOR
+;; at the same key and renders happily.
+;;
+;; The address is the link's OWN: same `:to` and `:params` as the href, so
+;; a warm-up can never fetch a different destination than the click will
+;; navigate to. `:fragment` is absent by construction — a `#fragment` is
+;; never a resource input.
+{:fh/id "FH-ROUTELINK-008"
+ :fh/law
+ "v/route-link's :prefetch is a routing control key stripped before DOM emission; :prefetch :intent binds :on-mouse-enter / :on-focus / :on-touch-start to the routing prefetch for the link's own address — composing with a caller handler of the same name rather than replacing it, and narrowing those positions to the same closed callback roster :on-click carries — while a link that did not opt in binds none of them and a render dispatches nothing."
+
+ :routes
+ {:fh.route/cart    "/cart"
+  :fh.route/article "/articles/:slug"}
+
+ ;; The opted-in link, the href it renders, and the event its intent
+ ;; positions dispatch. The address is selected from the link's own props,
+ ;; so the two agree by construction rather than by discipline.
+ :opt-in
+ {:props {:to :fh.route/article :params {:slug "the-intro"}
+          :query {:tab "notes"} :prefetch :intent :class "title"}
+  :href  "/articles/the-intro?tab=notes"
+  :event [:rf.route/prefetch {:to :fh.route/article
+                              :params {:slug "the-intro"}
+                              :query  {:tab "notes"}}]}
+
+ ;; The three positions the opt-in makes framework-owned, in the order the
+ ;; spec names them: pointer hover, focus, touch-start.
+ :intent-keys [:on-mouse-enter :on-focus :on-touch-start]
+
+ ;; `:prefetch` is a routing control key and never an HTML attribute.
+ :control-key :prefetch
+
+ ;; The passive link: same route, no `:prefetch`. Nothing is bound, so its
+ ;; intent positions stay ordinary OPEN Freehand event positions — which
+ ;; is why an event vector is legal here and rejected above.
+ :passive
+ {:why   "no :prefetch — the intent positions are the author's, untouched"
+  :props {:to :fh.route/cart :on-mouse-enter [:fh.analytics/link-hovered]}}
+
+ ;; The closed grammar at an OWNED intent position. Named forms only —
+ ;; EDN can carry a name, and only code can carry a function or a declared
+ ;; callback, so the table of names lives here and the table of values in
+ ;; the suite.
+ :accepted
+ [{:why "a plain function — the unceremonious spelling"
+   :form :bare-fn}
+  {:why "a v/handler — the declared imperative form, unwrapped at the boundary"
+   :form :v-handler}]
+
+ :rejected
+ [{:why "an event vector — legal at any OTHER :on-mouse-enter, and not at one the framework calls"
+   :form :event-vector
+   :tag  "an event vector"}
+  {:why "an event options map — intent plus listener options, still intent"
+   :form :event-options
+   :tag  "an event options map"}
+  {:why "a v/event — the declared conversion seam, and still not something to call"
+   :form :v-event
+   :tag  "a v/event"}]
+
+ :error
+ {:id          :rf.error/view-bad-event
+  :where       v/route-link
+  :recovery    :use-a-plain-fn-or-v-handler
+  :legal-forms [:bare-fn :v-handler :nil]}
+
+ ;; Substrings the human sentence must carry: the opt that narrowed the
+ ;; position, the accepted form, and the event a caller reaches for when
+ ;; they wanted an application reaction instead. Substring, not equality —
+ ;; the sentence is prose.
+ :message-mentions [":prefetch :intent" "v/handler" ":rf.route/prefetch"]
+
+ ;; The greppable trailing token every thrown re-frame2 error carries.
+ :message-token "[:rf.error/view-bad-event]"}

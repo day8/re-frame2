@@ -279,10 +279,13 @@
 
 (def routelink-007 (conf/fixture :FH-ROUTELINK-007))
 
-(defn- on-click-form
-  "Build the fixture's named `:on-click` value. EDN names a form; only
-  code can carry a function or a declared callback, so the table of names
-  is here and the table of cases is in the fixture."
+(defn- callback-form
+  "Build the fixture's named callback value. EDN names a form; only code
+  can carry a function or a declared callback, so the table of names is
+  here and the table of cases is in the fixture. Shared by the two owned
+  callback positions — `:on-click` (FH-ROUTELINK-007) and the three
+  intent positions a `:prefetch :intent` link binds (FH-ROUTELINK-008) —
+  because the roster they accept is one roster."
   [form ran]
   (case form
     :bare-fn      (fn [_] (swap! ran inc))
@@ -311,7 +314,7 @@
     (with-host-frame!)
     (doseq [{:keys [why form]} (:accepted routelink-007)]
       (let [ran      (atom 0)
-            callback (on-click-form form ran)
+            callback (callback-form form ran)
             rendered (render (assoc (:props routelink-007) :on-click callback))]
         (is (= :a (first rendered)) (str why " — renders the anchor"))
         (is (not= callback (:on-click (attrs-of rendered)))
@@ -324,7 +327,7 @@
               routing's compatibility signature can call it"
       (doseq [{:keys [why form]} (:accepted routelink-007)]
         (let [ran (atom 0)
-              f   (route-link-seam/veto (on-click-form form ran))]
+              f   (route-link-seam/veto (callback-form form ran))]
           (is (fn? f) (str why " — normalizes to a plain fn"))
           (f nil)
           (is (= 1 @ran) (str why " — and it is the caller's own body")))))
@@ -347,7 +350,7 @@
       (is (seq (:rejected routelink-007)) "the fixture's rejection table loaded")
       (doseq [{:keys [why form tag]} (:rejected routelink-007)]
         (let [e    (render-error (assoc (:props routelink-007)
-                                        :on-click (on-click-form form (atom 0))))
+                                        :on-click (callback-form form (atom 0))))
               data (ex-data e)]
           (is (some? e) (str why " — rejected rather than rendered"))
           (is (= id (:rf.error/id data)) (str why " — the canonical discriminator"))
@@ -373,7 +376,132 @@
     (is (= 2 (count (:accepted routelink-007)))
         "the fixture names both accepted spellings")
     (doseq [{:keys [form]} (:accepted routelink-007)]
-      (is (fn? (route-link-seam/veto (on-click-form form (atom 0))))))))
+      (is (fn? (route-link-seam/veto (callback-form form (atom 0))))))))
+
+;; ---------------------------------------------------------------------------
+;; FH-ROUTELINK-008 — `:prefetch :intent` binds the three intent positions
+;; ---------------------------------------------------------------------------
+
+(def routelink-008 (conf/fixture :FH-ROUTELINK-008))
+
+(defn- intent-attrs-of
+  "The three intent positions of a rendered anchor, as a map."
+  [rendered]
+  (select-keys (attrs-of rendered) (:intent-keys routelink-008)))
+
+(deftest fh-routelink-008-prefetch-is-a-control-key-and-never-an-attribute
+  (testing "Per FH-ROUTELINK-008: `:prefetch` asks routing for a warm-up.
+            It is not markup — `prefetch=\"intent\"` on an `<a>` is not
+            HTML — so it is stripped before DOM emission like every other
+            control key, and the href the link renders is the one it would
+            have rendered without the opt."
+    (reg-routes! (:routes routelink-008))
+    (with-host-frame!)
+    (let [{:keys [props href]} (:opt-in routelink-008)
+          attrs (attrs-of (render props))]
+      (is (not (contains? attrs (:control-key routelink-008)))
+          ":prefetch never reaches the anchor")
+      (is (= href (:href attrs))
+          "and asking for a prefetch does not change where the link points")
+      (is (= "title" (:class attrs))
+          "the passthrough attributes beside it are untouched"))))
+
+(deftest fh-routelink-008-the-opt-in-binds-the-three-intent-positions
+  (testing "Per FH-ROUTELINK-008: the opt-in is what binds. An opted-in
+            link carries a handler at each of hover, focus and
+            touch-start on the interactive host, and the server shell
+            carries none — a serialized document has no intent to
+            observe, exactly as it has no click to intercept."
+    (reg-routes! (:routes routelink-008))
+    (with-host-frame!)
+    (let [installed (intent-attrs-of (render (:props (:opt-in routelink-008))))]
+      (doseq [k (:intent-keys routelink-008)]
+        #?(:cljs (is (fn? (get installed k))
+                     (str k " carries the framework's intent handler"))
+           :clj  (is (not (contains? installed k))
+                     (str k " is absent from the server anchor")))))))
+
+(deftest fh-routelink-008-a-link-that-did-not-opt-in-binds-nothing
+  (testing "Per FH-ROUTELINK-008: the half worth testing. A link with no
+            `:prefetch` never binds an intent position, so a page full of
+            links warms nothing merely by rendering — and the author's own
+            value at that key stays the ordinary OPEN Freehand event
+            position it is, event vector and all."
+    (reg-routes! (:routes routelink-008))
+    (with-host-frame!)
+    (let [{:keys [why props]} (:passive routelink-008)
+          attrs (attrs-of (render props))]
+      (is (= [:fh.analytics/link-hovered] (:on-mouse-enter attrs))
+          (str why " — the caller's event vector reaches the anchor verbatim"))
+      (doseq [k (rest (:intent-keys routelink-008))]
+        (is (not (contains? attrs k))
+            (str why " — " k " was never bound"))))))
+
+(deftest fh-routelink-008-an-owned-intent-position-has-the-closed-grammar
+  (testing "Per FH-ROUTELINK-008: owning a position means CALLING what is
+            there, so the same closed roster `:on-click` carries applies
+            at an owned intent position — and for the same reason. An
+            event vector left to reach routing would be invoked as an
+            `IFn` lookup keyed by a MouseEvent; a `v/event` is a
+            deliberately non-callable `deftype`. Both are refused at
+            render, on whichever host is running."
+    (reg-routes! (:routes routelink-008))
+    (with-host-frame!)
+    (let [{:keys [id where recovery legal-forms]} (:error routelink-008)
+          base (:props (:opt-in routelink-008))]
+      (is (seq (:rejected routelink-008)) "the fixture's rejection table loaded")
+      (doseq [k (:intent-keys routelink-008)
+              {:keys [why form tag]} (:rejected routelink-008)]
+        (let [e     (render-error (assoc base k (callback-form form (atom 0))))
+              data  (ex-data e)
+              label (str k " / " why)]
+          (is (some? e) (str label " — rejected rather than rendered"))
+          (is (= id (:rf.error/id data)) (str label " — the canonical discriminator"))
+          (is (= where (:where data)) (str label " — the diagnostic names the view"))
+          (is (= recovery (:recovery data)) (str label " — and the named recovery"))
+          (is (= k (:prop data)) (str label " — and WHICH position was wrong"))
+          (is (= legal-forms (:legal-forms data))
+              (str label " — the closed roster rides the ex-data"))
+          (let [message (ex-message e)]
+            (is (str/includes? message tag)
+                (str label " — the sentence names what was passed: " tag))
+            (doseq [mention (:message-mentions routelink-008)]
+              (is (str/includes? message mention)
+                  (str label " — the sentence says how to fix it: " mention)))
+            (is (str/includes? message (:message-token routelink-008)))))))))
+
+(deftest fh-routelink-008-the-narrowing-is-not-a-blanket-refusal
+  (testing "Per FH-ROUTELINK-008, the two controls that make the table
+            above mean something. A check that refused everything would
+            pass every rejection row while making the opt useless — so the
+            accepted forms are asserted to render and to normalize to a
+            plain fn; and the SAME value that is refused on an opted-in
+            link renders happily on one that did not opt in, which is what
+            makes the narrowing conditional rather than a new law about
+            `:on-mouse-enter`."
+    (reg-routes! (:routes routelink-008))
+    (with-host-frame!)
+    (let [base (:props (:opt-in routelink-008))]
+      (is (= 2 (count (:accepted routelink-008)))
+          "the fixture names both accepted spellings")
+      (doseq [k (:intent-keys routelink-008)
+              {:keys [why form]} (:accepted routelink-008)]
+        (let [ran      (atom 0)
+              callback (callback-form form ran)
+              rendered (render (assoc base k callback))]
+          (is (= :a (first rendered)) (str k " / " why " — renders the anchor"))
+          (is (zero? @ran)
+              (str k " / " why " — and rendering does not INVOKE it; it runs at the event"))
+          (let [f (route-link-seam/intent-callback k callback)]
+            (is (fn? f) (str k " / " why " — normalizes to a plain fn"))
+            (f nil)
+            (is (= 1 @ran) (str k " / " why " — and it is the caller's own body")))))
+      (is (nil? (route-link-seam/intent-callback :on-focus nil))
+          "an absent handler stays absent")
+      (doseq [{:keys [form]} (:rejected routelink-008)]
+        (is (= :a (first (render (assoc (:props (:passive routelink-008))
+                                        :on-focus (callback-form form (atom 0))))))
+            "the same form is ordinary event data on a link that did not opt in")))))
 
 (deftest route-link-classifies-as-an-internal-boundary
   (testing "`[v/route-link {…}]` is an ordinary internal boundary call:
