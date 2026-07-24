@@ -35,6 +35,27 @@
   `:rf.mcp/source-uri` string — so the AI host renders an immediate
   jump-to-editor link off the handler-meta response.
 
+  ### `:rf.handler/source` — the handler body, not just its address
+
+  One of those custom slots is load-bearing enough to name here, because
+  an agent that doesn't know about it walks to the filesystem for
+  something it was already handed. On kind `:event`, a dev build's
+  registration metadata carries `:rf.handler/source` — the `pr-str` of
+  the whole `(reg-event …)` form as registered (per Spec 009
+  §`:rf.handler/source`). It arrives BY PASSTHROUGH: the runtime's
+  `registrar-describe` drops the live `:handler-fn` and passes every
+  other key through, and nothing here whitelists source keys.
+
+  Three facts bound it. It is DEV-ONLY — capture is DEBUG-gated at both
+  the macro and the registrar, so under `:advanced` + `goog.DEBUG=false`
+  neither the slot nor the source bytes exist (JVM is always-on).
+  Coverage is `reg-event` plus machine guards/actions — the framework
+  derives the same key for the `:machine-guard` / `:machine-action`
+  handler-meta kinds, which are NOT in this tool's `kind` enum; every
+  other registrar kind carries source COORDINATES only. And the value is
+  the CURRENT registration, read live at request time — after a hot
+  reload it no longer describes the handler that ran in an older epoch.
+
   Supported kinds: `event`, `sub`, `fx`, `cofx`, `interceptor`, `view`,
   `frame`, `route`, `flow`, `head`, `error-projector`, `resource`,
   `mutation`, `resource-scope`, `machine` — the closed v1 registrar set
