@@ -2,9 +2,9 @@
 
 <a id="routing-the-url-is-a-sub"></a>
 
-This page is the **routing model** — three moves, then the refinements you hit next
-(loaders, guards, not-found, URL binding). Full recipes for leave/enter guards live
-in the how-tos; API signatures live in [re-frame.routing](../api/re-frame.routing.md).
+This page is the **routing model** — three moves, then loaders, guards, not-found,
+and URL binding. Full leave/enter recipes live in the how-tos; signatures live in
+[re-frame.routing](../api/re-frame.routing.md).
 
 To *build* a three-page app step by step, use the [tutorial](tutorial.md).
 
@@ -104,7 +104,7 @@ for a single-route auth gate ([below](#guarding-entry--can-enter)); use an
 interceptor when one policy spans many routes (and attach it so all three entry
 doors are covered).
 
-### Metadata map (map of the territory)
+### Metadata keys
 
 <a id="the-metadata-map-in-full"></a>
 <a id="metadata-map-map-of-the-territory"></a>
@@ -129,7 +129,7 @@ ranking cascade: [API `reg-route`](../api/re-frame.routing.md#reg-route).
 ```clojure
 (rf/dispatch [:rf.route/navigate {:to :app/article :params {:id "intro"}}])
 
-;; One request map — address, policy, and edit keys all sit side by side:
+;; One request map — address, policy, and edit keys side by side:
 (rf/dispatch [:rf.route/navigate {:to :app/search :query {:q "clojure" :page 2}}])
 (rf/dispatch [:rf.route/navigate {:to :app/login :replace? true}])
 (rf/dispatch [:rf.route/navigate {:to :app/article :params {:id "intro"} :fragment "section-2"}])
@@ -155,9 +155,8 @@ ranking cascade: [API `reg-route`](../api/re-frame.routing.md#reg-route).
 (rf/dispatch [:rf.route/navigate {:query-merge {:page 2}}])
 ```
 
-A request with no `:to` / `:url` patches the current location: `:query-merge` folds
-into the current query, `:query` replaces it wholesale, `:fragment` moves the anchor.
-The route and its params carry over untouched.
+No `:to` / `:url`: `:query-merge` folds into the current query, `:query` replaces it
+wholesale, `:fragment` moves the anchor. Route and params carry over untouched.
 
 ### Linking from views
 
@@ -170,18 +169,17 @@ The route and its params carry over untouched.
 
 Real `<a href>` — hover, copy-link, cmd/middle-click work. Plain left-click becomes
 dispatch. `:target "_blank"` / `:download` are **not** SPA-intercepted (browser owns
-them). That interception is [`route-link`](#linking-from-views)'s job: its view body is
-the only thing that calls `.preventDefault` and dispatches `:rf.route/url-requested`,
-the seam the router listens on.
+them). That interception is [`route-link`](#linking-from-views)'s job: its view body
+is the only thing that calls `.preventDefault` and dispatches
+`:rf.route/url-requested`, the event the router listens on.
 
-A plain `[:a {:href …}]` you hand-write does **not** reach that seam — nothing dispatches
-`:rf.route/url-requested` for it, so it does a full page navigation. Installing a handler
-*on* `:rf.route/url-requested` can't change that: the event never fires for a plain anchor.
-Two honest ways to keep such a click in-app: render the link with
-[`route-link`](#linking-from-views) instead, or install one **document-level** click
-listener that decides eligibility itself — plain primary-button click, no modifier keys,
-no `:target`/`:download`, a same-origin in-app `href` — and dispatches
-`:rf.route/url-requested` on a match, letting the browser follow every click it rejects.
+A plain `[:a {:href …}]` you hand-write does **not** fire that event — full page
+navigation. Two honest ways to keep the click in-app: use
+[`route-link`](#linking-from-views), or install one **document-level** click listener
+that decides eligibility itself — plain primary-button click, no modifier keys, no
+`:target`/`:download`, same-origin in-app `href` — and dispatches
+`:rf.route/url-requested` on a match, letting the browser follow every click it
+rejects.
 
 <a id="what-happens-in-order"></a>
 
@@ -209,7 +207,7 @@ The current route lives in **runtime-db** (not app-db). You read; you never writ
 @(rf/subscribe [:rf.route/transition])   ;; :idle | :loading | :error
 @(rf/subscribe [:rf.route/error])
 @(rf/subscribe [:rf.route/chain])        ;; :parent ancestry (nested layouts)
-@(rf/subscribe [:rf/pending-navigation]) ;; blocked leave, or nil
+@(rf/subscribe [:rf/pending-navigation]) ;; blocked leave/enter, or nil
 ```
 
 `:transition` drives a global progress bar without per-page loading flags:
@@ -296,48 +294,6 @@ Ownership is nav-token keyed: leave or supersede → release; late replies
 **suppressed**. Per-user data uses a scope resolver (`{:from-db …}`) — fails closed
 when logged out. Full story: [Resources model](../resources/concepts.md).
 
-### A hand-rolled async loader — capture the nav-token
-
-<a id="a-hand-rolled-async-loader"></a>
-
-`:on-match` and `:resources` are the everyday loaders. Roll your own async fetch instead
-and you inherit the one race they close for you: a reader opens article A, navigates to B
-before A's reply lands, and A's late reply overwrites B's page. Guard it by capturing the
-**navigation token** — the epoch the current navigation minted — when the load starts, and
-gating delivery on it. Two framework hooks do the work: the `:rf.route/nav-token` **cofx**
-injects the live token into an `:on-match`-reached handler, and the
-`:rf.route/with-nav-token` **fx** delivers a reply only while that captured token still
-matches the current slice — otherwise it suppresses the reply and fires
-`:rf.route.nav-token/stale-suppressed`.
-
-```clojure
-;; The loader: capture the live token, kick off your own fetch, and carry the
-;; token into the reply event.
-(rf/reg-event :app/load-article
-  {:rf.cofx/requires [:rf.route/nav-token]}            ;; inject the current epoch token
-  (fn [{:rf.route/keys [nav-token] rt :rf.db/runtime} _]
-    (let [{:keys [id]} (get-in rt [:rf.runtime/routing :current :params])]
-      ;; :app/fetch-article is YOUR async effect; on reply it dispatches
-      ;; :app/article-arrived with the captured token + the fetched payload.
-      {:fx [[:app/fetch-article {:id id :on-reply [:app/article-arrived nav-token id]}]]})))
-
-;; The completion: hand the CAPTURED token to :rf.route/with-nav-token. Fresh
-;; token → the :rf/reply-to target runs; stale (a newer navigation superseded it)
-;; → the reply is dropped before it can touch app-db.
-(rf/reg-event :app/article-arrived
-  (fn [_ [_ captured-token id payload]]
-    {:fx [[:rf.route/with-nav-token
-           {:rf/reply-to [:app/article-loaded id payload]
-            :nav-token   captured-token}]]}))
-
-(rf/reg-event :app/article-loaded
-  (fn [{:keys [db]} [_ id payload]]
-    {:db (assoc db :article/current payload)}))
-```
-
-`:resources` already does all of this — declare it and the race is closed for you.
-Hand-roll only when you need something the resource layer doesn't give you.
-
 ## Blocking a navigation
 
 <a id="blocking-a-navigation"></a>
@@ -377,7 +333,7 @@ bar, Back/Forward). On block → `:rf.route/entry-blocked` (redirect to login th
 ```
 
 Non-boolean guard return → block + `:rf.error/can-leave-non-boolean` /
-`:rf.error/can-enter-non-boolean` (fail closed, fail loud).
+`:rf.error/can-enter-non-boolean` (deny the move, raise the error).
 
 **Prefer `:can-enter` for per-route auth** (see
 [realworld_http](../../examples/real-apps/realworld_http)). Use an interceptor only
@@ -400,20 +356,6 @@ Register reserved id `:rf.route/not-found`. Offending URL lands in `:params`
 Missing registration → warning + built-in placeholder. Programmatic schema miss is
 loud (`route-url` throws; navigate rejects); URL-driven miss is 404.
 
-## Keeping tokens off the wire
-
-<a id="keeping-tokens-off-the-wire"></a>
-
-```clojure
-(rf/reg-route :app/oauth-callback
-  {:query     [:map [:token :string] [:code :string]]
-   :sensitive [[:query :token] [:query :code]]}
-  "/oauth/callback")
-```
-
-Egress-only redaction while the route is active. Full story:
-[Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
-
 ## The browser is just another event source
 
 <a id="the-browser-is-just-another-event-source"></a>
@@ -426,33 +368,6 @@ Egress-only redaction while the route is active. Full story:
 `:rf.error/duplicate-url-binding` if two claim). Installs listener + initial sync;
 no separate install API. Frames without the flag still route **in memory** (Story,
 tests).
-
-### URL strategies
-
-<a id="url-strategies"></a>
-
-```clojure
-(rf/make-frame {:id           :app
-                :url-bound?   true
-                :url-strategy rf.routing/hash-url-strategy})  ;; default: history-url-strategy
-```
-
-`route-url` / `match-url` stay path-form; strategy encodes `#` at the edges.
-`rf.routing/with-base-path` for deploy under a subpath. SSR ignores strategies (path
-form on the wire; client re-encodes on hydrate).
-
-<a id="converting-routes--urls-by-hand"></a>
-
-### Codec by hand
-
-```clojure
-(rf.routing/route-url {:to :app/article :params {:id "intro"}})
-;; => "/articles/intro"
-(rf.routing/match-url "/articles/intro")
-;; => {:route-id :app/article :params {:id "intro"} …}
-```
-
-Pure, JVM + CLJS. `nil` path param → throw; `nil` query param → elided.
 
 ## The same handler runs on the server
 
@@ -498,7 +413,109 @@ Copy-paste shape (pages and loaders are stubs — fill in as the tutorial does):
                [root-view]]))
 ```
 
-## When the table grows
+## Troubleshooting
+
+| Symptom | What happened | Error / recovery |
+|---|---|---|
+| First `reg-route` throws | Forgot `(:require [re-frame.routing])` | `:rf.error/routing-artefact-missing` |
+| Registration throws on metadata | `:path` inside the map, or unknown bare key | `:rf.error/route-bad-metadata` — path is the **third** slot |
+| Two frames both claim the address bar | Two `:url-bound? true` | `:rf.error/duplicate-url-binding` — one owner |
+| Leave/enter always blocks | Guard sub returned non-boolean | `:rf.error/can-leave-non-boolean` / `:rf.error/can-enter-non-boolean` — return strict `true`/`false` |
+| `route-url` blows up | Missing path param | `:rf.error/missing-route-param` (nil query keys are elided, not thrown) |
+| Navigate rejected | Bad request map | `:rf.error/navigate-bad-request` |
+| Unmatched URL is a bare placeholder | Never registered `:rf.route/not-found` | Register it; params carry `:url` and optional `:reason` |
+| Plain `[:a {:href …}]` full-reloads | Not going through `route-link` | Use `route-link`, or a document-level click → `:rf.route/url-requested` |
+
+## When *not* to use routing
+
+| Situation | Prefer |
+|---|---|
+| Single-screen app, no shareable URLs | No routing artefact (zero cost) |
+| In-memory UI steps with no URL | app-db flags / a [machine](../machines/index.md) |
+| Server-only redirects | Host middleware or [SSR](../ssr/concepts.md) response effects |
+
+## Advanced
+
+### Hand-rolled async loader — capture the nav-token
+
+<a id="a-hand-rolled-async-loader"></a>
+
+`:on-match` and `:resources` are the everyday loaders. Roll your own async fetch and
+you inherit the race they close: open article A, navigate to B before A's reply
+lands, late A overwrites B. Capture the **navigation token** when the load starts
+and gate delivery on it.
+
+Two hooks: `:rf.route/nav-token` **cofx** injects the live token into an
+`:on-match` handler; `:rf.route/with-nav-token` **fx** delivers a reply only while
+that token still matches the current slice — otherwise suppresses and fires
+`:rf.route.nav-token/stale-suppressed`.
+
+```clojure
+;; Capture the live token, kick off your fetch, carry the token into the reply.
+(rf/reg-event :app/load-article
+  {:rf.cofx/requires [:rf.route/nav-token]}
+  (fn [{:rf.route/keys [nav-token] rt :rf.db/runtime} _]
+    (let [{:keys [id]} (get-in rt [:rf.runtime/routing :current :params])]
+      ;; :app/fetch-article is YOUR async effect; on reply it dispatches
+      ;; :app/article-arrived with the captured token + payload.
+      {:fx [[:app/fetch-article {:id id :on-reply [:app/article-arrived nav-token id]}]]})))
+
+;; Hand the CAPTURED token to :rf.route/with-nav-token. Fresh → :rf/reply-to runs;
+;; stale (newer navigation) → reply dropped before it can touch app-db.
+(rf/reg-event :app/article-arrived
+  (fn [_ [_ captured-token id payload]]
+    {:fx [[:rf.route/with-nav-token
+           {:rf/reply-to [:app/article-loaded id payload]
+            :nav-token   captured-token}]]}))
+
+(rf/reg-event :app/article-loaded
+  (fn [{:keys [db]} [_ id payload]]
+    {:db (assoc db :article/current payload)}))
+```
+
+`:resources` already does this — declare it and the race is closed. Hand-roll only
+when the resource layer doesn't cover you.
+
+### Keeping tokens off the wire
+
+<a id="keeping-tokens-off-the-wire"></a>
+
+```clojure
+(rf/reg-route :app/oauth-callback
+  {:query     [:map [:token :string] [:code :string]]
+   :sensitive [[:query :token] [:query :code]]}
+  "/oauth/callback")
+```
+
+Egress-only redaction while the route is active. Full story:
+[Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
+
+### URL strategies
+
+<a id="url-strategies"></a>
+
+```clojure
+(rf/make-frame {:id           :app
+                :url-bound?   true
+                :url-strategy rf.routing/hash-url-strategy})  ;; default: history-url-strategy
+```
+
+`route-url` / `match-url` stay path-form; strategy encodes `#` at the edges.
+`rf.routing/with-base-path` for deploy under a subpath. SSR ignores strategies (path
+form on the wire; client re-encodes on hydrate).
+
+<a id="converting-routes--urls-by-hand"></a>
+
+### Codec by hand
+
+```clojure
+(rf.routing/route-url {:to :app/article :params {:id "intro"}})
+;; => "/articles/intro"
+(rf.routing/match-url "/articles/intro")
+;; => {:route-id :app/article :params {:id "intro"} …}
+```
+
+Pure, JVM + CLJS. `nil` path param → throw; `nil` query param → elided.
 
 | Need | Where |
 |---|---|

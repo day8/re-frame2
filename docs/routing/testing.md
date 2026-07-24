@@ -10,7 +10,10 @@ touches the address bar — the route slice is state you assert on.
 
 > **The URL codec is a pure function you call; a navigation is a dispatch you drive; the slice is state you read.**
 
-The setup is the same as the [core testing pages](../core/testing/index.md): a JVM test namespace that requires the app namespaces (loading them performs the `reg-route` calls) plus the reset fixture, since routes live in the process-global registrar and the runtime keeps per-process routing state the fixture knows how to reset:
+Same setup as the [core testing pages](../core/testing/index.md): a JVM test namespace
+that requires the app namespaces (loading them runs the `reg-route` calls) plus the
+reset fixture — routes live in the process-global registrar and the runtime keeps
+per-process routing state the fixture knows how to reset:
 
 ```clojure
 (ns my-app.routing-test
@@ -25,7 +28,8 @@ The setup is the same as the [core testing pages](../core/testing/index.md): a J
 
 ## 1. The URL codec: two pure functions
 
-`route-url` and `match-url` are pure, JVM-runnable, and exact inverses — so the URL grammar of your whole route table unit-tests as plain function calls:
+`route-url` and `match-url` are pure, JVM-runnable, and exact inverses — the URL
+grammar of the whole route table unit-tests as plain function calls:
 
 ```clojure
 (deftest article-urls-round-trip
@@ -37,18 +41,25 @@ The setup is the same as the [core testing pages](../core/testing/index.md): a J
   (let [m (rf.routing/match-url "/search?q=clojure&page=2")]
     (is (= :app/search (:route-id m)))
     (is (= 2 (get-in m [:query :page]))))
-  ;; and the misses are values, not exceptions
+  ;; misses are values, not exceptions
   (is (nil? (rf.routing/match-url "/no/such/page")))
   (is (:validation-failed? (rf.routing/match-url "/search?q=x&page=abc"))))
 ```
 
-!!! warning "Gotcha — the nil-policy asymmetry is worth a test of its own"
+!!! warning "Nil-policy asymmetry"
 
-    A `nil` **path** param is a hard error — `route-url` throws `:rf.error/missing-route-param`, because there's no URL to build without the segment; a `nil` **query** param is *silently elided* (`{:page nil}` just omits the key). If your app leans on the elision — "only add `?sort=` when chosen" — pin it: `(is (= "/search?q=x" (rf.routing/route-url {:to :app/search :query {:q "x" :sort nil}})))`.
+    A `nil` **path** param is a hard error — `route-url` throws
+    `:rf.error/missing-route-param`. A `nil` **query** param is *silently elided*
+    (`{:page nil}` omits the key). If the app leans on elision — "only add `?sort=`
+    when chosen" — pin it:
+    `(is (= "/search?q=x" (rf.routing/route-url {:to :app/search :query {:q "x" :sort nil}})))`.
 
 ## 2. Navigation through a test frame
 
-The wiring — navigate event in, slice out — is a [pipeline-run test](../core/testing/pipeline-runs.md): dispatch into a fresh frame, read the route subs. Inside `with-new-frame` the plain subs resolve against the test frame:
+Wiring — navigate event in, slice out — is a
+[pipeline-run test](../core/testing/pipeline-runs.md): dispatch into a fresh frame,
+read the route subs. Inside `with-new-frame` the plain subs resolve against the test
+frame:
 
 ```clojure
 (deftest navigate-writes-the-slice
@@ -58,11 +69,17 @@ The wiring — navigate event in, slice out — is a [pipeline-run test](../core
     (is (= {:id "intro"} @(rf/subscribe [:rf.route/params])))))
 ```
 
-If the route declares `:on-match` loaders, they dispatch inside the same drain — so a loader that fires a [managed HTTP](../async/http.md) request wants the same canned-reply stubs a pipeline-run test uses, and `@(rf/subscribe [:rf.route/transition])` gives you the `:idle` / `:loading` / `:error` fact to assert. A loader failure lands the structured error in `@(rf/subscribe [:rf.route/error])` — assert on its category, [never its prose](../core/errors.md#test-the-structure-not-the-string).
+If the route declares `:on-match` loaders, they dispatch inside the same drain — a
+loader that fires [managed HTTP](../async/http.md) wants the same canned-reply stubs
+a pipeline-run test uses. `@(rf/subscribe [:rf.route/transition])` is the
+`:idle` / `:loading` / `:error` fact; loader failure lands a structured error in
+`@(rf/subscribe [:rf.route/error])` — assert on its category,
+[never its prose](../core/errors.md#test-the-structure-not-the-string).
 
 ## 3. Deep links, and the 404
 
-The URL-entry path — a pasted link, a reload, back/forward, and the SSR request — all funnel through one event, `:rf.route/handle-url-change`, and you can drive it directly:
+Pasted link, reload, back/forward, and the SSR request all funnel through
+`:rf.route/handle-url-change` — drive it directly:
 
 ```clojure
 (deftest deep-link-resolves
@@ -74,30 +91,33 @@ The URL-entry path — a pasted link, a reload, back/forward, and the SSR reques
   (rf/with-new-frame [f (rf/make-frame {})]
     (rf/dispatch-sync [:rf.route/handle-url-change "/no/such/page"])
     (is (= :rf.route/not-found @(rf/subscribe [:rf.route/id])))
-    ;; the params carry the offending URL — and a :reason for the other misses
+    ;; params carry the offending URL — and a :reason for other misses
     (is (= "/no/such/page" (:url @(rf/subscribe [:rf.route/params]))))))
 ```
 
-The `:reason` discriminator distinguishes a plain miss from a schema failure (`:validation`) from malformed percent-encoding (`:malformed-url`) — each worth one assertion if your not-found view branches on it.
+`:reason` distinguishes plain miss, schema failure (`:validation`), and malformed
+percent-encoding (`:malformed-url`) — one assertion each if the not-found view
+branches on it.
 
 ## 4. The leave guard, with zero DOM
 
-The `:can-leave` flow is deliberately testable without a browser: the guard is a subscription, the blocked navigation is *state*, and the user's choice is a dispatch. So the whole are-you-sure flow is four asserts:
+`:can-leave` is a subscription; blocked navigation is *state*; the user's choice is a
+dispatch. Whole flow, four asserts:
 
 ```clojure
 (deftest leave-guard-parks-and-continues
-  ;; the frame BOOTS on the guarded editor with unsaved changes — that's setup,
-  ;; so it rides :initial-events; the body dispatches only the moves under test
+  ;; frame BOOTS on the guarded editor with unsaved changes — setup rides
+  ;; :initial-events; body dispatches only the moves under test
   (rf/with-new-frame [f (rf/make-frame
                           {:initial-events
                            [[:rf.route/navigate {:to :app/article-editor :params {:id "intro"}}]
                             [:editor/typed "draft text"]]})]
-    ;; try to leave: the navigation parks, the slice doesn't move
+    ;; try to leave: navigation parks, slice doesn't move
     (rf/dispatch-sync [:rf.route/navigate {:to :app/home}])
     (is (some? @(rf/subscribe [:rf/pending-navigation])))
     (is (= :app/article-editor @(rf/subscribe [:rf.route/id])))
 
-    ;; the user chooses: continue takes the pending-nav id
+    ;; user chooses: continue takes the pending-nav id
     (rf/dispatch-sync [:rf.route/continue
                        (:id @(rf/subscribe [:rf/pending-navigation]))])
     (is (nil? @(rf/subscribe [:rf/pending-navigation])))
@@ -105,13 +125,17 @@ The `:can-leave` flow is deliberately testable without a browser: the guard is a
 ```
 
 Dispatch `[:rf.route/cancel <id>]` instead and the pending slot clears with the slice
-unmoved — one more test, same shape. A `{:bypass-guards? #{:leave}}` navigate opt
-skips the park entirely. The `:can-enter` mirror tests the same way — guarded target,
-signed-out sub, assert pending fills with `:direction :enter`, then flip the sub and
-`[:rf.route/continue <id>]` (re-runs `:can-enter`).
+unmoved. `{:bypass-guards? #{:leave}}` skips the park. The `:can-enter` mirror tests
+the same way — guarded target, signed-out sub, assert pending fills with
+`:direction :enter`, then flip the sub and `[:rf.route/continue <id>]` (re-runs
+`:can-enter`).
 
 ## What lives elsewhere
 
-- **Auth-guard interceptors** over the navigation events are ordinary [interceptors — tested like any other](../core/interceptors.md#testing-an-interceptor); [Require sign-in on a route](how-to/require-sign-in-on-a-route.md) is the recipe they guard.
-- **Route-declared `:resources`** are the resources artefact's territory — [Testing resources](../resources/testing.md) covers ensuring, stubbing, and reading them; the route is just the cause.
-- **The server side** needs no separate route tests: the same `handle-url-change` event you drove above is what SSR feeds the request URL to — [Testing SSR](../ssr/testing.md).
+- **Auth-guard interceptors** over navigation events are ordinary
+  [interceptors — tested like any other](../core/interceptors.md#testing-an-interceptor);
+  [Require sign-in on a route](how-to/require-sign-in-on-a-route.md) is the recipe.
+- **Route-declared `:resources`** — [Testing resources](../resources/testing.md)
+  covers ensuring, stubbing, and reading; the route is just the cause.
+- **Server side** needs no separate route tests: the same `handle-url-change` event
+  is what SSR feeds the request URL to — [Testing SSR](../ssr/testing.md).
