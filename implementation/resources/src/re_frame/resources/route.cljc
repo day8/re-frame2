@@ -934,17 +934,110 @@
                               :branch-error    branch-error
                               :prev-identities prev-identities})))))
 
+;; ---- EP-0037 R3 — warm-mode intent prefetch -------------------------------
+;;
+;; A prefetch composes the SAME effective parent-to-leaf branch plan a full
+;; activation builds (the same `:parent` walk, `:when` / `:params` / `:scope`
+;; resolution, and `[scope resource-id canonical-params]` identity dedupe), but
+;; runs each unique requirement through an OWNERLESS `ensure` with cause
+;; `[:route-prefetch route-id]`. It differs from `route-resource-plan` on a
+;; small, precise set of points (Spec 016 §Route-plan prefetch — warm-mode):
+;;   - ownerless ensures (no owner → GC-eligible if the nav never happens);
+;;   - `:blocking?` inert (no nav-token, no blocking slot, no readiness change);
+;;   - no plan diff / owner handoff / prior-owner release (prefetch owns no
+;;     prior plan) — every unique requirement is a plain `ensure`;
+;;   - a planning failure emits `:rf.error/resource-route-plan` with
+;;     `:plan-cause :prefetch` and NO nav-token, dispatches no partial ensures,
+;;     and touches no route state (a preload owns none).
+;; Later activation reuse is automatic: the activation `ensure` for the same
+;; identity JOINS this warm work (dedupe) and attaches its real owner.
+
+(defn route-resource-warm-plan
+  "Build the WARM-mode resource plan for a prefetch of `route` over the
+  effective parent-to-leaf `branch` (`[{:route-id :route-meta} …]` parent-most-
+  first). Returns `{:fx [ensure-dispatch …] :warmed <n> :plan-error err?}`. Each
+  unique requirement dispatches `[:rf.resource/ensure {:resource :scope :params
+  :cause}]` — OWNERLESS, cause `[:route-prefetch route-id]`, no `:blocking?` /
+  `:keep-previous?` / `:owner`. A branch-resolution failure, a per-contributor
+  `:when` / params / scope throw, or a collapse-created cycle is a PLANNING
+  error: it emits `:rf.error/resource-route-plan` with `:plan-cause :prefetch`
+  and no `:nav-token`, and dispatches NO partial ensures. The one summary
+  `:rf.resource/route-plan` trace carries `:plan-cause :prefetch`. Per Spec 016
+  §Route-plan prefetch — warm-mode."
+  [route {:keys [app-db branch branch-error]}]
+  (let [route-id (:id route)
+        cause    [:route-prefetch route-id]
+        branch   (or branch [{:route-id   route-id
+                              :route-meta {:resources (:resources route)}}])
+        ;; a warm-mode planning error owns no route state — strip the nav-token
+        ;; slot the activation builders stamp and mark the warm cause.
+        warm-err (fn [err] (-> err (dissoc :nav-token) (assoc :plan-cause :prefetch)))
+        {:keys [ordered plan-error]}
+        (cond
+          branch-error
+          (let [err (warm-err (branch-plan-error route-id nil branch-error))]
+            (trace/emit-error! :rf.error/resource-route-plan err)
+            {:plan-error err})
+          :else
+          (try
+            (let [occs      (materialize-occurrences branch route {} app-db)
+                  collapsed (collapse-and-order occs)]
+              (if-let [cyclic (:cycle collapsed)]
+                (let [err (warm-err (collapse-cycle-error route-id nil cyclic))]
+                  (trace/emit-error! :rf.error/resource-route-plan err)
+                  {:plan-error err})
+                collapsed))
+            (catch #?(:clj Throwable :cljs :default) ex
+              (let [err (warm-err (plan-error route-id nil
+                                              (:resource-id (ex-data ex)) ex))]
+                (trace/emit-error! :rf.error/resource-route-plan err)
+                {:plan-error err}))))
+        ;; WARM: ownerless ensure per unique identity — no owner, no blocking,
+        ;; no keep-previous?. `:blocking?` on a contributor is inert here.
+        req-fx (mapv (fn [{:keys [resource scope cparams]}]
+                       [:dispatch [:rf.resource/ensure
+                                   {:resource resource :scope scope
+                                    :params   cparams  :cause  cause}]])
+                     ordered)]
+    (trace/emit! :rf.event :rf.resource/route-plan
+                 (cond-> {:route-id   route-id
+                          :plan-cause :prefetch
+                          :branch     (mapv :route-id branch)
+                          :ensured    (count ordered)}
+                   plan-error (assoc :plan-error true)))
+    {:fx (vec req-fx) :warmed (count ordered) :plan-error plan-error}))
+
+(defn on-route-prefetch-fx
+  "The `:routing/on-route-prefetch` hook body routing's `:rf.route/prefetch`
+  handler consults. `entry` carries `{:route-id :params :query :fragment :branch
+  :branch-error :app-db}` (the resolved destination + the effective parent-to-
+  leaf branch routing walked from the target's `:parent` links). Returns
+  `{:fx [...] :warmed <n> :plan-error err?}`, or nil when there is NOTHING to
+  warm — no branch contributor declares `:resources` and branch resolution did
+  not fail. No-op on an app that never loads routing (the hook simply sits
+  unread). Per Spec 016 §Route-plan prefetch — warm-mode."
+  [{:keys [route-id params query fragment app-db branch branch-error]}]
+  (let [branch (or branch [{:route-id route-id :route-meta nil}])]
+    (when (or branch-error
+              (some (fn [c] (seq (:resources (:route-meta c)))) branch))
+      (route-resource-warm-plan
+        {:id route-id :params params :query query :fragment fragment}
+        {:app-db app-db :branch branch :branch-error branch-error}))))
+
 (defn install-routing-integration!
   "Publish the LATE-BOUND routing integrations: the
   `:routing/extra-route-keys` accepted-key extension (so routing accepts
-  the `:resources` route-metadata key) and the `:routing/on-route-entry`
+  the `:resources` route-metadata key), the `:routing/on-route-entry`
   plan hook (so `commit-navigation` runs the resource ensure/release plan
-  on entry). Both are no-op-effect on an app that never loads routing —
-  the hooks simply sit unread. Idempotent. Per Spec 016 §Route
-  integration."
+  on entry), and the `:routing/on-route-prefetch` warm-mode hook (so
+  `:rf.route/prefetch` warms the destination's branch resources ownerlessly).
+  All are no-op-effect on an app that never loads routing — the hooks simply
+  sit unread. Idempotent. Per Spec 016 §Route integration + §Route-plan
+  prefetch — warm-mode."
   []
   (late-bind/set-fn! :routing/extra-route-keys
                      (fn extra-route-keys-thunk [] extra-route-keys))
-  (late-bind/set-fn! :routing/on-route-entry  on-route-entry-fx)
-  (late-bind/set-fn! :routing/route-blocking? route-blocking?)
+  (late-bind/set-fn! :routing/on-route-entry    on-route-entry-fx)
+  (late-bind/set-fn! :routing/on-route-prefetch on-route-prefetch-fx)
+  (late-bind/set-fn! :routing/route-blocking?   route-blocking?)
   nil)
