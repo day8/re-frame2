@@ -329,6 +329,13 @@ element.
 **Open when:** "why didn't my view update?", "what re-rendered?",
 "trace the recompute chain for sub X", "which subs short-circuited?"
 
+**Freehand views have no leaf here yet.** `re-frame.freehand` — re-frame2's
+re-frame-native view layer — emits no view-render trace events today, so an
+app whose views are `v/defview` declarations shows the SUBS RECOMPUTED half
+of the cascade (subscriptions are a frame-level surface, unaffected by which
+view layer reads them) and nothing under VIEWS RE-RENDERED. Say so rather
+than reading the empty leaf set as "nothing re-rendered".
+
 Spec: [`021-Dynamic-Panel-Designs.md` §3](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
 + [`012-Views.md`](../../../tools/xray/spec/012-Views.md);
 implementation at

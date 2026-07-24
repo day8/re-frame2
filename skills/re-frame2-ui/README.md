@@ -2,19 +2,29 @@
 
 > ↑ [`skills/`](..) — index of all re-frame2 skills.
 
-`re-frame2-ui` is the canonical Claude Code **authoring skill** for
+`re-frame2-ui` is the Claude Code skill for
 [`re-frame.ui`](https://github.com/day8/re-frame2/tree/main/implementation/ui) —
-re-frame2's **experimental** compiled-view substrate (artefact
-`day8/re-frame2-ui`). It teaches an agent to write, review, and debug view
-code on that substrate: `defview` components in the closed template grammar,
-handlers-as-data, reactive `(sub …)` reads, view-local state and effects,
-frames and roots, presence, interop boundaries, structural tests via
-`re-frame.ui.test`, and the one-setting Shadow build-hook install.
+re-frame2's compiled-view substrate (artefact `day8/re-frame2-ui`). It teaches
+an agent to write, review, and debug view code on that substrate: `defview`
+components in the closed template grammar, handlers-as-data, reactive
+`(sub …)` reads, view-local state and effects, frames and roots, presence,
+interop boundaries, structural tests via `re-frame.ui.test`, and the
+one-setting Shadow build-hook install.
 
-The substrate is **opt-in and additional** — the Reagent, UIx, and
-reagent-slim adapters remain first-class, and staying on them is a fully
-supported choice. Everything upstream of the view (events, subs, effects,
-machines) is ordinary re-frame2, authored with the
+**`re-frame.ui` is the donor substrate.** **Freehand** (`re-frame.freehand`,
+alias `v`) is re-frame2's re-frame-native view layer, and it absorbs this
+substrate's machinery; the standalone `day8/re-frame2-ui` artefact is
+scheduled for deletion once absorption completes. So this skill's job is
+**maintaining what an app already has** on `day8/re-frame2-ui` — not starting
+new view work. Porting Reagent views onto the re-frame-native layer is
+[`reagent-migration`](../reagent-migration); Freehand's own contract is
+`spec/004-Views.md` and its exported roster is `spec/API.md` §Freehand views.
+Freehand's shapes are deliberately not `ui/` shapes — no `local`, no `ref`,
+no `effect`, no `frame-root` — so an idiom does not carry across by analogy.
+
+The Reagent, UIx, and reagent-slim adapters remain first-class, and staying on
+them is a fully supported choice. Everything upstream of the view (events,
+subs, effects, machines) is ordinary re-frame2, authored with the
 [`re-frame2`](../re-frame2) skill.
 
 This skill absorbed the former `re-frame2-ui-context` sheet: the generated

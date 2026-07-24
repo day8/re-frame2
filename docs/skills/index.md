@@ -24,7 +24,7 @@ The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKI
 | Skill | Pitch |
 |---|---|
 | [**re-frame2** (authoring)](re-frame2.md) | Write re-frame2 ClojureScript code — events, subs, fx, machines, schemas, stories, routes, and the canonical patterns. |
-| [**re-frame2-ui** (compiled views)](re-frame2-ui.md) | Author view code on the **experimental** `re-frame.ui` compiled-view substrate — `defview`, handlers-as-data, frames/roots, presence, interop, `re-frame.ui.test` — with the generated compile-rejection roster as an on-demand reference. View layer only; the adapters remain first-class. |
+| [**re-frame2-ui** (donor compiled views)](re-frame2-ui.md) | Maintain view code an app already has on the `re-frame.ui` compiled-view substrate — `defview`, handlers-as-data, frames/roots, presence, interop, `re-frame.ui.test` — with the generated compile-rejection roster as an on-demand reference. Now the **donor** being absorbed into Freehand: new view work does not start here. |
 | [**re-frame2-improver**](re-frame2-improver.md) | Critique **existing** re-frame2 code against an anti-pattern catalogue. Explicit-pull-only; surfaces findings cross-linked to canonical idioms, may propose inline fixes. |
 | [**re-frame2-setup**](re-frame2-setup.md) | Bootstrap a fresh re-frame2 ClojureScript project from nothing. Walks the author to a working counter under `shadow-cljs watch`. |
 | [**re-frame-migration** (v1→v2)](re-frame-migration.md) | Migrate an existing re-frame v1.x codebase to re-frame2. Applies the mechanical `M-rules` automatically; flags judgment calls. |
@@ -42,7 +42,7 @@ A quick decision flow (human-facing rendering of [`skills/README.md` §Skill rou
 - **Existing v1 codebase?** → `re-frame-migration`. When the migration report is signed off, switch to `re-frame2`.
 - **Already on re-frame2 and want to trial Freehand, the re-frame-native view layer, for your Reagent views?** → `reagent-migration` (optional, second step — staying on Reagent is fine).
 - **Writing new code in an existing v2 project?** → `re-frame2`.
-- **Writing, reviewing, or debugging `defview` views on the experimental `re-frame.ui` compiled-view substrate (or decoding a `:rf.ui.compile/*` rejection)?** → `re-frame2-ui`.
+- **Maintaining `defview` views an app already has on the `re-frame.ui` donor substrate (or decoding a `:rf.ui.compile/*` rejection)?** → `re-frame2-ui`.
 - **Critiquing existing v2 code on explicit pull (anti-pattern audit)?** → `re-frame2-improver`.
 - **Building a NEW re-frame2 implementation in a different host language or substrate?** → `re-frame2-implementor`.
 - **Touring the Xray devtools panel — how to launch it, or which tab / mode shows X?** → `re-frame2-xray`.
