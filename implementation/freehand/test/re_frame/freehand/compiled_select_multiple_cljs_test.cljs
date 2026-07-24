@@ -20,9 +20,11 @@
   and [`spec/004D-Freehand-Compiled-Grammar.md`](../../../../../spec/004D-Freehand-Compiled-Grammar.md)."
   (:require [cljs.test :refer [deftest is testing]]
             [goog.object :as gobj]
+            [re-frame.freehand :as v]
             [re-frame.freehand.compiled-react :as cr]
             [re-frame.freehand.controlled :as controlled]
-            [re-frame.freehand.react :as fr]))
+            [re-frame.freehand.react :as fr]
+            [re-frame.freehand.tree :as tree]))
 
 (defn- as-data
   "A `value` prop read back as ordinary Clojure data — a JS array becomes a
@@ -88,3 +90,54 @@
              (spread {:multiple false :value nil})
              "")
           "single select: both modes write the empty string"))))
+
+;; ---------------------------------------------------------------------------
+;; The safe-spread caller carries :multiple — rf2-sf9n5 gap #1
+;; ---------------------------------------------------------------------------
+;;
+;; `:multiple` is legal in a `(v/spread-safe owned caller)` caller (only
+;; key/ref/value/checked and the owned handler families are denied), and the
+;; caller folds UNDER the owned props. So an OWNED nil `value` is normalized
+;; before the caller's `:multiple` is folded — and the verdict that decides what
+;; that empty value IS must already have seen the caller. The structural walk and
+;; the interpreted React walk both settle it over the caller now.
+
+(deftest a-safe-spread-caller-multiple-shapes-an-owned-nil-value-structurally
+  (testing "The guarded caller's :multiple is a THIRD source of the whole-element
+            verdict, settled before the owned nil value is normalized — so
+            tree/render answers the empty COLLECTION, not the empty string."
+    (is (= [] (get-in (tree/render [:select (v/spread-safe {:value nil} {:multiple true})])
+                      [:attrs :value]))
+        "owned :value nil + caller :multiple true -> the empty array")
+    (is (= [] (get-in (tree/render [:select (v/spread-safe {:x/value nil} {:x/multiple true})])
+                      [:attrs :value]))
+        "the aliased spellings reach the same verdict and the same value slot")
+    (is (= "" (get-in (tree/render [:select (v/spread-safe {:value nil} {:multiple false})])
+                      [:attrs :value]))
+        "the NEGATIVE control: a false caller multiple leaves the empty string")
+    (is (= "" (get-in (tree/render [:select (v/spread-safe {:value nil} {:aria-label "L"})])
+                      [:attrs :value]))
+        "and a caller with no multiple at all is the ordinary single select")
+    (is (= [] (get-in (tree/render [:select (v/spread-safe {:value nil :multiple true} {})])
+                      [:attrs :value]))
+        "the POSITIVE control: keeping both facts owned already yielded the array")))
+
+(deftest a-safe-spread-caller-multiple-shapes-an-owned-nil-value-in-react
+  (testing "The interpreted React walk settles the same verdict over the caller
+            before writing the owned nil value, so the props object carries the
+            JS array React's multiple-select contract requires — matching the
+            structural tree and never the scalar empty string."
+    (letfn [(react-value [form] (as-data (gobj/get (.-props (fr/element form)) "value")))]
+      (is (= [] (react-value [:select (v/spread-safe {:value nil} {:multiple true})]))
+          "owned :value nil + caller :multiple true -> the empty array in React props")
+      (is (array? (gobj/get (.-props (fr/element [:select (v/spread-safe {:value nil} {:multiple true})]))
+                            "value"))
+          "and it really is a JS array, not a string")
+      (is (= [] (react-value [:select (v/spread-safe {:x/value nil} {:x/multiple true})]))
+          "the aliased spellings reach the same shape")
+      (is (= "" (react-value [:select (v/spread-safe {:value nil} {:multiple false})]))
+          "the NEGATIVE control: a false caller multiple is the empty string")
+      (is (= (get-in (tree/render [:select (v/spread-safe {:value nil} {:multiple true})])
+                     [:attrs :value])
+             (react-value [:select (v/spread-safe {:value nil} {:multiple true})]))
+          "the cross-mode claim: structural and interpreted React agree on the shape"))))

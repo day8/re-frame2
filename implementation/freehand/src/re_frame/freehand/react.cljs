@@ -248,7 +248,7 @@
   No namespace context is threaded in, because a canonical prop name does
   not depend on one — which is what stops a declared-view boundary from
   changing which attribute reaches the DOM."
-  [cand tag sugar-classes sugar-id attrs]
+  [cand tag sugar-classes sugar-id attrs caller]
   (let [o (js-obj)
         ;; The controlled-input door is a property of the WHOLE element,
         ;; so its element half is settled once, before any handler site is
@@ -262,8 +262,11 @@
         ;; same reason: a native `<select multiple>`'s selection is a list
         ;; of option values, so its EMPTY value is the empty collection
         ;; rather than the empty string, and React reports the wrong shape
-        ;; loudly.
-        multi?      (controlled/multiple-select? tag attrs nil)]
+        ;; loudly. A `v/spread-safe` caller may legally carry `:multiple`,
+        ;; and it folds UNDER the owned props (`put-caller!`) only after the
+        ;; owned nil `value` is normalized here — so the caller is settled
+        ;; into this one verdict, before that normalization (rf2-sf9n5).
+        multi?      (controlled/multiple-select? tag attrs caller)]
     (when-let [c (conv/class-string sugar-classes)]
       (gobj/set o "className" c))
     (when sugar-id
@@ -686,7 +689,7 @@
         ;; prop — an emitter drops the namespace that is the whole of its
         ;; meaning — so it is withheld from the props and installed as the
         ;; commit-time host call instead.
-        props     (top-layer/install! (react-props cand tag classes id (top-layer/without attrs))
+        props     (top-layer/install! (react-props cand tag classes id (top-layer/without attrs) caller)
                                       tag attrs)
         props     (put-caller! props tag
                                (let [controlled? (controlled/controlled-props? (keys attrs))]

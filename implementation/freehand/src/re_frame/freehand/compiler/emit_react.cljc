@@ -324,16 +324,17 @@
         ;; deliberately does NOT turn on it (see
         ;; `controlled/select-value-slot?`). A RUNTIME `multiple` — a value
         ;; this constant cannot read — is settled at render time instead,
-        ;; by `dyn-multi` below; this arm is the literal case only.
-        multi?      (controlled/multiple-select?
-                      tag
-                      (keep (fn [{:keys [k value] :as attr}]
-                              (when (build-time-attr? attr) [k value]))
-                            attrs)
-                      nil)
+        ;; by the runtime verdict below; this arm is the literal case only.
+        literal-multi? (controlled/multiple-select?
+                         tag
+                         (keep (fn [{:keys [k value] :as attr}]
+                                 (when (build-time-attr? attr) [k value]))
+                               attrs)
+                         nil)
         cls         (:class props)
         sty         (:style props)
         key-info    (:key props)
+        safe-spread (:safe-spread props)
         literals    (into [] (comp (filter build-time-attr?)
                                    (map #(literal-attr-pair e tag %)))
                           attrs)
@@ -342,32 +343,53 @@
                       (and sty (:static? sty) (static-style-obj sty))
                       (conj ["style" (static-style-obj sty)]))
         dynamics    (remove build-time-attr? attrs)
-        ;; A `<select>`'s `multiple` may be a value only the render knows.
-        ;; When it is, the multiple-select verdict — the one fact that
-        ;; decides what an EMPTY value is — is itself a RUNTIME fact, so it
-        ;; is bound once beside the props object and shared by the `multiple`
-        ;; write and every nil-value normalization, the way the structural
-        ;; builder settles it over both attribute sources. A fully literal
-        ;; `multiple` keeps the build-time constant `multi?` above; a runtime
-        ;; `multiple` this tier could not see used to settle it `false` and
-        ;; mis-shape an explicitly nil value (rf2-sf9n5).
+        ;; A `<select>`'s `multiple` may be a value only the render knows —
+        ;; a runtime `:multiple` prop, or a `v/spread-safe` caller that
+        ;; legally carries one. When it is, the multiple-select verdict — the
+        ;; one fact that decides what an EMPTY value is — is itself a RUNTIME
+        ;; fact, settled ONCE over both sources beside the props object, the
+        ;; way the structural builder settles it. A fully literal `multiple`
+        ;; keeps the build-time constant above; a runtime one this tier could
+        ;; not see used to settle it `false` and mis-shape an explicitly nil
+        ;; value — in the direct props AND under a safe-spread caller
+        ;; (rf2-sf9n5).
         dyn-multi   (when (= :select tag)
                       (first (filter #(= (controlled/prop-slot (:k %))
                                          (controlled/prop-slot :multiple))
                                      dynamics)))
-        mval        (when dyn-multi (gensym "rf-fh-multi-val"))
-        mverdict    (when dyn-multi (gensym "rf-fh-multi?"))
-        multi-arg   (if dyn-multi mverdict multi?)
+        ;; The verdict is a runtime fact only where there is an owned dynamic
+        ;; write to shape (a nil `value`/`checked`) AND a runtime source that
+        ;; could flip it: a dynamic `:multiple`, or a safe-spread caller on a
+        ;; `<select>`. Everywhere else the build-time constant stands and the
+        ;; emitted form is unchanged.
+        runtime-verdict? (and (= :select tag) (not literal-multi?) (seq dynamics)
+                              (boolean (or dyn-multi safe-spread)))
         o           (gensym "rf-fh-props")
+        ;; When the verdict is runtime, the owned dynamic values are bound
+        ;; ONCE in source order and the caller expression AFTER them, so the
+        ;; `:value` expression is evaluated before the `:multiple` one and the
+        ;; verdict reads already-bound values — never an expression hoisted
+        ;; ahead of the writes, which diverged from the interpreted walk's
+        ;; whole-map-then-decide order (rf2-sf9n5).
+        caller-sym  (when (and runtime-verdict? safe-spread) (gensym "rf-fh-caller"))
+        dyn-syms    (when runtime-verdict? (mapv (fn [_] (gensym "rf-fh-dyn")) dynamics))
+        dyn-multi-sym (when (and runtime-verdict? dyn-multi)
+                        (first (keep-indexed (fn [i a] (when (identical? a dyn-multi) (nth dyn-syms i)))
+                                             dynamics)))
+        mverdict    (when runtime-verdict? (gensym "rf-fh-multi?"))
+        multi-arg   (cond literal-multi?   true
+                          runtime-verdict? mverdict
+                          :else            false)
         writes      (cond-> []
                       (and cls (not (:static? cls))) (conj (dynamic-class-form o tag cls))
                       (and sty (not (:static? sty))) (conj (style-write o tag sty))
-                      true (into (map (fn [{:keys [k value] :as a}]
-                                        `(re-frame.freehand.compiled-react/attr!
-                                          ~o ~tag ~k
-                                          ~(if (identical? a dyn-multi) mval value)
-                                          ~multi-arg))
-                                      dynamics))
+                      true (into (map-indexed
+                                   (fn [i {:keys [k value]}]
+                                     `(re-frame.freehand.compiled-react/attr!
+                                       ~o ~tag ~k
+                                       ~(if runtime-verdict? (nth dyn-syms i) value)
+                                       ~multi-arg))
+                                   dynamics))
                       true (into (handler-writes o tag controlled? (:events props)))
                       ;; Both forwards write LAST, and for the same reason: a
                       ;; forwarded map is folded against props that are already
@@ -375,21 +397,37 @@
                       ;; so it composes with the sugar and nothing else; a
                       ;; `v/spread-safe` caller folds UNDER what the component
                       ;; owns, which it can only do once the owned writes are on
-                      ;; the object.
-                      (:spread props)      (conj (spread-write o tag cls (:spread props)))
-                      (:safe-spread props) (conj (safe-spread-write
-                                                  o tag controlled? (:safe-spread props)))
+                      ;; the object. When a caller feeds the runtime verdict it
+                      ;; is bound above and folded through that binding; otherwise
+                      ;; it inlines through the shared write.
+                      (:spread props) (conj (spread-write o tag cls (:spread props)))
+                      safe-spread     (conj (if caller-sym
+                                              `(re-frame.freehand.compiled-react/caller-spread!
+                                                ~o ~tag ~(:sid safe-spread) ~controlled? ~caller-sym)
+                                              (safe-spread-write o tag controlled? safe-spread)))
                       (seq top) (conj `(re-frame.freehand.top-layer/install!
                                         ~o ~tag ~top))
                       (:present? key-info)
                       (conj `(cljs.core/unchecked-set ~o "key" ~(:expr key-info))))
-        multi-binds (when dyn-multi
-                      [mval     (:value dyn-multi)
-                       mverdict `(re-frame.freehand.controlled/multiple-select?
-                                  ~tag [[~(:k dyn-multi) ~mval]] nil)])
+        ;; Bindings, in evaluation order: owned dynamic values (source order),
+        ;; then the guarded caller map (after the owned expressions), then the
+        ;; one verdict derived from both.
+        binds       (cond-> []
+                      runtime-verdict? (into (mapcat (fn [sym a] [sym (:value a)]) dyn-syms dynamics))
+                      caller-sym       (conj caller-sym
+                                             `(re-frame.freehand.node/safe-caller-attrs
+                                               ~(:base safe-spread) ~(:owned-handler-keys safe-spread)))
+                      runtime-verdict?
+                      (conj mverdict
+                            `(cljs.core/or
+                              ~@(cond-> []
+                                  dyn-multi  (conj `(re-frame.freehand.controlled/multiple-select?
+                                                     ~tag [[~(:k dyn-multi) ~dyn-multi-sym]] nil))
+                                  caller-sym (conj `(re-frame.freehand.controlled/multiple-select?
+                                                     ~tag ~caller-sym nil))))))
         props-form  (if (seq writes)
                       `(let [~o (cljs.core/js-obj ~@(mapcat identity literals))
-                             ~@multi-binds]
+                             ~@binds]
                          ~@writes
                          ~o)
                       `(cljs.core/js-obj ~@(mapcat identity literals)))]
