@@ -229,6 +229,84 @@
         (is (contains? classes "c") (str mode " — and the aliased value was not dropped"))))))
 
 ;; ---------------------------------------------------------------------------
+;; The composed slot — `:style`, rf2-8jqw7 (parallel to the class rule above)
+;; ---------------------------------------------------------------------------
+
+(def style-compose-rows
+  "One attrs map carrying BOTH the exact :style and an alias projecting onto
+  the style slot. The ruling is COMPOSE, not last-wins: the two style maps
+  MERGE property by property — the exact value first, then the alias — so
+  both survive a non-conflict and a genuine conflict resolves
+  deterministically to the alias, identically in both modes. Keeping :class
+  composed while :style last-wins was the inconsistency this removes; a
+  last-wins fold dropped whichever whole map the element yielded first, and
+  for a map past the array-map threshold which one that is depends on
+  iteration order, contract on no host (rf2-8jqw7)."
+  [{:note "exact :style beside a namespaced alias composes — both properties survive"
+    :body '[:div {:style {:color "red"} :x/style {:margin "0"}}]
+    :tree {:tag :div :attrs {:style {:color "red" :margin "0"}}}}
+
+   {:note "the source order of the two keys does not change the verdict — the exact is the base either way"
+    :body '[:div {:x/style {:margin "0"} :style {:color "red"}}]
+    :tree {:tag :div :attrs {:style {:color "red" :margin "0"}}}}
+
+   {:note "no conflict, more than one aliased property, all survive"
+    :body '[:div {:style {:color "red"} :x/style {:margin "0" :padding "4px"}}]
+    :tree {:tag :div :attrs {:style {:color "red" :margin "0" :padding "4px"}}}}
+
+   {:note "a genuine conflict resolves deterministically — the alias wins that property, in either key order"
+    :body '[:div {:style {:color "red"} :x/style {:color "blue"}}]
+    :tree {:tag :div :attrs {:style {:color "blue"}}}}
+
+   {:note "reversed, the verdict is the same — the exact is the base and the alias composes over it"
+    :body '[:div {:x/style {:color "blue"} :style {:color "red"}}]
+    :tree {:tag :div :attrs {:style {:color "blue"}}}}
+
+   {:note "the whole CSS grammar survives the compose — a number still gains px, on either side"
+    :body '[:div {:style {:width 4} :x/style {:height 8}}]
+    :tree {:tag :div :attrs {:style {:width "4px" :height "8px"}}}}
+
+   ;; The nil-is-absent law carried into the compose: a conditional style that
+   ;; folds to nil contributes nothing rather than rejecting the element, so
+   ;; the real value beside it survives and an all-nil slot writes no style.
+   {:note "a nil alias is absent — the exact value survives the compose"
+    :body '[:div {:style {:color "red"} :x/style nil}]
+    :tree {:tag :div :attrs {:style {:color "red"}}}}
+
+   {:note "a nil exact is absent — the aliased value survives the compose"
+    :body '[:div {:style nil :x/style {:color "blue"}}]
+    :tree {:tag :div :attrs {:style {:color "blue"}}}}
+
+   {:note "both nil — the slot is absent entirely, no empty :style written"
+    :body '[:div {:style nil :x/style nil}]
+    :tree {:tag :div}}])
+
+(deftest an-exact-style-and-an-alias-in-one-map-compose-in-both-modes
+  (testing "rf2-8jqw7 ruling: COMPOSE, parallel to rf2-c9kus's :class rule.
+            An exact :style and an alias projecting onto the style slot in
+            one map MERGE — the exact value first, then the alias — property
+            by property, identically interpreted and compiled. Previously
+            :style took last-wins while :class composed, which is exactly the
+            inconsistency this fixes; it reuses the same compose path with no
+            new mechanism."
+    (is (<= 4 (count style-compose-rows)) "the table is not vacuously small")
+    (doseq [{:keys [note body tree]} style-compose-rows]
+      (is (= tree (interpreted-tree body)) (str note " — interpreted"))
+      (is (= tree (compiled-tree body)) (str note " — compiled")))))
+
+(deftest the-composed-style-keeps-every-property-in-both-modes
+  (testing "The correctness obligation stated on its own: neither the exact
+            :style's properties nor the alias's may be silently dropped on a
+            non-conflict. Asserted as KEY membership so a last-wins regression
+            — which drops one whole map — fails here even if the survivor
+            changed."
+    (doseq [[mode tree] [["interpreted" (interpreted-tree '[:div {:style {:color "red"} :x/style {:margin "0"}}])]
+                         ["compiled"    (compiled-tree    '[:div {:style {:color "red"} :x/style {:margin "0"}}])]]]
+      (let [style (get-in tree [:attrs :style])]
+        (is (contains? style :color)  (str mode " — the exact :style property survived"))
+        (is (contains? style :margin) (str mode " — and the aliased property was not dropped"))))))
+
+;; ---------------------------------------------------------------------------
 ;; The refused slot — `:key`
 ;; ---------------------------------------------------------------------------
 

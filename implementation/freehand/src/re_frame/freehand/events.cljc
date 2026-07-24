@@ -6,16 +6,19 @@
   namespace owns the three mechanisms that make that true, and nothing
   else:
 
-    1. **The closed projection roster and the one pure materializer.**
-       `::v/value`, `::v/checked`, `::v/key`, `::v/scroll-top` and
-       `::v/new-state` are the only reserved scalar markers. At firing
-       time the site's host adapter reads the
-       live payload, and [[materialize-event]] replaces every matching
-       TOP-LEVEL argument marker before the resulting plain vector goes
-       to ordinary re-frame dispatch. General `rf/dispatch` therefore
-       gains no payload arity, in either direction: a projection keyword
-       inside a domain event is never secretly interpreted, and no
-       dispatcher can deliberately supply a payload.
+    1. **The scalar projection door and the one pure materializer.** The
+       named roster — `::v/value`, `::v/checked`, `::v/key`,
+       `::v/scroll-top`, `::v/new-state` — plus the general
+       `[::v/read <path>]` door are the reserved scalar markers; the named
+       members are SUGAR for a `::v/read` of one host path, so there is
+       one reader and one law. At firing time the site's host adapter
+       reads the live payload, and [[materialize-event]] replaces every
+       matching TOP-LEVEL argument marker — proving each read lands on a
+       shallow scalar — before the resulting plain vector goes to ordinary
+       re-frame dispatch. General `rf/dispatch` therefore gains no payload
+       arity, in either direction: a projection marker inside a domain
+       event is never secretly interpreted, and no dispatcher can
+       deliberately supply a payload.
 
     2. **The closed event grammar at an event position.** A vector, an
        options map carrying `:event` plus the closed listener options, a
@@ -86,46 +89,101 @@
                       {:recovery recovery :extra extra}))
 
 ;; ---------------------------------------------------------------------------
-;; The closed projection roster
+;; The scalar projection door — named sugar over one shallow-scalar read
 ;; ---------------------------------------------------------------------------
 ;;
-;; Spec 004 §Event intent and the payload materializer. The marker and
-;; the payload key are deliberately THE SAME KEYWORD: a site asks for
-;; `::v/value` and the adapter supplies `::v/value`, so "did the callback
-;; offer what this event asked for?" is one `contains?` and there is no
-;; second vocabulary to keep in step.
+;; Spec 004 §Event intent and the payload materializer. A projected read
+;; is one SHALLOW SCALAR off the live event or its target, kept as DATA:
+;; assertable by equality, printable, comparable, host-neutral. Two
+;; spellings, one mechanism and one law:
 ;;
-;; Each marker is the kebab-case spelling of the ONE host property it
-;; reads — `target.value`, `target.checked`, `event.key`,
-;; `target.scrollTop`, `event.newState` — so the roster is read off the
-;; platform rather than invented, and a reader can check a member against
-;; the DOM without a second table.
+;;   * the NAMED roster — `::v/value`, `::v/checked`, `::v/key`,
+;;     `::v/scroll-top`, `::v/new-state` — the reads common enough to
+;;     have earned a name; and
+;;   * the GENERAL door `[::v/read <path>]`, which reads any single
+;;     shallow scalar off the event: a property keyword (`[::v/read
+;;     :key]` is `event.key`), or a vector of keywords walked as a chain
+;;     from the event (`[::v/read [:target :scrollTop]]` is
+;;     `event.target.scrollTop`).
+;;
+;; The named markers are SUGAR: each is a `::v/read` of the one host path
+;; it has always read (see [[sugar-paths]]), so there is ONE reader and
+;; one law rather than a table per member. The marker and the payload
+;; key are deliberately the SAME value — a site asks for `::v/value` (or
+;; `[::v/read [:target :value]]`) and the adapter supplies exactly that
+;; key — so "did the callback offer what this event asked for?" is one
+;; lookup with no second vocabulary to keep in step.
+;;
+;; What generalising does NOT do is move the line. A read is admitted
+;; only when the path RESOLVES to a scalar in the accepted-identity
+;; domain — a string, number, boolean or keyword — which is precisely
+;; what keeps the projected intent equality-assertable, printable and
+;; host-neutral; a read landing on a host object, a collection or nothing
+;; is a typed error naming `v/event` as the recovery. Anything richer
+;; than a shallow scalar read — multiple reads, computation, a live host
+;; object, a side effect — was never a projection and remains `v/event`'s
+;; opaque job. So the door is open to more PATHS, never to more than a
+;; scalar's worth of intent.
+
+(def ^:private read-marker
+  "The head of the general shallow-scalar door, `[::v/read <path>]`."
+  :re-frame.freehand/read)
+
+(defn- read-path?
+  "True when `path` is a legal `::v/read` path — one property keyword, or
+  a non-empty vector of property keywords read as a chain from the event."
+  [path]
+  (or (keyword? path)
+      (and (vector? path) (seq path) (every? keyword? path))))
+
+(defn- read-marker?
+  "True when `x` is a `[::v/read …]` form — the general-door HEAD, checked
+  WITHOUT asserting the whole shape, so a malformed door is detected here
+  and diagnosed at materialization rather than mistaken for plain data."
+  [x]
+  (and (vector? x) (= read-marker (nth x 0 nil))))
+
+(defn- read-marker-path [x] (nth x 1 nil))
+
+(defn- read-scalar?
+  "The accepted-identity domain a projected read must land in — a string,
+  number, boolean or keyword. Anything else is not a projection, and the
+  door refuses it in favour of `v/event`."
+  [v]
+  (or (string? v) (number? v) (boolean? v) (keyword? v)))
+
+(def sugar-paths
+  "Each NAMED roster marker as the `::v/read` path it is sugar for — the
+  three form-control reads and the two demonstrated-need members, spelled
+  as the host paths the one reader walks. `::v/value`, `::v/checked` and
+  `::v/scroll-top` read the event TARGET; `::v/key` and `::v/new-state`
+  read the event itself. This is the whole of what closedness bought that
+  the general door does not: a short list of pre-named paths, not a
+  private read mechanism the door lacks."
+  {:re-frame.freehand/value      [:target :value]
+   :re-frame.freehand/checked    [:target :checked]
+   :re-frame.freehand/key        [:key]
+   :re-frame.freehand/scroll-top [:target :scrollTop]
+   :re-frame.freehand/new-state  [:newState]})
 
 (def projections
-  "The CLOSED scalar projection roster — value, checked state, key,
-  scroll offset, and a top-layer element's new state.
+  "The NAMED scalar projection markers — value, checked state, key, scroll
+  offset, and a top-layer element's new state.
 
-  These are the only reserved markers a declarative event vector may
-  carry, AND the exact keys of the payload map a firing site supplies.
+  These are the reserved keywords a declarative event vector may carry,
+  AND the exact keys of the payload map a firing site supplies for them.
+  Each is SUGAR for a `[::v/read <path>]` of the one host property it
+  names (see [[sugar-paths]]); the general door reads any other shallow
+  scalar the same way, so the NEXT read no longer needs a new name — it
+  needs a path.
 
-  The roster is CLOSED, and that closedness is the point: a projected
-  read is assertable by equality, printable, comparable and
-  host-neutral, which a general \"read any property off the host event\"
-  escape hatch would destroy. What it is NOT is guessed up front. A
-  member is admitted when it passes one test — **a shallow scalar off
-  the event target, needed by a real component, demonstrated by a
-  pilot** — and `::v/scroll-top` and `::v/new-state` are here because two
-  independent pilots bent their designs around their absence. Anything
-  needing traversal, measurement, or a live host object is not a
-  projection at all and is `v/event`'s job.
-
-  There is deliberately no mechanism for adding more: the next member
-  arrives the way these did, through a component that needed it."
-  #{:re-frame.freehand/value
-    :re-frame.freehand/checked
-    :re-frame.freehand/key
-    :re-frame.freehand/scroll-top
-    :re-frame.freehand/new-state})
+  What stays closed is the PROPERTY every projection keeps, not the set
+  of members: a read is admitted only when it resolves to a shallow
+  scalar (string, number, boolean, keyword), which is what keeps the
+  projected intent assertable by equality, printable and host-neutral.
+  Anything richer is [[materialize-event]]'s `v/event` job, not a
+  projection."
+  (set (keys sugar-paths)))
 
 ;; ---------------------------------------------------------------------------
 ;; The one pure materializer
@@ -151,6 +209,48 @@
                   :event-id   (nth event 0 nil)
                   :event      (error/diag-value-summary event)}})))
 
+(defn- bad-read-shape!
+  [marker]
+  (bad-event!
+    'v/materialize-event
+    (str "A general projection door is [::v/read <path>], where <path> is ONE property "
+         "keyword read off the event (" (pr-str [read-marker :key]) ") or a non-empty vector "
+         "of keywords read as a chain from it (" (pr-str [read-marker [:target :scrollTop]])
+         "). This one is " (pr-str marker) ".")
+    :write-a-read-door-as-a-keyword-or-keyword-path
+    {:marker (error/diag-value-summary marker)}))
+
+(defn- read-non-scalar!
+  [marker v]
+  (bad-event!
+    'v/materialize-event
+    (str "The projection door " (pr-str marker) " read a " (value-tag v) ", and a projection "
+         "must resolve to a SHALLOW SCALAR — a string, number, boolean or keyword. A read that "
+         "lands on a host object or a collection is not intent data; do that work in a v/event "
+         "body, where a richer read belongs and the intent is opaque by design.")
+    :read-a-shallow-scalar-or-use-v-event
+    {:projection marker :value (error/diag-value-summary v)}))
+
+(defn- materialize-arg
+  "Replace ONE top-level argument. A named roster keyword and a
+  `[::v/read <path>]` door are both substituted from `payload` — keyed by
+  the marker itself, so the lookup is one law — and a door additionally
+  proves its shape and that what it read is a shallow scalar. Any other
+  value is ordinary application data and is left exactly as it is."
+  [x event payload]
+  (cond
+    (contains? projections x)
+    (payload-value x event payload)
+
+    (read-marker? x)
+    (do
+      (when-not (and (= 2 (count x)) (read-path? (read-marker-path x)))
+        (bad-read-shape! x))
+      (let [v (payload-value x event payload)]
+        (if (read-scalar? v) v (read-non-scalar! x v))))
+
+    :else x))
+
 (defn materialize-event
   "The ONE pure event materializer: replace the reserved projection
   markers in `event` with the live scalars in `payload`, and return a
@@ -160,16 +260,25 @@
                          {::v/value \"mike@example.com\"})
       ;; => [:account/email-edited \"mike@example.com\"]
 
+      (materialize-event [:table/scrolled [::v/read [:target :scrollTop]]]
+                         {[::v/read [:target :scrollTop]] 3200})
+      ;; => [:table/scrolled 3200]
+
   Its semantics are deliberately small, and every path — a literal
   vector, a forwarded `(conj on-change ::v/value)`, an options map's
   `:event`, a `v/event` body's result, interpreted, compiled, production
   and test — runs through exactly this function:
 
   - **position zero may not be a marker.** An event id is a name, not a
-    projection;
-  - **only TOP-LEVEL argument positions are replaced.** A marker nested
-    inside a map, a vector or any other value is ordinary application
-    data and is left alone;
+    projection or a read door;
+  - **only TOP-LEVEL argument positions are replaced.** A named marker or
+    a `[::v/read <path>]` door in an argument position is substituted;
+    the SAME form nested inside a map or a deeper vector is ordinary
+    application data and is left alone, as is every non-marker value;
+  - **a door must read a shallow scalar.** A `[::v/read <path>]` whose
+    read lands on a host object, a collection or nothing is a typed error
+    naming `v/event` — that scalar law is what keeps a projected read
+    equality-assertable and host-neutral;
   - **every occurrence is replaced**, not merely the first;
   - **a requested but unavailable payload is a typed error** and nothing
     is dispatched, rather than a malformed event reaching a handler;
@@ -200,6 +309,14 @@
              "[:my-event " id "].")
         :name-the-event-id-at-position-zero
         {:projection id}))
+    (when (read-marker? id)
+      (bad-event!
+        'v/materialize-event
+        (str "Position zero of an event vector is its event ID, and " (pr-str id) " is a "
+             "projection READ door. A door fills an ARGUMENT position: write "
+             "[:my-event " (pr-str id) "].")
+        :name-the-event-id-at-position-zero
+        {:projection id}))
     (when (vector? id)
       (bad-event!
         'v/materialize-event
@@ -208,9 +325,9 @@
              "and let its re-frame handler return the effects the step needs.")
         :yield-one-event-vector-or-nil
         {:event (error/diag-value-summary event)})))
-  (if (some projections event)
+  (if (or (some projections event) (some read-marker? event))
     (into [(nth event 0)]
-          (map (fn [x] (if (contains? projections x) (payload-value x event payload) x)))
+          (map (fn [x] (materialize-arg x event payload)))
           (subvec event 1))
     event))
 
@@ -700,36 +817,45 @@
   payload)
 
 #?(:cljs
+   (defn read-scalar-at
+     "Read the scalar `path` names off live event `e` — one property
+     keyword read off the event, or a vector of keywords walked as a chain
+     from it. Returns nil when any step is absent, which is how a member is
+     present in the payload only when the event actually carries it. The
+     ONE host read the named roster and the general `[::v/read <path>]`
+     door share; no DOM node or synthetic event leaves it, only the leaf
+     scalar."
+     [e path]
+     (reduce (fn [o k] (when (some? o) (unchecked-get o (name k))))
+             e
+             (if (keyword? path) [path] path))))
+
+#?(:cljs
    (defn native-payload
-     "Read the closed scalar roster off a live native / React synthetic
-     event. A member is present only when the event actually carries the
-     property it reads, so asking a click for `::v/key` is a typed error
-     rather than a silent `nil` reaching a handler.
+     "Read the NAMED scalar roster off a live native / React synthetic
+     event — each marker resolved from [[sugar-paths]] by [[read-scalar-at]],
+     the same reader the general door uses. A member is present only when
+     the event actually carries the property it reads, so asking a click
+     for `::v/key` is a typed error rather than a silent `nil` reaching a
+     handler.
 
-     The two reads off the EVENT — `key` and `newState` — are carried by
-     the event kinds that have them and are absent everywhere else. The
-     three reads off the TARGET follow the target's own shape: a
-     `<div>` has no `value`, so `::v/value` is absent there, while every
-     element has a scroll offset and so carries `::v/scroll-top`
-     truthfully at 0. Presence tracks the host, and the host is what a
-     projection is a read of.
+     `::v/key` and `::v/new-state` read the EVENT and are carried by the
+     event kinds that have them; `::v/value`, `::v/checked` and
+     `::v/scroll-top` read the TARGET and follow its shape — a `<div>` has
+     no `value`, so `::v/value` is absent there, while every element has a
+     scroll offset and so carries `::v/scroll-top` truthfully at 0.
+     Presence tracks the host, and the host is what a projection is a read
+     of.
 
-     No DOM node, synthetic event or other host object leaves this
-     function: normalized scalars go in the payload map and nothing
-     else."
+     A general `[::v/read <path>]` door's own read is added at firing time
+     from the event vector, which native-payload never sees; see
+     [[read-projections]]."
      [e]
-     (let [target  (unchecked-get e "target")
-           value   (when (some? target) (unchecked-get target "value"))
-           checked (when (some? target) (unchecked-get target "checked"))
-           scroll  (when (some? target) (unchecked-get target "scrollTop"))
-           k       (unchecked-get e "key")
-           state   (unchecked-get e "newState")]
-       (cond-> {}
-         (some? value)   (assoc :re-frame.freehand/value value)
-         (some? checked) (assoc :re-frame.freehand/checked checked)
-         (some? k)       (assoc :re-frame.freehand/key k)
-         (some? scroll)  (assoc :re-frame.freehand/scroll-top scroll)
-         (some? state)   (assoc :re-frame.freehand/new-state state)))))
+     (reduce-kv (fn [m marker path]
+                  (let [v (read-scalar-at e path)]
+                    (if (some? v) (assoc m marker v) m)))
+                {}
+                sugar-paths)))
 
 (def default-payload
   "The payload extractor a site takes when it names none: the host's own
@@ -972,10 +1098,38 @@
        :recovery :warned-and-continued}))
   nil)
 
+#?(:cljs
+   (defn- read-projections
+     "Add the GENERAL door's reads to `base` — for each `[::v/read <path>]`
+     in the committed event vector, the scalar that path names off the
+     live event `e`, keyed by the door itself so [[materialize-event]]
+     substitutes it exactly as it does a named member. The named roster is
+     already in `base` from [[native-payload]]; a malformed door is left
+     unread here and diagnosed at materialization, and a read that lands on
+     nothing is simply absent, which the materializer reports as a missing
+     payload like any other unmet projection."
+     [base event e]
+     (if (vector? event)
+       (reduce (fn [m x]
+                 (if (and (read-marker? x) (read-path? (read-marker-path x)))
+                   (let [v (read-scalar-at e (read-marker-path x))]
+                     (if (some? v) (assoc m x v) m))
+                   m))
+               base
+               (rest event))
+       base))
+   :clj
+   (defn- read-projections
+     "The structural host supplies its payload map directly — a general
+     door's scalar is a key the test wrote, exactly like a named member —
+     so there is no live event to read and `base` is already complete."
+     [base _event _e]
+     base))
+
 (defn- payload
   [plan args]
   (when-some [pf (:payload plan)]
-    (apply pf args)))
+    (read-projections (apply pf args) (:event plan) (first args))))
 
 (defn- lane
   "The dispatcher this site fires through — the SYNCHRONOUS one when the

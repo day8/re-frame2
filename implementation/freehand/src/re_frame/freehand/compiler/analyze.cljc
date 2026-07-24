@@ -1873,9 +1873,25 @@
 
 (defn analyze-style
   "-> {:entries [{:css-name str :value form :literal? bool}] :static? bool}
-  or {:dyn form} for a wholly-dynamic :style expression."
+  or {:dyn form} for a wholly-dynamic :style expression.
+
+  A VECTOR is a COMPOSE — an exact `:style` and an alias projecting onto
+  the style slot on one element (rf2-8jqw7). When every part is a literal
+  `:style` map it folds at BUILD time by CONCATENATING each part's
+  entries: the emit sites build a style object where a later same-named
+  property wins, so concatenation IS the property-by-property merge, and a
+  compiled compose folds by the same rule its interpreted twin applies. A
+  compose carrying a wholly-dynamic part falls to the dynamic arm and
+  merges at render through the one vector-aware style rule
+  ([[re-frame.freehand.node/style-map]] / `compiled-react/style!`), the
+  same rule the interpreted walk composes with — never a second one."
   [e form]
   (cond
+    (and (vector? form) (every? map? form))
+    (let [parts (mapv #(analyze-style e %) form)]
+      {:entries (vec (mapcat :entries parts))
+       :static? (every? :static? parts)})
+
     (map? form)
     (let [entries (mapv (fn [[k v]]
                           (when-not (keyword? k)
@@ -2038,15 +2054,39 @@
                                                (= :class (rules/canonical-attr-key k)))
                                       v))
                                   m))
+          ;; rf2-8jqw7: an exact :style and any alias projecting onto the
+          ;; style slot COMPOSE the same way — the exact value first, then the
+          ;; aliases — rather than the last canonicalized key winning. Collect
+          ;; style-slot values exact-first and hand analyze-style the composed
+          ;; value; a lone style stays a single value and keeps its
+          ;; static/dynamic analysis, a pair becomes a vector analyze-style
+          ;; merges property by property. Parallel to the class rule above, so
+          ;; keeping :class composed while :style last-wins is the
+          ;; inconsistency this removes.
+          ;; A literal nil style value is ABSENT (the nil-is-absent law), so it
+          ;; is dropped from the compose here — an all-nil slot yields no
+          ;; :style at all, and a nil beside a real value leaves the real one.
+          style-forms (into (if (some? (get m :style)) [(get m :style)] [])
+                            (keep (fn [[k v]]
+                                    (when (and (not= :style k)
+                                               (= :style (rules/canonical-attr-key k))
+                                               (some? v))
+                                      v))
+                                  m))
           m          (reduce-kv (fn [acc k v]
                                   (let [ck (rules/canonical-attr-key k)]
-                                    (cond-> acc (not= :class ck) (assoc ck v))))
+                                    (cond-> acc (and (not= :class ck)
+                                                     (not= :style ck)) (assoc ck v))))
                                 {} m)
           m          (cond-> m
                        (seq class-forms)
                        (assoc :class (if (= 1 (count class-forms))
                                        (first class-forms)
-                                       (vec class-forms))))
+                                       (vec class-forms)))
+                       (seq style-forms)
+                       (assoc :style (if (= 1 (count style-forms))
+                                       (first style-forms)
+                                       (vec style-forms))))
               key-form   (get m :key)
               m*         (dissoc m :key :class :style :ref)
               ref-form   (get m :ref)

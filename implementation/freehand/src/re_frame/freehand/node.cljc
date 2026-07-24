@@ -427,20 +427,34 @@
       [k semantic])))
 
 (defn style-map
-  "One authored `:style` value in canonical semantic space."
+  "One authored `:style` value in canonical semantic space.
+
+  A VECTOR is a COMPOSE — an exact `:style` and an alias projecting onto
+  the style slot on one element — merged left to right so a later entry
+  wins per CSS property and both survive on a non-conflict, exactly as
+  `:class` composes a routed alias beside the sugar through
+  [[conv/class-parts]] (rf2-8jqw7; parallel to rf2-c9kus). The recursion
+  flattens the incrementally-built pair `[[a b] c]` the folder produces,
+  the same shape the class rule flattens."
   [tag v]
-  (when-not (map? v)
-    (malformed!
-      're-frame.freehand/render
-      (str "The :style value on " tag " is a " (type-name v)
-           "; :style is a map of CSS property to value.")
-      {:attr :style :value (shape v)}))
-  (reduce-kv (fn [m k x]
-               (if (nil? x)
-                 m
-                 (let [css-name (name k)]
-                   (assoc m (keyword css-name) (conv/css-value css-name x)))))
-             {} v))
+  (if (vector? v)
+    ;; A nil contributor is ABSENT — the nil-is-absent law a lone `:style
+    ;; (when …)` relies on, carried into the compose so an exact value beside
+    ;; a nil alias (or vice versa) is the surviving value, not a rejection.
+    (reduce (fn [m one] (if (some? one) (merge m (style-map tag one)) m)) {} v)
+    (do
+      (when-not (map? v)
+        (malformed!
+          're-frame.freehand/render
+          (str "The :style value on " tag " is a " (type-name v)
+               "; :style is a map of CSS property to value.")
+          {:attr :style :value (shape v)}))
+      (reduce-kv (fn [m k x]
+                   (if (nil? x)
+                     m
+                     (let [css-name (name k)]
+                       (assoc m (keyword css-name) (conv/css-value css-name x)))))
+                 {} v))))
 
 (defn class-string
   "The canonical `:class` string for `tag`: `sugar` classes FIRST in source
@@ -636,7 +650,15 @@
       ;; `[existing v]` composes both beneath the sugar exactly as one value
       ;; does (rf2-c9kus; same rule .93 gave a routed alias beside the sugar).
       (= :class k)          [attrs events (if (some? class) [class v] v) style]
-      (= :style k)          [attrs events class v]
+      ;; An exact `:style` and an alias projecting onto the style slot both
+      ;; reach here canonicalized to `:style`, and they COMPOSE — the exact
+      ;; value (already in the accumulator) first, then this one — rather than
+      ;; the last one folded winning, exactly as `:class` composes beside it.
+      ;; `style-map` merges the pair property by property (later wins on a
+      ;; genuine conflict, both survive otherwise), so keeping `:class`
+      ;; composed while `:style` last-wins is the inconsistency this removes
+      ;; (rf2-8jqw7; parallel to rf2-c9kus).
+      (= :style k)          [attrs events class (if (some? style) [style v] v)]
       (conv/handler-key? k) [attrs (if-let [c (classify-event tag k v)]
                                      (assoc events k c)
                                      events)
