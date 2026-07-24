@@ -72,6 +72,30 @@
            (:children (tree/render [:ul (for [x ["a" "b"]] [:li {:key x} x])])))
         "the rows are keyed, by the value the row was built from")))
 
+(deftest metadata-on-an-evaluated-call-form-is-dropped-not-refused
+  (testing "rf2-drpa3.163 audit. The refusal catches metadata on a MARKUP
+            VECTOR, which is the whole reach it can have: `^{:key …}` on a
+            SEQ CALL form — `(v/slot …)`, `(some-fn …)` — is gone by the time
+            either walk sees the value, because evaluating the call returns
+            the content WITHOUT the call form's metadata. So the row renders
+            silently unkeyed and nothing refuses it — the exact trap the
+            v/slot docstring used to teach with `^{:key (:id r)} (v/slot row
+            r)`."
+    (let [dropped (tree/render [:ul ^{:key "a"} (identity [:li "a"])])]
+      (is (nil? (refusal #(tree/render [:ul ^{:key "a"} (identity [:li "a"])])))
+          "no diagnostic — the metadata is already gone, there is nothing to refuse")
+      (is (= [{:tag :li :children ["a"]}] (:children dropped))
+          "and the row is silently UNKEYED, which is precisely why the doc must not teach it")))
+  (testing "the keyed fragment the docstring now recommends carries the key
+            the metadata spelling silently lost — the recovery both walks'
+            own sentences already name (`[:<> {:key k} …]`)"
+    (let [fixed (tree/render [:ul [:<> {:key "a"} (identity [:li "a"])]])
+          frag  (first (:children fixed))]
+      (is (= "a" (:key frag))
+          "the fragment keys the evaluated content that has no props map of its own")
+      (is (= [{:tag :li :children ["a"]}] (:children frag))
+          "and the content itself is untouched inside it"))))
+
 ;; ---------------------------------------------------------------------------
 ;; The interpreted React walk — the other emitter, ClojureScript only
 ;; ---------------------------------------------------------------------------
