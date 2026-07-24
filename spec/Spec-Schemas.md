@@ -1707,8 +1707,9 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; §Route integration.
   [:map
    [:category    :keyword]
-   [:route-id    :keyword]
+   [:route-id    :keyword]                    ;; the LEAF activation target
    [:resource-id {:optional true} :keyword]   ;; absent for a branch-resolution / collapse-cycle failure that names no single resource
+   [:contributor {:optional true} [:map [:route-id :keyword] [:local-id {:optional true} :any]]]  ;; the CONTRIBUTING route + local declaration; every contributor's :when/:params/:scope runs against the LEAF target, so :route-id alone cannot say which declaration failed. Absent for a failure belonging to no single declaration (branch resolution / collapse cycle)
    [:nav-token   {:optional true} :any]       ;; ABSENT for a :plan-cause :prefetch failure (a warm-mode preload has no nav-token)
    [:plan-cause  {:optional true} :keyword]   ;; :prefetch on a warm-mode intent-preload planning failure; absent for a navigation-commit failure
    [:cause       {:optional true} :any]        ;; the underlying canonicalization / validation ex-data

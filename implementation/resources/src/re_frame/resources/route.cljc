@@ -58,6 +58,7 @@
             [re-frame.resources.registry :as registry]
             [re-frame.resources.scope-registry :as scope-registry]
             [re-frame.resources.state :as state]
+            [re-frame.resources.work-ledger :as work-ledger]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -249,9 +250,63 @@
   "True iff a requirement in `entry`'s state no longer holds the route — it is
   `:ready` (has its own usable data) or `:inert` (settled with nothing left to
   settle it). Such a requirement is pruned from the nav-token's outstanding
-  blocking set. Per Spec 012 §Route readiness is a resource projection."
+  blocking set. Per Spec 012 §Route readiness is a resource projection.
+
+  This is the POST-COMMIT prune question — 'can this OUTSTANDING requirement
+  still hold the route?'. The AT-COMMIT question the planner asks is different
+  (`requirement-ready?` below): at commit every non-`:ready` requirement either
+  has live work or is about to be `ensure`d, so `:inert` there means 'about to
+  be reloaded', not 'nothing left to settle it'."
   [entry]
   (contains? #{:ready :inert} (requirement-state entry)))
+
+(defn requirement-ready?
+  "True iff `entry` ALREADY has its own usable data — the ONE reason a blocking
+  requirement is not recorded as outstanding AT COMMIT (Spec 012 §Route
+  readiness is a resource projection: a blocking requirement that already has
+  usable data has nothing to wait for, so the commit projects `:idle` with no
+  transient `:loading`).
+
+  Every OTHER at-commit state must be recorded, because the plan guarantees
+  work for it: the identity is either adopted with live work in flight
+  (`adoptable?`) or handed to `ensure`, which starts a fresh attempt for
+  anything that is not a fresh `:loaded` entry. Recording it is what makes the
+  route wait for the data it declared blocking."
+  [entry]
+  (= :ready (requirement-state entry)))
+
+(defn adoptable?
+  "True iff a RETAINED plan identity (one the superseded nav-token's plan also
+  owned) can be adopted by the next activation WITHOUT a fetch — the plan-diff's
+  `kept` classification. `entry` is its durable cache entry (nil when absent);
+  `runtime-db` supplies the work ledger.
+
+  Prior-plan MEMBERSHIP alone is NOT enough (rf2-kqxe6.6). `:rf.resource/adopt-
+  owner` attaches an owner and issues no request, so adopting an identity that
+  cannot produce data commits a blocking slot nothing can ever drain — a
+  permanent `:loading`. An identity is genuinely reusable in exactly two cases:
+
+    - it has its OWN usable data (`:ready`) — the partial-revalidation law
+      applies and navigation must not revalidate it; or
+    - GENUINELY LIVE work will settle it (`work-ledger/live-work?`) — adopting
+      joins that work, and attach-before-release keeps it from being aborted.
+
+  Everything else takes the ordinary ensure/readiness path: an ABSENT entry
+  (cleared / removed / GC'd / a hydration-like mismatch — adopting it is a
+  literal no-op), a never-attempted one, a `:failed` first load, an `:inert`
+  one (settled with no data and nothing left to settle it), and one whose
+  `:current-work` POINTER names dead or doomed work.
+
+  Derived from `requirement-state` — this adds NO second readiness table. The
+  one split it makes is INSIDE `:pending`, which readiness deliberately
+  conflates (\"in flight\" and \"not started yet\" both mean the route waits);
+  adoption is the one caller for which they differ. PURE. Per Spec 016 §Plan
+  diff and owner handoff."
+  [runtime-db entry]
+  (case (requirement-state entry)
+    :ready   true
+    :pending (work-ledger/live-work? runtime-db (:current-work entry))
+    false))
 
 (defn- route-blocking-error
   "Build the structured `:rf.error/resource-route-blocking` error for a
@@ -568,6 +623,34 @@
 ;; are ordered by an occurrence graph (branch-order + admitted local `:after`),
 ;; then collapsed by resolved `[scope resource-id canonical-params]` identity
 ;; and stable-topologically ordered; a collapse-created cycle fails the plan.
+;; A per-contributor failure carries the CONTRIBUTING route + local declaration
+;; id out with it (`attributed`) — every contributor's resolvers run against
+;; the LEAF target, so the leaf id alone cannot say WHICH declaration failed.
+
+(defn- attributed
+  "The per-contributor planning failure `ex`, with the CONTRIBUTING route id
+  (and the local declaration id, when the failure is entry-scoped) attached to
+  its ex-data under `:contributor`. The caller re-throws it.
+
+  WHY the throw needs enriching (rf2-kqxe6.6): a parent-chain plan resolves
+  EVERY contributor's declarations against the LEAF target, so the leaf
+  `:route-id` the plan error carries cannot say WHICH declaration failed — an
+  ancestor's nil `:params` resolver reported the leaf route and the resource id
+  and nothing else. Spec 016 §Effective parent-chain resource plans rule 3
+  requires the error to identify BOTH the contributor route id and the resource
+  declaration, and the planner already knows both here, where the contributor
+  context is still in scope. `plan-error` surfaces it on the route slice + the
+  error trace.
+
+  The ex-data is carried through verbatim (`:reason` / `:recovery` /
+  `:resource-id` keep their site-specific values, so a nil-scope failure stays
+  self-explaining); the ORIGINAL ex is the cause. An already-attributed ex
+  passes through untouched — the innermost frame is the specific one."
+  [ex contributor]
+  (let [data (ex-data ex)]
+    (if (:contributor data)
+      ex
+      (ex-info (ex-message ex) (assoc data :contributor contributor) ex))))
 
 (defn- materialize-occurrences
   "Resolve every admitted occurrence across the parent-to-leaf `branch`
@@ -577,7 +660,8 @@
   missing/cyclic local `:after`), then, for each `:when`-admitted entry,
   resolve scope + canonical params (fail-closed) and compute its scoped-key
   identity. A validation/`:when`/params/scope THROW propagates to the plan
-  boundary (a committed failed activation). EP-0037 R2 rules 2-4."
+  boundary (a committed failed activation), CARRYING the contributing route +
+  local declaration id (`attributed`). EP-0037 R2 rules 2-4."
   [branch route ctx app-db]
   (first
     (reduce
@@ -585,36 +669,47 @@
                                 contributor-id :route-id}]]
         (reduce
           (fn [[acc n] entry]
-            (if-not (when-passes? entry route ctx)
-              [acc n]
-              (let [resource-id (:resource entry)
-                    spec        (registry/require-resource-spec!
-                                  resource-id 'rf.resource/route-entry)
-                    raw-params  (resolve-entry-params entry route)
-                    route-scope (resolve-entry-scope entry route ctx app-db)
-                    scope       (registry/resolve-scope-for-event
-                                  resource-id spec {:route-scope route-scope :db app-db}
-                                  'rf.resource/route-entry)
-                    cparams     (registry/validate+canonicalize-params
-                                  resource-id spec raw-params
-                                  'rf.resource/route-entry)
-                    scoped-key  (state/scoped-resource-key* scope resource-id cparams)]
-                [(conj acc {:occ-id         [contributor-id (:id entry) n]
-                            :seq            n
-                            :branch-index   branch-index
-                            :route-id       contributor-id
-                            :local-id       (:id entry)
-                            :after          (set (:after entry))
-                            :resource       resource-id
-                            :scope          scope
-                            :cparams        cparams
-                            :scoped-key     scoped-key
-                            :blocking?      (boolean (:blocking? entry))
-                            :keep-previous? (boolean (:keep-previous? entry))})
-                 (inc n)])))
+            (try
+              (if-not (when-passes? entry route ctx)
+                [acc n]
+                (let [resource-id (:resource entry)
+                      spec        (registry/require-resource-spec!
+                                    resource-id 'rf.resource/route-entry)
+                      raw-params  (resolve-entry-params entry route)
+                      route-scope (resolve-entry-scope entry route ctx app-db)
+                      scope       (registry/resolve-scope-for-event
+                                    resource-id spec {:route-scope route-scope :db app-db}
+                                    'rf.resource/route-entry)
+                      cparams     (registry/validate+canonicalize-params
+                                    resource-id spec raw-params
+                                    'rf.resource/route-entry)
+                      scoped-key  (state/scoped-resource-key* scope resource-id cparams)]
+                  [(conj acc {:occ-id         [contributor-id (:id entry) n]
+                              :seq            n
+                              :branch-index   branch-index
+                              :route-id       contributor-id
+                              :local-id       (:id entry)
+                              :after          (set (:after entry))
+                              :resource       resource-id
+                              :scope          scope
+                              :cparams        cparams
+                              :scoped-key     scoped-key
+                              :blocking?      (boolean (:blocking? entry))
+                              :keep-previous? (boolean (:keep-previous? entry))})
+                   (inc n)]))
+              (catch #?(:clj Throwable :cljs :default) ex
+                (throw (attributed ex {:route-id contributor-id
+                                       :local-id (:id entry)})))))
           acc-n
-          ;; rule 2: validate + locally order the WHOLE declared vector.
-          (order-by-after (:resources route-meta))))
+          ;; rule 2: validate + locally order the WHOLE declared vector. A
+          ;; missing / cyclic local `:after` names its own local id, but only
+          ;; this frame knows WHICH contributor declared it.
+          (try
+            (order-by-after (:resources route-meta))
+            (catch #?(:clj Throwable :cljs :default) ex
+              (throw (attributed ex (cond-> {:route-id contributor-id}
+                                      (:local-id (ex-data ex))
+                                      (assoc :local-id (:local-id (ex-data ex))))))))))
       [[] 0]
       (map-indexed vector branch))))
 
@@ -760,6 +855,14 @@
   nil-params vs invalid-params failure stays self-explaining); otherwise
   the generic params/scope-did-not-resolve message stands.
 
+  rf2-kqxe6.6: `:contributor` names the CONTRIBUTING route + local declaration
+  (`{:route-id … :local-id …}`, stamped by `materialize-occurrences`), so a
+  failure in an ANCESTOR declaration is not reported as if the leaf had
+  declared it. `:route-id` remains the LEAF target — the two together are what
+  Spec 016 §Effective parent-chain resource plans rule 3 requires. It is absent
+  only for a failure that belongs to no single declaration (branch resolution,
+  collapse cycle).
+
   rf2-9g3qzi: this map carries NO `:operation` slot. The canonical
   thrown-error shape (frame.cljc `no-frame-context-payload`) reserves
   `:operation` for the DISTINCT runtime op (`:dispatch` / `:subscribe`) —
@@ -771,17 +874,18 @@
   information."
   [route-id nav-token resource-id ex]
   (let [data (ex-data ex)]
-    {:rf.error/id :rf.error/resource-route-plan
-     :route-id    route-id
-     :resource-id resource-id
-     :nav-token   nav-token
-     :recovery    (get data :recovery :fix-params)
-     :reason      (or (:reason data)
-                      (str "route " route-id " resource " resource-id
-                           " failed planning (params / scope did not resolve) — a "
-                           "route/resource planning error, not a silent cache miss. "
-                           "Per Spec 016 §Route integration."))
-     :cause       data}))
+    (cond-> {:rf.error/id :rf.error/resource-route-plan
+             :route-id    route-id
+             :resource-id resource-id
+             :nav-token   nav-token
+             :recovery    (get data :recovery :fix-params)
+             :reason      (or (:reason data)
+                              (str "route " route-id " resource " resource-id
+                                   " failed planning (params / scope did not resolve) — a "
+                                   "route/resource planning error, not a silent cache miss. "
+                                   "Per Spec 016 §Route integration."))
+             :cause       data}
+      (:contributor data) (assoc :contributor (:contributor data)))))
 
 (defn route-resource-plan
   "Build the resource ensure/release plan for a route's `:resources`
@@ -902,40 +1006,61 @@
         ;; unchanged ancestor is not revalidated by navigation). Removed
         ;; identities (in prev, not next) are released by the whole-prior-owner
         ;; release-fx. Per Spec 016 §Plan diff and owner handoff.
+        ;;
+        ;; rf2-kqxe6.6 — an identity is KEPT when it is in the previous plan AND
+        ;; its entry is genuinely REUSABLE at commit (`adoptable?`: own usable
+        ;; data, or genuinely live work). Prior-plan membership alone is not
+        ;; enough: `adopt-owner` issues no request, so adopting an identity that
+        ;; has been cleared / removed / GC'd, or that is settled with no data
+        ;; and no live work, would commit a blocking slot nothing could ever
+        ;; drain — a permanent `:loading`. A retained-but-unusable identity is
+        ;; therefore treated exactly like an added one: the ordinary
+        ;; ensure/readiness path. `runtime-db` is the pre-commit runtime-db
+        ;; routing threads into the hook; without it (a direct planner call in a
+        ;; unit) nothing reads as adoptable and everything ensures — the
+        ;; fail-safe direction, matching the blocking read below.
         prev-ids  (set prev-identities)
         next-ids  (into #{} (map :scoped-key) ordered)
+        entry-of  (fn [scoped-key] (get-in runtime-db (state/entry-path scoped-key)))
+        adopted?  (fn [{:keys [scoped-key]}]
+                    (and (contains? prev-ids scoped-key)
+                         (adoptable? runtime-db (entry-of scoped-key))))
         req-fx    (mapv
-                    (fn [{:keys [scoped-key resource scope cparams keep-previous?]}]
+                    (fn [{:keys [resource scope cparams keep-previous?] :as req}]
                       (let [base {:resource resource :scope scope :params cparams
                                   :owner owner :cause cause}]
-                        (if (contains? prev-ids scoped-key)
-                          ;; kept — pure owner adoption, NO fetch/revalidation
+                        (if (adopted? req)
+                          ;; kept + reusable — pure owner adoption, NO fetch
                           [:dispatch [:rf.resource/adopt-owner base]]
-                          ;; added — ordinary ensure/freshness path
+                          ;; added, or retained-but-unusable — ordinary ensure
                           [:dispatch [:rf.resource/ensure
                                       (cond-> base
                                         keep-previous? (assoc :keep-previous? true))]])))
                     ordered)
         ;; EP-0037 R1 — read the Spec 016 facts AT COMMIT. A blocking
-        ;; requirement whose identity ALREADY has usable data (or is otherwise
-        ;; met — `requirement-met?`) is recorded nowhere: it has nothing left
-        ;; to wait for, so the commit projects `:idle` immediately instead of a
+        ;; requirement whose identity ALREADY has usable data
+        ;; (`requirement-ready?`) is recorded nowhere: it has nothing left to
+        ;; wait for, so the commit projects `:idle` immediately instead of a
         ;; transient `:loading` that the very next `ensure` fresh-skip would
-        ;; undo. `runtime-db` is the pre-commit runtime-db routing threads into
-        ;; the hook; without it (a direct planner call in a unit) nothing reads
-        ;; as met and every blocking requirement is recorded, which is the
-        ;; fail-safe direction.
+        ;; undo. EVERY other state IS recorded — the plan has just guaranteed
+        ;; work for it (an adoption joins live work; an ensure starts a fresh
+        ;; attempt for anything that is not a fresh `:loaded` entry), so the
+        ;; route must wait for the data it declared blocking rather than
+        ;; committing `:idle` over an identity with none. Without a
+        ;; `runtime-db` nothing reads as ready and every blocking requirement is
+        ;; recorded, which is the fail-safe direction.
         blocking  (into #{}
                         (comp (filter :blocking?)
                               (map :scoped-key)
-                              (remove #(requirement-met?
-                                         (get-in runtime-db (state/entry-path %)))))
+                              (remove #(requirement-ready? (entry-of %))))
                         ordered)
         ;; EP-0037 R2 plan-diff projection (Tooling: old/new kept/added/removed
         ;; identities): `:ensured` counts the ADDED identities (real ensures),
         ;; `:kept` the adopted (owner-handed-off, not re-ensured) identities, and
-        ;; `:removed` the prior-plan identities this plan drops.
-        added-count   (count (remove #(contains? prev-ids (:scoped-key %)) ordered))
+        ;; `:removed` the prior-plan identities this plan drops. A retained
+        ;; identity that could not be adopted counts as ensured, so the trace
+        ;; reports what actually happened.
+        added-count   (count (remove adopted? ordered))
         removed-count (count (remove next-ids prev-ids))]
     (trace/emit! :rf.event :rf.resource/route-plan
                  (cond-> {:route-id   route-id

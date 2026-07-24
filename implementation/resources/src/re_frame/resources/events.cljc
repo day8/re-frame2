@@ -407,11 +407,10 @@
         ;; so the pointer alone is NOT proof of joinable work — the LINKED
         ;; RECORD'S status is. A non-joinable prior pointer falls through to a
         ;; fresh load (a new generation), which is the correct re-ensure.
-        prior-record (when prior-work (work-ledger/get-record runtime-db prior-work))
-        prior-status (:status prior-record)
-        joinable?  (and (some? prior-record)
-                        (not (work-ledger/terminal? prior-status))
-                        (not= :abort-requested prior-status))
+        ;; `work-ledger/live-work?` is the ONE definition of that liveness
+        ;; question, shared with `load-more`'s page dedupe and the route
+        ;; planner's retained-identity adoption test (rf2-kqxe6.6).
+        joinable?  (work-ledger/live-work? runtime-db prior-work)
         ;; FRESH-SKIP gate (Spec 016 §Lifecycle is an FSM / §Restore and
         ;; replay): an `ensure` (never a `refetch`) of an already-`:loaded`
         ;; entry that is NOT in flight and is still fresh-by-policy serves
@@ -902,15 +901,11 @@
         owner      nil
         entry      (get-in runtime-db (state/entry-path scoped-key))
         prior-work (:current-work entry)
-        prior-record (when prior-work (work-ledger/get-record runtime-db prior-work))
-        prior-status (:status prior-record)
         ;; a page fetch (or any fetch) is genuinely in flight when the linked
         ;; work record is LIVE (`:queued` / `:running`) — the same `joinable?`
         ;; liveness the `ensure` dedupe uses (rf2-v4ygg5). A doomed
         ;; (`:abort-requested`) / terminal pointer is NOT in flight.
-        in-flight? (and (some? prior-record)
-                        (not (work-ledger/terminal? prior-status))
-                        (not= :abort-requested prior-status))
+        in-flight? (work-ledger/live-work? runtime-db prior-work)
         pages      (:data entry)
         next-param (state/next-param-for (:next-page-param spec) pages)
         terminal?  (state/terminal? next-param)
@@ -1961,8 +1956,18 @@
   aborted first load) un-blocks rather than stranding the route `:loading`
   forever. The PARTIAL-REVALIDATION law: navigation
   never revalidates the kept, unchanged ancestor — `adopt-owner` issues no
-  request. A missing entry (a kept identity GC'd out from under the diff) is a
-  no-op. Payload `{:resource :scope :params :owner :cause}`; scope/params are
+  request.
+
+  rf2-kqxe6.6 — the planner only ever adopts a GENUINELY REUSABLE identity
+  (`route/adoptable?`: own usable data, or genuinely live work). A retained
+  identity that has been cleared / removed / GC'd, or that cannot progress,
+  takes the ordinary `ensure` path instead, because this event issues no
+  request and so could never drain the blocking slot the same commit wrote. A
+  missing entry therefore no longer reaches here from a plan; the nil branch
+  remains as the defensive no-op for a direct dispatch (there is nothing to
+  attach an owner to).
+
+  Payload `{:resource :scope :params :owner :cause}`; scope/params are
   already canonical (the planner resolved them). Per Spec 016 §Effective
   parent-chain resource plans."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
