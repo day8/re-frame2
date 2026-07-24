@@ -660,8 +660,12 @@
   `:identifier-prefix`. Preflight: `:frame` — a frame-id keyword SCOPES a
   frame something else owns, a `make-frame` opts map carrying `:id`
   ENSUREs one the root owns for its lifetime, and either way the frame is
-  live before React sees anything. Host: React's `:on-uncaught-error` /
-  `:on-caught-error` / `:on-recoverable-error`.
+  live before React sees anything. A config-bearing ENSURE meeting a frame
+  already live whose incarnation this root cannot prove it owns — a
+  boot/external frame, or a same-id successor of the one it installed —
+  fails loud (`:scope-config-less-or-own-the-lifetime`) rather than taking
+  it over. Host: React's `:on-uncaught-error` / `:on-caught-error` /
+  `:on-recoverable-error`.
 
   A root claims its id, its container and its `identifierPrefix` in the
   per-document registry BEFORE it renders, so a collision on any of them
@@ -716,7 +720,11 @@
   below it disconnects (releasing every dependency, retiring every
   published callback), and the root's reference to its frame is released.
   A frame the root ENSUREd is DESTROYED once no live root still
-  references it; a frame the root merely scoped is left alone.
+  references it — and by the EXACT incarnation the install recorded, not
+  the bare frame-id, so a stale installer whose frame was already destroyed
+  and re-created under the same id, or a token-less legacy row a reload
+  carried over, no-ops rather than tearing down a successor it cannot prove
+  it owns; a frame the root merely scoped is left alone.
 
   GUARDED, and a no-op rather than a throw when the guard fails: a root
   already unmounted, or superseded by a newer root claiming its id, has
