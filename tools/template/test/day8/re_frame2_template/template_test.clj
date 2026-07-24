@@ -726,128 +726,6 @@
   (testing ":substrate :uix produces the expected tree"
     (assert-shape! :uix)))
 
-;; --- :ui substrate (EXPERIMENTAL — 2026-07-19 template-menu ruling) --------
-;;
-;; The :ui variant is deliberately NOT run through `assert-shape!`: its
-;; contract differs from the adapter substrates on exactly the axes that
-;; make it the minimal consumer shape of
-;; docs/core/how-to/install-re-frame-ui.md — no Xray coord, no Xray
-;; preload, its own shadow-cljs.edn carrying ONLY the build-hook
-;; setting, and an EXPERIMENTAL-marked README replacing the SPA one.
-;; This test pins that contract positively AND negatively so a future
-;; edit can neither quietly re-add the Xray tax nor drop the one
-;; load-bearing setting.
-
-(deftest ui-substrate-test
-  (testing ":substrate :ui (EXPERIMENTAL) scaffolds the minimal
-            consumer-shaped re-frame.ui app — post-S6 one-setting install
-            contract, no Xray, EXPERIMENTAL-marked README"
-    (let [tmp (tmp-dir "rf2-template-ui-")]
-      (try
-        (let [root (run-template! tmp "acme/my-app" :ui)]
-          ;; -- file tree: same project shape as the adapter substrates --
-          (doseq [p (concat common-files per-substrate-sources)]
-            (is (file-exists? root p)
-                (str "expected file " p " in generated tree for :ui")))
-
-          ;; -- deps.edn: core + ui + schemas as DIRECT coords; NO Xray --
-          (let [deps (read-edn (io/file root "deps.edn"))]
-            (is (map? deps) ":ui deps.edn parses as a map")
-            (doseq [coord '[day8/re-frame2 day8/re-frame2-ui
-                            day8/re-frame2-schemas]]
-              (is (contains? (:deps deps) coord)
-                  (str ":ui deps.edn references " coord))
-              ;; Pin VALUE owned by version_lockstep_test.clj.
-              (is (some? (get-in deps [:deps coord :mvn/version]))
-                  (str coord " carries an :mvn/version pin")))
-            (is (not (contains? (:deps deps) 'day8/re-frame2-xray))
-                ":ui deps.edn does NOT reference day8/re-frame2-xray — the
-                 minimal consumer shape carries no Xray coord")
-            (doseq [adapter '[day8/re-frame2-reagent day8/re-frame2-uix]]
-              (is (not (contains? (:deps deps) adapter))
-                  (str ":ui deps.edn does NOT reference the " adapter
-                       " adapter"))))
-
-          ;; -- shadow-cljs.edn: the ONE-setting install contract --
-          (let [scs (read-edn (io/file root "shadow-cljs.edn"))
-                app (get-in scs [:builds :app])
-                tst (get-in scs [:builds :test])]
-            (is (= :browser (:target app))
-                ":ui shadow-cljs :app build targets :browser")
-            (is (= 'acme.my-app.core/init
-                   (get-in app [:modules :main :init-fn]))
-                ":ui init-fn matches generated namespace")
-            (is (some #{"test"} (:source-paths scs))
-                ":ui shadow-cljs.edn :source-paths includes \"test\"")
-            (is (= :node-test (:target tst))
-                ":ui shadow-cljs :test build targets :node-test")
-            (is (some #{'(re-frame.ui.compiler.build-hook/hook)}
-                      (get-in scs [:build-defaults :build-hooks]))
-                ":ui shadow-cljs.edn wires the re-frame.ui build hook —
-                 the one load-bearing setting of the post-S6 install
-                 contract (docs/core/how-to/install-re-frame-ui.md)")
-            (is (not (contains? (set (keys scs)) :cache-blockers))
-                ":ui shadow-cljs.edn carries NO :cache-blockers line —
-                 the S6 cut-over (rf2-u53yy.1) removed the tax; the
-                 scaffold must ship the one-setting contract")
-            (is (nil? (get-in app [:devtools :preloads]))
-                ":ui shadow-cljs :app build wires NO preloads — no Xray
-                 in the minimal consumer shape"))
-
-          ;; -- core.cljs boots the compiled-view substrate --
-          (let [core-text (slurp (io/file root "src/acme/my_app/core.cljs"))]
-            (is (.contains core-text "re-frame.ui")
-                ":ui core.cljs requires re-frame.ui")
-            (is (.contains core-text "ui/adapter")
-                ":ui core.cljs boots via (rf/init! ui/adapter)")
-            (is (.contains core-text "ui/mount")
-                ":ui core.cljs mounts via ui/mount")
-            (is (.contains core-text "ui/frame-root")
-                ":ui core.cljs ensures the app frame via ui/frame-root")
-            (is (.contains core-text ":sensitive")
-                ":ui core.cljs points at :sensitive egress classification
-                 at the frame boot site (EP-0015/EP-0025)"))
-
-          ;; -- views.cljs is the compiled-view shape --
-          (let [views-text (slurp (io/file root "src/acme/my_app/views.cljs"))]
-            (is (.contains views-text "defview")
-                ":ui views.cljs uses defview")
-            (is (.contains views-text "(sub [:counter/value])")
-                ":ui views.cljs reads the sub as a VALUE (no deref)")
-            (is (.contains views-text "{:on-click [:counter/increment]}")
-                ":ui views.cljs dispatches via an event VECTOR handler")
-            (is (not (.contains views-text "reg-view"))
-                ":ui views.cljs does NOT use the stock reg-view path"))
-
-          ;; -- README: the EXPERIMENTAL marking + the install contract --
-          (let [readme (slurp (io/file root "README.md"))]
-            (is (.contains readme "EXPERIMENTAL")
-                ":ui README is marked EXPERIMENTAL")
-            (is (.contains readme "re-frame.ui.compiler.build-hook/hook")
-                ":ui README states the one build setting")
-            (is (.contains readme "install-re-frame-ui")
-                ":ui README links the install contract of record")
-            (is (not (.contains readme "the scaffold ships Xray"))
-                ":ui README does not inherit the SPA README's
-                 ships-Xray claim"))
-
-          ;; -- package.json rides the shared source with the ui label --
-          (let [pj-text (slurp (io/file root "package.json"))]
-            (is (.contains pj-text "re-frame.ui substrate")
-                ":ui package.json description carries the re-frame.ui label")
-            (is (.contains pj-text "\"shadow-cljs\"")
-                ":ui package.json declares shadow-cljs devDependency")
-            (is (.contains pj-text "\"react\"")
-                ":ui package.json declares react")
-            ;; The minimal consumer shape carries no Xray coord, so the
-            ;; Xray machine-canvas npm deps must NOT leak into it.
-            (is (not (.contains pj-text "@xyflow/react"))
-                ":ui package.json does NOT carry @xyflow/react (no Xray)")
-            (is (not (.contains pj-text "\"elkjs\""))
-                ":ui package.json does NOT carry elkjs (no Xray)")))
-        (finally
-          (delete-recursively tmp))))))
-
 ;; --- Name derivation -----------------------------------------------------
 ;;
 ;; Every other test in this suite scaffolds `acme/my-app` — a project
@@ -941,6 +819,15 @@
                               #":rf\.error/template-substrate-must-be-one-of"
                               (run-template! tmp "acme/my-app" :svelte))
             "unknown substrate is rejected")
+        ;; The retired :ui variant (rf2-qmvep) takes the SAME path as any
+        ;; other unknown keyword — no shim, no alias, no deprecation
+        ;; message. It emitted a day8/re-frame2-ui coordinate that will
+        ;; never publish, so the honest answer is that the substrate does
+        ;; not exist.
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":rf\.error/template-substrate-must-be-one-of"
+                              (run-template! tmp "acme/my-app" :ui))
+            "the retired :ui substrate is rejected like any unknown value")
         (finally
           (delete-recursively tmp))))))
 
@@ -1278,10 +1165,6 @@
                               #":rf\.error/template-include-story-reagent-only"
                               (run-template! tmp "acme/my-app" :uix true))
             ":include-story? + :uix is rejected at the entry-fn")
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-include-story-reagent-only"
-                              (run-template! tmp "acme/my-app" :ui true))
-            ":include-story? + :ui (EXPERIMENTAL) is rejected at the entry-fn")
         (finally
           (delete-recursively tmp))))))
 
@@ -1616,11 +1499,6 @@
                               (run-template-opts! tmp "acme/my-app"
                                                   {:substrate :uix :include-ssr? true}))
             ":include-ssr? + :uix is rejected at the entry-fn")
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-include-ssr-reagent-only"
-                              (run-template-opts! tmp "acme/my-app"
-                                                  {:substrate :ui :include-ssr? true}))
-            ":include-ssr? + :ui (EXPERIMENTAL) is rejected at the entry-fn")
         (finally
           (delete-recursively tmp))))))
 

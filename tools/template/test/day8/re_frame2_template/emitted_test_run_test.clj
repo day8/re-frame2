@@ -175,12 +175,7 @@
                        .toString
                        (string/replace "\\" "/")))
         adapter-coord (symbol "day8" (str "re-frame2-" (name substrate)))
-        ;; The EXPERIMENTAL :ui substrate's artefact is implementation/ui
-        ;; (day8/re-frame2-ui), NOT a per-substrate adapter under
-        ;; implementation/adapters/.
-        adapter-path  (if (= :ui substrate)
-                        "implementation/ui"
-                        (str "implementation/adapters/" (name substrate)))
+        adapter-path  (str "implementation/adapters/" (name substrate))
         rewritten
         (cond-> (-> deps
                     (assoc-in [:deps 'day8/re-frame2]
@@ -189,10 +184,10 @@
                               {:local/root (rel-of adapter-path)})
                     (assoc-in [:deps 'day8/re-frame2-schemas]
                               {:local/root (rel-of "implementation/schemas")}))
-          ;; The :ui scaffold deliberately ships NO Xray coord (minimal
-          ;; consumer shape), so the Xray rewrite is presence-gated —
-          ;; an unconditional assoc-in would ADD the coord to a scaffold
-          ;; whose contract is exactly that it is absent.
+          ;; Xray is Reagent-only (rf2-p6f6u), so the rewrite is
+          ;; presence-gated — an unconditional assoc-in would ADD the
+          ;; coord to the :uix scaffold, whose contract is exactly that
+          ;; it is absent.
           (contains? (:deps deps) 'day8/re-frame2-xray)
           (assoc-in [:deps 'day8/re-frame2-xray]
                     {:local/root (rel-of "tools/xray")})
@@ -1022,29 +1017,6 @@
               "`node` must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
           (when (and @clojure-cli-available? @node-available?)
             (compile-and-run-emitted-test! :uix))))))
-
-(deftest ui-emitted-tests-run-test
-  ;; The EXPERIMENTAL :ui scaffold's behavioural proof: the `:app`
-  ;; compile puts core.cljs (rf/init! ui/adapter + ui/mount +
-  ;; ui/frame-root) and the compiled `defview` views through a REAL
-  ;; shadow build with the re-frame.ui compiler build hook live — the
-  ;; post-S6 one-setting contract actually harvesting registries — and
-  ;; the `:test` compile + node run boots the scaffold's dataflow
-  ;; (events/subs against the plain-atom substrate). A broken ui/mount
-  ;; grammar, a compiler rejection of the emitted views, or a missing
-  ;; hook would fail here rather than on a newcomer's first
-  ;; `npx shadow-cljs watch app`.
-  (testing "the emitted EXPERIMENTAL :ui app compiles (compiled views +
-            build hook on a real shadow build) + events_test.cljs runs
-            green"
-    (if-not @enabled?
-      (skip-if-disabled! :ui)
-      (do (is @clojure-cli-available?
-              "`clojure` CLI must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
-          (is @node-available?
-              "`node` must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
-          (when (and @clojure-cli-available? @node-available?)
-            (compile-and-run-emitted-test! :ui))))))
 
 (deftest reagent-with-story-emitted-tests-run-test
   ;; The only tier that actually shadow-compiles +
