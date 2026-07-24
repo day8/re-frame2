@@ -1,0 +1,66 @@
+;; Conformance fixture: ep-0037/r3-prefetch-isolation
+;;
+;; EP-0037 R3 — resource-only intent prefetch (conformance row 7: isolation).
+;; A [:rf.route/prefetch {address}] warms the destination's resources OWNERLESSLY
+;; without navigating. After navigating to /home (a resource-free route that
+;; commits :idle), a prefetch of :route/article — whose :article/by-slug resource
+;; is BLOCKING — warms the resource to :loading but:
+;;   - the LIVE route stays :route/home :idle (no slice write, no readiness
+;;     change, and :blocking? is inert — a real navigation would flip :loading);
+;;   - the warm plan trace :rf.resource/route-plan carries :plan-cause :prefetch
+;;     (no nav-token), distinguishing it from an activation plan;
+;;   - exactly ONE :rf.route/prefetched summary trace fires (:warmed 1), and NO
+;;     :rf.route/activated / nav-token-allocated pair.
+;;
+;; Per [012 §Route-plan prefetch](../../012-Routing.md#route-plan-prefetch--warm-mode-intent-preload)
+;; and [016 §Route-plan prefetch — warm-mode](../../016-Resources.md#route-plan-prefetch--warm-mode).
+
+{:fixture/id           :ep-0037/r3-prefetch-isolation
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :resources/ensure :core/event-handler}
+ :fixture/doc          "EP-0037 R3: [:rf.route/prefetch {:to :route/article}] warms the destination's BLOCKING resource ownerlessly to :loading WITHOUT navigating — the live route stays :route/home :idle (blocking is inert, no readiness change), the plan trace carries :plan-cause :prefetch (no nav-token), and one :rf.route/prefetched (:warmed 1) fires."
+
+ :fixture/registry
+ {:route
+  {:route/home    {:path "/"}
+   :route/article {:path      "/articles/:slug"
+                   :params    [:map [:slug :string]]
+                   :resources [{:resource :article/by-slug :blocking? true}]}}
+
+  :resource
+  {:article/by-slug {:scope :rf.scope/global :params-schema [:map] :url-template "/api/article"}}
+
+  ;; No-op the managed-HTTP fx so the warm ensure creates a :loading entry with
+  ;; no live fetch (no reply drains it — it stays :loading).
+  :fx {:rf.http/managed {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:fx {:rf.http/managed [[:noop]]}}
+
+ :fixture/dispatches
+ [[:rf.route/transitioned "/"]
+  [:rf.route/prefetch {:to :route/article :params {:slug "routing"}}]]
+
+ :fixture/expect
+ {;; ISOLATION: the live route is UNCHANGED by the prefetch — still home :idle.
+  ;; A prefetch writes no slice and never flips readiness (blocking is inert).
+  :final-runtime-db
+  {:rf.runtime/routing {:current {:route-id   :route/home
+                                  :transition :idle
+                                  :error      nil}}}
+
+  ;; The article's blocking resource was WARMED ownerlessly → :loading. (The
+  ;; route resource declares no :params fn, so the warmed identity's params are
+  ;; {} — the fixture proves the warm mechanism, not param threading.)
+  :sub-values
+  {[:rf/resource {:resource :article/by-slug :scope :rf.scope/global :params {}}]
+   {:status :loading :data nil :error nil :refresh-error nil
+    :loading? true :fetching? false :stale? false :has-data? false :previous? false}}
+
+  :trace-emissions
+  [;; The warm plan trace: :plan-cause :prefetch, one ensured, no nav-token.
+   {:operation :rf.resource/route-plan
+    :tags      {:route-id :route/article :plan-cause :prefetch :ensured 1}}
+   ;; The single summary trace — NOT an activation trace.
+   {:operation :rf.route/prefetched
+    :tags      {:route-id :route/article :warmed 1}}]}}

@@ -1,0 +1,45 @@
+;; Conformance fixture: ep-0037/r3-prefetch-bad-address
+;;
+;; EP-0037 R3 — resource-only intent prefetch (conformance row 7: address
+;; rejection). [:rf.route/prefetch {address}] accepts ONLY a closed named
+;; :rf/route-address. An invalid address rejects BEFORE planning with
+;; :rf.error/prefetch-bad-address — no ensures dispatched, current route
+;; readiness untouched. This is a DISTINCT channel from a resource planning
+;; failure (a well-formed address whose plan can't be built). Two rejections:
+;;   - a raw :url escape (never prefetched) → :reason :unknown-keys;
+;;   - a missing :to → :reason :missing-to.
+;; After both, the live route is still :route/home :idle (a bad prefetch changes
+;; nothing).
+;;
+;; Per [012 §Route-plan prefetch](../../012-Routing.md#route-plan-prefetch--warm-mode-intent-preload).
+
+{:fixture/id           :ep-0037/r3-prefetch-bad-address
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler}
+ :fixture/doc          "EP-0037 R3: [:rf.route/prefetch] rejects a non-:rf/route-address BEFORE planning with :rf.error/prefetch-bad-address (a raw :url → :unknown-keys; a missing :to → :missing-to), dispatches no ensures, and leaves the live route (:route/home :idle) untouched."
+
+ :fixture/registry
+ {:route
+  {:route/home {:path "/"}}}
+
+ :fixture/dispatches
+ [[:rf.route/transitioned "/"]
+  ;; a raw :url escape is NOT a RouteAddress — rejected as an unknown key.
+  [:rf.route/prefetch {:url "/articles/routing"}]
+  ;; a missing :to — an address must name a destination.
+  [:rf.route/prefetch {:params {:slug "routing"}}]]
+
+ :fixture/expect
+ {;; The live route is unchanged by the two rejected prefetches.
+  :final-runtime-db
+  {:rf.runtime/routing {:current {:route-id   :route/home
+                                  :transition :idle
+                                  :error      nil}}}
+
+  :trace-emissions
+  [{:operation :rf.error/prefetch-bad-address
+    :op-type   :error
+    :tags      {:where :event :reason :unknown-keys :keys [:url]}}
+   {:operation :rf.error/prefetch-bad-address
+    :op-type   :error
+    :tags      {:where :event :reason :missing-to :keys [:to]}}]}}

@@ -1,0 +1,60 @@
+;; Conformance fixture: ep-0037/r3-prefetch-reuse
+;;
+;; EP-0037 R3 — resource-only intent prefetch (conformance row 7: reuse-on-
+;; activation). A prefetch that is FOLLOWED by navigation must not re-fetch: the
+;; activation `ensure` for the same identity JOINS the warmed in-flight work and
+;; attaches its REAL owner. Prefetching :route/article warms :article/by-slug
+;; ownerlessly (:loading); navigating to /articles/routing then ensures the same
+;; identity with owner [:route :route/article <nav-token>] — which JOINS the
+;; warmed work (:rf.resource/owner-attached, :joined-in-flight? true) rather than
+;; starting a second fetch, and the (blocking) route commits :loading over the
+;; reused work.
+;;
+;; Per [016 §Route-plan prefetch — warm-mode](../../016-Resources.md#route-plan-prefetch--warm-mode).
+
+{:fixture/id           :ep-0037/r3-prefetch-reuse
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :resources/ensure :core/event-handler}
+ :fixture/doc          "EP-0037 R3: prefetch then navigate reuses the warmed work — the activation ensure for the same identity JOINS the ownerless in-flight prefetch work and attaches its real [:route …] owner (:rf.resource/owner-attached, :joined-in-flight? true), no second fetch; the blocking route commits :loading over the reused work."
+
+ :fixture/registry
+ {:route
+  {:route/article {:path      "/articles/:slug"
+                   :params    [:map [:slug :string]]
+                   :resources [{:resource :article/by-slug :blocking? true}]}}
+
+  :resource
+  {:article/by-slug {:scope :rf.scope/global :params-schema [:map] :url-template "/api/article"}}
+
+  :fx {:rf.http/managed {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:fx {:rf.http/managed [[:noop]]}}
+
+ :fixture/dispatches
+ [;; (1) warm the destination ownerlessly.
+  [:rf.route/prefetch {:to :route/article :params {:slug "routing"}}]
+  ;; (2) navigate there for real — the activation ensure JOINS the warmed work.
+  [:rf.route/transitioned "/articles/routing"]]
+
+ :fixture/expect
+ {;; The route is now ACTIVE and :loading — the blocking first load reused the
+  ;; warmed in-flight work (no double fetch).
+  :final-runtime-db
+  {:rf.runtime/routing {:current {:route-id   :route/article
+                                  :transition :loading
+                                  :error      nil}}}
+
+  :sub-values
+  {[:rf/resource {:resource :article/by-slug :scope :rf.scope/global :params {}}]
+   {:status :loading :data nil :error nil :refresh-error nil
+    :loading? true :fetching? false :stale? false :has-data? false :previous? false}}
+
+  :trace-emissions
+  [;; The prefetch warmed the identity ownerlessly.
+   {:operation :rf.route/prefetched :tags {:route-id :route/article :warmed 1}}
+   ;; The activation ensure JOINED the warmed in-flight work AND attached its
+   ;; real route owner — the proof of reuse-on-activation. (:joined-in-flight?
+   ;; true is the join proof; the owner tuple carries a dynamic nav-token.)
+   {:operation :rf.resource/owner-attached
+    :tags      {:joined-in-flight? true}}]}}
