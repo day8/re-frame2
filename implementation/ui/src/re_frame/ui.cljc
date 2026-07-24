@@ -784,12 +784,22 @@
   left-click is intercepted and the navigation dispatches to the frame that
   RENDERED the link, tagged `:source :router`.
 
+  `:prefetch :intent` warms the destination's resources on credible user intent
+  — pointer hover, focus or touch — by dispatching `[:rf.route/prefetch …]` for
+  this link's own address to the same frame the click targets. `:intent` is the
+  only accepted value: a passive render dispatches nothing, so there is no
+  render mode, viewport mode or hover-delay knob. The installed handlers COMPOSE
+  with a caller-supplied `:on-mouse-enter` / `:on-focus` / `:on-touch-start`
+  (yours runs first) rather than replacing it, and `:prefetch` is a routing
+  control key — it is stripped before DOM emission and never reaches the `<a>`.
+
   This is an ORDINARY compiled `defview` — it gets JSX emission, the generated
   prop comparator, JVM-tree parity, and dev identity for free; there is no
   route-link compiler intrinsic. The routing calculation (href encode, dispatch
-  payload, native-attr detection) and the click law live in the OPTIONAL routing
-  artefact behind the substrate-neutral `:routing/link-model` /
-  `:routing/activate-link!` late-bound seam, consumed here through core's
+  payload, native-attr detection), the click law and the prefetch law live in the
+  OPTIONAL routing artefact behind the substrate-neutral `:routing/link-model` /
+  `:routing/activate-link!` / `:routing/prefetch-payload` /
+  `:routing/prefetch-on-intent!` late-bound seam, consumed here through core's
   late-bind registry — so `re-frame.ui` never statically requires routing
   (`ui -> core late-bind <- routing`). Rendering a `ui/route-link` without
   `day8/re-frame2-routing` on the classpath fails loud with
@@ -803,22 +813,41 @@
         ;; `target` carries the route control keys AND the native-handling attrs
         ;; (`:target` / `:download`) the model needs; `link-model` reads only what
         ;; it needs and ignores the rest.
-        {:keys [href payload native?]} (rl/link-model (dissoc props :on-click :children)
-                                                      render-frame)
+        target      (dissoc props :on-click :children)
+        {:keys [href payload native?]} (rl/link-model target render-frame)
         ;; Everything the caller passed EXCEPT the framework-owned control keys
-        ;; is forwarded onto the anchor; the owned `:href` (+ CLJS `:on-click`)
-        ;; win the spread.
-        passthrough (dissoc props :to :params :query :fragment :on-click :children)]
-    ;; The activation closure is CLJS-only — the JVM/SSR shell renders a
-    ;; handler-free anchor (no DOM click to intercept). Reader conditionals give
-    ;; each emitter its own override map, so the raw host event never enters the
-    ;; server tree.
-    [:a (spread passthrough
-                #?(:cljs {:href     href
-                          :on-click (fn [e]
-                                      (rl/activate! e on-click render-frame
-                                                    payload native?))}
-                   :clj  {:href href}))
+        ;; is forwarded onto the anchor; the owned `:href` (+ CLJS `:on-click`
+        ;; and, on a prefetch link, the three intent handlers) win the spread —
+        ;; which is also how a caller's intent handler is COMPOSED rather than
+        ;; dropped: the override closure holds it and runs it first.
+        passthrough (dissoc props :to :params :query :fragment :prefetch :on-click :children)
+        ;; The handler closures are CLJS-only — the JVM/SSR shell renders a
+        ;; handler-free anchor (no DOM event to intercept). Reader conditionals
+        ;; give each emitter its own override map, so the raw host event never
+        ;; enters the server tree.
+        overrides   #?(:cljs
+                       ;; nil unless this link asked for `:prefetch :intent` —
+                       ;; routing decides what asking means, so the view never
+                       ;; reads `:prefetch` itself. Asked on CLJS only: the
+                       ;; payload exists to be dispatched from an intent handler,
+                       ;; and the JVM/SSR shell installs none.
+                       (let [prefetch (rl/prefetch-payload target)]
+                         (cond-> {:href     href
+                                  :on-click (fn [e]
+                                              (rl/activate! e on-click render-frame
+                                                            payload native?))}
+                           prefetch
+                           (assoc :on-mouse-enter
+                                  (fn [e] (rl/prefetch-on-intent!
+                                            e (:on-mouse-enter props) render-frame prefetch))
+                                  :on-focus
+                                  (fn [e] (rl/prefetch-on-intent!
+                                            e (:on-focus props) render-frame prefetch))
+                                  :on-touch-start
+                                  (fn [e] (rl/prefetch-on-intent!
+                                            e (:on-touch-start props) render-frame prefetch)))))
+                       :clj  {:href href})]
+    [:a (spread passthrough overrides)
      children]))
 
 ;; ---------------------------------------------------------------------------
