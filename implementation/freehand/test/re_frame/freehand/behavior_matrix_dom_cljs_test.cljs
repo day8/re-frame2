@@ -12,15 +12,17 @@
   ## The mode dimension for behaviors
 
   `v/defbehavior` is the ONE sanctioned imperative boundary, and the
-  compiled grammar REFUSES `[v/behavior …]` as a foreign component
-  boundary — a view that attaches a behavior is interpreted forever
-  (proven at macro-expansion time in `pilot-overlay-parity-cljs-test` and
-  `slots-grammar-parity-jvm-test`). So the behavior matrix's compiled cell
-  is a documented refusal, and its correctness cell is the INTERPRETED
-  contract in a real browser: commit-only connection, a command that
-  reaches its explicit target and runs host work, `:update` on movement
-  and not on a re-render, and a teardown that releases everything to the
-  exact integer zero measured against a behavior-free control.
+  compiled grammar now HAS a `[v/behavior …]` form (rf2-drpa3.116/.127/.153)
+  — a view that attaches a behavior can be promoted rather than interpreted
+  forever. So the behavior matrix's compiled cell is a PASS, not a refusal:
+  the compiled twin carries a manifest the interpreted view has none of, and
+  mounted it connects and claims its target exactly as its interpreted twin
+  does (full cross-mode lifecycle equality is
+  `behavior-compiled-parity-dom-cljs-test`). Both cells share one browser
+  contract: commit-only connection, a command that reaches its explicit
+  target and runs host work, `:update` on movement and not on a re-render,
+  and a teardown that releases everything to the exact integer zero measured
+  against a behavior-free control.
 
   Rides the browser lane through its `-dom-cljs-test` suffix; under node it
   has no DOM and says so."
@@ -199,20 +201,40 @@
                         (done)))))))))
 
 ;; ===========================================================================
-;; Row 5 — the compiled tier refuses the behavior boundary (the mode cell)
+;; Row 5 — the compiled tier ATTACHES the behavior boundary (the mode cell)
 ;; ===========================================================================
 
-(deftest behavior-matrix-the-compiled-tier-refuses-the-behavior-boundary
-  (testing "The behavior matrix's compiled dimension is a REFUSAL, not a
-            second mounted arm: `v/defbehavior` is the one sanctioned
-            imperative boundary and the compiled grammar classifies
-            `[v/behavior …]` a foreign component boundary it cannot lower,
-            so a view that attaches a behavior is interpreted forever. That
-            macro-expansion refusal is pinned on the JVM host by
-            `pilot-overlay-parity-cljs-test` and `slots-grammar-parity-jvm-test`.
-            The local anchor here: the behavior-bearing view is interpreted
-            — it carries NO manifest, the honest answer for a mode with no
-            analysis step — which is the same fact from the runtime side."
+(deftest behavior-matrix-the-compiled-tier-attaches-the-behavior-boundary
+  (testing "The behavior matrix's compiled dimension is now a PASS, not a
+            refusal (rf2-drpa3.116/.127/.153): `[v/behavior …]` has a compiled
+            form, so a view that attaches a behavior can be promoted rather
+            than interpreted forever. The compiled twin carries a MANIFEST —
+            the compiled analysis the interpreted view has none of — and mounted
+            in a real browser it connects and claims its target exactly as its
+            interpreted twin does (Row 1). Full cross-mode lifecycle equality —
+            connect, update-on-movement, command, teardown, entry for entry —
+            is `behavior-compiled-parity-dom-cljs-test`."
+    (is (some? (v/manifest bv/plain-compiled))
+        "the compiled behavior view carries a manifest — it really is analysed and lowered")
     (is (nil? (v/manifest bv/plain))
-        "the behavior-bearing view is interpreted: no compiled analysis, no manifest")
-    (is (some? bv/plain) "non-vacuous: the interpreted behavior view exists and is mountable")))
+        "and its interpreted twin has none, the honest answer for a mode with no analysis step")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the compiled-cell mount")
+      (async done
+        (setup!)
+        (let [[container root] (ms/create-root!)]
+          (-> (render! root [bv/plain-compiled {}])
+              (.then (fn [_]
+                       (is (= 1 (behaviors/connection-count))
+                           "the compiled behavior connected, exactly like its interpreted twin (Row 1)")
+                       (is (= #{:probe/one} (behaviors/target-ids))
+                           "claiming the semantic id its use site declared")
+                       (is (= [:connect] (bv/ops)) "and connected exactly once")
+                       (ms/destroy-root! container root)
+                       (is (= 0 (behaviors/connection-count))
+                           "and released on teardown to exact zero")
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "the compiled behavior mount rejected: " e))
+                        (ms/destroy-root! container root)
+                        (done)))))))))
