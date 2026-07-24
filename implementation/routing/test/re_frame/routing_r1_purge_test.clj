@@ -58,9 +58,11 @@
   (some? (registrar/lookup :event id)))
 
 (defn- error-listener-registered?
-  "True iff an always-on error-emit listener is registered under `id`."
+  "True iff an always-on error-emit listener is registered under `id`. The
+  registry has no public introspection surface, so this reads the `defonce`
+  `listeners` atom directly (var-deref → the atom, atom-deref → the id→fn map)."
   [id]
-  (contains? @#'re-frame.error-emit/listeners id))
+  (contains? @@#'re-frame.error-emit/listeners id))
 
 (defn- seed-retired-registrations!
   "Install exactly what a pre-R1 generation left in the `defonce` registries:
