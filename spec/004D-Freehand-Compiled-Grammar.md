@@ -101,8 +101,8 @@ compiled tier reuses them rather than restating them.
 
 ### The promotion law
 
-**Promotion is a one-line change to the declaration. It changes no call site,
-no test, and no structural output.**
+**Promotion reaches the declaration and stops there. No call site changes,
+ever.**
 
 Mounting is `[todo-row {…}]` before and after. A caller cannot tell which mode a
 view it mounts was declared in, and must not be able to: a compiled view mounts
@@ -112,12 +112,31 @@ and not transitive**. Demotion is the same change in reverse — deleting the
 marker is always available, and is the last rung of every rejection's recovery
 ladder.
 
-That the structural output is unchanged is a property of construction rather
-than of agreement. The two modes do not each own a canonical form and agree
-about it; they **share** one. The interpreted walk decides what a FORM denotes
-and hands the resulting values to the canonical builders; a compiled body
-resolves its structure at build time and hands its values to the same builders.
-Only the front end differs, so there is no second normalization to drift.
+**What promotion costs.** For a body already inside the grammar the marker is
+the whole change: one line, and the structural output and the view's own tests
+are untouched along with the callers. For a body that is not, the build refuses
+and names the recovery, and taking that recovery is a mechanical refactor of the
+declaration. Two refusals are ordinary rather than exotic — a handler that
+closes over a `for` binding needs the loop body extracted into a keyed child view
+with the binding arriving as a prop, and a `^{:key k}` metadata row needs
+respelling as the literal `:key` prop a compiled list requires. A plain sortable
+table meets both. The extraction adds view-boundary nodes the interpreted twin
+did not have, so the structural tree and any test written against it move with
+the declaration. Nothing above the declaration does.
+
+Promotion also decides **whether** some mistakes surface, not merely when. The
+compile-tier a11y diagnostics ([§Compile-tier warnings](#compile-tier-warnings))
+read a compiled body and have nothing to read in an interpreted one, so an
+`:on-click` on a bare `<th>` is reported the day the marker is added and is
+silent forever without it.
+
+That an unchanged body's structural output is unchanged is a property of
+construction rather than of agreement. The two modes do not each own a canonical
+form and agree about it; they **share** one. The interpreted walk decides what a
+FORM denotes and hands the resulting values to the canonical builders; a compiled
+body resolves its structure at build time and hands its values to the same
+builders. Only the front end differs, so there is no second normalization to
+drift.
 
 What promotion DOES change is the language the body is written in. Compilation
 is **explicit** (EP-0036 governing law 6): the compiler never silently declines
@@ -544,8 +563,8 @@ so the analyzer reports them then, with `:rf.ui.compile/undeclared-prop` and the
 source coordinates of the offending call. A props map delivered at an
 interpreted boundary is knowable at render, so the boundary reports it then,
 with `:rf.error/view-bad-props`. Static knowledge moves the moment a violation
-surfaces and never the set of props that are legal — which is what makes
-`{:compiled true}` a one-line change rather than a contract renegotiation.
+surfaces and never the set of props that are legal — which is what keeps
+`{:compiled true}` a change of lowering rather than a contract renegotiation.
 
 **Closed by default, open by declaration.** The alternative to closure is silent
 tolerance, so a view that really does forward arbitrary props says so once, in
@@ -1827,8 +1846,9 @@ rather than fabricating them (`tools/xray/spec/021` §3.4.1).
 
 ## The read-only checker
 
-`{:compiled true}` is a one-line change, which makes it a tempting thing to try
-and see. Trying and seeing is a poor way to learn a finite language. The build
+`{:compiled true}` looks like a one-line change, which makes it a tempting thing
+to try and see. Trying and seeing is a poor way to learn a finite language, and
+it is worst where the answer is a refusal that wants the body refactored. The build
 stops at the first form outside the grammar, so an author who reached that
 failure by editing has already changed the declaration in order to find out
 whether the change was available — and if the answer is no, the edit and its
