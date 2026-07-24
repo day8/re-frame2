@@ -43,6 +43,7 @@ printf '==> implementation rigorous browser/bundle gates\n'
   npm run test:browser-schemas-boundary-prod && \
   npm run test:browser-prod-elision && \
   npm run test:elision && \
+  npm run test:freehand-evidence-elision && \
   npm run test:bundle-isolation && \
   npm run test:reagent-slim:bundle-isolation && \
   npm run test:adapter-smokes && \

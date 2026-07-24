@@ -46,6 +46,7 @@ examples_compile=false
 cljs_prod=false
 bundle_isolation=false
 reagent_slim_bundle=false
+freehand_evidence_elision=false
 adapter_testbed_smokes=false
 ui_smoke=false
 tools_jvm=false
@@ -67,6 +68,7 @@ mark_all() {
   cljs_prod=true
   bundle_isolation=true
   reagent_slim_bundle=true
+  freehand_evidence_elision=true
   adapter_testbed_smokes=true
   ui_smoke=true
   tools_jvm=true
@@ -527,6 +529,45 @@ else
         bundle_isolation=true
         ui_smoke=true
         ;;
+      implementation/freehand/src/re_frame/freehand/evidence.cljc|implementation/freehand/src/re_frame/freehand/cell.cljc|implementation/freehand/test/re_frame/freehand/release_app.cljs)
+        # rf2-xwa4n — the F4g evidence-elision gate's Freehand PRODUCER
+        # surfaces. `npm run test:freehand-evidence-elision` (rf2-drpa3.166)
+        # builds `:freehand-release` and its goog.DEBUG=true control twin
+        # `:freehand-release-control` and proves the dev-gated occurrence-record
+        # seam — and the `re-frame.freehand.evidence` schema it reaches — is
+        # ABSENT from the release bundle and PRESENT in the control. It shipped
+        # as a local-only command: `rg test:freehand-evidence-elision .github`
+        # found no workflow invocation, so the next change to the schema, the
+        # seam, or the release entry could merge without running the proof.
+        #
+        # These three files are exactly what can invalidate it:
+        #   - evidence.cljc  — the doors carrying the two DEV_ONLY_SENTINELS; a
+        #     rename of either refusal string makes the probe vacuous (it would
+        #     go absent in the CONTROL too, which is what the positive control
+        #     catches — but only if the gate RUNS).
+        #   - cell.cljc      — `emit-commit-evidence!`, the sole dev gate. Move
+        #     it out from behind `interop/debug-enabled?` and the schema ships.
+        #   - release_app.cljs — the entry BOTH bundles compile, and the home of
+        #     the PROD_SURVIVING sentinel (the non-vacuity floor).
+        #
+        # Deliberately NOT the whole `implementation/freehand/**` tree: two
+        # `:advanced` builds on every PR of a large programme is cost the ruling
+        # (rf2-xwa4n) declined. The narrow list stays honest because the ALWAYS
+        # -armed jvm-freehand lane carries
+        # `the-evidence-schema-reaches-the-render-path-only-through-the-dev-gated-seam`
+        # (evidence_boundary_jvm_test.clj), which asserts `cell` is the SOLE
+        # Freehand namespace mentioning the schema. A fourth producer file
+        # cannot appear without reddening that walk, so it cannot slip past this
+        # list unnoticed. Widen both together if that law is ever relaxed.
+        #
+        # The three host arms below are replicated from the artefact-root case:
+        # a POSIX `case` takes the FIRST match, so this case SHADOWS
+        # `implementation/freehand/*` — it must widen, never narrow.
+        implementation_jvm=true
+        cljs_node_test=true
+        cljs_browser=true
+        freehand_evidence_elision=true
+        ;;
       implementation/freehand/*.md)
         # rf2-drpa3.70 — prose under the artefact root. The two host suites
         # still fire (a README documents contracts those suites assert, and
@@ -861,6 +902,23 @@ else
         reagent_slim_bundle=true
         tenant_switcher_smoke=true
         ;;
+      implementation/scripts/check-freehand-evidence-elision.cjs)
+        # rf2-xwa4n — self-protection, mirroring the launcher/checker cases
+        # above. This script IS the F4g evidence-elision gate: the sentinel sets,
+        # the non-vacuity floor and the two bundle reads all live in it. The
+        # generic `implementation/scripts/*` case below never arms
+        # freehand_evidence_elision, so without this arm a PR could edit the
+        # gate's own teeth — soften a sentinel, drop the positive control —
+        # while avoiding the job that runs it. The remaining static-script
+        # surfaces it shares with the generic case stay armed too; this case
+        # widens coverage, it does not narrow it.
+        cljs_node_test=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        reagent_slim_bundle=true
+        freehand_evidence_elision=true
+        ;;
       implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/*)
         # rf2-8jz9t + rf2-bxdk8 + rf2-cjp0i + rf2-k9ekz + rf2-t5slp —
         # adapter_testbed_smokes and story_xray_browser are NOT fired
@@ -909,6 +967,21 @@ else
         case "$file" in
           implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
             ui_gates=true ;;
+        esac
+        # rf2-xwa4n — the F4g evidence-elision gate is DEFINED by this trio:
+        # shadow-cljs.edn declares BOTH halves of the probe pair (`:freehand-
+        # release` and its `:closure-defines {goog.DEBUG true}` control twin
+        # `:freehand-release-control`) — drop the closure-define and the control
+        # silently stops being a control — and package.json carries the
+        # `test:freehand-evidence-elision` script that builds them and invokes
+        # the checker. The lockfile pins the shadow-cljs (hence Closure)
+        # version whose DCE the whole claim rests on. Scoped to the three
+        # build-config files exactly like the ui_gates arm above;
+        # implementation/scripts/* stays off (the one script that drives the
+        # gate has its own case above).
+        case "$file" in
+          implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
+            freehand_evidence_elision=true ;;
         esac
         ;;
       examples/*)
@@ -1206,6 +1279,7 @@ emit examples_compile "$examples_compile"
 emit cljs_prod "$cljs_prod"
 emit bundle_isolation "$bundle_isolation"
 emit reagent_slim_bundle "$reagent_slim_bundle"
+emit freehand_evidence_elision "$freehand_evidence_elision"
 emit adapter_testbed_smokes "$adapter_testbed_smokes"
 emit ui_smoke "$ui_smoke"
 emit tools_jvm "$tools_jvm"

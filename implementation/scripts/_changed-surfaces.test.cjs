@@ -2384,6 +2384,162 @@ test('the standalone freehand-artefact workflow is gone (one owner, not two) (rf
 });
 
 // ---------------------------------------------------------------------------
+// rf2-xwa4n — the F4g evidence-elision gate's CI arm.
+//
+// PR #6880 shipped a real control-build proof (`npm run
+// test:freehand-evidence-elision`: `:freehand-release` vs its goog.DEBUG=true
+// twin `:freehand-release-control`, the evidence doors ABSENT in one and
+// PRESENT in the other) and wired it into NOTHING. `rg
+// test:freehand-evidence-elision .github` returned no invocation, so the next
+// change to the schema, the dev gate, the release entry, the build config or
+// the checker could merge without the proof running.
+//
+// Same three-part shape as rf2-drpa3.58 above: the classifier must ARM the
+// producer surfaces, the job must be gated on that output and run the command,
+// and the aggregator must depend on it. Break any one and the proof is
+// decorative.
+// ---------------------------------------------------------------------------
+
+const FREEHAND_EVIDENCE_PRODUCERS = [
+  'implementation/freehand/src/re_frame/freehand/evidence.cljc',
+  'implementation/freehand/src/re_frame/freehand/cell.cljc',
+  'implementation/freehand/test/re_frame/freehand/release_app.cljs',
+  'implementation/scripts/check-freehand-evidence-elision.cjs',
+  'implementation/shadow-cljs.edn',
+  'implementation/package.json',
+  'implementation/package-lock.json',
+];
+
+test('the F4g evidence probe producer surfaces arm freehand_evidence_elision (rf2-xwa4n)', () => {
+  for (const file of FREEHAND_EVIDENCE_PRODUCERS) {
+    assert.equal(
+      classify(file).freehand_evidence_elision,
+      'true',
+      `${file} can invalidate the F4g control-build proof — it must schedule the gate`,
+    );
+  }
+});
+
+test('the armed producer surfaces all EXIST (rf2-xwa4n)', () => {
+  // The classifier never stats a path, so every row above would stay green if a
+  // producer were renamed — routing a required lane at nothing. These paths ARE
+  // the proof's inputs; pin their existence with the routing.
+  for (const file of FREEHAND_EVIDENCE_PRODUCERS) {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, file)),
+      `${file} must exist — it is a producer surface this routing exists to watch`,
+    );
+  }
+});
+
+test('the Freehand host arms survive the shadowing producer case (rf2-xwa4n)', () => {
+  // A POSIX `case` takes the FIRST match, so the producer case shadows
+  // `implementation/freehand/*`. It must WIDEN, never narrow: the three host
+  // arms rf2-drpa3.58/.70 put on the artefact root have to survive.
+  for (const file of [
+    'implementation/freehand/src/re_frame/freehand/evidence.cljc',
+    'implementation/freehand/src/re_frame/freehand/cell.cljc',
+    'implementation/freehand/test/re_frame/freehand/release_app.cljs',
+  ]) {
+    const result = classify(file);
+    for (const key of ['implementation_jvm', 'cljs_node_test', 'cljs_browser']) {
+      assert.equal(
+        result[key],
+        'true',
+        `${file} must keep arming ${key} — the producer case shadows implementation/freehand/*`,
+      );
+    }
+  }
+});
+
+test('the checker case keeps the generic implementation/scripts fan-out (rf2-xwa4n)', () => {
+  // Same shadowing argument for the other half: the checker's own case sits
+  // above `implementation/scripts/*` and must not cost it the generic arms.
+  const result = classify('implementation/scripts/check-freehand-evidence-elision.cjs');
+  for (const key of [
+    'cljs_node_test',
+    'cljs_browser',
+    'cljs_prod',
+    'bundle_isolation',
+    'reagent_slim_bundle',
+  ]) {
+    assert.equal(result[key], 'true', `the checker must keep arming ${key}`);
+  }
+});
+
+test('freehand_evidence_elision stays OFF unrelated surfaces (rf2-xwa4n)', () => {
+  // The ruling was explicitly NOT an every-PR job: two `:advanced` builds are
+  // only worth spending on the surfaces that can break the proof. The rest of
+  // the Freehand tree is deliberately excluded — the always-armed jvm-freehand
+  // walk (asserted below) is what keeps that exclusion honest.
+  for (const file of [
+    'implementation/freehand/src/re_frame/freehand/compiler/analyze.cljc',
+    'implementation/freehand/README.md',
+    'implementation/freehand/deps.edn',
+    'spec/conformance/freehand/fixtures/fh-call-001.edn',
+    'implementation/core/src/re_frame/core.cljc',
+    'implementation/scripts/check-elision.cjs',
+    'spec/API.md',
+  ]) {
+    assert.equal(
+      classify(file).freehand_evidence_elision,
+      'false',
+      `${file} must not pay for two :advanced builds`,
+    );
+  }
+});
+
+test('the SOLE-requirer law that keeps the narrow arm honest still exists (rf2-xwa4n)', () => {
+  // The classifier arms three Freehand files, not the tree. That is only safe
+  // while a FOURTH producer cannot appear silently — and what forbids one is
+  // `the-evidence-schema-reaches-the-render-path-only-through-the-dev-gated-seam`
+  // in the always-armed jvm-freehand lane, which asserts `cell` is the sole
+  // Freehand namespace mentioning the schema. Pin the premise with the routing:
+  // if that law is ever relaxed, this reds and the classifier arm must widen.
+  const law = fs.readFileSync(
+    path.join(
+      REPO_ROOT,
+      'implementation/freehand/test/re_frame/freehand/evidence_boundary_jvm_test.clj',
+    ),
+    'utf8',
+  );
+  assert.match(
+    law,
+    /'#\{re-frame\.freehand\.cell\}\s+seams/,
+    'the boundary test must still pin cell as the SOLE namespace reaching the evidence schema — '
+      + 'without it, a new producer file could dodge the narrowly-armed elision gate',
+  );
+});
+
+test('cljs-freehand-evidence-elision is gated on its output and runs the probe (rf2-xwa4n)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, 'cljs-freehand-evidence-elision');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.freehand_evidence_elision == 'true'/,
+  );
+  assert.match(block, /run: npm run test:freehand-evidence-elision/);
+  assert.match(block, /working-directory: implementation/);
+  // The detect job must publish the output the `if:` reads, or the gate is
+  // permanently false and the job never runs at all.
+  assert.match(
+    jobBlock(workflow, 'detect_changed_surfaces'),
+    /freehand_evidence_elision: \$\{\{ steps\.detect\.outputs\.freehand_evidence_elision \}\}/,
+    'detect_changed_surfaces must expose freehand_evidence_elision as a job output',
+  );
+});
+
+test('all-required-passed aggregator needs cljs-freehand-evidence-elision (rf2-xwa4n)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
+  assert.match(
+    block,
+    /- cljs-freehand-evidence-elision\r?\n/,
+    'aggregator must list cljs-freehand-evidence-elision in needs: — otherwise the lane is advisory',
+  );
+});
+
+// ---------------------------------------------------------------------------
 // rf2-3mh2f — the .beads PR-boundary guard's CI arm.
 //
 // The classifier, the pre-commit hook and scripts/check-beads-pr-boundary.sh

@@ -71,6 +71,7 @@ jobs:
       cljs_prod: ${{ steps.detect.outputs.cljs_prod }}
       bundle_isolation: ${{ steps.detect.outputs.bundle_isolation }}
       reagent_slim_bundle: ${{ steps.detect.outputs.reagent_slim_bundle }}
+      freehand_evidence_elision: ${{ steps.detect.outputs.freehand_evidence_elision }}
       adapter_testbed_smokes: ${{ steps.detect.outputs.adapter_testbed_smokes }}
       ui_smoke: ${{ steps.detect.outputs.ui_smoke }}
       tools_jvm: ${{ steps.detect.outputs.tools_jvm }}
@@ -2488,6 +2489,71 @@ jobs:
       - name: Verify production elision (advanced compile + grep)
         run: npm run test:elision
 
+  cljs-freehand-evidence-elision:
+    name: Freehand evidence production isolation (F4g control-build probe, rf2-drpa3.166)
+    # rf2-xwa4n — PR #6880 shipped the probe as `npm run
+    # test:freehand-evidence-elision` and nothing invoked it. A gate that never
+    # runs is no gate: the next change to the evidence schema, the dev-gated
+    # emission seam, the release entry, the build config or the checker could
+    # merge without the proof ever executing.
+    #
+    # The gate builds TWO `:advanced` bundles of the SAME entry
+    # (re-frame.freehand.release-app) differing only in `goog.DEBUG`, then greps
+    # both:
+    #   - release (goog.DEBUG=false): the two evidence-door sentinels ABSENT
+    #     (the dev gate folded to false and Closure DCE'd the branch that
+    #     reaches `re-frame.freehand.evidence`), the app survivor PRESENT.
+    #   - control (goog.DEBUG=true):  the SAME two sentinels PRESENT — the
+    #     positive control, so a probe that stopped rooting the seam fails here
+    #     instead of passing vacuously.
+    #
+    # No browser and no Clojure CLI: two shadow-cljs releases plus a string
+    # inspection over the emitted bytes, so the JDK/Node/Maven trio is enough
+    # (same shape as cljs-ui-facade-isolation).
+    #
+    # Surface-gated rather than unconditional: two `:advanced` builds are not
+    # worth spending on every PR, and the classifier arms exactly the surfaces
+    # that can invalidate the proof — the evidence schema, the seam in cell,
+    # the release entry, the build-config trio and the checker itself.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.freehand_evidence_elision == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      - name: F4g evidence elision probe (release + goog.DEBUG=true control)
+        run: npm run test:freehand-evidence-elision
+
   cljs-bundle-isolation:
     name: CLJS bundle isolation (counter, rf2-51x5)
     needs: detect_changed_surfaces
@@ -4172,6 +4238,9 @@ jobs:
       - cljs-browser-schemas-boundary-prod
       - cljs-browser-prod-elision
       - cljs-elision
+      # rf2-xwa4n — required, so the F4g production-isolation proof cannot be
+      # invalidated by a merge that never ran it.
+      - cljs-freehand-evidence-elision
       - cljs-bundle-isolation
       - adapter-testbed-smokes
       - ui-smoke
