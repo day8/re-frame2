@@ -42,7 +42,15 @@
       (js/Promise.reject e))))
 
 (defn- check-row!
-  [container {:keys [note selector selector-all tag text attrs] n :count}]
+  "Assert one `:dom` row against the mounted document.
+
+  `:attrs` is read with `getAttribute`; `:dataset` is read off
+  `element.dataset`, which is a DIFFERENT observable — the platform's own
+  projection of a `data-*` attribute NAME into a camelCase key. An attribute
+  can be present and its dataset entry absent (that is exactly what a
+  mixed-case `data-*` does), so a row that means to pin the lossless
+  round-trip has to read both."
+  [container {:keys [note selector selector-all tag text attrs dataset] n :count}]
   (if selector-all
     (is (= n (.-length (.querySelectorAll container selector-all))) note)
     (let [el (.querySelector container selector)]
@@ -52,7 +60,10 @@
         (when text (is (= text (.-textContent el)) note))
         (doseq [[attr-name expected] attrs]
           (is (= expected (.getAttribute el attr-name))
-              (str note " — " attr-name)))))))
+              (str note " — " attr-name)))
+        (doseq [[key expected] dataset]
+          (is (= expected (gobj/get (.-dataset el) key))
+              (str note " — element.dataset." key)))))))
 
 (deftest fh-struct-007-the-react-emitter-mounts-real-dom
   (testing "Per FH-STRUCT-007: a declared view mounted through
@@ -158,8 +169,15 @@
             The silence row proves React had nothing to complain about,
             and the control mount proves that silence is a fact about the
             props rather than about the build: the same browser, handed
-            the non-canonical spelling directly, does complain."
+            the non-canonical spelling directly, does complain.
+
+            One DOM row also reads `element.dataset`: the REPAIR the
+            mixed-case `data-*` refusal teaches, mounted through Freehand
+            and read back, so the diagnostic's promise is a fact about a
+            real element rather than a sentence (rf2-hl7hr)."
     (is (seq (:dom struct-009)) "the fixture's DOM table loaded")
+    (is (some :dataset (:dom struct-009))
+        "and it pins a dataset read-back — a row `check-row!` would otherwise skip silently")
     (is (true? (:react-console-silent struct-009)))
     (if-not (browser?)
       (is true "a real React mount needs a DOM host — the browser job runs the assertions")
