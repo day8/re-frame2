@@ -386,6 +386,19 @@
   [line]
   (into {} (keep (fn [f] (when-let [p (field-problem line f)] [f p]))) text-fields))
 
+(defn- current-request?
+  "Does `token` name the normalisation request line `id` still has
+  outstanding?
+
+  A settled request holds NO token, and `nil` is not a request identity —
+  so a reply that carries no token is never current, whatever the line's
+  state. Both terminal outcomes ask this one question, which is what makes
+  them genuinely mutually exclusive: whichever lands first retires the
+  token, and every later or duplicate reply for that request fails here."
+  [db id token]
+  (and (some? token)
+       (= token (get-in db [:invoice id :normalise-token]))))
+
 (defn register-app!
   "The application's own registrations."
   []
@@ -490,7 +503,7 @@
   ;; refusal.
   (rf/reg-event :acme.invoice/reference-normalised
     (fn [{:keys [db]} [_ id token normalised]]
-      (if (= token (get-in db [:invoice id :normalise-token]))
+      (if (current-request? db id token)
         {:db (-> db
                  (assoc-in [:invoice id :normalising?] false)
                  (assoc-in [:invoice id :normalise-token] nil)
@@ -500,15 +513,17 @@
                  (update ::normalised (fnil conj []) normalised))}
         {})))
 
-  ;; THE REJECTION, and the other terminal outcome. The caller refuses the
-  ;; committed draft and stands by the value it already had — advancing the
+  ;; The two rejections are two EVENTS, because they answer two different
+  ;; questions and only one of them can be late.
+  ;;
+  ;; A DIRECT rejection is the caller deciding, right now, about the draft in
+  ;; front of it: it stands by the value it already had, and advancing the
   ;; revision is what says "this is a NEW baseline decision" in the one case
-  ;; value-equality cannot see. It also retires any outstanding token, so a
-  ;; success still in flight for the refused request cannot land afterwards
-  ;; and overwrite the refusal. With no request outstanding (the direct
-  ;; same-value rejection R-A3 exercises) the token is already nil and this
-  ;; is a no-op.
-  (rf/reg-event :acme.invoice/reference-refused
+  ;; value-equality cannot see (R-A3). There is no request to be current with,
+  ;; so there is no token to carry — and it retires any outstanding one,
+  ;; because a decision the caller has just taken supersedes a reply still in
+  ;; flight.
+  (rf/reg-event :acme.invoice/reference-rejected
     (fn [{:keys [db]} [_ id reason]]
       {:db (-> db
                (assoc-in [:invoice id :normalising?] false)
@@ -516,6 +531,27 @@
                (assoc-in [:invoice id :reference-error] reason)
                (update-in [:invoice id :reference-revision] inc)
                (update ::refused (fnil inc 0)))}))
+
+  ;; An ASYNCHRONOUS refusal is the OTHER terminal outcome of a submitted
+  ;; request, and it is symmetric with the success in every respect that
+  ;; matters — including the one that only shows up late. It names the request
+  ;; it answers, applies only while that token is still current, and retires
+  ;; the token as it lands. Whichever terminal outcome arrives first therefore
+  ;; settles the request, and every later or duplicate reply for it — refusal
+  ;; after success, refusal after supersession, refusal after refusal — finds
+  ;; no matching token and is exactly inert. A refusal that carried no token
+  ;; could not tell any of those apart from a first, current reply: it would
+  ;; reverse a settled success and re-count itself on every duplicate.
+  (rf/reg-event :acme.invoice/reference-refused
+    (fn [{:keys [db]} [_ id token reason]]
+      (if (current-request? db id token)
+        {:db (-> db
+                 (assoc-in [:invoice id :normalising?] false)
+                 (assoc-in [:invoice id :normalise-token] nil)
+                 (assoc-in [:invoice id :reference-error] reason)
+                 (update-in [:invoice id :reference-revision] inc)
+                 (update ::refused (fnil inc 0)))}
+        {})))
 
   (rf/reg-event :acme.invoice/theme-changed
     (fn [{:keys [db]} [_ theme]]

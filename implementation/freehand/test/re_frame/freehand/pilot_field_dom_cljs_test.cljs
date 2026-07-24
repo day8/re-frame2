@@ -388,7 +388,7 @@
               (is (= "REF-X1" (draft)) "and it is controller state, not host state")
 
               (let [reference-before (:reference (line))]
-                (-> (send! [:acme.invoice/reference-refused
+                (-> (send! [:acme.invoice/reference-rejected
                             line-id "That reference is not on file."])
                     (.then
                       (fn [_]
@@ -415,7 +415,7 @@
           (fn [container]
             (let [node (control container "reference")]
               (insert-at! node 4 "X")
-              (-> (send! [:acme.invoice/reference-refused line-id nil])
+              (-> (send! [:acme.invoice/reference-rejected line-id nil])
                   (.then
                     (fn [_]
                       (insert-at! node 0 "A")

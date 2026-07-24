@@ -354,7 +354,7 @@
           (is (= draft (:draft (record address))) "and is ordinary frame data")
 
           (let [before (get-in (app-db) [:invoice 1 :reference])]
-            (send! [:acme.invoice/reference-refused 1 "That reference is not on file."])
+            (send! [:acme.invoice/reference-rejected 1 "That reference is not on file."])
             (is (= before (get-in (app-db) [:invoice 1 :reference]))
                 "non-vacuous: the caller's VALUE did not move at all")
             (is (= "REF-1" (shown-buffered (render! (line-form mode 1)) "reference"))
@@ -609,7 +609,7 @@
           (is (nil? (record [:invoice 2 :reference])))
 
           (testing "rejecting line 1's draft leaves line 2 untouched"
-            (send! [:acme.invoice/reference-refused 1 "That reference is not on file."])
+            (send! [:acme.invoice/reference-rejected 1 "That reference is not on file."])
             (is (= "REF-1" (:value (t/attrs (control-of (buffered-node (first (roots)) "reference"))))))
             (is (= "REF-2" (:value (t/attrs (control-of (buffered-node (second (roots)) "reference"))))))))))))
 
@@ -781,7 +781,7 @@
                   for it cannot land afterwards and overwrite the refusal"
           (seed-line! 1)
           (send! [:acme.invoice/reference-submitted 1 "ref-x" :req-1])
-          (send! [:acme.invoice/reference-refused 1 "That reference is not on file."])
+          (send! [:acme.invoice/reference-refused 1 :req-1 "That reference is not on file."])
           (send! [:acme.invoice/reference-normalised 1 :req-1 "REF-LATE"])
           (is (= "REF-1" (get-in (app-db) [:invoice 1 :reference]))
               "the late success did not move the refused baseline")
@@ -791,13 +791,56 @@
                  (get-in (app-db) [:invoice 1 :reference-error]))
               "the refusal's message still stands"))
 
-        (testing "a current success clears a prior refusal's error as it
+        (testing "and the mirror order: a SUCCESS retires the request, so a
+                  refusal still in flight for it cannot land afterwards and
+                  reverse the settled success"
+          (seed-line! 1)
+          (send! [:acme.invoice/reference-submitted 1 "ref-w" :req-4])
+          (send! [:acme.invoice/reference-normalised 1 :req-4 "REF-W"])
+          (let [settled (app-db)]
+            (send! [:acme.invoice/reference-refused 1 :req-4 "Too late."])
+            (is (= settled (app-db))
+                "the late refusal moved no state at all")
+            (is (= "REF-W" (get-in (app-db) [:invoice 1 :reference]))
+                "non-vacuous: the success's value is the one still standing")
+            (is (nil? (get-in (app-db) [:invoice 1 :reference-error]))
+                "and it wrote no error over the settled success")
+            (is (nil? (::pilot/refused (app-db)))
+                "nor counted itself in the domain log")))
+
+        (testing "a duplicate refusal for an already-refused request is
+                  inert — applying the refusal twice equals applying it once"
+          (seed-line! 1)
+          (send! [:acme.invoice/reference-submitted 1 "ref-v" :req-5])
+          (send! [:acme.invoice/reference-refused 1 :req-5 "That reference is not on file."])
+          (let [after-first (app-db)]
+            (send! [:acme.invoice/reference-refused 1 :req-5 "That reference is not on file."])
+            (is (= after-first (app-db))
+                "the duplicate refusal moved no state at all")
+            (is (= 1 (::pilot/refused (app-db)))
+                "non-vacuous: the refusal was counted exactly once")
+            (is (= 1 (get-in (app-db) [:invoice 1 :reference-revision]))
+                "and advanced the revision exactly once")))
+
+        (testing "a refusal for a request the caller has already superseded
+                  lands nowhere — the same rule the success obeys"
+          (seed-line! 1)
+          (send! [:acme.invoice/reference-submitted 1 "ref-u" :req-6])
+          (send! [:acme.invoice/reference-submitted 1 "ref-u2" :req-7])
+          (let [before (app-db)]
+            (send! [:acme.invoice/reference-refused 1 :req-6 "Stale."])
+            (is (= before (app-db))
+                "the superseded refusal moved no state at all")
+            (is (true? (rf/subscribe-once [:acme.invoice/normalising? 1] {:frame fid}))
+                "non-vacuous: the CURRENT request is still in flight")))
+
+        (testing "a current success clears a prior rejection's error as it
                   stores the normalised value"
           (seed-line! 1)
-          (send! [:acme.invoice/reference-refused 1 "That reference is not on file."])
+          (send! [:acme.invoice/reference-rejected 1 "That reference is not on file."])
           (is (= "That reference is not on file."
                  (get-in (app-db) [:invoice 1 :reference-error]))
-              "the refusal set an error")
+              "the rejection set an error")
           (send! [:acme.invoice/reference-submitted 1 "ref-y" :req-2])
           (send! [:acme.invoice/reference-normalised 1 :req-2 "REF-Y"])
           (is (= "REF-Y" (get-in (app-db) [:invoice 1 :reference]))
@@ -816,6 +859,44 @@
                 "the duplicate settle moved no state at all")
             (is (= ["REF-Z"] (::pilot/normalised (app-db)))
                 "non-vacuous: the success was recorded exactly once")))))))
+
+(deftest r-a3-a-direct-rejection-is-not-a-late-reply
+  (testing "The direct baseline rejection and the asynchronous refusal are
+            two events because they answer two questions. A direct rejection
+            is the caller deciding NOW about the draft in front of it: there
+            is no request to be current with, so it always lands, restores
+            the baseline and advances the revision — R-A3's whole point. The
+            asynchronous refusal names the request it answers and lands only
+            while that request is outstanding. One event shape could not be
+            both without letting a late reply masquerade as a fresh decision."
+    (each-mode
+      (fn [_mode]
+        (seed-line! 1)
+        (send! [:acme.invoice/reference-rejected 1 "Not on file."])
+        (is (= 1 (::pilot/refused (app-db)))
+            "the direct rejection landed with no request outstanding")
+        (is (= "Not on file." (get-in (app-db) [:invoice 1 :reference-error])))
+
+        (testing "and it is idempotent in no sense at all — every direct
+                  rejection is a NEW baseline decision"
+          (send! [:acme.invoice/reference-rejected 1 "Not on file."])
+          (is (= 2 (::pilot/refused (app-db)))
+              "a second direct rejection is a second decision")
+          (is (= 2 (get-in (app-db) [:invoice 1 :reference-revision]))
+              "which the revision reports, exactly as R-A3 requires"))
+
+        (testing "while a direct rejection also supersedes a request in
+                  flight — a reply for it can no longer land"
+          (seed-line! 1)
+          (send! [:acme.invoice/reference-submitted 1 "ref-q" :req-9])
+          (send! [:acme.invoice/reference-rejected 1 "Not on file."])
+          (let [decided (app-db)]
+            (send! [:acme.invoice/reference-normalised 1 :req-9 "REF-Q"])
+            (is (= decided (app-db))
+                "the superseded success moved no state at all")
+            (send! [:acme.invoice/reference-refused 1 :req-9 "Also too late."])
+            (is (= decided (app-db))
+                "and neither did the superseded refusal")))))))
 
 ;; ===========================================================================
 ;; R-A10 — busy from the in-flight write's own state
@@ -1073,7 +1154,7 @@
              :on-input "REF-PARITY")
       (is (= (as-mode-ids (render! (line-form :interpreted 1)))
              (render! (line-form :compiled 1))))
-      (send! [:acme.invoice/reference-refused 1 "That reference is not on file."])
+      (send! [:acme.invoice/reference-rejected 1 "That reference is not on file."])
       (is (= (as-mode-ids (render! (line-form :interpreted 1)))
              (render! (line-form :compiled 1)))))))
 
@@ -1144,7 +1225,7 @@
             roster."
     (seed-line! 1 {:description ""})
     (send! [:acme.invoice/submit-attempted 1])
-    (send! [:acme.invoice/reference-refused 1 "That reference is not on file."])
+    (send! [:acme.invoice/reference-rejected 1 "That reference is not on file."])
     (each-mode
       (fn [mode]
         (let [tree (render! (line-form mode 1))]
