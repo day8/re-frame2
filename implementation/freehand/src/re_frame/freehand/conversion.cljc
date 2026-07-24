@@ -463,6 +463,57 @@
   (str "The refusal reads the prop name the emitters will write, so a namespaced "
        "keyword, a string or a symbol spelling the same name is refused with it."))
 
+;; ---------------------------------------------------------------------------
+;; The `data-*` casing refusal (Spec 004B §Attribute names, ruled option (c))
+;; ---------------------------------------------------------------------------
+
+(defn- mixed-case-data-name?
+  "Is `n` (an author attribute NAME, namespace already dropped) a lowercase
+  `data-` prefix whose remainder carries an ASCII uppercase letter? A pure
+  string predicate — the JVM structural path enforces it with no React
+  present."
+  [n]
+  (and (str/starts-with? n "data-")
+       (boolean (re-find #"[A-Z]" (subs n 5)))))
+
+(defn- data-casing-repair
+  "The lossless hyphenated spelling of a mixed-case `data-` name, paired with
+  the `.dataset` key the platform reads THAT back as: `\"data-fooBar\"` ->
+  `[\"data-foo-bar\" \"fooBar\"]`. The one-keystroke fix a migration error
+  names."
+  [n]
+  (let [hyphenated (str/replace (subs n 5) #"[A-Z]" (fn [c] (str "-" (str/lower-case c))))]
+    [(str "data-" hyphenated) (camelize hyphenated)]))
+
+(defn data-attr-casing-refusal
+  "Why a `data-*` attribute NAME carrying an ASCII uppercase letter is refused,
+  as the sentence the diagnostic states — or nil for a lowercase / correctly
+  hyphenated `data-*` name.
+
+  Spec 004B §Attribute names, ruled option (c): a mixed-case `data-*` cannot
+  mean what it says on ANY host surface. HTML `setAttribute` ASCII-lowercases
+  the name, so the casing is gone; `.dataset` excludes any `data-*` name that
+  carries an uppercase letter, so the word boundary the author meant is dropped
+  too; and SSR parsing lowercases in every namespace, so a foreign
+  (SVG/MathML) element can even disagree between server and client. The name is
+  REFUSED rather than silently lowercased — that would be a different name
+  whose `.dataset` key is the unsegmented `foobar` — with the diagnostic
+  teaching the platform's own lossless mapping. Shared verbatim by the
+  interpreted walks (through [[attr-key-refusal]]) and the compiled analyzer,
+  so both refuse one authored name with one sentence."
+  [n]
+  (when (mixed-case-data-name? n)
+    (let [[repair ds] (data-casing-repair n)]
+      (str "A data-* attribute name with an uppercase letter cannot round-trip "
+           "through the DOM: HTML setAttribute lowercases it — :" n " reaches the "
+           "DOM as " (str/lower-case n) ", so the casing is lost — and .dataset "
+           "omits any data-* name carrying an uppercase letter, so the word "
+           "boundary is lost too; a foreign SVG/MathML element can even disagree "
+           "between server and client. Write :" repair " and read it back as "
+           "element.dataset." ds " — the platform's own lossless mapping. The name "
+           "is read as it reaches the DOM, so :x/" n ", \"" n "\" and the symbol are "
+           "refused alike."))))
+
 (defn- attr-key-refusal* [k]
   (let [slot (rules/caller-key-slot k)]
     (cond
@@ -481,10 +532,16 @@
            "declaration. Refs land with the host-lifecycle slice. " by-emitted-name)
 
       :else
-      (if-some [replacement (rules/rejected-slot-replacement slot)]
-        (str "It is not a prop — one spelling per name, ambiguities removed. Use "
-             replacement ". " by-emitted-name)
-        ::no-refusal))))
+      ;; `slot` IS the emitted prop name for a data-* key (react-prop-name
+      ;; passes data-* through verbatim), so reading the casing refusal off it
+      ;; is the line-501 law — one verdict for :data-fooBar, :x/data-fooBar,
+      ;; "data-fooBar" and the symbol — and it is nil-safe: a non-nameable key
+      ;; has a nil slot and no casing refusal here (rf2-hl7hr).
+      (or (when (string? slot) (data-attr-casing-refusal slot))
+          (if-some [replacement (rules/rejected-slot-replacement slot)]
+            (str "It is not a prop — one spelling per name, ambiguities removed. Use "
+                 replacement ". " by-emitted-name)
+            ::no-refusal)))))
 
 (def ^:private refusal-cache (atom {}))
 

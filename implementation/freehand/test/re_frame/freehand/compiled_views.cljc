@@ -69,7 +69,10 @@
 (v/defview props-page
   "The composite the React prop-grammar assertion mounts: HTML author
   spellings that React canonicalises, an SVG attribute directly and
-  through a boundary, and a `data-*` name whose casing must survive."
+  through a boundary, and a lowercase `data-*` name that reaches the DOM
+  verbatim (a mixed-case `data-*` is refused before it can mount — Spec
+  004B §Attribute names, option c — so the page carries only the lowercase
+  spelling)."
   {:compiled true}
   [_]
   [:section#props {:tab-index 3 :data-priority "high"}

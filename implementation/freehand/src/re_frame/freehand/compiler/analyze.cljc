@@ -1963,11 +1963,18 @@
                  {:prop k})
 
       :else
-      (when-let [replacement (rules/rejected-slot-replacement slot)]
-        (env/fail! e :rf.ui.compile/rejected-prop-spelling
-                   (str k " is not a prop — one spelling per name, ambiguities "
-                        "removed. Use " replacement)
-                   {:prop k})))))
+      ;; A mixed-case data-* name is refused at COMPILE time in exactly the words
+      ;; the interpreted walk uses at render — one rule, one sentence, both modes
+      ;; (Spec 004B §Attribute names, ruled option (c); rf2-hl7hr). `slot` is the
+      ;; emitted prop name (react-prop-name passes data-* through), so the verdict
+      ;; is the line-501 one — :data-fooBar, :x/data-fooBar, "data-fooBar", symbol.
+      (if-some [casing (and (string? slot) (conv/data-attr-casing-refusal slot))]
+        (env/fail! e :rf.ui.compile/rejected-prop-spelling casing {:prop k})
+        (when-let [replacement (rules/rejected-slot-replacement slot)]
+          (env/fail! e :rf.ui.compile/rejected-prop-spelling
+                     (str k " is not a prop — one spelling per name, ambiguities "
+                          "removed. Use " replacement)
+                     {:prop k}))))))
 
 (defn- analyze-ref [e form context]
   (when (:in-render-fn? e)
