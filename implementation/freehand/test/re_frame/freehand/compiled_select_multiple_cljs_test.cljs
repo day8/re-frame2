@@ -141,3 +141,55 @@
                      [:attrs :value])
              (react-value [:select (v/spread-safe {:value nil} {:multiple true})]))
           "the cross-mode claim: structural and interpreted React agree on the shape"))))
+
+;; ---------------------------------------------------------------------------
+;; Owned wins over the caller — rf2-sf9n5 #6847 audit
+;; ---------------------------------------------------------------------------
+;;
+;; A `v/spread-safe` caller folds UNDER the owned props, so an owned `:multiple`
+;; declaration decides the whole-element verdict even when it is FALSE — the
+;; caller is consulted only when the owned props are silent on the slot. PR
+;; #6847 brought the caller into the verdict but ORed it with the owned source,
+;; so an owned `:multiple false` beside a caller `:multiple true` shaped the
+;; owned nil `value` as the empty COLLECTION though the element's final
+;; `multiple` (owned wins) was false — a value React reports as the wrong shape,
+;; and a shape the interpreted-vs-compiled agreement was supposed to forbid.
+
+(deftest an-owned-multiple-wins-over-the-safe-spread-caller
+  (testing "The verdict reads the EFFECTIVE multiple source after safe-spread
+            precedence: an owned declaration wins even when false, and the
+            caller decides only when the owned props do not declare the slot.
+            Proved structurally (tree/render) and in interpreted React, exact
+            and normalized-alias spellings, both directions of the conflict."
+    (letfn [(struct-value [form k] (get-in (tree/render form) [:attrs k]))
+            (react-value  [form] (as-data (gobj/get (.-props (fr/element form)) "value")))]
+      ;; owned false wins over caller true — the exact #6847 reproduction
+      (is (= "" (struct-value [:select (v/spread-safe {:value nil :multiple false}
+                                                      {:multiple true})]
+                              :value))
+          "owned :multiple false wins over caller true -> empty string, structural")
+      (is (= "" (react-value [:select (v/spread-safe {:value nil :multiple false}
+                                                     {:multiple true})]))
+          "and identically in interpreted React")
+      ;; the normalized alias reaches the same verdict
+      (is (= "" (struct-value [:select (v/spread-safe {:x/value nil :x/multiple false}
+                                                      {:x/multiple true})]
+                              :x/value))
+          "the alias spellings reach the same owned-wins verdict, structural")
+      (is (= "" (react-value [:select (v/spread-safe {:x/value nil :x/multiple false}
+                                                     {:x/multiple true})]))
+          "and in interpreted React")
+      ;; owned true wins over caller false — the symmetric direction
+      (is (= [] (struct-value [:select (v/spread-safe {:value nil :multiple true}
+                                                      {:multiple false})]
+                              :value))
+          "owned :multiple true wins over caller false -> empty array, structural")
+      (is (= [] (react-value [:select (v/spread-safe {:value nil :multiple true}
+                                                     {:multiple false})]))
+          "and identically in interpreted React")
+      ;; the caller still decides when the owned props are SILENT — the guard
+      ;; must not have turned the caller off entirely (non-vacuity)
+      (is (= [] (struct-value [:select (v/spread-safe {:value nil} {:multiple true})] :value))
+          "owned silent on multiple -> the caller's true still decides, structural")
+      (is (= [] (react-value [:select (v/spread-safe {:value nil} {:multiple true})]))
+          "and in interpreted React"))))

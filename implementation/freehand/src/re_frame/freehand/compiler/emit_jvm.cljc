@@ -173,8 +173,12 @@
          (seq dyn)        (assoc :dyn dyn)
          ;; The forwarded maps go through the SAME constructors the public door
          ;; calls in an interpreted body — one merge, one deny law, one fold.
+         ;; The element's `#id` sugar fact rides along so the seam refuses a
+         ;; forwarded id beside the sugar, the ambiguity the literal path guards
+         ;; but a spread walks round (rf2-5r1af).
          spread           (assoc :dyn `(node/spread-attrs ~(:base spread)
-                                                          ~(:overrides spread)))
+                                                          ~(:overrides spread)
+                                                          ~tag ~(:sugar-id spread)))
          (contains? cls :class)  (assoc :class (:class cls) :sugar (:sugar cls))
          (contains? sty :style)  (assoc :style (:style sty))
          (seq events)     (assoc :events events)

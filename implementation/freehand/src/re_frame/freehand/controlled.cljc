@@ -214,6 +214,26 @@
     (and (= :select tag)
          (boolean (or (flagged? attrs) (flagged? more-attrs))))))
 
+(defn multiple-declared?
+  "Do any of these attribute sources DECLARE the `multiple` slot — by
+  PRESENCE, the value irrelevant?
+
+  The v/spread-safe precedence turns on declaration, not truth. `multiple`
+  is legal in a spread-safe caller, but it folds UNDER the owned props
+  (owned wins), so the whole-element multiple verdict must read the
+  EFFECTIVE source: an owned `:multiple false` is a decision that silences a
+  caller's `:multiple true`, and the caller is consulted ONLY when the owned
+  props do not declare the slot at all. [[multiple-select?]] answers truth
+  and cannot make that distinction — an owned false and an absent owned key
+  are both un-flagged — so the precedence needs this presence question
+  beside it (rf2-sf9n5). Read through the same [[prop-slot]] projection, so
+  `:x/multiple` counts exactly as `:multiple` does; each source is a map or
+  any seqable of `[key value]` pairs."
+  [& sources]
+  (boolean (some (fn [entries]
+                   (some (fn [[k _]] (= multiple-slot (prop-slot k))) entries))
+                 sources)))
+
 (defn controlled-props?
   "Does this element's authored attribute key sequence make it controlled
   — do any of the keys normalize onto a [[controlled-slots]] slot?

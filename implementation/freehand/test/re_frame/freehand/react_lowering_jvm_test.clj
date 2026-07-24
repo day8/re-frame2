@@ -202,6 +202,24 @@
       (is (.contains ^String (emitted body) ^String reaches)
           (str carrier " — the emitted body reaches " reaches)))))
 
+(deftest the-react-spread-lowering-threads-the-id-sugar-fact
+  (testing "rf2-5r1af #6837 audit. The compiled React path folds `v/spread`
+            through `node/spread-attrs` and never reaches the element-fold id
+            check the interpreted React walk makes, so a forwarded id beside
+            `#id` sugar slipped through — the sugar id silently dropped, no
+            refusal. The fix threads the element's sugar fact into the shared
+            seam, where the runtime refusal lives. Here we prove the WIRING:
+            the emitted spread-attrs call carries the tag and the sugar id, so
+            the seam has what it needs to refuse. Before the fix the sugar id
+            was absent from the emission entirely — a non-vacuous oracle."
+    (let [text (emitted '[:div#hero (v/spread (:attrs props))])]
+      (is (.contains ^String text "re-frame.freehand.node/spread-attrs")
+          "the react lowering still folds through the shared seam")
+      (is (.contains ^String text "\"hero\"")
+          "and threads the #id sugar value into it — dropped before the fix")
+      (is (.contains ^String text ":div \"hero\"")
+          "the tag and sugar id ride together as the seam's element context"))))
+
 (deftest the-react-emitter-lowers-every-crossing-prop-marker
   (testing "A marked crossing prop carries ANALYSED CONTENT under its own
             key rather than a plain `:value`, which is exactly the shape an
@@ -389,6 +407,49 @@
             "the :value write's verdict is the once-bound runtime verdict, not a constant")
         (is (not (false? verdict-arg))
             "and specifically NOT the build-time false the bug baked in")))))
+
+(deftest an-owned-multiple-wins-over-the-safe-spread-caller-in-the-lowering
+  (testing "rf2-sf9n5 #6847 audit — a v/spread-safe caller folds UNDER the
+            owned props, so an owned :multiple declaration settles the whole-
+            element verdict and the caller is consulted only when the owned
+            props are silent on the slot. PR #6847 ORed the caller into the
+            verdict, so an owned :multiple false beside a caller :multiple true
+            shaped the owned nil :value as the empty collection though owned-
+            false won at caller-spread!. These prove the emitted verdict now
+            reads the EFFECTIVE owned source, never the caller."
+    (testing "owned literal :multiple false — the exact reproduction. The
+              verdict is the compile-time constant, so NO runtime verdict call
+              over the caller is emitted at all (before the fix an `or` with a
+              `(multiple-select? … caller …)` call was)."
+      (let [[e ast]  (analyzed '[:select (v/spread-safe {:value nil :multiple false}
+                                                        {:multiple true})])
+            form     (emit-react/emit-react-body e '[props] ast)
+            nodes    (tree-seq coll? seq form)
+            verdicts (filter #(and (seq? %)
+                                   (= 're-frame.freehand.controlled/multiple-select? (first %)))
+                             nodes)
+            callers  (filter #(and (seq? %)
+                                   (= 're-frame.freehand.node/safe-caller-attrs (first %)))
+                             nodes)]
+        (is (= 1 (count callers))
+            "the guarded caller map is still evaluated once — it is written, just not consulted")
+        (is (empty? verdicts)
+            "no multiple-select? verdict call is emitted: owned false is the constant verdict")))
+    (testing "owned DYNAMIC :multiple — the verdict reads the owned expression,
+              over the [[:multiple …]] owned source, never the caller map."
+      (let [[e ast]  (analyzed '[:select (v/spread-safe {:value nil :multiple (:m props)}
+                                                        {:multiple true})])
+            form     (emit-react/emit-react-body e '[props] ast)
+            nodes    (tree-seq coll? seq form)
+            verdicts (filter #(and (seq? %)
+                                   (= 're-frame.freehand.controlled/multiple-select? (first %)))
+                             nodes)]
+        (is (= 1 (count verdicts))
+            "exactly one runtime verdict is derived")
+        (is (vector? (nth (first verdicts) 2 nil))
+            "and it reads the OWNED [[:multiple …]] source (a vector), not the caller map (a symbol)")
+        (is (= 1 (count (filter #(= '(:m props) %) nodes)))
+            "the owned :multiple expression is evaluated exactly once")))))
 
 (deftest a-compiled-popover-carries-the-runtime-reconciliation-verdict
   (testing "rf2-drpa3.173 — #6792 recorded every analyzed reconciler position
