@@ -419,8 +419,10 @@
   moves, so a rejected link click never adds a history entry. On an allowed
   transition it pushes the URL and synthesises `:rf.route/transitioned`,
   which owns the commit; the synthesised event carries the runtime-internal
-  `:rf.route/decided?` rider so stages 4-5 are not re-run on the same
-  target (Spec 012 §The request grammar — the one internal exemption)."
+  `:rf.route/decided?` rider on its trailing opts map, so an allowed link
+  click does not decide the same target twice (Spec 012 §The request
+  grammar). The rider is NOT part of the published `:rf.route/navigate`
+  request roster — that roster is closed with no exemption."
   [{frame :rf.frame/id rdb :rf.db/runtime
     pending-nav-allocation :rf.route/pending-nav-allocation}
    [_ {:keys [url replace? bypass-leave?] :as request}]]
