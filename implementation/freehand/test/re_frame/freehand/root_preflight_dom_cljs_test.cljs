@@ -414,3 +414,61 @@
                        (is false (str "idempotent re-mount suite rejected: " e))
                        (.remove node)
                        (done)))))))))
+
+(deftest fh-root-004-a-same-id-re-entrant-successor-keeps-its-frame
+  (testing "Per FH-ROOT-004 (browser): the re-entrancy fence from its hardest
+            side. The outer plan's `:initial-events` re-enter `v/mount` under
+            the OUTER's own derived id, on the outer's container, SCOPING the
+            frame the outer just published — so the inner root is the live
+            root under the id AND the legitimate holder of the frame
+            reference, a reference keyed by id that the outer attempt and this
+            successor now share. The outer refuses (its container is taken),
+            and the give-back must NOT release the shared reference: a stale
+            `acquired?` snapshot taken before preflight would yank it and
+            destroy the frame the inner root is rendering against. So the inner
+            root, its DOM, the frame, and the id -> frame ledger reference all
+            stay live — the assertion that the exact successor's claim stands,
+            not merely that the outer threw."
+    (if-not (browser?)
+      (skip! "the browser job runs the same-id re-entrancy assertions")
+      (async done
+        (reg!)
+        (let [node  (host-node!)
+              re    (:re-entrant-same-id boundary)
+              fid   (:frame-id re)
+              inner (atom nil)]
+          (rf/reg-event :root/mount-inner-same (fn [_ _] {:fx [[:root/mount-inner-same true]]}))
+          (rf/reg-fx :root/mount-inner-same
+                     ;; same derived root-id (same view) + same container,
+                     ;; SCOPING the just-published frame.
+                     (fn [_ _]
+                       (reset! inner (v/mount [views/counter {}] node {:frame fid}))))
+          (-> (act
+                (fn []
+                  (is (= (:error re)
+                         (error-id
+                           (fn []
+                             (v/mount [views/counter {}] node
+                                      {:frame {:id             fid
+                                               :initial-events [[:root/seed (:seeded re)]
+                                                                [:root/mount-inner-same]]}}))))
+                      "the outer mount refuses the container its own plan gave to a
+                       same-id successor")))
+              (.then
+                (fn [_]
+                  (is (= (:frame-live re) (some? (frame/frame fid)))
+                      "the frame the successor scopes is still live — the outer
+                       give-back did not yank the shared reference")
+                  (is (= (:ledger-entries re) (count (root/frame-ledger-snapshot)))
+                      "and its id -> frame ledger reference stands, held by the successor")
+                  (is (contains? (root/live-root-ids)
+                                 (:root-id (root/root-descriptor @inner)))
+                      "the inner successor is the live root under the id")
+                  (is (= (:inner-text re) (text node ".count"))
+                      "and is rendering the scoped frame's seed")
+                  (act #(v/unmount! @inner))))
+              (.then (fn [_] (.remove node) (done))
+                     (fn [e]
+                       (is false (str "same-id re-entrancy suite rejected: " e))
+                       (.remove node)
+                       (done)))))))))

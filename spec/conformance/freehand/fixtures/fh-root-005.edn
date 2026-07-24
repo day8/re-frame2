@@ -43,4 +43,58 @@
 
  ;; Unmounting a stale handle is a no-op, not a teardown of the successor.
  :stale-handle {:successor-still-live true
-                :successor-text       "3"}}
+                :successor-text       "3"}
+
+ ;; ---------------------------------------------------------------------
+ ;; Ownership is INCARNATION-EXACT, and the reference is the ROOT's own.
+ ;;
+ ;; A root installs a frame VALUE, not a frame id. The id is address-
+ ;; directed authority — it destroys whichever same-id incarnation is live
+ ;; NOW — so a root that installed one incarnation, watched it torn down,
+ ;; and unmounts while a same-id SUCCESSOR is live must not reach through
+ ;; the id and kill the successor. It tears down the exact incarnation it
+ ;; installed, which is already gone, so the successor stands.
+ ;;
+ ;; A re-mount can also move the root from one owned frame to another, or
+ ;; to none. Preflight takes the new reference; the stale one has to leave
+ ;; too, or it leaks a ledger row and an owned frame past the root that
+ ;; abandoned it.
+ ;;
+ ;; And an installed frame outlives its installer for as long as a sibling
+ ;; still references it: the last legitimate reference is what destroys it,
+ ;; not the first departure.
+ ;; ---------------------------------------------------------------------
+
+ ;; A root installs one incarnation; it is torn down and a same-id
+ ;; successor is created; the stale installer unmounts. The successor is
+ ;; the live frame under that id, and the stale installer's own ledger row
+ ;; is gone.
+ :same-id-successor {:frame-id     :fh.root/successor
+                     :installed    3
+                     :successor    8
+                     :frame-live   true
+                     :ledger-after 0}
+
+ ;; A re-mount that moves the root from owned frame A to owned frame B, and
+ ;; then off frames entirely. A is destroyed when the root leaves it; only
+ ;; B's ledger row survives the move; dropping the frame leaves nothing.
+ :transition {:frame-a        :fh.root/transition-a
+              :frame-b        :fh.root/transition-b
+              :seeded-a       4
+              :seeded-b       6
+              :b-text         "6"
+              :a-live-after   false
+              :b-live-after   true
+              :ledger-remount 1
+              :ledger-drop    0
+              :ledger-final   0}
+
+ ;; Two roots reference one installed frame — the installer owns it, a
+ ;; second root borrows it. The installer leaving is not the last
+ ;; reference, so the frame survives; the borrower leaving is, so it goes.
+ :two-refs {:frame-id     :fh.root/shared
+            :installer    :fh.root/installer-root
+            :borrower     :fh.root/borrower-root
+            :seeded       9
+            :live-after-1 true
+            :live-after-2 false}}

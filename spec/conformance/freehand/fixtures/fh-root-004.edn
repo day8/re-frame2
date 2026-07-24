@@ -122,4 +122,20 @@
                :setup-runs     1
                :live-roots     1
                :ledger-entries 1
-               :frame-live     true}}}
+               :frame-live     true}
+
+  ;; After, fresh root, the SAME id. The plan's `:initial-events` re-enter
+  ;; `v/mount` under the OUTER's own derived id, on the outer's container,
+  ;; SCOPING the frame the outer just published. That inner root becomes the
+  ;; live root under the id and the legitimate holder of the frame reference
+  ;; — a reference keyed by id, so the outer attempt and this successor share
+  ;; the one set member. The outer refuses (its container is taken), and the
+  ;; give-back must NOT release the shared reference: yanking it would destroy
+  ;; the frame the inner root is rendering against. So the inner root, its
+  ;; DOM, the frame, and the id -> frame ledger reference all stay live.
+  :re-entrant-same-id {:frame-id       :fh.root/boundary-same-id
+                       :seeded         5
+                       :inner-text     "5"
+                       :error          :rf.error/root-container-in-use
+                       :frame-live     true
+                       :ledger-entries 1}}}
