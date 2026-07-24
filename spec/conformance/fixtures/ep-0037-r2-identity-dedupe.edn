@@ -1,0 +1,62 @@
+;; Conformance fixture: ep-0037/r2-identity-dedupe
+;;
+;; EP-0037 R2 — grouped identity dedupe + the redundant-child advisory
+;; (conformance row 4). When a child redundantly declares an identity an
+;; ancestor already contributes (here both :route/account and its child declare
+;; :acct/viewer, resolving to the same [scope resource-id params] identity), the
+;; plan DEDUPES to one ensure fixed at the earliest (parent) position, is
+;; blocking because ANY contributor marks it blocking (the parent does), and the
+;; :rf.resource/route-plan trace carries a :redundant-children advisory naming
+;; both the ancestor and child declarations so the redundant copy is mechanically
+;; discoverable and can be deleted.
+;;
+;; Per [016 §Effective parent-chain resource plans](../../016-Resources.md#effective-parent-chain-resource-plans).
+
+{:fixture/id           :ep-0037/r2-identity-dedupe
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :resources/ensure :resources/dedupe :core/event-handler}
+ :fixture/doc          "EP-0037 R2: parent + child declare the same identity (:acct/viewer). The plan dedupes to ONE ensure (:ensured 1), blocking? is OR across contributors (the parent's true wins → the route holds :loading), and the route-plan trace carries a :redundant-children advisory naming both declarations."
+
+ :fixture/registry
+ {:route
+  {:route/account          {:path      "/account"
+                            :resources [{:resource :acct/viewer :blocking? true}]}
+   :route/account.settings {:path      "/account/settings"
+                            :parent    :route/account
+                            ;; the child REDUNDANTLY restates the parent's read
+                            :resources [{:resource :acct/viewer :blocking? false}]}}
+
+  :resource
+  {:acct/viewer {:scope :rf.scope/global :params-schema [:map] :url-template "/api/viewer"}}
+
+  :fx {:rf.http/managed {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:fx {:rf.http/managed [[:noop]]}}
+
+ :fixture/dispatches
+ [[:rf.route/transitioned "/account/settings"]]
+
+ :fixture/expect
+ {;; blocking? is OR — the parent marked :acct/viewer blocking, so the deduped
+  ;; requirement is blocking and the route projects :loading.
+  :final-runtime-db
+  {:rf.runtime/routing {:current {:route-id   :route/account.settings
+                                  :transition :loading
+                                  :error      nil}}}
+
+  :sub-values
+  {[:rf/resource {:resource :acct/viewer :scope :rf.scope/global :params {}}]
+   {:status :loading :data nil :error nil :refresh-error nil
+    :loading? true :fetching? false :stale? false :has-data? false :previous? false}}
+
+  :trace-emissions
+  [;; ONE ensure (deduped), with the redundant-child advisory naming both decls.
+   {:operation :rf.resource/route-plan
+    :tags      {:route-id           :route/account.settings
+                :branch             [:route/account :route/account.settings]
+                :ensured            1
+                :redundant-children [{:resource   :acct/viewer
+                                      :scoped-key [:rf.scope/global :acct/viewer {}]
+                                      :ancestor   {:route-id :route/account :local-id nil}
+                                      :child      {:route-id :route/account.settings :local-id nil}}]}}]}}

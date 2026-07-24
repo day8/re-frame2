@@ -850,12 +850,20 @@
                                       (cond-> base
                                         keep-previous? (assoc :keep-previous? true))]])))
                     ordered)
-        blocking  (into #{} (comp (filter :blocking?) (map :scoped-key)) ordered)]
+        blocking  (into #{} (comp (filter :blocking?) (map :scoped-key)) ordered)
+        ;; EP-0037 R2 plan-diff projection (Tooling: old/new kept/added/removed
+        ;; identities): `:ensured` counts the ADDED identities (real ensures),
+        ;; `:kept` the adopted (owner-handed-off, not re-ensured) identities, and
+        ;; `:removed` the prior-plan identities this plan drops.
+        added-count   (count (remove #(contains? prev-ids (:scoped-key %)) ordered))
+        removed-count (count (remove next-ids prev-ids))]
     (trace/emit! :rf.event :rf.resource/route-plan
                  (cond-> {:route-id   route-id
                           :nav-token  nav-token
                           :branch     (mapv :route-id branch)
-                          :ensured    (count req-fx)
+                          :ensured    added-count
+                          :kept       (- (count ordered) added-count)
+                          :removed    removed-count
                           :blocking   (vec blocking)
                           :identities (vec next-ids)}
                    (seq advisories) (assoc :redundant-children advisories)

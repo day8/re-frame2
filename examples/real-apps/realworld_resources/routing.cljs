@@ -171,9 +171,19 @@
      :blocking? false
      :keep-previous? true}]} "/article/:slug")
 
+;; The profile SHELL. `:realworld.profile/show` (the authored-articles tab, the
+;; canonical `/profile/:username` page) owns the shared profile-banner read
+;; ONCE, and the favorites tab below declares `:parent :realworld.profile/show`
+;; to inherit it — EP-0037 R2's effective parent-to-leaf resource plan. Before
+;; R2 both tabs restated the byte-identical banner entry; now the banner has one
+;; clear declaration and the two tabs cannot drift its `:blocking?`. The authored
+;; list is this tab's OWN content, so it is gated with `:when` to the show leaf —
+;; a navigation to the favorites child inherits the banner but not this list.
 (rf/reg-route :realworld.profile/show
   {:doc    "A user's profile banner plus the articles they authored — the default
-            profile tab. The `?page=` query paginates the authored list."
+            profile tab, and the layout PARENT that owns the shared banner read
+            for the favorites tab (EP-0037 R2). The `?page=` query paginates the
+            authored list."
    :params [:map [:username :string]]
    :query  [:map [:page {:optional true} :int]]
    :resources
@@ -181,6 +191,9 @@
      :params    (fn [route] {:username (get-in route [:params :username])})
      :blocking? true}
     {:resource  :realworld/author-articles
+     ;; The authored list is THIS tab's own content — gated to the show leaf so
+     ;; the favorites child (which shares this banner) does not also fetch it.
+     :when      (fn [route _ctx] (= :realworld.profile/show (:id route)))
      ;; Default to page 1 to match the view's `(or (:page q) 1)` key.
      :params    (fn [route] {:username (get-in route [:params :username])
                              :page     (or (get-in route [:query :page]) 1)})
@@ -189,19 +202,18 @@
 
 (rf/reg-route :realworld.profile/favorites
   {:doc    "A user's profile banner plus the articles they favorited — the second
-            official profile tab (`/profile/:username/favorites`). Same banner read
-            as `:realworld.profile/show`; the list read is the
-            `:realworld/favorited-articles` resource, and `?page=` paginates it.
-            Favoriting / unfavoriting from this tab invalidates `[:article slug]`,
-            which this list carries — so it refetches, and an unfavorited article
-            drops right out."
+            official profile tab (`/profile/:username/favorites`). The banner read
+            is INHERITED from the `:realworld.profile/show` parent (EP-0037 R2 —
+            declaring `:parent` composes its `:resources`), so this tab declares
+            ONLY its own `:realworld/favorited-articles` list; `?page=` paginates
+            it. Favoriting / unfavoriting from this tab invalidates `[:article
+            slug]`, which this list carries — so it refetches, and an unfavorited
+            article drops right out."
+   :parent :realworld.profile/show
    :params [:map [:username :string]]
    :query  [:map [:page {:optional true} :int]]
    :resources
-   [{:resource  :realworld/profile
-     :params    (fn [route] {:username (get-in route [:params :username])})
-     :blocking? true}
-    {:resource  :realworld/favorited-articles
+   [{:resource  :realworld/favorited-articles
      ;; Default to page 1 to match the view's `(or (:page q) 1)` key.
      :params    (fn [route] {:username (get-in route [:params :username])
                              :page     (or (get-in route [:query :page]) 1)})
