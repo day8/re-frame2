@@ -11,7 +11,9 @@ in `[:rf/pending-navigation]` → dialog dispatches `:rf.route/continue` or
 
 ## 1. Write the "is it safe to leave?" sub
 
-The guard is an ordinary [subscription](../../core/subscriptions.md) that answers one yes/no question. Read it positively: **`true` means leaving is fine.** Here, leaving is fine when the editor's draft matches what was last saved (nothing unsaved to lose):
+Ordinary [subscription](../../core/subscriptions.md). Read it positively: **`true`
+means leaving is fine.** Here, leaving is fine when the draft matches what was last
+saved:
 
 ```clojure
 (rf/reg-sub :editor/can-leave?
@@ -20,11 +22,13 @@ The guard is an ordinary [subscription](../../core/subscriptions.md) that answer
        (get-in db [:editor :saved]))))   ;; true when clean ⇒ safe to leave
 ```
 
-> **Gotcha — the contract is a strict boolean.** `true` allows, `false` blocks. Return anything else — a `nil`, a map, a truthy non-boolean — and the runtime **blocks the navigation** *and* emits `:rf.error/can-leave-non-boolean`. It fails closed (deny the leave) and fails loud (raise), never open. Keep the sub returning a real `true`/`false`.
+!!! warning "Strict boolean"
+
+    `true` allows, `false` blocks. Anything else (`nil`, map, truthy non-boolean) →
+    runtime **blocks** *and* emits `:rf.error/can-leave-non-boolean`. Deny the leave,
+    raise the error. Keep a real `true`/`false`.
 
 ## 2. Declare the guard on the route
-
-Name that sub in the route's `:can-leave`. From now on the runtime consults it before *any* navigation away from this route:
 
 ```clojure
 (rf/reg-route :app/article-editor
@@ -33,11 +37,15 @@ Name that sub in the route's `:can-leave`. From now on the runtime consults it b
   "/articles/:id/edit")
 ```
 
-When the guard returns `false`, nothing happens to the URL or to state — the navigation simply doesn't commit. Instead the attempt is parked, and the runtime also dispatches `:rf.route/navigation-blocked` (with a matching trace) so you can react beyond the dialog — a toast, an analytics ping.
+When the guard returns `false`, URL and state stay put — the navigation does not
+commit. The attempt parks, and the runtime dispatches `:rf.route/navigation-blocked`
+(with a matching trace) so you can react beyond the dialog (toast, analytics).
 
 ## 3. Render the prompt from the pending slot
 
-The blocked navigation lands in `:rf/pending-navigation`. Subscribe to it: when it's non-`nil`, a navigation is waiting on the reader's decision, so render your dialog. There's no imperative `window.confirm`, no `beforeunload` — it's an ordinary [view](../../core/views.md) over state:
+Blocked navigation lands in `:rf/pending-navigation`. Non-`nil` → show the dialog.
+No `window.confirm`, no `beforeunload` — ordinary [view](../../core/views.md) over
+state:
 
 ```clojure
 (rf/reg-view leave-guard-dialog []
@@ -49,21 +57,21 @@ The blocked navigation lands in `:rf/pending-navigation`. Subscribe to it: when 
      [:button {:on-click #(dispatch [:rf.route/continue (:id pending)])} "Discard & leave"]]))
 ```
 
-(`@(subscribe [:rf/pending-navigation])` is an ordinary framework sub.) The reader's
-choice is a dispatch carrying **`(:id pending)`**:
+Choice is a dispatch carrying **`(:id pending)`**:
 
-- `[:rf.route/continue <id>]` — proceed with the parked navigation (re-runs
-  `:can-enter` on the target if any).
+- `[:rf.route/continue <id>]` — proceed (re-runs `:can-enter` on the target if any).
 - `[:rf.route/cancel <id>]` — drop it; stay put.
 
-A bare `[:rf.route/continue]` / `[:rf.route/cancel]` without the id is wrong — the
+Bare `[:rf.route/continue]` / `[:rf.route/cancel]` without the id is wrong — the
 runtime keys the pending slot by that id (stale ids are safe no-ops).
 
-Mount `leave-guard-dialog` once near your root view and it covers every guarded route — it renders nothing until something is pending.
+Mount `leave-guard-dialog` once near the root; it covers every guarded route and
+renders nothing until something is pending.
 
 ## 4. Add a "save, then leave" path
 
-A "Save & close" button should leave *without* the prompt — the changes aren't being discarded, they're being saved. Save first, then navigate with `:bypass-guards? #{:leave}` so this one navigation skips the leave guard:
+"Save & close" should leave without the prompt. Save first, then navigate with
+`:bypass-guards? #{:leave}`:
 
 ```clojure
 (rf/reg-event :editor/save-and-close
@@ -71,33 +79,31 @@ A "Save & close" button should leave *without* the prompt — the changes aren't
     {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))   ;; now clean
      :fx [[:dispatch [:rf.route/navigate {:to     :app/article
                                           :params {:id (get-in db [:editor :id])}
-                                          :bypass-guards? #{:leave}}]]]}))    ;; skip the prompt
+                                          :bypass-guards? #{:leave}}]]]}))
 ```
 
-Saving makes the draft and saved snapshots equal, so the guard would pass anyway — but `:bypass-guards? #{:leave}` makes the intent explicit and is the right tool whenever you *know* it's safe to leave. (The set form also lets you skip the target's `:can-enter` — `#{:enter}` — or both — `#{:leave :enter}`.)
+Saving would make the guard pass anyway — `:bypass-guards? #{:leave}` makes the
+intent explicit. Same set form skips the target's `:can-enter` (`#{:enter}`) or both
+(`#{:leave :enter}`).
 
 ## Test it with zero DOM
-
-Because the whole flow is events and a subscription, the test needs no browser, no `beforeunload`, no flaky modal automation:
 
 ```clojure
 ;; Land on the editor and make the draft dirty.
 (rf/dispatch-sync [:rf.route/navigate {:to :app/article-editor :params {:id "intro"}}])
 (rf/dispatch-sync [:editor/edit-field :title "changed"])   ;; draft ≠ saved
 
-;; Try to leave — it should be blocked and parked, not committed.
+;; Try to leave — blocked and parked, not committed.
 (rf/dispatch-sync [:rf.route/navigate {:to :app/home}])
-(is (= :app/article-editor @(rf/subscribe [:rf.route/id])))     ;; still here
-(is (some?                  @(rf/subscribe [:rf/pending-navigation])))  ;; parked
+(is (= :app/article-editor @(rf/subscribe [:rf.route/id])))
+(is (some?                  @(rf/subscribe [:rf/pending-navigation])))
 
-;; The reader confirms — continue takes the pending id.
+;; Reader confirms — continue takes the pending id.
 (rf/dispatch-sync [:rf.route/continue
                    (:id @(rf/subscribe [:rf/pending-navigation]))])
 (is (= :app/home @(rf/subscribe [:rf.route/id])))
 (is (nil?        @(rf/subscribe [:rf/pending-navigation])))
 ```
 
-That's the payoff of a guard that's *state*, not a side effect: every branch —
-blocked, confirmed, cancelled, bypassed — is a dispatch and an assertion.
-
-Also covered under [Testing routes](../testing.md).
+Every branch — blocked, confirmed, cancelled, bypassed — is a dispatch and an
+assertion. Also under [Testing routes](../testing.md).
