@@ -40,6 +40,7 @@
   - `re-frame.routing.subs`           — framework-shipped subs over the slice
   - `re-frame.routing.link`           — :route/link registered view"
   (:require [re-frame.cofx :as cofx]
+            [re-frame.emit :as emit]
             [re-frame.events :as events]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
@@ -164,6 +165,21 @@
 ;; settle-transition` event, NO `:rf.route.internal/on-match-error` event, and
 ;; NO corpus-wide on-match error-emit listener. A synchronous `:on-match` throw
 ;; stays on the ordinary Spec 009 event error channel, attributed to the event.
+;;
+;; Deleting the registration CALLS (the R1 cut) does NOT retire a registration
+;; a PRE-R1 generation already installed: the event registrar and the always-on
+;; error-emit listener registry are `defonce`, so a dev session that loaded
+;; routing before the cut and then `(require 're-frame.routing :reload)`s under
+;; HMR retains the three retired framework registrations. A persisting on-match
+;; error trap could still observe a new blocking-resource `:loading` transition,
+;; route an `:on-match` throw through the retired handler, and resurrect the
+;; removed route `:error` / `:on-error` behaviour — a contract violation under
+;; normal reload. So the façade IDEMPOTENTLY unregisters exactly these three
+;; retired framework ids on every load/reload. This targets ONLY the framework's
+;; own retired ids: it resets no registry and clears no user registration.
+(events/clear-event :rf.route.internal/settle-transition)
+(events/clear-event :rf.route.internal/on-match-error)
+(emit/unregister-error-listener! :rf.route/on-match-error-trap)
 
 ;; The two recordable allocation coeffects read host-side high-water marks and
 ;; record the selected id on the causal token. The effect installs the

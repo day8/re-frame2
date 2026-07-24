@@ -46,7 +46,7 @@
   drop its scoped key from the nav-token's blocking set and, when the set
   empties, land the route transition at `:idle`; a blocking FIRST-load
   failure flips the route transition to `:error` and populates
-  `:rf.route/error` (mirroring the `:on-match` error trap). Stale
+  `:rf.route/error` (the blocking-resource route-error path). Stale
   navigations are suppressed by nav-token: a settle for a superseded
   nav-token is a no-op (the blocking slot for that token is gone).
 
@@ -77,9 +77,11 @@
 ;; Blocking route resources are tracked under their nav-token in the
 ;; routing-runtime subtree (a sibling of `:current` / `:pending-navigation`
 ;; under `[:rf.runtime/routing …]`), so:
-;;   - the route transition stays `:loading` while the set is non-empty
-;;     (the `:routing/route-blocking?` predicate routing's settle handler
-;;     consults);
+;;   - the route transition stays `:loading` while the set is non-empty; the
+;;     resource reply handlers drain the set and land the route at `:idle`
+;;     (or `:error` on a blocking first-load failure) themselves — see
+;;     `drain-blocking` below (EP-0037 R1: route readiness is the resource-
+;;     derived projection, not a routing settle step);
 ;;   - a newer navigation's nav-token has its OWN slot, so a stale
 ;;     blocking drain (old nav-token) is structurally a no-op (its slot is
 ;;     released on leave);
@@ -185,16 +187,20 @@
 ;; The resource reply handlers call these PURE helpers when a route-owned
 ;; resource settles, so all resource→route blocking logic stays inside the
 ;; Resources artefact (it already writes `:rf.db/runtime`). Routing only
-;; provides the entry hook + the `:routing/route-blocking?` settle
-;; predicate; it never reaches into resources.
+;; provides the `:routing/on-route-entry` plan hook; it never reaches into
+;; resources, and (EP-0037 R1) it consults no settle predicate — the reply
+;; handlers land `:idle` / `:error` themselves via `drain-blocking`.
 
 (defn route-blocking?
   "True iff ANY route resource is still blocking the route transition for
-  the route slice's CURRENT nav-token. The `:routing/route-blocking?`
-  predicate routing's `settle-transition` consults so a blocking route's
-  transition stays `:loading` past the `:on-match` drain. Reads only the
-  current nav-token's blocking slot — a superseded token's stale slot
-  never holds the live transition. Per Spec 016 §Route integration."
+  the route slice's CURRENT nav-token — i.e. the current nav-token's blocking
+  slot is non-empty. Reads only that slot, so a superseded token's stale slot
+  never reports the live transition as blocked.
+
+  A PURE predicate over the routing runtime-db (EP-0037 R1: route readiness is
+  the resource-derived projection). The reply handlers land the route at
+  `:idle` / `:error` directly via `drain-blocking`; routing consults no settle
+  predicate. Per Spec 016 §Route integration."
   [runtime-db]
   (let [nav-token (get-in runtime-db (conj (current-path) :nav-token))]
     (boolean (seq (get-in runtime-db (blocking-path nav-token))))))
@@ -234,8 +240,8 @@
   blocking slot it belongs to; when a slot empties for the CURRENT
   nav-token land the route `:transition` at `:idle`; a blocking FIRST-load
   `:failure` flips the current route's `:transition` to `:error` and
-  populates `:rf.route/error` (mirroring the `:on-match` trap). A settle
-  for a SUPERSEDED nav-token (its slot already released on route leave) is
+  populates `:rf.route/error` (the blocking-resource route-error path). A
+  settle for a SUPERSEDED nav-token (its slot already released on route leave) is
   a structural no-op. Returns the updated runtime-db.
 
   Pure DATA transform over runtime-db, PLUS one out-of-band observability
@@ -1039,5 +1045,4 @@
                      (fn extra-route-keys-thunk [] extra-route-keys))
   (late-bind/set-fn! :routing/on-route-entry    on-route-entry-fx)
   (late-bind/set-fn! :routing/on-route-prefetch on-route-prefetch-fx)
-  (late-bind/set-fn! :routing/route-blocking?   route-blocking?)
   nil)

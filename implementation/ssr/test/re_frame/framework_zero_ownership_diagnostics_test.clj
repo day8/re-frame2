@@ -44,7 +44,8 @@
     3. `:rf.route/handle-url-change`    — popstate / initial / SSR URL feed.
     4. can-leave pending-nav protocol   — `:rf.route/url-requested` /
        `:rf.route/cancel` / `:rf.route/continue`.
-    5. `:rf.route.internal/settle-transition` — per-route `:on-match` settle.
+    5. `:on-match` route commit         — the loader runs fire-and-forget;
+       the navigation commit writes the route slice via `:rf.db/runtime`.
     6. machine lifecycle                — reg + first-dispatch bootstrap,
        declarative `:spawn`, explicit `[:rf.machine/destroy …]`.
     7. elision classification install   — frame-owned declaration install
@@ -110,9 +111,9 @@
     (rf/reg-route :route/home    {} "/")
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-route :route/search  {} "/search")
-    ;; `:on-match` route → drives the FIFO settle handler
-    ;; (`:rf.route.internal/settle-transition`), which writes the
-    ;; `:transition` state into the runtime-db slice via `:rf.db/runtime`.
+    ;; `:on-match` route → the loader runs fire-and-forget; the navigation
+    ;; commit writes the route slice (including `:transition`) into the
+    ;; runtime-db via `:rf.db/runtime` (EP-0037 R1: no settle event).
     (rf/reg-event :load/noop (fn [{:keys [db]} _] {:db db}))
     (rf/reg-route :route/loaded  {:on-match [[:load/noop]]} "/loaded")
     (stub-push-url!)
@@ -135,7 +136,7 @@
                                  [:rf.runtime/routing :current :route-id]))
           ":rf.route/handle-url-change wrote the route slice")
 
-      ;; (5) :rf.route.internal/settle-transition — per-route :on-match settle.
+      ;; (5) an :on-match route — loader runs fire-and-forget; the commit writes the slice.
       (rf/dispatch-sync [:rf.route/transitioned "/loaded"])
       (is (= :route/loaded (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current :route-id]))

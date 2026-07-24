@@ -811,7 +811,7 @@ The listener payload is a **union of three record shapes**: (a) the **per-event 
 
 > Sensitive data marking on the error-emit substrate is path-based per the upcoming data-classification mechanism (separate spec doc; in progress). The handler-meta `:sensitive?` annotation is removed — the per-path elision wire-walker is the sole redaction surface on this path.
 
-Registration uses the **stream-parameterized listener verb** with the `:errors` stream — `(register-listener! :errors id listener-fn)` / `(unregister-listener! :errors id)` (see [§Observation listeners](#observation-listeners)). The always-on error-emit registry itself stays addressable via `re-frame.error-emit` + the `:error-emit/register-error-listener!` late-bind hooks for internal consumers (router fan-out, the routing on-match-error trap, the SSR error projector), which also own between-scenario clears.
+Registration uses the **stream-parameterized listener verb** with the `:errors` stream — `(register-listener! :errors id listener-fn)` / `(unregister-listener! :errors id)` (see [§Observation listeners](#observation-listeners)). The always-on error-emit registry itself stays addressable via `re-frame.error-emit` + the `:error-emit/register-error-listener!` late-bind hooks for internal consumers (router fan-out, the SSR error projector), which also own between-scenario clears.
 
 ## Observation listeners
 

@@ -639,10 +639,6 @@
     :producer-ns 're-frame.resources.route
     :design-bead "rf2-kqxe6.7"
     :description "Cross-feature LATE-BOUND warm-mode resource preload (Spec 016 §Route-plan prefetch — warm-mode). Routing's :rf.route/prefetch handler consults it by key with {:route-id :params :query :fragment :branch :branch-error :app-db} (the resolved destination + the effective parent-to-leaf branch routing walked from the target's :parent links); the Resources artefact returns {:fx [ensure-dispatch …] :warmed <n> :plan-error err?} — each unique branch requirement dispatches an OWNERLESS :rf.resource/ensure (cause [:route-prefetch route-id]; :blocking? inert, no plan diff / owner handoff / release), so a warmed value no navigation adopts stays GC-eligible and a later activation JOINS it. A planning failure carries :plan-cause :prefetch and NO nav-token, dispatches no partial ensures, and touches no route state (a preload owns none). No-op (nil) when no Resources artefact / no branch resources. The warm-mode sibling of :routing/on-route-entry. Consumed by re-frame.routing.prefetch/prefetch-handler."}
-   {:key         :routing/route-blocking?
-    :producer-ns 're-frame.resources.route
-    :design-bead "rf2-vdyrls"
-    :description "Cross-feature LATE-BOUND blocking-transition predicate (Spec 016 §Route integration). Routing's :rf.route.internal/settle-transition consults it by key with the runtime-db value; the Resources artefact returns true while any BLOCKING route resource for the route slice's current nav-token is still unsettled (the route's SSR wait point), so the settle keeps the transition :loading past the :on-match drain. The resource reply handlers drain the blocking slot + land :idle themselves on the last blocking settle. False (no-op consult) when no Resources artefact is loaded. Consumed by re-frame.routing.events/settle-transition-handler."}
    {:key         :ssr/extend-runtime-db-projection
     :producer-ns 're-frame.resources.ssr
     :design-bead "rf2-p10npe"
