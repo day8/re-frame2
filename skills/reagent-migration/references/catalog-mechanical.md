@@ -5,11 +5,12 @@
 > if the view also trips a D/R rule, leave the entire view on Reagent. A
 > mechanical rewrite is only "safe" inside a view that fully converts.
 >
-> Each rule cites a `MIG-NN` id (the framework's own rule-table numbering).
+> Every rule cites a `MIG-NN` id so the author can audit the change.
 > Examples are abstract — use the *shape*, not these literal names, on a
-> consumer's code.
+> consumer's code. All of them assume the **interpreted** tier, which is
+> Freehand's default; `{:compiled true}` is a separate later decision.
 
-## MIG-01 — Form-1 / `reg-view` → `ui/defview`, positional params → prop map
+## MIG-01 — Form-1 / `reg-view` → `v/defview`, positional params → prop map
 
 The view header changes, and **every call site changes atomically in the same edit** (positional args become a map keyed by the param names).
 
@@ -19,22 +20,32 @@ The view header changes, and **every call site changes atomically in the same ed
 (defn app [] [:div [price 1 2]])
 
 ;; after
-(ui/defview price [{:keys [amt cur]}] [:span amt cur])
-(ui/defview app [] [:div [price {:amt 1 :cur 2}]])
+(v/defview price [{:keys [amt cur]}] [:span amt cur])
+(v/defview app [_] [:div [price {:amt 1 :cur 2}]])
 ```
 
-A `reg-view` registration unwraps the same way: `(reg-view greeter [n] …)` → `(ui/defview greeter [{:keys [n]}] …)`. A zero-param call site emits the explicit empty map: `[status-pill]` → `[status-pill {}]`. A *fn-call* used as a component (`(filter-link :all :All)` in child position) also becomes a view site: `[filter-link {:showing :all :txt :All}]`. Param named `key`, `[a & rest]`, or multi-arity → judgment (D — the shape isn't a plain map).
+A `reg-view` registration unwraps the same way: `(reg-view greeter [n] …)` → `(v/defview greeter [{:keys [n]}] …)`.
 
-## MIG-02 — deref-drop: `@(subscribe …)` → `(sub …)`
+Three parts of this are load-bearing:
+
+- **Exactly one parameter, always the props map.** A view that reads no props still declares it — `[_]`, never `[]`. A declaration with zero or two-plus parameters raises `:rf.error/defview-bad-args` at macro-expansion.
+- **A zero-prop call site emits the explicit empty map:** `[status-pill]` → `[status-pill {}]`.
+- **A fn-call used as a component** (`(filter-link :all "All")` in child position) becomes a mounted site: `[filter-link {:showing :all :txt "All"}]` — brackets, because it is a boundary. Leave it in parens only if it genuinely is a body-extracting helper (see [`gotchas.md`](gotchas.md) §brackets vs parens).
+
+A param named `key`, `[a & rest]`, or a multi-arity view is a judgment call (D — the shape isn't one map).
+
+## MIG-02 — deref-drop: `@(subscribe …)` → `(v/sub …)`
 
 ```clojure
 ;; before
 [:span @(subscribe [:total])]
 ;; after
-[:span (sub [:total])]
+[:span (v/sub [:total])]
 ```
 
-Dynamic query args pass through (`(sub [:item id])`). A `subscribe` that is *stored* rather than deref'd is derived state (MIG-19), not this rule. A `sub` inside a `for` body is a compile error → keyed-child extraction (MIG-08, D).
+`v/sub` returns the **value**. Dynamic query args pass through (`(v/sub [:item id])`), and a read inside a `for` body is legal in the interpreted tier — the render records the reads it actually made. A read from an ordinary `defn` helper called by the body is also legal: the render owns the read wherever the call lexically sits.
+
+Two shapes are *not* this rule. A `subscribe` that is *stored* rather than deref'd is derived state (MIG-19). A read outside an active render — a timer, a `v/event` body, a foreign listener — fails loud with `:rf.error/view-read-outside-render`; those use `rf/subscribe-once`.
 
 ## MIG-04 / 05 / 06 — dispatch-lifting
 
@@ -45,20 +56,22 @@ Dynamic query args pass through (`(sub [:item id])`). A `subscribe` that is *sto
 {:on-click #(dispatch [:go 1])}   =>   {:on-click [:go 1]}
 ```
 
-**MIG-05 — a `%`-extraction closure lifts to a placeholder vector** (closed vocabulary — `:rf.ui/value`, `:rf.ui/checked`, `:rf.ui/key`):
+**MIG-05 — a `%`-extraction closure lifts to a projection marker** (closed set of three — `::v/value`, `::v/checked`, `::v/key`):
 
 ```clojure
 ;; before → after
 {:on-input #(dispatch [:typed (-> % .-target .-value)])}
-=> {:on-input [:typed :rf.ui/value]}
+=> {:on-input [:typed ::v/value]}
 
-;; leading LITERAL args sit ahead of the placeholder — the placeholder is
-;; positional, projected into its own slot at dispatch time:
+;; leading LITERAL args sit ahead of the marker — markers are positional,
+;; filled from the live payload at firing time:
 {:on-input #(dispatch [:edit-field :title (-> % .-target .-value)])}
-=> {:on-input [:edit-field :title :rf.ui/value]}
+=> {:on-input [:edit-field :title ::v/value]}
 ```
 
-**MIG-06 — `preventDefault`/`stopPropagation` become an options map:**
+A marker only projects in a **top-level** argument position; nested inside another value it is ordinary application data.
+
+**MIG-06 — `preventDefault`/`stopPropagation` become the listener options map:**
 
 ```clojure
 ;; before → after
@@ -66,7 +79,9 @@ Dynamic query args pass through (`(sub [:item id])`). A `subscribe` that is *sto
 => {:on-submit {:event [:save] :prevent-default true}}
 ```
 
-The bare-fn lift is **DOM/custom-element only**. A handler on an *internal view* call site (MIG-27) or a *foreign* component (MIG-10) is a different boundary → judgment. A handler that does anything beyond these three exact shapes → MIG-18 (D). In a `for` body, a lifted vector that *captures the loop binding* is a compile error → extract a keyed child (MIG-08).
+The options roster is **closed** — `:event` (required), `:prevent-default`, `:stop-propagation`, `:capture`, `:passive`, `:once` — and an unknown key is rejected rather than silently ignored.
+
+A handler that does anything beyond these three exact shapes → MIG-18 (D). A fn-valued prop on an *internal view* (MIG-27) or a *foreign* component (MIG-10) is a different boundary entirely.
 
 ## MIG-07 — key-meta → `:key` prop
 
@@ -75,38 +90,27 @@ The bare-fn lift is **DOM/custom-element only**. A handler on an *internal view*
 ^{:key (:id t)} [item t]   =>   [item {:key (:id t) :t t}]
 ```
 
-`:key` is React's reserved slot; it rides MIG-01's atomic call-site pass so the props map is built once.
-
-## MIG-09 — foreign React heads become direct
-
-```clojure
-;; before → after
-[:> Button {:label "x"}]                         =>  [Button {:label "x"}]
-[(r/adapt-react-class Widget) {:p 1}]            =>  [Widget {:p 1}]
-```
-
-Hoist the component to the head; delete the `adapt-react-class` wrapper. A **fn-valued** prop on a foreign head is *not* mechanical → MIG-10 (D). The sibling interop heads `:f>` / `:r>` are also judgment calls, not tag pass-throughs.
+`:key` is React's list-identity slot, not an attribute: it rides MIG-01's atomic call-site pass so the props map is built once, and it is refused inside a `v/spread` (it must be literal at the element that carries it).
 
 ## MIG-11 — DOM prop respelling (camelCase / alias → kebab)
 
-Table-driven from React's published attribute/event names:
+Freehand's props are **kebab-case**, one spelling per name:
 
 ```clojure
 ;; before → after
-{:className c :htmlFor x :tabIndex 1 :onClick …}
-=> {:class c :for x :tab-index 1 :on-click …}
+{:className c :htmlFor x :onClick …}   =>   {:class c :for x :on-click …}
 ```
 
-`:onClick` both respells *and* lifts its dispatch (MIG-04). Unknown/custom names pass through verbatim. `:dangerouslySetInnerHTML` never respells → MIG-34.
+`:class-name` and `:html-for` are refused with `:class` / `:for` named as the replacement; `:children` is reserved (children are positional). `data-*` and `aria-*` pass through verbatim, as do names React does not recognise. `:onClick` both respells *and* lifts its dispatch (MIG-04). `:dangerouslySetInnerHTML` has no shipped Freehand door → MIG-34 (R).
 
 ## MIG-12 — strip the `doall` laziness workaround
 
 ```clojure
 ;; before → after
-[:ul (doall (for [t ts] ^{:key t} [:li t]))]  =>  [:ul (for [t ts] ^{:key t} [:li t])]
+[:ul (doall (for [t ts] ^{:key t} [:li t]))]  =>  [:ul (for [t ts] [:li {:key t} t])]
 ```
 
-`for` is a native control form in the compiled grammar; Reagent's `doall` is dead weight. (A `doall` wrapping a markup-returning `map` is MIG-13, D.)
+Reagent's `doall` is dead weight here. Note the key moves with it (MIG-07).
 
 ## MIG-14 — plain hiccup passes through unchanged
 
@@ -117,78 +121,54 @@ Tags, `.class`/`#id` sugar, fragments `[:<> …]`, `:style` maps, `:class` vecto
 [:div.wrap#main [:span "hi"] [:p 42]]
 ```
 
-The in-map entry rules (MIG-04/05/06/07/11/34) still rewrite entries *inside* a literal props map. A handful of sub-cases are shipped compile errors with a mechanical fix — two `#id` segments → keep the first; a collection value on a non-`:class`/`:style` attr → `(str/join " " xs)`; a multi-form control body → wrap siblings in `[:<> …]`; directly-nested `for`s → collapse into one `for`. A **non-literal props-map expression** (`merge`/`assoc`/a bound symbol) is *not* pass-through → MIG-28 (D). A literal keyword in child position is ambiguous → D.
+The in-map entry rules (MIG-04/05/06/07/11) still rewrite entries *inside* a literal props map. A **non-literal props-map expression** (`merge`/`assoc`/a bound symbol) in the props position is not pass-through → MIG-28 (D). A bare symbol in **child** position is content and is left alone — the bare-symbol trap in [`gotchas.md`](gotchas.md).
 
-## MIG-15 — mount
+## MIG-15 — mount and boot
 
 ```clojure
 ;; before
-(defn init! [] (rdom/render [app] el))
+(defn init! []
+  (rf/init! reagent-adapter/adapter)
+  (rf/dispatch-sync [:app/init])
+  (rdom/render [app] el))
+
 ;; after
-(defn init! [] (ui/mount [ui/frame-root {:id <frame-id> :initial-events […]} [app {}]] el))
+(defn init! []
+  (v/mount [app {}] el {:frame {:id :app :initial-events [[:app/init]]}}))
 ```
 
-Once per root. The frame id + `:initial-events` lift from the app's existing frame setup; the React-18 `create-root`/`defonce`-atom dance *deletes* (`ui/mount` is idempotent per root). No existing frame config to lift from → judgment (name the frame id with the author). `reagent.dom.server` / `hydrate-root` are the SSR family → MIG-23 (D — route between the static-page and SSR-then-hydrate paths).
+Three things happen at once, and all three are simplifications:
+
+- **`v/mount` takes the root form, the container, and a closed opts map.** Its `:frame` opt is the preflight: a `make-frame` opts map carrying `:id` **ENSUREs** a frame the root owns for its lifetime and drains `:initial-events` **before React sees anything**, so a body that reads a subscription on first render finds seeded state. A bare frame-id keyword instead **SCOPES** a frame something else already owns.
+- **There is no adapter install.** Freehand needs no `rf/init!` call of its own. On a mixed page keep the existing `(rf/init! reagent-adapter/adapter)` for the roots still on Reagent, and delete it only when the last of them converts — **confirm the page's root inventory with the author**, since the skill cannot see it.
+- **The React-18 `create-root` / `defonce`-atom dance deletes.** `v/mount` is idempotent per root: re-mounting the same root-id into the same container re-renders the existing host root, which is the hot-reload path.
+
+Root identity derives from the mounted view's registered id, so a single-root page authors nothing. Two roots for one view need `:disambiguator` or an explicit `:root-id`. `reagent.dom.server` / `hydrate-root` are the SSR family → MIG-23 (D).
 
 ## MIG-24 — ns requires (runs LAST)
 
-Add the compiled-view require; drop `reagent.*` requires **only when the namespace has zero remaining uses** (a held D/R view keeps them alive):
+Add the Freehand require; drop `reagent.*` requires **only when the namespace has zero remaining uses** (a held D/R view keeps them alive):
 
 ```clojure
-(:require [re-frame.ui :as ui :refer [defview sub]]   ; add
-          ;; [reagent.core :as r]   ; drop only if nothing else needs it
+(:require [re-frame.core :as rf]
+          [re-frame.freehand :as v]        ; add — `v` is the conventional alias
+          ;; [reagent.core :as r]          ; drop only if nothing else needs it
           )
 ```
 
-## MIG-29 — callback ref → `ui/raw-fn`
+Alias Freehand as `v` and write `v/defview` / `v/sub` qualified. The projection markers are `::v/value` / `::v/checked` / `::v/key`, which resolve through that alias — so the alias is load-bearing, not cosmetic.
 
-`:ref` is a reserved React slot; the bare-fn shorthand does not apply, so wrap it explicitly:
+## MIG-32 — framework `route-link` → `v/route-link`
 
-```clojure
-;; before → after
-{:ref (fn [n] (when n (.focus n)))}  =>  {:ref (ui/raw-fn (fn [n] (when n (.focus n))))}
-```
-
-A ref body that reads *view state* (not just the node) prefers an object ref → D. `:ref` on an *internal view* call site is a separate concern → D.
-
-## MIG-31 — `capture-frame` → the `(frame)` body form
-
-A zero-arg render-body capture rewrites in place to the compiled ops-bundle:
+`v/route-link` is an ordinary `v/defview` shipped in Freehand — the counterpart of the stock-Reagent `route-link`. The head renames:
 
 ```clojure
 ;; before → after
-(let [h (rf/capture-frame)] …)   =>   (let [h (ui/frame)] …)
+[rf/route-link {:to :home} "Home"]   =>   [v/route-link {:to :home} "Home"]
 ```
 
-The bundle is incarnation-fenced (ops fail loud once the captured frame is destroyed). An explicit-arity `(rf/capture-frame frame-id)`, or a capture sited *inside* a callback/loop, has no direct compiled site → D.
+`:to` (a registered route id) is required; `:params` / `:query` / `:fragment` feed both the href and the dispatch payload; **every other key** — `:class`, `:target`, `:download`, `:aria-label`, `:on-click`, any further HTML attribute — passes through to the underlying `<a>`. A plain `[:a {:href …}]` is not equivalent, which is why the head-rename is the migration.
 
-## MIG-32 — framework `route-link` → the compiled `ui/route-link`
+Two things to carry: rendering it **without `day8/re-frame2-routing` on the classpath fails loud** with `:rf.error/routing-artefact-missing` — confirm the routing artefact is present. And a caller `:on-click` runs *first* and may veto the interception, exactly as in Reagent; modifier and middle clicks defer to the browser, which is the whole reason to use this view rather than hand-rolling an anchor.
 
-`ui/route-link` is an **ordinary compiled `defview`** shipped in `re-frame.ui` — the compiled counterpart of the stock-Reagent `route-link`. The Reagent head becomes the compiled head:
-
-```clojure
-;; before → after
-[rf/route-link {:to :home} :Home]   =>   [ui/route-link {:to :home} :Home]
-```
-
-`:to` (a registered route id) is required; `:params` / `:query` / `:fragment` feed both the href and the dispatch payload; **every other key** — `:class`, `:title`, `:id`, `:aria-label`, `:target`, `:download`, `:on-click`, any further HTML attribute — passes through to the underlying `<a>`. A plain `[:a {:href …}]` is **not** an equivalent (the runtime doesn't intercept plain anchors), so the head-rename is the migration.
-
-Two things to carry: (a) rendering a `ui/route-link` **without `day8/re-frame2-routing` on the classpath fails loud** with `:rf.error/routing-artefact-missing` — confirm the routing artefact is present. (b) A caller `:on-click` runs *first* and may veto the interception (prevent-default), exactly as in Reagent; it is a prop on an internal compiled view, so a bare fn is legal-and-opaque (MIG-27 / C-13a) — reach for `ui/handler` only if a stable identity or a phase is actually needed. Framework-shipped Reagent view heads other than `route-link` have no ruled compiled counterpart → judgment (hold).
-
-## MIG-33 — adapter boot
-
-```clojure
-;; before → after
-(rf/init! reagent-adapter/adapter)   =>   (rf/init! ui/adapter)
-```
-
-Drop the Reagent-adapter require when nothing else uses it. **One confirm with the author** (this is the single judgment on an otherwise-mechanical swap): on a **mixed page** where some roots stay on Reagent, *keep* the Reagent adapter installed — swap to `ui/adapter` only when the page's every root is converted. The skill cannot know the page's root inventory; the author confirms it. Root-level, once per app.
-
-## MIG-34 — `dangerouslySetInnerHTML` → `ui/html`
-
-```clojure
-;; before → after
-[:div {:dangerouslySetInnerHTML {:__html s}}]   =>   [:div (ui/html s)]
-```
-
-Delete the prop; `s` becomes the element's sole child wrapped in `ui/html`. A **non-literal** `{:__html …}` value (computed map, inside a spread) → D.
+Framework-shipped Reagent view heads other than `route-link` have no ruled Freehand counterpart → judgment (hold).

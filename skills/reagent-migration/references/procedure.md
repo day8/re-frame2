@@ -9,48 +9,143 @@
 
 Confirm all three, or stop:
 
-1. **The app is already on re-frame2.** re-frame.ui is a re-frame2 substrate. If the app is still on re-frame v1, the events/subs/db migration comes first — route to [`re-frame-migration`](../re-frame-migration) and come back only when that is done.
-2. **The author specifically wants the experimental substrate.** If they are content on Reagent views (the supported default), there is nothing to do — say so. Don't migrate views because you can.
-3. **The `re-frame.ui` artifact is actually available to the target project.** `re-frame.ui` ships in `day8/re-frame2-ui`, which is **in-tree / pre-publication** — the Maven coordinate is **not yet published** (publication is separately owned and must not be accelerated). So a project can only adopt it by consuming the **in-tree / git-source** artifact today, not as a released dependency. If the project has no path to that source, there is nothing to migrate *onto* yet — wait for publication. (This is migration honesty, not a reason to publish early.)
+1. **The app is already on re-frame2.** Freehand is a re-frame2 view layer. If
+   the app is still on re-frame v1, the events/subs/db migration comes first —
+   route to [`re-frame-migration`](../re-frame-migration) and come back only when
+   that is done.
+2. **The author specifically wants Freehand.** If they are content on Reagent
+   (the supported default), there is nothing to do — say so. Don't migrate views
+   because you can.
+3. **The Freehand artefact is actually available to the target project.**
+   Freehand ships in `day8/re-frame2-freehand`, which is **pre-publication** —
+   there is no released Maven coordinate to depend on. A project can adopt it
+   only by consuming the in-tree / git-source artefact. If it has no path to
+   that source, there is nothing to migrate *onto* yet — say so and wait. This is
+   migration honesty, not a reason to publish early.
 
 ## Step 1 — Scope a closed subtree
 
-Pick a namespace, or a leaf-to-root view subtree, that does **not** call *into* views staying on Reagent where you can avoid it. Leaf-to-root is the **recommended default**, not a hard constraint: the outward `ui/->react` bridge has shipped (MIG-22), so a converted `ui/defview` *can* be consumed by an unconverted Reagent parent — but every boundary crossing is a `ui/->react` wrapper, so converting **leaf views first, shared components last** (closing the subtree bottom-up) keeps subtrees pure `ui` and minimises boundary wrappers.
+Pick a namespace, or a leaf-to-root view subtree, that is **not called from views
+staying on Reagent**. This is stricter than it sounds and it is not a style
+preference: there is no outward bridge today, so a converted view can only be
+mounted by another Freehand view or by a root. A converted view whose only caller
+is still Reagent will never render.
 
-Flag any *inbound* Reagent call site you can't include in the subtree — that view is a boundary; decide with the author whether the caller converts too, the boundary is embedded inward (`ui/raw` + `r/as-element`, MIG-22), or the converted child is exported outward (`ui/->react`, MIG-22).
+So convert **leaf views first, shared components last**, closing the subtree
+bottom-up until a root or an already-converted parent mounts it. Flag any inbound
+Reagent call site you cannot include in the subtree — that view is a boundary,
+and the whole subtree above it waits.
 
 ## Step 2 — Gate every candidate view (whole-view law)
 
-Before touching a view, scan its whole body for **D/R hits** — then route by tier, not by a blanket hold:
+Before touching a view, scan its whole body for **D/R hits**, then route by tier:
 
-- **An R hit → hold the WHOLE view on Reagent**, honestly, and record why. That is a genuine reject with no compiled equivalent (Reagent introspection/scheduler MIG-35, dynamic tag heads MIG-21) or an unshipped capability gap (the explicit-frame `sub` pin MIG-03). → [`catalog-reject.md`](catalog-reject.md).
-- **A D hit → decide it with the author, then convert the WHOLE view or hold the WHOLE view** — never a partial body. The judgment calls are catalogued in [`catalog-judgment.md`](catalog-judgment.md): state/lifecycle (MIG-16/17), derived state or the ratom-store restructure (MIG-19/20), the `:on-*` handler split (MIG-18), SSR path routing (MIG-23 — *shipped*, route between the static-page and hydrate paths, not a hold), computed DOM props (MIG-28), third-party wrappers (MIG-22), and the loop-key / foreign-boundary / plain-fn-ambient calls (MIG-08/10/13/26/27/30). A couple are non-gating (MIG-27/28 convert with a named check) — read the row.
+- **An R hit → hold the WHOLE view on Reagent**, honestly, and record why.
+  Foreign React heads and Reagent wrapper libraries (MIG-09/10/22), trusted
+  markup (MIG-34), `:ref` (MIG-29), Reagent introspection and schedulers
+  (MIG-35), a frame-pinned reactive read (MIG-03). →
+  [`catalog-reject.md`](catalog-reject.md).
+- **A D hit → decide it with the author, then convert the WHOLE view or hold the
+  WHOLE view** — never a partial body. The judgment calls are catalogued in
+  [`catalog-judgment.md`](catalog-judgment.md): state (MIG-16), lifecycle
+  (MIG-17), the `:on-*` handler split (MIG-18), derived state and the ratom-store
+  restructure (MIG-19/20), SSR path routing (MIG-23), ambient reads in plain fns
+  (MIG-26), fn props on internal views (MIG-27), computed props (MIG-28),
+  runtime-built markup (MIG-30), and the loop / render-prop shaping calls
+  (MIG-08/13).
 
-Do not rewrite the clean parts of a held view — a half-migrated body neither compiles nor runs (whole-view coherence, [`gotchas.md`](gotchas.md)).
+Do not rewrite the clean parts of a held view — whole-view coherence,
+[`gotchas.md`](gotchas.md).
 
-Two things are **not** view gates here. The **mechanical** rules — including the `route-link` head-rename (MIG-32) — are applied directly in Step 3, never held. And an **effectful sub body (MIG-25)** is a *dataflow-side* finding you surface for the author (the view's own deref converts fine, MIG-02, once the sub is made pure) — it is **not** a reason to hold the view.
+Two things are **not** view gates here. The **mechanical** rules are applied
+directly in Step 3, never held. And an **effectful sub body (MIG-25)** is a
+dataflow-side finding you surface for the author — the view's own deref converts
+fine once the sub is pure.
 
 ## Step 3 — Apply the M-tier rewrites to the clean views
 
-For each fully-clean view, apply [`catalog-mechanical.md`](catalog-mechanical.md) **atomically per view**: the `ui/defview` header, the params→map change, and **every call site** of that view change in one edit (MIG-01). Within a view, do loop-context analysis before the handler lifts (the capture check), then the order-free rewrites (deref-drop, prop respelling, key-meta, `doall` strip, foreign heads, `ui/html`, `ui/raw-fn`) in any order. Cite the `MIG-NN` id for each change.
+For each fully-clean view, apply [`catalog-mechanical.md`](catalog-mechanical.md)
+**atomically per view**: the `v/defview` header, the params→map change, and
+**every call site** of that view change in one edit (MIG-01). Within a view the
+remaining rewrites are order-free — deref-drop, dispatch lifts, prop respelling,
+key-meta, `doall` strip, the `route-link` head. Cite the `MIG-NN` id for each
+change.
 
-## Step 4 — Fix requires and mount/boot last
+Everything you emit stays **interpreted**. Do not add `{:compiled true}` to
+anything during a migration pass.
 
-- **Requires (MIG-24):** add `[re-frame.ui :as ui :refer [defview sub]]`; drop `reagent.*` requires **only** when the namespace has zero remaining uses (a held view keeps them).
-- **Mount (MIG-15) / adapter (MIG-33):** once per root / once per app. On a mixed page (some roots still Reagent), keep the Reagent adapter installed and swap only when every root on the page is converted — confirm the root inventory with the author.
+## Step 4 — Fix requires and the root last
+
+- **Requires (MIG-24):** add `[re-frame.freehand :as v]`; drop `reagent.*`
+  requires **only** when the namespace has zero remaining uses (a held view keeps
+  them). The `v` alias is load-bearing — the projection markers `::v/value` /
+  `::v/checked` / `::v/key` resolve through it.
+- **Root (MIG-15):** once per root. `v/mount` carries the frame preflight in its
+  `:frame` opt, and Freehand needs no adapter install of its own. On a mixed page
+  keep `(rf/init! reagent-adapter/adapter)` for the roots still on Reagent, and
+  delete it only when the last one converts — confirm the root inventory with the
+  author.
 
 ## Step 5 — Compile and test (the skill runs the gates); the programmer renders
 
-Run the nearest safe noninteractive gate **yourself** — discover the project's compile/test command (`npx shadow-cljs compile …`, `npm test`, `clojure -M:test`) and run it (cardinal rule 6, under the trust-the-explicit-invoker `allowed-tools` baseline). The genuinely-interactive step — booting a dev build and eyeballing the render — stays with the programmer when there is no connected browser/runtime to drive. **"Compiles" is necessary, not sufficient** — a converted subtree referenced from unconverted Reagent, or a `MIG-35` introspection call, can compile clean and fail only at render. So the done-bar for a subtree is:
+Run the nearest safe noninteractive gate **yourself** — discover the project's
+compile/test command (`npx shadow-cljs compile …`, `npm test`, `clojure -M:test`)
+and run it (cardinal rule 7). The genuinely interactive step — booting a dev
+build and eyeballing the render — stays with the programmer when there is no
+connected runtime to drive.
 
-1. it **compiles** (the skill runs this — the compiler catches most re-frame.ui grammar errors here, the point of a build-time substrate);
-2. it **renders** — the programmer boots a dev build and eyeballs the converted views (and, cheaply, reads the live frame with `re-frame2-pair` if a subtle behaviour changed); the skill runs this itself only where a connected browser/runtime is available;
-3. its **tests pass** (the skill runs these — re-baseline render counts if the substrate changed them).
+**"Compiles" is necessary, not sufficient.** Interpreted Freehand moves most view
+errors to run time by design, and the two that bite hardest — a `v/sub` in a
+callback, a Reagent introspection call (MIG-35) — both compile clean. So the
+done-bar for a subtree is:
 
-Only when a subtree is green do you scope the next one. If a view surfaces a new gap mid-pass, hold it (rule 2) and keep going.
+1. it **compiles** (the skill runs this);
+2. it **renders** — the programmer boots a dev build and eyeballs the converted
+   views, and reads the live frame with `re-frame2-pair` if a subtle behaviour
+   changed;
+3. its **tests pass** (the skill runs these).
 
-**A single file converted in isolation is PROVISIONAL.** If a view's callers live in *other* files that are still Reagent, converting just its file leaves it un-rendered until something mounts it through the compiled path. Two things can: a **compiled** caller — a converted route component or parent view — or an explicit `ui/->react` wrapper at the Reagent parent (the outward bridge has shipped, MIG-22). Absent either, the file compiles but never renders. Treat it as provisional (it compiles, but "compiles ≠ renders") until a real caller mounts it. That is exactly why the unit of a pass is a *closed subtree*, not a lone file — a closed subtree needs neither the wrapper nor a still-Reagent caller.
+### Structural tests are the cheap half of (2)
+
+Handler slots hold event vectors **as data**, so "what does this button do" is an
+equality check with no browser. `re-frame.freehand.test` (conventionally aliased
+`t`) is five names over the structural tree — `render`, `find`, `find-all`,
+`attrs`, `text`:
+
+```clojure
+(:require [re-frame.core :as rf]
+          [re-frame.freehand.test :as t])
+
+(deftest add-button-carries-intent
+  (rf/with-new-frame [_ (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})]
+    (let [tree   (t/render [product-card {:product {:id 42 :name "Hat"}}])
+          button (t/find tree #(= :button (:tag %)))]
+      (is (= "Add to cart" (t/text button)))
+      (is (= [:cart/add 42] (:on-click (t/attrs button)))))))
+```
+
+Frame scope is the ordinary bracket (`rf/with-new-frame` / `rf/with-frame`), state
+is driven with `rf/dispatch-sync`, and the checkpoint is a **fresh** `render` —
+there is no frame option and no fixture. `(:on-click node)` reads a *field* and
+misses; the projection `(t/attrs node)` is the attribute read. Host-bearing
+behaviour — real listeners, focus, presence timing — belongs to a mounted browser
+test, not this tier.
+
+A migrated view that had no test is a good place to add one: it costs three lines
+and it pins the intent the migration just rewrote.
+
+## A single converted file is PROVISIONAL
+
+If a view's callers live in *other* files that are still Reagent, converting just
+its file leaves it un-rendered — there is no wrapper that lets a Reagent parent
+mount it. It compiles, and "compiles ≠ renders". Treat such a file as provisional
+until a converted parent or a root mounts it. That is exactly why the unit of a
+pass is a *closed subtree*, not a lone file.
 
 ## Resuming an interrupted migration
 
-Because each pass is a closed subtree left in a compiling, rendering, tested state, an interrupted migration resumes cleanly: the converted subtrees are done, the held views are recorded with their reasons, and the next closed subtree is the next unit. There is no global half-state to reconcile — that is the payoff of never big-banging.
+Because each pass leaves a closed subtree compiling, rendering and tested, an
+interrupted migration resumes cleanly: the converted subtrees are done, the held
+views are recorded with their reasons, and the next closed subtree is the next
+unit. There is no global half-state to reconcile — that is the payoff of never
+big-banging.

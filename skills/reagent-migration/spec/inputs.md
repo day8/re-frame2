@@ -5,46 +5,85 @@
 > re-authoring pass needs these to reproduce the leaves. For the skill
 > contract, see [`SKILL.md`](../SKILL.md).
 
-## 1. Primary input — the `MIG-01…35` rule table
+## 1. Primary input — the shipped Freehand surface
 
-The framework's canonical Reagent→re-frame.ui rule table (the W1/W2/S6 rulebook) is the source of the rule ids, tiers, detectors, and transform shapes the skill distils. It lives in the re-frame2 repo's local design corpus (`ai/findings/new-substrate-synthesis/prep/`, gitignored) and is grounded in the normative specs below. **The skill does not re-host it** — it uses the `MIG-NN` ids as a shared, auditable vocabulary and distils the rules into M/D/R guidance with before→after examples (design L3).
+The **exported roster** is the primary input, because it is the only thing that
+decides whether a rewrite target exists:
 
-Structure the skill depends on:
+- **`spec/API.md` §Freehand views** — the tiered var catalogue for
+  `re-frame.freehand` and its test sibling `re-frame.freehand.test`. A target is
+  emitted only if it has a row here.
+- **`docs/api/re-frame.freehand.md`** and **`docs/api/re-frame.freehand.test.md`**
+  — per-var signatures, options rosters and worked examples. These are the
+  fastest read when checking a call shape.
 
-- **The rule rows** — each carries an input construct, a detector, a transform, a tier (M/D/R), and notes. The skill's three catalogues (`catalog-mechanical`, `catalog-judgment`, `catalog-reject`) partition these by *what the author does with the rule*.
-- **§Ordering** — the gate-before-body law (whole-view coherence), the closed-subtree law, and within-view rewrite order. Drives `procedure.md` and the whole-view cardinal rule.
-- **§Non-goals** — no behaviour inference, no cross-file moves, dataflow untouched, no staged output. Drives design L1/L5 and the staged-gap gotcha.
+The current door, for orientation: `defview`, `mount`, `hydrate-root`,
+`unmount!`, `render-static`, `view?`, `describe`, `manifest`, `sub`, `event`,
+`handler`, `render-fn`, `raw-fn`, `projections`, `materialize-event`, `slot`,
+`spread`, `spread-safe`, `controller-key`, `controller-revision`,
+`controller-current?`, `presence`, `presence-phase`, `route-link`, `markup`,
+`error-boundary`, `defbehavior`, `behavior` — plus `render` / `find` /
+`find-all` / `attrs` / `text` on the test surface. **Re-read the roster rather
+than trusting this list**; it grows a row at a time.
 
-## 2. Secondary input — the shelved tool's golden fixtures
+## 2. Normative grounding — the specs
 
-The shelved `tools/ui-migrator` (rewrite-clj, PR #6541) carried ~47 golden before→after fixtures — one per `MIG-NN` rule plus adversarial cases (data-vectors-not-hiccup, the bare-symbol child, whole-view gating, idempotence). They are **worked examples**, read to ground the catalogue's before→after blocks and the eval inputs. The tool itself is **not** revived and its rewrite-clj code is **not** copied — only the fixtures' input→output shapes inform the examples.
+- **`spec/004-Views.md`** — the contract: the descriptor and `v/defview`, props
+  and `:key`, vector-head classification, the ambient frame, `v/sub`, event
+  intent and the payload materializer, callback roles, controlled inputs,
+  semantic controllers, presence, error boundaries, composition and render
+  slots, props forwarding, registered behaviors, and — load-bearing for this
+  skill — **§Normative absences**, which is why `local`, `ref` and `effect` have
+  no target.
+- **`spec/004B-UI-Tree-and-Conversion.md`** — prop-spelling and conversion
+  legality (the MIG-11 name table), and the node schema a structural test reads.
+- **`spec/004C-Roots-and-Mount.md`** — the mount grammar, root identity, frame
+  preflight, and total teardown (MIG-15).
+- **`spec/004D-Freehand-Compiled-Grammar.md`** — the compiled tier's finite
+  grammar. Read it to understand what a *promotion* costs; the skill does not
+  emit `{:compiled true}` during a migration.
+- **`spec/008-Testing.md`** and **`spec/011-SSR.md`** — the structural test tier
+  and the SSR paths (MIG-23).
 
-## 3. Normative grounding — the specs
+## 3. Where the design corpus is a HAZARD, not an input
 
-The rule table is itself verified against these; the skill is downstream of that verification and does not re-derive it:
-
-- **`spec/004-Views.md`** — the compiled-view output-template grammar, the handler law, the removed forms, `ui/defview`, `sub`, `local`, `effect`, the handler forms.
-- **`spec/004B-UI-Tree-and-Conversion.md`** — prop-spelling / conversion legality (the MIG-11 name table, the `ui/html` node form, `ui/spread` conversion).
-- **`spec/004C-Roots-and-Mount.md`** — the mount grammar and root identity (MIG-15/33).
-- **`implementation/ui/src/re_frame/ui.cljc`** — the shipped export surface. A rewrite target is only emitted if it is exported here; staged-but-unshipped surfaces (the `sub` frame-pin) are named as gaps, never emitted. (SSR `render-static`/`hydrate-root`, compiled `route-link`, and the outward `ui/->react` bridge are exported here and so are real transforms.)
+`docs/EP/EP-0036-*`, `docs/design/freehand/decisions/` and
+`docs/design/freehand/draft-guide/` describe the design, including forms that
+are **declared and not exported** — `local`, `effect`, `ref`, `v/->react`,
+`v/html`, `v/check`, `v/client-only`, a React interop hook tier. They are
+useful for understanding *why* a shape is the way it is, and dangerous as a
+source of call shapes. **Every verb goes through §1 before it is written**
+(design L9).
 
 ## 4. Tertiary inputs (shape the discipline, not quoted)
 
-- **The four-pillar design rationale** — inherited from the skill family (leaf-loading shape, the four pillars). Reproduced in `design.md` §2 so this folder is self-contained.
-- **`skills/re-frame-migration/`** — the closest structural sibling (SKILL.md router + references + spec + the distribution triad). Voice, density, front-matter shape, the "cardinal rules" style all mirror it.
-- **`skills/re-frame2/SKILL.md`** — the canonical authoring-pattern example for voice and load-bearing-rules density.
+- **The four-pillar design rationale** — inherited from the skill family.
+  Reproduced in `design.md` §2 so this folder is self-contained.
+- **`skills/re-frame-migration/`** — the closest structural sibling (SKILL.md
+  router + references + spec + the distribution triad). Voice, density,
+  front-matter shape and the "cardinal rules" style all mirror it.
+- **`skills/re-frame2/SKILL.md`** — the canonical authoring-pattern example for
+  voice and load-bearing-rules density.
 
 ## 5. What the skill does NOT consume
 
-- **The v1→v2 corpus** (`migration/from-re-frame-v1/README.md`, the `M-N`/`O-N` rules) — that is the *other* migration (`re-frame-migration`), the required first step. This skill assumes it is done.
-- **`examples/**`** — worked examples are for authoring, not for this view migration.
-- **The full EP corpus** — the skill assumes the author knows re-frame2 conceptually (or reads the EPs via the `re-frame2` skill).
+- **The v1→v2 corpus** (`migration/from-re-frame-v1/README.md`, the `M-N`/`O-N`
+  rules) — that is the *other* migration (`re-frame-migration`), the required
+  first step. This skill assumes it is done.
+- **`examples/**`** — worked examples are for authoring, not for this migration.
+- **The full EP corpus** — the skill assumes the author knows re-frame2
+  conceptually.
 
 ## 6. Update procedure
 
-When the framework's `MIG` rule table changes:
-
-1. **A rule's tier changes** (M↔D↔R) → move its treatment between `catalog-mechanical` / `catalog-judgment` / `catalog-reject`, and re-check `procedure.md`'s gate list.
-2. **A new rule is added** → add a before→after (M) or a decision (D) or a hold (R) to the matching catalogue, and add a fixture-grounded eval if it exercises a new class.
-3. **A staged capability SHIPS** (the remaining gap is the `sub` frame-pin; SSR `render-static`/`hydrate-root`, compiled `route-link`, and the outward `ui/->react` bridge already made this move) → move it out of `catalog-reject.md`'s capability-gap section into the mechanical/judgment catalogue with its now-real target, and update the staged-gap gotcha. **Verify against `ui.cljc`'s exports before trusting a "shipped" claim** — the staged-target caveat is a claim about that file.
-4. **The shipped export surface changes** → re-verify every emitted target against `implementation/ui/src/re_frame/ui.cljc`.
+1. **A Freehand surface LANDS** (most consequentially the qualified host leaf for
+   foreign React components, and the outward React bridge) → move its cases out
+   of `catalog-reject.md` into the mechanical or judgment catalogue with the now-real
+   target, and re-check `procedure.md` §Step 1, whose closed-subtree constraint is
+   a *consequence* of the missing outward bridge.
+2. **A rule's tier changes** (M↔D↔R) → move its treatment between the
+   catalogues, and re-check `procedure.md`'s gate list.
+3. **A new construct needs a rule** → add a before→after (M), a decision (D) or a
+   hold (R) to the matching catalogue, and add an eval if it exercises a new class.
+4. **The exported roster changes** → re-verify every emitted target against
+   `spec/API.md`. This is the check that keeps the skill honest, and it is cheap.

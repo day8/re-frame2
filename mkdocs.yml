@@ -387,7 +387,7 @@ nav:
     - re-frame2-improver: skills/re-frame2-improver.md
     - re-frame2-setup: skills/re-frame2-setup.md
     - "re-frame-migration (v1→v2)": skills/re-frame-migration.md
-    - "reagent-migration (views→re-frame.ui)": skills/reagent-migration.md
+    - "reagent-migration (views→Freehand)": skills/reagent-migration.md
     - re-frame2-implementor: skills/re-frame2-implementor.md
     - re-frame2-xray: skills/re-frame2-xray.md
     - re-frame2-pair: skills/re-frame2-pair.md

@@ -1,16 +1,16 @@
 {
   "skill_name": "reagent-migration",
   "schema_version": "1",
-  "convention": "anthropics/skills/skill-creator evals.json — two kinds. `kind:\"trigger\"` fixtures carry `should_trigger` for description-optimisation (train/held-out trigger accuracy). `kind:\"behavioural\"` fixtures carry a `tier` (M/D/R) and `expectations[]` asserting the skill applies / reasons / declines correctly on a salvaged Reagent→re-frame.ui fixture input.",
-  "notes": "Positives target Reagent-view→re-frame.ui prompts on an already-re-frame2 app (compiled views, reg-view→defview, deref-drop, adopt the experimental substrate). Negatives target the DIFFERENT v1→v2 events/subs/db migration (re-frame-migration), authoring on re-frame2 (re-frame2), greenfield (re-frame2-setup), live runtime (re-frame2-pair), and the first-class 'stay on Reagent' non-goal. Behavioural inputs are drawn from the shelved W1 migrator's golden fixtures; the M/D/R trio is the tier-coverage floor the bead requires.",
+  "convention": "anthropics/skills/skill-creator evals.json — two kinds. `kind:\"trigger\"` fixtures carry `should_trigger` for description-optimisation (train/held-out trigger accuracy). `kind:\"behavioural\"` fixtures carry a `tier` (M/D/R) and `expectations[]` asserting the skill applies / reasons / declines correctly on a Reagent→Freehand fixture input.",
+  "notes": "Positives target Reagent-view→Freehand prompts on an already-re-frame2 app (v/defview, deref-drop, moving off Reagent hiccup). Negatives target the DIFFERENT v1→v2 events/subs/db migration (re-frame-migration), authoring on re-frame2 (re-frame2), greenfield (re-frame2-setup), live runtime (re-frame2-pair), and the first-class 'stay on Reagent' non-goal. Behavioural fixtures cover the M/D/R tiers, and several exist specifically to catch the failure mode of emitting a Freehand verb that is described in the design corpus but not exported (local, effect, ref, an outward React bridge, a trusted-markup form).",
   "evals": [
-    {"id": 1,  "kind": "trigger", "name": "explicit-views-to-ui",   "should_trigger": true,  "prompt": "Migrate my Reagent views to re-frame.ui — I'm already on re-frame2 and want to try the compiled views."},
-    {"id": 2,  "kind": "trigger", "name": "reg-view-to-defview",    "should_trigger": true,  "prompt": "Convert my reg-view components to defview compiled views."},
-    {"id": 3,  "kind": "trigger", "name": "deref-drop",             "should_trigger": true,  "prompt": "How do I move my views off @(subscribe ...) hiccup onto the re-frame.ui sub grammar?"},
-    {"id": 4,  "kind": "trigger", "name": "adopt-compiled-substrate","should_trigger": true, "prompt": "We want to trial the experimental compiled-view substrate for a couple of view namespaces. How do we migrate them?"},
-    {"id": 5,  "kind": "trigger", "name": "reagent-surface-in-view","should_trigger": true,  "prompt": "My views use r/with-let and r/atom and adapt-react-class. What do those become under re-frame.ui?"},
-    {"id": 6,  "kind": "trigger", "name": "dangerouslysetinnerhtml","should_trigger": true,  "prompt": "How does :dangerouslySetInnerHTML translate when I compile this view with re-frame.ui?"},
-    {"id": 7,  "kind": "trigger", "name": "neg-v1-to-v2",           "should_trigger": false, "prompt": "Migrate my re-frame v1 app to re-frame2.", "rationale": "The v1→v2 events/subs/db migration is the re-frame-migration skill; this skill is the optional SECOND step (views→re-frame.ui) done afterwards."},
+    {"id": 1,  "kind": "trigger", "name": "explicit-views-to-freehand", "should_trigger": true,  "prompt": "Migrate my Reagent views to Freehand — I'm already on re-frame2 and want the re-frame-native view layer."},
+    {"id": 2,  "kind": "trigger", "name": "reg-view-to-defview",        "should_trigger": true,  "prompt": "Convert my reg-view components to v/defview."},
+    {"id": 3,  "kind": "trigger", "name": "deref-drop",                 "should_trigger": true,  "prompt": "How do I move my views off @(subscribe ...) hiccup onto the Freehand sub grammar?"},
+    {"id": 4,  "kind": "trigger", "name": "adopt-freehand",             "should_trigger": true,  "prompt": "We want to trial Freehand for a couple of view namespaces. How do we migrate them?"},
+    {"id": 5,  "kind": "trigger", "name": "reagent-surface-in-view",    "should_trigger": true,  "prompt": "My views use r/with-let and r/atom and adapt-react-class. What do those become under Freehand?"},
+    {"id": 6,  "kind": "trigger", "name": "move-off-reagent-hiccup",    "should_trigger": true,  "prompt": "What does :onClick and ^{:key id} become when I move this view off Reagent hiccup?"},
+    {"id": 7,  "kind": "trigger", "name": "neg-v1-to-v2",           "should_trigger": false, "prompt": "Migrate my re-frame v1 app to re-frame2.", "rationale": "The v1→v2 events/subs/db migration is the re-frame-migration skill; this skill is the optional SECOND step (views→Freehand) done afterwards."},
     {"id": 8,  "kind": "trigger", "name": "neg-author-v2",          "should_trigger": false, "prompt": "Write a re-frame2 reg-event that posts a login form to /api/login.", "rationale": "Authoring on re-frame2 is the re-frame2 skill."},
     {"id": 9,  "kind": "trigger", "name": "neg-greenfield",         "should_trigger": false, "prompt": "Start a new re-frame2 project from scratch.", "rationale": "Greenfield bootstrap is re-frame2-setup."},
     {"id": 10, "kind": "trigger", "name": "neg-live-pair",          "should_trigger": false, "prompt": "Inspect app-db right now on my running shadow-cljs build.", "rationale": "Live-runtime is re-frame2-pair."},
@@ -18,118 +18,120 @@
     {"id": 12, "kind": "trigger", "name": "neg-vocab-migrate-db",   "should_trigger": false, "prompt": "Migrate my Postgres database from 12 to 14.", "rationale": "Vocabulary hit ('migrate') on an unrelated surface."},
 
     {"id": 13, "kind": "behavioural", "tier": "M", "name": "m-transform-defview-sub-lift",
-     "prompt": "Convert this to re-frame.ui:\n(defn price [amt cur] [:button {:on-click #(dispatch [:buy amt])} @(subscribe [:total])])\n(defn app [] [:div [price 1 2]])",
+     "prompt": "Convert this to Freehand:\n(defn price [amt cur] [:button {:on-click #(dispatch [:buy amt])} @(subscribe [:total])])\n(defn app [] [:div [price 1 2]])",
      "expectations": [
-       "Rewrites the header to (ui/defview price [{:keys [amt cur]}] ...) — positional params become a destructured prop map (MIG-01).",
+       "Rewrites the header to (v/defview price [{:keys [amt cur]}] ...) — positional params become one destructured props map (MIG-01).",
+       "Declares the props parameter on the zero-prop view as [_], never [] — a zero-arity defview raises :rf.error/defview-bad-args at macro-expansion.",
        "Rewrites the call site atomically to [price {:amt 1 :cur 2}] in the same change (MIG-01).",
-       "Drops the deref: @(subscribe [:total]) becomes (sub [:total]) (MIG-02).",
+       "Drops the deref: @(subscribe [:total]) becomes (v/sub [:total]) (MIG-02).",
        "Lifts the handler: {:on-click #(dispatch [:buy amt])} becomes {:on-click [:buy amt]} (MIG-04).",
-       "Adds the require [re-frame.ui :as ui :refer [defview sub]] (MIG-24) and cites the MIG ids for each change.",
-       "Does NOT treat the event vector [:buy amt] or the query vector [:total] as hiccup to respell/spread."
+       "Adds the require [re-frame.freehand :as v] (MIG-24) and cites the MIG ids for each change.",
+       "Does NOT treat the event vector [:buy amt] or the query vector [:total] as hiccup to respell/spread.",
+       "Does NOT add {:compiled true} — a migration pass emits interpreted declarations."
      ]},
 
     {"id": 14, "kind": "behavioural", "tier": "D", "name": "d-decide-form2-local-state",
-     "prompt": "Migrate this Reagent view to re-frame.ui:\n(defn dropdown [] (r/with-let [open? (r/atom false)] [:div {:on-click #(reset! open? true)} (when @open? [:ul])]))",
+     "prompt": "Migrate this Reagent view to Freehand:\n(defn dropdown [] (r/with-let [open? (r/atom false)] [:div {:on-click #(reset! open? true)} (when @open? [:ul])]))",
      "expectations": [
-       "Recognises Form-2 / with-let view-local state (MIG-16) and does NOT silently rewrite the view.",
-       "Reasons about the decision — is this PRODUCT state (→ app-db: an event + a sub, a dataflow change to name for the author) or EPHEMERAL UI state (→ the host-local `local`)?",
-       "If ephemeral, maps to `local`'s three-tuple: @open? → value, (reset! open? v) → (set! v), (swap! open? f) → (update! f) — and explicitly avoids (set! (f open?)) as last-write-wins.",
+       "Recognises Form-2 / with-let view-held state (MIG-16) and does NOT silently rewrite the view.",
+       "States that Freehand has no `local` — there is no host-local cell to translate the r/atom into — and does not emit one.",
+       "Reasons about the real decision: product state → app-db (an event + a sub, a dataflow change to name for the author); a control owning a genuine multi-interaction protocol → a semantic controller; DOM-owned state → a registered behavior.",
+       "For a simple open/closed flag, lands on app-db rather than treating 'it's only ephemeral' as a reason to keep it in the view.",
        "Holds the WHOLE view until the decision is made (cardinal rule 2), rather than converting some sites and leaving others.",
        "Does not reach into the dataflow layer itself; it names the reg-event/reg-sub for the author when app-db is the answer."
      ]},
 
     {"id": 15, "kind": "behavioural", "tier": "D", "name": "d-route-ssr-static-vs-hydrate",
-     "prompt": "Migrate this to re-frame.ui:\n(ns app.render (:require [reagent.dom.server :as s]))\n(defn render-page [] (s/render-to-string [app]))",
+     "prompt": "Migrate this to Freehand:\n(ns app.render (:require [reagent.dom.server :as s]))\n(defn render-page [] (s/render-to-string [app]))",
      "expectations": [
-       "Treats the STATIC-page arm of MIG-23 as shipped end-to-end — (ui/render-static [app-root]), the compiled counterpart of React's renderToStaticMarkup — NOT a decline.",
-       "Routes by intent: a static-page (non-hydrating) render maps to (ui/render-static [app-root]).",
-       "For SSR-then-hydrate, names the CLIENT adoption half as shipped (re-frame.ssr/hydrate! state-only, no :render-tree-fn, then ui/hydrate-root, Spec 011) but flags that the SERVER page-assembly / Root-Manifest half is NOT a supported public path yet — re-frame.ssr/emit-ui-tree emits one root's markup only.",
-       "Holds an SSR-THEN-HYDRATE migration on Reagent's render-to-string until that server half ships; the static-page arm is unaffected.",
-       "Keeps the caveat: views using refs/effects need ui/client-only (or restructure) for the pure server phase.",
-       "Does NOT claim the whole SSR story is shipped, or that no SSR pieces remain."
+       "Routes the STATIC-page arm of MIG-23 to (v/render-static [app-root {}]) — the pure :server-phase render, Freehand's counterpart of renderToStaticMarkup — NOT a decline.",
+       "Notes render-static is a MACRO (the root form is literal) and JVM/server only, and that day8/re-frame2-ssr must be on the classpath at render time.",
+       "Notes there is no silent elision: a runtime-requiring capability in the server-reachable closure is a loud build error with source coordinates, not a dropped capability.",
+       "For SSR-then-hydrate, names re-frame.ssr/hydrate! (seed state) then v/hydrate-root (adopt the DOM), and that identity opts are refused client-side because identity comes from the server.",
+       "Verifies the author's server pipeline against re-frame.ssr's actual exports rather than assuming a helper exists, and holds the hydrating root on Reagent if the page-assembly they need is missing."
      ]},
 
     {"id": 16, "kind": "behavioural", "tier": "R", "name": "r-decline-reagent-introspection",
-     "prompt": "Convert this view to re-frame.ui:\n(defn thing [] [:div (str (r/current-component))])",
+     "prompt": "Convert this view to Freehand:\n(defn thing [] [:div (str (r/current-component))])",
      "expectations": [
-       "Declines — Reagent component-introspection / scheduler calls have no compiled equivalent (MIG-35).",
-       "Warns that r/current-component still COMPILES after conversion and fails/returns nil at runtime, so the build gate will not catch it.",
-       "Keeps the view on Reagent, or restructures away from the introspection (props/children the view already receives); does NOT equate the schedulers r/next-tick / r/after-render with ui/effect — those stay on Reagent unless the author redesigns phase/frequency/ownership."
-     ]},
-
-    {"id": 18, "kind": "behavioural", "tier": "D", "name": "d-mig18-handler-split",
-     "prompt": "Migrate this view to re-frame.ui:\n(ns f (:require [re-frame.core :refer [dispatch]]))\n(defn save-btn [] [:button {:on-click (fn [e] (.preventDefault e) (when @dirty? (dispatch [:save])))} \"Save\"])",
-     "expectations": [
-       "Recognises MIG-18 — the handler is not one of the three clean shapes (mixed guard + dispatch), so it is a judgment call, not an automatic lift.",
-       "Routes the guarded dispatch to ui/event (a nil return means no dispatch — the guard expressed as data-with-a-filter), not a bare fn.",
-       "Notes that a converted defview has no ambient dispatch; imperative dispatch would go through (ui/dispatch-fn) in the view body.",
-       "Holds/decides the WHOLE view (the guard reads view-local state, coupling it to the MIG-16 state decision) — no half-migrated body."
+       "Declines — Reagent component-introspection / scheduler calls have no Freehand equivalent (MIG-35).",
+       "Warns that r/current-component still COMPILES after conversion and fails or returns nil at runtime, so no build gate catches it.",
+       "Keeps the view on Reagent, or restructures away from the introspection (props and :children are already the props map the view receives); does NOT equate the schedulers r/next-tick / r/after-render with a registered behavior — different phase, frequency and owner."
      ]},
 
     {"id": 17, "kind": "behavioural", "tier": "M", "name": "m-negative-bare-symbol-not-spread",
-     "prompt": "Migrate to re-frame.ui:\n(defn item [t] [:li t])\n(defn lst [ts] [:ul (for [t ts] ^{:key t} [item t])])",
+     "prompt": "Migrate to Freehand:\n(defn item [t] [:li t])\n(defn lst [ts] [:ul (for [t ts] ^{:key t} [item t])])",
      "expectations": [
-       "Converts item and lst to ui/defview and moves ^{:key t} to a :key prop (MIG-07): [item {:key t :t t}].",
-       "Does NOT treat the bare symbol child in [:li t] as a props map — `t` is content, never (ui/spread t) (the bare-symbol trap).",
+       "Converts item and lst to v/defview and moves ^{:key t} to a :key prop (MIG-07): [item {:key t :t t}].",
+       "Does NOT treat the bare symbol child in [:li t] as a props map — `t` is content, never (v/spread t) (the bare-symbol trap).",
        "Leaves the plain hiccup structure otherwise unchanged (MIG-14)."
      ]},
 
-    {"id": 19, "kind": "behavioural", "tier": "D", "name": "d-mig17-lifecycle-rehome-unmount",
-     "prompt": "Migrate this Reagent Form-3 view to re-frame.ui:\n(ns app.editor (:require [reagent.core :as r] [reagent.dom :as rdom]))\n(defn editor []\n  (let [{:keys [dispatch]} (rf/capture-frame)]\n    (r/create-class\n     {:component-did-mount    (fn [this] (.focus (rdom/dom-node this)))\n      :component-will-unmount (fn [_] (dispatch [:resource/release]))\n      :reagent-render         (fn [] [editor-form])})))",
+    {"id": 18, "kind": "behavioural", "tier": "D", "name": "d-mig18-handler-split",
+     "prompt": "Migrate this view to Freehand:\n(ns f (:require [re-frame.core :refer [dispatch]]))\n(defn save-btn [] [:button {:on-click (fn [e] (.preventDefault e) (when @dirty? (dispatch [:save])))} \"Save\"])",
      "expectations": [
-       "Recognises MIG-17 Form-3 lifecycle and decomposes each body into host/DOM work vs domain work — a judgment call held WHOLE (cardinal rule 2), not an automatic rewrite.",
-       "Routes the host/DOM work (focus the node on mount) to (effect :connect …), with the body's RETURN value as the cleanup — a trailing (fn [] …), NOT the React useEffect shape (a setup fn that returns a cleanup fn), which compiles but silently never runs.",
-       "Recognises there is NO dispatch-at-unmount in native re-frame.ui: (ui/dispatch-fn) fails loud at disconnect with :rf.error/dispatch-disconnected (the leaked-listener law), so an effect cleanup is NOT a place to smuggle the domain release.",
-       "Re-homes the unmount domain work (the [:resource/release] dispatch) OUT of the view — to the causal events that end the resource's life — and names those events / the minting owner for the author (cardinal rule 5); the migrated view becomes a pure defview that owns no resource lifetime.",
-       "Does NOT invent a view-owned / component-presence resource lifetime (there is none in re-frame.ui — liveness never re-enters through the view); here the owner is app-minted (route-minted, released by the causal events), so the read re-homes to that causal owner. When a resource has no causal event bounding its life, an ownerless ensure (cause-only, GC-eligible) is the valid tool, never a view that owns a lifetime."
+       "Recognises MIG-18 — the handler is not one of the three clean shapes (mixed browser mechanic + guard + dispatch), so it is a judgment call, not an automatic lift.",
+       "Routes the guarded dispatch to v/event: its body names the outcome, and a nil return dispatches nothing — the guard expressed as data-with-a-filter.",
+       "Routes .preventDefault to the closed listener options map (:prevent-default true) rather than leaving it inside a closure.",
+       "Hoists the guard's read to render time and closes over the VALUE — a v/sub inside the callback would raise :rf.error/view-read-outside-render at click time.",
+       "Holds/decides the WHOLE view (the guard reads view-held state, coupling it to the MIG-16 state decision) — no half-migrated body."
      ]},
 
-    {"id": 20, "kind": "behavioural", "tier": "D", "name": "d-mig17-measure-before-paint-layout-effect",
-     "prompt": "Migrate this Reagent Form-3 view to re-frame.ui:\n(ns app.popover (:require [reagent.core :as r] [reagent.dom :as rdom]))\n(defn popover [anchor]\n  (r/create-class\n   {:component-did-mount (fn [this] (place! (rdom/dom-node this) (measure anchor)))\n    :reagent-render      (fn [a] [:div.popover])}))",
+    {"id": 19, "kind": "behavioural", "tier": "D", "name": "d-mig17-lifecycle-behavior-and-rehome",
+     "prompt": "Migrate this Reagent Form-3 view to Freehand:\n(ns app.editor (:require [reagent.core :as r] [reagent.dom :as rdom]))\n(defn editor []\n  (let [{:keys [dispatch]} (rf/capture-frame)]\n    (r/create-class\n     {:component-did-mount    (fn [this] (.focus (rdom/dom-node this)))\n      :component-will-unmount (fn [_] (dispatch [:resource/release]))\n      :reagent-render         (fn [] [editor-form])})))",
      "expectations": [
-       "Recognises MIG-17 Form-3 and that :component-did-mount here does MEASURE-then-mutate BEFORE paint (reads geometry to place the popover), so a passive effect would measure a frame late and flicker.",
-       "Does NOT route this to (effect :connect …); routes it to ui/ref + re-frame.ui.react/use-layout-effect (the measure-before-paint door), preserving the pre-paint semantics component-did-mount gave.",
-       "Emits BOTH the ref and the layout-effect as outer-let BINDINGS — e.g. (let [el (ui/ref) _ (react/use-layout-effect setup [anchor])] template) — NOT as a second statement in the let body: a host-hook call left in the body makes a two-form body and FAILS compilation with :rf.ui.compile/multi-form-body at [:body]; the single template is the only form the body may hold.",
-       "Uses the React interop shape for the layout-effect hook — a setup fn returning a cleanup fn or nil, (react/use-layout-effect (fn [] … cleanup-or-nil) deps) — NOT ui/effect's body-return shape, and reads the node via (.-current el) on the (ui/ref) binding.",
-       "Keeps ordinary listeners and deferrable host work on the passive effect; focus / chart setup is classified by required timing (the layout-effect door only when the initial DOM/visual state must exist before paint) — the split is not a wholesale hooks migration.",
+       "Recognises MIG-17 Form-3 lifecycle and decomposes each body into host/DOM work vs domain work — a judgment call held WHOLE (cardinal rule 2), not an automatic rewrite.",
+       "Routes the host/DOM work (focus the node on mount) to a registered behavior — (v/defbehavior … {:connect … :disconnect …}) plus a [v/behavior {:use … :target … :config …} element] use site — and does NOT emit `effect` or `ref`, which Freehand does not export.",
+       "Chooses :timing deliberately: an initial focus ring that must exist at first paint declares :timing :layout; deferrable setup stays on the default :passive.",
+       "Recognises there is no dispatch-at-unmount: mount and unmount are host facts, and a behavior's :disconnect is not a place to smuggle a domain event.",
+       "Re-homes the unmount domain work (the [:resource/release] dispatch) OUT of the view — to whatever causally ends the resource (a route's :resources released on every route leave, a machine actor, or an app event that mints and an event that ends) — and names that owner for the author (cardinal rule 5).",
+       "Enumerates EVERY exit path when proposing the owner; an enumeration that covers save/delete but misses navigate-away is the classic leak.",
+       "Notes that Freehand exposes no view-tier frame handle, so the rf/capture-frame binding does not translate (MIG-31)."
+     ]},
+
+    {"id": 20, "kind": "behavioural", "tier": "D", "name": "d-mig17-measure-before-paint",
+     "prompt": "Migrate this Reagent Form-3 view to Freehand:\n(ns app.popover (:require [reagent.core :as r] [reagent.dom :as rdom]))\n(defn popover [anchor]\n  (r/create-class\n   {:component-did-mount (fn [this] (place! (rdom/dom-node this) (measure anchor)))\n    :reagent-render      (fn [a] [:div.popover])}))",
+     "expectations": [
+       "Recognises MIG-17 Form-3 and that :component-did-mount here MEASURES then mutates BEFORE paint, so post-paint work would land a frame late and flicker.",
+       "Routes it to a registered behavior declaring :timing :layout — the pre-paint moment — and explains that :passive (the default) would flicker.",
+       "Does NOT emit ui/ref, a React hook, or any use-layout-effect form: Freehand exports no ref and no hook tier, and the behavior is handed the node it decorates.",
+       "Puts the anchor geometry inputs in :config as DATA — a node, a ref, a callback or a preconstructed host instance in :config is refused on both hosts — and re-feeds on change through :update, which runs only when the committed :config moves by rf=.",
        "Holds/decides the WHOLE view (cardinal rule 2) rather than half-migrating it."
      ]},
 
-    {"id": 21, "kind": "behavioural", "tier": "R", "name": "r-scheduler-not-effect",
-     "prompt": "Migrate this view to re-frame.ui:\n(ns f (:require [reagent.core :as r]))\n(defn flasher [] (r/after-render #(flash!)) [:div \"hi\"])",
+    {"id": 21, "kind": "behavioural", "tier": "R", "name": "r-foreign-react-component-holds",
+     "prompt": "Migrate this view to Freehand:\n(ns app.picker (:require [\"react-datepicker\" :default DatePicker]))\n(defn booking [] [:div [:> DatePicker {:selected @(subscribe [:date]) :onChange #(dispatch [:date/set %])}]])",
      "expectations": [
-       "Does NOT equate r/after-render (or r/next-tick) with ui/effect — they are Reagent one-shot render-queue schedulers (fire immediately before the next flush / immediately after queued renders, even when nothing renders), not component-owned passive post-commit effect work (MIG-35).",
-       "Keeps the scheduler call R-tier: holds the view on Reagent unless the author EXPLICITLY redesigns the work's phase, frequency, and ownership (a deliberate re-model, not a rename).",
-       "Warns that the call still COMPILES after conversion and misbehaves only at runtime, so the build gate will not catch a silent swap to effect."
+       "Declines and holds the WHOLE view on Reagent (MIG-09/10): Freehand's vector-head classification is total — a declared Freehand view, a keyword element, or a declared host descriptor — and the qualified host leaf for a foreign React component has not landed.",
+       "Does NOT invent a spelling for the foreign head, and does NOT present v/event / v/handler / v/render-fn / v/raw-fn as evidence that the foreign boundary is open — those serve the boundaries that exist.",
+       "Phrases the hold specifically and without apology, names the missing surface, and notes that Reagent remains a fully-supported configuration.",
+       "Notes that leaf views below it with no foreign heads can still convert, so the hold is scoped rather than blanket."
      ]},
 
-    {"id": 22, "kind": "behavioural", "tier": "D", "name": "d-mig17-did-update-dep-keyed-effect",
-     "prompt": "Migrate this Reagent Form-3 view to re-frame.ui:\n(ns app.chart (:require [reagent.core :as r]))\n(defn vega-chart [_spec]\n  (let [el (atom nil) view (atom nil)]\n    (r/create-class\n     {:component-did-mount    (fn [this] (let [[_ s] (r/argv this)] (.then (js/vegaEmbed @el (clj->js s)) (fn [res] (reset! view (.-view res))))))\n      :component-did-update   (fn [this _ _ _] (let [[_ s] (r/argv this)] (.then (js/vegaEmbed @el (clj->js s)) (fn [res] (some-> @view .finalize) (reset! view (.-view res))))))\n      :component-will-unmount (fn [_] (some-> @view .finalize))\n      :reagent-render         (fn [_] [:div {:ref (fn [e] (reset! el e))}])})))",
+    {"id": 22, "kind": "behavioural", "tier": "R", "name": "r-trusted-markup-holds",
+     "prompt": "Migrate this to Freehand:\n(defn article-body [html] [:div.body {:dangerouslySetInnerHTML {:__html html}}])",
      "expectations": [
-       "Recognises MIG-17 Form-3 and decomposes each lifecycle body — a judgment call held WHOLE (cardinal rule 2), not an automatic rewrite.",
-       "Routes :component-did-update (re-feed the imperative library when the spec prop changes) to the dependency-keyed (effect [spec] …) — runs its body after commit whenever the dep changes (compared by rf=), with the library-update recipe inside (finalize the old view, then embed the new); keeps the dep narrow.",
-       "Does NOT collapse this did-update to a subscription/Form-1 — the library does NOT re-render on data change, so the effect is load-bearing; contrasts it with a did-update that ONLY reads data to re-render (that one IS the subscription/Form-1 case, and the lifecycle disappears).",
-       "Routes :component-did-mount host work to (effect :connect …) and the :component-will-unmount disposal to that effect's trailing-fn cleanup (the body's RETURN value is the cleanup, NOT the React useEffect setup-returns-cleanup shape, which compiles but never runs the setup).",
-       "Consistent with reagent-slim FORM-3.md §6 (:component-did-update → dependency-keyed effect); this is the re-com-relevant decision (re-com's Form-3 sites use :component-did-update)."
+       "Declines (MIG-34): :dangerouslySetInnerHTML is refused and no trusted-markup verb is exported, so the view stays on Reagent.",
+       "Does NOT reach for v/markup — v/markup crosses a HICCUP VALUE into a compiled body (MIG-30); it does not parse or inject an HTML string, and using it here would render the markup as text.",
+       "Does not invent v/html or any other unexported form (cardinal rule 6)."
      ]},
 
-    {"id": 23, "kind": "behavioural", "tier": "R", "name": "r-mig17-snapshot-pair-holds-on-form3",
-     "prompt": "Migrate this Reagent Form-3 view to re-frame.ui:\n(ns app.log (:require [reagent.core :as r]))\n(defn scroll-log [_entries]\n  (let [c (atom nil)]\n    (r/create-class\n     {:get-snapshot-before-update (fn [_ _ _] (when-let [el @c] {:top (.-scrollTop el)}))\n      :component-did-update        (fn [_ _ _ snap] (when-let [el @c] (when-let [t (:top snap)] (set! (.-scrollTop el) t))))\n      :reagent-render              (fn [entries] [:div.log {:ref (fn [e] (reset! c e))} (for [x entries] ^{:key (:id x)} [:div (:text x)])])})))",
+    {"id": 23, "kind": "behavioural", "tier": "M", "name": "m-mount-and-frame-preflight",
+     "prompt": "Migrate the boot for this app to Freehand:\n(ns app.core (:require [reagent.dom :as rdom] [re-frame.core :as rf] [re-frame.adapter.reagent :as ra]))\n(defn init! []\n  (rf/init! ra/adapter)\n  (rf/dispatch-sync [:app/init])\n  (rdom/render [app] (js/document.getElementById \"root\")))",
      "expectations": [
-       "Recognises MIG-17 Form-3 with the paired :get-snapshot-before-update + :component-did-update protocol (pre-commit measure → post-commit restore — scroll restoration).",
-       "HOLDS the whole view on reagent-slim Form-3: there is NO native passive-effect or hook equivalent, because use-layout-effect runs AFTER React mutates the DOM and so cannot read the pre-mutation geometry; the pre-commit half of the protocol has no native door.",
-       "Does NOT route the snapshot protocol to (effect …) or use-layout-effect as if equivalent — that would silently lose the pre-commit measurement.",
-       "Explains this paired protocol is exactly why the reagent-slim 7-key cap keeps :get-snapshot-before-update (FORM-3.md §5/§6), so staying on Form-3 is the correct answer, not a lossy rewrite — held WHOLE (cardinal rule 2)."
+       "Rewrites to (v/mount [app {}] el {:frame {:id :app :initial-events [[:app/init]]}}) — the :frame opt is the preflight and drains before React sees anything (MIG-15).",
+       "States that Freehand needs no adapter install of its own, and that (rf/init! ra/adapter) is deleted only when the page's LAST Reagent root converts — confirming the root inventory with the author.",
+       "Deletes the React-18 create-root / defonce-atom dance if present: v/mount is idempotent per root, which is the hot-reload path.",
+       "Does not seed with dispatch-sync after mount when preflight can do it before paint."
      ]},
 
-    {"id": 24, "kind": "behavioural", "tier": "D", "name": "d-mig17-did-catch-error-boundary",
-     "prompt": "Migrate this Reagent Form-3 error boundary to re-frame.ui:\n(ns app.boundary (:require [reagent.core :as r]))\n(defn boundary [_]\n  (let [err (r/atom nil)]\n    (r/create-class\n     {:component-did-catch (fn [_ e _info] (js/console.error e) (reset! err e))\n      :reagent-render      (fn [child] (if @err [:div.fallback \"Something went wrong.\"] child))})))",
+    {"id": 24, "kind": "behavioural", "tier": "D", "name": "d-mig28-spread-vs-spread-safe",
+     "prompt": "Migrate this reusable control to Freehand:\n(defn text-field [attrs draft on-input]\n  [:input (merge attrs {:type \"text\" :value (:title draft) :on-change on-input})])",
      "expectations": [
-       "Recognises MIG-17 Form-3 :component-did-catch and routes it to the SHIPPED (ui/error-boundary {:fallback view :reset-key val :on-error [:ev …]} child) when its logging/recovery semantics fit — NOT a decline.",
-       "Maps the local r/atom fallback flip to the boundary's :fallback view (which renders with :error and cannot recursively dispatch), the console log / domain notification to :on-error (dispatches AFTER the failing commit), and clears the caught error by changing :reset-key (retry).",
-       "Notes React catches only render/lifecycle throws BELOW the boundary — not event-handler or async errors, which keep their own typed paths.",
-       "Holds honestly: when ui/error-boundary's semantics do NOT fit, the view stays on reagent-slim Form-3 (:component-did-catch + a local r/atom) or is redesigned — consistent with FORM-3.md §6.",
-       "Does NOT invent an unshipped API — ui/error-boundary is a shipped re-frame.ui template form (verify against the re-frame.ui exports)."
+       "Recognises MIG-28 and picks between the two forwards rather than reaching for the first one: (v/spread base overrides) is the visible-cost forward, (v/spread-safe owned caller) is the bounded one.",
+       "Chooses v/spread-safe here, because the control owns :value and its handler and must keep them: the deny law bars :key, :ref, :value, :checked and the component's own on-* families from `caller`, in every build.",
+       "Puts the owned props in the `owned` argument and the consumer's map in `caller`, and notes survivors fold under owned props with :class composing.",
+       "Respells :on-change/:onChange to the kebab spelling and lifts the handler where MIG-04/05 applies."
      ]}
   ]
 }
