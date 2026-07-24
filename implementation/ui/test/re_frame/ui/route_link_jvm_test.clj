@@ -109,6 +109,26 @@
       (is (= "_blank" (:target at))
           "native-handling attr renders on the anchor so the browser owns the click"))))
 
+(deftest jvm-strips-prefetch-and-installs-no-intent-handler
+  (testing ":prefetch is a routing control key, not markup — prefetch=\"intent\" is not HTML —
+            so it never reaches the anchor; and the SSR shell installs no intent handler,
+            for the same reason it installs no click handler"
+    (let [f    (rf/make-frame {:initial-events [[:rf/set-db {}]]})
+          tree (rf/with-frame f
+                 (uit/render [ui/route-link {:to :route/user
+                                             :params {:id "42"}
+                                             :prefetch :intent
+                                             :class "title"} "User"]))
+          a    (some #(when (= :a (:tag %)) %) (tree-seq map? :children tree))
+          at   (uit/attrs a)]
+      (is (= "/users/42" (:href at)) "the opt does not change where the link points")
+      (is (= "title" (:class at)) "the passthrough attrs beside it are untouched")
+      (is (not (contains? at :prefetch)) ":prefetch never reaches the anchor")
+      (doseq [k [:on-mouse-enter :on-focus :on-touch-start]]
+        (is (not (contains? at k))
+            (str k " — the server shell observes no intent")))
+      (is (nil? (:events a)) "no event sites on the JVM node"))))
+
 ;; ---------------------------------------------------------------------------
 ;; Artefact-missing — the fail-loud contract when routing is absent
 ;; ---------------------------------------------------------------------------

@@ -41,6 +41,7 @@
   `:browser-test` build; the node builds load it too and every case gates
   on `(browser?)`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
@@ -87,16 +88,28 @@
     (try (f host)
          (finally (.remove host)))))
 
+(defn- dom-event-name
+  "The DOM event a Freehand `:on-*` key names — `:on-mouse-enter` is
+  `\"mouseenter\"`. The one place this mapping lives in this fixture."
+  [k]
+  (-> (name k) (subs 3) (str/replace "-" "")))
+
 (defn- mount-anchor!
   "Put the rendered `[:a attrs & children]` into `host` as a real anchor:
-  the view's attributes as real attributes, the view's `:on-click` as a
-  real listener. Returns the element."
+  the view's attribute values as real attributes, and every FUNCTION the
+  view produced as a real listener on the event its key names. Returns
+  the element.
+
+  Function-valued rather than `:on-click`-only, because the view installs
+  handlers at more than one position now (a `:prefetch :intent` link binds
+  hover, focus and touch-start too) and a fixture that knew the roster
+  would have to be edited to keep the subject honest."
   [host [_ attrs & children]]
   (let [a (.createElement js/document "a")]
-    (doseq [[k value] (dissoc attrs :on-click)]
-      (.setAttribute a (name k) (str value)))
-    (when-let [handler (:on-click attrs)]
-      (.addEventListener a "click" handler))
+    (doseq [[k value] attrs]
+      (if (fn? value)
+        (.addEventListener a (dom-event-name k) value)
+        (.setAttribute a (name k) (str value))))
     (set! (.-textContent a) (apply str children))
     (.appendChild host a)
     a))
@@ -306,6 +319,93 @@
                 (is (= dispatched? (:dispatched? verdict))
                     (str label " — routing dispatch "
                          (if dispatched? "made" "not made")))))))))))
+
+;; ---------------------------------------------------------------------------
+;; FH-ROUTELINK-008 — hover, focus and touch warm the destination
+;; ---------------------------------------------------------------------------
+
+(def routelink-008 (conf/fixture :FH-ROUTELINK-008))
+
+(defn- with-prefetch-probe
+  "Run `f` while recording, in order, every `:rf.route/prefetch` dispatch
+  and the frame it targeted. Answers `[result recorded]`, where `recorded`
+  is the interleaved log `f` appended to — so WHEN the dispatch happened
+  relative to the caller's own handler is readable, not merely whether it
+  did."
+  [f]
+  (let [log        (atom [])
+        listener-k (keyword (gensym "fh-routelink-prefetch-"))]
+    (trace-tooling/register-listener!
+      listener-k
+      (fn [ev]
+        (when (and (= :rf.event/dispatched (:operation ev))
+                   (vector? (-> ev :tags :rf.event/v))
+                   (= :rf.route/prefetch (-> ev :tags :rf.event/v first)))
+          (swap! log conj {:dispatched (-> ev :tags :rf.event/v)
+                           :frame      (-> ev :tags :frame)
+                           :source     (:source ev)}))))
+    (try [(f log) @log]
+         (finally (trace-tooling/unregister-listener! listener-k)))))
+
+(deftest fh-routelink-008-intent-warms-the-destination-in-a-real-browser
+  (testing "Per FH-ROUTELINK-008, against real DOM events: hovering,
+            focusing or touching an opted-in link warms the destination it
+            points at. Each of the three positions dispatches exactly one
+            `:rf.route/prefetch` carrying the link's OWN address, to the
+            frame that RENDERED it — and the caller's own handler at that
+            key still runs, FIRST, rather than being replaced by the one
+            the framework installed."
+    (if-not (browser?)
+      (is true "no DOM under the node builds — the :browser-test runner exercises this")
+      (do
+        (setup! (:routes routelink-008))
+        (with-anchor-host
+          (fn [host]
+            (doseq [k (:intent-keys routelink-008)]
+              (let [[_ recorded]
+                    (with-prefetch-probe
+                      (fn [log]
+                        (let [props (assoc (:props (:opt-in routelink-008))
+                                           k (fn [_] (swap! log conj {:caller k})))
+                              a     (mount-anchor! host (render props))]
+                          (.dispatchEvent a (js/Event. (dom-event-name k) #js {:bubbles false})))))]
+                (is (= [{:caller k}
+                        {:dispatched (:event (:opt-in routelink-008))
+                         :frame      host-frame
+                         :source     :router}]
+                       recorded)
+                    (str k " — the caller ran first, then ONE prefetch for the link's own "
+                         "address reached the rendering frame, stamped :source :router"))))))))))
+
+(deftest fh-routelink-008-nothing-warms-without-the-opt-in
+  (testing "Per FH-ROUTELINK-008: the half that matters. Rendering an
+            opted-in link dispatches nothing — intent is a user act, not a
+            render — and a link that never opted in dispatches nothing on
+            hover either, while the author's own hover handler runs
+            exactly as it always did."
+    (if-not (browser?)
+      (is true "no DOM under the node builds — the :browser-test runner exercises this")
+      (do
+        (setup! (:routes routelink-008))
+        (with-anchor-host
+          (fn [host]
+            (let [[_ on-render]
+                  (with-prefetch-probe
+                    (fn [_] (mount-anchor! host (render (:props (:opt-in routelink-008))))))]
+              (is (= [] on-render)
+                  "a passive render warms nothing — there is no render mode"))
+            (let [{:keys [why props]} (:passive routelink-008)
+                  [ran recorded]
+                  (with-prefetch-probe
+                    (fn [_]
+                      (let [ran (atom 0)
+                            a   (mount-anchor! host (render (assoc props
+                                                                   :on-mouse-enter
+                                                                   (fn [_] (swap! ran inc)))))]
+                        (.dispatchEvent a (js/Event. "mouseenter" #js {:bubbles false}))
+                        @ran)))]
+              (is (= 1 ran) (str why " — the author's handler runs, untouched"))
+              (is (= [] recorded) (str why " — and nothing is warmed")))))))))
 
 (deftest fh-routelink-007-a-non-vetoing-caller-is-unaffected
   (testing "Per FH-ROUTELINK-007: the control. A link with NO `:on-click`

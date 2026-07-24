@@ -8,11 +8,17 @@
   and dev identity for free, and is NOT a compiler intrinsic. All routing
   knowledge lives in the OPTIONAL `re-frame.routing` artefact behind two
   substrate-neutral late-bound hooks routing publishes and the defview consumes
-  through this namespace:
+  through this namespace — two for the click, two for the `:prefetch :intent`
+  warm-up, each pair split the same way:
 
     `:routing/link-model`     — PURE, both hosts; the whole link calculation
                                 (strategy-encoded href, dispatch payload, native?).
     `:routing/activate-link!` — CLJS only; THE router-attributed click decision.
+    `:routing/prefetch-payload`    — PURE, both hosts; the
+                                `[:rf.route/prefetch {address}]` vector for a link
+                                that asked for it, or nil.
+    `:routing/prefetch-on-intent!` — CLJS only; the intent dispatch that warms
+                                the destination.
 
   Consuming the seam through `re-frame.late-bind` (core) keeps the packaging
   graph `ui -> core late-bind <- routing`: neither optional artefact statically
@@ -50,6 +56,34 @@
                           routing-artefact
                           {:to (:to target)})
    target render-frame))
+
+(defn prefetch-payload
+  "Resolve the `:routing/prefetch-payload` hook and compute the
+  `[:rf.route/prefetch {address}]` dispatch vector for one `ui/route-link`
+  render — nil when the link did not ask for a prefetch. PURE, both hosts.
+  The view never reads `:prefetch` itself: which value opts a link in, and
+  which address it warms, is routing's law and stays behind the hook."
+  [target]
+  ((late-bind/require-fn! :routing/prefetch-payload
+                          're-frame.ui/route-link
+                          routing-artefact
+                          {:to (:to target)})
+   target))
+
+#?(:cljs
+   (defn prefetch-on-intent!
+     "Resolve the `:routing/prefetch-on-intent!` hook and warm the link's
+     destination on one credible-intent event (hover / focus / touch-start).
+     `caller-handler` is the caller's handler at that position, which routing
+     runs FIRST — the prefetch composes with the author's hover work rather
+     than replacing it. Reached only from a rendered anchor, i.e. AFTER
+     `prefetch-payload` already proved routing present at render; a hook that
+     vanished between render and hover (dev hot-reload of the routing artefact)
+     simply warms nothing, exactly as `activate!` degrades to native
+     navigation rather than throwing at event time."
+     [e caller-handler render-frame payload]
+     (when-let [f (late-bind/get-fn :routing/prefetch-on-intent!)]
+       (f e caller-handler render-frame payload))))
 
 #?(:cljs
    (defn activate!

@@ -1535,12 +1535,27 @@
       [v/route-link {:to :article :params {:slug slug} :class \"title\"}
        title]
 
-  The control keys are `:to` / `:params` / `:query` / `:fragment` and
-  `:on-click`. `:to` is required (a registered route id); `:params` /
-  `:query` / `:fragment` feed both the href and the dispatch payload.
-  Every OTHER key — `:class`, `:title`, `:id`, `:aria-label`, `:target`,
-  `:download`, and any further HTML attribute — passes through to the
-  `<a>` untouched.
+  The control keys are `:to` / `:params` / `:query` / `:fragment`,
+  `:on-click` and `:prefetch`. `:to` is required (a registered route id);
+  `:params` / `:query` / `:fragment` feed both the href and the dispatch
+  payload. Every OTHER key — `:class`, `:title`, `:id`, `:aria-label`,
+  `:target`, `:download`, and any further HTML attribute — passes through
+  to the `<a>` untouched.
+
+  `:prefetch :intent` warms the destination's resources on credible user
+  intent — pointer hover, focus or touch — by dispatching
+  `[:rf.route/prefetch …]` for this link's own address to the frame that
+  rendered it:
+
+      [v/route-link {:to :article :params {:slug slug} :prefetch :intent}
+       title]
+
+  `:intent` is the only accepted value: a passive render dispatches
+  nothing, so there is no render mode, viewport mode or hover-delay knob.
+  On a link that opts in, `:on-mouse-enter` / `:on-focus` /
+  `:on-touch-start` become framework-owned positions — a caller's handler
+  there still runs, FIRST, but takes the same closed grammar `:on-click`
+  does. On every other link they stay ordinary event positions.
 
   `:on-click` is the imperative PRE-NAVIGATION seam, not a second intent
   site: it takes a plain function or a [[handler]], runs FIRST, exactly
@@ -1576,7 +1591,8 @@
            [:params {:optional true} [:maybe :map]]
            [:query {:optional true} [:maybe :map]]
            [:fragment {:optional true} [:maybe :string]]
-           [:on-click {:optional true} :any]]}
+           [:on-click {:optional true} :any]
+           [:prefetch {:optional true} [:= :intent]]]}
   [props]
   (route-link-seam/anchor props))
 
