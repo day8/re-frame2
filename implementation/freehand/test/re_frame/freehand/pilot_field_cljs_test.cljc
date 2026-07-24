@@ -701,6 +701,55 @@
                  (:id (t/attrs (error-of (field-node solo "description")))))
               "no :instance, so no instance segment"))))))
 
+(deftest error-region-ids-are-injective-over-supported-identities
+  (testing "rf2-drpa3.146. The id names ONE instance, and the library points
+            `aria-describedby` at it, so distinct SUPPORTED identities must
+            yield distinct ids. The lossy slug collapsed several onto one: it
+            replaced every non-alnum run with a single '-' and dropped a token
+            that trimmed to blank, so `\"a/b\"` and `\"a-b\"`, `1` and `\"1\"`,
+            and `\"!\"` and `\"@\"` all aliased. Line ids 1 and 2 never
+            exercised this — they slugged apart already."
+    (let [id (fn [instance] (pilot/error-region-id "acme-field" instance "description"))]
+      (is (not= (id "a/b") (id "a-b"))
+          "two string instances the slug collapsed are two ids")
+      (is (not= (id 1) (id "1"))
+          "a number and the string of its digits are two ids")
+      (is (not= (id "!") (id "@"))
+          "two punctuation-only identities are two ids, neither dropped")
+      (is (not= (id "!") (id nil))
+          "and a punctuation identity is not the same as no identity")
+      (is (not= (pilot/error-region-id "acme-field" "a" "b-c")
+                (pilot/error-region-id "acme-field" "a-b" "c"))
+          "the join cannot blur where one identity part ends and the next begins"))))
+
+(deftest a-buffered-control-address-is-injective-as-one-token
+  (testing "rf2-drpa3.146, acceptance 2. The buffered field slugs its whole
+            `:control` address as ONE token, so two distinct addresses must
+            still land on two ids — the same collision, at the surface the
+            controlled-instance fix does not touch."
+    (let [id (fn [control] (pilot/error-region-id "acme-buffered" control))]
+      (is (not= (id [:invoice 1 :reference]) (id [:invoice 2 :reference]))
+          "two line addresses are two ids")
+      (is (not= (id [:invoice 42 :reference]) (id [:invoice-42 :reference]))
+          "a boundary a lossy slug blurred — [:invoice 42 …] versus [:invoice-42 …]")
+      (is (not= (id [:invoice 1 :reference]) (id [:invoice 1 :ref]))
+          "and a different leaf is a different address"))))
+
+(deftest the-single-instance-short-id-and-purity-survive-the-fix
+  (testing "rf2-drpa3.146, acceptance 5. The fix adds no allocator and changes
+            neither the short single-instance id nor the purity the reorder
+            test relies on: an absent instance keeps the short readable form,
+            and the same identity yields the same id every call."
+    (is (= "acme-field-description-error"
+           (pilot/error-region-id "acme-field" nil "description"))
+        "no instance — the short, readable id is preserved")
+    (is (= (pilot/error-region-id "acme-field" "a/b" "description")
+           (pilot/error-region-id "acme-field" "a/b" "description"))
+        "pure: the same string identity yields the same id")
+    (is (= (pilot/error-region-id "acme-buffered" [:invoice 1 :reference])
+           (pilot/error-region-id "acme-buffered" [:invoice 1 :reference]))
+        "including a control-address identity")))
+
 ;; ===========================================================================
 ;; R-A9 — asynchronous transform race safety
 ;; ===========================================================================

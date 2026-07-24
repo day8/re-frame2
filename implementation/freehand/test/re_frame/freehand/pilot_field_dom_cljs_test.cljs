@@ -574,6 +574,53 @@
                         (teardown! container root)
                         (done)))))))))
 
+(deftest pilot-two-instances-a-lossy-slug-collapsed-keep-distinct-mounted-ids
+  (testing "rf2-drpa3.146 (mounted). The collision the numeric line-id test
+            never reaches: two controlled fields with the same name and the
+            instances a lossy slug collapsed onto ONE id — \"a/b\" and
+            \"a-b\" — now mount with DISTINCT `aria-describedby` targets, each
+            resolving by document id to its own error region."
+    (if-not (browser?)
+      (skip! "the browser job runs the mounted collision regression")
+      (async done
+        (live-frame/make-frame {:id fid})
+        (frame/replace-app-db! fid {})
+        (pilot/register!)
+        (pilot/register-app!)
+        (let [[container root] (mount!)
+              field-form (fn [instance]
+                           [pilot/field {:name     "description"
+                                         :label    "Description"
+                                         :value    ""
+                                         :instance instance
+                                         :error    "A description is required."
+                                         :on-input [:noop]}])]
+          (-> (act #(.render root (shell/provide-frame
+                                    fid (fr/element [:div
+                                                     (field-form "a/b")
+                                                     (field-form "a-b")]))))
+              (.then
+                (fn [_]
+                  (let [controls (.querySelectorAll container "[data-part='control']")
+                        c1  (.item controls 0)
+                        c2  (.item controls 1)
+                        id1 (.getAttribute c1 "aria-describedby")
+                        id2 (.getAttribute c2 "aria-describedby")]
+                    (is (= 2 (.-length controls)) "non-vacuous: two fields mounted")
+                    (is (some? id1) "the \"a/b\" control names a region")
+                    (is (some? id2) "the \"a-b\" control names a region")
+                    (is (not= id1 id2)
+                        "\"a/b\" and \"a-b\" no longer collapse onto one id")
+                    (is (some? (.getElementById js/document id1))
+                        "the \"a/b\" region resolves by document id")
+                    (is (some? (.getElementById js/document id2))
+                        "the \"a-b\" region resolves by document id"))))
+              (.then (fn [_] (teardown! container root) (done)))
+              (.catch (fn [e]
+                        (is false (str "the mounted pilot rejected: " e))
+                        (teardown! container root)
+                        (done)))))))))
+
 ;; ===========================================================================
 ;; The compiled cell, re-opened — the pilot's compiled twin mounts
 ;; ===========================================================================

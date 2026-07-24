@@ -199,17 +199,47 @@
 ;; Instance-unique ids for a control's error region
 ;; ---------------------------------------------------------------------------
 
+(defn- hex-escape
+  "One non-alphanumeric character `c` as the reversible token `_<hex>_`."
+  [c]
+  (str "_"
+       #?(:clj  (Integer/toString (int (.charAt ^String c 0)) 16)
+          :cljs (.toString (.charCodeAt c 0) 16))
+       "_"))
+
+(defn- dom-escape
+  "Escape `s` to a DOM-safe token over `[A-Za-z0-9_]`, INJECTIVELY: an ASCII
+  alphanumeric passes through unchanged — so an ordinary name stays itself —
+  and every other character, INCLUDING `_` and the `-` the id join reserves
+  as its separator, becomes `_<hex>_`. Distinct strings therefore yield
+  distinct tokens, and a token never carries a bare `-`, so parts joined by
+  `-` cannot blur their boundary."
+  [s]
+  (str/replace s #"[^A-Za-z0-9]" hex-escape))
+
 (defn- id-token
-  "A DOM-safe token for one part of a control's identity, or nil when the
-  part is absent. `[:invoice 2 :reference]` becomes `invoice-2-reference`
-  and `\"description\"` stays `description`. Pure and stable, so the same
-  identity yields the same token on every render and after a list
-  reorder."
+  "A DOM-safe, INJECTIVE token for one part of a control's identity, or nil
+  when the part is absent. Distinct SUPPORTED identities yield distinct
+  tokens — the library promises the caller so and points an
+  `aria-describedby` at the result — so the encoding must not lose the
+  difference a lossy slug did: `\"a/b\"` and `\"a-b\"` are two identities,
+  `:invoice` and `\"invoice\"` are two, `1` and `\"1\"` are two, and `\"!\"`
+  and `\"@\"` are two rather than both nothing.
+
+  A string is escaped directly, so an ordinary name — `\"description\"` —
+  stays itself and a single-instance field keeps its short, readable id. Any
+  other value carries a reserved `_v_` prefix ahead of its escaped `pr-str`:
+  the prefix is one a string can never produce — a string's own `_` escapes
+  to `_5f_` — so a typed value and a string of the same characters never
+  collide, and `pr-str` keeps distinct values distinct (a `:control` vector
+  address escapes as one unambiguous token). Pure and stable: the same
+  identity yields the same token on every render and after a list reorder,
+  and nothing is allocated, counted or policed."
   [part]
   (when (some? part)
-    (let [t (-> (str part)
-                (str/replace #"[^A-Za-z0-9]+" "-")
-                (str/replace #"(^-+)|(-+$)" ""))]
+    (let [t (if (string? part)
+              (dom-escape part)
+              (str "_v_" (dom-escape (pr-str part))))]
       (when-not (str/blank? t) t))))
 
 (defn error-region-id
