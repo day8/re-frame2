@@ -672,9 +672,10 @@
         ;; not to either front end. Left in the attribute map it is not an
         ;; attribute at all: it reached the plain-attribute path and refused the
         ;; whole element, so `v/spread-safe` did not render in an interpreted
-        ;; browser view. Split here, exactly as `tree/element-attrs` splits it.
-        caller    (get authored node/caller-attrs-key)
-        attrs     (dissoc authored node/caller-attrs-key)
+        ;; browser view. Split through the ONE splitter the structural walk uses,
+        ;; so an authored key of the same name is refused identically on both.
+        [attrs
+         caller]  (node/split-caller authored)
         kid-forms (if attrs? (rest args) args)
         ;; The DOM top layer's desired-state pair never reaches React as a
         ;; prop — an emitter drops the namespace that is the whole of its
