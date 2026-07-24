@@ -155,7 +155,9 @@
       (is (= (:safe-summary-keys error-003) (set (keys summary)))
           "exactly the closed public field set")
       (is (= (:diagnostic-id error-003) (:diagnostic-id summary)))
-      (is (= (:phase error-003) (:phase summary)))
+      (is (= :normalize (:phase summary))
+          "the view body returned; the WALK realising the lazy child raised
+           the failure, so the phase is :normalize, not :render")
       (is (= (:basis error-003) (:basis (:evidence summary))))
       (is (empty? (set/intersection (:forbidden-keys error-003) (deep-keys summary)))
           "no exception, ex-data, props, app-db or event history")

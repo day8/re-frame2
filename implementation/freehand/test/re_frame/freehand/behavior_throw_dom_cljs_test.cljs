@@ -281,9 +281,12 @@
                            "the evidence is complete — nothing about this failure was lost")
                        (is (nil? (:loss (:evidence summary)))
                            "so there is no loss to name")
-                       (is (= (eb/fingerprint behaviors/behavior-view-id :render)
+                       (is (= (eb/fingerprint behaviors/behavior-view-id :normalize)
                               (:fingerprint summary))
-                           "and the correlation token follows the attribution"))
+                           "and the correlation token follows the attribution AND
+                            the phase: the behavior body returned and the emitter's
+                            WALK of its decorated child raised the failure, so the
+                            token names the :normalize phase, not :render"))
                      (done))
                   (fn [e]
                     (is false (str "mount rejected: " e))
@@ -348,8 +351,10 @@
                        (is (= (:safe-summary-keys error-003) (set (keys summary)))
                            "the safe summary's field set is exactly the closed public set")
                        (is (= (:diagnostic-id error-003) (:diagnostic-id summary)))
-                       (is (= (:phase error-003) (:phase summary))
-                           "a Freehand body threw, so the phase is :render")
+                       (is (= :normalize (:phase summary))
+                           "the behavior body returned; the emitter WALK realising
+                            the lazy decorated child raised the failure, so the
+                            phase is :normalize, not :render")
                        (is (= (:basis error-003) (:basis (:evidence summary))))
                        (is (empty? (set/intersection (:forbidden-keys error-003)
                                                      (deep-keys summary)))
