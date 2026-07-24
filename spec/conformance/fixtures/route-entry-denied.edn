@@ -1,0 +1,125 @@
+;; Conformance fixture: routing/entry-denied (EP-0037 R4 — terminal entry)
+;;
+;; A route declares :can-enter (a sub-id whose value is true when entering is
+;; OK). While the sub returns false, entry is DENIED through every door. Denial
+;; is TERMINAL: nothing commits, NO :rf/pending-navigation is written, and the
+;; runtime dispatches :rf.route/entry-denied exactly ONCE per attempt. The
+;; framework ships a no-op default handler, so denial is safe with no
+;; application handler at all. A post-denial return is an ordinary FRESH
+;; navigation whose guard re-evaluates.
+;;
+;; Per [012 §Entry is terminal](../../012-Routing.md#entry-is-terminal).
+
+{:fixture/id           :routing/entry-denied
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/blocking}
+ :fixture/doc          "An :account/settings route's :can-enter sub returns false (signed out). Every door — link click, programmatic navigate, deep-link/popstate — is denied: no route commits, no pending-navigation value is created, and :rf.route/entry-denied is dispatched exactly once. After signing in, a FRESH navigate to the stored destination succeeds."
+
+ :fixture/registry
+ {:route
+  {:route/home       {:path "/"}
+   :account/settings {:path      "/account"
+                      :can-enter :auth/signed-in?}}
+
+  :event
+  {:auth/sign-in  {:doc "Mark the viewer signed in (so :auth/signed-in? returns true)."}
+   :auth/sign-out {:doc "Mark the viewer signed out (so :auth/signed-in? returns false)."}}
+
+  :sub
+  {:auth/user       {:doc "The signed-in user, or nil."}
+   :auth/signed-in? {:doc "Returns true when a user is signed in — the :can-enter guard."}}}
+
+ :fixture/handlers
+ {:event
+  {:auth/sign-in  [[:set [:auth :user] "alice"]]
+   :auth/sign-out [[:set [:auth :user] nil]]}
+
+  :sub
+  {:auth/user       [[:get [:auth :user]]]
+   :auth/signed-in? [[:get [:auth :user]]
+                     ;; Built-in :some? — true when a user is present.
+                     [:fn :some?]]}}
+
+ ;; Per Spec 012: :rf.nav/push-url / :rf.nav/replace-url declare
+ ;; :platforms #{:client}, so the frame must run on the client platform for the
+ ;; effects-routed assertions to match. The SSR 403 arm is a separate contract
+ ;; and lives in [011 §Route entry denial](../../011-SSR.md#route-entry-denial--the-default-403).
+ :fixture/frame-config {:platform :client}
+
+ :fixture/dispatches
+ [;; Step 1: land on home, signed out.
+  [:rf.route/handle-url-change "/"]
+
+  ;; Step 2: link click into the guarded route. DENIED — the runtime never
+  ;; pushes (the link door decides BEFORE the address bar moves), the slice is
+  ;; unchanged, no pending value is created, and :rf.route/entry-denied fires
+  ;; exactly once across both hops of the link door.
+  [:rf.route/url-requested {:url "/account"}]
+
+  ;; Step 3: programmatic navigate — the SAME outcome (fail-closed per door).
+  [:rf.route/navigate {:to :account/settings}]
+
+  ;; Step 4: deep-link / popstate — the same outcome, PLUS an address-bar
+  ;; restore: the browser already moved, so the runtime replaces the URL back
+  ;; to the current slice's URL (a replace, so no history entry is added).
+  [:rf.route/handle-url-change "/account"]
+
+  ;; Step 5: an EXACT no-op runs neither guard and creates no state.
+  [:rf.route/handle-url-change "/"]
+
+  ;; Step 6: the retired set-valued policy key is now an unknown request key.
+  [:rf.route/navigate {:to :account/settings :bypass-guards? #{:enter}}]
+
+  ;; Step 7: :bypass-leave? is LEAVE-only — it never opens the entry gate.
+  [:rf.route/navigate {:to :account/settings :bypass-leave? true}]
+
+  ;; Step 8: sign in, then return FRESHLY. The guard re-evaluates because this
+  ;; is an ordinary new attempt — there is no paused transition to resume.
+  [:auth/sign-in]
+  [:rf.route/navigate {:to :account/settings}]]
+
+ :fixture/expect
+ {:final-app-db {:auth {:user "alice"}}
+
+  :final-runtime-db {:rf.runtime/routing {:current {:route-id :account/settings :params {} :query {} :fragment nil
+                                                    :transition :idle :error nil}
+                                          ;; Entry denial NEVER creates a pending value.
+                                          :pending-navigation nil}}
+
+  :trace-emissions
+  [;; Steps 2, 3, 4 and 7 each emit exactly one denial trace. The harness
+   ;; asserts FOUR :rf.route/entry-denied emissions in total — one per denied
+   ;; attempt, never two for one attempt and never zero.
+   {:operation :rf.route/entry-denied
+    :tags      {:requested-url   "/account"
+                :rejecting-route :account/settings
+                :rejecting-guard :auth/signed-in?
+                :phase           :can-enter
+                :cause           :link}}
+   {:operation :rf.route/entry-denied
+    :tags      {:requested-url   "/account"
+                :rejecting-route :account/settings
+                :phase           :can-enter
+                :cause           :navigate}}
+   {:operation :rf.route/entry-denied
+    :tags      {:requested-url   "/account"
+                :rejecting-route :account/settings
+                :phase           :can-enter
+                :cause           :popstate}}
+
+   ;; Step 6: the retired :bypass-guards? key is rejected LOUD by the
+   ;; always-on structural gate, before any guard runs.
+   {:operation :rf.error/navigate-bad-request
+    :tags      {:where  :event
+                :reason :unknown-keys
+                :keys   [:bypass-guards?]}}
+
+   ;; Step 8 commits: a fresh nav-token is allocated for the successful entry.
+   {:operation :rf.route.nav-token/allocated
+    :tags      {:route-id :account/settings}}]
+
+  :effects-routed
+  [;; The blocked popstate (step 4) restores the address bar by REPLACE.
+   [:rf.nav/replace-url "/"]
+   ;; No push fires until the fresh post-sign-in navigate (step 8).
+   [:rf.nav/push-url "/account"]]}}

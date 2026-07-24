@@ -2,9 +2,11 @@
 ;;
 ;; A route declares :can-leave (a sub-id whose value is true when leaving is OK).
 ;; While the sub returns false, navigation requests are blocked: the runtime
-;; sets :rf/pending-navigation, emits :rf.route/navigation-blocked, and does NOT
-;; change the URL. User dispatch of :rf.route/continue resumes the navigation
-;; (bypassing the guard for one shot). :rf.route/cancel abandons it.
+;; writes ONE leave-only :rf/pending-navigation value carrying the replayable
+;; :destination / :target / :cause / :policy, emits :rf.route/navigation-blocked,
+;; and does NOT change the URL. :rf.route/continue replays the stored
+;; destination + policy with a one-shot :bypass-leave?; :rf.route/cancel
+;; abandons it. (Entry has no counterpart — see route-entry-denied.edn.)
 ;;
 ;; Per [012 §Navigation blocking](../../012-Routing.md#navigation-blocking--pending-nav-protocol).
 
@@ -53,13 +55,18 @@
   [:editor/set-dirty]
 
   ;; Step 3: Try to navigate to /cart. The :can-leave guard rejects.
-  ;; :rf/pending-navigation gets set; :rf.nav/push-url is NOT emitted; URL unchanged;
-  ;; :rf/route slice unchanged; :rf.route/navigation-blocked trace fires.
+  ;; :rf/pending-navigation gets set to
+  ;;   {:id "pn-1" :destination {:to :route/cart} :cause :link :policy {}
+  ;;    :target {:route-id :route/cart … :url "/cart"} :requested-url "/cart"
+  ;;    :rejecting-route :editor/article :rejecting-guard :editor/can-leave?}
+  ;; :rf.nav/push-url is NOT emitted; URL unchanged; :rf/route slice unchanged;
+  ;; :rf.route/navigation-blocked trace fires.
   [:rf.route/url-requested {:url "/cart"}]
 
   ;; Step 4: User dispatches :rf.route/continue with the pending-nav id.
-  ;; The runtime clears the slot and re-issues the navigation, bypassing :can-leave.
-  ;; URL becomes /cart; :route/cart becomes active.
+  ;; The runtime clears the slot and replays the STORED :destination
+  ;; ({:to :route/cart}) plus the stored :policy through :rf.route/navigate
+  ;; with :bypass-leave? true. URL becomes /cart; :route/cart becomes active.
   [:rf.route/continue "pn-1"]]                         ;; harness substitutes the actual id
 
  :fixture/expect
@@ -72,7 +79,10 @@
   [;; Step 3 emits the blocked trace.
    {:operation :rf.route/navigation-blocked
     :tags      {:requested-url   "/cart"
-                :rejecting-route :editor/article}}
+                :rejecting-route :editor/article
+                :rejecting-guard :editor/can-leave?
+                :phase           :can-leave
+                :cause           :link}}
 
    ;; Step 4 allocates a fresh nav-token for the resumed navigation.
    {:operation :rf.route.nav-token/allocated
