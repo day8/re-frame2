@@ -298,8 +298,9 @@ const ARTEFACTS = [
   },
 
   {
-    // rf2-vxgfnd.99.2 — day8/re-frame2-ui, the compiled-view substrate, is now a
-    // published browser-optional artefact. The counter example is a Reagent app
+    // re-frame.ui, the compiled-view substrate. In-tree only — never published
+    // (rf2-a32r7) — but browser-capable, so it is still worth proving its client
+    // kernel stays out of an app that never asks for it. The counter example is a Reagent app
     // that never `:require`s any re-frame.ui.* namespace (shadow-cljs.edn pins
     // "no production build requires re-frame.ui.*"), so the ui client kernel's
     // bodies must be absent from the counter bundle. The sentinel is the
@@ -721,7 +722,7 @@ const POSITIVE_CONTROL = {
   flows:               { onModule: 'flows' },
   epoch:               { onModule: 'epoch' },
   ssr:                 { onModule: 'ssr' },
-  // rf2-vxgfnd.99.2 — the :ui module (scripts/bundle-isolation-positive-control/
+  // The :ui module (scripts/bundle-isolation-positive-control/
   // src/.../ui.cljs) references re-frame.ui.runtime fns that raise
   // :rf.error/ui-tree-malformed, so the sentinel is present in out/bundle-
   // isolation-positive-control/ui.js and a drifted/renamed reason-id fails loud.
@@ -954,15 +955,14 @@ function assertPositiveControlComplete(artefacts = ARTEFACTS, controls = POSITIV
 //              never isolated from the counter bundle).
 //   ssr-ring — JVM-only ring server adapter (all .clj; no CLJS runtime body can
 //              reach a production client bundle).
-// `ui` is deliberately NOT excluded (rf2-klyw5): day8/re-frame2-ui is a separate
-// browser-capable substrate artefact that the adapters do NOT depend on, so the
-// old "always present, every adapter loads it" premise was false and let a
-// future publishable UI stay unguarded. rf2-vxgfnd.99.2 made UI publishable and
-// landed its generic ARTEFACTS isolation entry in the same slice (sentinel
-// rf.error/ui-tree-malformed; positive control onModule 'ui'), so UI is now
-// discovered as a REQUIRED browser-optional runtime and covered like the other
-// per-feature artefacts — its client kernel must stay absent from the no-feature
-// counter bundle.
+// `ui` needs no entry here at all. Discovery is publishability-driven and
+// re-frame.ui declares no :clein/build — it is never published (rf2-a32r7) — so
+// it is not discovered as a required browser-optional runtime and carries no
+// coverage obligation. It keeps its generic ARTEFACTS entry regardless (sentinel
+// rf.error/ui-tree-malformed; positive control onModule 'ui'): the artefact loop
+// scans every entry, and re-frame.ui is a browser-capable substrate the adapters
+// do NOT depend on, so its client kernel must still stay absent from the
+// no-feature counter bundle.
 //
 // Keyed by exact implementation-relative PATH (both entries are flat, so path
 // == leaf today) so the exclusion is applied against the authority's relPath.
