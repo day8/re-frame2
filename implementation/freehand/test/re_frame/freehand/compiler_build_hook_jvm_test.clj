@@ -392,8 +392,17 @@
         ex (try (finish collision '#{app.old app.new}) nil
                 (catch clojure.lang.ExceptionInfo e e))]
     (is (some? ex) "two live sites for one root-id must fail the build")
-    (is (= :re-frame.freehand.compiler.build/duplicate-root-id
-           (:re-frame.freehand.compiler.build/error (ex-data ex))))
+    ;; The real Shadow compile-finish door now emits the CANONICAL public
+    ;; discriminator through the shared error builder — the SAME
+    ;; `:rf.error/duplicate-root-id` the off-build-pass door (register-root-site!)
+    ;; raises — so one public collision has one catalogued identity regardless of
+    ;; build mode (rf2-d2pz3). No internal `::build/duplicate-root-id` id survives.
+    (is (= :rf.error/duplicate-root-id (:rf.error/id (ex-data ex)))
+        "canonical Spec 009 discriminator, not an internal build-scoped id")
+    (is (nil? (:re-frame.freehand.compiler.build/error (ex-data ex)))
+        "the divergent internal id is gone — one identity across both doors")
+    (is (re-find #"\[:rf\.error/duplicate-root-id\]" (ex-message ex))
+        "human message carries the greppability token (Spec 009 thrown-error shape)")
     (is (= :shared/root (:root-id (ex-data ex))))
     (is (= 2 (count (:sites (ex-data ex)))) "both sites named with coords")))
 

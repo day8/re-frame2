@@ -380,8 +380,12 @@ source coordinates in dev.
 every `mount`/`render!`/`hydrate-root`/`render-static` macro site's statically resolved
 root-id. On the interpreted **Freehand door** only `render-static` reaches this layer —
 its `mount`/`hydrate-root` are runtime functions with no build-time site to index, and
-`render-static` alone has no client runtime, so build-time registration is the only place
-its identity can be caught; a Freehand client mount is caught instead at Layer 3's
+`render-static` alone has no client runtime, so it has no Layer 3. Layer 1 therefore
+catches only the **cross-namespace, build-visible** class of render-static duplicate — a
+same-namespace re-registration is REPLACED (watch/HMR tolerance, so a same-namespace
+double-`render-static` passes Layer 1), and independently rendered fragments one build
+never sees together are the **response-local Layer 2** registry's to catch (below). A
+Freehand client mount, by contrast, is caught at Layer 3's
 claim-before-render (below). Either way, two indexed sites with equal root-ids
 **reachable from one entry point's module closure** =
 build error `:rf.error/duplicate-root-id` (build tier), data

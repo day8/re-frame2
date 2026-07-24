@@ -42,7 +42,8 @@
 
   `state` plus begin/commit/abort below remain only as a plain-JVM/test harness
   for the same pure slice transitions. They are not Shadow build authority."
-  (:require [re-frame.freehand.eq :as eq]))
+  (:require [re-frame.error :as error]
+            [re-frame.freehand.eq :as eq]))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry ids (opaque keys naming the build-scoped registries)
@@ -954,6 +955,13 @@
   [row]
   (select-keys row [:file :line]))
 
+(defn- site-str
+  "PURE: a stamped Layer-1 row's `file:line` locator rendered for the human
+  diagnostic sentence — the same rendering `re-frame.freehand.compiler.root/register-root-site!`
+  uses off the build-pass path, so both compiler doors read one message shape."
+  [{:keys [file line]}]
+  (str (or file "<unknown-file>") (when line (str ":" line))))
+
 (defn harvest-root-plan-registries
   "PURE: fold the SYNTHETIC analyzer-map root sites of every authoritative
   `members` namespace in `build-state` into per-source registry rows
@@ -963,10 +971,14 @@
   identically for a cache-hit member and a freshly compiled one. Same-namespace
   re-declaration replaces (a source's own later site wins — watch/HMR tolerance);
   the cross-NAMESPACE Layer-1 root-id law runs HERE (a compile-finish error is still
-  a build-time error): two namespaces resolving one root-id THROW
-  `::duplicate-root-id`. Members are folded in sorted order so the reported evidence
-  is stable under every graph permutation. Empty (no root sites in the build) yields
-  `{}`, so the finish overlay is a no-op for a mount-free build."
+  a build-time error): two namespaces resolving one root-id throw the canonical
+  `:rf.error/duplicate-root-id` through the shared error builder — the SAME public
+  discriminator the off-build-pass door
+  (`re-frame.freehand.compiler.root/register-root-site!`) raises, so one public
+  collision has one catalogued identity regardless of build mode. Members are folded
+  in sorted order so the reported evidence is stable under every graph permutation.
+  Empty (no root sites in the build) yields `{}`, so the finish overlay is a no-op
+  for a mount-free build."
   [build-state members]
   (let [nss (get-in build-state [:compiler-env :cljs.analyzer/namespaces])]
     (loop [srcs        (sort-by str members)
@@ -980,17 +992,25 @@
                                 {} (:roots d))]
           (doseq [[root-id row] src-roots]
             (when-let [{owner-row :row} (get root-owners root-id)]
-              (throw
-               (ex-info
-                (str "re-frame.freehand found two root sites in one build resolving to "
-                     "root-id " root-id " while harvesting the build's compiled "
-                     "roots; refusing to publish a merge-order winner. Root-ids are "
-                     "page-unique identity — author distinct :root-id values")
-                {::error ::duplicate-root-id
-                 :root-id root-id
-                 :provenance [(:provenance owner-row) (:provenance row)]
-                 :sites (vec (sort-by str [(site-coords owner-row) (site-coords row)]))
-                 :recovery :make-root-ids-unique}))))
+              ;; Canonical `:rf.error/duplicate-root-id` through the shared error
+              ;; builder — the one small consistent projection that makes this real
+              ;; Shadow compile-finish door carry the SAME public discriminator (and
+              ;; the same message/`:extra` shape) the off-build-pass door
+              ;; (`register-root-site!`) raises.
+              (error/throw-error!
+               :rf.error/duplicate-root-id 'v/render-static
+               (str "two root sites in one build resolve to root-id "
+                    (pr-str root-id) " — " (site-str owner-row) " and "
+                    (site-str row) ". Root-ids are page-unique identity; "
+                    (if (= :derived (:provenance owner-row) (:provenance row))
+                      (str "both ids derived from the same view — add "
+                           ":disambiguator or author :root-id")
+                      "author distinct :root-id values"))
+               {:recovery :make-root-ids-unique
+                :extra {:root-id    root-id
+                        :provenance [(:provenance owner-row) (:provenance row)]
+                        :sites      (vec (sort-by str [(site-coords owner-row)
+                                                       (site-coords row)]))}})))
           (recur (rest srcs)
                  (cond-> regs
                    (seq src-roots) (assoc-in [ns-sym roots] src-roots))
