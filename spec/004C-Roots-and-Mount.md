@@ -491,7 +491,7 @@ roots referencing it.** There is no first-wins silent merge and no last-wins
 overwrite. A **same-root** re-declaration whose fingerprint differs is a surgical
 **refresh** (an HMR config edit — durable state survives, `:initial-events` re-recorded
 not replayed), **not** a conflict; a **matching** fingerprint is the ratified idempotent
-no-op (no re-seed). Layer 1 additionally rejects at build time two *plans* for one
+no-op (no re-seed) — but §7.1 qualifies BOTH: the surgical refresh and the ratified no-op are admitted only while the arriving plan can PROVE it still owns the incarnation live under the id, so a same-root plan meeting a same-id successor (the installed incarnation torn down and re-created under the id) or a token-less legacy row does NOT refresh or no-op — it fails loud under `:scope-config-less-or-own-the-lifetime`. Layer 1 additionally rejects at build time two *plans* for one
 frame-id with differing config fingerprints inside one entry closure (compile error —
 the didactic message points at boot/event infrastructure, per [004D §Roots and mounting](004D-Freehand-Compiled-Grammar.md#roots-and-mounting)). (The S5 hydrate
 arm — a referenced payload id already installed with a different **content** digest —
