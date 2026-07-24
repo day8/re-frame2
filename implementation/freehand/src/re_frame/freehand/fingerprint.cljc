@@ -127,7 +127,7 @@
   the unversioned `pr-str`-flattening form (pre-#5745 / #5745) was v1."
   "cfp2:")
 
-(declare -write)
+(declare canonical-token)
 
 (defn- token
   "A self-delimiting canonical token: the `tag` char, the CHARACTER length
@@ -140,14 +140,14 @@
 (defn- canonical-entries
   "The entry-token stream of an associative value: each entry's key and value
   tokens, with the entries SORTED by their canonical KEY token, concatenated.
-  Shared by the map and the record branch of `-write`, so a record's entries —
+  Shared by the map and the record branch of `canonical-token`, so a record's entries —
   its declared fields AND its insertion-ordered `__extmap` extensions —
   canonicalize exactly like a plain map's. A token stream (not a sorted-map)
   means two distinct keys that share a comparator rank can never overwrite one
   another."
   [x]
   (->> x
-       (map (fn [[k v]] [(-write k) (-write v)]))
+       (map (fn [[k v]] [(canonical-token k) (canonical-token v)]))
        (sort-by first)
        (mapcat (fn [[k v]] [k v]))
        (apply str)))
@@ -177,12 +177,17 @@
                   (subs n (inc i))))
      :cljs (pr-str (type x))))
 
-(defn- -write
+(defn- canonical-token
   "Emit the injective, type-preserving canonical token for `x`. Collections
   carry a distinct type tag (`m`/`s`/`v`/`l`/`r`) so a map, set, vector, list,
   and record never collide; sets, map keys, and record entries are
   order-normalized while vectors and lists keep producer order; scalars (`t`)
-  carry their host-identical, type-distinct `pr-str`."
+  carry their host-identical, type-distinct `pr-str`.
+
+  NOT named `-write`: this is a plain private recursion, and the leading
+  hyphen would claim a protocol method it is not while shadowing the real
+  `cljs.core/-write` (`IWriter`) — which the ClojureScript compiler correctly
+  reported as a redefinition."
   [x]
   (cond
     ;; Record — matched BEFORE `map?`, which a record ALSO satisfies
@@ -198,12 +203,12 @@
     (map? x)    (token "m" (canonical-entries x))
     ;; Set — order-INSENSITIVE: sort the child tokens. The `s` tag keeps a
     ;; set distinct from a vector/list of the same elements.
-    (set? x)    (token "s" (apply str (sort (map -write x))))
+    (set? x)    (token "s" (apply str (sort (map canonical-token x))))
     ;; Vector — order-SENSITIVE: preserve producer order.
-    (vector? x) (token "v" (apply str (map -write x)))
+    (vector? x) (token "v" (apply str (map canonical-token x)))
     ;; List / seq — order-SENSITIVE; the `l` tag keeps it distinct from a
     ;; vector of the same elements.
-    (seq? x)    (token "l" (apply str (map -write x)))
+    (seq? x)    (token "l" (apply str (map canonical-token x)))
     ;; Scalar — `pr-str` is host-identical and type-distinct for the
     ;; supported terminals (keyword vs string vs symbol vs number vs nil).
     :else       (token "t" (pr-str x))))
@@ -216,7 +221,7 @@
   list of the same elements, and a record vs another record type vs the plain
   map of the same entries, produce different strings."
   [x]
-  (str canonical-version (-write x)))
+  (str canonical-version (canonical-token x)))
 
 ;; ---------------------------------------------------------------------------
 ;; FNV-1a 64
