@@ -440,12 +440,25 @@
 (defonce ^:private live-roots (atom {}))
 
 ;; The frame ledger:
-;;   frame-id -> {:config-fingerprint … :installed-by root-id :refs #{root-id}}
+;;   frame-id -> {:config-fingerprint … :installed-by root-id
+;;                :installed-value <frame-value> :refs #{root-id}}
 ;;
 ;; `:installed-by` names the root that ENSUREd the frame (a `{:id …}` plan)
 ;; and is nil for a frame this page only SCOPES; `:refs` is every live root
 ;; that referenced it, which is what makes teardown able to destroy an
 ;; installed frame exactly when the last of them goes.
+;;
+;; `:installed-value` is the exact frame VALUE `make-frame` handed back when
+;; the frame was installed — the lifecycle token carrying its
+;; `:rf.frame/incarnation-token`. It is the AUTHORITY teardown destroys with,
+;; not the bare frame-id: an id is address-directed and would destroy whichever
+;; same-id incarnation happens to be live, so a stale installer whose frame was
+;; torn down and re-created under the same id would reach through and kill the
+;; SUCCESSOR. Destroying the exact value instead is incarnation-scoped — a token
+;; whose incarnation is gone no-ops. Present only on an INSTALLED row (nil for a
+;; scoped frame the page never owned), and refreshed to the current value on
+;; every re-install (a same-incarnation surgical update keeps the same token, so
+;; the identity is stable across a config edit).
 (defonce ^:private frame-ledger (atom {}))
 
 (defn ^:no-doc live-root-ids
@@ -456,7 +469,8 @@
 
 (defn ^:no-doc frame-ledger-snapshot
   "The preflight ledger projected for reading: frame-id →
-  `{:config-fingerprint :installed-by :refs}`. A test and diagnostic seam."
+  `{:config-fingerprint :installed-by :installed-value :refs}`. A test and
+  diagnostic seam."
   []
   @frame-ledger)
 
@@ -703,33 +717,44 @@
                                   :installed-by       (:installed-by record)}
                       :arriving  {:config-fingerprint config-fingerprint
                                   :root-id            root-id}}}))
-      (if owned?
-        ;; ENSURE. `make-frame` is idempotent replacement: absent → created
-        ;; and its :initial-events drain; present under the same plan → left
-        ;; exactly as it is. The same-root differing fingerprint is a config
-        ;; edit, so the plan re-runs — durable state survives, because that
-        ;; is what idempotent replacement means.
-        (when (or (nil? (frame/frame frame-id))
-                  (not= (:config-fingerprint record) config-fingerprint))
-          (live-frame/make-frame (assoc config :id frame-id)))
-        ;; SCOPE. A frame this root does not own must already exist — there
-        ;; is no config here to create one from, and scoping a frame that
-        ;; is not there would leave every read below the root silently
-        ;; frameless.
-        (when (nil? (frame/frame frame-id))
-          (error/throw-error!
-            :rf.error/frame-provider-frame-absent where
-            (str where ": :frame " (pr-str frame-id) " names no live frame. A "
-                 "keyword :frame SCOPES a frame something else owns; pass a "
-                 "make-frame opts map carrying :id for the root to own it, or "
-                 "create the frame before mounting.")
-            {:recovery :ensure-or-create-the-frame
-             :extra    {:root-id root-id :frame frame-id}})))
-      (swap! frame-ledger update frame-id
-             (fn [r]
-               {:config-fingerprint (if owned? config-fingerprint (:config-fingerprint r))
-                :installed-by       (if owned? (or (:installed-by r) root-id) (:installed-by r))
-                :refs               (conj (or (:refs r) #{}) root-id)}))
+      (let [installed-value
+            (if owned?
+              ;; ENSURE. `make-frame` is idempotent replacement: absent → created
+              ;; and its :initial-events drain; present under the same plan → left
+              ;; exactly as it is. The same-root differing fingerprint is a config
+              ;; edit, so the plan re-runs — durable state survives, because that
+              ;; is what idempotent replacement means. Whenever the plan RUNS it
+              ;; hands back the exact frame VALUE (the incarnation token) this
+              ;; install produced; on the ratified no-op it returns nil and the
+              ;; ledger keeps the value from the install that stands.
+              (when (or (nil? (frame/frame frame-id))
+                        (not= (:config-fingerprint record) config-fingerprint))
+                (live-frame/make-frame (assoc config :id frame-id)))
+              ;; SCOPE. A frame this root does not own must already exist — there
+              ;; is no config here to create one from, and scoping a frame that
+              ;; is not there would leave every read below the root silently
+              ;; frameless.
+              (do (when (nil? (frame/frame frame-id))
+                    (error/throw-error!
+                      :rf.error/frame-provider-frame-absent where
+                      (str where ": :frame " (pr-str frame-id) " names no live frame. A "
+                           "keyword :frame SCOPES a frame something else owns; pass a "
+                           "make-frame opts map carrying :id for the root to own it, or "
+                           "create the frame before mounting.")
+                      {:recovery :ensure-or-create-the-frame
+                       :extra    {:root-id root-id :frame frame-id}}))
+                  nil))]
+        (swap! frame-ledger update frame-id
+               (fn [r]
+                 {:config-fingerprint (if owned? config-fingerprint (:config-fingerprint r))
+                  :installed-by       (if owned? (or (:installed-by r) root-id) (:installed-by r))
+                  ;; The install authority: the fresh value when the plan just ran,
+                  ;; else the value from the install that stands. A scoped mount
+                  ;; carries nothing of its own and leaves the row's value be.
+                  :installed-value    (if owned?
+                                        (or installed-value (:installed-value r))
+                                        (:installed-value r))
+                  :refs               (conj (or (:refs r) #{}) root-id)})))
       frame-id)))
 
 (defn- frame-ref-held?
@@ -749,16 +774,23 @@
 
   A scoped frame is never destroyed — the root borrowed it. An installed
   frame outlives its root only while a sibling still references it, which
-  is the same rule that makes install idempotent in the first place."
+  is the same rule that makes install idempotent in the first place.
+
+  The teardown is INCARNATION-EXACT. It destroys the frame VALUE the install
+  recorded (`:installed-value`), not the bare frame-id: the value carries the
+  installed incarnation's token, so `destroy-frame!` tears down EXACTLY that
+  incarnation and a stale installer whose frame was already torn down and
+  re-created under the same id no-ops instead of reaching through to kill the
+  successor. A bare id would be address-directed and do precisely that."
   [frame-id root-id]
   (when (some? frame-id)
-    (let [{:keys [installed-by refs]} (get @frame-ledger frame-id)
-          remaining                   (disj (or refs #{}) root-id)]
+    (let [{:keys [installed-by installed-value refs]} (get @frame-ledger frame-id)
+          remaining                                   (disj (or refs #{}) root-id)]
       (if (seq remaining)
         (swap! frame-ledger update frame-id assoc :refs remaining)
         (do (swap! frame-ledger dissoc frame-id)
             (when (and (some? installed-by) (some? (frame/frame frame-id)))
-              (frame/destroy-frame! frame-id))))))
+              (frame/destroy-frame! installed-value))))))
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -938,6 +970,24 @@
   (swap! live-roots assoc root-id root)
   root)
 
+(defn- frame-ref-held-by-live-root?
+  "True when `root-id`'s CURRENT registry entry is a live root that references
+  `frame-id`.
+
+  The give-back below asks it exactly one question: did a SUCCESSOR take over
+  this root-id and inherit the frame reference while this attempt ran? An
+  `:initial-events` handler can re-enter `mount` under the SAME root-id
+  (`:frame` scoping the just-published frame) and register a fresh Root that is
+  now the legitimate holder of the id — and, because a reference is keyed by
+  root-id, of the very frame reference this attempt is about to give back. The
+  reference is not this attempt's to release once the live root under the id is
+  someone else that names the same frame; yanking it would destroy a frame the
+  successor is rendering against. So a rollback releases the reference only when
+  no live root under the id still names the frame."
+  [frame-id root-id]
+  (when-let [^Root cur (get @live-roots root-id)]
+    (= frame-id (.-frame-id cur))))
+
 (defn- attempt!
   "Run the post-preflight half of a mount, giving back exactly what this
   attempt took if it throws.
@@ -951,6 +1001,15 @@
   never reported, because a failed re-render must leave the incumbent
   rendering exactly as it was.
 
+  `acquired?` is a snapshot taken BEFORE preflight, and preflight runs
+  arbitrary `:initial-events` — so by give-back time the reference it named
+  may belong to a SUCCESSOR that re-entered under this root-id. The reference
+  is keyed by root-id, so this attempt and a same-id successor share the one
+  set member: releasing it on the stale snapshot alone would tear a live
+  successor's frame out from under it. So the give-back releases only when
+  `acquired?` AND no live root under the id still names the frame — the
+  successor keeps what it legitimately holds.
+
   The original failure stays primary: the give-back is best-effort, and
   the throw is re-raised unchanged."
   [frame-id root-id acquired? body]
@@ -960,7 +1019,9 @@
       (catch :default e
         (when-some [react-root @host]
           (try (.unmount react-root) (catch :default _ nil)))
-        (when acquired? (release-frame! frame-id root-id))
+        (when (and acquired?
+                   (not (frame-ref-held-by-live-root? frame-id root-id)))
+          (release-frame! frame-id root-id))
         (throw e)))))
 
 (defn- client-render!
@@ -1031,31 +1092,47 @@
      ;; over cross-root prefix ownership, so a refused re-mount has run no
      ;; plan and given nothing away.
      (preflight! 'v/mount plan root-id)
-     (attempt!
-       frame-id root-id acquired?
-       (fn [keep!]
-         (recheck-claim! 'v/mount dom-node root-id prefix existing)
-         (if (some? existing)
-           ;; The reload path: the same host root, re-rendered. No createRoot,
-           ;; so nothing downstream is reseeded; the descriptor snapshot is
-           ;; refreshed because the mounted view object may be a fresh
-           ;; generation, but the identity it keys on is unchanged. That host
-           ;; root belongs to the INCUMBENT, so it is not handed to `keep!`:
-           ;; a re-render that fails leaves the incumbent rendering.
-           (let [react-root (.-react-root existing)
-                 callbacks  (.-callbacks existing)
-                 root       (->Root desc dom-node react-root prefix frame-id
-                                    (.-hydrated existing) callbacks)]
-             ;; Advance the live host-callback cell to THIS mount's callbacks
-             ;; before re-rendering. React fixed the error delegates at
-             ;; createRoot, so a reload's fresh :on-*-error closures reach
-             ;; React only through the cell those delegates read; keeping the
-             ;; incumbent's cell object is what makes the already-fixed
-             ;; delegates see the new target instead of the stale one.
-             (vreset! callbacks (select-keys opts host-opt-keys))
-             (.render react-root element)
-             (register! root-id root))
-           (client-render! desc dom-node prefix opts frame-id element keep!)))))))
+     (let [result
+           (attempt!
+             frame-id root-id acquired?
+             (fn [keep!]
+               (recheck-claim! 'v/mount dom-node root-id prefix existing)
+               (if (some? existing)
+                 ;; The reload path: the same host root, re-rendered. No createRoot,
+                 ;; so nothing downstream is reseeded; the descriptor snapshot is
+                 ;; refreshed because the mounted view object may be a fresh
+                 ;; generation, but the identity it keys on is unchanged. That host
+                 ;; root belongs to the INCUMBENT, so it is not handed to `keep!`:
+                 ;; a re-render that fails leaves the incumbent rendering.
+                 (let [react-root (.-react-root existing)
+                       callbacks  (.-callbacks existing)
+                       root       (->Root desc dom-node react-root prefix frame-id
+                                          (.-hydrated existing) callbacks)]
+                   ;; Advance the live host-callback cell to THIS mount's callbacks
+                   ;; before re-rendering. React fixed the error delegates at
+                   ;; createRoot, so a reload's fresh :on-*-error closures reach
+                   ;; React only through the cell those delegates read; keeping the
+                   ;; incumbent's cell object is what makes the already-fixed
+                   ;; delegates see the new target instead of the stale one.
+                   (vreset! callbacks (select-keys opts host-opt-keys))
+                   (.render react-root element)
+                   (register! root-id root))
+                 (client-render! desc dom-node prefix opts frame-id element keep!))))]
+       ;; The reload's frame TRANSITION. A re-mount can name a different frame
+       ;; from the one the incumbent held — an owned A to an owned B, or A to no
+       ;; frame at all. Preflight has already taken the new reference; the stale
+       ;; one is still on the ledger, so drop it now the new render has committed
+       ;; and this root is registered against the new frame. Releasing A here is
+       ;; the same last-reference rule as teardown: an owned A no live root still
+       ;; names is destroyed, incarnation-exact; a sibling still holding it keeps
+       ;; it. A same-frame reload (old = new, the ordinary hot reload) moves
+       ;; nothing and leaves its one reference untouched. Runs only past a
+       ;; successful attempt — `attempt!` re-raises a failed re-render, which
+       ;; leaves the incumbent and its frame exactly as they were.
+       (when (and (some? existing)
+                  (not= (.-frame-id existing) frame-id))
+         (release-frame! (.-frame-id existing) root-id))
+       result))))
 
 ;; ---------------------------------------------------------------------------
 ;; hydrate-root

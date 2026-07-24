@@ -234,3 +234,186 @@
                        (is false (str "stale-handle suite rejected: " e))
                        (.remove node) (.remove fresh)
                        (done)))))))))
+
+;; ===========================================================================
+;; FH-ROOT-005 — ownership is INCARNATION-EXACT: a stale installer never
+;; reaches a same-id successor
+;; ===========================================================================
+
+(deftest fh-root-005-a-stale-installer-does-not-destroy-a-same-id-successor
+  (testing "Per FH-ROOT-005 (browser): a root installs a frame VALUE, not a
+            frame id. The id is address-directed authority — it destroys
+            whichever same-id incarnation is live NOW — so a root that
+            installed one incarnation, watched it torn down, and unmounts
+            while a same-id SUCCESSOR is live must NOT reach through the id
+            and kill the successor. It tears down the exact incarnation it
+            installed, which is already gone, so the successor stands. This is
+            the load-bearing assertion: it asserts the successor's EXACT
+            incarnation token is untouched, not merely that some frame is
+            there — an address-directed teardown would leave the id naming
+            nothing at all."
+    (if-not (browser?)
+      (skip! "the browser job runs the same-id-successor assertions")
+      (async done
+        (reg!)
+        (let [node       (host-node!)
+              succ       (:same-id-successor root-005)
+              fid        (:frame-id succ)
+              succ-token (atom nil)]
+          (-> (act #(v/mount [views/counter {}] node
+                             {:frame {:id             fid
+                                      :initial-events [[:root/seed (:installed succ)]]}}))
+              (.then
+                (fn [installer]
+                  ;; Tear down the installed incarnation and stand a same-id
+                  ;; successor in its place, retaining its EXACT incarnation
+                  ;; token, THEN unmount the now-stale installer.
+                  (rf/destroy-frame! fid)
+                  (rf/make-frame {:id fid :initial-events [[:root/seed (:successor succ)]]})
+                  (reset! succ-token (frame/frame-incarnation-token fid))
+                  (act #(v/unmount! installer))))
+              (.then
+                (fn [_]
+                  (is (= (:frame-live succ) (some? (frame/frame fid)))
+                      "the same-id successor is still live — the stale installer
+                       tore down the incarnation it installed, which was already
+                       gone, and never reached the successor")
+                  (is (identical? @succ-token (frame/frame-incarnation-token fid))
+                      "and it is the SUCCESSOR's exact incarnation, untouched — an
+                       address-directed teardown would have destroyed it, leaving the
+                       id naming nothing")
+                  (is (= (:ledger-after succ) (count (root/frame-ledger-snapshot)))
+                      "the stale installer released its own ledger reference")
+                  (rf/destroy-frame! fid)
+                  (.remove node)
+                  (done))
+                (fn [e]
+                  (is false (str "same-id-successor suite rejected: " e))
+                  (.remove node)
+                  (done)))))))))
+
+;; ===========================================================================
+;; FH-ROOT-005 — a re-mount TRANSITIONS its frame reference; the stale one
+;; leaves, it never leaks
+;; ===========================================================================
+
+(deftest fh-root-005-a-re-mount-transitions-its-frame-reference
+  (testing "Per FH-ROOT-005 (browser): a re-mount can name a different frame
+            from the one the incumbent held — an owned A to an owned B, or A
+            to no frame at all. Preflight takes the new reference; the stale
+            one has to leave with the move, or it leaks a ledger row and an
+            owned frame past the root that abandoned it. A destroyed when the
+            root moves off it, only B's ledger row survives the A->B move, and
+            dropping the frame entirely leaves the ledger empty."
+    (if-not (browser?)
+      (skip! "the browser job runs the frame-transition assertions")
+      (async done
+        (reg!)
+        (let [node1 (host-node!)
+              node2 (host-node!)
+              tr    (:transition root-005)
+              a     (:frame-a tr)
+              b     (:frame-b tr)]
+          ;; Part 1 — A -> B, with `counter` so the moved reference also shows
+          ;; on screen: the first render read A's seed, the re-mount reads B's.
+          (-> (act #(v/mount [views/counter {}] node1
+                             {:frame {:id a :initial-events [[:root/seed (:seeded-a tr)]]}}))
+              (.then
+                (fn [_]
+                  (act #(v/mount [views/counter {}] node1
+                                 {:frame {:id b :initial-events [[:root/seed (:seeded-b tr)]]}}))))
+              (.then
+                (fn [remounted]
+                  (is (= (:a-live-after tr) (some? (frame/frame a)))
+                      "A is destroyed when the root moves off it — its last reference left")
+                  (is (= (:b-live-after tr) (some? (frame/frame b)))
+                      "B is live")
+                  (is (= (:ledger-remount tr) (count (root/frame-ledger-snapshot)))
+                      "only B's ledger row survives the move — A's did not leak")
+                  (is (= b (root/root-frame-id remounted))
+                      "and the root now references B")
+                  (is (= (:b-text tr) (text node1 ".count"))
+                      "the re-render read B's seed, not A's")
+                  (act #(v/unmount! remounted))))
+              (.then
+                (fn [_]
+                  ;; Part 2 — A -> no frame, with `app` (no subscription read),
+                  ;; so a frameless re-mount renders cleanly.
+                  (act #(v/mount [views/app {:label "x"}] node2
+                                 {:frame {:id a :initial-events [[:root/seed (:seeded-a tr)]]}}))))
+              (.then
+                (fn [_]
+                  (act #(v/mount [views/app {:label "x"}] node2 {}))))
+              (.then
+                (fn [dropped]
+                  (is (nil? (root/root-frame-id dropped))
+                      "re-mounting with no :frame drops the frame binding")
+                  (is (= (:a-live-after tr) (some? (frame/frame a)))
+                      "and A — the frame it abandoned — is destroyed, not orphaned")
+                  (is (= (:ledger-drop tr) (count (root/frame-ledger-snapshot)))
+                      "the ledger is empty: the reference left with the move")
+                  (act #(v/unmount! dropped))))
+              (.then
+                (fn [_]
+                  (is (= (:ledger-final tr) (count (root/frame-ledger-snapshot)))
+                      "final teardown leaves nothing behind")
+                  (.remove node1) (.remove node2)
+                  (done))
+                (fn [e]
+                  (is false (str "frame-transition suite rejected: " e))
+                  (.remove node1) (.remove node2)
+                  (done)))))))))
+
+;; ===========================================================================
+;; FH-ROOT-005 — an installed frame survives its installer while a sibling
+;; still references it
+;; ===========================================================================
+
+(deftest fh-root-005-an-installed-frame-outlives-its-installer-until-the-last-ref
+  (testing "Per FH-ROOT-005 (browser): two roots reference one installed
+            frame — the installer owns it, a second root borrows it by
+            SCOPE. The installer leaving is not the last reference, so the
+            frame survives; the borrower leaving is, so it is destroyed. Each
+            root removes only its OWN reference."
+    (if-not (browser?)
+      (skip! "the browser job runs the shared-frame assertions")
+      (async done
+        (reg!)
+        (let [installer-node (host-node!)
+              borrower-node  (host-node!)
+              tr             (:two-refs root-005)
+              fid            (:frame-id tr)
+              installer-root (atom nil)
+              borrower-root  (atom nil)]
+          (-> (act #(v/mount [views/counter {}] installer-node
+                             {:root-id (:installer tr)
+                              :frame   {:id fid :initial-events [[:root/seed (:seeded tr)]]}}))
+              (.then
+                (fn [installer]
+                  (reset! installer-root installer)
+                  (act #(v/mount [views/counter {}] borrower-node
+                                 {:root-id (:borrower tr) :frame fid}))))
+              (.then
+                (fn [borrower]
+                  (reset! borrower-root borrower)
+                  ;; the installer leaves first — not the last reference
+                  (act #(v/unmount! @installer-root))))
+              (.then
+                (fn [_]
+                  (is (= (:live-after-1 tr) (some? (frame/frame fid)))
+                      "the installer's departure is not the last reference — the
+                       borrower still holds one, so the frame survives")
+                  (act #(v/unmount! @borrower-root))))
+              (.then
+                (fn [_]
+                  (is (= (:live-after-2 tr) (some? (frame/frame fid)))
+                      "the borrower's departure is the last legitimate reference, so
+                       the installed frame is destroyed")
+                  (is (empty? (root/frame-ledger-snapshot))
+                      "and the ledger is empty")
+                  (.remove installer-node) (.remove borrower-node)
+                  (done))
+                (fn [e]
+                  (is false (str "shared-frame suite rejected: " e))
+                  (.remove installer-node) (.remove borrower-node)
+                  (done)))))))))
