@@ -588,7 +588,29 @@
     (is (= {:id "b"} (v/spread {:id "a"} {:id "b"}))
         "two EXACT :id writes merge to one — later-arg-wins, no conflict")
     (is (map? (compiled-tree '[:div#sugar (v/spread {:class "c"})]))
-        "sugar with a forwarded NON-id attr — no id ambiguity, accepted")))
+        "sugar with a forwarded NON-id attr — no id ambiguity, accepted"))
+  (testing "rf2-ll1ah #6863 audit — the accepted no-id spread must RETAIN the
+            sugar id, not merely not-throw. The prior control asserted only
+            `map?`, so it stayed green while the compiled emitters DROPPED the
+            `#id` the interpreted walk keeps: `[:div#sugar (v/spread {:class
+            \"c\"})]` answered `{:class \"c\"}` compiled against `{:id \"sugar\"
+            :class \"c\"}` interpreted. The fix restores the surviving sugar id
+            at the shared `node/spread-attrs` seam both emitters call, so the
+            two modes pin to ONE tree — value, not mere non-throwing."
+    (is (= {:tag :div :attrs {:id "sugar" :class "c"}}
+           (compiled-tree '[:div#sugar (v/spread {:class "c"})]))
+        "the compiled spread RETAINS the #id beside the forwarded attr")
+    (is (= (interpreted-tree [:div#sugar (v/spread {:class "c"})])
+           (compiled-tree '[:div#sugar (v/spread {:class "c"})]))
+        "and interpreted and compiled answer the identical tree")
+    ;; An empty forwarded map is the same law: nothing to forward, the sugar id
+    ;; still survives in both modes rather than vanishing in the compiled one.
+    (is (= {:tag :div :attrs {:id "sugar"}}
+           (compiled-tree '[:div#sugar (v/spread nil)]))
+        "an empty spread keeps the sugar id, compiled")
+    (is (= (interpreted-tree [:div#sugar (v/spread nil)])
+           (compiled-tree '[:div#sugar (v/spread nil)]))
+        "and matches the interpreted tree")))
 
 ;; ---------------------------------------------------------------------------
 ;; The scope fence
