@@ -180,13 +180,11 @@
   emitter's own last step."
   [{:note "an authored vector of option values is retained, in order"
     :body '[:select {:multiple true :value ["a" "b"]}]
-    :tree {:tag :select :attrs {:multiple true :value ["a" "b"]}}
-    :literal-collection? true}
+    :tree {:tag :select :attrs {:multiple true :value ["a" "b"]}}}
 
    {:note "and its members take the ordinary attribute-value conversion"
     :body '[:select {:multiple true :value [:a 1]}]
-    :tree {:tag :select :attrs {:multiple true :value ["a" "1"]}}
-    :literal-collection? true}
+    :tree {:tag :select :attrs {:multiple true :value ["a" "1"]}}}
 
    {:note "an EMPTY selection is an empty vector, not the empty string"
     :body '[:select {:multiple true :value nil}]
@@ -206,8 +204,7 @@
 
    {:note "an empty authored vector is already the empty selection"
     :body '[:select {:multiple true :value []}]
-    :tree {:tag :select :attrs {:multiple true :value []}}
-    :literal-collection? true}])
+    :tree {:tag :select :attrs {:multiple true :value []}}}])
 
 (deftest a-multiple-selects-value-is-collection-shaped-in-the-tree
   (testing "The empty value is the fact `multiple` decides, and it is
@@ -220,15 +217,17 @@
 #?(:clj
    (deftest the-compiled-tree-agrees-about-the-collection-shape
      (testing "One canonicaliser, so a compiled declaration answers the tree
-               its interpreted twin answers. The rows carrying a LITERAL
-               collection are absent on purpose — the compiled analyzer
-               refuses a literal collection attribute value before either
-               emitter sees it, which is a rule of its own and not this
-               canonicaliser's — so what is proved here is every shape a
-               compiled declaration can actually reach."
-       (doseq [{:keys [note body tree]} (remove (fn [{:keys [literal-collection?]}]
-                                                  literal-collection?)
-                                                multiple-select-rows)]
+               its interpreted twin answers — for EVERY row, literal
+               selections included. The literal rows used to be excluded
+               here: the analyzer refused a literal collection attribute
+               value before either emitter ran, so
+               `[:select {:multiple true :value [\"a\" \"b\"]}]` failed to
+               compile while its interpreted twin rendered it, and a
+               COMPUTED selection of the same shape compiled fine
+               (rf2-b6poy). The guard admits the select value slot now, and
+               the literal rides the same runtime path the computed one
+               always did."
+       (doseq [{:keys [note body tree]} multiple-select-rows]
          (is (= tree (compiled-tree body)) (str note " — compiled"))))))
 
 #?(:clj
@@ -271,6 +270,42 @@
         (when ex
           (is (= :rf.error/ui-tree-malformed (:rf.error/id (ex-data ex)))
               (str (pr-str body) " — the walk's existing diagnostic, not a new one")))))))
+
+#?(:clj
+   (defn- compile-refusal
+     "The `{:rf.ui.compile/error id, :msg …}` a compiled declaration of
+     `body` is refused with, or nil when it compiles."
+     [body]
+     (try
+       (compiled-tree body)
+       nil
+       (catch clojure.lang.ExceptionInfo ex
+         (when-let [id (:rf.ui.compile/error (ex-data ex))]
+           {:id id :msg (ex-message ex)})))))
+
+#?(:clj
+   (deftest the-compiled-tier-refuses-exactly-what-the-walk-refuses
+     (testing "The widening is ONE slot on ONE tag, and it is the same slot
+               in both modes. A set stays refused in the compiled tier for
+               the reason the walk refuses it — the tree is one value on two
+               hosts and a set has no order they agree on — and every
+               ordinary attribute keeps the general refusal."
+       (doseq [body ['[:select {:multiple true :value #{"a"}}]
+                     '[:select {:multiple true :value {:a 1}}]
+                     '[:select {:multiple true :title ["a"]}]
+                     '[:input {:value ["a"]}]
+                     '[:div {:value ["a"]}]]]
+         (is (= :rf.ui.compile/collection-attr-value (:id (compile-refusal body)))
+             (str (pr-str body) " — refused compiled, as it is interpreted"))))
+     (testing "and the refusal at the widened slot says why a set is not a
+               selection, rather than claiming collections are only for
+               :class/:style"
+       (let [msg (:msg (compile-refusal '[:select {:multiple true :value #{"a"}}]))]
+         (is (re-find #"SEQUENTIAL" msg))
+         (is (re-find #"order is not a value the two hosts agree on" msg))))
+     (testing "the literal selection itself compiles — the corner this
+               widening was about"
+       (is (nil? (compile-refusal '[:select {:multiple true :value ["a" "b"]}]))))))
 
 (deftest a-single-selects-scalar-value-is-untouched
   (testing "The control that makes the widening mean something. A `<select>`

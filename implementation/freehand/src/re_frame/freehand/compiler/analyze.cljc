@@ -2100,19 +2100,52 @@
                                   (let [v (get m* k)
                                         n (name k)
                                         property? (boolean (and properties (properties k)))
+                                        ;; The ONE attribute whose authored
+                                        ;; value may be collection-shaped — a
+                                        ;; native <select>'s value IS the list
+                                        ;; of chosen option values. Asked of
+                                        ;; the tag and the emitted slot, never
+                                        ;; of `multiple`, which may be a
+                                        ;; runtime value this tier cannot see.
+                                        select-value? (controlled/select-value-slot? tag k)
                                         v* (if (literal-scalar? v)
                                              v
                                              (walk-expr e [:prop k] v))]
                                    ;; literal collection VALUES only — seq forms
                                    ;; are dynamic expressions (runtime-normalized)
                                    (when (and (or (vector? v) (map? v) (set? v))
-                                              (not property?))
+                                              (not property?)
+                                              ;; A LITERAL selection was the one
+                                              ;; corner this guard still refused
+                                              ;; while the interpreted twin
+                                              ;; rendered it, and while a
+                                              ;; COMPUTED selection compiled
+                                              ;; (rf2-b6poy). It rides the same
+                                              ;; runtime path a computed one
+                                              ;; does, so nothing downstream
+                                              ;; has to learn a new shape.
+                                              (not (and select-value? (sequential? v))))
                                      (env/fail! e :rf.ui.compile/collection-attr-value
-                                                (str "collection value for attribute " k
-                                                     " — collections are only meaningful "
-                                                     "for :class/:style (React renders "
-                                                     "\"[object Object]\" garbage). Pass "
-                                                     "a string, e.g. (str/join \" \" xs)")
+                                                (if select-value?
+                                                  (str "collection value for " k " on "
+                                                       "<select> — a select's value is the "
+                                                       "SEQUENTIAL list of chosen option "
+                                                       "values, and a " (cond (set? v) "set"
+                                                                              (map? v) "map"
+                                                                              :else "value")
+                                                       " is not one. A set is refused "
+                                                       "deliberately: its order is not a "
+                                                       "value the two hosts agree on, so "
+                                                       "one declaration would answer two "
+                                                       "trees. Write a vector, e.g. "
+                                                       "[\"a\" \"b\"]")
+                                                  (str "collection value for attribute " k
+                                                       " — collections are only meaningful "
+                                                       "for :class/:style and a <select>'s "
+                                                       ":value (React renders "
+                                                       "\"[object Object]\" garbage "
+                                                       "elsewhere). Pass a string, e.g. "
+                                                       "(str/join \" \" xs)"))
                                                 {:prop k :value v}))
                                    (when (fn-form? v)
                                      (env/fail! e :rf.ui.compile/bare-fn-prop
