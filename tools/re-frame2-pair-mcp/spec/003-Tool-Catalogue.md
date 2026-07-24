@@ -3532,6 +3532,38 @@ The wire pipeline (rf2-cibp8) decorates a usable source-coord shape
 with an `:rf.mcp/source-uri` string so the AI host can render a clickable
 jump-to-editor link.
 
+**Source as data — `:rf.handler/source`** (rf2-1tyxh). A coordinate tells
+an agent where a handler lives; on `kind=event` the response carries the
+handler itself. A dev build's registration metadata includes
+`:rf.handler/source` — the `pr-str` of the whole `(reg-event …)` form as
+registered, per
+[`spec/009-Instrumentation.md` §`:rf.handler/source`](../../../spec/009-Instrumentation.md#rfhandlersource--debug-gated-handler-form-source-capture).
+Read it before resolving `:file` / `:line` against a checkout: the agent
+may not have one, and even when it does, the runtime's answer is the one
+that is actually loaded. The slot arrives by **passthrough** —
+`(re-frame2-pair.runtime/registrar-describe kind id)` drops the live
+`:handler-fn` and passes every other key through, and this tool
+whitelists nothing — so it needs no per-key wiring here. Three limits
+bound it:
+
+- **Dev-only.** Capture is DEBUG-gated at both the macro and the
+  registrar, so under `:advanced` + `goog.DEBUG=false` neither the slot
+  nor the source bytes reach the bundle (JVM builds are always-on). A
+  production runtime answers with coordinates and nothing more.
+- **`reg-event` scope.** Every other kind on the enum above (`sub`, `fx`,
+  `cofx`, `interceptor`, `view`, `frame`, `route`, `flow`, `head`,
+  `error-projector`, `resource`, `mutation`, `resource-scope`) carries
+  source **coordinates** only — fall back to `:rf.mcp/source-uri` and the
+  filesystem there. Machine guards and actions do carry the same key, but
+  through the framework's derived `:machine-guard` / `:machine-action`
+  handler-meta kinds (Spec 005), which this tool's `kind` enum does not
+  expose.
+- **Current, not historical.** The value is read live off the registry
+  entry that exists *now*. After a hot reload it describes the handler as
+  re-registered, not the one that ran in an older epoch — so pair it with
+  `handler-fn-hash` (or `tail-build`'s probe) when the question is
+  whether the code changed under you.
+
 **Args**: `kind` (string, **required** — one of `event` / `sub` /
 `fx` / `cofx` / `interceptor` / `view` / `frame` / `route` / `flow` / `head` /
 `error-projector` / `resource` / `mutation` / `resource-scope` /
@@ -3609,6 +3641,8 @@ slot to surface the spec.
  :rf.mcp/source-uri    "file:///abs/path/to/src/my/app/user.cljs#L42"
  :doc              "<docstring or nil>"
  :tags             #{...}                 ; if any
+ :rf.handler/source "(reg-event :user/login (fn [{:keys [db]} [_ creds]] …))"
+                                          ; kind=event, dev builds only
  ...custom-slots-emitted-by-the-reg-macro}
 ```
 

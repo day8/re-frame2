@@ -174,7 +174,7 @@ _As-of 2026-07-04._
 | P1 Regularity | ✓ | One trace event shape; one listener API. |
 | P2 Named things | ✓ | `:id`, `:operation`, `:op-type` all id'd. |
 | P3 Data before magic | ✓ | Trace events are open maps. |
-| P4 Public query surfaces | ✓ | The trace stream IS the query surface for runtime behaviour. |
+| P4 Public query surfaces | ✓ | The trace stream IS the query surface for runtime behaviour. Registry metadata answers the neighbouring question — in dev builds `(rf/handler-meta :event <id>)` carries [`:rf.handler/source`](009-Instrumentation.md#rfhandlersource--debug-gated-handler-form-source-capture), the `pr-str` of the whole registered form, so an agent asks the runtime not only *what exists* but *what this handler does*, without resolving a `file:line` against a checkout it may not have. Scope and limits in the **source-as-data audit row** below. |
 | P5 Schemas | ✓ | Trace event shape has stable required keys and a registered Malli schema — [Spec-Schemas §`:rf/trace-event`](Spec-Schemas.md) — one of the five load-bearing schemas carrying Owner/Status/Conformance metadata (see §SA-3 below). The schema is a spec-catalogue entry, **not** `reg-app-schema`: the trace stream is not app-db data (`reg-app-schema` validates app-db paths only), so it is not registered through the app-schema surface. |
 | P6 Deterministic execution | ✓ | Per-trace events for every drain step. |
 | P7 Machine-readable errors | ✓ | The error event shape is formally defined — [009 §The error event shape](009-Instrumentation.md#the-error-event-shape) + [§Error event catalogue](009-Instrumentation.md#error-event-catalogue) enumerate every category with its `:tags`; `:rf/error-event` + per-category `:tags` schemas registered (per **G-A**, RESOLVED). |
@@ -183,6 +183,15 @@ _As-of 2026-07-04._
 **Gaps:**
 1. ~~Register a Malli schema for the trace event shape.~~ **Resolved** — [Spec-Schemas §`:rf/trace-event`](Spec-Schemas.md) registers it (one of the five load-bearing schemas per §SA-3).
 2. ~~Define error trace events as a first-class subset.~~ **Resolved** — [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) defines them as the single normative subset (per **G-A**, RESOLVED).
+
+**Source-as-data audit row.** A dev build hands out the handler *body*, not only its address: `reg-event` stamps the `pr-str` of the whole registered form onto registry metadata under [`:rf.handler/source`](009-Instrumentation.md#rfhandlersource--debug-gated-handler-form-source-capture), and a machine guard or action derives the same key from its enclosing machine spec. This is the introspection affordance that lets an agent reason about a runtime it has no checkout of. AI-amenable introspection should:
+
+- ✓ Read `(:rf.handler/source (rf/handler-meta :event <id>))` — directly, or through the pair-MCP [`handler-meta`](../tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md#handler-meta) tool or the Xray Epoch panel — before resolving `:file` / `:line` against the filesystem.
+- ✓ Fall back to source coordinates for every other registrar kind. Coverage is `reg-event` plus machine guards and actions; `reg-sub`, `reg-fx`, and the remaining coordinate-only registrars carry `:ns` / `:line` / `:file` / `:column` and nothing more (widening is demand-gated on a named consumer, per [009 §`:rf.handler/source`](009-Instrumentation.md#rfhandlersource--debug-gated-handler-form-source-capture)).
+- ✓ Treat the value as the handler *as registered now*. It lives on the current registry entry, never in an epoch or a frame snapshot, so after a hot reload it no longer describes the handler that ran in an older epoch — and a frame value carried off-box (SSR payload, bug report, time-travel snapshot) carries no source at all.
+- ✓ Expect nothing in production. Capture is DEBUG-gated at both the macro and the registrar, so under `:advanced` + `goog.DEBUG=false` neither the slot nor the source bytes exist in the bundle; JVM builds are always-on. Introspection tooling must degrade to coordinates rather than assume the slot.
+
+The same gating is what keeps this off the P8 ledger: source-as-data is registry metadata only. It never lands in `app-db` or runtime-db, so it adds no hidden input to handler behaviour and nothing to the frame-state revertibility surface graded below.
 
 ### Spec 010 — Schemas
 
