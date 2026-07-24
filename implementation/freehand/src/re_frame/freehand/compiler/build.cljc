@@ -810,7 +810,7 @@
 ;; registries are NOT populated by the `defview` macro's per-source slice
 ;; contribution — a warm cache-hit source never re-runs that macro. Instead each
 ;; compiled view stamps its descriptor onto the generated def's analyzer metadata
-;; (`emit_cljs` var-meta: `:rf.ui/view-id` + `:rf.ui/view-digest`). Shadow persists
+;; (the emitter's var-meta: `:rf.ui/view-id` + `:rf.ui/view-digest`). Shadow persists
 ;; a compiled namespace's analyzer data to its disk cache and RESTORES it under
 ;; `[:compiler-env :cljs.analyzer/namespaces <ns>]` on a cache HIT (the S0 proof,
 ;; rf2-u53yy.1.1: exact-EDN round-trip across shadow 3.4.0/3.4.10/3.4.11). At

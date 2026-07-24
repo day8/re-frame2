@@ -398,11 +398,10 @@
 
   `emit-element` reads the marker off the plain element and merges the annotation
   into its `:static` attrs behind the `interop/debug-enabled?` gate (see
-  `static-form`). The JVM twin of
-  `re-frame.freehand.compiler.emit-cljs/mark-host-root-annotation`, kept BYTE-IDENTICAL:
-  a prop/attribute annotation is inherently cross-emitter, so the two walks MUST
-  descend the same forms or a conditional-rooted view diverges under the
-  JVM<->CLJS parity gate and SSR/client hydration."
+  `static-form`). A prop/attribute annotation is inherently cross-emitter, so any
+  browser-side twin of this walk MUST descend the same forms or a
+  conditional-rooted view diverges under the JVM<->CLJS parity gate and
+  SSR/client hydration."
   [ast annotate]
   (case (:op ast)
     :element (assoc ast :rf.ui/annotate annotate)

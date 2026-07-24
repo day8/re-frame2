@@ -7,11 +7,20 @@
   another emitter's output).
 
   Runs on the JVM only (macro expansion for both hosts); .cljc so the
-  namespace stays loadable everywhere."
+  namespace stays loadable everywhere.
+
+  There is ONE browser emitter for a compiled declaration:
+  [[re-frame.freehand.compiler.emit-react]], reached through
+  [[compile-structural-view]]. The transplanted second CLJS emitter that
+  once sat beside it — `re-frame.freehand.compiler.emit-cljs` — lowered to
+  a `re-frame.freehand.runtime` namespace this artefact does not have, and
+  no authored declaration ever reached it; it was removed rather than given
+  an invented runtime contract. A future emitter change should confirm that
+  every symbol it emits RESOLVES: nothing fails until the emission path is
+  taken, so a green suite is not evidence that emitted code is callable."
   (:require [clojure.string :as str]
             #?@(:clj [[re-frame.freehand.compiler.analyze :as ana]
                       [re-frame.freehand.compiler.build :as build]
-                      [re-frame.freehand.compiler.emit-cljs :as emit-cljs]
                       [re-frame.freehand.compiler.emit-jvm :as emit-jvm]
                       [re-frame.freehand.compiler.emit-react :as emit-react]
                       [re-frame.freehand.compiler.env :as env]
@@ -467,13 +476,17 @@
     ;; manifest (`:static-facts`) for the cross-build/AOT resolution seam.
     (when-not (build/shadow-build-pass?)
       (build/contribute! build/view-static ns-sym view-id static-facts))
-    (if cljs?
-      ;; Direct no-pass REPL evaluation may replace the runtime view body, but
-      ;; never the accepted whole-build registries — those are harvested from
-      ;; cache-durable analyzer descriptors by a successful configured
-      ;; file/watch build pass (rf2-u53yy.1).
-      (emit-cljs/emit-defview args)
-      (emit-jvm/emit-defview args))))
+    ;; Direct no-pass REPL evaluation may replace the runtime view body, but
+    ;; never the accepted whole-build registries — those are harvested from
+    ;; cache-durable analyzer descriptors by a successful configured file/watch
+    ;; build pass (rf2-u53yy.1).
+    ;;
+    ;; ONE emitter. The transplanted CLJS emitter this used to select for a
+    ;; `{:ns …}` expansion emitted into a runtime namespace Freehand does not
+    ;; have, and was deleted; see the namespace docstring. Freehand's live
+    ;; `v/defview` does not route here at all — it expands through
+    ;; `re-frame.freehand/expand-defview` into [[compile-structural-view]].
+    (emit-jvm/emit-defview args)))
 
 (defn defview*
   "The defview macro body. `form` = &form, `menv` = &env. Every compile
@@ -676,69 +689,6 @@
                 ;; other's output — so a compiled declaration cannot say one
                 ;; thing in a structural render and another in the DOM.
                 cljs? (assoc :react (emit-react/emit-react-body e params ast))))))))))
-
-;; ---------------------------------------------------------------------------
-;; re-frame.freehand.react/lazy — the def-level code-splitting constructor
-;; ---------------------------------------------------------------------------
-
-(defn- compile-lazy-fallback
-  "Compile a react/lazy `:fallback` template capability-free to a host render
-  thunk `(fn [] element)`. CLJS emits a self-contained React element; JVM emits
-  the deterministic structural tree."
-  [menv cljs? ns-sym fallback-form]
-  (let [e   (env/make-env {:host (if cljs? :cljs :clj)
-                           :cljs-env menv
-                           :ns-sym ns-sym
-                           ;; a synthetic self-id so a reactive read in the
-                           ;; fallback is recognised as a site and rejected with
-                           ;; the didactic :rf.ui.compile/capability-in-fallback
-                           ;; (the client-only-fallback rule), not a bare
-                           ;; self-less misplacement.
-                           :self-id :re-frame.freehand.react/lazy-fallback
-                           :template-anchor (fingerprint/digest "sta1-" fallback-form)})
-        ast (ana/analyze-capability-free-template
-             e "a re-frame.freehand.react/lazy :fallback" fallback-form)]
-    `(fn [] ~(if cljs?
-               (emit-cljs/emit-standalone ast)
-               (emit-jvm/emit-node nil ast)))))
-
-(defn expand-lazy
-  "Expand `(re-frame.freehand.react/lazy load-thunk {:fallback tpl}?)` — a DEF-LEVEL
-  foreign-component constructor. CLJS wraps `React.lazy` (with a Suspense
-  boundary when a fallback is given); the JVM structural value renders the
-  compiled fallback / nothing and never references the load thunk. `form` =
-  &form, `menv` = &env, `args` = the argument list."
-  [form menv args]
-  (anchored
-   (source-coords form (some? (:ns menv)))
-   (fn []
-     (let [cljs?  (some? (:ns menv))
-           ns-sym (if cljs? (-> menv :ns :name) (ns-name *ns*))
-           n      (count args)]
-       (when (or (< n 1) (> n 2))
-         (fail :rf.ui.compile/bad-lazy
-               (str "(react/lazy load-thunk {:fallback tpl}?) takes the load "
-                    "thunk and an optional literal opts map; got " n " argument(s)")
-               {:form form}))
-       (let [load-thunk (first args)
-             opts       (second args)]
-         (when (and (some? opts) (not (map? opts)))
-           (fail :rf.ui.compile/bad-lazy
-                 "(react/lazy load-thunk {:fallback tpl}) opts must be a literal map"
-                 {:form form}))
-         (let [bad (remove #{:fallback} (keys opts))]
-           (when (seq bad)
-             (fail :rf.ui.compile/bad-lazy
-                   (str "unknown react/lazy option" (when (next bad) "s") " "
-                        (str/join ", " (map pr-str bad))
-                        " — the only option is :fallback")
-                   {:form form})))
-         (let [fallback    (:fallback opts)
-               fallback-fn (when (some? fallback)
-                             (compile-lazy-fallback menv cljs? ns-sym fallback))]
-           (if cljs?
-             `(re-frame.freehand.hooks/lazy-component ~load-thunk ~fallback-fn)
-             `(re-frame.freehand.hooks/lazy-jvm ~fallback-fn))))))))
 
 (defn- custom-element**
   [coords ns-sym tag opts]
