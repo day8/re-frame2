@@ -389,3 +389,76 @@
             "the :value write's verdict is the once-bound runtime verdict, not a constant")
         (is (not (false? verdict-arg))
             "and specifically NOT the build-time false the bug baked in")))))
+
+(deftest a-compiled-popover-carries-the-runtime-reconciliation-verdict
+  (testing "rf2-drpa3.173 — #6792 recorded every analyzed reconciler position
+            (:on-toggle / :on-close / …) as a compile-time `true` in the
+            top-layer advisory context. That is not the runtime predicate the
+            shared advisory uses: `reconciled?` asks `(some? (get attrs k))`,
+            and a DYNAMIC handler is allowed to evaluate to nil, in which case
+            `event-site` returns nil and `handler!` writes no DOM handler — yet
+            the compile-time `true` suppressed the advisory anyway, so the node
+            springs back open after native dismissal with nothing said. The
+            context must instead carry whether the runtime site produced a
+            handler, derived from the SAME bound site the handler write uses so
+            the authored expression is evaluated once."
+    (let [[e ast] (analyzed '[:div {:popover :auto
+                                    :re-frame.freehand.web/popover-open? true
+                                    :on-toggle (:on-tog props)}])
+          form    (emit-react/emit-react-body e '[props] ast)
+          nodes   (vec (tree-seq coll? seq form))
+          install (first (filter #(and (seq? %)
+                                       (= 're-frame.freehand.top-layer/install! (first %)))
+                                 nodes))
+          context (nth install 3 nil)
+          on-tog  (get context :on-toggle)
+          handler-writes (filter #(and (seq? %)
+                                       (= 're-frame.freehand.compiled-react/handler! (first %)))
+                                 nodes)
+          event-sites (filter #(and (seq? %)
+                                     (= 're-frame.freehand.reactive/event-site (first %)))
+                               nodes)]
+      (is (some? install) "the compiled popover installs the top-layer host call")
+      (is (map? context) "install! is handed the element-facts context map")
+      (testing "the reconciler position is a runtime some?-verdict, not a compile-time true"
+        (is (not (true? on-tog))
+            "a literal `true` (the #6792 shortcut) suppresses the advisory even for a nil handler")
+        (is (and (seq? on-tog) (= 'if (first on-tog)))
+            ":on-toggle carries `(if (some? <site>) true nil)` — nil when the runtime site produced no handler")
+        (is (some #(and (seq? %) (= 'cljs.core/some? (first %)))
+                  (tree-seq coll? seq on-tog))
+            "and the verdict is derived from (some? <bound-site>)"))
+      (testing "the handler expression is evaluated exactly once"
+        (is (= 1 (count (filter #(= '(:on-tog props) %) nodes)))
+            "the dynamic handler body appears once — not once for props and again for the context"))
+      (testing "the handler! write and the context share ONE bound site"
+        (is (= 1 (count event-sites))
+            "exactly one event-site is emitted for the sole handler")
+        (let [site-sym (nth (first handler-writes) 3 nil)]
+          (is (symbol? site-sym)
+              "handler! receives the pre-bound site symbol, not an inline event-site call")
+          (is (some #{site-sym} (tree-seq coll? seq on-tog))
+              "and that same bound site is what the context's verdict tests"))))))
+
+(deftest a-compiled-modal-dialog-carries-the-runtime-close-verdict
+  (testing "rf2-drpa3.173 — the dialog siblings. A modal `<dialog>` reconciles
+            its own dismissal through :on-close / :on-cancel, and a dynamic
+            :on-close may evaluate to nil exactly as :on-toggle can. The
+            compiled context must carry the same runtime some?-verdict for the
+            modal axis, so a nil close handler warns rather than being suppressed
+            by a compile-time `true`."
+    (let [[e ast] (analyzed '[:dialog {:re-frame.freehand.web/modal-open? true
+                                       :on-close (:on-cl props)}])
+          form    (emit-react/emit-react-body e '[props] ast)
+          nodes   (vec (tree-seq coll? seq form))
+          install (first (filter #(and (seq? %)
+                                       (= 're-frame.freehand.top-layer/install! (first %)))
+                                 nodes))
+          on-close (get (nth install 3 nil) :on-close)]
+      (is (some? install) "the compiled modal installs the top-layer host call")
+      (is (not (true? on-close))
+          "the modal close position is not a compile-time `true`")
+      (is (and (seq? on-close) (= 'if (first on-close)))
+          ":on-close carries the runtime some?-verdict, nil when no handler was produced")
+      (is (= 1 (count (filter #(= '(:on-cl props) %) nodes)))
+          "the dynamic close handler body is evaluated exactly once"))))

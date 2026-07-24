@@ -99,16 +99,24 @@
   every promoted popover, and it reads no `:on-toggle` and accuses a
   declaration that does reconcile itself.
 
-  A handler rides as PRESENCE rather than as its callback. What the
-  advisory asks is whether the position is declared at all, and a
-  compiled site's callback is built inside the props form this map cannot
-  reach."
-  [props]
+  A reconciler handler rides as its runtime SOME?-VERDICT, not its callback
+  and not a bare compile-time presence: the site's dynamic body may evaluate
+  to nil, and the advisory judges reconciliation by `(some? (get attrs k))`.
+  So the context carries whether the runtime site actually produced a
+  handler — the `event-site` result the element's own `handler!` write
+  already computes, bound once and shared, so the callback itself never
+  rides the context and the expression is evaluated once (rf2-drpa3.173)."
+  [props reconciler-syms]
   (into (into {} (keep (fn [{:keys [k value]}]
                          (when (contains? top-layer/context-keys k) [k value])))
               (:attrs props))
         (keep (fn [{:keys [k]}]
-                (when (contains? top-layer/context-keys k) [k true])))
+                (when (contains? top-layer/context-keys k)
+                  ;; nil when the runtime site produced no handler, `true`
+                  ;; otherwise — the shared advisory asks `(some? (get attrs k))`,
+                  ;; so an absent handler must read as absent, not as a non-nil
+                  ;; `false`. The callback itself never rides the context.
+                  [k `(if (cljs.core/some? ~(get reconciler-syms k)) true nil)])))
         (:events props)))
 
 (defn- new-state [] (atom {:binds [] :n 0}))
@@ -274,13 +282,18 @@
      ~(:base safe) ~(:owned-handler-keys safe))))
 
 (defn- handler-writes
-  [o tag controlled? events]
+  "Attach each handler site's proxy. A reconciler handler on a promoted
+  top-layer element has already had its `event-site` bound (so its write and
+  the top-layer advisory context share ONE evaluation — rf2-drpa3.173);
+  reference that binding. Every other site builds its proxy inline."
+  [o tag controlled? events reconciler-syms]
   (mapv (fn [{:keys [k sid form] :as handler}]
           `(re-frame.freehand.compiled-react/handler!
             ~o
             ~(conv/react-event-name k)
-            (re-frame.freehand.reactive/event-site
-             ~sid ~form ~(element-facts tag controlled? handler))))
+            ~(or (get reconciler-syms k)
+                 `(re-frame.freehand.reactive/event-site
+                   ~sid ~form ~(element-facts tag controlled? handler)))))
         events))
 
 (defn- children-form
@@ -312,12 +325,32 @@
   [e st node]
   (let [{:keys [tag props children]} node
         all-attrs   (:attrs props)
-        top         (into {} (keep (fn [{:keys [k value]}]
+        top-pair    (into {} (keep (fn [{:keys [k value]}]
                                      (when (contains? top-layer-keys k) [k value])))
                           all-attrs)
-        top         (cond-> top (seq top) (into (top-layer-context props)))
         attrs       (remove (fn [{:keys [k]}] (contains? top-layer-keys k)) all-attrs)
         controlled? (controlled/controlled-props? (map :k attrs))
+        ;; A promoted top-layer element judges whether it reconciles its own
+        ;; native dismissal. On the compiled tier the reconciler handlers
+        ;; (:on-toggle / :on-before-toggle / :on-close / :on-cancel) are runtime
+        ;; SITES whose dynamic bodies may evaluate to nil, so their presence in
+        ;; the advisory context is a runtime some?-verdict, not a compile-time
+        ;; `true`. Bind each such site's `event-site` ONCE and share it with the
+        ;; `handler!` write, so the handler is evaluated once per render and the
+        ;; context reflects what actually reached the DOM (rf2-drpa3.173).
+        reconciler-events (when (seq top-pair)
+                            (filterv #(contains? top-layer/context-keys (:k %))
+                                     (:events props)))
+        reconciler-syms   (into {} (map (fn [{:keys [k]}] [k (gensym "rf-fh-top-h")]))
+                                reconciler-events)
+        reconciler-binds  (into []
+                                (mapcat (fn [{:keys [k sid form] :as h}]
+                                          [(get reconciler-syms k)
+                                           `(re-frame.freehand.reactive/event-site
+                                             ~sid ~form ~(element-facts tag controlled? h))]))
+                                reconciler-events)
+        top         (cond-> top-pair
+                      (seq top-pair) (into (top-layer-context props reconciler-syms)))
         ;; The multiple-select verdict for a LITERAL `multiple`, settled at
         ;; build time as the constant it is. It decides one thing: what an
         ;; EMPTY `<select>` value is. Acceptance of a collection value
@@ -390,7 +423,8 @@
                                        ~(if runtime-verdict? (nth dyn-syms i) value)
                                        ~multi-arg))
                                    dynamics))
-                      true (into (handler-writes o tag controlled? (:events props)))
+                      true (into (handler-writes o tag controlled? (:events props)
+                                                 reconciler-syms))
                       ;; Both forwards write LAST, and for the same reason: a
                       ;; forwarded map is folded against props that are already
                       ;; final. `v/spread` is the element's whole attribute map,
@@ -411,7 +445,9 @@
                       (conj `(cljs.core/unchecked-set ~o "key" ~(:expr key-info))))
         ;; Bindings, in evaluation order: owned dynamic values (source order),
         ;; then the guarded caller map (after the owned expressions), then the
-        ;; one verdict derived from both.
+        ;; one verdict derived from both — then each reconciler handler site,
+        ;; bound once so its `handler!` write and the top-layer advisory context
+        ;; share one evaluation (rf2-drpa3.173).
         binds       (cond-> []
                       runtime-verdict? (into (mapcat (fn [sym a] [sym (:value a)]) dyn-syms dynamics))
                       caller-sym       (conj caller-sym
@@ -424,7 +460,8 @@
                                   dyn-multi  (conj `(re-frame.freehand.controlled/multiple-select?
                                                      ~tag [[~(:k dyn-multi) ~dyn-multi-sym]] nil))
                                   caller-sym (conj `(re-frame.freehand.controlled/multiple-select?
-                                                     ~tag ~caller-sym nil))))))
+                                                     ~tag ~caller-sym nil)))))
+                      (seq reconciler-binds) (into reconciler-binds))
         props-form  (if (seq writes)
                       `(let [~o (cljs.core/js-obj ~@(mapcat identity literals))
                              ~@binds]
