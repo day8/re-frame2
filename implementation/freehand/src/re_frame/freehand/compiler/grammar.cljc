@@ -3,14 +3,23 @@
   opts into with `{:compiled true}`, and the recovery ladder every
   rejection outside it names.
 
-  Two facts live here, and nowhere else:
+  Three facts live here, and nowhere else:
 
   1. **What v1 admits.** [[admitted-ops]] is the closed roster of analyzed
      node kinds a compiled body may lower to. A grammar that is finite is
      a grammar you can *name*: the version keyword is not decoration, it
      is the promise that this roster does not quietly grow under a
      running codebase. It grows by ruling, in a new version.
-  2. **What a rejection tells you to do.** [[recovery]] is total over
+  2. **What a node's PROPS may carry.** [[element-props-carriers]] and
+     [[crossing-prop-markers]] are the grammar's second axis, and the one
+     [[check!]] structurally cannot police: it walks `:op`, and a carrier
+     lives INSIDE a node's `:props`. An emitter that never reads one drops
+     the author's content with nothing raised — which is exactly how
+     `v/spread`, `v/spread-safe` and a call-site `v/render-fn` each
+     reached the DOM as an element that simply did not carry what was
+     written. The rosters exist so the emitter coverage suites can prove
+     one row per carrier the way they already prove one row per node kind.
+  3. **What a rejection tells you to do.** [[recovery]] is total over
      diagnostic ids, and its last rung is always `:keep-interpreted`.
      That rung is always available and always correct, because the
      interpreted mode has NO finite grammar — every body the compiler
@@ -41,6 +50,34 @@
   than defensive."
   #{:text :nothing :expr :element :fragment :view :for :if :let :letfn :case
     :presence :slot})
+
+(def element-props-carriers
+  "The CLOSED roster of an ELEMENT's `:props` slots that carry AUTHORED
+  CONTENT every emitter must read.
+
+  Not the whole props map: `:static?` is a verdict, `:property-props` a
+  classification, and neither is content an author wrote. These seven are,
+  and an emitter that skips one produces a well-formed element missing
+  exactly what the author put in that slot.
+
+  `:ref` is deliberately ABSENT and refused by [[check!]] rather than
+  listed. It is analysed — the wider grammar reads it — but no v1 emitter
+  lowers it, and the interpreted walk refuses it outright while the host
+  lifecycle slice is outstanding. Admitting it here would be a row no
+  emitter can satisfy; leaving it silently unread was the same defect
+  class one more time."
+  #{:attrs :class :style :events :key :spread :safe-spread})
+
+(def crossing-prop-markers
+  "The CLOSED roster of MARKERS one boundary-crossing prop entry may carry
+  — the analyzer's classification of the value at a call-site prop.
+
+  `nil` is the ordinary case: a walked value, handed over verbatim. Every
+  other marker means the entry carries ANALYSED CONTENT under its own key
+  rather than a plain `:value`, which is precisely the shape an emitter
+  reading only `:value` turns into `nil` — a prop that reaches the
+  boundary ABSENT, gating cleanly and rendering nothing."
+  #{nil :render-fn :ui-event :handler :foreign :v/raw-fn})
 
 (def ^:private op-rejections
   "Analyzed node kinds outside v1, each with the sentence that names what
@@ -129,7 +166,12 @@
   Returns `ast` unchanged when the whole body is inside the roster — so
   an emitter downstream can be written against the closed set with no
   unknown-node arm, which is the property that makes 'no hidden
-  interpreted fallback' a structural fact rather than an assertion."
+  interpreted fallback' a structural fact rather than an assertion.
+
+  A `:ref` is refused HERE for the same reason and by the same walk: it
+  is a props carrier no v1 emitter lowers, so a compiled declaration
+  carrying one used to render an element with the ref silently gone,
+  while its interpreted twin refused the same declaration outright."
   [e view-id ast]
   (letfn [(walk [n]
             (cond
@@ -149,7 +191,21 @@
                                     :op       op
                                     :view     view-id
                                     :recovery (conj (or (:recovery row) [])
-                                                    :keep-interpreted)}))))
+                                                    :keep-interpreted)})))
+                    (when (some? (get-in n [:props :ref]))
+                      (env/fail! e :rf.ui.compile/unsupported-form
+                                 (str "a :ref is outside " version " — the finite grammar "
+                                      "{:compiled true} selects. " view-id " cannot be "
+                                      "compiled while its body asks for one. A ref is a "
+                                      "commit-phase host hook and lands with the "
+                                      "host-lifecycle slice; the interpreted walk refuses "
+                                      "it today for the same reason, so a compiled "
+                                      "declaration says so rather than rendering an "
+                                      "element with the ref quietly missing.")
+                                 {:re-frame.freehand/grammar version
+                                  :op       (:op n)
+                                  :view     view-id
+                                  :recovery [:keep-interpreted]})))
                   (run! (fn [[_ v]] (walk v)) n))
 
               (vector? n) (run! walk n)))]

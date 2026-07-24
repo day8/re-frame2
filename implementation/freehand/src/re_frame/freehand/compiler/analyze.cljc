@@ -2553,6 +2553,20 @@
               :slot (prop-slot-name k)
               :marker kind          ; :ui-event | :handler
               :callback-fn form*
+              ;; The lowered VALUE, under the slot every other entry carries
+              ;; its value in. A `v/event` / `v/handler` prop is analysed
+              ;; content, so the entry used to carry the body under
+              ;; `:callback-fn` and NOTHING under `:value` — and both v1
+              ;; emitters read `:value`. The crossing therefore handed the
+              ;; boundary `{:on-pick nil}`: every declaration compiled, every
+              ;; mount resolved, and the callback the author wrote was simply
+              ;; not there. It is the roster constructor for the same reason a
+              ;; DOM-site one is — the interpreted macro expands to exactly
+              ;; this, so the boundary records one marker whichever mode wrote
+              ;; the prop.
+              :value (roster-callback (if (= kind :ui-event) :event :handler)
+                                      form*
+                                      (count bindings))
               :classification kind
               :literal? false}))))
 

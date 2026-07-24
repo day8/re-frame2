@@ -284,6 +284,23 @@
                                 :on-input [:compiled/typed :re-frame.freehand/value]}
                                attrs)])
 
+(v/defview callback-sink
+  "A child that ATTACHES the callback its parent handed it. The prop is an
+  ordinary value to this view; what it has to BE is a roster callback, or
+  the site it lands on has nothing to dispatch."
+  [{:keys [on-pick]}]
+  [:button#sink {:on-click on-pick} "pick"])
+
+(v/defview callback-parent
+  "A compiled parent passing `(v/event …)` ACROSS a boundary. The analyzer
+  records such a prop as analysed content under its own key, so both v1
+  emitters — reading `:value` — put `nil` on the props map: every
+  declaration compiled, every mount resolved, and the callback the author
+  wrote was simply not there."
+  {:compiled true}
+  [_]
+  [:div [callback-sink {:on-pick (v/event [e] [:compiled/converted (.-detail e)])}]])
+
 (v/defview interpreted-shell
   "An INTERPRETED child, mounted BY a compiled parent below, with children
   the compiled parent already lowered into React elements."
@@ -671,6 +688,39 @@
                         (.remove c-interpreted)
                         (done)))))))))
 
+(deftest a-compiled-v-event-prop-arrives-at-the-boundary-and-dispatches
+  (testing "The same defect one boundary further out. A `(v/event …)` at a
+            CALL SITE is analysed content, and an emitter reading only
+            `:value` hands the crossing `{:on-pick nil}` — a callback that
+            reaches the child ABSENT, so the button it lands on does
+            nothing. What is asserted is the vector app-db received after a
+            real click on the CHILD's element."
+    (if-not (browser?)
+      (skip! "the browser job runs the crossing assertions")
+      (async done
+        (register!)
+        (seed! {})
+        (let [container (host-node!)
+              mounted   (atom nil)]
+          (-> (act #(v/mount [callback-parent {}] container {:frame fid}))
+              (.then (fn [m]
+                       (reset! mounted m)
+                       (is (some? (.querySelector container "#sink"))
+                           "the child mounted")
+                       (act #(.dispatchEvent (.querySelector container "#sink")
+                                             (js/CustomEvent. "click"
+                                                              #js {:bubbles true :detail 5})))))
+              (.then (fn [_]
+                       (is (= [[:compiled/converted 5]] (:converted (db)))
+                           "the callback crossed the boundary intact and dispatched
+                            the vector its body answered")
+                       (unmount! container @mounted)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "crossing callback arm rejected: " e))
+                        (.remove container)
+                        (done)))))))))
+
 (deftest the-spread-safe-deny-law-still-fires-through-the-compiled-fold
   (testing "The bound is the whole point of the form, so it is not
             dev-gated and it does not lapse because the element was
@@ -769,6 +819,7 @@
     (doseq [[nm view] {:page compiled/page :inert inert-probe :sub sub-probe
                        :event event-probe :ui-event ui-event-probe :field field-probe
                        :spread spread-probe :safe safe-probe
+                       :callback-parent callback-parent
                        :crossing crossing-probe}]
       (is (= :compiled (:lowering (v/describe view))) (str nm " is a compiled declaration"))
       (is (some? (v/manifest view)) (str nm " carries a compiled manifest")))
