@@ -91,6 +91,27 @@
   (cell/flush!)
   (tick))
 
+(defn- await-settle!
+  "Deterministic scroll-settle. A REAL scrollbar drag dispatches an
+  ASYNC re-frame event; a single `settle!` tick was comfortable on an
+  idle CI runner but marginal on this machine's six concurrent worker
+  agents (shadow-cljs + Chromium) and on a loaded CI runner — so the old
+  assertion was timing the MACHINE, not the window (rf2-eq2vx: scroll-top
+  nil, 25 rows not 29, window unmoved).
+
+  Instead of assuming the settle happened after one macrotask, flush the
+  cells' pending window on every probe and POLL — up to a generous bound —
+  until `pred` reports the scroll's dispatch has landed in app-db AND the
+  next paint has committed the expected window to the document. The
+  caller then asserts the EXACT window off a state it KNOWS has settled,
+  rather than racing it. Returns a `js/Promise` that composes with the
+  `.then` chain; on a genuinely stuck state it rejects after the bound
+  and the caller's `.catch` reds with the timeout label."
+  [pred label]
+  (test-support/poll-until
+    (fn [] (cell/flush!) (pred))
+    {:timeout-ms 8000 :interval-ms 10 :label label}))
+
 (defn- host-node! []
   (let [container (js/document.createElement "div")]
     (.appendChild js/document.body container)
@@ -183,6 +204,14 @@
   (.dispatchEvent node (js/Event. "scroll" #js {:bubbles false :cancelable false}))
   nil)
 
+(defn- ledger-scroll-top
+  "The offset the `::v/scroll-top` projection has committed to app-db for
+  the ledger table — the signal a real scroll's async dispatch has
+  actually landed. `nil` until it does (which is exactly the flake
+  signature the deterministic settle waits out)."
+  []
+  (get-in (frame/frame-app-db-value fid) [ui/tables-root ui/ledger-key :scroll-top]))
+
 ;; ===========================================================================
 ;; The mount
 ;; ===========================================================================
@@ -241,7 +270,14 @@
                        (swap! state assoc :mounted mounted)
                        (live!)
                        (scroll-to! (viewport container) 3200)
-                       (settle!)))
+                       ;; Wait for the settle rather than assuming it: the
+                       ;; async dispatch must reach app-db (offset 3200) and
+                       ;; the paint must commit the 29-row window before the
+                       ;; assertions read it.
+                       (await-settle!
+                         #(and (= 3200 (ledger-scroll-top))
+                               (= 29 (count (row-nodes container))))
+                         "real scroll to 3200 settles into a 29-row window")))
               (.then (fn [_]
                        (is (= 3200 (.-scrollTop (viewport container)))
                            "the viewport really did scroll to 3200")
@@ -258,7 +294,13 @@
                        ;; twenty-eight elements.
                        (swap! state assoc :before (rows-by-key container))
                        (scroll-to! (viewport container) 3232)
-                       (settle!)))
+                       ;; Same discipline for the one-row advance: wait until
+                       ;; the offset reaches 3232 and the window's first row
+                       ;; is r97, then assert the exact advanced window.
+                       (await-settle!
+                         #(and (= 3232 (ledger-scroll-top))
+                               (= "r97" (first (row-keys container))))
+                         "one more row of scroll advances the window to r97")))
               (.then (fn [_]
                        (let [before (:before @state)
                              after  (rows-by-key container)
@@ -360,7 +402,16 @@
                        (live!)
                        (scroll-to! (viewport a) 3200)
                        (scroll-to! (viewport b) 3200)
-                       (settle!)))
+                       ;; Both arms drag a real scrollbar to the same offset;
+                       ;; wait for that offset to land in app-db and for both
+                       ;; documents to hold their 29-row window before the
+                       ;; parity assertion reads them (same flake class as
+                       ;; rf2-eq2vx — deterministic settle, not a fixed tick).
+                       (await-settle!
+                         #(and (= 3200 (ledger-scroll-top))
+                               (= 29 (count (row-nodes a)))
+                               (= 29 (count (row-nodes b))))
+                         "both arms scroll to 3200 and settle into 29-row windows")))
               (.then (fn [_]
                        (is (= 3200 (get-in (frame/frame-app-db-value fid)
                                            [ui/tables-root ui/ledger-key :scroll-top]))
