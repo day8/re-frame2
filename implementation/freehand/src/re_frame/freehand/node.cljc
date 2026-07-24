@@ -453,11 +453,73 @@
     ;; and composing it with nothing produced a copy of the sugar vector.
     (conv/class-string (if (zero? (count parts)) sugar (into (vec sugar) parts)))))
 
+(defn- fn-carried?
+  "Is `x` a value whose SPELLING is testable and whose BEHAVIOUR is not — a
+  bare function, or one of the declared roster callbacks (`v/event`,
+  `v/handler`, `v/raw-fn`)?
+
+  A roster callback carries a function rather than being one, so `fn?`
+  alone answers false for it. Asking both questions in one place is what
+  keeps the whole-handler position and the key-condition BRANCH position
+  answering the same thing about the same value."
+  [x]
+  (or (fn? x) (events/callback? x)))
+
+(defn- key-condition-map?
+  "Is this map at an event position the exact-key CONDITION form rather than
+  the listener OPTIONS map?
+
+  Decided by the PRESENCE of a string key, which is exactly how
+  [[re-frame.freehand.events/event-plan]] decides it at render and how the
+  compiled analyzer decides it at build: an options map's keys are the
+  closed keyword roster, so one string key already means the map is not
+  one. A map MIXING the two is refused at both of those places as the
+  authoring error it is; here it takes the branch reading, because this
+  function records what the element declared and does not re-police a
+  grammar two front ends already hold."
+  [m]
+  (boolean (some string? (keys m))))
+
+(defn- key-branch
+  "One BRANCH of a key-condition map, as the tree records it.
+
+  A branch is a SITE, not a value inside one. The closed exact-key form
+  (Spec 004 §Key-condition event maps) NAMES each branch and admits there
+  what the whole handler position admits, minus the roster forms that do
+  not dispatch: an event vector, an options map carrying `:event`, a
+  `v/event`, or nil. So the site rule reaches one level down with it — a
+  branch that IS a callback records the mode-neutral marker, exactly as a
+  whole handler carrying one does, while a non-data value nested INSIDE a
+  branch is still refused, at the branch that recorded it.
+
+  Walking a branch as ordinary data instead refused the whole element:
+  `{\"Enter\" (v/event [e] …)}` is a spelling the compiled tier deliberately
+  lowers to the dispatching roster callback, so the structural host answered
+  `:rf.error/ui-tree-malformed` for it in BOTH modes — no SSR and no
+  headless render for a form the substrate itself writes."
+  [tag k key-str branch]
+  (if (fn-carried? branch)
+    {:rf.ui/opaque :fn}
+    (do (when-let [[path bad] (non-data branch)]
+          (let [path (into [key-str] path)]
+            (malformed!
+              're-frame.freehand/render
+              (str "The " k " handler on " tag " carries a " (offender-name bad)
+                   (at-path path)
+                   " inside a key-condition branch. A branch names ONE intent and is "
+                   "recorded verbatim, so it is data through and through — a test "
+                   "compares it as data and the event system dispatches it as data. A "
+                   "function records as the opaque marker when it IS the branch; it "
+                   "cannot ride inside one.")
+              {:attr k :path path :value (shape bad)})))
+        branch)))
+
 (defn classify-event
   "One `:events` entry value, classified BY THE VALUE PRESENT AT RENDER
   (Spec 004B §Element fields): a vector is a literal event intent, a map is
-  an options map, a FN-CARRIED SITE is one whose spelling is testable and
-  whose behaviour is not, and nil drops the entry.
+  an options map or the exact-key condition form, a FN-CARRIED SITE is one
+  whose spelling is testable and whose behaviour is not, and nil drops the
+  entry.
 
   A fn-carried site is a bare function OR one of the declared roster
   callbacks — `v/event`, `v/handler`, `v/raw-fn` — exactly as 004B
@@ -473,7 +535,8 @@
   An intent and an options map are recorded VERBATIM, so they must already
   be data — a function riding as an event argument would record an intent
   that cannot be compared, printed, or dispatched as the site's own
-  (§Data)."
+  (§Data). A key-condition map is recorded branch by branch, because the
+  form names each branch as a site of its own ([[key-branch]])."
   [tag k v]
   (cond
     (nil? v)    nil
@@ -490,20 +553,25 @@
                              "value; it cannot ride inside the intent.")
                         {:attr k :path path :value (shape bad)}))
                     v)
-    (map? v)    (do (when-let [[path bad] (non-data v)]
-                      (malformed!
-                        're-frame.freehand/render
-                        (str "The " k " handler on " tag " carries a " (offender-name bad)
-                             (at-path path)
-                             " inside its options map. An options map is recorded verbatim "
-                             "and is data through and through — the structural tree prints "
-                             "and reads back EQUAL, so a value inside one has to survive "
-                             "that round trip. A function records as the opaque marker "
-                             "when it IS the handler value; it cannot ride inside the "
-                             "options.")
-                        {:attr k :path path :value (shape bad)}))
-                    v)
-    (or (fn? v) (events/callback? v))
+    (map? v)    (if (key-condition-map? v)
+                  (reduce-kv (fn [m key-str branch]
+                               (assoc m key-str (key-branch tag k key-str branch)))
+                             {}
+                             v)
+                  (do (when-let [[path bad] (non-data v)]
+                        (malformed!
+                          're-frame.freehand/render
+                          (str "The " k " handler on " tag " carries a " (offender-name bad)
+                               (at-path path)
+                               " inside its options map. An options map is recorded verbatim "
+                               "and is data through and through — the structural tree prints "
+                               "and reads back EQUAL, so a value inside one has to survive "
+                               "that round trip. A function records as the opaque marker "
+                               "when it IS the handler value; it cannot ride inside the "
+                               "options.")
+                          {:attr k :path path :value (shape bad)}))
+                      v))
+    (fn-carried? v)
     {:rf.ui/opaque :fn}
 
     :else
