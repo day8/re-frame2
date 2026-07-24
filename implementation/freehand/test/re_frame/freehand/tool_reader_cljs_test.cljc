@@ -1,4 +1,4 @@
-(ns re-frame.freehand.tool-reader-jvm-test
+(ns re-frame.freehand.tool-reader-cljs-test
   "rf2-hytu5 — the Freehand tool-tier reader door, and the compile-tier
   findings it exists to reach.
 
@@ -17,7 +17,13 @@
 
   Everything below reads a REAL `v/defview {:compiled true}` declaration
   through the production door. The findings ride SUPPRESSED so the suite is
-  silent on stderr, which is also the arm that was unreachable."
+  silent on stderr, which is also the arm that was unreachable.
+
+  Cross-host on purpose. The manifest is built at macro expansion — on the JVM
+  for both hosts — but the reader is what a BROWSER tool calls, so the door has
+  to be a namespace ClojureScript can actually compile and run. Proving it only
+  under `clojure -M:test` would leave the one host that matters to Pair
+  unexercised."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.freehand :as v]
             [re-frame.freehand.tool :as tool]))
@@ -66,7 +72,7 @@
             data the declaration is already carrying."
     (let [m (tool/view-manifest clean-view)]
       (is (map? m))
-      (is (= :re-frame.freehand.tool-reader-jvm-test/clean-view (:view-id m)))
+      (is (= :re-frame.freehand.tool-reader-cljs-test/clean-view (:view-id m)))
       (is (= :re-frame.freehand/v1 (:grammar m)))
       (is (= m (v/manifest clean-view))
           "the tool door reads the same value the application door does — one
