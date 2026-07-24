@@ -6,7 +6,7 @@ No browser for this one either. A [view](../glossary.md#view) is a pure function
 
 > **A view test calls the function and walks the returned data — no DOM, no JSDOM, no `act()`.**
 
-One honest framing before the recipe: **most "view bugs" are data bugs.** A view holds no state and decides nothing, so when the screen is wrong, the culprit is nearly always the [subscription](subscriptions.md) or [handler](event-handlers.md) upstream — pure functions with cheaper tests ([Views](../views.md#when-things-go-wrong) makes the case). A view test is for what a view genuinely *owns*: its structure, its text, and its wiring. That's the whole list.
+One honest framing before the recipe: **most "view bugs" are data bugs.** A view holds no state and decides nothing, so when the screen is wrong, the culprit is nearly always the [subscription](subscriptions.md) or [handler](event-handlers.md) upstream — pure functions with cheaper tests ([Views](../views.md#troubleshooting) makes the case). A view test is for what a view genuinely *owns*: its structure, its text, and its wiring. That's the whole list.
 
 The toolkit is `re-frame.test-helpers` — pure walks over hiccup, [catalogued in the API reference](../../api/re-frame.test-helpers.md) — alongside the `re-frame.test-support` fixtures you already use:
 

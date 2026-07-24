@@ -30,10 +30,6 @@ map out.
 Interceptors earn their keep when the *same* chore genuinely applies across many
 handlers (logging, undo snapshot, boundary validation).
 
-**On this page — two speeds.** Day one: register a logger, attach by id, know the
-context map and the sandwich, use `path` if you need it. Going further: frame-wide
-attach, contribute-don't-perform, undo worked example, introspection, testing.
-
 ## A first interceptor: a logger
 
 Here's a complete, registered interceptor. It logs each event on the way in, and prints how long the handler took on the way out:
@@ -92,7 +88,7 @@ Tempted to skip the registration step and drop an interceptor *map* straight int
 
 ## The context map: two keys
 
-We've been reaching into `ctx` with `get-in [:coeffects :event]`. Time to look at what's actually in there. The context is one immutable map threading through the whole chain, and it has two load-bearing keys:
+We've been reaching into `ctx` with `get-in [:coeffects :event]`. Time to look at what's actually in there. The context is one immutable map threading through the whole chain, and it has two keys that matter:
 
 | Key | Holds | Filled by |
 |---|---|---|
@@ -109,18 +105,18 @@ Caught mid-chain, just after the handler has run, the map looks like this:
              :fx [[:dispatch [:toast/show "Added"]]]}}
 ```
 
-This is the same `:coeffects` / `:effects` pair you met in [effects](effects.md) and [coeffects](coeffects.md): coeffects are the world facts a handler reads, effects are the descriptions it writes. Interceptors live in the gap between them. So the whole mental model fits in one line:
+This is the same `:coeffects` / `:effects` pair you met in [effects](effects.md) and [coeffects](coeffects.md): coeffects are the world facts a handler reads, effects are the descriptions it writes. Interceptors live in the gap between them. So the whole picture fits in one line:
 
 - a **`:before`** sees only `:coeffects` — the outputs don't exist yet;
 - an **`:after`** sees both `:coeffects` *and* `:effects`.
 
-I'll pause while you read those two lines again. That's the key concept, right there: the way in is about the handler's inputs, the way out is about its outputs, and everything an interceptor will ever do for you happens on one of those two trips.
+That's the key concept: the way in is about the handler's inputs, the way out is about its outputs, and everything an interceptor will ever do for you happens on one of those two trips.
 
 That's why our logger's `:before` could read `:event` but our undo example (later) needs `:after` to compare the before-`:db` against the after-`:db`.
 
 ??? note "Going deeper"
 
-    The context is a *comonad*-flavoured value: every stage is a function `context -> context`, and composing the whole chain is just folding those functions over one threaded value. Because the value is immutable and each stage is total (`ctx` in, `ctx` out), the chain is a pure transformation — which is exactly what lets [replay, time-travel](glossary.md#time-travel), and deterministic tests re-run it against recorded inputs and get the same answer every time. The runtime also stages a few framework keys (the [dispatch envelope](glossary.md#event-envelope) among them) for generic tooling.
+    Every stage is a function `context -> context`, and composing the whole chain is folding those functions over one threaded value. Because the value is immutable and each stage is total (`ctx` in, `ctx` out), the chain is a pure transformation — which is exactly what lets [replay, time-travel](glossary.md#time-travel), and deterministic tests re-run it against recorded inputs and get the same answer every time. The runtime also stages a few framework keys (the [dispatch envelope](glossary.md#event-envelope) among them) for generic tooling.
 
 ## The sandwich: how a chain runs
 
@@ -150,9 +146,9 @@ If you'd rather see that as code, here it is — the whole execution is one thre
     ((:after  C)) ((:after  B)) ((:after  A)))
 ```
 
-(Morally, anyway — the runtime resolves the references and guards each call, but this is the shape. There's no machinery hiding under the machinery.)
+(Morally, anyway — the runtime resolves the references and guards each call, but this is the shape.)
 
-Two details carry weight. First, **the handler runs as the last `:before`.** The runtime wraps it as an interceptor too — even the ham gets wrapped — so there's exactly one kind of thing to execute, all the way down. Second, **the trip out mirrors the trip in.** Whatever `B:before` set up, `B:after` tears down — and teardown happens *after* everything that ran inside the setup, because the outer slice goes on first and comes off last. Every cleanup interceptor you write leans on this symmetry.
+Two details matter. First, **the handler runs as the last `:before`.** The runtime wraps it as an interceptor too — even the ham gets wrapped — so there's exactly one kind of thing to execute, all the way down. Second, **the trip out mirrors the trip in.** Whatever `B:before` set up, `B:after` tears down — and teardown happens *after* everything that ran inside the setup, because the outer slice goes on first and comes off last. Every cleanup interceptor you write leans on this symmetry.
 
 The handler doesn't know it's wrapped, and an interceptor doesn't know what it wraps. That mutual ignorance is exactly why the pattern scales: any interceptor can decorate any handler, because they only ever talk through one shared value. They never reach into each other.
 
@@ -280,7 +276,7 @@ When both a frame and a dispatch supply overrides, they **merge, and on any key 
 
 Here's the rule from the top of the page, made precise. The chain is part of the *step function* — the pure fold that replay, time-travel, and deterministic tests re-run against recorded inputs. So this is where discipline pays off.
 
-Don't do real work directly in an interceptor body. Not because it won't run — it will — but because it re-fires on every replay, and it escapes every seam: `:fx-overrides` (the effects-side sibling of the `:interceptor-overrides` you just met) redirects *registered effects*, not a stray `localStorage` write buried in an `:after`. The sanctioned pattern is **contribute, don't perform** — append [effect](glossary.md#effect) rows and let the [effect handler](glossary.md#effect-handler) execute them.
+Don't do real work directly in an interceptor body. Not because it won't run — it will — but because it re-fires on every replay, and it escapes every override path: `:fx-overrides` (the effects-side sibling of the `:interceptor-overrides` you just met) redirects *registered effects*, not a stray `localStorage` write buried in an `:after`. The sanctioned pattern is **contribute, don't perform** — append [effect](glossary.md#effect) rows and let the [effect handler](glossary.md#effect-handler) execute them.
 
 ```clojure
 ;; ❌ performs — re-fires on replay, invisible to :fx-overrides and the trace
@@ -303,8 +299,6 @@ So what *are* interceptors allowed to do? Two things. They **decide**: a `:befor
 
     A frame-wide interceptor runs on *every* event in that frame, [SSR](../ssr/glossary.md#ssr) included. That's another reason the contribute pattern matters: the `:localstorage/set` row above is safe under SSR because it's just a `:db`-derived effect row, and the `reg-fx` handler that performs it carries `:platforms #{:client}` — so the server's fx resolver simply skips it. An interceptor that instead pokes the host *directly* in its body (a `:before` that reads `js/localStorage`) has no such fence and throws on the JVM during a server render. Keep host access in the effect handler, where the platform gate lives.
 
-## Day-one checklist
-
 You can register an interceptor by id, attach it with `:interceptors […]`, read
 `:coeffects` on the way in and `:effects` on the way out, and prefer
 contribute-don't-perform over host I/O in the body. That is enough until a real
@@ -312,7 +306,7 @@ cross-cutting pain appears.
 
 ---
 
-## Going further
+## Advanced
 
 ## A real interceptor: undo
 

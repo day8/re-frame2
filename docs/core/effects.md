@@ -1,14 +1,10 @@
 # Effects: the way out
 
 So far, handlers mostly returned `{:db …}`. Real apps also need HTTP, storage,
-timers, and follow-up events — without turning handlers into impure mush.
+timers, and follow-up events — without stuffing `js/fetch` into the handler body.
 
 This page shows you how to write pure [event handlers](glossary.md#event-handler)
 that **side-effect**.
-
-**On this page — two speeds.** Day one: describe effects as data (`:fx`),
-run-to-completion, managed HTTP shape, the effect-map grammar. Going further:
-`reg-fx`, test overrides, platform skips. You can ship after the grammar.
 
 Yes. A surprising claim.
 
@@ -19,7 +15,7 @@ world. Neither demand bends.
 The move you've been leaning on since [events](events.md) and [app-db](app-db.md)
 is the answer: a handler never *does* anything. It returns a **to-do list** — a
 description of what should happen, in plain data — and the runtime does the dirty
-work. Hold onto that list; the whole page runs on it.
+work. That list is the whole page.
 
 ## The counter learns to act
 
@@ -127,7 +123,7 @@ All four steps appear **together**. The view never shows `[:submitted]` alone.
     click **submit** again. However deep the chain goes, the screen only ever sees
     the end of it.
 
-Three notes that keep the mental model honest:
+Three notes that keep the picture honest:
 
 1. **Each dequeued event is its own [epoch](glossary.md#epoch).** Parent and child
    are two rows in the record, even though they settled in one drain and rendered
@@ -166,15 +162,18 @@ Real apps reach outside themselves: servers, storage, timers. The counter never 
     {:db (assoc db :article/loading? true)}))
 ```
 
-A muddy monster truck has just parked in our field of white tulips.
-
-The inline fetch fails three ways, and the failures *are* the reasons for the architecture — not style points:
+That inline fetch fails three ways — and the failures *are* the architecture, not
+style points:
 
 - **The handler isn't pure anymore.** It calls `js/fetch`. Testing it now means mocking the network — and mocking should be mocked; it is a bad omen. You took the most testable function in the codebase and made it the least.
 - **The async path is a trap.** The `.then` callback fires *after* the handler returned. The `db` it closed over is the previous state, and the callback has no legal way to produce a new one. You've written a function that is half pure, half effectful, by accident.
-- **The history goes dark.** The fetch never appears in the event record. Reading the handler no longer tells you what the app will look like when the response lands. Replaying the app's events no longer reproduces its state. The inline fetch is a hole in the [ledger](coeffects.md#the-ledger) — the replayable record of everything that ever entered the app, and the asset this framework most refuses to give up.
+- **The history goes dark.** The fetch never appears in the event record. Reading the handler no longer tells you what the app will look like when the response lands. Replaying the app's events no longer reproduces its state. The inline fetch is a hole in the [ledger](coeffects.md#the-ledger) — the replayable record of everything that ever entered the app.
 
-So the rule is one line, and it is the load-bearing sentence of this page: **describe the effect, don't perform it.** Never call `js/fetch` — or any I/O — from a handler body; a handler that performs I/O directly stops being pure, captures a stale `db` in its async callback, and vanishes from the event record. Read the bolded sentence once more before moving on. Everything else on this page is that sentence wearing different clothes.
+So the rule is one line: **describe the effect, don't perform it.** Never call
+`js/fetch` — or any I/O — from a handler body. A handler that performs I/O
+directly stops being pure, captures a stale `db` in its async callback, and
+vanishes from the event record. Everything else on this page is that sentence in
+different clothes.
 
 ## Effects are data
 
@@ -214,7 +213,7 @@ The inline version **did** a fetch. This version **describes** one. The handler 
 
 That reply rides as the event's last argument in [the uniform reply](glossary.md#the-uniform-reply) shape — success carries `:value`, failure carries `:error` — and every managed async surface answers the same way.
 
-Read what that bought you. The entire fetch flow is three pure handlers you read top to bottom. No `.then` chains, no stale-`db` trap, and the failure path has a *name* instead of being a branch you forgot to write. Each handler tests as a plain function. The request tests as data: assert on the map, no network required.
+What that bought you: the entire fetch flow is three pure handlers you read top to bottom. No `.then` chains, no stale-`db` trap, and the failure path has a *name* instead of being a branch you forgot to write. Each handler tests as a plain function. The request tests as data: assert on the map, no network required.
 
 And this pattern should feel familiar, because you already program in it all day. A [view](views.md) is a pure function that returns hiccup — a *description* of DOM — and the framework does the mutating, efficiently and discreetly. Effects are the same trick pointed at everything else the app touches.
 
@@ -266,9 +265,11 @@ Because `:fx` is just a vector, you keep adding rows. A richer checkout is simpl
           [:dispatch [:notification/show "Order placed!"]]]}))
 ```
 
-A state change, an HTTP POST, a storage write, and a follow-up dispatch — still one pure map. Push that thought as far as it will go: every request your app will ever send, every byte it will ever store, every place it will ever navigate — its entire worldly conduct — is rows of plain data, returned from pure functions, sitting still and legible before anything happens. Your app never *does* anything. It writes lists, and the runtime works down them.
+A state change, an HTTP POST, a storage write, and a follow-up dispatch — still one pure map. Every request, storage write, and navigation your app performs is a row of plain data returned from a pure function — legible before anything happens. The handler writes the list; the runtime works it down.
 
-Too far? A little. One handler, one map. But "the app's conduct, as data" is not a slogan — it is exactly what the [trace stream](glossary.md#trace-stream) records and [Xray](glossary.md#xray) shows you when something goes weird at 4:45 on a Friday.
+When something goes weird at 4:45 on a Friday, that list is exactly what the
+[trace stream](glossary.md#trace-stream) records and [Xray](glossary.md#xray) shows
+you.
 
 ### Ordering and atomicity — what you can rely on
 
@@ -287,14 +288,12 @@ When a handler returns `{:db new-db :fx [[a 1] [b 2] [c 3]]}`, four rules hold. 
 
     Application handlers return those two keys — plus, when a write carries a privacy consequence, the commit-plane classification effects (`:sensitive`, `:large`, and their `clear-` counterparts) that [app-db](app-db.md) teaches. Anything else at the top level is a malformed effect map. The runtime doesn't throw — it [fails closed](glossary.md#fail-loud-not-silent): it emits `:rf.error/effect-map-shape` naming the offending key, **drops** that key, and applies the legal ones (so your `:db` still lands). This is the safety net under a typo (`:dn` for `:db`) and under the old v1 reflex of returning a top-level `[:dispatch …]` — which belongs in an `:fx` row.
 
-## Day-one checklist
-
 You can return `{:db … :fx [[id args] …]}`, chain follow-ups with `[:dispatch …]`,
 trust run-to-completion (a drain never paints halfway), and describe HTTP instead
 of calling `js/fetch` in a handler. Impurity is data until the runtime performs it.
-That is the whole of the day-one grammar — you can ship on it.
+That is the whole of the effect-map grammar — you can ship on it.
 
-## When things go wrong
+## Troubleshooting
 
 | Symptom | Error / behaviour | Fix |
 |---|---|---|
@@ -304,7 +303,7 @@ That is the whole of the day-one grammar — you can ship on it.
 | Bare `dispatch` in a handler | Breaks purity and the ledger | Return `:fx [[:dispatch …]]` |
 | Async callback has no frame | `:rf.error/no-frame-context` | Capture `(:frame m)` in the fx handler (or use managed fx) |
 
-## Going further
+## Advanced
 
 Everything above is enough to ship. The rest is here for when a need appears —
 registering your own effects, and swapping them out in tests.

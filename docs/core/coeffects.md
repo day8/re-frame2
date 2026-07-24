@@ -10,13 +10,9 @@ would cost the handler its purity, so re-frame2 delivers them instead, as declar
 state of the world, as data, as presented to your handler. The recording is the
 point — it is what makes replay and time-travel honest.
 
-**On this page — two speeds.** Day one: declare `:rf.cofx/requires`, receive
-`:rf/time-ms`, keep the handler pure. Going further: grades, `reg-cofx`, minting
-ladder, the ledger, test supply. Ship after you can stamp time honestly.
-
 ## The counter learns the time
 
-Let's give the [app-db](app-db.md) counter one more feature: show when the button was last clicked. It looks like throwaway decoration. It's quietly one of the most important ideas in the framework, so it's worth slowing down for.
+Let's give the [app-db](app-db.md) counter one more feature: show when the button was last clicked. It looks like throwaway decoration. It is also the purity fix for every world fact that ends up in durable state — so it's worth slowing down for.
 
 Here's the constraint. A pure handler must not read the clock — if it did, replaying the same event tomorrow would compute different state, and the history the dev tools show you — a re-run of recorded events — would be a lie. So re-frame2 reads the time once, as the event enters the queue, and stamps it **onto the event**. A handler that wants the time *declares* it — one line of metadata — and receives it as a plain value:
 
@@ -56,8 +52,6 @@ Notes:
 
 That recorded-ness is what the dev tools cash in. Open [Xray](glossary.md#xray) on an app like this and every click is a row — the event, app-db before and after, and the recorded time; restore an older row and the counter returns to that exact moment. It falls out of three rules you're already following: state changes only through events, handlers stay pure, and world facts arrive recorded. Given those three, history *is* a list of `(event, recorded-facts)` pairs, and re-running any prefix reconstructs the exact state — there's nothing else for state to depend on. (The [Xray docs](../xray/index.md) are the tour.)
 
-## Day-one checklist
-
 You can declare world facts with `:rf.cofx/requires`, read them flat beside `:db`,
 and keep durable timestamps out of the handler body. That is the purity fix. The
 sections below are the full declaration grammar and the ledger argument.
@@ -73,7 +67,7 @@ Your handler needs the current time, a `localStorage` value, a fresh id — and 
     {:db (assoc-in db [:orders id] {:id id :items items :placed-at (js/Date.)})}))
 ```
 
-Now the handler isn't pure: same inputs, a different output every call. No test can pin it down without monkey-patching the global clock. And impure functions cause well-documented paper cuts, which have a way of accumulating non-linearly — except this one skips the accumulating and goes straight to the wound: replay breaks (the [replay-pair section below](#why-this-is-non-negotiable-the-replay-pair) makes the reason precise).
+Now the handler isn't pure: same inputs, a different output every call. No test can pin it down without monkey-patching the global clock. And impure functions cause well-documented paper cuts — except this one skips the accumulating and goes straight to the wound: replay breaks (the [replay-pair section below](#why-this-is-non-negotiable-the-replay-pair) makes the reason precise).
 
 These inputs-from-the-world are [**coeffects**](glossary.md#coeffect). The symmetry, stated plainly: an effect is data the handler *outputs* for the runtime to perform; a coeffect is data the runtime *delivers* for the handler to read.
 
@@ -86,11 +80,11 @@ These inputs-from-the-world are [**coeffects**](glossary.md#coeffect). The symme
 
 And here's the reveal: that `{:keys [db]}` you destructure in every handler *is* the coeffects map. You've been reading coeffects since your first handler. `:db` and `:event` are staged automatically; every other world fact is opt-in, through one declaration key.
 
-Sit with that map for a second, because it's grander than it looks. It is the handler's *entire observable universe*. Your app's state? In the map. The event being handled? In the map. The time, the storage read, the minted id? In the map — if declared. Everything your handler will ever know about anything arrives in its first argument, and as far as the handler is concerned, nothing else exists. (Too cosmic? Fine. It's a function argument. But it is the *only* place a handler may look, and holding that line is what the rest of this page is about.)
+That map is the handler's *entire* input. Your app's state? In the map. The event being handled? In the map. The time, the storage read, the minted id? In the map — if declared. Everything your handler will ever know about anything arrives in its first argument. As far as the handler is concerned, nothing else exists. That is not a slogan — it is the only place a handler may look, and holding that line is what the rest of this page is about.
 
 ### Declare what you read: `:rf.cofx/requires`
 
-Nothing reaches a handler implicitly — **not even the time**. No abracadabra. A handler declares the facts it consumes as registration metadata, and the runtime hands it exactly those, flat in the coeffects map beside `:db`:
+Nothing reaches a handler implicitly — **not even the time**. A handler declares the facts it consumes as registration metadata, and the runtime hands it exactly those, flat in the coeffects map beside `:db`:
 
 ```clojure
 (rf/reg-event :checkout/place-order
@@ -191,7 +185,7 @@ Recorded coeffects are the last rung, not the default. The `:checkout/place-orde
 
 ## The ledger
 
-Here's a reframing that, once it clicks, reorganises how you think about the whole app.
+Here's a picture that, once it clicks, reorganises how you think about the whole app.
 
 The reflex picture of state is a whiteboard: there's a current drawing, each event erases a bit and draws something new, and the old drawing is gone. The right picture is a **ledger**: each event is a line appended to the lines before it, and the app-db you see at any moment is the running total — the result of starting from the initial state and applying every event since, in order.
 

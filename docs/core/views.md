@@ -18,16 +18,19 @@ centralised state. [Subscriptions](subscriptions.md) derive values from it. View
 sit at the end of the flow and render whatever arrives — a **window** onto the
 application, not the room itself.
 
-**On this page — two speeds.**
-
-1. **Day one:** composition, hiccup, subscribe-in / dispatch-out, `reg-view`,
-   compute-in-subs. After the live qty cell the **pure pipeline is complete**.
-2. **Going further:** Form-2/3, multi-frame targeting, substrate seam. Open only
-   when a need appears.
+After the live qty cell the **pure pipeline is complete**. Form-2/3, multi-frame
+targeting, and the substrate boundary live under Advanced — open them only when a
+need appears.
 
 ??? info "For JavaScript developers"
 
-    A re-frame2 view is a React function component with everything except rendering removed. No `useState` — state lives in [app-db](app-db.md), your app's single state map, and arrives through [subscriptions](subscriptions.md). No `useEffect` — anything that touches the world is an [effect](effects.md), produced as data by an [event handler](glossary.md#event-handler) and never run from a component. No JSX — a view returns plain Clojure data. The design here is in what got *subtracted*, not in anything added.
+    A re-frame2 view is a React function component with everything except rendering
+    removed. No `useState` — state lives in [app-db](app-db.md), your app's single
+    state map, and arrives through [subscriptions](subscriptions.md). No
+    `useEffect` — anything that touches the world is an [effect](effects.md),
+    produced as data by an [event handler](glossary.md#event-handler) and never run
+    from a component. No JSX — a view returns plain Clojure data. The design here is
+    in what got *subtracted*, not in anything added.
 
 ## The counter gets components
 
@@ -71,7 +74,8 @@ Notes:
 
 ## Hiccup: the screen is data
 
-A view returns [hiccup](hiccup.md) — the notation from early in the track: nested Clojure vectors shaped like the DOM they describe:
+A view returns [hiccup](hiccup.md) — the notation from early in the track: nested
+Clojure vectors shaped like the DOM they describe:
 
 ```clojure
 [:div.cart
@@ -81,30 +85,51 @@ A view returns [hiccup](hiccup.md) — the notation from early in the track: nes
 
 The rules are quick to learn:
 
-- A vector whose first element is a keyword is an **element**. `:div.cart` is a `<div class="cart">` — the `.class` shorthand comes from CSS selectors, and `:input#email.wide` adds an id too.
-- A map in second position is the **attributes**: `[:button {:on-click f :disabled true} "Go"]`.
-- Everything after that is **children**. Strings become text; nested vectors become nested elements.
-- A vector whose first element is a **view** (not a keyword) renders that view, with the rest of the vector as its arguments — `[counter-button "−" [:dec]]` above. That's the composition rule the counter used.
+- A vector whose first element is a keyword is an **element**. `:div.cart` is a
+  `<div class="cart">` — the `.class` shorthand comes from CSS selectors, and
+  `:input#email.wide` adds an id too.
+- A map in second position is the **attributes**:
+  `[:button {:on-click f :disabled true} "Go"]`.
+- Everything after that is **children**. Strings become text; nested vectors become
+  nested elements.
+- A vector whose first element is a **view** (not a keyword) renders that view, with
+  the rest of the vector as its arguments — `[counter-button "−" [:dec]]` above.
+  That's the composition rule the counter used.
 
-The important word is *data*. Not "data-like". Actual vectors, maps, and keywords — the same structures you manipulate everywhere else in the program. So you build screens with ordinary code and no template syntax:
+The important word is *data*. Not "data-like". Actual vectors, maps, and keywords —
+the same structures you manipulate everywhere else in the program. So you build
+screens with ordinary code and no template syntax:
 
 ```clojure
 (into [:ul] (for [item items] [:li (:name item)]))
 ```
 
-And because hiccup is just data, everything you already know how to do with data works on screens. A function can take hiccup and return hiccup. You can `pprint` a view's output and *read* it. A pure function that walks hiccup and emits an HTML string can run on the server — which is how [server-side rendering](../ssr/concepts.md) renders the *same* views without a browser in the building.
+And because hiccup is just data, everything you already know how to do with data
+works on screens. A function can take hiccup and return hiccup. You can `pprint` a
+view's output and *read* it. A pure function that walks hiccup and emits an HTML
+string can run on the server — which is how
+[server-side rendering](../ssr/concepts.md) renders the *same* views without a
+browser in the building.
 
 ??? info "For JavaScript developers"
 
-    Template strings can do none of this. They don't compose, they don't diff, and string-built markup is where injection bugs come from. Hiccup is closer in spirit to React's `createElement` calls — a tree of data describing the UI — except it's plain literals you can map, filter, and pass around, with no build-time transform.
+    Template strings can do none of this. They don't compose, they don't diff, and
+    string-built markup is where injection bugs come from. Hiccup is closer in spirit
+    to React's `createElement` calls — a tree of data describing the UI — except it's
+    plain literals you can map, filter, and pass around, with no build-time
+    transform.
 
 ??? note "Going deeper"
 
-    Hiccup is the ClojureScript render-tree — the shape that survives serialisation across the JVM/browser boundary. Other hosts use their own render-tree shape behind the same contract.
+    Hiccup is the ClojureScript render-tree — the shape that survives serialisation
+    across the JVM/browser boundary. Other hosts use their own render-tree shape
+    behind the same contract.
 
 ## Subscribe in, dispatch out
 
-A static screen isn't much use. A view needs to read live application state, and it needs to react to clicks and typing. Two jobs, exactly two openings — and both are one-way.
+A static screen isn't much use. A view needs to read live application state, and it
+needs to react to clicks and typing. Two jobs, exactly two openings — and both are
+one-way.
 
 **Reading state in: the view derefs a [subscription](glossary.md#subscription).**
 
@@ -112,28 +137,48 @@ A static screen isn't much use. A view needs to read live application state, and
 @(rf/subscribe [:cart/total])
 ```
 
-This declares "I depend on this derived value. Re-run me when it changes." That's the only way a view learns application state. It doesn't read [app-db](glossary.md#app-db) directly, and it doesn't receive the value as an argument threaded down through ten ancestors. It asks the [derivation graph](glossary.md#the-derivation-graph) for exactly the slice it needs, *by name* — via a [query vector](glossary.md#query-vector), the `[id & args]` shape that names the subscription and keys its cache. (More on subscriptions in [Subscriptions](subscriptions.md).)
+This declares "I depend on this derived value. Re-run me when it changes." That's the
+only way a view learns application state. It doesn't read
+[app-db](glossary.md#app-db) directly, and it doesn't receive the value as an
+argument threaded down through ten ancestors. It asks the
+[derivation graph](glossary.md#the-derivation-graph) for exactly the slice it needs,
+*by name* — via a [query vector](glossary.md#query-vector), the `[id & args]` shape
+that names the subscription and keys its cache. (More on subscriptions in
+[Subscriptions](subscriptions.md).)
 
-**Sending events out: the view [dispatches](glossary.md#dispatch).** Wire the view's `dispatch` to an [event handler](glossary.md#event-handler):
+**Sending events out: the view [dispatches](glossary.md#dispatch).** Wire the view's
+`dispatch` to an [event handler](glossary.md#event-handler):
 
 ```clojure
 [:button {:on-click #(dispatch [:cart/add id])} "Add"]
 ```
 
 (`dispatch` here is the local `reg-view` injects — bound to the view's
-[frame](glossary.md#frame), and captured so it still routes correctly when the
-click fires, *after* the render. More on that [below](#the-trap-a-callback-that-fires-after-render-has-no-frame).)
+[frame](glossary.md#frame), and captured so it still routes correctly when the click
+fires, *after* the render. More on that
+[below](#the-trap-a-callback-that-fires-after-render-has-no-frame).)
 
-A dispatch *announces that something happened* by handing the framework an [event](glossary.md#event) — a plain vector naming what occurred — and returns immediately. It does not change state. It does not know or care what the handler will do with it. The [event pipeline](glossary.md#event-pipeline) takes it from there: the handler runs, `app-db` moves, subscriptions repropagate, and at the very end this view re-renders to match. (The whole traversal is the [Introduction](introduction.md)'s subject.)
+A dispatch *announces that something happened* by handing the framework an
+[event](glossary.md#event) — a plain vector naming what occurred — and returns
+immediately. It does not change state. It does not know or care what the handler will
+do with it. The [event pipeline](glossary.md#event-pipeline) takes it from there: the
+handler runs, `app-db` moves, subscriptions repropagate, and at the very end this
+view re-renders to match. (The whole traversal is the
+[Introduction](introduction.md)'s subject.)
 
-Notice the shape of the round trip, because it's the whole idea. A click never mutates the number it sits next to. It dispatches an event that produces a *new* `app-db`, which flows back through a subscription. The view can't short-circuit that path, because it holds no state to short-circuit with. In window terms: you can see into the room, and you can knock. What happens after the knock is the room's business, not the window's.
+Notice the shape of the round trip — it's the whole idea. A click never mutates the
+number it sits next to. It dispatches an event that produces a *new* `app-db`, which
+flows back through a subscription. The view can't short-circuit that path, because it
+holds no state to short-circuit with. In window terms: you can see into the room, and
+you can knock. What happens after the knock is the room's business, not the window's.
 
 ??? info "Coming from Redux?"
 
-    `subscribe` is `useSelector` and `dispatch` is `dispatch` — the same unidirectional
-    dataflow. The difference is that the "selector" is a named, cached node in a
-    derivation graph (see [subscriptions](subscriptions.md)) rather than a function
-    you pass inline, and the event is dispatched as data rather than through a thunk.
+    `subscribe` is `useSelector` and `dispatch` is `dispatch` — the same
+    unidirectional dataflow. The difference is that the "selector" is a named, cached
+    node in a derivation graph (see [subscriptions](subscriptions.md)) rather than a
+    function you pass inline, and the event is dispatched as data rather than through
+    a thunk.
 
 ## A view, live
 
@@ -163,12 +208,12 @@ macOS) to evaluate, then click the buttons:
 ```
 
 Keep the `:demo` `frame-root` and change its child from `[qty-stepper]` to
-`[:div [qty-stepper] [qty-stepper]]`, then re-evaluate. Click either stepper:
-both move. Both mount under the same seeded `:demo` [frame](glossary.md#frame),
-so neither owns the number — each is a window onto the one app-db value. There is
-no local copy to fall out of sync. (Replacing the whole `frame-root` with the
-bare `[:div …]` would drop the `:demo` seed and land the steppers on an
-uninitialised frame — keep the wrapper.)
+`[:div [qty-stepper] [qty-stepper]]`, then re-evaluate. Click either stepper: both
+move. Both mount under the same seeded `:demo` [frame](glossary.md#frame), so neither
+owns the number — each is a window onto the one app-db value. There is no local copy
+to fall out of sync. (Replacing the whole `frame-root` with the bare `[:div …]` would
+drop the `:demo` seed and land the steppers on an uninitialised frame — keep the
+wrapper.)
 
 ### The pure pipeline is complete
 
@@ -193,8 +238,8 @@ isolation and carry are [Frames](frames.md); packaging a real entry point is
    `:my.app/qty-stepper`). Tooling lists the view, jumps to source, and names
    renders in the trace.
 2. **Frame-aware injection.** Unqualified `dispatch` and `subscribe` are locals
-   bound to the [frame](glossary.md#frame) the view renders under — so the same
-   view mounts in several worlds without renaming anything.
+   bound to the [frame](glossary.md#frame) the view renders under — so the same view
+   mounts in several worlds without renaming anything.
 
 ```clojure
 (rf/reg-view qty-stepper []
@@ -284,11 +329,15 @@ wrappers. The [TodoMVC example](../../examples/core/todomvc) follows this split.
 
 ## The one rule: views compute hiccup only
 
-Now the single discipline that keeps views fast, correct, and easy to debug. It pays for itself within a day of writing real screens:
+Now the single discipline that keeps views fast, correct, and easy to debug. It pays
+for itself within a day of writing real screens:
 
-> **Views compute hiccup only. Everything else — sorting, filtering, formatting, deriving, joining — happens in a subscription.**
+> **Views compute hiccup only. Everything else — sorting, filtering, formatting,
+> deriving, joining — happens in a subscription.**
 
-The temptation always looks innocent. The subscribed list is *almost* what the screen needs, so you reach for one little `sort-by` here, one `.toFixed` there. Don't. Here's the *before*, with the view quietly doing two jobs that aren't its own:
+The temptation always looks innocent. The subscribed list is *almost* what the screen
+needs, so you reach for one little `sort-by` here, one `.toFixed` there. Don't.
+Here's the *before*, with the view quietly doing two jobs that aren't its own:
 
 ```clojure
 ;; Before — the view computes. The sort and the price-format re-run on
@@ -299,7 +348,8 @@ The temptation always looks innocent. The subscribed list is *almost* what the s
      ^{:key (:id item)} [:li (:name item) " — $" (.toFixed (:price item) 2)])])
 ```
 
-And the *after*, with the derivation pushed up into a [subscription](subscriptions.md) where it belongs:
+And the *after*, with the derivation pushed up into a
+[subscription](subscriptions.md) where it belongs:
 
 ```clojure
 ;; After — the sub computes once per change to :cart/items; the view renders.
@@ -316,7 +366,8 @@ And the *after*, with the derivation pushed up into a [subscription](subscriptio
      ^{:key (:id item)} [:li (:name item) " — $" (:price item)])])
 ```
 
-Ask the "after" view what it does: all it does is walk the list and emit `<li>`s. That's a view that knows what it's for.
+Ask the "after" view what it does: all it does is walk the list and emit `<li>`s.
+That's a view that knows what it's for.
 
 Why so strict? Because a view re-runs whenever any value it derefs changes, and
 whenever a re-rendering parent hands it changed arguments — and a `sort-by` in the
@@ -339,12 +390,10 @@ most common way re-frame2 apps get accidentally slow; the hunt and the fix are i
     position. Key by durable data, never the loop index. Missing or colliding keys
     can silently keep stale DOM, drop a row, or duplicate one — not an error.
 
-## Day-one checklist
-
 You can compose registered views, subscribe in / dispatch out, keep computation in
 subs, and seed setup via `:initial-events`. That closes the pure pipeline stages.
 
-## When things go wrong
+## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -405,7 +454,7 @@ that survives any async hop. [Frames](frames.md) is that pattern's home.
 
 ---
 
-## Going further
+## Advanced
 
 ??? note "Targeting a different frame"
 
@@ -421,12 +470,12 @@ that survives any async hop. [Frames](frames.md) is that pattern's home.
     Escape hatch, not the daily path. For a whole subtree, `rf/with-frame` or
     `frame-provider` — [Frames](frames.md).
 
-??? note "The substrate seam"
+??? note "The substrate boundary"
 
     Handlers, subs, and app-db never name a rendering library. The adapter
-    (`(rf/init! reagent-adapter/adapter)`) is the seam where hiccup becomes pixels.
+    (`(rf/init! reagent-adapter/adapter)`) is where hiccup becomes pixels.
     Port substrates and only `init!` plus view notation change —
-    [Use UIx or reagent-slim](how-to/use-uix-or-slim.md). A more
-    radical, still-experimental option is [re-frame.ui](re-frame.ui/index.md), a
-    first-party *compiled* view substrate where views are macro-compiled rather
-    than interpreted at runtime.
+    [Use UIx or reagent-slim](how-to/use-uix-or-slim.md). A more radical,
+    still-experimental option is [re-frame.ui](re-frame.ui/index.md), a first-party
+    *compiled* view substrate where views are macro-compiled rather than
+    interpreted at runtime.

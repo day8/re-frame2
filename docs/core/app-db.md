@@ -19,11 +19,11 @@ Almost everything else in re-frame2 stays simple *because* of that.
 
 ## A complete live counter
 
-The intro counter seeded `:value` explicitly through its `:initialise` event; the
+The intro counter seeded `:value` through its `:initialise` event; the
 `(:value db 0)` in its subscription was a defensive display fallback, not the
-initializer. Here we reuse that same initialization pattern and add a second fact —
-`:step-size` — so both begin explicit in one store. Click the buttons (edit the cell
-and press **`Ctrl-Enter`** / **`Cmd-Enter`** if you change the code):
+initializer. Here we reuse that pattern and add a second fact — `:step-size` — so
+both begin explicit in one store. Click the buttons (edit the cell and press
+**`Ctrl-Enter`** / **`Cmd-Enter`** if you change the code):
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
@@ -200,9 +200,9 @@ Poor:
         :empty? false}}
 ```
 
-`total` and `empty?` are conclusions. If you store them, they can drift from the
-items. Derive them so there is only one truth to update — that is the next page's
-job.
+`total` and `empty?` are conclusions. Store them next to the items and they will
+drift — two copies of one truth is two chances to disagree. Derive them so there is
+only one truth to update. That is the next page's job.
 
 ## Yours, and the framework's next door
 
@@ -214,7 +214,7 @@ framework's (read it via its subscriptions; influence it by dispatching its even
 never forge it by hand in app-db). An ordinary `:db` effect cannot wipe a machine
 snapshot. [Frames](frames.md) goes deeper.
 
-## When things go wrong
+## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -222,8 +222,6 @@ snapshot. [Frames](frames.md) goes deeper.
 | Two facts disagree | A conclusion was stored next to its facts | Derive in a [subscription](subscriptions.md) (or a [flow](flows.md) if handlers must read it) |
 | Initial UI shows empty before first paint | No seed event | List an initialise event in `:initial-events` |
 | Framework snapshot gone after your `:db` | You tried to own runtime keys in app-db | Leave runtime-db alone; dispatch the subsystem's events |
-
-## Day-one checklist
 
 With this page you can seed a frame, keep facts in one map, write only through
 events, and leave conclusions out of app-db. The left nav continues into how those
