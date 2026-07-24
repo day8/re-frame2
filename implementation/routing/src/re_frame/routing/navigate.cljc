@@ -13,37 +13,19 @@
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the `events/reg-event :rf.route/navigate` call so a
   `:reload` re-wires it on a fresh registrar."
-  (:require [clojure.set :as set]
-            [re-frame.frame :as frame]
-            [re-frame.identity :as identity]
+  (:require [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
+            [re-frame.routing.address :as address]
             [re-frame.routing.can-leave :as can-leave]
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.plan :as plan]
             [re-frame.routing.registry :as registry]
+            [re-frame.routing.resolve :as resolver]
             [re-frame.routing.scroll :as scroll]
             [re-frame.routing.url :as url]
             [re-frame.trace :as trace]))
-
-(def ^:private request-roster
-  "The closed set of keys a `:rf.route/navigate` request map may carry:
-  address (`:to` `:url` `:params` `:query` `:fragment`), policy
-  (`:replace?` `:scroll` `:bypass-guards?`), and the in-place edit key
-  `:query-merge`. Any other key -- namespaced or not -- is rejected by the
-  structural gate (`:reason :unknown-keys`). The runtime's own resume rider
-  `:rf.route/enter-attempts` is stripped BEFORE the gate (it is
-  continuation bookkeeping, absent from the published grammar)."
-  #{:to :url :params :query :fragment :replace? :scroll :bypass-guards? :query-merge})
-
-(def ^:private in-place-change-keys
-  "The request keys whose PRESENCE marks an in-place change (a patch of the
-  current location) when no destination (`:to` / `:url`) is supplied. Key
-  PRESENCE -- not truthiness -- discriminates: `:query {}` clears the query,
-  `:fragment nil` clears the fragment; both are valid lone in-place
-  requests."
-  #{:query :query-merge :fragment})
 
 (defn- validate-event-shape
   "The event-VECTOR shape gate for `:rf.route/navigate`, run BEFORE the
@@ -68,70 +50,6 @@
     {:reason :request-not-a-map :keys []}
 
     :else nil))
-
-(defn- validate-request
-  "The always-on structural gate for a `:rf.route/navigate` request map
-  (Spec 012 Enforcement). Returns nil when the request is well-formed,
-  else `{:reason <kw> :keys [<offending keys>]}` naming the first
-  violation. Plain set logic, total over `request-roster`; rejects BEFORE
-  any guard evaluation so a malformed request never consumes a `:can-leave`
-  run. `current` is the current route slice (nil before the first
-  navigation). Runs AFTER `validate-event-shape`, so `request` is a map.
-
-  The rules (Spec 012 Validity rules):
-  1. `:to` xor `:url`.
-  2. `:url` excludes `:params` / `:query` / `:query-merge` -- a raw URL IS
-     the address. `:url` + `:fragment` is legal.
-  3. `:params` requires a destination (`:to` / `:url`) -- it names path
-     params for a FRESH address, so it is NEVER accepted in-place (changing
-     params is a destination).
-  4. `:query` xor `:query-merge`.
-  5. `:query-merge` requires an in-place request (no `:to` / `:url`).
-  6. A destination (`:to` / `:url`) OR an in-place change is required;
-     PRESENCE discriminates. Empty maps and pure-policy maps reject loud.
-  7. An in-place request before any current route exists rejects loud.
-  8. Unknown keys reject (namespaced included), reported in a total
-     canonical order (`identity/canonical-bytes`) so heterogeneous EDN keys
-     never trip a `compare`-based `sort` -- the key report is TOTAL on both
-     hosts."
-  [request current]
-  (let [ks           (set (keys request))
-        unknown      (set/difference ks request-roster)
-        destination? (or (contains? request :to) (contains? request :url))
-        in-place?    (boolean (seq (set/intersection ks in-place-change-keys)))
-        present      (fn [& kws] (vec (filter #(contains? request %) kws)))
-        ;; Total, host-symmetric key order over heterogeneous EDN keys -- a
-        ;; plain `sort` throws when a request carries mixed-kind keys (a
-        ;; keyword beside a string / number), so the offending-key report is
-        ;; ordered by the shared CEDN-1 identity the whole prism sorts by.
-        sorted-keys  (fn [kws] (vec (sort-by identity/canonical-bytes kws)))]
-    (cond
-      (seq unknown)
-      {:reason :unknown-keys :keys (sorted-keys unknown)}
-
-      (and (contains? request :to) (contains? request :url))
-      {:reason :to-url-exclusive :keys [:to :url]}
-
-      (and (contains? request :url)
-           (some #(contains? request %) [:params :query :query-merge]))
-      {:reason :url-excludes-address :keys (present :params :query :query-merge)}
-
-      (and (contains? request :params) (not destination?))
-      {:reason :params-requires-destination :keys [:params]}
-
-      (and (contains? request :query) (contains? request :query-merge))
-      {:reason :query-exclusive :keys [:query :query-merge]}
-
-      (and (contains? request :query-merge) destination?)
-      {:reason :query-merge-in-place-only :keys [:query-merge]}
-
-      (not (or destination? in-place?))
-      {:reason :no-destination-or-change :keys (sorted-keys ks)}
-
-      (and (not destination?) in-place? (nil? current))
-      {:reason :no-current-route :keys (sorted-keys ks)}
-
-      :else nil)))
 
 (defn- route-schema-sensitive?
   "True iff the route's `:params` OR `:query` Malli schema declares ANY
@@ -268,7 +186,7 @@
 
   Per Spec 012 the event carries ONE flat request map. The handler:
     1. strips the internal resume rider (`:rf.route/enter-attempts`) BEFORE
-       the always-on structural gate (`validate-request`);
+       the shared always-on structural gate (`re-frame.routing.address/classify`);
     2. rejects a malformed request with `:rf.error/navigate-bad-request`
        BEFORE any guard runs (slice unchanged, no push);
     3. resolves a DESTINATION request (`:to` / `:url`) into a FRESH address,
@@ -315,7 +233,7 @@
           ;; then the request-MAP structural gate. Both surface the same
           ;; `:rf.error/navigate-bad-request` channel.
           bad     (or (validate-event-shape event-vec)
-                      (validate-request request current))]
+                      (address/classify request current))]
       (if bad
         ;; Spec 012 §Error surfaces #1: the always-on structural gate rejected
         ;; the request. `:rf.error/navigate-bad-request` is a DISTINCT channel
@@ -332,7 +250,7 @@
                                       :recovery :no-recovery}
                                frame (assoc :frame frame)))
           {})
-        (let [destination? (or (contains? request :to) (contains? request :url))
+        (let [destination? (address/destination? request)
               url-target   (:url request)
               {:keys [route-id path-params query-params matched-fragment unmatched-url
                       throw-reason requested-url external-url-target?]}
@@ -536,7 +454,29 @@
                                          :params           path-params
                                          :query            query-params
                                          :fragment         fragment
-                                         :url              url})]
+                                         :url              url})
+                      ;; EP-0037 R0b: the programmatic door lowers to the ONE
+                      ;; resolved-target / route-plan seam. `:cause :navigate`;
+                      ;; the source is the extracted address (a `:to` request),
+                      ;; the raw-URL escape (`{:url ...}`), or the in-place edit.
+                      ;; The plan's `:target` is the ResolvedTarget the commit
+                      ;; publishes — byte-identical to the slice this door
+                      ;; committed before R0b — so the seam is load-bearing, not
+                      ;; a parallel diagnostic copy. Its `:branch` / `:leaf-plan`
+                      ;; are the R0 diagnostic projection (Spec 012 §Resolved
+                      ;; target and the plan diagnostic projection).
+                      route-plan (resolver/route-plan
+                                   {:cause  :navigate
+                                    :source (cond
+                                              url-target              {:url url-target}
+                                              (contains? request :to) (address/extract-address request)
+                                              :else                   (select-keys request address/edit-keys))
+                                    :target (resolver/resolved-target
+                                              {:route-id route-id
+                                               :params   path-params
+                                               :query    query-params
+                                               :fragment fragment
+                                               :url      url})})]
                   ;; Shared fail-closed telemetry (rf2-2zyvj / rf2-u8qe7y): a
                   ;; match-url throw on a `:url` target surfaces
                   ;; `:rf.warning/malformed-url`; an unmatched URL that resolved
@@ -552,14 +492,12 @@
                   ;; commit-navigation: nav-token alloc, allocated/activation
                   ;; traces, slice publish, fx assembly -- the shared commit
                   ;; shape. The programmatic path is the only one that drives the
-                  ;; browser URL, so it passes `push-fx`.
+                  ;; browser URL, so it passes `push-fx`. The slice is the plan's
+                  ;; resolved `:target` (facts) plus the resolved transition.
                   (routing-events/commit-navigation
                     rdb
-                    {:route-id   route-id
-                     :params     path-params
-                     :query      query-params
-                     :fragment   fragment
-                     :transition (if (seq on-match-vec) :loading :idle)}
+                    (assoc (:target route-plan)
+                           :transition (if (seq on-match-vec) :loading :idle))
                     on-match-vec
                     {:prev-id        (get-in rdb [:rf.runtime/routing :current :route-id])
                      :prev-nav-token (get-in rdb [:rf.runtime/routing :current :nav-token])

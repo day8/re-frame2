@@ -21,6 +21,7 @@
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.plan :as plan]
             [re-frame.routing.registry :as registry]
+            [re-frame.routing.resolve :as resolver]
             [re-frame.routing.scroll :as scroll]
             [re-frame.trace :as trace]))
 
@@ -104,8 +105,13 @@
    unchanged into `commit-navigation` and the
    `:routing/on-route-entry` hook so a cross-feature `{:from-db …}`
    route-resource scope resolves db-derived viewer identity at route
-   entry. Routing never reads it."
-  [rdb url default-scroll frame nav-allocation app-db]
+   entry. Routing never reads it.
+
+   `cause` is the R0 navigation cause the door represents (`:link` for the
+   forward `:rf.route/transitioned` door, `:popstate` for the URL-driven
+   `:rf.route/handle-url-change` door — popstate / initial / SSR). It is
+   carried on the route plan built at the commit branch (EP-0037 R0b)."
+  [rdb url default-scroll frame nav-allocation app-db cause]
   (let [rdb (or rdb {})
         ;; rf2-6t1xb: any unexpected throw out of `match-url` must not
         ;; crash the event drain. `match-url-fail-closed` catches the
@@ -272,13 +278,26 @@
         ;; and the fx assembly are the shared commit shape. The
         ;; URL-driven path passes NO `push-fx` — the browser URL already
         ;; changed (popstate / initial / link-click pushState).
+        ;;
+        ;; EP-0037 R0b: the URL-driven door lowers to the SAME resolved-target
+        ;; / route-plan seam as the programmatic door. The plan's `:target` is
+        ;; the ResolvedTarget the commit publishes (byte-identical to the slice
+        ;; this door committed before R0b — the seam is load-bearing); its
+        ;; `:cause` / `:branch` / `:leaf-plan` are the R0 diagnostic projection
+        ;; (Spec 012 §Resolved target and the plan diagnostic projection). The
+        ;; raw URL IS the source here.
         (routing-events/commit-navigation
           rdb
-          {:route-id   route-id
-           :params     params
-           :query      query
-           :fragment   fragment
-           :transition transition}
+          (assoc (:target (resolver/route-plan
+                            {:cause  cause
+                             :source {:url url}
+                             :target (resolver/resolved-target
+                                       {:route-id route-id
+                                        :params   params
+                                        :query    query
+                                        :fragment fragment
+                                        :url      url})}))
+                 :transition transition)
           on-match-vec
           {:prev-id        (get-in rdb [:rf.runtime/routing :current :route-id])
            ;; rf2-vdyrls: the prior route's nav-token — the second half of the
@@ -341,7 +360,9 @@
         ;; `:rf.warning/no-not-found-route`. The carried `:frame` (the
         ;; cascade cofx supplies it) tags those traces. EP-0001 (rf2-vzld77):
         ;; the route slice is durable routing runtime-db state.
-        (url-change-fx rdb url :top frame nav-allocation app-db))))
+        ;; EP-0037 R0b: the forward `:rf.route/transitioned` door's plan cause
+        ;; is `:link`.
+        (url-change-fx rdb url :top frame nav-allocation app-db :link))))
 
 (defn handle-url-change-handler
   "`:rf.route/handle-url-change` event handler. Registered by the
@@ -376,4 +397,6 @@
                   pending-nav-allocation)]
     (or blocked
         ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
-        (url-change-fx rdb url :restore frame nav-allocation app-db))))
+        ;; EP-0037 R0b: the URL-driven `:rf.route/handle-url-change` door
+        ;; (popstate / initial / SSR) carries the `:popstate` plan cause.
+        (url-change-fx rdb url :restore frame nav-allocation app-db :popstate))))
