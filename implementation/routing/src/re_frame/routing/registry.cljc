@@ -148,7 +148,11 @@
     :doc :path :params :query :query-defaults :query-retain
     ;; :can-enter is the first-class mirror of :can-leave (rf2-p69yaz
     ;; Option A) — the target route's enter-gate guard sub-id.
-    :tags :parent :on-match :on-error :scroll :can-leave :can-enter
+    ;; EP-0037 R1: route `:on-error` is RETIRED with no alias — a route
+    ;; declaring it is now rejected as an unknown bare key. Managed page-read
+    ;; readiness is `:resources` (Spec 012 §Route readiness is a resource
+    ;; projection).
+    :tags :parent :on-match :scroll :can-leave :can-enter
     ;; route-owned data classification (EP-0025, rf2-3r6k8i — the
     ;; `reg-route` subsystem-matrix row; projection-relative `:sensitive` /
     ;; `:large`, lowered into the per-frame elision registry at activation).
@@ -411,7 +415,7 @@
 
   `metadata` carries the route's reflection / lifecycle / shape keys (`:doc`,
   `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`,
-  `:on-match`, `:on-error`, `:scroll`, `:can-leave`, plus the cross-feature
+  `:on-match`, `:scroll`, `:can-leave`, `:can-enter`, plus the cross-feature
   `:head` / `:resources`); see Spec 012. The `:path` is merged onto the stored
   route-meta internally, so every downstream reader (`route-meta`, `match-url`,
   ranking) keeps reading `:path` off the stored map unchanged.

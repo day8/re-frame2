@@ -7,8 +7,7 @@
   surface mirrors that split: `routing-registry-test`,
   `routing-navigation-test`, `routing-can-leave-test`,
   `routing-nav-token-test`, `routing-scroll-test`, `routing-url-bound-test`,
-  `routing-subs-test`, `routing-on-match-error-test`, and the pure
-  `routing-plan-test`. Each requires this namespace for the shared
+  `routing-subs-test`, and the pure `routing-plan-test`. Each requires this namespace for the shared
   `reset-runtime` fixture so the registrar/runtime reset + façade `:reload`
   recovery lives in ONE place rather than copied per file.
 

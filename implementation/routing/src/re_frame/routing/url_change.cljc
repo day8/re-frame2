@@ -175,7 +175,10 @@
         identical-nav?    (plan/identical-route-target? prev route-id params query fragment)
         route-meta        (registrar/lookup :route route-id)
         on-match-vec      (vec (or (:on-match route-meta) []))
-        transition        (if (seq on-match-vec) :loading :idle)
+        ;; EP-0037 R1: :on-match never drives readiness. The base transition
+        ;; is :idle; commit-navigation projects :loading / :error from the
+        ;; resource plan (readiness/project-at-commit).
+        transition        :idle
         ;; nav-token allocation moved into `commit-navigation` (reached
         ;; only in the `:else` commit branch); the `identical-nav?` /
         ;; `fragment-only?` short-circuits never allocated a usable token

@@ -27,9 +27,9 @@
   - `re-frame.routing.registry`       — reg-route + match-url + route-url + route-table cache
   - `re-frame.routing.classification` — projection-relative route data classification
   - `re-frame.routing.scroll`         — scroll-restoration helpers + :rf.nav/scroll + :rf.nav/capture-scroll fxs
-  - `re-frame.routing.events`         — shared nav-event helpers + :rf.route.internal/settle-transition
+  - `re-frame.routing.events`         — shared nav-event helpers (fire-and-forget :on-match commit)
+  - `re-frame.routing.readiness`      — pure resource-derived route-readiness projector (EP-0037 R1)
   - `re-frame.routing.plan`           — pure pre-commit navigation-planning seam (fragment/not-found/classification/telemetry/scroll) shared by both nav entry points
-  - `re-frame.routing.on-match-error` — :on-match error trap + listener
   - `re-frame.routing.can-leave`      — :can-leave gate + pending-nav protocol + :rf.route/url-requested
   - `re-frame.routing.nav-token`      — :rf.route/with-nav-token + stale-suppression fx
   - `re-frame.routing.navigate`       — :rf.route/navigate event
@@ -40,7 +40,6 @@
   - `re-frame.routing.subs`           — framework-shipped subs over the slice
   - `re-frame.routing.link`           — :route/link registered view"
   (:require [re-frame.cofx :as cofx]
-            [re-frame.error-emit :as error-emit]
             [re-frame.events :as events]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
@@ -55,7 +54,6 @@
             [re-frame.routing.nav-fx :as nav-fx]
             [re-frame.routing.nav-token :as nav-token]
             [re-frame.routing.navigate :as navigate]
-            [re-frame.routing.on-match-error :as on-match-error]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.scroll :as scroll]
             [re-frame.routing.strategy :as strategy]
@@ -160,25 +158,11 @@
 ;; classifying their `:rf.db/runtime` effects as application writes.
 (def ^:private framework-authority-meta {:rf/framework-authority? true})
 
-;; :rf.route.internal/settle-transition — Spec 012 §Per-route data
-;; loading §2 FIFO settle. The route slice is runtime-db state, so this is a
-;; runtime-db `reg-event` handler.
-(events/reg-event :rf.route.internal/settle-transition
-                     framework-authority-meta
-                     routing-events/settle-transition-handler)
-
-;; :rf.route.internal/on-match-error — Spec 012 §Per-route error
-;; handling.
-(events/reg-event :rf.route.internal/on-match-error
-                     framework-authority-meta
-                     on-match-error/on-match-error-handler)
-
-;; On-match error trap — Spec 009 always-on error-emit listener.
-;; Per Spec 009 §What IS available in production this survives
-;; `:advanced` + `goog.DEBUG=false`.
-(error-emit/register-error-listener!
-  :rf.route/on-match-error-trap
-  on-match-error/on-match-error-listener)
+;; EP-0037 R1: `:on-match` is fire-and-forget and route readiness is the
+;; resource-derived projection, so there is NO `:rf.route.internal/
+;; settle-transition` event, NO `:rf.route.internal/on-match-error` event, and
+;; NO corpus-wide on-match error-emit listener. A synchronous `:on-match` throw
+;; stays on the ordinary Spec 009 event error channel, attributed to the event.
 
 ;; The two recordable allocation coeffects read host-side high-water marks and
 ;; record the selected id on the causal token. The effect installs the

@@ -2449,6 +2449,22 @@
       (is (clojure.string/includes? (:reason (ex-data ex)) ":on-matched")
           "the human-readable :reason names the bad key"))))
 
+(deftest reg-route-rejects-retired-on-error-key
+  (testing "EP-0037 R1: route metadata :on-error is RETIRED with no alias — a
+            route declaring it is rejected at registration as an unknown bare
+            key (:rf.error/route-bad-metadata), not silently accepted"
+    (let [ex (try
+               (rf/reg-route :route/legacy-on-error
+                             {:on-match [[:load]] :on-error [:oops]} "/legacy")
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex)
+          "reg-route THROWS on the retired :on-error key")
+      (is (= :rf.error/route-bad-metadata (:rf.error/id (ex-data ex)))
+          "the canonical thrown-error id discriminates the failure")
+      (is (= [:on-error] (:keys (ex-data ex)))
+          ":keys names exactly the retired key"))))
+
 (deftest reg-route-accepts-valid-and-namespaced-metadata
   (testing "rf2-45b95: a route using only reserved keys + namespaced
             host/app keys registers fine (no false positives)"
@@ -2461,7 +2477,6 @@
                           :query-retain   #{:theme}
                           :tags           #{:public}
                           :on-match       [[:load]]
-                          :on-error       [:oops]
                           :scroll         :top
                           ;; namespaced host/app extension keys always pass
                           :myapp/layout   :wide

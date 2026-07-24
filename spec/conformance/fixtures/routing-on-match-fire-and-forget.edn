@@ -1,0 +1,64 @@
+;; Conformance fixture: routing/on-match-fire-and-forget
+;;
+;; EP-0037 R1 — :on-match is FIRE-AND-FORGET and NEVER drives route readiness.
+;; A route :on-match [[:load/fail] [:load/next]] whose first event THROWS keeps
+;; the route slice at :transition :idle / :error nil: the throw is an ordinary
+;; Spec 009 :rf.error/handler-exception attributed to the EVENT (:load/fail),
+;; NOT rewritten into route-loader state — there is no on-match error trap and
+;; no first-error-wins ordering. The later loader (:load/next) still runs
+;; (ordinary FIFO continuation), and a route declaring no :resources projects
+;; :transition :idle throughout.
+;;
+;; Per [012 §Per-route data loading](../../012-Routing.md#per-route-data-loading)
+;; and [012 §Per-route error handling](../../012-Routing.md#per-route-error-handling).
+
+{:fixture/id           :routing/on-match-fire-and-forget
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler :core/error :core/trace}
+ :fixture/doc          "EP-0037 R1: a route :on-match whose first event throws does NOT flip :rf.route/transition to :error — it stays :idle with :error nil (readiness is the resource projection, not the :on-match drain). The throw surfaces on the ordinary :rf.error/handler-exception channel attributed to :load/fail; the later loader :load/next still runs."
+
+ :fixture/registry
+ {:route
+  {:route/dashboard {:path     "/dashboard"
+                     :on-match [[:load/fail]
+                                [:load/next]]}}
+
+  :event
+  {:rf/init   {:doc "Seed the ran-log."}
+   :load/fail {:doc "First :on-match loader — throws."}
+   :load/next {:doc "Later :on-match loader — still runs (fire-and-forget FIFO)."}}}
+
+ :fixture/handlers
+ {:event
+  {:rf/init   [[:set [:ran] []]]
+   :load/fail [[:throw "on-match-boom"]]
+   :load/next [[:update [:ran] [:fn :conj :load/next]]]}}
+
+ :fixture/frame-config {:initial-events [[:rf/init]]}
+
+ :fixture/dispatches
+ [[:rf.route/transitioned "/dashboard"]]
+
+ :fixture/expect
+ {;; The later loader ran despite the earlier throw (fire-and-forget FIFO).
+  :final-app-db {:ran [:load/next]}
+
+  ;; Route readiness stays :idle / :error nil — :on-match never drives it, and
+  ;; the throw is not a route error. NO retired on-match attribution slots.
+  :final-runtime-db {:rf.runtime/routing {:current {:route-id   :route/dashboard
+                                                    :params     {} :query {} :fragment nil
+                                                    :transition :idle
+                                                    :error      nil}}}
+
+  :trace-emissions
+  [;; Token allocated when the route becomes active.
+   {:operation :rf.route.nav-token/allocated
+    :tags      {:route-id :route/dashboard}}
+   ;; The first :on-match loader runs and throws — the error is attributed to
+   ;; the EVENT, not the route.
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :load/fail}}
+   {:operation :rf.error/handler-exception
+    :op-type   :error
+    :tags      {:category :rf.error/handler-exception :failing-id :load/fail}}
+   ;; The later loader still runs (fire-and-forget continuation).
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :load/next}}]}}
