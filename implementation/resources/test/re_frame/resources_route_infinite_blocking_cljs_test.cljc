@@ -205,10 +205,10 @@
   ;; rf2-byl7bk.3.1 — THE spec-correct contract (Spec 016 §Status semantics +
   ;; §Infinite resources): a blocking infinite page-0 FIRST-load FAILURE (no
   ;; accumulated pages) settles the FIRST-load :error channel (`entry-failed`
-  ;; → :status :error, :error envelope, :data nil), and `page-failed-handler`
-  ;; drains the blocking slot as :FAILURE. drain-blocking then flips the route
-  ;; to :error (its (= :error (:status entry)) branch fires automatically) —
-  ;; EXACTLY like a blocking SCALAR resource. This INVERTS the rf2-kz90ep
+  ;; → :status :error, :error envelope, :data nil), which the readiness
+  ;; projection reads as a failed blocking first load and flips the route to
+  ;; :error — EXACTLY like a blocking SCALAR resource, through the same
+  ;; projector and with no infinite-specific readiness branch. This INVERTS the rf2-kz90ep
   ;; characterisation test (which pinned :loaded + :page-error + route :idle):
   ;; Spec 016 reserves :error for first-load (page 0) and :page-error for
   ;; load-more (page N>0) ONLY — page 0 is a first load, never a load-more.
@@ -235,8 +235,12 @@
           "the blocking infinite route flips to :error on the page-0 first-load failure")
       (is (= :rf.error/resource-route-blocking (:rf.error/id (:error (slice))))
           ":rf.route/error carries the structured blocking-failure error")
-      (is (empty? (blocking-slot nav-token))
-          "the blocking slot drained on the page-0 failure (slot does not leak / hang the route)"))))
+      (is (contains? (blocking-slot nav-token) (feed-key "intro"))
+          (str "the FAILED requirement stays outstanding — it is what holds the "
+               "route at :error, and a later successful load re-projects the "
+               "route to :idle. It cannot hang the route (:error is terminal for "
+               "this activation) and cannot leak (route leave clears the whole "
+               "nav-token slot)")))))
 
 ;; ===========================================================================
 ;; 3. contrast guard — a SCALAR blocking first-load failure errors the route

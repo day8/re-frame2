@@ -38,6 +38,7 @@
    ;; events / subs and resources' late-bound :routing/* integration hooks.
    [re-frame.resources]
    [re-frame.resources.route :as route]
+   [re-frame.resources.ssr :as res-ssr]
    [re-frame.resources.state :as state]
    [re-frame.resources.work-ledger :as work-ledger]
    [re-frame.resources.test-support]
@@ -521,8 +522,8 @@
           "old-token blocking state did not accumulate / leak"))))
 
 (deftest superseded-blocking-slot-does-not-block-future-navigation
-  ;; Prove the stale slot cannot bleed into the LIVE route-blocking? predicate
-  ;; for a later navigation — old-token state must not gate new transitions.
+  ;; Prove the stale slot cannot bleed into the LIVE readiness projection for
+  ;; a later navigation — old-token state must not gate new transitions.
   (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
@@ -541,8 +542,12 @@
         (is (= :idle (:transition (slice)))
             "the plain route is :idle; superseded blocking state is gone")
         (is (empty? (blocking-slot token-1)) "stale slot cleared")
-        (is (false? (route/route-blocking? (:rf.db/runtime (rf/frame-state-value :rf/default))))
-            "route-blocking? is false for the live token")))))
+        (is (empty? (blocking-slot token-2))
+            "the live token has no blocking requirements of its own")
+        (is (identical? (:rf.db/runtime (rf/frame-state-value :rf/default))
+                        (route/reconcile-readiness
+                          (:rf.db/runtime (rf/frame-state-value :rf/default))))
+            "re-projecting is a structural no-op for the live token")))))
 
 ;; ===========================================================================
 ;; 12. rf2-ac71vm — fail-closed ctx + nil planning inputs
@@ -913,3 +918,244 @@
               "tab-one [:route :route/prof.one _] owner is gone")))
       (testing "the route lands :idle (kept blocking banner already had data)"
         (is (= :idle (:transition (slice))))))))
+
+;; ===========================================================================
+;; 15. rf2-kqxe6.17 — EP-0037 R1 completion: the ONE readiness projector
+;;
+;;     Route readiness is a PURE projection over the active plan's blocking
+;;     requirements (Spec 012 §Route readiness is a resource projection). These
+;;     pin the table itself, then the paths that must project through it:
+;;     activation commit, retained-owner adoption, resource settle, SSR
+;;     hydration, and epoch restore.
+;; ===========================================================================
+
+;; ---- the table ------------------------------------------------------------
+
+(deftest requirement-state-reads-spec-016-facts-not-a-settle-signal
+  (testing "an absent entry is pending — its ensure has not been applied yet"
+    (is (= :pending (route/requirement-state nil))))
+  (testing "own usable data is :ready"
+    (is (= :ready (route/requirement-state {:status :loaded :data {:a 1}}))))
+  (testing "a BACKGROUND-refresh failure keeps its data and stays :ready"
+    ;; `entry-failed` returns a :fetching-with-data entry to :loaded and records
+    ;; :refresh-error — it must NOT read as a failed first load, so it never
+    ;; makes the route :error.
+    (is (= :ready (route/requirement-state
+                    {:status        :loaded :data {:a 1}
+                     :refresh-error {:kind :rf.http/server :status 503}}))))
+  (testing "a FIRST-load failure (no usable data, :error) is :failed"
+    (is (= :failed (route/requirement-state
+                     {:status :error :data nil :attempt 1
+                      :error  {:kind :rf.http/server :status 503}}))))
+  (testing "work in flight is :pending"
+    (is (= :pending (route/requirement-state {:status :loading :data nil :attempt 1})))
+    (is (= :pending (route/requirement-state {:status :fetching :data nil :attempt 1}))))
+  (testing "an enqueued but never-attempted entry is :pending (its load is coming)"
+    (is (= :pending (route/requirement-state {:status :idle :data nil :attempt 0}))))
+  (testing "settled with no data and nothing left to settle it is :inert"
+    ;; an ABORTED first load — it neither completes nor fails the route.
+    (is (= :inert (route/requirement-state {:status :idle :data nil :attempt 1}))))
+  (testing "previous-data can never complete a newly-keyed first load"
+    ;; `:previous-key` is a projection POINTER; the new key's own `:data` is
+    ;; still nil, so the requirement is a pending FIRST load.
+    (is (= :pending (route/requirement-state
+                      {:status       :loading :data nil :attempt 1
+                       :previous-key [:rf.scope/global :article/by-slug {:slug "a"}]})))))
+
+;; ---- the projector, as a pure function ------------------------------------
+
+(defn- runtime-db-with
+  "Hand-build a runtime-db carrying a route slice at `nav-token` with
+  `transition`, a blocking slot naming every key in `entries-by-key`, and those
+  durable cache entries. The pure-projection fixture."
+  [nav-token transition entries-by-key]
+  {:rf.runtime/routing   {:current           {:route-id   :route/article
+                                              :nav-token  nav-token
+                                              :transition transition
+                                              :error      nil}
+                          :resource-blocking {nav-token (set (keys entries-by-key))}}
+   :rf.runtime/resources {:entries (into {} (map (fn [[k e]] [(state/key-id k) e]))
+                                         entries-by-key)}})
+
+(def ^:private req-a (state/scoped-resource-key* :rf.scope/global :article/by-slug {:slug "a"}))
+(def ^:private req-b (state/scoped-resource-key* :rf.scope/global :article/by-slug {:slug "b"}))
+
+(deftest reconcile-readiness-projects-the-spec-012-table
+  (testing "all requirements ready → :idle, and the slot is pruned empty"
+    (let [rdb (route/reconcile-readiness
+                (runtime-db-with "nav-1" :loading {req-a {:status :loaded :data {:x 1}}}))]
+      (is (= :idle (get-in rdb [:rf.runtime/routing :current :transition])))
+      (is (nil? (get-in rdb [:rf.runtime/routing :current :error])))
+      (is (empty? (get-in rdb (route/blocking-path "nav-1")))
+          "a resolved requirement is pruned, so a later invalidation cannot re-block")))
+  (testing "one still pending → :loading"
+    (let [rdb (route/reconcile-readiness
+                (runtime-db-with "nav-1" :idle {req-a {:status :loaded :data {:x 1}}
+                                                req-b {:status :loading :data nil :attempt 1}}))]
+      (is (= :loading (get-in rdb [:rf.runtime/routing :current :transition])))
+      (is (= #{req-b} (get-in rdb (route/blocking-path "nav-1")))
+          "only the outstanding requirement remains")))
+  (testing "a failed blocking first load → :error carrying the structured error"
+    (let [rdb (route/reconcile-readiness
+                (runtime-db-with "nav-1" :loading
+                                 {req-a {:resource/id :article/by-slug
+                                         :status      :error :data nil :attempt 1
+                                         :error       {:kind :rf.http/server :status 503}}}))
+          err (get-in rdb [:rf.runtime/routing :current :error])]
+      (is (= :error (get-in rdb [:rf.runtime/routing :current :transition])))
+      (is (= :rf.error/resource-route-blocking (:rf.error/id err)))
+      (is (= :article/by-slug (:resource-id err)))
+      (is (= #{req-a} (get-in rdb (route/blocking-path "nav-1")))
+          "the failed requirement is NOT pruned — a later successful load re-projects :idle")))
+  (testing "an ABORTED first load un-blocks rather than erroring the route"
+    (let [rdb (route/reconcile-readiness
+                (runtime-db-with "nav-1" :loading {req-a {:status :idle :data nil :attempt 1}}))]
+      (is (= :idle (get-in rdb [:rf.runtime/routing :current :transition]))
+          "settled-but-empty with nothing left to settle it neither completes nor fails")
+      (is (nil? (get-in rdb [:rf.runtime/routing :current :error])))))
+  (testing "no blocking slot for the live token is a structural no-op"
+    ;; This is what keeps a committed PLANNING error (:error on the slice, no
+    ;; blocking slot written) from being clobbered back to :idle.
+    (let [rdb {:rf.runtime/routing
+               {:current {:nav-token  "nav-1"
+                          :transition :error
+                          :error      {:rf.error/id :rf.error/resource-route-plan}}}}]
+      (is (identical? rdb (route/reconcile-readiness rdb))))))
+
+;; ---- 1. activation commit reads the facts AT COMMIT ------------------------
+
+(deftest fresh-blocking-resource-commits-idle-with-no-transient-loading
+  ;; A blocking route resource whose identity ALREADY has usable data must
+  ;; commit :idle. It is recorded in NO blocking slot, so the commit's own
+  ;; readiness seed is :idle — the route never passes through :loading and no
+  ;; later drain is needed to rescue it.
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (rf/reg-route :route/article
+                {:params    [:map [:slug :string]]
+                 :resources [{:resource  :article/by-slug
+                              :params    (fn [route] {:slug (get-in route [:params :slug])})
+                              :blocking? true}]} "/articles/:slug")
+  (let [scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
+    ;; warm the identity OUTSIDE any navigation (an ownerless preload)
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :article/by-slug :params {:slug "intro"}}])
+    (settle-success! scoped-key {:title "Intro"})
+    (is (state/has-data? (entry scoped-key)) "precondition: the identity is warm")
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
+    (let [nav-token (:nav-token (slice))]
+      (testing "the already-fresh blocking requirement is recorded nowhere"
+        (is (empty? (blocking-slot nav-token))
+            "no blocking slot ⇒ the commit seed itself projected :idle"))
+      (testing "the route commits :idle"
+        (is (= :idle (:transition (slice))))
+        (is (nil? (:error (slice))))))))
+
+(deftest a-cold-blocking-resource-still-commits-loading
+  ;; The contrast guard for the test above: with no usable data at commit the
+  ;; requirement IS recorded and the route commits :loading, exactly as before.
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (rf/reg-route :route/article
+                {:params    [:map [:slug :string]]
+                 :resources [{:resource  :article/by-slug
+                              :params    (fn [route] {:slug (get-in route [:params :slug])})
+                              :blocking? true}]} "/articles/:slug")
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "cold"}}])
+  (let [nav-token  (:nav-token (slice))
+        scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "cold"})]
+    (is (= #{scoped-key} (blocking-slot nav-token)))
+    (is (= :loading (:transition (slice))))))
+
+;; ---- 2. a background-refresh failure never errors the route ----------------
+
+(deftest background-refresh-failure-keeps-the-route-idle
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (rf/reg-route :route/article
+                {:params    [:map [:slug :string]]
+                 :resources [{:resource  :article/by-slug
+                              :params    (fn [route] {:slug (get-in route [:params :slug])})
+                              :blocking? true}]} "/articles/:slug")
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
+  (let [scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
+    (settle-success! scoped-key {:title "Intro"})
+    (is (= :idle (:transition (slice))) "precondition: the blocking first load landed")
+    ;; a REFRESH over the loaded entry, which then fails
+    (rf/dispatch-sync [:rf.resource/refetch {:resource :article/by-slug :params {:slug "intro"}}])
+    (is (= :fetching (:status (entry scoped-key))) "precondition: refreshing over usable data")
+    (settle-failure! scoped-key {:kind :rf.http/server :status 503 :message "upstream down"})
+    (testing "the failure lands on the resource's :refresh-error channel"
+      (let [e (entry scoped-key)]
+        (is (= :loaded (:status e)) "the entry keeps its data")
+        (is (some? (:refresh-error e)))
+        (is (nil? (:error e)) "NOT the first-load :error channel")))
+    (testing "the route stays :idle — a refresh failure is not a route error"
+      (is (= :idle (:transition (slice))))
+      (is (nil? (:error (slice)))))))
+
+;; ---- 3. previous data does not complete a newly-keyed first load -----------
+
+(deftest keep-previous-projection-does-not-complete-the-new-first-load
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (rf/reg-route :route/article
+                {:params    [:map [:slug :string]]
+                 :resources [{:resource       :article/by-slug
+                              :params         (fn [route] {:slug (get-in route [:params :slug])})
+                              :blocking?      true
+                              :keep-previous? true}]} "/articles/:slug")
+  (let [key-a (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "a"})
+        key-b (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "b"})]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "a"}}])
+    (settle-success! key-a {:title "A"})
+    (is (= :idle (:transition (slice))) "precondition: slug a landed")
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "b"}}])
+    (let [b (entry key-b)]
+      (testing "the new key projects the previous key's data but owns none"
+        (is (= key-a (:previous-key b)) "the projection pointer is set")
+        (is (nil? (:data b)) "previous data is NEVER inserted into the new entry"))
+      (testing "the route stays :loading — previous pixels are not a completed load"
+        (is (= :pending (route/requirement-state b)))
+        (is (= :loading (:transition (slice))))
+        (is (contains? (blocking-slot (:nav-token (slice))) key-b))))))
+
+;; ---- 4/5. hydration + epoch restore reconcile a contradicted cache ---------
+
+(deftest restore-recomputes-a-readiness-the-restored-resources-contradict
+  (testing "a snapshot's :loading whose requirement restored WITH data lands :idle"
+    (let [rdb (res-ssr/reconcile-on-restore
+                (runtime-db-with "nav-1" :loading
+                                 {req-a {:resource/id  :article/by-slug
+                                         :resource/key req-a
+                                         :status       :loaded :data {:x 1} :attempt 1}}))]
+      (is (= :idle (get-in rdb [:rf.runtime/routing :current :transition]))
+          "restore must not preserve a :loading the restored resource state contradicts")))
+  (testing "a snapshot captured MID-LOAD does not restore a :loading nothing can settle"
+    ;; The in-flight attempt did not survive the restore (its work row is
+    ;; dangled and the entry settles to last-stable :idle), so a preserved
+    ;; :loading would hang the route forever.
+    (let [rdb (res-ssr/reconcile-on-restore
+                (runtime-db-with "nav-1" :loading
+                                 {req-a {:resource/id  :article/by-slug
+                                         :resource/key req-a
+                                         :status       :loading :data nil :attempt 1
+                                         :current-work "work-1"}}))]
+      (is (= :idle (get-in rdb [:rf.runtime/routing :current :transition])))
+      (is (empty? (get-in rdb (route/blocking-path "nav-1"))))))
+  (testing "a restored FAILED blocking requirement projects the route :error"
+    (let [rdb (res-ssr/reconcile-on-restore
+                (runtime-db-with "nav-1" :loading
+                                 {req-a {:resource/id  :article/by-slug
+                                         :resource/key req-a
+                                         :status       :error :data nil :attempt 1
+                                         :error        {:kind :rf.http/server :status 503}}}))]
+      (is (= :error (get-in rdb [:rf.runtime/routing :current :transition])))
+      (is (= :rf.error/resource-route-blocking
+             (:rf.error/id (get-in rdb [:rf.runtime/routing :current :error])))))))
+
+(deftest hydration-recomputes-a-readiness-the-hydrated-resources-contradict
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (let [rdb (res-ssr/hydrate-runtime-db
+              (runtime-db-with "nav-1" :loading
+                               {req-a {:resource/id  :article/by-slug
+                                       :resource/key req-a
+                                       :status       :loaded :data {:x 1} :attempt 1}}))]
+    (is (= :idle (get-in rdb [:rf.runtime/routing :current :transition]))
+        "hydration must not preserve a :loading the hydrated entries contradict")
+    (is (empty? (get-in rdb (route/blocking-path "nav-1"))))))

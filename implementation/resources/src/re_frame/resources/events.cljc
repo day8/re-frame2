@@ -337,8 +337,8 @@
   neither dedupes (no
   in-flight work to join) nor starts a fetch — it serves the cached value,
   attaches the supplied owner, emits `:rf.resource/cache-hit`, and
-  (for a route-owned blocking resource) drains the blocking slot
-  immediately treating the fresh entry as already-`:success`. Per Spec 016
+  re-projects route readiness (`route/reconcile-readiness`), which resolves
+  the requirement immediately for a route-owned blocking resource. Per Spec 016
   §Lifecycle is an FSM (a `:loaded` entry transitions to `:fetching` ONLY
   on `stale/refetch`; a fresh `ensure` has no transition) / §Restore and
   replay (a settled entry \"refetches only on the next `ensure` from a live
@@ -464,8 +464,8 @@
     (cond
       ;; ----- fresh-skip: serve the cached value (ensure only) -------------
       ;; A fresh `:loaded` entry needs no work — attach the owner,
-      ;; emit `:rf.resource/cache-hit`, drain any blocking route slot
-      ;; immediately (the fresh entry IS already a success), and return
+      ;; emit `:rf.resource/cache-hit`, re-project route readiness (the fresh
+      ;; entry's own data resolves any blocking requirement), and return
       ;; WITHOUT a new generation / fetch / work record. Per Spec 016
       ;; §Lifecycle is an FSM (a fresh `ensure` from `:loaded` has no
       ;; transition) / §Restore and replay. No `:previous-key` projection is
@@ -484,13 +484,13 @@
                      (cond->
                        owner (update-in (state/owner-index-path)
                                         update owner (fnil conj #{}) (state/key-id scoped-key)))
-                     ;; route blocking: a route-owned blocking resource that
-                     ;; is already fresh MUST settle the nav-token blocking
-                     ;; slot NOW (no fetch will ever land a reply to drain
-                     ;; it) — treat the fresh entry as already-`:success` or
-                     ;; the route hangs forever (Spec 016 §Route integration).
-                     ;; No-op for a non-route-owned / non-blocking resource.
-                     (route/drain-blocking scoped-key hit :success))
+                     ;; route readiness: a route-owned blocking resource that
+                     ;; is already fresh MUST resolve its nav-token blocking
+                     ;; requirement NOW — no fetch will ever land a reply, so
+                     ;; without this re-projection the route hangs forever
+                     ;; (Spec 016 §Route integration). A no-op for a
+                     ;; non-route-owned / non-blocking resource.
+                     (route/reconcile-readiness))
             ;; rf2-k9u4h3 — a fresh-skip that attaches a NEW owner to a
             ;; previously OWNER-FREE entry must (re)arm polling. The original
             ;; load may have settled while owner-free (`succeeded-handler` arms
@@ -1951,12 +1951,15 @@
   owner-index (mirroring the `ensure` fresh-skip attach, minus any load); (2)
   join the owner to any in-flight `:current-work` record, so the prior owner's
   later release does NOT orphan-and-abort work the next plan still needs (the
-  no-abort-shared-work law); (3) reconcile the nav-token blocking slot from the
-  entry's ACTUAL settled state through `drain-blocking` — a kept blocking
-  identity that already has usable data drains to `:idle` NOW (no reply will
-  land to drain it), a first-load `:error` flips the route `:error`, and one
-  still `:loading` stays blocking (its own eventual settle drains it via the
-  now-adopted owner's nav-token). The PARTIAL-REVALIDATION law: navigation
+  no-abort-shared-work law); (3) reconcile route readiness from the entry's
+  ACTUAL state through the ONE projector (`route/reconcile-readiness`) — the
+  adopt path has NO private has-data/error/else readiness branch. A kept
+  blocking identity that already has usable data resolves NOW (no reply will
+  ever land to resolve it), a failed first load projects route `:error`, one
+  still in flight stays blocking (its own settle re-projects via the
+  now-adopted owner's nav-token), and one that is settled-but-empty (an
+  aborted first load) un-blocks rather than stranding the route `:loading`
+  forever. The PARTIAL-REVALIDATION law: navigation
   never revalidates the kept, unchanged ancestor — `adopt-owner` issues no
   request. A missing entry (a kept identity GC'd out from under the diff) is a
   no-op. Payload `{:resource :scope :params :owner :cause}`; scope/params are
@@ -1981,10 +1984,7 @@
                        (cond->
                          (and owner wid) (work-ledger/update-record
                                            wid work-ledger/join-owner+cause owner cause)))
-            rdb    (cond
-                     (state/has-data? hit)    (route/drain-blocking rdb0 scoped-key hit :success)
-                     (= :error (:status hit)) (route/drain-blocking rdb0 scoped-key hit :failure)
-                     :else                    rdb0)]
+            rdb    (route/reconcile-readiness rdb0)]
         (when newly?
           (trace/emit! :rf.event :rf.resource/owner-attached
                        {:rf.frame/id frame-id :resource/key scoped-key
@@ -2457,7 +2457,7 @@
                           ;; slot + lands the route transition when the slot
                           ;; empties (Spec 016 §Route integration). No-op for
                           ;; a non-route-owned / non-blocking resource.
-                          (route/drain-blocking resource-key entry' :success))]
+                          (route/reconcile-readiness))]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-completed
                      {:rf.frame/id frame-id :resource/key resource-key
@@ -2543,8 +2543,9 @@
   or a `:failed` ledger row. It is branched into CANCELLATION semantics —
   the live attempt settles to a non-error stable state (`entry-abort-settled`)
   WITHOUT `:error` / `:refresh-error`, the work row settles terminal
-  `:cancelled`, and a route-owned blocking resource drains its slot like a
-  non-error settle (the route un-blocks rather than flipping to `:error`).
+  `:cancelled`, and route readiness re-projects: the aborted entry settles
+  with no usable data and nothing left to settle it, so the route un-blocks
+  rather than flipping to `:error`.
   A stale / superseded abort reply is suppressed by the same
   `live-entry-for-reply` boundary (it can never mutate a newer entry).
 
@@ -2619,11 +2620,10 @@
 
       ;; ABORT (rf2-z70ujl): an intentional cancellation reached the failure
       ;; reply seam. Settle the LIVE attempt to a non-error stable state, mark
-      ;; the work row terminal :cancelled, drain any route blocking slot like a
-      ;; non-error settle (status :success keeps drain-blocking off the
-      ;; route-:error branch — a cancelled blocking first-load un-blocks the
-      ;; route rather than surfacing a spurious error). NO :error /
-      ;; :refresh-error write. The host handle is cleared.
+      ;; the work row terminal :cancelled, and re-project route readiness (the
+      ;; settled-but-empty entry reads `:inert`, so a cancelled blocking
+      ;; first-load un-blocks the route rather than surfacing a spurious
+      ;; error). NO :error / :refresh-error write. The host handle is cleared.
       aborted?
       (let [entry'    (entry-abort-settled entry)
             ;; rf2-kz5op1 — mirrors `first-load-error?` in the sibling :else
@@ -2640,7 +2640,7 @@
                          ;; terminal outcome carries the reply token's causal
                          ;; `:completed-at`.
                          :cancelled {:reason :aborted :completed-at completed-at})
-                       (route/drain-blocking resource-key entry' :success))
+                       (route/reconcile-readiness))
             ;; rf2-kz5op1 — a FIRST-LOAD abort settle MUST arm the GC timer
             ;; (and the stale timer, if declared), mirroring rf2-ar9pcx's
             ;; :error-settle fix. GC timers are otherwise armed only on a
@@ -2706,13 +2706,14 @@
                          ;; reply token's causal `:completed-at` alongside the
                          ;; error envelope (the summary represents the completion).
                          :failed {:error error :completed-at completed-at})
-                       ;; route blocking: a blocking FIRST-load failure flips
-                       ;; the route transition to :error + populates
+                       ;; route readiness: a blocking FIRST-load failure
+                       ;; projects :transition :error + populates
                        ;; :rf.route/error; a background-refresh failure (data
-                       ;; kept, status back to :loaded) settles the slot like
-                       ;; a success. drain-blocking keys on entry' status.
+                       ;; kept, status back to :loaded) reads as data-ready and
+                       ;; resolves the requirement. The projector reads the
+                       ;; entry's facts, not a settle signal.
                        ;; (Spec 016 §Route integration.)
-                       (route/drain-blocking resource-key entry' :failure))
+                       (route/reconcile-readiness))
             ;; rf2-ar9pcx — a FIRST-LOAD `:error` settle MUST arm the GC timer
             ;; (and the stale timer, if declared). GC timers are otherwise armed
             ;; only on a SUCCESSFUL settle (`succeeded-handler`); a first load
@@ -2798,8 +2799,9 @@
      touching this frame's entry or ledger);
    - on the live path settles the entry to a non-error stable state
      (`entry-abort-settled` — no `:error` / `:refresh-error`), marks the work
-     row terminal `:cancelled`, drains any route blocking slot like a
-     non-error settle, and clears the host handle.
+     row terminal `:cancelled`, re-projects route readiness (the aborted
+     entry un-blocks rather than failing the route), and clears the host
+     handle.
 
   EP-0017 declared-only delivery (rf2-rl27r2): a cancellation is still a
   managed-async completion with a reply token, so its terminal work-ledger
@@ -2849,7 +2851,7 @@
                        (work-ledger/update-record
                          work-id work-ledger/mark-terminal
                          :cancelled {:reason :aborted :completed-at completed-at})
-                       (route/drain-blocking resource-key entry' :success))]
+                       (route/reconcile-readiness))]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-abort-requested
                      {:rf.frame/id frame-id :resource/key resource-key
@@ -2970,9 +2972,10 @@
                             work-id work-ledger/mark-terminal
                             :completed {:loaded-at loaded-at :page-index page-index})
                           (work-ledger/prune-terminal-for-key resource-key)
-                          ;; route blocking: a route-owned blocking infinite feed
-                          ;; blocks on page 0 — drain the slot when page 0 lands.
-                          (route/drain-blocking resource-key entry' :success))
+                          ;; route readiness: a route-owned blocking infinite
+                          ;; feed blocks on page 0 — the accumulated page makes
+                          ;; the requirement data-ready.
+                          (route/reconcile-readiness))
             ;; the chained sweep leg is a self-dispatched internal event so it
             ;; re-enters the router and mints its own replay-stable generation
             ;; (the generation-allocation cofx) — the framework's follow-up-fetch
@@ -3028,8 +3031,9 @@
       `:idle` branch) — `:status :idle`, no error, `:current-work nil` — NEVER
       `:loaded`. Settling `:loaded` on an empty feed (the pre-fix behaviour)
       lied about freshness and let a later `:rf.resource/ensure` fresh-skip a
-      feed that never actually loaded page 0. Drains blocking as `:success`
-      and marks the work row terminal `:cancelled` (an abort is not an
+      feed that never actually loaded page 0. Un-blocks the route (the
+      settled-but-empty feed reads `:inert`, never a failure) and marks the
+      work row terminal `:cancelled` (an abort is not an
       error), and ARMS the stale/GC timers — mirroring rf2-kz5op1's
       `entry-abort-settled` fix in `failed-handler` — so an owner-free `:idle`
       entry from a cancelled first load is reaped;
@@ -3037,10 +3041,10 @@
     - a FIRST-LOAD (page 0) failure with NO accumulated pages is NOT a
       load-more failure — it is a first load with no usable data. It settles
       the FIRST-load `:error` channel (`entry-failed` → `:status :error`,
-      `:error` envelope, `:data nil`) and drains a blocking route as
-      `:failure`, so a blocking infinite route flips to route `:error` exactly
-      like a blocking SCALAR resource (`drain-blocking`'s `:status :error`
-      branch fires automatically — no route.cljc change), and ARMS the
+      `:error` envelope, `:data nil`), so the readiness projection reads it as
+      a failed blocking first load and flips the route to `:error` exactly
+      like a blocking SCALAR resource (the projector reads the entry's facts —
+      no infinite-specific branch), and ARMS the
       stale/GC timers (rf2-s54uzc, mirroring rf2-ar9pcx's scalar `:error`
       arming) so an owner-free errored empty feed is reaped. Spec 016
       reserves `:error` / `:status :error` for first-load (page 0) failure;
@@ -3052,8 +3056,8 @@
       the timers were already armed on the feed's prior success). A FAILURE
       here is the THIRD error channel: KEEPS ALL accumulated pages and records
       `:page-error` (`entry-page-failed`), so a view shows \"couldn't load
-      more — retry\" without losing the feed. The blocking slot drains as
-      `:success` (the route blocks on page 0 only, which already landed).
+      more — retry\" without losing the feed. The blocking requirement stays
+      resolved (the route blocks on page 0 only, which already landed).
       Spec 016 reserves `:page-error` for load-more (page N>0) failure only.
 
   A stale / superseded / cross-frame reply is SUPPRESSED. An ABORT
@@ -3112,8 +3116,8 @@
       ;; later `:rf.resource/ensure` fresh-skip a feed that never actually
       ;; loaded page 0. Settle instead like the scalar first-load abort
       ;; (`entry-abort-settled`'s `:idle` branch): `:status :idle`, no error,
-      ;; `:current-work nil`. Drain blocking as `:success` (an aborted first
-      ;; load un-blocks the route rather than surfacing a spurious error,
+      ;; `:current-work nil`. Re-project readiness (an aborted first load
+      ;; un-blocks the route rather than surfacing a spurious error,
       ;; symmetric with the scalar path) and mark the work row terminal
       ;; `:cancelled`. Arms the stale/GC timers — mirroring rf2-kz5op1's
       ;; `entry-abort-settled` fix in `failed-handler` — so an owner-free
@@ -3130,7 +3134,7 @@
                        (work-ledger/update-record
                          work-id work-ledger/mark-terminal
                          :cancelled {:reason :aborted :completed-at completed-at})
-                       (route/drain-blocking resource-key entry' :success))
+                       (route/reconcile-readiness))
             stale-delay-ms (state/positive-or-nil (:stale-after-ms spec))
             gc-delay-ms    (state/positive-or-nil (:gc-after-ms spec))]
         (work-ledger/clear-handle! frame-id work-id)
@@ -3180,7 +3184,7 @@
                        (work-ledger/update-record
                          work-id work-ledger/mark-terminal
                          :cancelled {:reason :aborted :completed-at completed-at})
-                       (route/drain-blocking resource-key entry' :success))]
+                       (route/reconcile-readiness))]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-abort-requested
                      {:rf.frame/id frame-id :resource/key resource-key
@@ -3195,10 +3199,10 @@
       ;; accumulated pages failed: there is no feed to keep, so this is a first
       ;; load with no usable data, NOT a load-more. Settle the FIRST-load
       ;; `:error` channel (`entry-failed` → `:status :error`, `:error`
-      ;; envelope, `:data nil`) and drain a blocking route as `:FAILURE` —
-      ;; `drain-blocking`'s `(= :error (:status entry))` branch then flips the
-      ;; route to `:error` (parity with a blocking scalar resource; no
-      ;; route.cljc change). Trace the first-load `:rf.resource/failed` op (not
+      ;; envelope, `:data nil`) — the readiness projection then reads a failed
+      ;; blocking first load and flips the route to `:error` (parity with a
+      ;; blocking scalar resource; no infinite-specific readiness branch).
+      ;; Trace the first-load `:rf.resource/failed` op (not
       ;; `:rf.resource/page-failed`) so the channel and the trace agree.
       first-load?
       (let [entry' (state/entry-failed entry {:error error})
@@ -3208,7 +3212,7 @@
                        (work-ledger/update-record
                          work-id work-ledger/mark-terminal
                          :failed {:error error :completed-at completed-at})
-                       (route/drain-blocking resource-key entry' :failure))
+                       (route/reconcile-readiness))
             ;; rf2-s54uzc — mirrors rf2-ar9pcx's scalar first-load `:error`
             ;; arming (`failed-handler`'s `:else` branch): a first-load
             ;; infinite-feed failure settles `:error` with `:current-work nil`
@@ -3249,8 +3253,8 @@
       ;; record :page-error, return to :loaded. This is a page N>0 failure, OR
       ;; a page-0 refetch over a feed that already has pages (R6 window-
       ;; preserving — there is a feed to keep, so it is not a first load). The
-      ;; blocking slot drains as :success (the route blocks on page 0, which
-      ;; already landed for any feed that has accumulated pages). Spec 016
+      ;; blocking requirement stays resolved (the route blocks on page 0,
+      ;; which already landed for any feed that has accumulated pages). Spec 016
       ;; reserves :page-error for load-more only.
       :else
       ;; a failed leg STOPS any in-progress refetch sweep (clear the cursor —
@@ -3263,7 +3267,7 @@
                        (work-ledger/update-record
                          work-id work-ledger/mark-terminal
                          :failed {:error error :completed-at completed-at})
-                       (route/drain-blocking resource-key entry' :success))]
+                       (route/reconcile-readiness))]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-completed
                      {:rf.frame/id frame-id :resource/key resource-key

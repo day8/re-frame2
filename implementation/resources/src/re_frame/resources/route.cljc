@@ -29,11 +29,13 @@
        - marks each resource active with owner `[:route route-id
          nav-token]` and ensures it with cause `[:route-entry route-id
          nav-token]`;
-       - classifies blocking vs background — a blocking resource records
-         its scoped key under `[:rf.runtime/routing :resource-blocking
-         nav-token]` so the route transition stays `:loading` (and SSR
-         has a wait point) until it settles, while non-blocking ones
-         fetch in the background;
+       - classifies blocking vs background — a blocking requirement that
+         does NOT already have usable data AT COMMIT records its scoped
+         key under `[:rf.runtime/routing :resource-blocking nav-token]`,
+         so the route transition stays `:loading` (and SSR has a wait
+         point) until it resolves, while non-blocking ones fetch in the
+         background and an already-fresh blocking one records nothing (the
+         route commits `:idle`, with no transient `:loading`);
        - releases the PREVIOUS route's owner token (route leave /
          supersession) so its resources become GC-eligible when no other
          owner needs them;
@@ -41,14 +43,14 @@
          error (`:rf.error/resource-route-plan` in the route slice +
          Xray), never a silent cache miss.
 
-  Blocking is drained by the resource reply handlers
-  (`re-frame.resources.events`): on a blocking resource settling they
-  drop its scoped key from the nav-token's blocking set and, when the set
-  empties, land the route transition at `:idle`; a blocking FIRST-load
-  failure flips the route transition to `:error` and populates
-  `:rf.route/error` (the blocking-resource route-error path). Stale
-  navigations are suppressed by nav-token: a settle for a superseded
-  nav-token is a no-op (the blocking slot for that token is gone).
+  Readiness after the commit is reconciled by the ONE projector below
+  (`reconcile-readiness`): every path that changes a blocking
+  requirement's facts — a resource settle, a retained-owner adoption, an
+  `ensure` fresh-skip, SSR hydration, epoch restore — re-projects
+  `:transition` / `:error` from those facts rather than deciding for
+  itself what the change meant. Stale navigations are suppressed by
+  nav-token: only the live token's slot is projected, and a superseded
+  token's slot is dropped wholesale on owner release.
 
   Per Spec 016 §Route integration."
   (:require [re-frame.error :as error]
@@ -77,11 +79,11 @@
 ;; Blocking route resources are tracked under their nav-token in the
 ;; routing-runtime subtree (a sibling of `:current` / `:pending-navigation`
 ;; under `[:rf.runtime/routing …]`), so:
-;;   - the route transition stays `:loading` while the set is non-empty; the
-;;     resource reply handlers drain the set and land the route at `:idle`
-;;     (or `:error` on a blocking first-load failure) themselves — see
-;;     `drain-blocking` below (EP-0037 R1: route readiness is the resource-
-;;     derived projection, not a routing settle step);
+;;   - the slot names the OUTSTANDING blocking requirements for that
+;;     activation; `reconcile-readiness` below prunes each as it resolves and
+;;     projects `:transition` / `:error` from what remains (EP-0037 R1: route
+;;     readiness is the resource-derived projection, not a routing settle
+;;     step);
 ;;   - a newer navigation's nav-token has its OWN slot, so a stale
 ;;     blocking drain (old nav-token) is structurally a no-op (its slot is
 ;;     released on leave);
@@ -182,39 +184,76 @@
     (update-in runtime-db (plan-slots-map-path) dissoc nav-token)
     runtime-db))
 
-;; ---- blocking drain (Spec 016 §Route integration / §SSR wait point) -------
+;; ---- the ONE readiness projector -----------------------------------------
+;; ---- (Spec 012 §Route readiness is a resource projection /
+;; ----  Spec 016 §Route integration / §SSR wait point) ----------------------
 ;;
-;; The resource reply handlers call these PURE helpers when a route-owned
-;; resource settles, so all resource→route blocking logic stays inside the
-;; Resources artefact (it already writes `:rf.db/runtime`). Routing only
-;; provides the `:routing/on-route-entry` plan hook; it never reaches into
-;; resources, and (EP-0037 R1) it consults no settle predicate — the reply
-;; handlers land `:idle` / `:error` themselves via `drain-blocking`.
+;; Route readiness (`:rf.route/transition` / `:rf.route/error`) is a PURE
+;; projection over the active plan's BLOCKING resource requirements, read in
+;; Spec 016 resource vocabulary. There is exactly ONE implementation of that
+;; table, and EVERY path that can change a blocking requirement's facts
+;; projects through it: the activation commit (via the plan's blocking set,
+;; which routing seeds the slice from — `re-frame.routing.readiness`), a
+;; retained-owner adoption / handoff, an `ensure` fresh-skip, every resource
+;; settle, SSR hydration, and epoch restore. No caller decides for itself what
+;; a settle "meant": they write the entry, then hand the runtime-db to
+;; `reconcile-readiness`, which RE-READS the facts. That is what keeps a second
+;; readiness state machine from existing.
+;;
+;; Routing owns no part of this: it provides the `:routing/on-route-entry` plan
+;; hook, seeds the slice at commit, and (EP-0037 R1) consults no settle event
+;; and no blocking predicate.
+;;
+;; The nav-token's blocking slot is the OUTSTANDING requirement set for that
+;; activation — the requirements that still have to resolve. A requirement that
+;; resolves is pruned, so a later invalidation / refetch of an already-satisfied
+;; requirement never re-blocks a route that has landed. A superseded token's
+;; whole slot is dropped by `clear-blocking-slot` when its route owner is
+;; released.
 
-(defn route-blocking?
-  "True iff ANY route resource is still blocking the route transition for
-  the route slice's CURRENT nav-token — i.e. the current nav-token's blocking
-  slot is non-empty. Reads only that slot, so a superseded token's stale slot
-  never reports the live transition as blocked.
+(defn requirement-state
+  "Classify ONE blocking route-resource requirement from its durable cache
+  `entry` (nil when the entry is absent). The four outcomes are the Spec 016
+  facts the Spec 012 readiness table is written in:
 
-  A PURE predicate over the routing runtime-db (EP-0037 R1: route readiness is
-  the resource-derived projection). The reply handlers land the route at
-  `:idle` / `:error` directly via `drain-blocking`; routing consults no settle
-  predicate. Per Spec 016 §Route integration."
-  [runtime-db]
-  (let [nav-token (get-in runtime-db (conj (current-path) :nav-token))]
-    (boolean (seq (get-in runtime-db (blocking-path nav-token))))))
+    `:ready`   — the identity has its OWN usable data (`state/has-data?`), so
+                 the requirement is met. `:keep-previous?` PREVIOUS data is a
+                 projection POINTER (`:previous-key`) and never this entry's
+                 `:data`, so previous data can NOT complete a newly-keyed
+                 requirement's first load.
+    `:failed`  — a blocking FIRST load failed: no usable data, status `:error`.
+                 A BACKGROUND-refresh failure never reaches here — `entry-
+                 failed` returns a `:fetching`-with-data entry to `:loaded` and
+                 records `:refresh-error`, which reads `:ready`. So a refresh
+                 failure stays on the resource's `:refresh-error` channel and
+                 does not make the route `:error`.
+    `:pending` — work capable of settling the requirement exists: in flight
+                 (`:loading` / `:fetching`), or not started yet (an absent
+                 entry, or a never-attempted one the plan is about to
+                 `ensure`).
+    `:inert`   — settled with no usable data and NOTHING left to settle it: a
+                 first load that was ABORTED lands `:idle` with its `:attempt`
+                 spent. It neither completes nor fails the route — an aborted
+                 blocking first load un-blocks rather than manufacturing a
+                 spurious route error.
 
-(defn- owner-nav-tokens
-  "The set of route nav-tokens that own `scoped-key` per the entry's
-  `:active-owners` (a route owner is `[:route route-id nav-token]`). Used
-  to find which blocking slot(s) a settled resource belongs to without a
-  reverse index — the per-entry owner set is small and authoritative."
+  PURE. Per Spec 012 §Route readiness is a resource projection."
   [entry]
-  (into #{}
-        (comp (filter #(and (vector? %) (= :route (first %))))
-              (map #(nth % 2)))
-        (:active-owners entry)))
+  (cond
+    (nil? entry)                            :pending
+    (state/has-data? entry)                 :ready
+    (= :error (:status entry))              :failed
+    (contains? #{:loading :fetching} (:status entry)) :pending
+    (zero? (:attempt entry 0))              :pending
+    :else                                   :inert))
+
+(defn requirement-met?
+  "True iff a requirement in `entry`'s state no longer holds the route — it is
+  `:ready` (has its own usable data) or `:inert` (settled with nothing left to
+  settle it). Such a requirement is pruned from the nav-token's outstanding
+  blocking set. Per Spec 012 §Route readiness is a resource projection."
+  [entry]
+  (contains? #{:ready :inert} (requirement-state entry)))
 
 (defn- route-blocking-error
   "Build the structured `:rf.error/resource-route-blocking` error for a
@@ -234,59 +273,79 @@
    :error       (:error entry)
    :reason      "A blocking route resource failed its first load."})
 
-(defn drain-blocking
-  "A route-owned resource `scoped-key` (with durable `entry`) just SETTLED
-  (`:settled` `:success` | `:failure`). Drop it from every nav-token
-  blocking slot it belongs to; when a slot empties for the CURRENT
-  nav-token land the route `:transition` at `:idle`; a blocking FIRST-load
-  `:failure` flips the current route's `:transition` to `:error` and
-  populates `:rf.route/error` (the blocking-resource route-error path). A
-  settle for a SUPERSEDED nav-token (its slot already released on route leave) is
-  a structural no-op. Returns the updated runtime-db.
+(defn reconcile-readiness
+  "Re-project the CURRENT route's readiness from the live Spec 016 resource
+  facts, and prune the requirements that are done. THE projector — every
+  caller that has just written a resource entry (a settle, an adoption, a
+  fresh-skip, hydration, restore) hands it the updated runtime-db instead of
+  deciding for itself what the change meant. Returns the updated runtime-db.
 
-  Pure DATA transform over runtime-db, PLUS one out-of-band observability
-  side effect: a blocking FIRST-load failure additionally emits the
-  `:rf.error/resource-route-blocking` error trace (rf2-u5aj91) so a failed
-  required server-state read is visible on the trace/error stream and in
-  Xray, not only in route state. Same emit-inside-planner discipline
-  `route-resource-plan` uses for `:rf.error/resource-route-plan`. Per Spec
-  016 §Route integration."
-  [runtime-db scoped-key entry settled]
-  (let [tokens       (owner-nav-tokens entry)
-        current      (get-in runtime-db (conj (current-path) :nav-token))]
-    (reduce
-      (fn [db nav-token]
-        (let [slot  (get-in db (blocking-path nav-token))]
-          (if-not (contains? slot scoped-key)
-            db
-            (let [slot' (disj slot scoped-key)
-                  db'   (assoc-in db (blocking-path nav-token) slot')]
-              (cond
-                ;; only the live transition is affected; a stale token's
-                ;; drain just clears its (released) slot.
-                (not= nav-token current) db'
-                ;; blocking FIRST-load failure → route :error + error trace
-                (and (= :failure settled) (= :error (:status entry)))
-                (let [err (route-blocking-error entry nav-token)]
-                  ;; rf2-u5aj91: emit the error trace alongside the route-slice
-                  ;; write — the route slice carries the structured :error AND
-                  ;; the trace/error stream sees `:rf.error/resource-route-
-                  ;; blocking` (tags conform to ResourceRouteBlockingTags).
-                  (trace/emit-error! :rf.error/resource-route-blocking
-                                     (dissoc err :rf.error/id :operation))
-                  (-> db'
-                      (assoc-in (conj (current-path) :transition) :error)
-                      (assoc-in (conj (current-path) :error) err)))
-                ;; last blocking resource settled (success, or a
-                ;; refresh-failure that kept data) → land :idle, but only
-                ;; while still mid-load (don't clobber an :error a sibling
-                ;; blocking failure already recorded).
-                (and (empty? slot')
-                     (= :loading (get-in db' (conj (current-path) :transition))))
-                (assoc-in db' (conj (current-path) :transition) :idle)
-                :else db')))))
-      runtime-db
-      tokens)))
+  The projection (Spec 012 §Route readiness is a resource projection):
+
+  | current nav-token's outstanding blocking set | `:transition` | `:error`        |
+  |----------------------------------------------|---------------|-----------------|
+  | contains a `:failed` requirement             | `:error`      | first failure   |
+  | otherwise contains a `:pending` requirement  | `:loading`    | nil             |
+  | empty (all requirements met, or none)        | `:idle`       | nil             |
+
+  Requirements that are `:ready` or `:inert` (`requirement-met?`) are pruned
+  from the slot, so the slot always names what is still outstanding for this
+  activation and a later invalidation of an already-satisfied requirement
+  cannot re-block a landed route. A `:failed` requirement is NOT pruned — the
+  route stays `:error` until that identity actually loads (e.g. a
+  `:rf.resource/refetch` retry), which then projects back to `:idle`.
+
+  NO blocking slot for the live nav-token (a route with no blocking resources,
+  a route whose requirements have all resolved, or a committed PLANNING failure
+  — which records `:error` on the slice and writes no slot) is a structural
+  no-op: the slice is left exactly as committed. A superseded nav-token's slot
+  is never consulted; `clear-blocking-slot` drops it wholesale on owner
+  release.
+
+  EDGE-TRIGGERED: the slice is rewritten only when the projection actually
+  differs from what it already carries, so re-projecting on every resource
+  settle is idle for unrelated resources and the
+  `:rf.error/resource-route-blocking` error trace (rf2-u5aj91) fires once per
+  transition INTO `:error`, not once per settle. That trace is the one
+  out-of-band observability side effect — the same emit-inside-the-pure-
+  transform discipline `route-resource-plan` uses for
+  `:rf.error/resource-route-plan`. `:emit-error? false` suppresses it for the
+  epoch-restore path, which defers its trace rows until the atomic install
+  succeeds (rf2-obi8rr).
+
+  Per Spec 016 §Route integration."
+  ([runtime-db] (reconcile-readiness runtime-db nil))
+  ([runtime-db {:keys [emit-error?] :or {emit-error? true}}]
+   (let [slice-path (current-path)
+         nav-token  (get-in runtime-db (conj slice-path :nav-token))
+         blocking   (get-in runtime-db (blocking-path nav-token))]
+     (if (empty? blocking)
+       runtime-db
+       (let [entry-of    (fn [k] (get-in runtime-db (state/entry-path k)))
+             outstanding (into #{} (remove (comp requirement-met? entry-of)) blocking)
+             ;; deterministic first failure: the outstanding slot is a SET, so
+             ;; the pick is ordered by the canonical CEDN-1 byte key rather
+             ;; than hash order — stable across settles that prune siblings.
+             failed      (->> outstanding
+                              (filter #(= :failed (requirement-state (entry-of %))))
+                              (sort-by state/key-id)
+                              first)
+             transition  (cond failed :error (seq outstanding) :loading :else :idle)
+             err         (when failed (route-blocking-error (entry-of failed) nav-token))
+             db'         (assoc-in runtime-db (blocking-path nav-token) outstanding)]
+         (if (and (= transition (get-in db' (conj slice-path :transition)))
+                  (= err        (get-in db' (conj slice-path :error))))
+           db'
+           (do
+             (when (and err emit-error?)
+               ;; rf2-u5aj91: the route slice carries the structured :error AND
+               ;; the trace/error stream sees `:rf.error/resource-route-blocking`
+               ;; (tags conform to ResourceRouteBlockingTags).
+               (trace/emit-error! :rf.error/resource-route-blocking
+                                  (dissoc err :rf.error/id :operation)))
+             (-> db'
+                 (assoc-in (conj slice-path :transition) transition)
+                 (assoc-in (conj slice-path :error) err)))))))))
 
 ;; ---- plan execution + the route-resource planning ctx seam (rf2-ac71vm) ---
 ;;
@@ -737,9 +796,12 @@
   (`{:id :params :query :fragment …}`), `ctx` the reserved entry context
   (the seam routing threads through `:routing/on-route-entry`; currently `{}`
   — a `:scope` / `:when` resolver receives it as its trailing argument).
-  `entry-ctx` carries `:nav-token`, `:prev-id`, `:prev-nav-token`, and
-  `:app-db` (the route-entry app-db value — see the `:app-db` paragraph
-  below). Returns `{:fx [...] :blocking #{<scoped-key> …} :plan-error err?}`.
+  `entry-ctx` carries `:nav-token`, `:prev-id`, `:prev-nav-token`, `:app-db`
+  (the route-entry app-db value — see the `:app-db` paragraph below), and
+  `:runtime-db` (the pre-commit runtime-db, read for the AT-COMMIT resource
+  facts that decide which blocking requirements still have to resolve —
+  `requirement-met?`). Returns `{:fx [...] :blocking #{<scoped-key> …}
+  :plan-error err?}`.
 
   FAIL-CLOSED structural inputs (rf2-ac71vm): a `nil` `ctx` or a missing
   `nav-token` is a planning bug, not a silently-defaulted read — the owner
@@ -767,8 +829,8 @@
   `:scope` policy) resolves against it at route entry, BEFORE planning the
   resource work (EP-0016 D3 slice 3). A reference that resolves nil is a
   fail-closed planning error (route planning MUST NOT substitute global)."
-  [route ctx {:keys [nav-token prev-id prev-nav-token app-db branch branch-error
-                     prev-identities]}]
+  [route ctx {:keys [nav-token prev-id prev-nav-token app-db runtime-db branch
+                     branch-error prev-identities]}]
   ;; rf2-ac71vm — fail closed on missing/invalid structural planning inputs.
   ;; These are seam-contract bugs (routing must thread a ctx + nav-token),
   ;; surfaced loudly rather than collapsing into an empty-ctx / no-owner read.
@@ -856,7 +918,21 @@
                                       (cond-> base
                                         keep-previous? (assoc :keep-previous? true))]])))
                     ordered)
-        blocking  (into #{} (comp (filter :blocking?) (map :scoped-key)) ordered)
+        ;; EP-0037 R1 — read the Spec 016 facts AT COMMIT. A blocking
+        ;; requirement whose identity ALREADY has usable data (or is otherwise
+        ;; met — `requirement-met?`) is recorded nowhere: it has nothing left
+        ;; to wait for, so the commit projects `:idle` immediately instead of a
+        ;; transient `:loading` that the very next `ensure` fresh-skip would
+        ;; undo. `runtime-db` is the pre-commit runtime-db routing threads into
+        ;; the hook; without it (a direct planner call in a unit) nothing reads
+        ;; as met and every blocking requirement is recorded, which is the
+        ;; fail-safe direction.
+        blocking  (into #{}
+                        (comp (filter :blocking?)
+                              (map :scoped-key)
+                              (remove #(requirement-met?
+                                         (get-in runtime-db (state/entry-path %)))))
+                        ordered)
         ;; EP-0037 R2 plan-diff projection (Tooling: old/new kept/added/removed
         ;; identities): `:ensured` counts the ADDED identities (real ensures),
         ;; `:kept` the adopted (owner-handed-off, not re-ensured) identities, and
@@ -914,6 +990,14 @@
   route planning error, never a silent global). Per Spec 016 §Route
   integration / §Resolver references.
 
+  `:runtime-db` is the pre-commit runtime-db value (threaded by routing's
+  `commit-navigation` alongside `:app-db`). It carries the Spec 016 resource
+  facts the plan reads AT COMMIT to decide which blocking requirements still
+  have to resolve, so an already-fresh blocking resource commits `:idle`
+  rather than a transient `:loading`. An absent `:runtime-db` records every
+  blocking requirement — the fail-safe direction. Per Spec 012 §Route
+  readiness is a resource projection.
+
   EP-0037 R2: `:branch` is the effective parent-to-leaf contributor chain
   (`[{:route-id :route-meta} …]` parent-most-first) routing resolves from the
   target's `:parent` links; `:branch-error` is a fail-loud branch-resolution
@@ -922,7 +1006,8 @@
   plan-diff's previous set). A routing build that predates R2 threads no
   `:branch`, and the planner falls back to a single-segment (leaf-only) branch."
   [{:keys [route-meta route-id params query fragment nav-token
-           prev-id prev-nav-token ctx app-db branch branch-error prev-identities]}]
+           prev-id prev-nav-token ctx app-db runtime-db branch branch-error
+           prev-identities]}]
   (let [branch (or branch [{:route-id route-id :route-meta route-meta}])]
     (when (or branch-error prev-id
               (some (fn [c] (seq (:resources (:route-meta c)))) branch))
@@ -936,6 +1021,7 @@
                               :prev-id         prev-id
                               :prev-nav-token  prev-nav-token
                               :app-db          app-db
+                              :runtime-db      runtime-db
                               :branch          branch
                               :branch-error    branch-error
                               :prev-identities prev-identities})))))

@@ -67,6 +67,7 @@
             [re-frame.resources.mutation-registry :as mutation-registry]
             [re-frame.resources.mutation-runtime :as mutation-runtime]
             [re-frame.resources.registry :as registry]
+            [re-frame.resources.route :as route]
             [re-frame.resources.state :as state]
             [re-frame.resources.timers :as timers]
             [re-frame.resources.work-ledger :as work-ledger]
@@ -626,9 +627,12 @@
 ;;     016 §Restore and replay part 4 — `[:rf.runtime/routing :current
 ;;     :nav-token]`, present because restore installs both partitions
 ;;     wholesale).
-;; We mirror the routing literals here rather than `:require` the route slice —
-;; the same duplication-not-import decoupling `route.cljc` itself uses
-;; (resources never statically depends on routing).
+;; We mirror the routing literals here rather than reach for them through
+;; `route.cljc` — the same duplication-not-import decoupling `route.cljc`
+;; itself uses (resources never statically depends on routing). The route
+;; slice's READINESS, by contrast, is not a literal but a projection, and it
+;; has exactly one implementation: hydration + restore call
+;; `route/reconcile-readiness` rather than re-deriving it here.
 
 (def ^:private routing-key
   "The routing-runtime subtree key (`:rf.runtime/routing`). Mirrors the
@@ -940,7 +944,14 @@
        route slice consults `hydrate-refetch-plan` directly to ISSUE the
        refetch under a live owner (it owns \"does the route still NEED it?\").
        Wiring the COMPUTE into the reconcile means the per-entry decision is
-       never lost on the `:rf/hydrate` install path.
+       never lost on the `:rf/hydrate` install path;
+    5. RECONCILE the hydrated route readiness through the one projector
+       (`route/reconcile-readiness`) — the payload's cached `:transition` /
+       `:error` is not independent authority, and hydration MUST NOT preserve
+       a `:loading` / `:error` the reconciled resource facts contradict (Spec
+       012 §Route readiness is a resource projection). A payload with no
+       routing slice (the common case — routing's client subsystem has not
+       booted) is a structural no-op.
 
   NEVER crosses scopes: it only reconciles the entries the server projected
   under their own scoped keys (the scope is the first element of each key);
@@ -1006,7 +1017,16 @@
          ;; ensures the decision (esp. that a REDACTED sentinel entry is
          ;; metadata-only, not fresh-with-data) is never lost on hydrate.
          (hydrate-refetch-plan rdb' clock-ms frame-id)
-         rdb')))))
+         ;; rf2-kqxe6.17 — reconcile the hydrated ROUTE readiness through the
+         ;; ONE projector. A hydration payload that carries a routing slice
+         ;; carries the server's cached `:transition` / `:error`, and the
+         ;; entries just reconciled above may CONTRADICT it (a `:loading` the
+         ;; hydrated entry has already settled, an `:error` its data
+         ;; disproves). Preserving that cache would leave a route stuck on a
+         ;; readiness no live work can ever move. No routing slice / no live
+         ;; nav-token / no blocking slot is a structural no-op. Per Spec 012
+         ;; §Route readiness is a resource projection.
+         (route/reconcile-readiness rdb'))))))
 
 ;; ---- epoch-restore reconcile (Spec 016 §Restore and replay parts 2/4/5) ---
 ;;
@@ -1333,6 +1353,13 @@
        (the mutation reply gate checks the INSTANCE's `:current-work` +
        `:generation`, not the resource entry's, so the resource-side dangle
        alone does NOT suppress it);
+    3c. RECONCILE the restored route readiness through the one projector
+       (`route/reconcile-readiness`, run LAST so it projects over the settled
+       entries + dangled work). A snapshot captured mid-load restores a route
+       `:loading` whose in-flight work step 3 has just dangled — nothing would
+       ever move it again — so restore recomputes `:transition` / `:error`
+       from the restored resource facts instead of preserving a contradicted
+       cache (Spec 012 §Route readiness is a resource projection);
     4. a `:rf.resource/restored` trace summarising reconciled / orphaned /
        dangled (work + mutation) counts, a `:rf.resource/owner-released` row per
        stale-nav route owner released as an orphan (part 4), and a clock-skew
@@ -1564,14 +1591,28 @@
                     (or (nil? owner-token)
                         (frame/frame-incarnation-live? frame-id owner-token)))
            (clear-host-transients-on-restore! frame-id))
-         (if defer-traces?
-           ;; rf2-obi8rr — ride the intents back as metadata; the epoch
-           ;; `perform-restore!` emits them via `commit-restore-reconcile-traces!`
-           ;; only after the frame-state install succeeds.
-           (vary-meta rdb''' assoc deferred-trace-intents-key intents)
-           ;; the direct (unit) path: no install to gate against — emit inline.
-           (do (run! emit-trace-intent! intents)
-               rdb''')))))))
+         ;; rf2-kqxe6.17 — reconcile the restored ROUTE readiness through the
+         ;; ONE projector, LAST (after the entry settles + the work/mutation
+         ;; dangles, so it projects over the facts the restore actually
+         ;; installs). The captured slice's `:transition` / `:error` is a
+         ;; CACHE, not independent authority: a snapshot taken mid-load
+         ;; restores `:loading` for requirements whose in-flight work the
+         ;; restore has just dangled, so nothing would ever move it again.
+         ;; Under `:defer-traces?` the `:rf.error/resource-route-blocking`
+         ;; emit is suppressed — the reconcile runs BEFORE the atomic install
+         ;; and must announce nothing an aborted install would not have done
+         ;; (rf2-obi8rr). Per Spec 012 §Route readiness is a resource
+         ;; projection.
+         (let [rdb-final (route/reconcile-readiness
+                           rdb''' {:emit-error? (not defer-traces?)})]
+           (if defer-traces?
+             ;; rf2-obi8rr — ride the intents back as metadata; the epoch
+             ;; `perform-restore!` emits them via `commit-restore-reconcile-traces!`
+             ;; only after the frame-state install succeeds.
+             (vary-meta rdb-final assoc deferred-trace-intents-key intents)
+             ;; the direct (unit) path: no install to gate against — emit inline.
+             (do (run! emit-trace-intent! intents)
+                 rdb-final))))))))
 
 ;; ---- client refetch decision (Spec 016 §SSR and hydration) ----------------
 ;;
