@@ -718,3 +718,85 @@
                   (is false (str "same-id-successor refresh suite rejected: " e))
                   (.remove node)
                   (done)))))))))
+
+(deftest fh-root-004-a-fresh-incarnation-belongs-to-the-root-that-created-it
+  (testing "Per rf2-2pvp7 (browser): a fresh incarnation is a fresh ownership
+            row. R1 installs incarnation A; external code destroys A EXACTLY and
+            stands no successor — the frame is absent, but R1's row survives in
+            the defonce ledger, still naming R1. A DIFFERENT root R2 then runs a
+            config-bearing ENSURE for the same id: make-frame CREATES a fresh
+            incarnation C, and the ledger must record R2 — the creating root —
+            as the author, never lend R1's stale name to an incarnation R1 did
+            not install. The user-visible symptom pinned second: with the stale
+            author, R2's own config EDIT (differing fingerprint) trips the
+            differing-plan conflict arm against a root that installed nothing."
+    (if-not (browser?)
+      (skip! "the browser job runs the fresh-incarnation authorship assertions")
+      (async done
+        (reg!)
+        (let [node-1  (host-node!)
+              node-2  (host-node!)
+              fid     :fh.root/fresh-author
+              plan-1  {:root-id :fh.root/author-r1
+                       :frame   {:id fid :initial-events [[:root/seed 1]]}}
+              ;; SAME frame plan as R1's (equal fingerprint): the differing-plan
+              ;; arm carries no liveness check, so only an equal plan reaches the
+              ;; create at all — which is exactly the defect's setup.
+              plan-2  {:root-id :fh.root/author-r2
+                       :frame   {:id fid :initial-events [[:root/seed 1]]}}
+              plan-2' {:root-id :fh.root/author-r2
+                       :frame   {:id fid :initial-events [[:root/seed 1] [:root/noop]]}}
+              c-token (atom nil)
+              root-1  (atom nil)]
+          (rf/reg-event :root/noop (fn [{:keys [db]} _] {:db db}))
+          (-> (act #(v/mount [views/counter {}] node-1 plan-1))
+              (.then
+                (fn [installer-1]
+                  (reset! root-1 installer-1)
+                  ;; external: destroy A exactly; stand NO successor. The frame is
+                  ;; absent; R1's row survives, still naming R1.
+                  (rf/destroy-frame! fid)
+                  (is (nil? (frame/frame fid)) "A is gone and nothing replaced it")
+                  (is (= :fh.root/author-r1
+                         (:installed-by (get (root/frame-ledger-snapshot) fid)))
+                      "the surviving row still names R1")
+                  ;; R2's ENSURE finds the id absent and CREATES incarnation C.
+                  (act #(v/mount [views/counter {}] node-2 plan-2))))
+              (.then
+                (fn [root-2]
+                  (reset! c-token (frame/frame-incarnation-token fid))
+                  (is (= :fh.root/author-r2
+                         (:installed-by (get (root/frame-ledger-snapshot) fid)))
+                      "the fresh incarnation's author is the root that CREATED it —
+                       a create never wears the stale author of a dead predecessor")
+                  (is (identical? @c-token
+                                  (frame/frame-value-incarnation-token
+                                    (:installed-value (get (root/frame-ledger-snapshot) fid))))
+                      "and the recorded install value is C's exact token")
+                  ;; R2's own config EDIT must be a proven-owner refresh, not a
+                  ;; foreign-plan conflict blamed on R1.
+                  (act #(v/mount [views/counter {}] node-2 plan-2'))))
+              (.then
+                (fn [root-2]
+                  (is (identical? @c-token (frame/frame-incarnation-token fid))
+                      "the refresh was surgical — C's exact incarnation survived it")
+                  (-> (act #(v/unmount! @root-1))
+                      (.then (fn [_]
+                               (is (some? (frame/frame fid))
+                                   "R1's unmount released only its stale reference")
+                               (act #(v/unmount! root-2))))
+                      (.then
+                        (fn [_]
+                          (is (nil? (frame/frame fid))
+                              "the last reference destroyed C — exactly the
+                               incarnation R2 installed")
+                          (is (empty? (root/frame-ledger-snapshot)))
+                          (.remove node-1)
+                          (.remove node-2)
+                          (done))))))
+              (.catch
+                (fn [e]
+                  (is false (str "fresh-incarnation authorship suite rejected: " e))
+                  (.remove node-1)
+                  (.remove node-2)
+                  (done)))))))))

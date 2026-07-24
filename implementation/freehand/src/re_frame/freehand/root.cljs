@@ -816,7 +816,8 @@
                                   :owns-live-incarnation false}
                       :arriving  {:config-fingerprint config-fingerprint
                                   :root-id            root-id}}}))
-      (let [installed-value
+      (let [created? (and owned? (nil? (frame/frame frame-id)))
+            installed-value
             (if owned?
               ;; ENSURE. `make-frame` is idempotent replacement: absent → created
               ;; and its :initial-events drain; present under the same plan → left
@@ -826,7 +827,7 @@
               ;; hands back the exact frame VALUE (the incarnation token) this
               ;; install produced; on the ratified no-op it returns nil and the
               ;; ledger keeps the value from the install that stands.
-              (when (or (nil? (frame/frame frame-id))
+              (when (or created?
                         (not= (:config-fingerprint record) config-fingerprint))
                 (live-frame/make-frame (assoc config :id frame-id)))
               ;; SCOPE. A frame this root does not own must already exist — there
@@ -846,7 +847,18 @@
         (swap! frame-ledger update frame-id
                (fn [r]
                  {:config-fingerprint (if owned? config-fingerprint (:config-fingerprint r))
-                  :installed-by       (if owned? (or (:installed-by r) root-id) (:installed-by r))
+                  ;; A fresh incarnation is a fresh ownership row: a CREATE records
+                  ;; the CREATING root as author, never `(or old …)` — the surviving
+                  ;; row of an externally-destroyed predecessor must not lend its
+                  ;; author to an incarnation it did not install, or the real
+                  ;; creator reads as foreign to its own frame and its next config
+                  ;; edit trips the differing-plan arm (rf2-2pvp7). The proven-owner
+                  ;; refresh keeps its author: the differing-plan arm already
+                  ;; refused a DIFFERENT root with a differing fingerprint, and the
+                  ;; same-fingerprint path never runs the plan.
+                  :installed-by       (if owned?
+                                        (if created? root-id (or (:installed-by r) root-id))
+                                        (:installed-by r))
                   ;; The install authority: the fresh value when the plan just ran
                   ;; (a create or a proven-owner config edit), else the value from
                   ;; the install that stands. The ownership arm above has already
