@@ -122,6 +122,12 @@
 ;; One timed mount
 ;; ---------------------------------------------------------------------------
 
+;; A monotonic counter minting a distinct identity for every mount, warmup
+;; and measured alike. React tears a root down asynchronously, so a
+;; disambiguator reused across two mounts can collide with its own still-live
+;; predecessor; a fresh number per mount sidesteps the teardown race entirely.
+(defonce ^:private mount-seq (atom 0))
+
 (defn- mount-once!
   "Mount the mixed root into a FRESH container under a FRESH frame, owning
   the frame and draining its `:initial-events` — the same preflight the
@@ -131,11 +137,13 @@
 
   Each sample uses its own frame id and disambiguator: mounting one root view
   many times is many occurrences of it, not one root reused, so each needs
-  its own derived identity."
-  [i]
-  (let [container (js/document.createElement "div")
-        fid       (keyword "b5-mount" (str "frame-" i))
-        tag       (keyword "b5-mount" (str "arm-" i))]
+  its own derived identity — minted from [[mount-seq]] so no two ever share
+  one."
+  []
+  (let [n         (swap! mount-seq inc)
+        container (js/document.createElement "div")
+        fid       (keyword "b5-mount" (str "frame-" n))
+        tag       (keyword "b5-mount" (str "arm-" n))]
     (.appendChild js/document.body container)
     (let [t0 (m/now-ms)]
       (-> (act #(v/mount [app {}] container
@@ -176,7 +184,7 @@
   (reduce
     (fn [p i]
       (.then p (fn [readings]
-                 (-> (mount-once! i)
+                 (-> (mount-once!)
                      (.then (fn [arm]
                               (when (zero? i)
                                 (is (some? (.querySelector (:container arm) ".freehand-release-mixed"))
