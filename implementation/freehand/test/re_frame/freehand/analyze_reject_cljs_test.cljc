@@ -37,6 +37,17 @@
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) ex
       (:rf.ui.compile/error (ex-data ex)))))
 
+(deftest render-fn-fixed-arity
+  ;; rf2-drpa3.138. A v/render-fn is FIXED-arity — v/slot invokes it with a
+  ;; fixed number of arguments — so variadic & is refused at build, the SAME
+  ;; verdict the interpreted authoring path gives (`events-cljs-test`
+  ;; `a-variadic-render-fn-is-refused-on-the-interpreted-path`).
+  (is (= :rf.ui.compile/bad-render-fn
+         (reject-id '[:ul (slot (render-fn [x & xs] [:span x xs]) item)]))
+      "variadic & in a compiled render-fn is refused")
+  (is (nil? (reject-id '[:ul (slot (render-fn [x] [:span x]) item)]))
+      "the fixed-arity control is accepted"))
+
 (deftest heads
   (is (= :rf.ui.compile/dynamic-head
          (reject-id '[(if x :div :span) "y"]))

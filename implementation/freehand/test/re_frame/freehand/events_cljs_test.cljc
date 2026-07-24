@@ -376,6 +376,58 @@
         (is (= called (count @calls)) (str form " invoked its body " called " time(s)"))))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-drpa3.138 — a v/render-fn's carried arity is HONEST
+;; ---------------------------------------------------------------------------
+
+(deftest render-fn-fixed-arity-is-recorded-honestly
+  (testing "rf2-drpa3.138. A v/render-fn carries its declared arity so v/slot
+            enforces one host-independent contract. A FIXED parameter vector
+            records exactly its positional count — the arity the generated
+            function truly accepts — and v/slot honours it. (Host-neutral: the
+            accepted forms build a real Callback in both modes.)"
+    (is (= 0 (events/callback-arity (v/render-fn [] [:span "x"]))) "nullary → 0")
+    (is (= 1 (events/callback-arity (v/render-fn [x] [:span x]))) "unary → 1")
+    (is (= 2 (events/callback-arity (v/render-fn [x y] [:span x y]))) "two params → 2")
+    (is (= 1 (events/callback-arity (v/render-fn [{:keys [a]}] [:span a])))
+        "a destructured parameter is still ONE positional argument → 1")
+    (let [rf (v/render-fn [x] [:span x])]
+      (is (nil? (events/check-slot-arity! rf 1))
+          "a one-argument v/slot call matches a one-parameter render-fn")
+      (is (= :rf.error/ui-tree-malformed
+             (conf/caught-id #(events/check-slot-arity! rf 2)))
+          "and a two-argument call to it is the didactic arity mismatch"))))
+
+#?(:clj
+   (deftest a-variadic-render-fn-is-refused-on-the-interpreted-path
+     (testing "rf2-drpa3.138. `[x & xs]` is NOT a fixed arity: the function
+               accepts one-or-more arguments, so recording `(count params)` = 3
+               is a FALSE arity — a valid one-argument v/slot call would then be
+               refused as `expected 3, actual 1`. The interpreted authoring path
+               refuses variadic & didactically, the SAME verdict the compiled
+               analyzer gives (`:rf.ui.compile/bad-render-fn`, exercised in
+               `analyze-reject-cljs-test`), rather than carrying a contract the
+               function does not honour."
+       ;; `v/render-fn` is a thin macro over `expand-callback` (freehand.cljc),
+       ;; so its rejection IS this expansion refusing to build the callback —
+       ;; tested directly because `macroexpand` wraps a macro's throw and hides
+       ;; the diagnostic id under the wrapper's cause.
+       (is (= :rf.error/view-bad-event
+              (conf/caught-id
+                #(events/expand-callback :render-fn 'v/render-fn '[x & xs] '([:span x xs]))))
+           "a variadic render-fn is refused at authoring, not recorded as arity 3")
+       (is (thrown-with-msg?
+             clojure.lang.ExceptionInfo #"FIXED arg list"
+             (events/expand-callback :render-fn 'v/render-fn '[x & xs] '([:span x xs])))
+           "expand-callback refuses to build the callback, so the false arity-3
+            record cannot silently return")
+       (testing "the refusal is render-fn's alone — v/event and v/handler have
+                 no slot-arity contract, so their variadic forms are untouched"
+         (is (some? (events/expand-callback :handler 'v/handler '[x & xs] '([x xs])))
+             "a variadic v/handler still expands")
+         (is (some? (events/expand-callback :event 'v/event '[x & xs] '(nil)))
+             "and so does a variadic v/event")))))
+
+;; ---------------------------------------------------------------------------
 ;; FH-EVENT-004 — per-site committed slots and stable identity
 ;; ---------------------------------------------------------------------------
 
