@@ -620,6 +620,13 @@ Three registrar kinds belong to this artefact: **`:resource`** (`reg-resource` /
 [:rf.resource/release-owner
  {:owner [:route :route/article nav-token]}]
 
+[:rf.resource/adopt-owner                    ;; attach an owner to an EXISTING entry — no fetch (see §Effective parent-chain resource plans)
+ {:resource :article/by-slug
+  :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+  :params   {:slug "welcome"}
+  :owner    [:route :route/article nav-token]
+  :cause    [:route-entry :route/article nav-token]}]
+
 [:rf.resource/clear-scope
  {:scope [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :cause :logout}]
@@ -1257,6 +1264,50 @@ The route entry's `:scope` is a named-resolver reference `{:from-db :realworld/s
 Route resources MUST define **params-failure behaviour explicitly**: a failed params schema is a route/resource planning error visible in route state and Xray, not a silent cache miss. Conditional resources use `:when` rather than sentinel `nil` params. **Dependent** route resources are modeled as a route plan, not a hidden view effect: a route resource may declare a local `:id`, and another may declare `:after #{local-id}` to order their ensure-dispatch. **`:after` is dispatch-order only, not a data-waterfall** (landed semantics): the route plan is a *pure synchronous planner* that resolves every entry's params and scope at route entry — before any resource can settle — so a later entry's params CANNOT depend on an earlier entry's loaded **data**; that would require re-running the plan after each settle, a deferred slice. What `:after` DOES guarantee is **ensure-dispatch order**: a dependent entry's `:rf.resource/ensure` is dispatched after every entry it names, so the dependency's fetch is kicked off first (the params still come from the *route*, not the dependency's data). `:after` MUST target route-local `:id`s (the same resource can appear more than once with different params), and ordering is **fail-closed**: an `:after` target naming an undeclared local id, or an `:after` cycle, is a route/resource planning error (`:recovery :fix-after`, surfaced on the route slice + Xray), never a silent fall-back to declaration order. Xray reads the declared `:after` edges to show the dependency graph. (A true data-waterfall — an entry's params computed from another's loaded data — is a deferred slice, [§Deferred slices](#deferred-slices).)
 
 Routes are **not required** — an app can use resources entirely from events and machines (with explicit owners and a matching release path); it then gets canonical identity, stale/fresh policy, dedupe, invalidation, GC, passive subscriptions, and Xray visibility, but not route ownership, route-leave release, route transition blocking, or SSR route preload.
+
+### Effective parent-chain resource plans
+
+> **The composed plan, not the leaf plan.** The paragraphs above describe one route's `:resources`. The **effective** plan a full activation executes is the composition of `:resources` from every route on the active parent-to-leaf branch. This is the R2 contract (EP-0037 §Effective parent-chain resource plans, OI-4); it replaces the behaviour-preserving leaf-only plan R0/R1 executed, and it is the plan the readiness projector, SSR wait point, and prefetch all consume.
+
+**Automatic composition — `:parent` is the opt-in.** For an allowed full activation, the planner follows [`:parent`](012-Routing.md#nested-layouts) from the matched leaf, obtains the root-most-first route chain (the same walk `:rf.route/chain` reduces over), and composes only the `:resources` declarations of each contributor, parent to leaf. Declaring `:parent` **is** the opt-in: a child that renders within a parent shell participates in the branch whose shared reads the parent declares, so those requirements apply without a second `:inherit-resources?` marker (EP-0037 OI-4). A read needed by only one leaf belongs on that leaf, not on its parent. This is a deliberate semantic expansion for every existing `:parent` chain — not a compatibility-preserving flag. `:on-match`, `:scroll`, `:head`, `:tags`, guards (`:can-leave` / `:can-enter`), and arbitrary metadata are **not** inherited or merged by this feature: resources are the one folded key, because unrelated keys need incompatible merge/ordering rules. Views still render the route chain with ordinary data composition; parent-chain resource planning does **not** imply parent-chain render ownership (no outlet, provider tree, or parent-loader cascade).
+
+Planning follows these rules (MUST):
+
+1. **Resolve the branch parent first.** Branch resolution is **fail-loud**: a `:parent` naming an unregistered route, or a `:parent` cycle, aborts the plan (a committed failed activation, below) with `:rf.error/resource-route-plan` (`:reason` naming the unresolved / cyclic parent). The branch is never silently truncated at the break.
+2. **Validate each contributor's `:id` / `:after` edges locally, against that contributor's whole declared vector, before `:when` filters occurrences.** An `:after` edge may name only a local `:id` declared by the **same** route; a missing target or a local `:after` cycle fails the plan (`:recovery :fix-after`). **Parent and child local ids never share a namespace** — `:after` cannot reach across the `:parent` boundary. Declaration order is the stable tie-breaker among otherwise-ready occurrences within a contributor.
+3. **Evaluate `:when`, then resolve params and scope, and validate them — every contributor's route function receives the resolved LEAF target as its `route` argument.** The leaf target is the one canonical, fully-resolved address for this activation (its path / query facts are available to the whole branch); the planner never synthesises a second ancestor-shaped target, and it records the contributing route separately from the `route` argument. A `:when` / params / scope failure **aborts the whole plan** before any ensure is dispatched, then commits the failed activation. The error identifies **both** the contributor route id and the resource declaration.
+4. **Materialize a requirement** carrying the contributor route id, local id, declaration index, branch position, the resolved scoped resource identity `[scope resource-id canonical-params]`, `:blocking?`, and `:keep-previous?`.
+5. **Form an occurrence graph over the materialized requirements**, then collapse it by identity. Its edges are the admitted local `:after` edges plus the **branch-order constraint** that every ancestor contributor's occurrence precedes every descendant contributor's occurrence. Collapse occurrences that share a canonical scoped resource identity into one group: union each group's incoming / outgoing edges, discard edges whose two ends collapsed into the same group, and **stable-topologically order** the grouped graph (earliest parent-to-leaf / declaration occurrence is the tie-breaker when no dependency constrains the group). Dispatch **one** `ensure` per identity. This is identity dedupe, **not** a generic route-metadata merge.
+6. **A collapse-created cycle fails the whole plan** with `:rf.error/resource-route-plan` and dispatches no ensures; the diagnostic names the cyclic identity groups and the contributor / local ids. Silently dropping an `:after` or branch-order edge to keep an arbitrary occurrence is forbidden. *(Worked case: `B :after #{A}`, `C :after #{B}`, and `A`/`C` resolving to one identity collapses to both `identity(A,C) → B` and `B → identity(A,C)` — a cycle; the plan fails rather than forgetting `C`'s edge.)*
+
+When more than one requirement resolves to the same identity, these are the **only** cross-requirement combination rules (no other metadata gains an implicit merge policy):
+
+- the grouped graph fixes dispatch position; the earliest occurrence is only the stable tie-breaker when no dependency constrains the group;
+- the work is **blocking** when **any** contributor marks it blocking;
+- **`:keep-previous?`** is true when **any** contributor requests it; and
+- **every contributor remains present in the diagnostic plan**, so dedupe never erases *why* a resource is needed.
+
+`:after` remains ensure-dispatch order, not a data waterfall: every params / scope / condition function is evaluated synchronously while the plan is formed, so a child requirement cannot read data a parent requirement has not loaded.
+
+**Redundant-child advisory.** When a child route redundantly declares an identity an ancestor already contributed, the `:rf.resource/route-plan` trace carries an advisory naming **both** declarations, so the redundant copy is mechanically discoverable and can be deleted. Dedupe remains valid and the plan remains executable whenever its grouped graph is acyclic; the advisory only surfaces the accidental copy.
+
+#### Plan diff and owner handoff
+
+A full activation compares the previous and next sets of scoped resource identities (the previous set is the identity set the superseded nav-token's plan owned; the next set is this plan's identities):
+
+- **kept** identities (in both sets) remain owned and are **not re-ensured** solely because a leaf sibling changed;
+- **added** identities (next only) acquire the next route-plan owner `[:route route-id nav-token]` and run the ordinary resource ensure / freshness path; and
+- **removed** identities (previous only) release the prior route-plan owner **after** the next ownership set is attached.
+
+**Attach-before-release is required.** An identity needed by both plans MUST NOT pass through an ownerless instant that aborts useful in-flight work or makes the entry GC-eligible: the next plan attaches its owner to every kept and added identity **before** the previous plan's owner is released. The implementation retains the existing nav-token-shaped owner and performs this handoff by ordering the attach effects (added `ensure`s and kept owner-adoptions) ahead of the prior-owner `release-owner`; this adds no new stable ancestor-owner identity. A kept identity is adopted by a pure owner attach (`:rf.resource/adopt-owner` — attach the next owner and reconcile blocking, **never** a fetch), so a still-in-flight ancestor read shared by both plans keeps a live owner across the handoff and is not aborted.
+
+**Partial-revalidation law.** The navigation itself does **not** revalidate a kept, unchanged ancestor requirement — moving between child routes does not turn every parent requirement into a new page load. Resource invalidation, focus / reconnect policy, polling, or an actual identity / requirement change may still revalidate it through the ordinary resource-freshness contract; navigation alone does not. Resource identity, freshness, cache reuse, error envelopes, generations, cancellation, GC, scope isolation, and hydration remain exactly the one Resources contract; the router copies no resource data into route state and adds no route-loader cache.
+
+A **failed** plan (branch-resolution, `:after`, `:when` / params / scope, or collapse-cycle failure) contributes an **empty** next-ownership set: after the failed target / error facts are installed, every owner held only by the previous plan is released, no partially-planned next owner is attached, and no partial ensure is dispatched (EP-0037 §One planning pipeline for every door — plan execution is atomic at this boundary).
+
+#### Readiness, SSR, and hydration over the branch plan
+
+Route readiness ([012 §Route readiness is a resource projection](012-Routing.md#route-readiness-is-a-resource-projection)) is the same pure projector R1 introduced; R2 only swaps its input from the leaf-only plan to the effective branch plan. The blocking set written under the nav-token (`[:rf.runtime/routing :resource-blocking <nav-token>]`) is the branch's blocking requirements; a kept blocking identity that already has usable data reconciles to `:idle` through the same drain as any settled blocking resource, so a sibling-leaf navigation past an already-loaded parent does not strand the route at `:loading`. SSR plans the **same** branch on the request-local frame, ensures its resources, and waits only for the current plan's blocking requirements before render — the server performs no separate prefetch; activation itself uses the plan. Hydration installs the route / resource projection and recomputes readiness through the same projector; freshly hydrated identities are reused, so a client does not re-ensure an SSR-loaded branch merely because it was reconstructed.
 
 ### Paginated and previous data
 
