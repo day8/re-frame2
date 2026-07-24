@@ -487,16 +487,23 @@
   (boolean (some string? (keys m))))
 
 (defn- key-branch
-  "One BRANCH of a key-condition map, as the tree records it.
+  "Project one key-condition branch — ALREADY validated by
+  [[re-frame.freehand.events/event-plan]] against the one closed branch
+  grammar — into the value the tree records.
 
   A branch is a SITE, not a value inside one. The closed exact-key form
   (Spec 004 §Key-condition event maps) NAMES each branch and admits there
-  what the whole handler position admits, minus the roster forms that do
-  not dispatch: an event vector, an options map carrying `:event`, a
-  `v/event`, or nil. So the site rule reaches one level down with it — a
-  branch that IS a callback records the mode-neutral marker, exactly as a
-  whole handler carrying one does, while a non-data value nested INSIDE a
-  branch is still refused, at the branch that recorded it.
+  only the DISPATCHING forms: an event vector, an options map carrying
+  `:event`, a `v/event`, or nil. `v/handler`, a bare function, `v/render-fn`,
+  `v/raw-fn`, a nested key map, and a branch-local whole-listener option are
+  refused — but that refusal is the SHARED planner's, run by `classify-event`
+  before this projection, so the interpreted structural walk and the live
+  event planner cannot hold two branch grammars (rf2-7x0ge). Here the branch
+  is known legal, so this only decides how the tree RECORDS it: a `v/event`
+  carries a fn and records the mode-neutral opaque marker, exactly as a whole
+  handler carrying a callback does; an event vector, an options map, or nil
+  is data and is recorded verbatim, with a function nested INSIDE a data
+  branch still refused at the branch that recorded it.
 
   Walking a branch as ordinary data instead refused the whole element:
   `{\"Enter\" (v/event [e] …)}` is a spelling the compiled tier deliberately
@@ -504,7 +511,7 @@
   `:rf.error/ui-tree-malformed` for it in BOTH modes — no SSR and no
   headless render for a form the substrate itself writes."
   [tag k key-str branch]
-  (if (fn-carried? branch)
+  (if (events/callback? branch)
     {:rf.ui/opaque :fn}
     (do (when-let [[path bad] (non-data branch)]
           (let [path (into [key-str] path)]
@@ -560,10 +567,23 @@
                         {:attr k :path path :value (shape bad)}))
                     v)
     (map? v)    (if (key-condition-map? v)
-                  (reduce-kv (fn [m key-str branch]
-                               (assoc m key-str (key-branch tag k key-str branch)))
-                             {}
-                             v)
+                  ;; Validate the WHOLE key-condition map against the one closed
+                  ;; branch grammar through the shared planner (event-plan ->
+                  ;; branch-plan) BEFORE projecting it into the tree. Each branch
+                  ;; is an event vector, an options map carrying :event, a
+                  ;; v/event, or nil; v/handler, a bare fn, v/render-fn, v/raw-fn,
+                  ;; a nested key map, a branch-local whole-listener option, and a
+                  ;; mixed string/keyword map are all refused with the planner's
+                  ;; own typed :rf.error/view-bad-event category — not re-stated
+                  ;; here, so the interpreted structural walk (which reaches this
+                  ;; classify-event directly through tree/with-attrs) and the live
+                  ;; event planner cannot drift on what a branch admits (rf2-7x0ge).
+                  (do
+                    (events/event-plan v)
+                    (reduce-kv (fn [m key-str branch]
+                                 (assoc m key-str (key-branch tag k key-str branch)))
+                               {}
+                               v))
                   (do (when-let [[path bad] (non-data v)]
                         (malformed!
                           're-frame.freehand/render
