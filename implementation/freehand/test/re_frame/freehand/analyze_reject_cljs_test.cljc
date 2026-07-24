@@ -121,8 +121,20 @@
     (let [msg (reject-msg '(for [x xs] (if x [:li {:key x} 1] [:li {:key x} 2])))]
       (is (str/includes? msg "must BE the keyed node"))
       (is (str/includes? msg "Extract a declared child view"))))
-  (testing "a body carrying no row at all keeps the general message"
-    (is (= :rf.ui.compile/unkeyed-list-item (reject-id '(for [x xs] (str x)))))))
+  (testing "a body carrying no row at all keeps the general message —
+            whether the scalar is bare or wrapped. rf2-drpa3.164 audit: a
+            wrapper is a CANDIDATE for indirect-list-body, not a verdict.
+            `(let [y x] (str y))` wraps a scalar, so calling it a wrapper
+            around a keyed node would state a fact the analyzer never
+            established — the message is honest for both shapes now."
+    (is (= :rf.ui.compile/unkeyed-list-item (reject-id '(for [x xs] (str x))))
+        "the bare scalar control")
+    (is (= :rf.ui.compile/unkeyed-list-item
+           (reject-id '(for [x xs] (let [y x] (str y)))))
+        "a let wrapping a scalar — no row is present, so it is not indirect")
+    (is (= :rf.ui.compile/unkeyed-list-item
+           (reject-id '(for [x xs] (if x (str x) (str x)))))
+        "and an if whose arms are both scalars, for the same reason")))
 
 (deftest a-metadata-key-is-refused-where-it-is-written
   (testing "rf2-drpa3.163. `^{:key …}` is the Reagent spelling, so it is
