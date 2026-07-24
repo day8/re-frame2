@@ -93,6 +93,24 @@
   (try (thunk) ::no-throw
        (catch :default e (:rf.error/id (ex-data e)))))
 
+(defn- error-data
+  "The whole ex-data of the error `thunk` raised, or nil when it returned
+  normally — for the authority assertions that read a diagnostic's
+  `:recovery` alongside its id."
+  [thunk]
+  (try (thunk) nil (catch :default e (ex-data e))))
+
+(defn- detached-container
+  "A container the config-bearing AUTHORITY guard never renders into: it
+  throws in preflight, before createRoot, so this only has to satisfy the
+  admission container check. A real element in the browser, a minimal
+  stand-in in node — the node lane runs the fail-loud test because the
+  throw precedes React."
+  []
+  (if (browser?)
+    (js/document.createElement "div")
+    #js {:nodeType 1}))
+
 (defn- text [container selector]
   (some-> (.querySelector container selector) .-textContent))
 
@@ -472,3 +490,104 @@
                        (is false (str "same-id re-entrancy suite rejected: " e))
                        (.remove node)
                        (done)))))))))
+
+;; ===========================================================================
+;; FH-ROOT-004 — the authority rule (Spec 004C §7, AC4): a boot/external frame
+;; is never silently converted into address-directed teardown authority
+;; ===========================================================================
+
+(deftest fh-root-004-config-bearing-ensure-over-a-live-external-frame-fails-loud
+  (testing "Per FH-ROOT-004 / Spec 004C §7 (AC4): a config-bearing :frame
+            {:id …} ENSURE meeting a frame already LIVE that this page does
+            NOT own — a fresh boot/external frame the ledger records no
+            :installed-by for — must FAIL before make-frame mutates. Letting
+            it through would reset the boot frame's config, write :installed-by
+            and :installed-value for the arriving root, and hand that root the
+            address-directed authority to DESTROY at unmount a frame it never
+            installed. The throw precedes React, so the node lane runs this too.
+            The proof straddles the throw: the diagnostic is the authority
+            conflict under the scope-or-own recovery, and on the other side the
+            external frame's EXACT incarnation is untouched — same live token,
+            no ledger authority, nothing registered."
+    (reg!)
+    (let [fid   :fh.root/external-boot
+          _     (rf/make-frame {:id fid :initial-events [[:root/seed 7]]})
+          token (frame/frame-incarnation-token fid)
+          data  (error-data #(v/mount [views/counter {}] (detached-container)
+                                      {:frame {:id             fid
+                                               :initial-events [[:root/seed 999]]}}))]
+      (is (= :rf.error/frame-payload-conflict (:rf.error/id data))
+          "the config-bearing plan over a boot-authoritative frame is refused")
+      (is (= :scope-config-less-or-own-the-lifetime (:recovery data))
+          "under the scope-config-less-or-own-the-lifetime recovery — distinct
+           from the differing-fingerprint arm's :align-frame-plan-config")
+      (is (= fid (:frame-id data))
+          "and the diagnostic names the frame at stake")
+      (is (some? (frame/frame fid))
+          "the external frame is still LIVE — the guard fired before make-frame")
+      (is (identical? token (frame/frame-incarnation-token fid))
+          "and is the EXACT same incarnation the boot created — no reset")
+      (is (nil? (get (root/frame-ledger-snapshot) fid))
+          "no ledger authority was written for the frame this root does not own")
+      (is (empty? (root/live-root-ids))
+          "and the refused mount registered nothing"))))
+
+(deftest fh-root-004-a-config-less-scope-over-an-external-frame-transfers-no-ownership
+  (testing "Per FH-ROOT-004 / Spec 004C §7 (AC4): the other side of the
+            authority rule. A config-less :frame keyword SCOPES a boot/external
+            frame — it borrows it, recording a reference but NO installer — and
+            unmounting the scoping root leaves the exact external incarnation
+            LIVE: scoping never transfers ownership. A config-bearing plan over
+            that SAME boot-authoritative frame — even from the very root that is
+            scoping it — is refused as the authority conflict, and its refusal
+            leaves the incumbent root, the frame's incarnation and the ledger
+            untouched: a borrow cannot be retroactively promoted to ownership."
+    (if-not (browser?)
+      (skip! "the browser job renders the scope + unmount")
+      (async done
+        (reg!)
+        (let [node  (host-node!)
+              fid   :fh.root/external-scoped]
+          (rf/make-frame {:id fid :initial-events [[:root/seed 4]]})
+          (let [token (frame/frame-incarnation-token fid)]
+            (-> (act #(v/mount [views/counter {}] node {:frame fid}))
+                (.then
+                  (fn [scoped]
+                    (is (= "4" (text node ".count"))
+                        "the scoping root borrowed the owner's seed")
+                    (is (nil? (:installed-by (get (root/frame-ledger-snapshot) fid)))
+                        "the ledger records the reference but NO installer — borrowed, not owned")
+                    (is (contains? (:refs (get (root/frame-ledger-snapshot) fid))
+                                   (:root-id (root/root-descriptor scoped)))
+                        "the scoping root's reference is recorded")
+                    ;; A config-bearing plan over the SAME boot-authoritative frame is
+                    ;; the authority conflict — refused, incumbent untouched.
+                    (let [data (error-data
+                                 #(v/mount [views/counter {}] node
+                                           {:frame {:id             fid
+                                                    :initial-events [[:root/seed 999]]}}))]
+                      (is (= :rf.error/frame-payload-conflict (:rf.error/id data))
+                          "a config-bearing plan cannot take over the borrowed frame")
+                      (is (= :scope-config-less-or-own-the-lifetime (:recovery data))
+                          "under the scope-config-less-or-own-the-lifetime recovery")
+                      (is (identical? token (frame/frame-incarnation-token fid))
+                          "the refusal left the EXACT incarnation untouched")
+                      (is (nil? (:installed-by (get (root/frame-ledger-snapshot) fid)))
+                          "and wrote no installer authority over the borrowed frame")
+                      (is (= "4" (text node ".count"))
+                          "the incumbent scoping root is still rendering its borrowed seed"))
+                    (act #(v/unmount! scoped))))
+                (.then
+                  (fn [_]
+                    (is (some? (frame/frame fid))
+                        "unmounting the SCOPING root leaves the external frame LIVE — no transfer")
+                    (is (identical? token (frame/frame-incarnation-token fid))
+                        "and it is the exact same incarnation the boot created")
+                    (is (empty? (root/live-root-ids))
+                        "the scoping root is gone, and it destroyed nothing it borrowed")
+                    (.remove node)
+                    (done))
+                  (fn [e]
+                    (is false (str "scope non-transfer suite rejected: " e))
+                    (.remove node)
+                    (done))))))))))
