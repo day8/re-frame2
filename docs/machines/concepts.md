@@ -81,7 +81,7 @@ source stamps are empty (dev warns `:rf.warning/machine-source-unstamped`).
 ```
 
 The snapshot lives in [runtime-db](../core/glossary.md#runtime-db) (framework half of
-the frame), so undo, time-travel, and SSR hydration apply for free.
+the frame), so undo, time-travel, and SSR hydration work without extra wiring.
 
 !!! note "Async composes"
 
@@ -270,8 +270,8 @@ rolls back a bad transition.
 <a id="validating-a-machines-data"></a>
 <a id="validating-a-machines-completion-output"></a>
 
-Full rules: see schemas section of
-[`re-frame.machines` API](../api/re-frame.machines.md) and Spec 005 (authors).
+Full rules: schemas section of the
+[`re-frame.machines` API](../api/re-frame.machines.md).
 
 ## Self-transitions and wildcards
 
@@ -372,4 +372,4 @@ macrostep with a loud error — not a silent no-op.
 **No:** plain data; two-state flags; server cache lifecycles ([resources](../resources/concepts.md));
 mere operation sequences (chained events).
 
-**Named states are the load-bearing concept — not named operations.**
+**Named states are the concept — not named operations.**

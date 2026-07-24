@@ -4,15 +4,31 @@ One machine, several **orthogonal** axes active at once — form validity × loa
 state × mode — without exploding a cross-product of flat states. Assumes the
 [flat model](concepts.md); pairs naturally with [tags](tags.md).
 
-Some lifecycles aren't *one* question — they're several, all live at once. A todos screen is *somewhere in its fetch* (nothing / loading / empty / some / too-many), *somewhere in its form* (neutral / valid / invalid), and *somewhere in its page mode* (active / archived). Those three axes are **orthogonal**: each moves on its own, and any combination is legal.
+Some lifecycles aren't *one* question — they're several, all live at once. A todos
+screen is *somewhere in its fetch*, *somewhere in its form*, and *somewhere in its
+page mode*. Those three axes are **orthogonal**: each moves on its own, and any
+combination is legal.
 
-Model that as one flat machine and the states multiply — three axes of three states each is `3 × 3 × 3 = 27` cross-product states, most of them named things like `:loading-and-invalid-and-active`. **Parallel regions** keep the axes apart. One machine declares `:type :parallel` and a `:regions` map; each region is a full little state-tree minding one axis; all regions are active simultaneously. Three axes of three states becomes **nine states across three regions**, not twenty-seven flat ones.
+Model that flat and the states multiply — three axes of three states each is
+`3 × 3 × 3 = 27` cross-product states named things like
+`:loading-and-invalid-and-active`. **Parallel regions** keep the axes apart: one
+machine, `:type :parallel`, a `:regions` map; each region is a full little
+state-tree; all regions active simultaneously. Three axes of three states becomes
+**nine states across three regions**, not twenty-seven flat ones.
 
 ## When to reach for parallel regions
 
-Reach for them when you have **multiple orthogonal axes of one feature** that share a domain: one form with data / validity / display-mode axes, one connection with auth + lifecycle + request-queue, one widget with display + interaction state. The giveaway is a single conceptual thing whose state is naturally a *tuple* of independent sub-states.
+Reach for them when you have **multiple orthogonal axes of one feature** that share
+a domain: one form with data / validity / display-mode axes, one connection with
+auth + lifecycle + request-queue. The giveaway is a single conceptual thing whose
+state is naturally a *tuple* of independent sub-states.
 
-The axes share a single [`:data`](concepts.md#the-same-flow-as-a-transition-table) map *because they're facets of one domain* — they read and write the *same* data, just sliced differently. If your axes are genuinely separate features that share nothing (a websocket connection plus an unrelated auth flow plus a route), that's not parallel regions — that's **N separate machines** colocated in [runtime-db](../core/glossary.md#runtime-db). Per-region `:data` is deliberately **not** supported; if your axes need encapsulated data, that's the substrate telling you to register N machines instead.
+The axes share a single
+[`:data`](concepts.md#the-same-flow-as-a-transition-table) map *because they're
+facets of one domain*. If your axes are genuinely separate features that share
+nothing (websocket + unrelated auth + route), that's **N separate machines** in
+[runtime-db](../core/glossary.md#runtime-db). Per-region `:data` is **not**
+supported; if axes need encapsulated data, register N machines instead.
 
 ## The shape: one machine, several regions
 
@@ -97,7 +113,9 @@ All three regions are alive at their initial states, and the `:tags` set already
 
 ## Broadcast: one event reaches every region
 
-This is the heart of it. Every event dispatched at a parallel machine is **broadcast to every region**. Each region's *currently-active* state independently decides whether the event matches one of its `:on` keys:
+Every event dispatched at a parallel machine is **broadcast to every region**. Each
+region's *currently-active* state independently decides whether the event matches
+one of its `:on` keys:
 
 - **The region has a matching transition whose guard passes** → that region transitions (exit cascade → action → entry cascade), and any `:fx` its action returns joins the macrostep.
 - **The region has no matching transition** (or its guard returns false) → that region stays put. No per-region complaint is raised.
@@ -142,11 +160,20 @@ When *several* regions handle the same event, each one's action runs against the
 
 If you wanted that event to count *once*, you'd register the coordinating action at the parent-machine level, or shape the regions so only one handles it.
 
-!!! note "A subtle, load-bearing rule — selection is order-independent"
+!!! note "Selection is order-independent"
 
-    The broadcast is **select-then-apply**: every region's enabled transition is *selected* against **one frozen pre-broadcast snapshot** of the configuration, and only *then* are the selected transitions *applied* in declaration order. Declaration order governs only the apply order (action / `:fx` order, `:data` accumulation) — **never** which transitions are selected. Reorder the regions and you get the *same* selected set, and the new configuration is computed **atomically** old→new: no region ever observes an intermediate state where some siblings have moved and others haven't. This matches SCXML, where a parallel macrostep selects against the pre-event configuration.
+    The broadcast is **select-then-apply**: every region's enabled transition is
+    *selected* against **one frozen pre-broadcast snapshot**, and only *then* are
+    the selected transitions *applied* in declaration order. Declaration order
+    governs apply order (action / `:fx`, `:data` accumulation) — **never** which
+    transitions are selected. Reorder the regions and you get the *same* selected
+    set; the new configuration is computed **atomically** old→new — no region
+    observes an intermediate where some siblings have moved and others haven't.
+    Matches SCXML: a parallel macrostep selects against the pre-event configuration.
 
-    The same select-then-apply shape governs `:always` too, once the event set has landed — the parent repeats it per [round](#always-stabilization-is-parent-owned) until the machine is quiescent. It's one idea, applied twice.
+    The same select-then-apply shape governs `:always` once the event set has
+    landed — the parent repeats it per [round](#always-stabilization-is-parent-owned)
+    until the machine is quiescent.
 
 ## The root `:on`: an ancestor fallback
 
@@ -332,4 +359,10 @@ The composed tag union also delivers the headline payoff: **collapsing N live ax
 
 ## A divergence to know: no nested parallel regions
 
-**Nested parallel regions are not supported in v1.** A region whose own tree declares `:type :parallel` is rejected at registration with `:rf.error/machine-parallel-nested-not-supported`. Model a would-be two-level cross-product as a flatter set of regions, or — more idiomatically — as multiple top-level parallel-region machines. A region *may* still be a compound (hierarchical) state-tree; it just can't itself be parallel. This is a **deferred** (not permanently-blessed) divergence — the spec records the reconsideration trigger that would un-defer it: a real two-level cross-product that genuinely cannot flatten. See [Spec 005 §Three non-substrate divergences, item 2](../../spec/005-StateMachines.md#three-non-substrate-divergences--ruled-and-recorded).
+**Nested parallel regions are not supported in v1.** A region whose own tree
+declares `:type :parallel` is rejected at registration with
+`:rf.error/machine-parallel-nested-not-supported`. Model a would-be two-level
+cross-product as a flatter set of regions, or as multiple top-level parallel
+machines. A region *may* still be a compound (hierarchical) state-tree; it just
+can't itself be parallel. This is a **deferred** divergence — reconsidered if a
+real two-level cross-product appears that genuinely cannot flatten.

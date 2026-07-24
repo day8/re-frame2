@@ -5,39 +5,34 @@ Flat machines ([the model](concepts.md)) put every state at one level. A
 cascade entry into an `:initial` child, and finish a sub-flow without ending the
 whole machine.
 
-A flat machine is a single list of states, one active at a time. That carries
-most flows. But some states are really a *cluster*: three leaves that share a
-resource, a sub-flow with its own beginning and end, a family of states that
-should all answer the same event the same way. A **compound state** is a state
-that contains its own `:states` map — a little machine nested inside one state
-of the bigger one.
+A flat list of states, one active at a time, carries most flows. Some states are
+really a *cluster*: three leaves that share a resource, a sub-flow with its own
+beginning and end, a family that should answer the same event the same way. A
+**compound state** contains its own `:states` map — a little machine nested inside
+one state of the bigger one.
 
-You reach for hierarchy when:
+Reach for hierarchy when:
 
 - **Several leaves share a lifecycle or a resource.** A WebSocket's
   `:connecting → :authenticating → :connected` happy path all ride *one* live
-  socket. They aren't independent states — they're three phases of being
-  *connected*. Nest them under one `:active` parent and the socket spans all
-  three.
+  socket — three phases of being *connected*. Nest them under one `:active` parent
+  and the socket spans all three.
 - **You want to factor a transition to a parent.** Every authenticated screen
   should honour `:logout` the same way. Declare it *once* on the parent; every
-  descendant inherits it (the [parent-fallthrough](#transition-resolution-deepest-wins-with-parent-fallthrough)
-  rule below). No restating, no drift.
-- **A sub-flow has a clear "done."** A checkout collects, submits, confirms —
-  then the outer flow moves on. Mark the sub-flow's terminal leaf and the
-  parent advances automatically (the [done signal](#when-a-sub-flow-finishes-nested-final-states) below).
+  descendant inherits it ([parent-fallthrough](#transition-resolution-deepest-wins-with-parent-fallthrough)).
+  No restating, no drift.
+- **A sub-flow has a clear "done."** A checkout collects, submits, confirms — then
+  the outer flow moves on. Mark the sub-flow's terminal leaf and the parent
+  advances ([done signal](#when-a-sub-flow-finishes-nested-final-states)).
 
-The grammar recurses and stays additive: a substate is either a **leaf** (no
-`:states`) or another **compound** (has `:states`, and must declare
-`:initial`). Flat machines stay flat — you only pay for hierarchy where you use
-it.
+The grammar recurses: a substate is a **leaf** (no `:states`) or another
+**compound** (has `:states` and must declare `:initial`). You only pay for
+hierarchy where you use it.
 
-The canonical worked example is the connection machine in
-[`../../examples/patterns/websocket/`](../../examples/patterns/websocket) — its
-`:active` state parents the three happy-path leaves. The snippets on this page
-are simplified from it. For the flat grammar this builds on, read
-[The model](concepts.md) first. Spawned sockets on a parent state are covered in
-[Actors](actors.md).
+Canonical example: the connection machine in
+[`../../examples/patterns/websocket/`](../../examples/patterns/websocket) — `:active`
+parents the three happy-path leaves. Snippets below are simplified from it. Flat
+grammar: [The model](concepts.md). Spawned sockets on a parent: [Actors](actors.md).
 
 ---
 
@@ -331,7 +326,7 @@ returning `{:data … :fx …}`. The `:fx` flow through the ordinary
 
 A compound state often *is* a sub-flow with a clear end: collect, submit, paid.
 re-frame2 ships the statechart pattern for "the sub-flow finished, now advance
-the outer flow" first-class — and **the machine keeps running**.
+the outer flow" — and **the machine keeps running**.
 
 Mark the sub-flow's terminal leaf `:final? true`. The moment a compound's active
 child becomes that final leaf, the engine raises a synthetic, transitionable
@@ -370,7 +365,7 @@ event, so an **ancestor** can catch it with an explicit
 ### Depth decides the meaning — embedded vs whole-machine final
 
 The same `:final?` key means two different things depending on **how deep the
-leaf sits.** This is the one subtlety worth internalising:
+leaf sits:**
 
 | `:final?` leaf placement | Meaning | Effect |
 |---|---|---|

@@ -4,18 +4,36 @@ This page is a **translation**, not a tutorial. For a first machine in re-frame2
 use the [login tutorial](tutorial.md) and [the model](concepts.md). Here: how
 XState v5/v6 concepts map, and where re-frame2 deliberately diverges.
 
-If you've built statecharts with [XState](https://stately.ai/docs) — v5, or the v6 alpha — most of your mental model ports straight across. re-frame2's [machines](concepts.md) borrow XState's grammar on purpose: transition tables as data, guards, actions, tags, delayed transitions, final states, run-to-completion, internal-by-default self-transitions. You can read a re-frame2 machine spec on day one and a re-frame2 author can read yours. The *behaviour* is the contract re-frame2 tracks; what changes is the *expression* and one piece of *plumbing*.
+If you've built statecharts with [XState](https://stately.ai/docs) — v5, or the v6
+alpha — most of your mental model ports straight across. re-frame2's
+[machines](concepts.md) borrow XState's grammar on purpose: transition tables as
+data, guards, actions, tags, delayed transitions, final states, run-to-completion,
+internal-by-default self-transitions. You can read a re-frame2 machine table and a
+re-frame2 author can read yours. The *behaviour* is the contract; what changes is
+the *expression* and one piece of *plumbing*.
 
 Two things transfer almost untouched:
 
-- **The statechart itself.** States, nested states, parallel regions, guards on transitions, entry/exit actions, `after` timers, final states, history — same concepts, idiomatic spelling. If you can draw it, you can write it.
-- **The semantics you rely on.** Run-to-completion, internal-vs-external self-transitions, eventless (`always`) transitions firing on guard flips, an unknown event being a no-op rather than a crash. re-frame2 matches XState here deliberately, including the v5/v6 drop of strict mode.
+- **The statechart itself.** States, nested states, parallel regions, guards,
+  entry/exit actions, `after` timers, final states, history — same concepts,
+  idiomatic spelling. If you can draw it, you can write it.
+- **The semantics you rely on.** Run-to-completion, internal-vs-external
+  self-transitions, eventless (`always`) transitions on guard flips, an unknown
+  event as a no-op rather than a crash. re-frame2 matches XState here deliberately,
+  including the v5/v6 drop of strict mode.
 
 And one thing genuinely shifts:
 
-- **A machine is not an actor.** This is the load-bearing difference and the rest of this page keeps coming back to it. In XState you `createActor(machine)`, `.start()` it, and `.send()` events to a living object that owns its own state. In re-frame2 a machine is an [event handler](../core/glossary.md#event-handler) — registered like any other, fed by the same [`dispatch`](../core/glossary.md#dispatch), with its state living in the [frame](../core/glossary.md#frame) rather than in an object you hold a reference to. There's no `send`, no mailbox, no actor ref. There's one queue, and machines ride it like everything else.
+- **A machine is not an actor.** This is the real difference, and the rest of this
+  page keeps coming back to it. In XState you `createActor(machine)`, `.start()` it,
+  and `.send()` events to a living object that owns its own state. In re-frame2 a
+  machine is an [event handler](../core/glossary.md#event-handler) — registered like
+  any other, fed by the same [`dispatch`](../core/glossary.md#dispatch), with its
+  state living in the [frame](../core/glossary.md#frame) rather than in an object
+  you hold a reference to. There's no `send`, no mailbox, no actor ref. There's one
+  queue, and machines ride it like everything else.
 
-If you internalise just that last bullet, the table below is mostly vocabulary.
+Get that last bullet and the table below is mostly vocabulary.
 
 !!! note "Parity reference: the XState v6 direction"
 
@@ -263,7 +281,11 @@ In XState the parallel node's children sit under `states`; in re-frame2 they sit
 ;; => {:state {:data :nothing :form :neutral} :data {:items [] :error nil} :tags #{:data/idle :form/neutral}}
 ```
 
-Cross-region coordination — one region guarding on another region's active state (XState v5's `stateIn` / SCXML `In()`) — is expressed by predicating on a sibling region's [tag](#tags), not a combinator. (A region whose own tree is itself `:type :parallel` is rejected in v1 — nested parallel is a **deferred** divergence with a recorded reconsideration trigger; see [Spec 005 §Three non-substrate divergences, item 2](../../spec/005-StateMachines.md#three-non-substrate-divergences--ruled-and-recorded).) Worked example: [`examples/patterns/nine_states/`](../../examples/patterns/nine_states/).
+Cross-region coordination — one region guarding on another region's active state
+(XState v5's `stateIn` / SCXML `In()`) — is expressed by predicating on a sibling
+region's [tag](#tags), not a combinator. (A region whose own tree is itself
+`:type :parallel` is rejected in v1 — nested parallel is a **deferred** divergence.)
+Worked example: [`examples/patterns/nine_states/`](../../examples/patterns/nine_states/).
 
 ### History states
 
@@ -282,7 +304,13 @@ To re-enter a compound at the substate it last occupied, XState declares a `type
                               :mid-track {}}}}}}
 ```
 
-Same concept, idiomatic spelling: XState's `history: 'deep'` becomes `:deep? true` (shallow is the default — a missing `:deep?` reads as shallow), and `:default-target` is the never-yet-entered fallback. The pseudo-state is never an occupiable state — a transition *to* `:hist` resolves to the recorded (or default) leaf, which is what the snapshot records. The recording rides the snapshot's framework-owned `:rf/history` slot, so undo, time-travel, and SSR get history for free — no hand-rolled snapshot-as-value substitute.
+Same concept, idiomatic spelling: XState's `history: 'deep'` becomes `:deep? true`
+(shallow is the default — a missing `:deep?` reads as shallow), and
+`:default-target` is the never-yet-entered fallback. The pseudo-state is never
+occupiable — a transition *to* `:hist` resolves to the recorded (or default) leaf,
+which is what the snapshot records. The recording rides the snapshot's
+framework-owned `:rf/history` slot, so undo, time-travel, and SSR get history
+without extra wiring — no hand-rolled stash.
 
 ### Final states and output
 
@@ -398,7 +426,13 @@ re-frame2 already has exactly one of those — the [event pipeline](../core/glos
 
 [`reg-machine`](../core/glossary.md#registration) is sugar over `reg-event`: the registered handler interprets the table — read the current [snapshot](glossary.md#snapshot), compute the transition, write the new snapshot, return the [action](glossary.md#action)'s effects. The outer `:auth.login/flow` routes to the machine; the inner `[:auth.login/submit creds]` is the event the machine sees. No actor object to thread through your components, no parallel `send` API, no question of "where do I keep the running machine?" — the answer is the same place every other piece of state lives.
 
-**Why:** one mechanism is cheaper than two. An XState actor is a thing you must wire into your component tree, keep alive, and bridge to your data layer. A re-frame2 machine is reachable from anywhere `dispatch` is, traceable on the same [trace stream](../core/glossary.md#trace-stream), and composes with every other handler for free. The cost — and it's real — is that you give up `actor.send(...)` ergonomics and the sense of a machine as a tangible object. In exchange the machine stops being a special case.
+**Why:** one mechanism is cheaper than two. An XState actor is a thing you must wire
+into your component tree, keep alive, and bridge to your data layer. A re-frame2
+machine is reachable from anywhere `dispatch` is, traceable on the same
+[trace stream](../core/glossary.md#trace-stream), and composes with every other
+handler. The cost — and it's real — is that you give up `actor.send(...)` ergonomics
+and the sense of a machine as a tangible object. In exchange the machine stops being
+a special case.
 
 ### 2. The snapshot is a value in the frame, not state owned by an object
 
@@ -434,7 +468,15 @@ XState's `assign(...)` is an action *creator* that imperatively updates context,
 
 The returned `:data` is merged into the snapshot; the returned `:fx` is a *description* of work, handed to the effects machinery to actually run. No `assign` helper — re-frame2 never needed one, because returning `{:data ...}` is the assignment. ([XState v6 is removing `assign`'s special status](https://stately.ai/docs) and leaning toward plainer functions, which is roughly the shape re-frame2 started from.)
 
-**Why:** ["effects are data"](../core/glossary.md#effects-are-data) is the spine of re-frame2, not a machines feature. An action that *returns* a description of its side effects is pure, trivially testable, and replayable; an action that *performs* them is none of those. And the payoff compounds: because an effect is just data, a machine and an async surface compose with no glue. Note `:on-success [:auth.login/flow [:auth.login/success]]` above — the HTTP reply lands back *inside the machine* as an ordinary event ([the uniform reply](../core/glossary.md#the-uniform-reply) appends the payload to the inner vector). No `invoke`-promise bridge, no callback adapter — the reply is just the next event the machine handles.
+**Why:** ["effects are data"](../core/glossary.md#effects-are-data) is a core rule,
+not a machines feature. An action that *returns* a description of its side effects
+is pure, testable, and replayable; an action that *performs* them is none of those.
+Because an effect is just data, a machine and an async surface compose with no glue.
+Note `:on-success [:auth.login/flow [:auth.login/success]]` above — the HTTP reply
+lands back *inside the machine* as an ordinary event
+([the uniform reply](../core/glossary.md#the-uniform-reply) appends the payload to
+the inner vector). No `invoke`-promise bridge, no callback adapter — the reply is
+just the next event the machine handles.
 
 ### 4. The transition topology stays data — functions are confined to guards and actions
 

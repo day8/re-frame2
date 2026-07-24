@@ -5,15 +5,19 @@ Not every move is a user click. This page is the grammar for transitions the
 and named timeouts.
 
 You already met `:after` on the [login tutorial](tutorial.md#step-4--talk-to-a-real-server)
-(8s server deadline). Everything below works on **flat** machines
-([the model](concepts.md)) and the same keys nest inside
+(8s server deadline). The same keys work on **flat** machines
+([the model](concepts.md)) and nest inside
 [hierarchical](hierarchical-states.md) / [parallel](parallel-states.md) states.
 
-Most [transitions](glossary.md#transition) wait for the world: a user clicks, an HTTP reply lands, a timer you wired by hand goes off. An **automatic transition** is one the [machine](glossary.md#machine) takes *on its own*, with no external event — the instant a condition becomes true, or a deadline passes, the [snapshot](glossary.md#snapshot) moves.
+Most [transitions](glossary.md#transition) wait for the world — a click, an HTTP
+reply, a hand-rolled timer. An **automatic transition** is one the
+[machine](glossary.md#machine) takes *on its own*: when a condition holds or a
+deadline passes, the [snapshot](glossary.md#snapshot) moves. Without them you re-
+invent the same brittle pattern — `setTimeout` plus a cancel flag, or a synthetic
+`dispatch` from every place that could enable the next step. Each of those is one
+declarative key on a state node.
 
-These are the statechart features that let a machine *drive itself*: a form that routes the moment it's validated, a splash screen that dismisses after three seconds, a reconnect that backs off and retries, a request that gives up after ten. Without them you reach for the same fragile pattern every time — a `setTimeout` paired with a cancel flag, or a synthetic event you `dispatch` by hand from every place that could enable the next step. re-frame2 turns each of those into one declarative key on a state node.
-
-There are four authoring grammars, and underneath them just **two engines**:
+Four authoring grammars, **two engines**:
 
 | You want… | Reach for | Fires when |
 |---|---|---|
@@ -24,9 +28,14 @@ There are four authoring grammars, and underneath them just **two engines**:
 
 !!! note "Four grammars, two engines"
 
-    `:type :choice` is sugar that **desugars to `:always`**; `:timeout` / `:on-timeout` is sugar that **desugars to `:after`**. So everything on this page runs on one of two mechanisms: the **guard-driven microstep loop** (`:always`, `:choice`) and the **wall-clock timer** (`:after`, `:timeout`). One fact, one mechanism — the extra grammars exist only to *name the author's intent* so tools and diagrams can read it.
+    `:type :choice` **desugars to `:always`**; `:timeout` / `:on-timeout`
+    **desugars to `:after`**. Guard-driven microstep loop vs wall-clock timer. The
+    extra grammars *name intent* so tools and diagrams can read it.
 
-Everything below assumes the core loop from [the model](concepts.md#register-and-drive): a machine is registered with `reg-machine`, its transition table is data, a [guard](glossary.md#guard) returns a boolean, an [action](glossary.md#action) returns the data-shaped effect map `{:data … :fx …}` (the `:data` is *merged* into the snapshot, key by key), and the live value is a snapshot `{:state … :data … :tags …}`. New to all that? Read [The model → Guards and actions](concepts.md#guards-and-actions) first.
+Assumes [the model](concepts.md#register-and-drive): `reg-machine`, table as data,
+[guard](glossary.md#guard) → boolean, [action](glossary.md#action) →
+`{:data … :fx …}` (`:data` merged), snapshot `{:state … :data … :tags …}`. New to
+that? [Guards and actions](concepts.md#guards-and-actions) first.
 
 ## Eventless `:always` — fire the instant a condition holds
 
@@ -56,11 +65,17 @@ When you `(rf/dispatch [:quiz [:answer-correct]])`, two things happen inside **o
 
 External observers see `:asking → :winner` in one step. The "answer counted, still asking" intermediate state is **invisible** — exactly the property `:always` exists to provide.
 
-### The mental model: settle, then commit once
+### Settle, then commit once
 
-`:always` extends the event [pipeline](../core/run-to-completion.md): after the triggering transition, the runtime runs a **microstep loop** that keeps taking enabled `:always` transitions (and draining any [`:raise`](../api/re-frame.machines.md)d internal events) until it reaches a **fixed point** — no `:always` guard matches and no raised event is pending. Only then does it commit the snapshot, **once, atomically**, and emit the accumulated `:fx`.
+`:always` extends the event [pipeline](../core/run-to-completion.md): after the
+triggering transition, a **microstep loop** keeps taking enabled `:always`
+transitions (and draining any [`:raise`](../api/re-frame.machines.md)d internal
+events) until a **fixed point** — no `:always` matches, no raised event pending.
+Only then does the snapshot commit **once, atomically**, with the accumulated `:fx`.
 
-This is classic statechart **macrostep** semantics: the externally-observable transition is the *settled* result of an internal cascade of microsteps. Time-travel, [Xray](../core/observability.md), and undo all see the single committed transition; the inner microsteps ride the trace stream for tools that want them.
+That is statechart **macrostep** semantics: observers see the *settled* result.
+Time-travel, [Xray](../core/observability.md), and undo see one committed
+transition; inner microsteps ride the trace stream for tools.
 
 !!! note "It runs at birth, too"
 

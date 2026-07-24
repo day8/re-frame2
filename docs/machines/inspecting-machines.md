@@ -3,22 +3,26 @@
 You can [author](tutorial.md) and [understand](concepts.md) machines. This page is
 how you **watch** one and **prove** the table.
 
-A machine is [just an event handler](concepts.md#register-and-drive) whose body
+A machine is [an event handler](concepts.md#register-and-drive) whose body
 interprets a transition table; its whole state is a plain value in runtime-db.
 There is **no parallel machine runtime** and **no second store**. Subscribe like
 any re-frame2 state; watch events in Xray; unit-test with a pure function call.
 
-You reach for the tools here in two situations:
+Two situations:
 
-- **A flow misbehaves and you need to see *why*.** Which transition fired? Did the guard pass? What did the action write? *Watch* the machine: open Xray's Machine Inspector and read the transition, or drop to the trace stream for the exact guard/action records.
-- **You want fast, headless confidence the table is correct.** *Test* the machine: feed a snapshot and an event to `machine-transition` and assert on what comes back — no frame, no browser, no network, microseconds per case on the JVM.
+- **A flow misbehaves and you need to see *why*.** Which transition fired? Did the
+  guard pass? What did the action write? Open Xray's Machine Inspector, or drop to
+  the trace stream for the exact guard/action records.
+- **Headless confidence the table is correct.** Feed a snapshot and an event to
+  `machine-transition` and assert on what comes back — no frame, no browser, no
+  network, microseconds per case on the JVM.
 
-Four surfaces, building from "read the value" to "prove the logic":
+Four surfaces, from "read the value" to "prove the logic":
 
 | Surface | Question it answers | Tool |
 |---|---|---|
 | `[:rf/machine id]` subscription | *What state is it in right now?* | `rf/subscribe` |
-| Xray Machine Inspector | *What did this event do to the machine?* / *What's the chart?* | Xray (Dynamic + Static) |
+| Xray Machine Inspector | *What did this event do?* / *What's the chart?* | Xray (Dynamic + Static) |
 | `:rf.machine/*` trace events + `handler-meta` | *Did this guard pass? Where is that action defined?* | trace bus / source-jump |
 | `machine-transition` | *Is the table correct?* (headless test) | pure function call |
 
@@ -80,7 +84,10 @@ This sub re-renders only when *this* tag's membership bit flips, so adding a fif
 
 !!! note "The snapshot is a value, not a live object"
 
-    It lives at `[:rf.runtime/machines :snapshots :auth.login/flow]` in runtime-db and is read through the ordinary subscription graph. The payoff is that time-travel, undo, persistence, and SSR hydration all extend to machines *for free*, because the snapshot rides the frame like any other state.
+    It lives at `[:rf.runtime/machines :snapshots :auth.login/flow]` in runtime-db
+    and is read through the ordinary subscription graph. Time-travel, undo,
+    persistence, and SSR hydration extend to machines without extra wiring — the
+    snapshot rides the frame like any other state.
 
 See [`[:rf/machine machine-id]`](../api/re-frame.machines.md#rfmachine-machine-id) and [`machine-has-tag?`](../api/re-frame.machines.md) in the API reference.
 
@@ -181,10 +188,10 @@ This is the surface Xray's focused-transition lens and the re-frame2 pair MCP us
 
 ## Unit-test transitions as pure function calls — `machine-transition`
 
-This is where machines pay you back hardest. A transition is a pure function of
-*(definition, snapshot, event)*, exposed as `re-frame.machines/machine-transition`.
-No frame, no browser, no mocks, no clock — table in, snapshot in, event in; result
-out. These tests run on the JVM in microseconds.
+A transition is a pure function of *(definition, snapshot, event)*, exposed as
+`re-frame.machines/machine-transition`. No frame, no browser, no mocks, no clock —
+table in, snapshot in, event in; result out. These tests run on the JVM in
+microseconds.
 
 Use the same `login-flow` value from the [tutorial](tutorial.md#the-complete-machine)
 (the `defmachine` binding, not the registered id):
