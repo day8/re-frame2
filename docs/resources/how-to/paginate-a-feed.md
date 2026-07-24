@@ -105,13 +105,13 @@ Two more keys earn their place on real tables:
 - **`:when`** — a `(fn [route _ctx] …)` predicate; the resource is only ensured when it returns truthy. Use it for a list that should only load under a condition (a search that waits for a non-empty `?q=`) rather than ensuring with sentinel-`nil` params.
 - **`:scope`** — for a *scoped* list, a named-resolver reference like `{:from-db :app/session}` so the route ensures under the same principal the view subscribes under. (A global list omits it; the resource's own `:scope :rf.scope/global` resolves sub-side too.)
 
-!!! warning "Gotcha — both seams must compute the same key"
+!!! warning "Gotcha — route and sub must compute the same key"
 
-    Params identity is *exact*. `{:page nil}` and `{:page 1}` are different cache entries. If a view subscribes under one *params* key while the route ensured the other, the view reads `:idle` forever — a miserable bug to chase, because everything *looks* wired up. So normalise the same way everywhere: `(or page 1)` on the route side (above) and on the sub side (next step). Same fallback, both seams.
+    Params identity is *exact*. `{:page nil}` and `{:page 1}` are different cache entries. If a view subscribes under one *params* key while the route ensured the other, the view reads `:idle` forever — a miserable bug to chase, because everything *looks* wired up. So normalise the same way everywhere: `(or page 1)` on the route side (above) and on the sub side (next step). Same fallback on both sides.
 
 !!! warning "Gotcha"
 
-    Once you go scoped (step 2's `:scope {:from-db :app/session}` list, or the session-scoped feed below), the same-key rule has a second half. A sub that **can't resolve a scope at all** (logged out; the resolver returns `nil`) fails loud with `:rf.error/resource-sub-unresolved-scope` — never a silent shared-cache read. A sub that resolves a *valid but wrong* scope reads `:idle` forever, but in dev `:rf.warning/resource-sub-scope-mismatch` names the active scope you probably meant. Either way the cure is one named resolver — registration, route, and sub all pointing at `{:from-db :app/session}`. ([When it fails loud](../concepts.md#when-it-fails-loud--the-errors-and-warnings) is the full signal table; a global list sidesteps all of this, since `:rf.scope/global` resolves identically on both seams.)
+    Once you go scoped (step 2's `:scope {:from-db :app/session}` list, or the session-scoped feed below), the same-key rule has a second half. A sub that **can't resolve a scope at all** (logged out; the resolver returns `nil`) fails loud with `:rf.error/resource-sub-unresolved-scope` — never a silent shared-cache read. A sub that resolves a *valid but wrong* scope reads `:idle` forever, but in dev `:rf.warning/resource-sub-scope-mismatch` names the active scope you probably meant. Either way the cure is one named resolver — registration, route, and sub all pointing at `{:from-db :app/session}`. ([Troubleshooting](../concepts.md#when-it-fails-loud--the-errors-and-warnings) is the full signal table; a global list sidesteps all of this, since `:rf.scope/global` resolves identically on both sides.)
 
 ### 3. Page by navigating, not by fetching
 
@@ -128,7 +128,7 @@ Here's the mental shift, and it's the whole numbered-pages trick: **changing pag
   (fn [q _] (or (:page q) 1)))
 ```
 
-Notice the event has *no fetch in it* — no HTTP, no resource call. It just navigates. The route declaration from step 2 turns that navigation into the right `ensure`. That's the seam doing its job, and it's why the [event handler](../../core/glossary.md#event-handler) stays a pure function returning a tiny [effect map](../../core/glossary.md#effect-map).
+Notice the event has *no fetch in it* — no HTTP, no resource call. It just navigates. The route declaration from step 2 turns that navigation into the right `ensure`. That's the split doing its job, and it's why the [event handler](../../core/glossary.md#event-handler) stays a pure function returning a tiny [effect map](../../core/glossary.md#effect-map).
 
 A filter — a tag, a search term — is just one more params key and one more query param. Carry it across page changes with the route's `:query-retain` (a set of query keys the router threads through subsequent navigations even when the caller didn't supply them). But reset to page 1 when the *filter* changes, because a new filter is a fresh list, and "page 2 of the old filter" means nothing. That reset is just a navigation that drops `:page` while setting the new filter:
 
@@ -140,7 +140,7 @@ A filter — a tag, a search term — is just one more params key and one more q
                                           :query (cond-> {} tag (assoc :tag tag))}]]]}))
 ```
 
-The filter then joins the resource's `:params-schema` and the route's `:query` schema, and the route's `:params` fn threads it through alongside the page — one more key on each of the two seams, no new machinery.
+The filter then joins the resource's `:params-schema` and the route's `:query` schema, and the route's `:params` fn threads it through alongside the page — one more key on the route and the sub, no new machinery.
 
 ### 4. Show the old page while the new one loads
 
@@ -381,7 +381,7 @@ Every single-key sub from the numbered family applies to a feed too — but `:rf
 
 ### What the runtime does that you no longer write
 
-This is the load-bearing payoff. Itemised, here's what just disappeared from your codebase:
+This is the payoff. Itemised, here's what just disappeared from your codebase:
 
 - **The cursor.** `:next-page-param` derives the next page's param from the loaded tail; the runtime stores it on the entry and passes it to the next `:request`. You never thread a cursor through app-db.
 - **The append.** A page success appends to the one entry's page vector with structural sharing — prior pages stay *identical* (`=` and `identical?`). You write no append handler.
@@ -391,7 +391,7 @@ This is the load-bearing payoff. Itemised, here's what just disappeared from you
 
 ### Refetch and reset
 
-`:rf.resource/refetch` on a feed is **window-preserving by default**: the accumulated pages stay rendered until their replacement succeeds, so a focus/reconnect/invalidation-driven refetch never collapses a loaded feed back to page 0. Two opt-ins ship from day one if you want different behaviour, declared on the resource's `:refetch` policy:
+`:rf.resource/refetch` on a feed is **window-preserving by default**: the accumulated pages stay rendered until their replacement succeeds, so a focus/reconnect/invalidation-driven refetch never collapses a loaded feed back to page 0. Two opt-ins ship if you want different behaviour, declared on the resource's `:refetch` policy:
 
 - `:refetch {:refetch-all-pages? true}` — re-fetch every accumulated page (TanStack parity).
 - `:refetch {:refetch-window n}` — bound how much of the accumulation is refreshed.
@@ -437,7 +437,7 @@ So what *is* a fact? The page number (in the URL), the accumulated pages (the in
 
 ## Advanced
 
-Two things you won't reach for on day one, but that the paginated/feed shapes support the moment you need them.
+Optional depth the paginated/feed shapes already support when you need it:
 
 ### Keep a list fresh on an interval
 

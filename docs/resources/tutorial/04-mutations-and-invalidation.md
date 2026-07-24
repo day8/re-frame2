@@ -188,9 +188,12 @@ One more command rounds out the surface, alongside `:rf.mutation/execute`. **`:r
 
     One spelling to file away early: the instance sub stores the decoded result under `:result`. The transient [reply map](../glossary.md#reply-map) a `:reply-to` continuation receives — coming up in the **Publish** section — spells the same value `:value`. Same data, two layers; we'll meet `:value` again there.
 
-## Going further with mutations
+## Advanced
 
-The basic loop — register, fire, watch — is the whole story for most writes. This section is the depth: the other two cache-consequence arms, partial replies, scope correctness, timing, and optimistic updates. Read it when you hit the matching need; the favorite above already works without any of it.
+The basic loop — register, fire, watch — is enough for most writes. This section
+is the depth: the other two cache-consequence arms, partial replies, scope
+correctness, timing, and optimistic updates. Read it when you hit the matching
+need; the favorite above already works without any of it.
 
 ### The other two consequence arms: `:patches` and `:removes`
 

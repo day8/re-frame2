@@ -9,7 +9,7 @@ You'll add a sign-in page, a sign-up page, a session that survives reload, route
 that refuse to open while signed out, and a clean sign-out. Most of it lands in one
 new namespace, `conduit/auth.cljs`.
 
-Here's the idea the whole part rests on. **A form is a tiny state machine wearing a trenchcoat.** Strip away the inputs and login is `idle → submitting → submitted | error`, plus a draft and an error map. Build that *once*, and every later form is a fill-in-the-blanks job.
+Here's the idea the whole part rests on. **A form is a tiny state machine.** Strip away the inputs and login is `idle → submitting → submitted | error`, plus a draft and an error map. Build that *once*, and every later form is a fill-in-the-blanks job.
 
 re-frame2 ships no forms library and no auth plugin on purpose — you'll see why in a moment. What it gives you instead is a convention: one map shape, a small event lifecycle, one error-visibility rule. It's built from the same [events](../../core/glossary.md#event) and [subscriptions](../../core/glossary.md#subscription) as everything else, so nothing here is a new *kind* of thing to learn.
 
@@ -48,7 +48,7 @@ Here's the event that seeds it. An [event](../../core/glossary.md#event) in re-f
                     :submit-error      nil})}))  ;; transport failure (network down)
 ```
 
-A quick tour of the seven keys, because each earns its place. `:draft` is what's being typed right now. `:status` is the machine under the trenchcoat. `:errors` holds renderable validation results — they can be client- or server-produced, and the [view](../../core/glossary.md#view) won't care which. `:_form` is reserved for complaints that no single field owns. `:submit-error` stays separate, because a transport failure has nothing field-shaped to render. And `:submitted` holds the last server-accepted draft — that's what we'll compare against to tell whether the form has unsaved changes (the `dirty?` sub, a section from now).
+A quick tour of the seven keys, because each earns its place. `:draft` is what's being typed right now. `:status` is the lifecycle (`:idle` / `:submitting` / …). `:errors` holds renderable validation results — they can be client- or server-produced, and the [view](../../core/glossary.md#view) won't care which. `:_form` is reserved for complaints that no single field owns. `:submit-error` stays separate, because a transport failure has nothing field-shaped to render. And `:submitted` holds the last server-accepted draft — that's what we'll compare against to tell whether the form has unsaved changes (the `dirty?` sub, a section from now).
 
 This shape is the whole convention — [Build a form](../../core/how-to/build-a-form.md) carries it as a reusable recipe.
 
@@ -291,7 +291,7 @@ The reason this reads cleanly is the framework's classification order. On a 4xx 
 
 !!! warning "Gotcha — a 5xx with an HTML error page is *not* a decode failure"
 
-    If you'd reached for `:decode (schema …)` expecting the failure handler to see a decode error, note that the runtime classifies by status *before* it touches the body: a 503 with a CloudFront HTML page classifies as `:rf.http/http-5xx` with the HTML at `:body`, never as `:rf.http/decode-failure`. The HTTP status is the load-bearing fact; surfacing a decode error there would hide it. Decode-failure only ever describes a malformed *2xx* body.
+    If you'd reached for `:decode (schema …)` expecting the failure handler to see a decode error, note that the runtime classifies by status *before* it touches the body: a 503 with a CloudFront HTML page classifies as `:rf.http/http-5xx` with the HTML at `:body`, never as `:rf.http/decode-failure`. The HTTP status is what matters; surfacing a decode error there would hide it. Decode-failure only ever describes a malformed *2xx* body.
 
 ## The login page
 
@@ -579,7 +579,7 @@ You register the guard once, under the id `:conduit/auth-guard` — exactly like
 
 - **`routing/match-url`** is the URL codec from `re-frame.routing` (`(:require [re-frame.routing :as routing])`) — **not** the `rf/` front porch. It's a pure function, `url → {:route-id :params :query :fragment :validation-failed?}` (or `nil` for a URL that matches nothing), and it runs on both hosts. `matched-address` wraps it in the two rejections the guard needs: a `nil` (unknown route) **and** a `:validation-failed? true` map (a match whose path/query params fail the route's schema) are *both* non-matches — the runtime routes a validation-failed URL to not-found, so the guard must not tag-check a route it will never land on. `nav-target` uses it for the two cases that arrive as a raw URL string.
 - **The current route slice** (`current`, read from the `:rf.db/runtime` coeffect at `[:rf.runtime/routing :current]`) is what resolves an *in-place* navigate request — no `:to`/`:url` means "the route I'm already on," so the guard reads that route's id from the slice, exactly as the runtime does, then folds any `:query`/`:query-merge` edit onto the current query (`in-place-query`) before checking `:tags`. A request that is neither a destination nor a valid in-place edit resolves to `nil`, so the guard stands aside and lets the runtime's structural gate reject it with `:rf.error/navigate-bad-request` rather than reclassifying a malformed request as a valid guarded destination.
-- **`rf/handler-meta :route (:to target)`** reads the route's [registration](../../core/glossary.md#registration) metadata — including its `:tags` — without activating it. It's the introspection seam pair tools use too, so the guard asks the registry the same question Xray would.
+- **`rf/handler-meta :route (:to target)`** reads the route's [registration](../../core/glossary.md#registration) metadata — including its `:tags` — without activating it. It's the same introspection path tools use, so the guard asks the registry the same question Xray would.
 - **`:rf/skip-handler? true`** tells the runtime to skip the event's own handler. For a navigation that means the protected route never commits and its `:on-match` loads (`[:settings/load]`) never fire — a signed-out user can't even trigger the route's data fetch.
 - **The stash** lands the *resolved address* — `{:to :params :query :fragment}`, the full route state — at `[:auth :return-to]`, the same spot `submit-success` read earlier, so the bounce-back returns to the exact URL (query string and `#fragment` included). The guard dispatches the login navigation instead.
 
@@ -630,10 +630,8 @@ Nothing else to unhook, which is the nice part. The bearer interceptor reads app
 
     Logout clears `:auth`, but Part 2's [resource](../glossary.md#resource) caches (the feed, the profile) still hold the departed user's data until they're re-fetched or evicted. If a fresh sign-in could show a flash of the old user's content, clear those caches in the same logout event — one more named, traced step, not a scattered checklist. The how-to [Add authentication](../../core/how-to/add-auth.md) covers the cache-teardown shape in full.
 
-## Taking the trenchcoat off
+## When a machine is the better tool
 
-An honest closing note. This part hand-rolled the `:status` transitions, and at this size that's the right call.
+This part hand-rolled the `:status` transitions, and at this size that's the right call.
 
-!!! note "When to reach for a real state machine"
-
-    The shipped example implements this same flow as an explicit [state machine](../../machines/glossary.md#machine). Once "submitting" is enterable from three places and "error" needs retry rules, scattered status flips stop scaling — you lose track of which transitions are legal. The slice stays identical; only the transition logic moves into a machine that names every legal edge. The same boundary draws the line on *retry*: transport retry (back off and re-issue on a 5xx) belongs in `:rf.http/managed`'s `:retry` slot, but *semantic* retry — "refresh the token on a 401, then replay the original request" — is a state-machine transition, not a config map. When you feel that pull, [State machines](../../machines/concepts.md) is the step up, and the example's [`auth.cljs`](../../../examples/real-apps/realworld_http) shows the finished machine.
+Once "submitting" is enterable from three places and "error" needs retry rules, scattered status flips stop scaling — you lose track of which transitions are legal. The shipped example implements this same flow as an explicit [state machine](../../machines/glossary.md#machine): the slice stays identical; only the transition logic moves into a machine that names every legal edge. Transport retry (back off and re-issue on a 5xx) still belongs in `:rf.http/managed`'s `:retry` slot; *semantic* retry — "refresh the token on a 401, then replay the original request" — is a state-machine transition, not a config map. When you feel that pull, [State machines](../../machines/concepts.md) is the step up, and the example's [`auth.cljs`](../../../examples/real-apps/realworld_http) shows the finished machine.

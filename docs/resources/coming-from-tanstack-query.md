@@ -8,7 +8,7 @@ If you've shipped a React app in the last few years, you've almost certainly rea
 
 re-frame2's [resources](concepts.md) capability is that instinct, ported to a data-oriented Clojure world. The core idea transfers almost completely: **a keyed cache of server reads, with staleness, request deduplication, tag-based invalidation, and garbage collection.** If you hold that model, you already understand 80% of resources. This page maps the vocabulary so the remaining 20% lands fast — and then spends most of its words on the handful of places re-frame2 deliberately walked away from the TanStack design, because *that's* the interesting part.
 
-The honest framing up front: TanStack Query is a *hook* library. Its primitives live inside a component's render and reach back out into the cache. re-frame2's primitives live in the [event](../core/glossary.md#event)/[subscription](../core/glossary.md#subscription) substrate, and the cache is just another piece of [runtime-db](../core/glossary.md#runtime-db). So the cache *behaviour* maps cleanly; the *seams* — where the cache touches your components — are drawn in a different place on purpose. Most of the friction you'll feel moving over is one fact restated three ways: **a read never causes a fetch.**
+The honest framing up front: TanStack Query is a *hook* library. Its primitives live inside a component's render and reach back out into the cache. re-frame2's primitives live in the [event](../core/glossary.md#event)/[subscription](../core/glossary.md#subscription) substrate, and the cache is just another piece of [runtime-db](../core/glossary.md#runtime-db). So the cache *behaviour* maps cleanly; the *boundaries* — where the cache touches your components — are drawn in a different place on purpose. Most of the friction you'll feel moving over is one fact restated three ways: **a read never causes a fetch.**
 
 ## The mapping
 
@@ -49,7 +49,7 @@ The table gets you fluent. These five decisions are why the table isn't a one-to
 
 ### 1. A read never fetches. One hook becomes three jobs.
 
-This is the big one, and everything else is downstream of it. `useQuery` does three things at once: it *declares* the query, it *triggers* the fetch (on mount), and it *reads* the result (on every render). That bundling is convenient and it's why the seam lands where it does — the fetch is a side effect hiding inside your render.
+This is the big one, and everything else is downstream of it. `useQuery` does three things at once: it *declares* the query, it *triggers* the fetch (on mount), and it *reads* the result (on every render). That bundling is convenient and it's why the boundary lands where it does — the fetch is a side effect hiding inside your render.
 
 re-frame2 splits those into three lanes that never blur:
 
@@ -132,7 +132,7 @@ re-frame2 inverts the responsibility: you declare *only the forward change*, and
     :patch (fn [article] (update-favorite article true))}])
 ```
 
-Two forward forms: `:optimistic` patches **exact** keys (the twin of `:populates`), `:optimistic-tags` patches **every** entry carrying a tag in its scope (the cross-view-consistency case you can't enumerate by key — the heart, the detail page, every list, and the session feed flip at once). Both fail closed: a `{:from-db …}` scope resolving to `nil` *drops* that target rather than writing globally, so an optimistic write can't leak across viewers either.
+Two forward forms: `:optimistic` patches **exact** keys (the twin of `:populates`), `:optimistic-tags` patches **every** entry carrying a tag in its scope (the cross-view-consistency case you can't enumerate by key — the favorite control, the detail page, every list, and the session feed flip at once). Both fail closed: a `{:from-db …}` scope resolving to `nil` *drops* that target rather than writing globally, so an optimistic write can't leak across viewers either.
 
 The genuinely *different* behaviour — not just a different spelling — is the **contested rollback**. Suppose a concurrent write lands on the same entry between your optimistic apply and your failure. TanStack restores your captured `context` unconditionally, which can clobber the newer write's value. re-frame2's default `:on-conflict :invalidate` *declines* to restore a now-stale inverse and instead marks the entry stale so the read path refetches the authoritative value. It compares a per-entry `:revision` recorded at apply time, so the decision is deterministic, not a wall-clock race. `:force` is the single-writer escape that restores anyway (with a tooling warning). This is a real semantic departure: re-frame2 would rather refetch the truth than restore a value it knows is contested.
 
@@ -144,7 +144,7 @@ In re-frame2 the cache is a subsystem of [runtime-db](../core/glossary.md#runtim
 
 ## Where do auth headers go?
 
-Every example here hits a bare `/api/...` URL, which raises the obvious migrant question: where do auth headers, tracing headers, the base URL, and tenant headers live? **Not on the resource.** A resource's (or mutation's) `:request` fn describes the *domain* request only — method, url, params, body, `:decode`. Cross-cutting decoration belongs to the [managed-HTTP](../async/http.md) layer the resource lowers through, applied once by a frame-registered `reg-http-interceptor` that decorates *every* `:rf.http/managed` request the frame issues — reads, writes, and plain managed calls alike ([Interceptors: stamp every request once](../async/http-going-further.md#interceptors-stamp-every-request-once) is that seam's own page):
+Every example here hits a bare `/api/...` URL, which raises the obvious migrant question: where do auth headers, tracing headers, the base URL, and tenant headers live? **Not on the resource.** A resource's (or mutation's) `:request` fn describes the *domain* request only — method, url, params, body, `:decode`. Cross-cutting decoration belongs to the [managed-HTTP](../async/http.md) layer the resource lowers through, applied once by a frame-registered `reg-http-interceptor` that decorates *every* `:rf.http/managed` request the frame issues — reads, writes, and plain managed calls alike ([Interceptors: stamp every request once](../async/http-going-further.md#interceptors-stamp-every-request-once)):
 
 ```clojure
 (rf/reg-http-interceptor :realworld/auth
@@ -168,7 +168,7 @@ The mapping above is the vocabulary; this is the exhaustive reference card, each
 | Status | Meaning |
 |---|---|
 | **Landed** | Shipped in the reference implementation (`re-frame.resources`) and pinned by tests. |
-| **Different by design** | A capability the query libraries have, expressed differently here on purpose — usually because re-frame2 already has a more general mechanism (the subscription graph, the re-frame2 loop) that subsumes it. |
+| **Different by design** | A capability the query libraries have, expressed differently here on purpose — usually because re-frame2 already has a more general mechanism (the subscription graph, the event pipeline) that subsumes it. |
 | **Out of scope** | Deliberately not a resources concern — a different artefact, a different phase, or a non-goal. |
 | **Deferred (later slice)** | A real parity gap, deliberately held for a later slice, with no shipped contract yet. |
 
@@ -189,7 +189,7 @@ The mapping above is the vocabulary; this is the exhaustive reference card, each
 | **Optimistic updates + rollback** | `onMutate` snapshot + `onError` rollback | `updateQueryData` + `undo` patch | `optimisticData` + `rollbackOnError` | `:optimistic` (exact-target) / `:optimistic-tags` (tag-addressed) plan applied pre-request; runtime records the inverse; deterministic commit / rollback / reconcile on settle, with `:on-conflict` governing a contested rollback | **Landed** |
 | **Polling / refetch interval** | `refetchInterval` | `pollingInterval` | `refreshInterval` | `:poll-interval-ms` — revalidates every N ms while the entry is *actively owned* and the tab is visible | **Landed** |
 | **Refetch on window focus / reconnect** | `refetchOnWindowFocus` / `refetchOnReconnect` | `refetchOnFocus` / `refetchOnReconnect` | `revalidateOnFocus` / `revalidateOnReconnect` | `install-revalidation-listeners!` per frame; refetches only entries that are *stale AND owned* | **Landed** |
-| **Prefetch / route-plan preload** | `queryClient.prefetchQuery` / `<Link prefetch>` (Router) | `prefetch` endpoint action | `preload` | per-resource warm `ensure` works today (ownerless, cause-only); a **route-plan-level** prefetch verb (`[:rf.route/prefetch target]` in WARM mode) is deferred to post-v1 — the resources side is already warm-capable ([spec/016 §Warm-mode prefetch](../../spec/016-Resources.md#warm-mode-prefetch--a-route-plan-preload-verb-over-ownerless-ensure--post-v1-tracked); [spec/012 §Route-plan prefetch](../../spec/012-Routing.md#route-plan-prefetch--warm-mode-on-hover-preload-post-v1)) | **Deferred (later slice)** |
+| **Prefetch / route-plan preload** | `queryClient.prefetchQuery` / `<Link prefetch>` (Router) | `prefetch` endpoint action | `preload` | per-resource warm `ensure` works today (ownerless, cause-only); a **route-plan-level** prefetch verb (`[:rf.route/prefetch target]` in WARM mode) is deferred to post-v1 — the resources side is already warm-capable | **Deferred (later slice)** |
 | **Infinite / load-more** | `useInfiniteQuery` | `infiniteQuery` (recent) | `useSWRInfinite` | `:infinite true` + `:next-page-param` — one scoped feed entry accumulates an ordered page vector; a causal `:rf.resource/load-more` extends it; `:rf.resource/items` is the merged read | **Landed** |
 | **Keep-previous-data while paging** | `placeholderData: keepPreviousData` | n/a (manual) | `keepPreviousData` | `:keep-previous?` on the route/resource; `:rf/resource` projects `:previous-data` / `:previous-key` | **Landed** |
 | **SSR / hydration** | `dehydrate` / `HydrationBoundary` | `getRunningQueries` + preload | fallback data | per-request frames; blocking route resources are the render wait point; allowlist projection serialized + hydrated under freshness rules | **Landed** |
@@ -201,11 +201,11 @@ Every "Landed" claim is pinned by tests in the reference implementation.
 
 **The honest gaps — out of scope on purpose.** The bottom two rows are the deliberate non-goals of this HTTP-only phase: **normalized / GraphQL caches** (Apollo / Relay / normalizr) are a separate later artefact gated on a GraphQL phase, not a resources gap; and **offline persistence / cross-tab broadcast** is a deferred later slice. Don't let the rest of this page's confidence obscure them.
 
-## The public surface, at a glance
+## The public API, at a glance
 
 re-frame2 keeps three lanes strictly separate, and the lane a symbol lives in tells you what it does (the same split [Concepts](concepts.md#three-lanes--registering-causing-projecting) teaches on the way up):
 
-| Lane | What it is | The surface | Who calls it |
+| Lane | What it is | Symbols | Who calls it |
 |---|---|---|---|
 | **Registration** (functions, at boot) | Declare a handler once — it does not fetch or read | `rf/reg-resource`, `rf/reg-mutation`, `rf/reg-resource-scope` (+ their `clear-*`) | app code, once, at startup |
 | **Commands** (causal event vectors, dispatched) | *Cause* work — they are not reads | `[:rf.resource/ensure …]`, `[:rf.resource/refetch …]`, `[:rf.resource/invalidate-tags …]`, `[:rf.resource/release-owner …]`, `[:rf.resource/clear-scope …]`, `[:rf.resource/remove …]`, `[:rf.resource/load-more …]`, `[:rf.mutation/execute …]` | routes, events, machines |
@@ -213,7 +213,7 @@ re-frame2 keeps three lanes strictly separate, and the lane a symbol lives in te
 
 The two whole-view-model reads are `@(rf/subscribe [:rf/resource query])` and `@(rf/subscribe [:rf/mutation {:instance instance-id}])`; in a view that's the form you'd reach for. The narrower projection subs (`[:rf.resource/data …]`) and the single-fact reads are read the same way — every framework read is a subscription vector, one grammar.
 
-!!! note "The whole `rf/` resource surface is the optional Resources artefact"
+!!! note "The whole `rf/` resource API is the optional Resources artefact"
 
     — late-bound by `day8/re-frame2-resources`, absent from an app that never requires it. The introspection accessors (`rf/resource-meta`, `rf/resource-state`, `rf/resources`) are the tool/test projection lane, not an app-read API; a view that reaches for them instead of a subscription is a category error (they take a one-shot snapshot and never re-render).
 

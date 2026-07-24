@@ -108,7 +108,7 @@ Most of the config map is optional knobs you reach for later. Four keys carry th
 - **`:params-schema`** is the read's *identity*. Every variable that changes the server's answer belongs in params, because params are exactly what the cache keys on. `:conduit/article` with `{:slug "hello"}` and `{:slug "world"}` are two distinct cache entries; that's not configuration, it's just what "identity" means here.
 - **`:scope`** is an explicit, auditable claim about *who shares the answer*. `:rf.scope/global` says "this read is the same for everyone" — a public article list. A [scope](../glossary.md#scope) that isn't global is a *leak boundary*, and you'll meet those in Part 3.
 - **`:stale-after-ms`** is the freshness policy. Fresh for a minute, then the next ensure refetches in the background.
-- **`:tags`** name the *facts* the data contains. The two `:tags` lines look like dead weight right now; they're load-bearing in Part 4, where a later write invalidates exactly the reads it broke. Read past them for now — we'll come back and collect on them.
+- **`:tags`** name the *facts* the data contains. The two `:tags` lines look like dead weight right now; they earn their keep in Part 4, where a later write invalidates exactly the reads it broke. Read past them for now — we'll come back and collect on them.
 
 ??? info "Coming from TanStack Query?"
 
@@ -214,7 +214,7 @@ Here's the rewritten home page. Read the resource, branch on its state:
            [article-preview {:article article}])])]]))
 ```
 
-That `cond` is the heart of this step. Each branch handles one state the feed can genuinely be in. Let's look at what the subscription handed you.
+That `cond` is the whole of this step. Each branch handles one state the feed can genuinely be in. Let's look at what the subscription handed you.
 
 ### The view-model: one fixed map
 
@@ -232,7 +232,7 @@ That `cond` is the heart of this step. Each branch handles one state the feed ca
  :previous?     <bool>}  ;; :keep-previous? is showing the prior key's data
 ```
 
-The five `:status` values are the heart of it:
+The five `:status` values are the model:
 
 | `:status` | Meaning | Show |
 |---|---|---|
