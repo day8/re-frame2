@@ -244,10 +244,18 @@
   "Prove a compiled list site's keys, at the site. Keys compare after
   React's own string coercion, so `1` and `\"1\"` are one key — the
   structural tier's `node/keyed-run` rule, raised with the same
-  diagnostic, at the same place."
+  diagnostic, at the same place.
+
+  `seen` is a `js/Set`, which is prototype-free by construction: it holds
+  exactly what was put in it. An object used as a map would not be —
+  `\"toString\"`, `\"constructor\"`, `\"hasOwnProperty\"` and `\"__proto__\"`
+  are inherited from `Object.prototype`, so the FIRST row keyed by one of
+  them would read as already present and be refused. The structural
+  tier's Clojure set accepts those keys, and a view that renders under
+  `node/keyed-run` has to render in a browser too."
   [seen k]
   (let [s (if (number? k) (conv/js-number-str k) (str k))]
-    (when (gobj/containsKey seen s)
+    (when (.has ^js seen s)
       (error/throw-error!
         :rf.error/ui-duplicate-key
         're-frame.freehand/render
@@ -256,5 +264,5 @@
              "a key must be unique per list site.")
         {:recovery :key-each-row-uniquely
          :extra    {:key (error/diag-value-summary k)}}))
-    (gobj/set seen s true))
+    (.add ^js seen s))
   nil)

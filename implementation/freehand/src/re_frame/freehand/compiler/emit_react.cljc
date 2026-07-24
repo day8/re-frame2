@@ -451,7 +451,15 @@
   and the duplicate-key proof must name the exact same occurrence — and
   the DEV duplicate check mirrors the structural tier's `node/keyed-run`,
   so a colliding key fails at the compile-indexed list site rather than
-  as a React console warning at the wrong end of the pipeline."
+  as a React console warning at the wrong end of the pipeline.
+
+  The seen table is a `js/Set`, not an object used as a map: an object
+  inherits `toString`, `constructor` and friends from `Object.prototype`,
+  and a membership test that answers `key in obj` would reject the FIRST
+  row keyed by any of those inherited names. Those are ordinary domain
+  identifiers, and the structural tier's Clojure set accepts them — so an
+  object here would make the two tiers disagree about which pages are
+  legal."
   [e st node]
   (let [a       (gensym "rf-fh-run")
         seen    (gensym "rf-fh-seen")
@@ -462,7 +470,7 @@
                   (assoc-in body [:key :expr] row-key)
                   (assoc-in body [:props :key :expr] row-key))]
     `(let [~a    (cljs.core/array)
-           ~seen (cljs.core/js-obj)]
+           ~seen (js/Set.)]
        (doseq [~@(:seq-exprs node)]
          (let [~row-key ~kexpr]
            (when ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
