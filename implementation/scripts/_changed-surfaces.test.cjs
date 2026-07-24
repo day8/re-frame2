@@ -2391,8 +2391,8 @@ test('the standalone freehand-artefact workflow is gone (one owner, not two) (rf
 // twin `:freehand-release-control`, the evidence doors ABSENT in one and
 // PRESENT in the other) and wired it into NOTHING. `rg
 // test:freehand-evidence-elision .github` returned no invocation, so the next
-// change to the schema, the dev gate, the release entry, the build config or
-// the checker could merge without the proof running.
+// change to the schema, the dev gate, the mounted commit edge, the release
+// entry, the build config or the checker could merge without the proof running.
 //
 // Same three-part shape as rf2-drpa3.58 above: the classifier must ARM the
 // producer surfaces, the job must be gated on that output and run the command,
@@ -2403,6 +2403,15 @@ test('the standalone freehand-artefact workflow is gone (one owner, not two) (rf
 const FREEHAND_EVIDENCE_PRODUCERS = [
   'implementation/freehand/src/re_frame/freehand/evidence.cljc',
   'implementation/freehand/src/re_frame/freehand/cell.cljc',
+  // rf2-xwa4n, merged-PR audit of #6888 — the SOLE mounted commit edge
+  // (`cell/commit!` in the useLayoutEffect reconcile) is what ROOTS
+  // `emit-commit-evidence!` and both positive-control door strings. It was
+  // missing from the shipped arm, so a shell change that deleted or redirected
+  // that call could strip the control bundle of its sentinels while the
+  // required job SKIPPED. The always-armed sole-requirer walk cannot cover it:
+  // that law proves require-reachability, and both namespaces stay
+  // require-reachable once the CALL is gone.
+  'implementation/freehand/src/re_frame/freehand/shell.cljs',
   'implementation/freehand/test/re_frame/freehand/release_app.cljs',
   'implementation/scripts/check-freehand-evidence-elision.cjs',
   'implementation/shadow-cljs.edn',
@@ -2439,6 +2448,7 @@ test('the Freehand host arms survive the shadowing producer case (rf2-xwa4n)', (
   for (const file of [
     'implementation/freehand/src/re_frame/freehand/evidence.cljc',
     'implementation/freehand/src/re_frame/freehand/cell.cljc',
+    'implementation/freehand/src/re_frame/freehand/shell.cljs',
     'implementation/freehand/test/re_frame/freehand/release_app.cljs',
   ]) {
     const result = classify(file);
@@ -2490,8 +2500,9 @@ test('freehand_evidence_elision stays OFF unrelated surfaces (rf2-xwa4n)', () =>
 });
 
 test('the SOLE-requirer law that keeps the narrow arm honest still exists (rf2-xwa4n)', () => {
-  // The classifier arms three Freehand files, not the tree. That is only safe
-  // while a FOURTH producer cannot appear silently — and what forbids one is
+  // The classifier arms four Freehand files, not the tree. That is only safe
+  // while a NEW schema-touching producer cannot appear silently — and what
+  // forbids one is
   // `the-evidence-schema-reaches-the-render-path-only-through-the-dev-gated-seam`
   // in the always-armed jvm-freehand lane, which asserts `cell` is the sole
   // Freehand namespace mentioning the schema. Pin the premise with the routing:

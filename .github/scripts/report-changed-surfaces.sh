@@ -529,7 +529,7 @@ else
         bundle_isolation=true
         ui_smoke=true
         ;;
-      implementation/freehand/src/re_frame/freehand/evidence.cljc|implementation/freehand/src/re_frame/freehand/cell.cljc|implementation/freehand/test/re_frame/freehand/release_app.cljs)
+      implementation/freehand/src/re_frame/freehand/evidence.cljc|implementation/freehand/src/re_frame/freehand/cell.cljc|implementation/freehand/src/re_frame/freehand/shell.cljs|implementation/freehand/test/re_frame/freehand/release_app.cljs)
         # rf2-xwa4n — the F4g evidence-elision gate's Freehand PRODUCER
         # surfaces. `npm run test:freehand-evidence-elision` (rf2-drpa3.166)
         # builds `:freehand-release` and its goog.DEBUG=true control twin
@@ -540,25 +540,43 @@ else
         # found no workflow invocation, so the next change to the schema, the
         # seam, or the release entry could merge without running the proof.
         #
-        # These three files are exactly what can invalidate it:
+        # These four files are the proof's bounded PRIMARY INPUTS — not every
+        # file that could affect Closure reachability, but the ones that
+        # directly constitute the probe:
         #   - evidence.cljc  — the doors carrying the two DEV_ONLY_SENTINELS; a
         #     rename of either refusal string makes the probe vacuous (it would
         #     go absent in the CONTROL too, which is what the positive control
         #     catches — but only if the gate RUNS).
         #   - cell.cljc      — `emit-commit-evidence!`, the sole dev gate. Move
         #     it out from behind `interop/debug-enabled?` and the schema ships.
+        #   - shell.cljs     — the SOLE mounted commit edge: `cell/commit!` in
+        #     the useLayoutEffect reconcile (shell.cljs:165). That call is what
+        #     ROOTS `emit-commit-evidence!`, and through it BOTH positive-control
+        #     door strings; remove or redirect it and the control bundle loses
+        #     the very sentinels the probe reads.
         #   - release_app.cljs — the entry BOTH bundles compile, and the home of
         #     the PROD_SURVIVING sentinel (the non-vacuity floor).
         #
         # Deliberately NOT the whole `implementation/freehand/**` tree: two
         # `:advanced` builds on every PR of a large programme is cost the ruling
-        # (rf2-xwa4n) declined. The narrow list stays honest because the ALWAYS
-        # -armed jvm-freehand lane carries
+        # (rf2-xwa4n) declined. Plenty of TRANSITIVE changes — in the compiler,
+        # in core interop, in a Closure bump — could theoretically stop the
+        # release app reaching a mounted commit; the unconditional nightly
+        # (expensive-tests.yml) is the honest superset for those. This list is
+        # the direct inputs only.
+        #
+        # The narrow list stays honest because the ALWAYS-armed jvm-freehand
+        # lane carries
         # `the-evidence-schema-reaches-the-render-path-only-through-the-dev-gated-seam`
         # (evidence_boundary_jvm_test.clj), which asserts `cell` is the SOLE
-        # Freehand namespace mentioning the schema. A fourth producer file
-        # cannot appear without reddening that walk, so it cannot slip past this
-        # list unnoticed. Widen both together if that law is ever relaxed.
+        # Freehand namespace mentioning the schema. A new schema-touching
+        # producer cannot appear without reddening that walk, so it cannot slip
+        # past this list unnoticed. Widen both together if that law is ever
+        # relaxed. What that walk canNOT see is a DELETED CALL edge: it proves
+        # require-reachability, and both namespaces stay require-reachable after
+        # `cell/commit!` is removed from the reconcile. That is precisely why
+        # shell.cljs is armed here directly rather than leaned on the law
+        # (rf2-xwa4n, merged-PR audit of #6888).
         #
         # The three host arms below are replicated from the artefact-root case:
         # a POSIX `case` takes the FIRST match, so this case SHADOWS
@@ -615,10 +633,19 @@ else
         # than mounting. That is the same false-green shape rf2-drpa3.58/.61
         # closed for the host suites, one tier up.
         #
-        # Still NOT cljs_prod / bundle_isolation / ui_gates / ui_smoke:
-        # Freehand ships no production-bundle requirer and no testbed those
-        # smokes mount. Widen each the moment it gains one — the
-        # `implementation/ui/*` case above is the worked precedent.
+        # Still NOT cljs_prod / bundle_isolation / ui_gates / ui_smoke: no
+        # bundle those gates measure requires Freehand (cljs_prod builds the
+        # `elision-probe` pair, bundle_isolation the examples set), and Freehand
+        # mounts no testbed those smokes drive. Widen each the moment that
+        # changes — the `implementation/ui/*` case above is the worked
+        # precedent.
+        #
+        # rf2-xwa4n — Freehand DOES now have `:advanced` release builds of its
+        # own (`:freehand-release` and its control twin), so the older reading
+        # of this note as "Freehand ships nothing under :advanced" no longer
+        # holds. Those builds are covered by the dedicated
+        # freehand_evidence_elision output, armed narrowly on the probe's
+        # primary inputs in the case above — not by these four.
         implementation_jvm=true
         cljs_node_test=true
         cljs_browser=true
@@ -825,9 +852,12 @@ else
         # family prefix: two unrelated families already feed browser tests, and
         # a prefix list would rot silently on the third.
         #
-        # Still NOT cljs_prod / bundle_isolation — Freehand ships no
-        # production-bundle requirer. Widen both cases together when it gains
-        # one.
+        # Still NOT cljs_prod / bundle_isolation — no bundle those two gates
+        # measure requires Freehand (the `elision-probe` pair and the examples
+        # set respectively). Widen both cases together when that changes.
+        # rf2-xwa4n — Freehand's own `:advanced` pair (`:freehand-release` +
+        # control) is covered by freehand_evidence_elision instead, and these
+        # fixtures are not among that probe's primary inputs.
         implementation_jvm=true
         cljs_node_test=true
         cljs_browser=true
