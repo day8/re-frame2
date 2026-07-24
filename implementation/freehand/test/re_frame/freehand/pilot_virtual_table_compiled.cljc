@@ -30,17 +30,17 @@
   behavior form. The pilot's table is compilable precisely because it
   declares its geometry rather than measuring it.
 
-  ## Why this file is `.clj` and not `.cljc`
+  ## `.cljc`, and what that took
 
-  For the reason the render-slot parity corpus states: a compiled body
-  carrying `v/slot` lowers through the STRUCTURAL emitter, which is the
-  host both modes share, and the CLJS/React lowering of the form is not
-  built. `:slot` is an admitted node kind of `:re-frame.freehand/v1`, so
-  the analyzer accepts the body and the grammar check passes it — the
-  React emitter simply has no arm for it. Compiling this namespace for
-  the browser therefore fails inside the emitter rather than answering a
-  diagnostic, so the promoted arm is proven where it can be proven and
-  the browser cell is BLOCKED rather than claimed.
+  Both halves of a compiled render slot reaching a browser landed
+  separately: compiled declarations became browser-mountable first, and
+  the React emitter's `:slot` lowering after it. Until the second one
+  existed this namespace had to be `.clj` — the analyzer admitted the
+  body, the grammar check passed it, and the emitter had no arm — so the
+  render-slot parity corpus is `.clj` for a reason that has since been
+  removed. It is `.cljc` here because the whole composition now lowers on
+  both hosts, which is what lets the pilot prove promotion parity in a
+  real browser rather than only in a structural tree.
 
   A separate namespace, because a view id is derived from where a
   declaration LIVES: two declarations of one name cannot share one."
