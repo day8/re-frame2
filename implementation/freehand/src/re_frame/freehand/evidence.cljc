@@ -65,6 +65,17 @@
   application id may ride along as ordinary public props data; it does not
   replace runtime identity.
 
+  ## Every id here spells its namespace in full
+
+  `:re-frame.freehand.evidence/v1`, `:re-frame.freehand.evidence/defect`
+  — Freehand's reserved keyword root is the public namespace written out
+  rather than an `:rf.<area>/*` segment, so an id names its substrate
+  wherever it surfaces: source, data keywords, a refused record's
+  ex-data, generated documentation, AI context. Nothing here reaches for
+  the donor's `:rf.ui.evidence/*` spelling, which belongs to a different
+  artefact's projection and would make this schema look like a
+  continuation of it.
+
   ## Retention is Spec 009's, and this namespace holds nothing
 
   [[retention]] names the existing per-frame retained-event ring and its
@@ -311,7 +322,7 @@
   (let [ds (defects p)]
     (when (seq ds)
       (throw (ex-info (defects-message ds)
-                      {:rf.evidence/defect :incomplete-projection :defects ds})))
+                      {:re-frame.freehand.evidence/defect :incomplete-projection :defects ds})))
     p))
 
 (defn capped
@@ -380,7 +391,7 @@
                            (if (= 1 (count ds)) " problem" " problems")
                            " — " (str/join "; " (map defect-line ds))
                            ". A diagnostic is a stable id, a coordinate, and a way out.")
-                      {:rf.evidence/defect :incomplete-diagnostic :defects ds})))
+                      {:re-frame.freehand.evidence/defect :incomplete-diagnostic :defects ds})))
     d))
 
 ;; ---------------------------------------------------------------------------
@@ -441,14 +452,14 @@
                            (if (= 1 (count ds)) " field is" " fields are")
                            " missing or malformed — " (str/join "; " (map defect-line ds))
                            ". One versioned, occurrence-keyed schema (D020).")
-                      {:rf.evidence/defect :incomplete-record :defects ds})))
+                      {:re-frame.freehand.evidence/defect :incomplete-record :defects ds})))
     (doseq [[kind p] (:projections r)]
       (try
         (projection p)
         (catch #?(:clj Exception :cljs :default) e
           (throw (ex-info (str "The " kind " projection of this evidence record cannot be "
                                "emitted: " #?(:clj (.getMessage ^Exception e) :cljs (.-message e)))
-                          {:rf.evidence/defect :incomplete-projection
+                          {:re-frame.freehand.evidence/defect :incomplete-projection
                            :projection         kind
                            :view-id            (:view-id r)
                            :defects            (:defects (ex-data e))})))))
