@@ -51,7 +51,6 @@
             [re-frame.freehand.root-id :as root-id]
             #?@(:clj [[re-frame.registrar :as registrar]
                       [re-frame.freehand.compiler :as compiler]
-                      [re-frame.freehand.compiler.emit-cljs :as emit-cljs]
                       [re-frame.freehand.compiler.emit-jvm :as emit-jvm]])))
 
 ;; ---------------------------------------------------------------------------
@@ -452,12 +451,9 @@
 ;; Root opts (contract §3)
 ;; ---------------------------------------------------------------------------
 
-(def identity-opt-keys #{:root-id :disambiguator :identifier-prefix})
 (def host-opt-keys #{:on-uncaught-error :on-caught-error :on-recoverable-error})
 
-(def mount-opt-keys (into identity-opt-keys host-opt-keys))
 (def create-root-opt-keys (into #{:root-id :identifier-prefix} host-opt-keys))
-(def hydrate-opt-keys host-opt-keys)
 
 (defn parse-root-opts!
   "Validate a root opts map at compile time: literal map, CLOSED key set,
@@ -565,54 +561,13 @@
     ~(:on-caught-error opts)
     ~(:on-recoverable-error opts)))
 
-(defn- plans-thunk-form
-  "The preflight thunk: evaluates each plan's config EXPRESSIONS exactly
-  when preflight runs (never at S1, where no preflight hook is installed —
-  the S2 frame wiring installs one). nil when the root form carries no
-  plans."
-  [plans]
-  (when (seq plans)
-    `(fn []
-       [~@(map (fn [{:keys [frame-id config-fingerprint config]}]
-                 {:frame-id frame-id
-                  :config-fingerprint config-fingerprint
-                  :config config})
-               plans)])))
-
-(defn mount-form
-  "`(v/mount root-form dom-node opts)` — the one-shot client mount:
-  create-root + frame preflight + render!, idempotent per root."
-  [form menv root-form dom-node opts]
-  (let [coords (source-coords form (some? (:ns menv)))
-        ns-sym (-> menv :ns :name)]
-    (anchored coords
-      (fn []
-        (let [e      (expand-env! 'v/mount menv)
-              opts   (parse-root-opts! 'v/mount opts mount-opt-keys)
-              {:keys [ast views plans]} (analyze-root e 'v/mount root-form)
-              _      (print-warnings! e 'v/mount)
-              {:keys [root-id provenance]} (resolve-root-identity
-                                            'v/mount opts views)
-              prefix (or (:identifier-prefix opts)
-                         (default-identifier-prefix root-id))
-              _      (register-root-site! 'v/mount root-id provenance
-                                          ns-sym coords)
-              _      (doseq [p plans]
-                       (register-plan-site! 'v/mount p ns-sym coords))
-              desc   (root-descriptor {:root-id root-id :provenance provenance
-                                       :views views :plans plans :ast ast})
-              _      (register-descriptor! root-id desc ns-sym)
-              body   (emit-cljs/emit-inline ast 'rf-ui-root)]
-          `(re-frame.freehand.client/mount*
-            {:root-id ~root-id
-             :provenance ~provenance
-             :identifier-prefix ~prefix
-             :site ~(dbg-quoted coords)
-             :descriptor ~(dbg-quoted desc)}
-            ~dom-node
-            (fn [] ~body)
-            ~(react-opts-form prefix opts)
-            ~(plans-thunk-form plans)))))))
+;; The root-TEMPLATE entry points — `v/mount`, `v/render!`, `v/hydrate-root`
+;; — are not part of this artefact. Their transplanted macro bodies lowered
+;; their root form with the deleted second CLJS emitter and called into a
+;; `re-frame.freehand.client` namespace that does not exist, and no Freehand
+;; macro was ever wired to them; they were removed with that emitter rather
+;; than kept as bodies nothing could run. `create-root-form` below takes NO
+;; root form, so it survives them.
 
 (defn create-root-form
   "`(v/create-root dom-node opts)` — identity is fixed HERE for the
@@ -650,73 +605,6 @@
                :site ~(dbg-quoted coords)}
               ~dom-node
               ~(react-opts-form prefix opts))))))))
-
-(defn render-form
-  "`(v/render! root root-form)` — render/re-render the literal root form
-  into a Root. Identity was fixed at `create-root` (authored), so no
-  identity resolution happens here; the descriptor-base is completed with
-  the Root's identity at runtime (dev)."
-  [form menv root root-form]
-  (let [coords (source-coords form (some? (:ns menv)))
-        ns-sym (-> menv :ns :name)]
-    (anchored coords
-      (fn []
-        (let [e      (expand-env! 'v/render! menv)
-              {:keys [ast views plans]} (analyze-root e 'v/render! root-form)
-              _      (print-warnings! e 'v/render!)
-              _      (doseq [p plans]
-                       (register-plan-site! 'v/render! p ns-sym coords))
-              desc   (root-descriptor {:views views :plans plans :ast ast})
-              body   (emit-cljs/emit-inline ast 'rf-ui-root)]
-          `(re-frame.freehand.client/render!*
-            ~root
-            (fn [] ~body)
-            ~(plans-thunk-form plans)
-            ~(dbg-quoted desc)))))))
-
-(defn hydrate-root-form
-  "`(v/hydrate-root dom-node root-form opts)` — hydrating mounts take
-  identity FROM the manifest (contract §3/§4): identity opts client-side
-  are a compile error; opts are host-behaviour tier only. Layer 1 indexes
-  the site under its DERIVED root-id when derivable (the manifest carries
-  the same id in the aligned case); the S1 runtime fails loud — manifests
-  land S5."
-  [form menv dom-node root-form opts]
-  (let [coords (source-coords form (some? (:ns menv)))
-        ns-sym (-> menv :ns :name)]
-    (anchored coords
-      (fn []
-        (let [e (expand-env! 'v/hydrate-root menv)]
-          (when-let [bad (seq (filter identity-opt-keys (keys opts)))]
-            (fail :rf.ui.compile/identity-opts-at-hydrate
-                  (str "v/hydrate-root: identity opt"
-                       (when (next bad) "s") " " (str/join ", " (map pr-str bad))
-                       " supplied client-side — hydrating mounts read root-id "
-                       "and identifier-prefix FROM the server-emitted manifest "
-                       "(the client must use the server's prefix or use-id "
-                       "hydration breaks). Host-behaviour opts only")
-                  {:conflicting-keys (vec bad)}))
-          (let [opts (parse-root-opts! 'v/hydrate-root opts hydrate-opt-keys)
-                {:keys [ast views plans]} (analyze-root
-                                           e 'v/hydrate-root root-form)
-                _    (print-warnings! e 'v/hydrate-root)]
-            (when (= 1 (count views))
-              (let [derived (:view-id (first views))]
-                (register-root-site! 'v/hydrate-root derived :derived
-                                     ns-sym coords)
-                (register-descriptor!
-                 derived
-                 (root-descriptor {:root-id derived :provenance :derived
-                                   :views views :plans plans :ast ast})
-                 ns-sym)))
-            (doseq [p plans]
-              (register-plan-site! 'v/hydrate-root p ns-sym coords))
-            (let [body (emit-cljs/emit-inline ast 'rf-ui-root)]
-              `(re-frame.freehand.client/hydrate-root*
-                ~dom-node
-                (fn [] ~body)
-                ~(plans-thunk-form plans)
-                ~(react-opts-form nil opts)))))))))
 
 (defn registered-view-static-facts
   "The render-static `{:caps :deps}` facts a compiled view carries on its
