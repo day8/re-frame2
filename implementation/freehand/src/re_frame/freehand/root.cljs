@@ -440,35 +440,64 @@
 (defonce ^:private live-roots (atom {}))
 
 ;; The frame ledger:
-;;   frame-id -> {:config-fingerprint … :installed-by root-id
-;;                :installed-value <frame-value> :refs #{root-id}}
+;;   frame-id -> {:ownership {:handle <frame-value>
+;;                            :plan-author <root-id>
+;;                            :plan-fingerprint <fp>}    ; ABSENT on a borrowed row
+;;                :refs #{root-id}}
 ;;
-;; `:installed-by` names the root that ENSUREd the frame (a `{:id …}` plan)
-;; and is nil for a frame this page only SCOPES; `:refs` is every live root
-;; that referenced it, which is what makes teardown able to destroy an
-;; installed frame exactly when the last of them goes.
+;; A row is what this page knows about ONE frame-id. `:refs` is every live root
+;; that referenced it — the set that lets teardown destroy an owned frame
+;; exactly when the last reference goes (the bookkeeping layer, unchanged).
+;; Everything else lives under one `:ownership` tuple, and the SHAPE carries the
+;; meaning:
 ;;
-;; `:installed-value` is the exact frame VALUE `make-frame` handed back when
-;; the frame was installed — the lifecycle token carrying its
-;; `:rf.frame/incarnation-token`. It is the AUTHORITY teardown destroys with,
-;; not the bare frame-id: an id is address-directed and would destroy whichever
-;; same-id incarnation happens to be live, so a stale installer whose frame was
-;; torn down and re-created under the same id would reach through and kill the
-;; SUCCESSOR. Destroying the exact value instead is incarnation-scoped — a token
-;; whose incarnation is gone no-ops. Present only on an INSTALLED row (nil for a
-;; scoped frame the page never owned), and refreshed to the current value on
-;; every re-install (a same-incarnation surgical update keeps the same token, so
-;; the identity is stable across a config edit).
+;;   - `:handle` is the exact frame VALUE `make-frame` handed back when THIS page
+;;     installed the frame — the lifecycle token (its
+;;     `:rf.frame/incarnation-token`) teardown destroys with. It is the
+;;     CAPABILITY: an id is address-directed and would destroy whichever same-id
+;;     incarnation is live, so a stale installer would reach through and kill a
+;;     SUCCESSOR; destroying the exact value is incarnation-scoped — a token
+;;     whose incarnation is gone no-ops.
+;;   - `:plan-author` is the root-id that authored the install. It is a LABEL:
+;;     it answers exactly one question — who may author an HMR config refresh —
+;;     and NEVER authorizes teardown or proves liveness.
+;;   - `:plan-fingerprint` is the install's config fingerprint, carried for the
+;;     one-frame-one-plan conflict message.
 ;;
-;; The token is also the OWNERSHIP PROOF preflight turns on (see
-;; `owns-live-incarnation?`). A non-nil `:installed-by` records who ran an
-;; install ONCE; it does not prove the frame live under the id NOW is that
-;; incarnation. A row owns the CURRENT live frame only while its
-;; `:installed-value` token is identically the live incarnation's token — a
-;; same-id successor carries a distinct token and is owned by no stale row, and
-;; a pre-#6818 LEGACY row that never recorded a value proves ownership of
-;; nothing. A config-bearing ENSURE that cannot prove ownership is refused
-;; before it can convert an address into address-directed teardown authority.
+;; ABSENCE of `:ownership` IS the borrowed / unproven state: a frame this page
+;; only SCOPES (a boot / external frame) records `:refs` and no `:ownership`, so
+;; it can never be misread as owned. A fresh CREATE replaces the whole tuple —
+;; handle, author and fingerprint together — so a new incarnation can never wear
+;; the stale author of an externally-destroyed predecessor.
+;;
+;; NO arm reads a raw row for AUTHORITY. `frame-standing` is the ONE accessor
+;; that door opens onto: it performs the live-incarnation TOKEN join internally
+;; and returns a VERDICT (never a row), and every decision site is a case over
+;; that verdict. The only authority-granting verdict is `:owned-live`, which is
+;; definitionally a live-token match — so a future contributor cannot write an
+;; arm that forgets the join, because no accessor hands back an ownership fact
+;; without it. Reading `:plan-author` / `:plan-fingerprint` off a raw row for a
+;; conflict message or the write merge is the sanctioned LABEL use, not authority.
+;;
+;; Three protecting laws hold this together:
+;;
+;;   1. Tokens are per-incarnation host objects, never reused, compared by
+;;      `identical?`. A same-id SUCCESSOR carries a DISTINCT token, so a row
+;;      naming a torn-down incarnation owns the successor of nothing.
+;;   2. Preflight is ONE un-interleaved section. The async half stays true by
+;;      construction (no await between the verdict and the mutation); the
+;;      reentrancy half is FENCED BY CORE — a same-id construction re-entry dies
+;;      loud with `:rf.error/frame-construction-in-progress` — so a violation is
+;;      loud, not silent. The law exists so nobody weakens that fence.
+;;   3. `:handle` is the capability; `:plan-author` is a label — diagnostics and
+;;      conflict messages only, never proof. Every historical staleness hole
+;;      promoted the label (or a row's mere presence) to proof.
+;;
+;; And the store HEARS every death: `:freehand/on-frame-destroyed!` (registered
+;; below, step 7 of Spec 002's destroy recipe) tombstones a row whose handle
+;; names the dying incarnation, following the epoch layer's token compare-clean
+;; precedent. That is diagnostics and freshness, NEVER the proof — the join in
+;; `frame-standing` stays the sole authority even if the hook never fired.
 (defonce ^:private frame-ledger (atom {}))
 
 (defn ^:no-doc live-root-ids
@@ -479,8 +508,10 @@
 
 (defn ^:no-doc frame-ledger-snapshot
   "The preflight ledger projected for reading: frame-id →
-  `{:config-fingerprint :installed-by :installed-value :refs}`. A test and
-  diagnostic seam."
+  `{:ownership {:handle :plan-author :plan-fingerprint} :refs}`. A borrowed
+  (scoped) row carries no `:ownership`; a tombstoned row's `:ownership` has a
+  `:destroyed-at` and no `:handle`. A test and diagnostic seam — it reads facts
+  for ASSERTIONS, never for authority (that is `frame-standing`'s alone)."
   []
   @frame-ledger)
 
@@ -495,18 +526,19 @@
   nil)
 
 (defn ^:no-doc downgrade-ledger-row-to-pre-6818!
-  "Rewrite `frame-id`'s ledger row to the pre-#6818 LEGACY shape — an
-  installed row that still names its `:installed-by` but has NO
-  `:installed-value` key — a test-only seam. There is no other way to
-  produce that shape: current code always records the install value, so a
-  suite proving how the ownership proof treats the shape a `defonce` ledger
-  carried across a reload WITHOUT a value must seed it directly. A legacy row
-  carries no incarnation token, so `owns-live-incarnation?` can prove nothing
-  about the live frame under the id — a config-bearing remount over it is
-  refused rather than bootstrapping ownership from the current address (which
-  could be a successor). Never application API."
+  "Rewrite `frame-id`'s ledger row to the pre-#6818 LEGACY shape — an owned
+  row that still names its `:plan-author` but has NO `:handle` (and NO
+  `:destroyed-at`, so it is a genuine legacy row, not a tombstone) — a
+  test-only seam. There is no other way to produce that shape: current code
+  always records the install handle, so a suite proving how the ownership
+  proof treats the shape a `defonce` ledger carried across a reload WITHOUT a
+  handle must seed it directly. A legacy row carries no incarnation token, so
+  `frame-standing` verdicts `:legacy-live` and proves nothing about the live
+  frame under the id — a config-bearing remount over it is refused rather than
+  bootstrapping ownership from the current address (which could be a
+  successor). Never application API."
   [frame-id]
-  (swap! frame-ledger update frame-id dissoc :installed-value)
+  (swap! frame-ledger update-in [frame-id :ownership] dissoc :handle)
   nil)
 
 (defn- owner-of-container
@@ -711,30 +743,61 @@
                {:value (error/diag-value-summary frame-opt)})))
 
 (defn- owns-live-incarnation?
-  "True when `record` PROVES ownership of the frame incarnation currently live
-  under `frame-id` — the ledger's install authority, keyed on the incarnation
-  TOKEN rather than on a non-nil `:installed-by`.
+  "True when `ownership` PROVES ownership of the frame incarnation currently live
+  under `frame-id` — the install authority, keyed on the incarnation TOKEN
+  rather than on a non-nil `:plan-author`.
 
-  `:installed-by` records WHO ran an install once; it does not prove the frame
+  `:plan-author` records WHO ran an install once; it does not prove the frame
   live under that id NOW is the one they installed. The core frame contract's id
   is address-directed, so a same-id SUCCESSOR — the installed incarnation torn
   down and re-created under the same id — is a DIFFERENT frame carrying a
   DISTINCT incarnation token (its own `:drain-lock`). A row still naming the
-  original install VALUE owns that successor of nothing: its token no longer
+  original install `:handle` owns that successor of nothing: its token no longer
   identifies the live frame.
 
-  Ownership is proven the one way it can be: the recorded `:installed-value`
-  carries a `:rf.frame/incarnation-token`, and that token is `identical?` to the
-  live frame's current incarnation token. A row that never recorded a value — a
-  fresh boot/external frame this page only SCOPED, or a pre-#6818 LEGACY row a
-  `defonce` ledger carried across a reload without one — carries no token, so it
-  proves ownership of nothing and answers false. This is the SAME exact-token
-  discipline teardown destroys with; a mount that cannot prove ownership here
-  must not convert an address into it (`preflight!`)."
-  [record frame-id]
-  (let [token (frame/frame-value-incarnation-token (:installed-value record))]
+  Ownership is proven the one way it can be: the recorded `:handle` carries a
+  `:rf.frame/incarnation-token`, and that token is `identical?` to the live
+  frame's current incarnation token. Ownership with no handle — a borrowed row a
+  fresh boot/external frame this page only SCOPED, or a pre-#6818 LEGACY / a
+  tombstoned row — carries no token, so it proves ownership of nothing and
+  answers false. This is the SAME exact-token discipline teardown destroys with.
+  INTERNAL to `frame-standing`, its sole caller — no arm reads it directly."
+  [ownership frame-id]
+  (let [token (frame/frame-value-incarnation-token (:handle ownership))]
     (and (some? token)
          (identical? token (frame/frame-incarnation-token frame-id)))))
+
+(defn- frame-standing
+  "The ONE ledger read, and the only door onto the stored ownership facts. It
+  performs the live-incarnation TOKEN join internally and returns a VERDICT,
+  never a row:
+
+    :absent          — no frame is live under the id. A config-bearing ENSURE
+                       may CREATE; a config-less SCOPE fails loud.
+    :owned-live      — the row's `:handle` names the LIVE incarnation. The ONLY
+                       authority-granting verdict: the idempotent no-op or a
+                       surgical config edit, for its owner.
+    :unowned-live    — a live frame this page does not own: a boot / external
+                       frame, or a row that only SCOPES it (no `:ownership`).
+    :successor-live  — the row installed an incarnation, but a same-id SUCCESSOR
+                       is live now — the recorded handle names a torn-down frame.
+    :legacy-live     — a live frame under an owned row with a `:plan-author` but
+                       no live `:handle`: a pre-#6818 row a `defonce` ledger
+                       carried across a reload, or a tombstoned row (marked
+                       `:destroyed-at`). Provenance is unprovable either way.
+
+  A config-bearing plan requires `:absent` (create) or `:owned-live` (own the
+  live incarnation); every other verdict is loud. The discrimination lives in
+  the VERDICT, so the arms do not each re-derive it — and none can skip the
+  join, because this is the only accessor that returns an ownership fact."
+  [frame-id]
+  (let [ownership (:ownership (get @frame-ledger frame-id))]
+    (cond
+      (nil? (frame/frame frame-id))               :absent
+      (owns-live-incarnation? ownership frame-id) :owned-live
+      (nil? (:plan-author ownership))             :unowned-live
+      (contains? ownership :handle)               :successor-live
+      :else                                       :legacy-live)))
 
 (defn- preflight!
   "Run `plan` to completion, and answer the frame-id it bound. Called
@@ -750,85 +813,82 @@
   plan."
   [where {:keys [frame-id owned? config config-fingerprint] :as plan} root-id]
   (when (some? plan)
-    (let [record (get @frame-ledger frame-id)]
-      (when (and owned?
-                 (some? (:installed-by record))
-                 (not= (:installed-by record) root-id)
-                 (not= (:config-fingerprint record) config-fingerprint))
-        (error/throw-error!
-          :rf.error/frame-payload-conflict where
-          (str "frame " (pr-str frame-id) " is already installed by root "
-               (pr-str (:installed-by record)) " under a DIFFERENT config. One "
-               "frame, one plan: a second config would silently reset whatever "
-               "the first root's frame has been doing. Align the two configs, or "
-               "give this root its own frame.")
-          {:recovery :align-frame-plan-config
-           :extra    {:frame-id  frame-id
-                      :installed {:config-fingerprint (:config-fingerprint record)
-                                  :installed-by       (:installed-by record)}
-                      :arriving  {:config-fingerprint config-fingerprint
-                                  :root-id            root-id}}}))
-      ;; The OWNERSHIP arm (Spec 004C §7) — AC4 generalized to the incarnation
-      ;; TOKEN, so it also polices the same-id-successor residual. A config-
-      ;; BEARING ENSURE may take ownership of a frame only when it CREATES it
-      ;; (not yet live) or PROVES it already owns the incarnation live under the
-      ;; id (`owns-live-incarnation?` — its recorded install value's token is
-      ;; identically the live frame's current token). A frame that is LIVE but
-      ;; this row does not provably own is a boot/external frame or a same-id
-      ;; SUCCESSOR of the one this row installed; proceeding would let
-      ;; `make-frame` reset a frame the page never installed, write an install
-      ;; value carrying the SUCCESSOR's token, and hand this root the address-
-      ;; directed authority to DESTROY it at the final `unmount!`. Three
-      ;; unownable shapes reach here, one breach:
-      ;;   - no `:installed-by` at all — a fresh boot/external frame, or one a
-      ;;     prior config-less SCOPE row only referenced (the original AC4 case);
-      ;;   - an `:installed-by` whose recorded incarnation was torn down and
-      ;;     re-created under the same id — the token names a dead incarnation,
-      ;;     not the live successor;
-      ;;   - a pre-#6818 LEGACY row naming an installer but no value — no token to
-      ;;     compare, so ownership of the live incarnation cannot be proven at all
-      ;;     (a `defonce` reload must not bootstrap exact authority from the
-      ;;     current address, which could be a successor seated before it).
-      ;; Each fails BEFORE `make-frame` mutates, distinct from the
-      ;; differing-fingerprint arm above: that recovers by aligning configs, this
-      ;; by dropping to a config-less SCOPE or owning the whole lifetime. A
-      ;; first-time ENSURE (frame not yet live) and a same-root refresh on the
-      ;; SAME live incarnation both prove ownership and fall through untouched.
-      (when (and owned?
-                 (some? (frame/frame frame-id))
-                 (not (owns-live-incarnation? record frame-id)))
-        (error/throw-error!
-          :rf.error/frame-payload-conflict where
-          (str "frame " (pr-str frame-id) " is already LIVE and this page cannot "
-               "prove it owns the incarnation live under that id — it was booted "
-               "or created elsewhere, is only being scoped here, or the incarnation "
-               "this root installed was destroyed and re-created under the same id. "
-               "A config-bearing :frame {:id …} plan would take the live frame over: "
-               "reset its config now, then DESTROY it at unmount, silently tearing "
-               "down an incarnation this root does not own. Boot the frame "
-               "config-less and SCOPE it with :frame " (pr-str frame-id) ", or drop "
-               "the external make-frame and let this root own the frame's whole "
-               "lifetime.")
-          {:recovery :scope-config-less-or-own-the-lifetime
-           :extra    {:frame-id  frame-id
-                      :installed {:config-fingerprint    (:config-fingerprint record)
-                                  :installed-by          (:installed-by record)
-                                  :owns-live-incarnation false}
-                      :arriving  {:config-fingerprint config-fingerprint
-                                  :root-id            root-id}}}))
-      (let [created? (and owned? (nil? (frame/frame frame-id)))
-            installed-value
+    (let [standing (frame-standing frame-id)
+          owner    (:ownership (get @frame-ledger frame-id))]
+      (when owned?
+        ;; The one-frame-one-plan conflict (Spec 004C §7): a DIFFERENT root's
+        ;; plan names a known frame under a DIFFERENT config fingerprint. This is
+        ;; config DISAGREEMENT, not a liveness/authority claim — it reads the
+        ;; recorded `:plan-author` (a LABEL) and `:plan-fingerprint` only to say
+        ;; WHO to align with. Recovery: align the two configs.
+        (when (and (some? (:plan-author owner))
+                   (not= (:plan-author owner) root-id)
+                   (not= (:plan-fingerprint owner) config-fingerprint))
+          (error/throw-error!
+            :rf.error/frame-payload-conflict where
+            (str "frame " (pr-str frame-id) " is already installed by root "
+                 (pr-str (:plan-author owner)) " under a DIFFERENT config. One "
+                 "frame, one plan: a second config would silently reset whatever "
+                 "the first root's frame has been doing. Align the two configs, or "
+                 "give this root its own frame.")
+            {:recovery :align-frame-plan-config
+             :extra    {:frame-id  frame-id
+                        :installed {:config-fingerprint (:plan-fingerprint owner)
+                                    :installed-by       (:plan-author owner)}
+                        :arriving  {:config-fingerprint config-fingerprint
+                                    :root-id            root-id}}}))
+        ;; The OWNERSHIP arm (Spec 004C §7), collapsed to the VERDICT. A config-
+        ;; BEARING ENSURE may take a frame ONLY when it CREATES it (`:absent`) or
+        ;; PROVES it owns the live incarnation (`:owned-live`). Every other
+        ;; verdict is a live frame this row cannot prove it owns, and each is
+        ;; loud: `:unowned-live` (a fresh boot/external frame, or one a config-
+        ;; less SCOPE row only referenced), `:successor-live` (the recorded
+        ;; handle names an incarnation torn down and re-created under the same id),
+        ;; and `:legacy-live` (a pre-#6818 or tombstoned row with no live handle
+        ;; — no token to compare, so ownership cannot be proven at all). Proceeding
+        ;; would let `make-frame` reset a frame the page never installed and hand
+        ;; this root the address-directed authority to DESTROY it at `unmount!`.
+        ;; The verdict, not the arm, carries the discrimination — Holes 2 and 4
+        ;; stop being separate guards — and it fails BEFORE `make-frame` mutates,
+        ;; distinct from the differing-fingerprint arm above: that recovers by
+        ;; aligning configs, this by dropping to a config-less SCOPE or owning the
+        ;; whole lifetime.
+        (when-not (contains? #{:absent :owned-live} standing)
+          (error/throw-error!
+            :rf.error/frame-payload-conflict where
+            (str "frame " (pr-str frame-id) " is already LIVE and this page cannot "
+                 "prove it owns the incarnation live under that id — it was booted "
+                 "or created elsewhere, is only being scoped here, or the incarnation "
+                 "this root installed was destroyed and re-created under the same id. "
+                 "A config-bearing :frame {:id …} plan would take the live frame over: "
+                 "reset its config now, then DESTROY it at unmount, silently tearing "
+                 "down an incarnation this root does not own. Boot the frame "
+                 "config-less and SCOPE it with :frame " (pr-str frame-id) ", or drop "
+                 "the external make-frame and let this root own the frame's whole "
+                 "lifetime.")
+            {:recovery :scope-config-less-or-own-the-lifetime
+             :extra    {:frame-id  frame-id
+                        :installed {:config-fingerprint    (:plan-fingerprint owner)
+                                    :installed-by          (:plan-author owner)
+                                    :owns-live-incarnation false}
+                        :arriving  {:config-fingerprint config-fingerprint
+                                    :root-id            root-id}}})))
+      ;; The write. An owned ENSURE reaches here only past `:absent` or
+      ;; `:owned-live`, so its authority is proven; a scoped mount carries no
+      ;; ownership of its own.
+      (let [created? (= standing :absent)
+            handle
             (if owned?
               ;; ENSURE. `make-frame` is idempotent replacement: absent → created
               ;; and its :initial-events drain; present under the same plan → left
-              ;; exactly as it is. The same-root differing fingerprint is a config
-              ;; edit, so the plan re-runs — durable state survives, because that
-              ;; is what idempotent replacement means. Whenever the plan RUNS it
-              ;; hands back the exact frame VALUE (the incarnation token) this
-              ;; install produced; on the ratified no-op it returns nil and the
-              ;; ledger keeps the value from the install that stands.
+              ;; exactly as it is. A proven-owner differing fingerprint is a
+              ;; surgical config edit, so the plan re-runs — durable state
+              ;; survives. Whenever the plan RUNS it hands back the exact frame
+              ;; VALUE (the incarnation handle) this install produced; on the
+              ;; ratified no-op it returns nil and the row keeps the handle from
+              ;; the install that stands.
               (when (or created?
-                        (not= (:config-fingerprint record) config-fingerprint))
+                        (not= (:plan-fingerprint owner) config-fingerprint))
                 (live-frame/make-frame (assoc config :id frame-id)))
               ;; SCOPE. A frame this root does not own must already exist — there
               ;; is no config here to create one from, and scoping a frame that
@@ -846,31 +906,35 @@
                   nil))]
         (swap! frame-ledger update frame-id
                (fn [r]
-                 {:config-fingerprint (if owned? config-fingerprint (:config-fingerprint r))
-                  ;; A fresh incarnation is a fresh ownership row: a CREATE records
-                  ;; the CREATING root as author, never `(or old …)` — the surviving
-                  ;; row of an externally-destroyed predecessor must not lend its
-                  ;; author to an incarnation it did not install, or the real
-                  ;; creator reads as foreign to its own frame and its next config
-                  ;; edit trips the differing-plan arm (rf2-2pvp7). The proven-owner
-                  ;; refresh keeps its author: the differing-plan arm already
-                  ;; refused a DIFFERENT root with a differing fingerprint, and the
-                  ;; same-fingerprint path never runs the plan.
-                  :installed-by       (if owned?
-                                        (if created? root-id (or (:installed-by r) root-id))
-                                        (:installed-by r))
-                  ;; The install authority: the fresh value when the plan just ran
-                  ;; (a create or a proven-owner config edit), else the value from
-                  ;; the install that stands. The ownership arm above has already
-                  ;; refused any owned ENSURE that reaches here without one of those
-                  ;; — a live frame this row cannot prove it owns never mutates the
-                  ;; ledger — so there is no address-directed recovery to fall back
-                  ;; to. A scoped mount carries nothing of its own and leaves the
-                  ;; row's value be.
-                  :installed-value    (if owned?
-                                        (or installed-value (:installed-value r))
-                                        (:installed-value r))
-                  :refs               (conj (or (:refs r) #{}) root-id)})))
+                 (let [prior (:ownership r)
+                       ownership
+                       (cond
+                         ;; A fresh CREATE replaces the WHOLE tuple — handle,
+                         ;; author and fingerprint together — so a new incarnation
+                         ;; never wears the stale author of an externally-destroyed
+                         ;; predecessor: the real creator reads as its own frame's
+                         ;; owner and its next config edit is a proven-owner refresh,
+                         ;; not a foreign-plan conflict blamed on a root that
+                         ;; installed nothing.
+                         created?
+                         {:handle           handle
+                          :plan-author      root-id
+                          :plan-fingerprint config-fingerprint}
+                         ;; A proven-owner ENSURE (`:owned-live`) — the idempotent
+                         ;; no-op or a surgical edit: keep the author, refresh the
+                         ;; handle and fingerprint when the plan just ran, else keep
+                         ;; what stands. The differing-fingerprint arm already
+                         ;; refused a DIFFERENT root with a differing fingerprint,
+                         ;; and the same-fingerprint no-op never runs the plan.
+                         owned?
+                         {:handle           (or handle (:handle prior))
+                          :plan-author      (or (:plan-author prior) root-id)
+                          :plan-fingerprint config-fingerprint}
+                         ;; A SCOPE carries nothing of its own — the borrowed row
+                         ;; keeps whatever ownership (usually none) it already had.
+                         :else prior)]
+                   (cond-> {:refs (conj (or (:refs r) #{}) root-id)}
+                     (some? ownership) (assoc :ownership ownership))))))
       frame-id)))
 
 (defn- frame-ref-held?
@@ -884,30 +948,109 @@
   (boolean (and (some? frame-id)
                 (contains? (:refs (get @frame-ledger frame-id)) root-id))))
 
+;; ---------------------------------------------------------------------------
+;; Layer 2 — invalidation: the ledger hears every incarnation death, plus the
+;; two loud diagnostics an owned frame's lifecycle going wrong earns
+;; ---------------------------------------------------------------------------
+
+(defn- emit-root-ensured-frame-destroyed-under-live-roots!
+  "The one event in this story a programmer would want to hear at the moment it
+  happens: a frame this page's roots ENSURED was destroyed externally while N
+  live roots still reference it, naming them. Dev-only (`trace/emit!` is
+  `interop/debug-enabled?`-gated)."
+  [frame-id live-roots]
+  (trace/emit! :warning :rf.warning/root-ensured-frame-destroyed-under-live-roots
+               {:frame-id   frame-id
+                :live-roots (vec live-roots)
+                :where      're-frame.freehand.root/on-frame-destroyed!
+                :recovery   :observed-external-destroy-of-a-root-ensured-frame}))
+
+(defn- emit-root-owned-frame-leaked-at-release!
+  "Finding 1: a pre-#6818 owned row reached its final release with a
+  `:plan-author` but no `:handle`, so the root-owned frame it named cannot be
+  destroyed exactly and LEAKS. Loud rather than the old silent nil-handle no-op,
+  matching mount's posture on the same unprovable-provenance shape. Dev-only."
+  [frame-id plan-author]
+  (trace/emit! :warning :rf.warning/root-owned-frame-leaked-at-release
+               {:frame-id    frame-id
+                :plan-author plan-author
+                :where       're-frame.freehand.root/release-frame!
+                :recovery    :own-the-lifetime-or-scope-config-less}))
+
 (defn- release-frame!
-  "Drop `root-id`'s reference to its frame, and destroy the frame when a
-  root INSTALLED it and this was the last live reference.
+  "Drop `root-id`'s reference to its frame, and destroy the frame when THIS page
+  OWNED it and this was the last live reference.
 
-  A scoped frame is never destroyed — the root borrowed it. An installed
-  frame outlives its root only while a sibling still references it, which
-  is the same rule that makes install idempotent in the first place.
+  A borrowed (scoped) frame is never destroyed — the root borrowed it. An owned
+  frame outlives its root only while a sibling still references it, which is the
+  same rule that makes install idempotent in the first place.
 
-  The teardown is INCARNATION-EXACT. It destroys the frame VALUE the install
-  recorded (`:installed-value`), not the bare frame-id: the value carries the
-  installed incarnation's token, so `destroy-frame!` tears down EXACTLY that
-  incarnation and a stale installer whose frame was already torn down and
-  re-created under the same id no-ops instead of reaching through to kill the
-  successor. A bare id would be address-directed and do precisely that."
+  Teardown is INCARNATION-EXACT and reads NO raw row for authority — the final
+  release destroys the recorded `:handle` (a frame VALUE carrying the installed
+  incarnation's token), so `destroy-frame!` tears down EXACTLY that incarnation
+  and a stale handle whose incarnation is already gone no-ops instead of reaching
+  through to a same-id successor. No author guard, no id-liveness pre-check:
+  core's exact-token revalidation makes a stale handle idempotent, and the tuple
+  read is `(-> row :ownership :handle)` — absence of a handle IS nothing to
+  destroy.
+
+  Finding 1 — loud on a legacy final release. A pre-#6818 owned row carries a
+  `:plan-author` but no `:handle`, so there is nothing to destroy exactly and the
+  root-owned frame it named LEAKS. That is the unprovable-provenance shape mount
+  refuses loud; release now matches the posture with a loud diagnostic rather
+  than the old silent nil-handle no-op. A row the destroy hook already TOMBSTONED
+  (it carries `:destroyed-at`) is NOT re-alarmed — its incarnation's death was
+  announced when it happened."
   [frame-id root-id]
   (when (some? frame-id)
-    (let [{:keys [installed-by installed-value refs]} (get @frame-ledger frame-id)
-          remaining                                   (disj (or refs #{}) root-id)]
+    (let [standing  (frame-standing frame-id)
+          owner     (:ownership (get @frame-ledger frame-id))
+          remaining (disj (or (:refs (get @frame-ledger frame-id)) #{}) root-id)]
       (if (seq remaining)
         (swap! frame-ledger update frame-id assoc :refs remaining)
-        (do (swap! frame-ledger dissoc frame-id)
-            (when (and (some? installed-by) (some? (frame/frame frame-id)))
-              (frame/destroy-frame! installed-value))))))
+        (do
+          (when (and (= standing :legacy-live)
+                     (not (contains? owner :destroyed-at)))
+            (emit-root-owned-frame-leaked-at-release! frame-id (:plan-author owner)))
+          (swap! frame-ledger dissoc frame-id)
+          (when-some [handle (:handle owner)]
+            (frame/destroy-frame! handle))))))
   nil)
+
+(defn- on-frame-destroyed!
+  "The `:freehand/on-frame-destroyed!` destroy hook (step 7 of Spec 002's
+  destroy recipe), following the epoch layer's token compare-clean precedent.
+  `dying-token` is the destroyed incarnation's identity token, threaded from the
+  recipe.
+
+  When a row's `:handle` names the DYING incarnation (its token is `identical?`
+  to `dying-token`), TOMBSTONE the row — drop the handle, stamp `:destroyed-at`
+  — so the row now SAYS its incarnation is gone rather than leaving that to be
+  inferred later, and a successor arm can report a destroy time instead of a bare
+  token mismatch. If the tombstoned row still carries live refs, emit the loud
+  destroyed-under-live-roots diagnostic naming them.
+
+  A row whose handle token does not match is UNTOUCHED (the successor-safe
+  no-op), and a borrowed or legacy row (no live `:handle`) has nothing this page
+  owned to invalidate. Best-effort by contract: Layer 2 is diagnostics and
+  freshness, never the proof — `frame-standing`'s join stays the sole authority
+  even if this hook never fired. (A frame's own orderly release dissocs its row
+  BEFORE calling `destroy-frame!`, so this hook finds no row and no-ops — only an
+  EXTERNAL destroy reaches a still-referenced owned row.)"
+  [frame-id dying-token]
+  (let [row   (get @frame-ledger frame-id)
+        token (frame/frame-value-incarnation-token (:handle (:ownership row)))]
+    (when (and (some? token) (identical? token dying-token))
+      (swap! frame-ledger update frame-id
+             (fn [r]
+               (update r :ownership
+                       (fn [o] (-> o
+                                   (dissoc :handle)
+                                   (assoc :destroyed-at (interop/now-ms)))))))
+      (when (seq (:refs row))
+        (emit-root-ensured-frame-destroyed-under-live-roots! frame-id (:refs row))))))
+
+(late-bind/set-fn! :freehand/on-frame-destroyed! on-frame-destroyed!)
 
 ;; ---------------------------------------------------------------------------
 ;; React root options

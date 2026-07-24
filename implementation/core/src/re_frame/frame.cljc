@@ -4077,6 +4077,20 @@
         ;; invert the load order); the hook is bound at boot since fx ships in
         ;; every canonical build.
         (safe-call-hook! :fx/on-frame-destroyed! id)
+        ;; Invalidate the Freehand root-ownership ledger. The interpreted mount
+        ;; surface (re-frame.freehand.root) keeps a frame-id-keyed ownership row
+        ;; the same shape every sibling side table above keeps, but it is
+        ;; incarnation-scoped: a row owns the frame only while its recorded handle
+        ;; token is the live incarnation's. This hook carries the DYING
+        ;; incarnation's token (`expected-incarnation-token`) so the ledger can
+        ;; compare-clean ONLY the row whose handle names it — tombstone that row
+        ;; and warn if live roots still reference it — leaving a same-id successor
+        ;; row untouched, exactly the epoch layer's compare-clean discipline
+        ;; (step 11). No-op when the day8/re-frame2 freehand artefact is absent
+        ;; (the hook is unbound). The frame is still keyed here (dissoc is step 10
+        ;; below), and the frame value is already marked :destroyed?, so the
+        ;; carried token is the only way to name the dying incarnation.
+        (safe-call-hook! :freehand/on-frame-destroyed! id expected-incarnation-token)
         ;; The shipped subsystems tear down via the named ordered hooks above.
         (emit-frame-destroyed-trace! id)
         ;; EP-0024: there is ONE `frames` registry, and `dissoc-frame!` below IS

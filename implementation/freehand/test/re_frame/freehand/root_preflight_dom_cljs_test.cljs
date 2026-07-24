@@ -46,8 +46,10 @@
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.root :as root]
             [re-frame.freehand.root-views :as views]
+            [re-frame.late-bind :as late-bind]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as test-support]
+            [re-frame.trace.tooling :as trace-tooling]))
 
 (def root-004 (conf/fixture :FH-ROOT-004))
 
@@ -118,6 +120,15 @@
   (rf/reg-sub :root/n (fn [db _] (:n db)))
   (rf/reg-event :root/seed (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)})))
 
+(defn- listen!
+  "Register a trace listener collecting every event whose :operation is
+  `operation` into `a`, and answer its key for unregistration."
+  [operation a]
+  (let [k (keyword (gensym "root-ownership-probe-"))]
+    (trace-tooling/register-listener!
+      k (fn [ev] (when (= operation (:operation ev)) (swap! a conj ev))))
+    k))
+
 ;; ===========================================================================
 ;; FH-ROOT-004 — the plan runs to completion before the host root exists
 ;; ===========================================================================
@@ -180,8 +191,8 @@
           (-> (act #(v/mount [views/counter {}] node {:frame (:frame-id scope)}))
               (.then (fn [mounted]
                        (is (= (:first-render-text scope) (text node ".count")))
-                       (is (nil? (:installed-by (get (root/frame-ledger-snapshot)
-                                                     (:frame-id scope))))
+                       (is (nil? (get-in (root/frame-ledger-snapshot)
+                                         [(:frame-id scope) :ownership :plan-author]))
                            "the ledger records the reference but NO installer — the
                             root borrowed this frame, so nothing here owns it")
                        (act #(v/unmount! mounted))))
@@ -555,7 +566,7 @@
                   (fn [scoped]
                     (is (= "4" (text node ".count"))
                         "the scoping root borrowed the owner's seed")
-                    (is (nil? (:installed-by (get (root/frame-ledger-snapshot) fid)))
+                    (is (nil? (get-in (root/frame-ledger-snapshot) [fid :ownership :plan-author]))
                         "the ledger records the reference but NO installer — borrowed, not owned")
                     (is (contains? (:refs (get (root/frame-ledger-snapshot) fid))
                                    (:root-id (root/root-descriptor scoped)))
@@ -572,7 +583,7 @@
                           "under the scope-config-less-or-own-the-lifetime recovery")
                       (is (identical? token (frame/frame-incarnation-token fid))
                           "the refusal left the EXACT incarnation untouched")
-                      (is (nil? (:installed-by (get (root/frame-ledger-snapshot) fid)))
+                      (is (nil? (get-in (root/frame-ledger-snapshot) [fid :ownership :plan-author]))
                           "and wrote no installer authority over the borrowed frame")
                       (is (= "4" (text node ".count"))
                           "the incumbent scoping root is still rendering its borrowed seed"))
@@ -632,7 +643,7 @@
                   (reset! a-token (frame/frame-incarnation-token fid))
                   (is (identical? @a-token
                                   (frame/frame-value-incarnation-token
-                                    (:installed-value (get (root/frame-ledger-snapshot) fid))))
+                                    (get-in (root/frame-ledger-snapshot) [fid :ownership :handle])))
                       "the install recorded A's exact incarnation token")
                   ;; external: destroy A, stand a same-id successor B.
                   (rf/destroy-frame! fid)
@@ -758,7 +769,7 @@
                   (rf/destroy-frame! fid)
                   (is (nil? (frame/frame fid)) "A is gone and nothing replaced it")
                   (is (= :fh.root/author-r1
-                         (:installed-by (get (root/frame-ledger-snapshot) fid)))
+                         (get-in (root/frame-ledger-snapshot) [fid :ownership :plan-author]))
                       "the surviving row still names R1")
                   ;; R2's ENSURE finds the id absent and CREATES incarnation C.
                   (act #(v/mount [views/counter {}] node-2 plan-2))))
@@ -766,12 +777,12 @@
                 (fn [root-2]
                   (reset! c-token (frame/frame-incarnation-token fid))
                   (is (= :fh.root/author-r2
-                         (:installed-by (get (root/frame-ledger-snapshot) fid)))
+                         (get-in (root/frame-ledger-snapshot) [fid :ownership :plan-author]))
                       "the fresh incarnation's author is the root that CREATED it —
                        a create never wears the stale author of a dead predecessor")
                   (is (identical? @c-token
                                   (frame/frame-value-incarnation-token
-                                    (:installed-value (get (root/frame-ledger-snapshot) fid))))
+                                    (get-in (root/frame-ledger-snapshot) [fid :ownership :handle])))
                       "and the recorded install value is C's exact token")
                   ;; R2's own config EDIT must be a proven-owner refresh, not a
                   ;; foreign-plan conflict blamed on R1.
@@ -799,4 +810,151 @@
                   (is false (str "fresh-incarnation authorship suite rejected: " e))
                   (.remove node-1)
                   (.remove node-2)
+                  (done)))))))))
+
+;; ===========================================================================
+;; FH-ROOT-004 — Fable sequence (3): an external destroy of a root-ensured
+;; frame under a LIVE root warns LOUD (Layer 2), the row is tombstoned, and a
+;; different root's fresh ENSURE gets a WHOLLY FRESH ownership tuple.
+;; ===========================================================================
+
+(deftest fh-root-004-external-destroy-under-a-live-root-warns-loud-and-a-fresh-ensure-gets-a-wholly-fresh-tuple
+  (testing "Per FH-ROOT-004 / Fable sequence (3) (browser): R1 ENSUREs A; A is
+            destroyed EXTERNALLY while R1 is still live. The
+            :freehand/on-frame-destroyed! hook TOMBSTONES R1's row (drops the
+            handle, stamps :destroyed-at) and emits the loud
+            :rf.warning/root-ensured-frame-destroyed-under-live-roots naming R1.
+            Then a DIFFERENT root R2's fresh ENSURE over the now-absent id gets a
+            WHOLLY FRESH tuple — handle, author AND fingerprint all C's/R2's,
+            never a merge that lends R1's stale author to the incarnation it did
+            not create. The token-identity join is load-bearing: it is what makes
+            the tombstone target A and only A, and the handle assertion pins C."
+    (if-not (browser?)
+      (skip! "the browser job runs the loud-destroy + fresh-tuple assertions")
+      (async done
+        (reg!)
+        (let [node-1  (host-node!)
+              node-2  (host-node!)
+              fid     :fh.root/loud-succ
+              warns   (atom [])
+              k       (listen! :rf.warning/root-ensured-frame-destroyed-under-live-roots warns)
+              ;; R2's plan carries the SAME fingerprint as R1's (equal
+              ;; :initial-events): the differing-fingerprint arm has no liveness
+              ;; check, so only an EQUAL plan reaches the create over the surviving
+              ;; tombstoned row — a differing one is refused :align-frame-plan-config
+              ;; regardless of liveness (same as the authorship test above).
+              plan-1  {:root-id :fh.root/loud-r1
+                       :frame   {:id fid :initial-events [[:root/seed 1]]}}
+              plan-2  {:root-id :fh.root/loud-r2
+                       :frame   {:id fid :initial-events [[:root/seed 1]]}}
+              c-token (atom nil)
+              r1      (atom nil)]
+          (-> (act #(v/mount [views/counter {}] node-1 plan-1))
+              (.then
+                (fn [installer-1]
+                  (reset! r1 installer-1)
+                  ;; external destroy of A, R1 still mounted (still a live ref).
+                  (rf/destroy-frame! fid)
+                  (is (= 1 (count @warns))
+                      "exactly one loud destroyed-under-live-roots diagnostic fired")
+                  (let [ev (first @warns)]
+                    (is (= fid (get-in ev [:tags :frame-id]))
+                        "and it names the frame at stake")
+                    (is (contains? (set (get-in ev [:tags :live-roots])) :fh.root/loud-r1)
+                        "and the live root that still references it, by name")
+                    (is (= :observed-external-destroy-of-a-root-ensured-frame
+                           (:recovery ev))))
+                  (let [owner (:ownership (get (root/frame-ledger-snapshot) fid))]
+                    (is (not (contains? owner :handle))
+                        "the tombstone dropped the dead incarnation's handle")
+                    (is (some? (:destroyed-at owner))
+                        "and stamped the destroy time, so a later arm can report it")
+                    (is (= :fh.root/loud-r1 (:plan-author owner))
+                        "the author LABEL survives the tombstone (diagnostics only)"))
+                  (is (nil? (frame/frame fid)) "A is gone and nothing replaced it")
+                  (act #(v/mount [views/counter {}] node-2 plan-2))))
+              (.then
+                (fn [root-2]
+                  (reset! c-token (frame/frame-incarnation-token fid))
+                  (let [owner (:ownership (get (root/frame-ledger-snapshot) fid))]
+                    (is (= :fh.root/loud-r2 (:plan-author owner))
+                        "WHOLLY FRESH tuple: the author is R2, the root that created C")
+                    (is (identical? @c-token
+                                    (frame/frame-value-incarnation-token (:handle owner)))
+                        "the handle is C's EXACT token — never R1's dead one merged in")
+                    (is (not (contains? owner :destroyed-at))
+                        "and the fresh tuple carries no tombstone from the predecessor"))
+                  (trace-tooling/unregister-listener! k)
+                  (-> (act #(v/unmount! @r1))
+                      (.then (fn [_] (act #(v/unmount! root-2)))))))
+              (.then
+                (fn [_]
+                  (is (nil? (frame/frame fid)) "the last reference destroyed C exactly")
+                  (is (empty? (root/frame-ledger-snapshot)))
+                  (.remove node-1) (.remove node-2) (done)))
+              (.catch
+                (fn [e]
+                  (trace-tooling/unregister-listener! k)
+                  (is false (str "loud-destroy + fresh-tuple suite rejected: " e))
+                  (.remove node-1) (.remove node-2) (done)))))))))
+
+;; ===========================================================================
+;; FH-ROOT-004 — Layer 1's join is the SOLE authority, even when the destroy
+;; hook (Layer 2) never fires. This is the severability proof and the
+;; non-vacuity anchor for the token-identity check: with the hook stubbed to a
+;; no-op the row is NOT tombstoned, so it reaches owns-live-incarnation? as a
+;; genuine :successor-live row (a handle that names a torn-down incarnation),
+;; and the join alone must still refuse. Flip the identical? in
+;; owns-live-incarnation? and THIS test reds by name.
+;; ===========================================================================
+
+(deftest fh-root-004-the-join-alone-refuses-a-successor-even-when-the-destroy-hook-never-fires
+  (testing "Per FH-ROOT-004 (browser): the :freehand/on-frame-destroyed! hook is
+            severable diagnostics — frame-standing's live-token join stays the
+            SOLE ownership authority even if the hook never fired. With the hook
+            stubbed to a no-op, an installed incarnation A is destroyed and a
+            same-id SUCCESSOR B stood up: the row keeps its stale handle (no
+            tombstone), so it is a genuine :successor-live row. The join alone
+            must refuse a config-bearing remount over B before any mutation, and
+            B is untouched — the belt is load-bearing."
+    (if-not (browser?)
+      (skip! "the browser job runs the join-is-sole-authority assertions")
+      (async done
+        (reg!)
+        (let [node    (host-node!)
+              fid     :fh.root/join-only-succ
+              plan    {:frame {:id fid :initial-events [[:root/seed 1]]}}
+              saved   (late-bind/get-fn :freehand/on-frame-destroyed!)
+              b-token (atom nil)]
+          ;; Stub the destroy hook to a no-op so the row is NOT tombstoned and
+          ;; keeps its stale handle — a genuine :successor-live row.
+          (late-bind/set-fn! :freehand/on-frame-destroyed! (fn [& _] nil))
+          (-> (act #(v/mount [views/counter {}] node plan))
+              (.then
+                (fn [installer]
+                  (rf/destroy-frame! fid)
+                  (rf/make-frame {:id fid :initial-events [[:root/seed 2]]})
+                  (reset! b-token (frame/frame-incarnation-token fid))
+                  (is (some? (:handle (:ownership (get (root/frame-ledger-snapshot) fid))))
+                      "the stubbed hook left the stale handle — a genuine successor row")
+                  (let [data (error-data #(v/mount [views/counter {}] node plan))]
+                    (is (= :rf.error/frame-payload-conflict (:rf.error/id data))
+                        "the JOIN alone refuses the successor — no hook needed")
+                    (is (= :scope-config-less-or-own-the-lifetime (:recovery data)))
+                    (is (identical? @b-token (frame/frame-incarnation-token fid))
+                        "B is untouched — the guard fired before any mutation"))
+                  (act #(v/unmount! installer))))
+              (.then
+                (fn [_]
+                  (is (identical? @b-token (frame/frame-incarnation-token fid))
+                      "final unmount never reached B — the exact-token teardown no-oped")
+                  (late-bind/set-fn! :freehand/on-frame-destroyed! saved)
+                  (rf/destroy-frame! fid)
+                  (.remove node)
+                  (done)))
+              (.catch
+                (fn [e]
+                  (late-bind/set-fn! :freehand/on-frame-destroyed! saved)
+                  (is false (str "join-is-sole-authority suite rejected: " e))
+                  (.remove node)
                   (done)))))))))

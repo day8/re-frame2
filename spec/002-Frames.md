@@ -671,7 +671,10 @@ exact-token teardown cascade described below is the sole executable exception.
    partition projections whose source watches the cache reactions used.
 7. **Run auxiliary cleanup hooks**, in order: elision warning cache; SSR side-channels;
    machine `:after` timers; schemas; flows; routing host caches and URL ownership;
-   Resources work handles; plain managed HTTP; and `:dispatch-later` host timers.
+   Resources work handles; plain managed HTTP; `:dispatch-later` host timers; and the
+   Freehand interpreted-mount root-ownership ledger (`:freehand/on-frame-destroyed!`,
+   carrying the dying incarnation token so it compare-cleans only the row whose handle
+   names it — the same discipline step 11's epoch hook uses).
 8. **Emit `:rf.frame/destroyed`.** Every application/feature cleanup hook has completed.
    Lifecycle-dead is already published, so public metadata lookup does not resolve the
    frame; the trace is self-contained and carries the dying frame id in `:tags :frame`.

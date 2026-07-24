@@ -34,7 +34,8 @@
             [re-frame.freehand.root :as root]
             [re-frame.freehand.root-views :as views]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as test-support]
+            [re-frame.trace.tooling :as trace-tooling]))
 
 (def root-005 (conf/fixture :FH-ROOT-005))
 
@@ -91,6 +92,15 @@
 (defn- reg! []
   (rf/reg-sub :root/n (fn [db _] (:n db)))
   (rf/reg-event :root/seed (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)})))
+
+(defn- listen!
+  "Register a trace listener collecting every event whose :operation is
+  `operation` into `a`, and answer its key for unregistration."
+  [operation a]
+  (let [k (keyword (gensym "root-release-probe-"))]
+    (trace-tooling/register-listener!
+      k (fn [ev] (when (= operation (:operation ev)) (swap! a conj ev))))
+    k))
 
 ;; ===========================================================================
 ;; FH-ROOT-005 — an OWNED frame: every count goes to zero
@@ -468,9 +478,9 @@
                   (reset! token (frame/frame-incarnation-token fid))
                   ;; simulate the pre-#6818 shape the defonce ledger carried.
                   (root/downgrade-ledger-row-to-pre-6818! fid)
-                  (is (some? (:installed-by (get (root/frame-ledger-snapshot) fid)))
+                  (is (some? (get-in (root/frame-ledger-snapshot) [fid :ownership :plan-author]))
                       "the legacy row still names its installer")
-                  (is (nil? (:installed-value (get (root/frame-ledger-snapshot) fid)))
+                  (is (nil? (get-in (root/frame-ledger-snapshot) [fid :ownership :handle]))
                       "but carries no install value — no token to prove ownership with")
                   ;; the reloaded code re-runs the config-bearing mount over the row.
                   (let [data (error-data #(v/mount [views/counter {}] node plan))]
@@ -482,7 +492,7 @@
                     (is (identical? @token (frame/frame-incarnation-token fid))
                         "and the live frame is the EXACT same incarnation — the guard
                          fired before make-frame or the ledger could touch it")
-                    (is (nil? (:installed-value (get (root/frame-ledger-snapshot) fid)))
+                    (is (nil? (get-in (root/frame-ledger-snapshot) [fid :ownership :handle]))
                         "the legacy row is unchanged — no address-directed value written"))
                   (act #(v/unmount! installer))))
               (.then
@@ -534,7 +544,7 @@
                     (is (identical? @b-token (frame/frame-incarnation-token fid))
                         "the same-id successor B is the EXACT untouched incarnation —
                          no address-directed value recorded, no takeover")
-                    (is (nil? (:installed-value (get (root/frame-ledger-snapshot) fid)))
+                    (is (nil? (get-in (root/frame-ledger-snapshot) [fid :ownership :handle]))
                         "the legacy row is unchanged"))
                   (act #(v/unmount! installer))))
               (.then
@@ -548,5 +558,65 @@
                   (done))
                 (fn [e]
                   (is false (str "legacy-successor suite rejected: " e))
+                  (.remove node)
+                  (done)))))))))
+
+;; ===========================================================================
+;; FH-ROOT-005 — Fable sequence (6) / Finding 1: a legacy row at FINAL release
+;; fails LOUD, not silent.
+;;
+;; A pre-#6818 legacy row (a `:plan-author` but no `:handle`) reaching its final
+;; release cannot destroy the root-owned frame it named exactly, so the frame
+;; LEAKS. Release is now LOUD about it, matching mount's fail-loud posture on the
+;; same unprovable-provenance shape — the old code silently no-op'd on the nil
+;; handle. A row the destroy hook already TOMBSTONED (marked `:destroyed-at`) is
+;; NOT re-alarmed; only a genuine legacy row is.
+;; ===========================================================================
+
+(deftest fh-root-005-a-legacy-row-final-release-fails-loud-not-silent
+  (testing "Per FH-ROOT-005 / Fable sequence (6) / Finding 1 (browser): a
+            pre-#6818 legacy row reaching its FINAL release fires the loud
+            :rf.warning/root-owned-frame-leaked-at-release diagnostic, instead of
+            the old silent nil-handle no-op. The frame still SURVIVES — a legacy
+            row proves no token, so a surfaced leak is the honest posture, not an
+            address-directed destroy of a frame it cannot prove it owns."
+    (if-not (browser?)
+      (skip! "the browser job runs the legacy-release loudness assertions")
+      (async done
+        (reg!)
+        (let [node  (host-node!)
+              fid   :fh.root/legacy-loud-release
+              plan  {:frame {:id fid :initial-events [[:root/seed 11]]}}
+              leaks (atom [])
+              k     (listen! :rf.warning/root-owned-frame-leaked-at-release leaks)]
+          (-> (act #(v/mount [views/counter {}] node plan))
+              (.then
+                (fn [installer]
+                  ;; The pre-#6818 legacy shape: a plan-author, no handle, and NO
+                  ;; :destroyed-at (a genuine legacy row, not a hook tombstone).
+                  (root/downgrade-ledger-row-to-pre-6818! fid)
+                  (act #(v/unmount! installer))))
+              (.then
+                (fn [_]
+                  (is (= 1 (count @leaks))
+                      "the legacy final release fired exactly one loud leak diagnostic")
+                  (let [ev (first @leaks)]
+                    (is (= fid (get-in ev [:tags :frame-id]))
+                        "naming the leaked frame")
+                    (is (= :fh.root/legacy-loud-release (get-in ev [:tags :frame-id])))
+                    (is (= :own-the-lifetime-or-scope-config-less (:recovery ev))))
+                  (is (some? (frame/frame fid))
+                      "the frame still survives — a legacy row cannot prove which
+                       incarnation to destroy, so the leak is surfaced, not torn down")
+                  (is (empty? (root/frame-ledger-snapshot))
+                      "and the row is released")
+                  (trace-tooling/unregister-listener! k)
+                  (rf/destroy-frame! fid)
+                  (.remove node)
+                  (done)))
+              (.catch
+                (fn [e]
+                  (trace-tooling/unregister-listener! k)
+                  (is false (str "legacy-release loudness suite rejected: " e))
                   (.remove node)
                   (done)))))))))
