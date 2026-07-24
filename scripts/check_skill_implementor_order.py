@@ -81,6 +81,12 @@ rf2-708nm.
 
 from __future__ import annotations
 
+import sys as _m6kdb_proof_sys  # THROWAWAY: force the LIVE scan to fail
+
+if "--self-test" not in _m6kdb_proof_sys.argv:
+    _m6kdb_proof_sys.stderr.write("m6kdb proof: forced LIVE failure\n")
+    raise SystemExit(1)
+
 import argparse
 import os
 import re

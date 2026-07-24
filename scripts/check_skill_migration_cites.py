@@ -63,6 +63,12 @@ rf2-1nb8k.
 
 from __future__ import annotations
 
+import sys as _m6kdb_proof_sys  # THROWAWAY: force the self-test to fail
+
+if "--self-test" in _m6kdb_proof_sys.argv:
+    _m6kdb_proof_sys.stderr.write("m6kdb proof: forced SELF-TEST failure\n")
+    raise SystemExit(1)
+
 import argparse
 import os
 import re
