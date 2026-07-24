@@ -762,25 +762,79 @@
 ;; React root options
 ;; ---------------------------------------------------------------------------
 
-(defn- report-error!
-  "React's own default reporting for an UNCAUGHT or a RECOVERABLE error:
-  hand it to the host `reportError` so a window error handler still sees it,
-  or `console.error` on a runtime without one. Replicated here because the
-  framework always installs a stable delegate for these keys (so a remount
-  can advance the callback), and once a delegate is set React no longer runs
-  its own default — a delegate that swallowed the no-callback case would be
-  a silent regression rather than the honest passthrough this is."
+(defn- report-globally!
+  "Hand `error*` to the host `reportError` so a window error handler still
+  sees it, or `console.error` on a runtime without one — React's own
+  `reportGlobalError`, which is the whole of its PRODUCTION default for an
+  uncaught or a recoverable error."
   [error*]
   (if (fn? (.-reportError js/globalThis))
     (js/reportError error*)
     (when (exists? js/console) (.error js/console error*))))
 
+;; React's defaults are two-tier, and the framework's replacements have to be
+;; too. `defaultOnUncaughtError` reports globally in every build and ALSO warns
+;; — in development only — that nothing contained the failure and where to read
+;; about boundaries; `defaultOnCaughtError` logs the error in every build and
+;; ALSO names, in development, the boundary that will recreate the subtree.
+;; Installing a stable delegate takes React's default off the table for every
+;; root, including one that authored no callback at all, so a delegate that
+;; replicated only the production tier would delete the development evidence a
+;; programmer actually debugs from. These replicate both tiers and gate the
+;; development one exactly where React gates it.
+;;
+;; The context comes off the PUBLIC `errorInfo` React hands the callback and is
+;; printed, never parsed: `componentStack` is a string React formats for humans,
+;; and `errorBoundary` is the boundary instance itself. No private React import
+;; and no stack parser — a component NAME would need one, so the stack stands in
+;; its place, which is the more useful half of that message anyway.
+
+(defn- component-stack
+  "The formatted component stack off the public `errorInfo`, or nil."
+  [error-info]
+  (let [s (some-> ^js error-info .-componentStack)]
+    (when (and (string? s) (seq s)) s)))
+
+(defn- error-boundary-name
+  "The name of the Error Boundary instance React names on the public
+  `errorInfo`. `\"Anonymous\"` when it has none — React's own wording."
+  [error-info]
+  (or (not-empty (str (some-> ^js error-info .-errorBoundary .-constructor .-name)))
+      "Anonymous"))
+
+(defn- report-uncaught!
+  "React's default for an UNCAUGHT error, both tiers."
+  [error* error-info]
+  (report-globally! error*)
+  (when (and interop/debug-enabled? (exists? js/console))
+    (.warn js/console
+           (str "An error occurred in one of your React components.\n\n"
+                "Consider adding an error boundary to your tree to customize error "
+                "handling behavior.\n"
+                "Visit https://react.dev/link/error-boundaries to learn more about "
+                "error boundaries.\n"
+                (component-stack error-info)))))
+
 (defn- report-caught!
-  "React's own default for an error an Error Boundary CAUGHT: the boundary
-  handled it, so the default is an informational `console.error`, not a
-  re-throw to the window the way an uncaught or recoverable error earns."
-  [error*]
-  (when (exists? js/console) (.error js/console error*)))
+  "React's default for an error an Error Boundary CAUGHT, both tiers. The
+  boundary handled it, so even the production tier is an informational
+  `console.error` rather than the re-throw to the window an uncaught or a
+  recoverable error earns."
+  [error* error-info]
+  (when (exists? js/console)
+    (if interop/debug-enabled?
+      (.error js/console error*
+              (str "\n\nThe above error occurred in one of your React components.\n\n"
+                   "React will try to recreate this component tree from scratch using "
+                   "the error boundary you provided, " (error-boundary-name error-info) ".\n"
+                   (component-stack error-info)))
+      (.error js/console error*))))
+
+(defn- report-recoverable!
+  "React's default for a RECOVERABLE error: report globally and say no more.
+  React adds no development tier here — the recovery already happened."
+  [error* _error-info]
+  (report-globally! error*))
 
 (defn- host-callback-delegate
   "A stable React error-option callback that dispatches to the CURRENT
@@ -791,11 +845,15 @@
   This is the whole of the remount-honesty mechanism: React fixes a root's
   options at creation, so the delegate object never changes, but the cell it
   reads is advanced by an accepted re-mount. A callback supplied on the
-  reload therefore takes effect and the first mount's is not silently kept."
+  reload therefore takes effect and the first mount's is not silently kept.
+
+  `default!` takes the SAME two arguments the authored callback does, so the
+  no-callback arm reports with the component context React would have had.
+  A default handed only the bare error could not."
   [callbacks k default!]
   (fn [error* error-info]
     (let [f (get @callbacks k)]
-      (if (fn? f) (f error* error-info) (default! error*)))))
+      (if (fn? f) (f error* error-info) (default! error* error-info)))))
 
 (defn- emit-hydration-mismatch!
   [root-id error*]
@@ -822,7 +880,7 @@
   Public so a mounted browser proof can drive the REAL callback across the
   window boundary rather than a stand-in shaped like it."
   [^js adoption root-id callbacks]
-  (let [delegate (host-callback-delegate callbacks :on-recoverable-error report-error!)]
+  (let [delegate (host-callback-delegate callbacks :on-recoverable-error report-recoverable!)]
     (fn on-recoverable [error* error-info]
       (when (.-adopting adoption)
         (emit-hydration-mismatch! root-id error*))
@@ -847,10 +905,10 @@
   [prefix callbacks recoverable]
   (let [o (js-obj)]
     (when prefix (aset o "identifierPrefix" prefix))
-    (aset o "onUncaughtError" (host-callback-delegate callbacks :on-uncaught-error report-error!))
+    (aset o "onUncaughtError" (host-callback-delegate callbacks :on-uncaught-error report-uncaught!))
     (aset o "onCaughtError"   (host-callback-delegate callbacks :on-caught-error report-caught!))
     (aset o "onRecoverableError"
-          (or recoverable (host-callback-delegate callbacks :on-recoverable-error report-error!)))
+          (or recoverable (host-callback-delegate callbacks :on-recoverable-error report-recoverable!)))
     o))
 
 (defn- root-element
