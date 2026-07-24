@@ -26,19 +26,18 @@
    :auth/sign-out {:doc "Mark the viewer signed out (so :auth/signed-in? returns false)."}}
 
   :sub
-  {:auth/user       {:doc "The signed-in user, or nil."}
-   :auth/signed-in? {:doc "Returns true when a user is signed in — the :can-enter guard."}}}
+  {:auth/signed-in? {:doc "Returns true when a user is signed in — the :can-enter guard."}}}
 
  :fixture/handlers
  {:event
-  {:auth/sign-in  [[:set [:auth :user] "alice"]]
-   :auth/sign-out [[:set [:auth :user] nil]]}
+  {:auth/sign-in  [[:set [:auth :signed-in?] true]]
+   :auth/sign-out [[:set [:auth :signed-in?] false]]}
 
   :sub
-  {:auth/user       [[:get [:auth :user]]]
-   :auth/signed-in? [[:get [:auth :user]]
-                     ;; Built-in :some? — true when a user is present.
-                     [:fn :some?]]}}
+  ;; The guard contract is CLOSED: only the literals true / false are accepted,
+  ;; so the fixture stores a boolean rather than deriving one — an absent
+  ;; (nil) slot would itself be a non-boolean and fail closed.
+  {:auth/signed-in? [[:get [:auth :signed-in?]]]}}
 
  ;; Per Spec 012: :rf.nav/push-url / :rf.nav/replace-url declare
  ;; :platforms #{:client}, so the frame must run on the client platform for the
@@ -47,7 +46,10 @@
  :fixture/frame-config {:platform :client}
 
  :fixture/dispatches
- [;; Step 1: land on home, signed out.
+ [;; Step 0: seed the signed-out boolean (the guard's closed contract).
+  [:auth/sign-out]
+
+  ;; Step 1: land on home, signed out.
   [:rf.route/handle-url-change "/"]
 
   ;; Step 2: link click into the guarded route. DENIED — the runtime never
@@ -79,7 +81,7 @@
   [:rf.route/navigate {:to :account/settings}]]
 
  :fixture/expect
- {:final-app-db {:auth {:user "alice"}}
+ {:final-app-db {:auth {:signed-in? true}}
 
   :final-runtime-db {:rf.runtime/routing {:current {:route-id :account/settings :params {} :query {} :fragment nil
                                                     :transition :idle :error nil}
@@ -87,9 +89,9 @@
                                           :pending-navigation nil}}
 
   :trace-emissions
-  [;; Steps 2, 3, 4 and 7 each emit exactly one denial trace. The harness
-   ;; asserts FOUR :rf.route/entry-denied emissions in total — one per denied
-   ;; attempt, never two for one attempt and never zero.
+  [;; Steps 2, 3, 4 and 7 each emit exactly ONE denial trace — one per denied
+   ;; attempt, never two for one attempt (the link door's two hops decide
+   ;; once) and never zero (the framework default handler always resolves).
    {:operation :rf.route/entry-denied
     :tags      {:requested-url   "/account"
                 :rejecting-route :account/settings
