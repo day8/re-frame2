@@ -4,7 +4,7 @@
   Per Spec 012 §Navigation is an event. Programmatic navigation entry
   point: ONE flat request map — `[:rf.route/navigate {request}]`. Address
   keys `:to` / `:url` / `:params` / `:query` / `:fragment`; policy keys
-  `:replace?` / `:scroll` / `:bypass-guards?`; the in-place edit key
+  `:replace?` / `:scroll` / `:bypass-leave?`; the in-place edit key
   `:query-merge`. A destination request (`:to` / `:url`) builds a FRESH
   address; an in-place request (neither) PATCHES the current location.
   Honours :can-leave and :can-enter, :params/:query validation, scroll
@@ -18,7 +18,7 @@
             [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.routing.address :as address]
-            [re-frame.routing.can-leave :as can-leave]
+            [re-frame.routing.decisions :as decisions]
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.plan :as plan]
             [re-frame.routing.registry :as registry]
@@ -185,14 +185,15 @@
   `:reload` re-wires it on a fresh registrar.
 
   Per Spec 012 the event carries ONE flat request map. The handler:
-    1. strips the internal resume rider (`:rf.route/enter-attempts`) BEFORE
-       the shared always-on structural gate (`re-frame.routing.address/classify`);
-    2. rejects a malformed request with `:rf.error/navigate-bad-request`
-       BEFORE any guard runs (slice unchanged, no push);
-    3. resolves a DESTINATION request (`:to` / `:url`) into a FRESH address,
+    1. rejects a malformed request with `:rf.error/navigate-bad-request`
+       BEFORE any guard runs, through the shared always-on structural gate
+       (`re-frame.routing.address/classify`) — slice unchanged, no push;
+    2. resolves a DESTINATION request (`:to` / `:url`) into a FRESH address,
        or an IN-PLACE request into a PATCH of the current location;
-    4. runs the `:can-leave` / `:can-enter` gate, then the rule-3 no-op /
-       fragment-only short-circuits, then commits.
+    3. classifies the transition (EP-0037 stage 3) — an exact no-op
+       terminates HERE, evaluating neither guard;
+    4. runs the `:can-leave` then `:can-enter` decisions (stages 4-5) for a
+       full or fragment-only transition, then commits.
 
   EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
   state, so the handler reads it from the `:rf.db/runtime` coeffect (`rdb`)
@@ -220,15 +221,10 @@
           ;; once so the in-place patch, `:query-retain`, and `:query-merge`
           ;; all resolve against it.
           current (get-in rdb [:rf.runtime/routing :current])
-          ;; Strip the internal resume rider BEFORE the gate: `:rf.route/
-          ;; enter-attempts` is threaded by `:rf.route/continue`
-          ;; (can_leave.cljc) and is continuation bookkeeping, absent from the
-          ;; published grammar. It still rides `event-vec` so the guard gate's
-          ;; `loop-count` can read it on a resume. Guarded on `map?` so a
-          ;; non-map payload never reaches `dissoc` (a raw host throw) -- the
-          ;; event-shape gate rejects it first through the same channel.
-          request (when (map? request0)
-                    (dissoc request0 :rf.route/enter-attempts))
+          ;; Guarded on `map?` so a non-map payload never reaches the request
+          ;; gate (a raw host throw) -- the event-shape gate rejects it first
+          ;; through the same `:rf.error/navigate-bad-request` channel.
+          request (when (map? request0) request0)
           ;; The event-VECTOR shape gate runs first (arity + map payload),
           ;; then the request-MAP structural gate. Both surface the same
           ;; `:rf.error/navigate-bad-request` channel.
@@ -410,20 +406,35 @@
                              frame (assoc :frame frame)))
               {})
 
-            ;; The navigation gate runs first (mirrors the URL-driven path):
-            ;; current route's `:can-leave` THEN target's `:can-enter`. A
-            ;; blocked guard wins even over a rule-3 no-op.
-            :else
-            (if-let [blocked (can-leave/maybe-block-navigation
-                               rdb frame
-                               event-vec url
-                               (:bypass-guards? request)
-                               pending-nav-allocation)]
-              blocked
-              (cond
-                identical-nav?
-                {}
+            ;; EP-0037 stage 3 runs BEFORE the guards: an exact no-op
+            ;; terminates here, evaluating NEITHER guard and creating no
+            ;; pending state (nothing is being left or entered, and a
+            ;; redundant request must not be blockable).
+            identical-nav?
+            {}
 
+            ;; EP-0037 stages 4-5 (mirrors the URL-driven path): the current
+            ;; route's `:can-leave` THEN the target's `:can-enter`. A full
+            ;; transition -- INCLUDING a changed in-place `:query` /
+            ;; `:query-merge`, which is data-bearing -- and a fragment-only
+            ;; transition both evaluate the pair.
+            :else
+            (if-let [decided (decisions/decide
+                               {:rdb                    rdb
+                                :frame                  frame
+                                :target                 {:route-id route-id
+                                                         :params   path-params
+                                                         :query    query-params
+                                                         :fragment fragment
+                                                         :url      url}
+                                :requested-url          url
+                                :cause                  :navigate
+                                :policy                 (decisions/normalize-policy request)
+                                :bypass-leave?          (:bypass-leave? request)
+                                :url-driven?            false
+                                :pending-nav-allocation pending-nav-allocation})]
+              decided
+              (cond
                 ;; Same route-id/params/query, only the #fragment differs --
                 ;; update `:fragment`, emit `:rf.route/fragment-changed`, and
                 ;; drive history + scroll via effects. No `commit-navigation`:

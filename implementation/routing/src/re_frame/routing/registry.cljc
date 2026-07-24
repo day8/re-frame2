@@ -1515,7 +1515,7 @@
   spell the route id `:to`; facts spell it `:route-id`). Canonical inverse
   of `match-url` over values accepted by the route schema. Strictly
   address-only: `:url`, `:query-merge`, policy keys (`:replace?` / `:scroll`
-  / `:bypass-guards?`), and any unknown key are rejected LOUD
+  / `:bypass-leave?`), and any unknown key are rejected LOUD
   (`:rf.error/route-url-validation`, `:reason :bad-address-keys`) rather than
   silently ignored. There is no in-place form (a pure helper cannot read the
   current route); callers project their request/target into the address map.
