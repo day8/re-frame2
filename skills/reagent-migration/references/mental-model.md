@@ -140,6 +140,8 @@ and buys nothing while the shape is still settling.
 - **D-tier** is where a shift meets a *decision the source can't answer*: is this
   `r/atom` product state (→ app-db) or a control protocol (→ a semantic
   controller) or DOM state (→ a behavior)? The code can't tell you; the domain can.
-- **R-tier** is where a shift meets a surface that has **not landed** — foreign
-  React components, the outward bridge, trusted markup, author-declared refs.
-  Those views stay on Reagent, and saying so is the honest answer.
+- **R-tier** is where a shift meets a surface with **no Freehand equivalent** —
+  trusted markup, author-declared refs, a frame-pinned reactive read. Those views
+  stay on Reagent, and saying so is the honest answer. (The React host boundary
+  used to sit here; it has since landed in both directions, so a foreign React
+  component is now a judgment call, not a hold.)

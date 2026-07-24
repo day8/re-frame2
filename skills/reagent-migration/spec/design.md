@@ -47,7 +47,7 @@ The skill rewrites the view tier — hiccup, handlers, mounts, view-held state. 
 
 ### L6 — Incremental, closed-subtree passes
 
-Migrate leaf → root, closing a subtree from the bottom up. Under Freehand this is a **hard** constraint rather than a preference: there is no outward React bridge, so a converted view can only be mounted by another Freehand view or by a root. Each pass ends compiling, rendering, and tested, so an interrupted migration resumes cleanly.
+Migrate leaf → root, closing a subtree from the bottom up. This is the recommended default, not a hard wall: the outward bridge `v/->react` mounts a converted view under a parent staying on Reagent, so a stranded view is never un-renderable — but leaf-first still keeps each pass compiling, rendering, and tested without a bridge at every seam, so an interrupted migration resumes cleanly. (Before `v/->react` shipped this was a hard constraint; it is now discipline, not necessity.)
 
 ### L7 — The skill runs the compile/test gates; the programmer owns visual confirmation
 
@@ -59,7 +59,7 @@ Freehand is interpreted by default and `{:compiled true}` is an opt-in promotion
 
 ### L9 — Emit only what has shipped
 
-Freehand's design corpus (the EP, the decision records, the draft guide) describes forms that are **not exported**: `local`, `effect`, `ref`, an outward React bridge, a trusted-markup verb, a read-only checker. The skill checks `spec/API.md` before writing a verb and names the gap when there isn't one. A skill that confidently emits a verb that does not exist is worse than no skill.
+Freehand's design corpus (the EP, the decision records, the draft guide) describes forms that are **not exported**: `local`, `effect`, `ref`, a trusted-markup verb, a read-only checker. The skill checks `spec/API.md` before writing a verb and names the gap when there isn't one — the outward bridge `v/->react` was once on this list and has since shipped, which is exactly why the check is against the live roster, not a remembered list. A skill that confidently emits a verb that does not exist is worse than no skill.
 
 ### L10 — Generic to ANY Reagent consumer app
 
@@ -82,7 +82,7 @@ skills/reagent-migration/
 │   ├── mental-model.md            (the Reagent→Freehand view shift)
 │   ├── catalog-mechanical.md      (M-tier — "do this", before→after per rule)
 │   ├── catalog-judgment.md        (D-tier — "here's how to DECIDE")
-│   ├── catalog-reject.md          (R-tier — "don't migrate this / stay on Reagent, or wait")
+│   ├── catalog-reject.md          (R-tier — "don't migrate this / stay on Reagent")
 │   ├── procedure.md               (incremental closed-subtree passes; the structural test surface)
 │   └── gotchas.md                 (brackets-vs-parens, one-props-map, bare-symbol trap, whole-view coherence)
 ├── evals/
@@ -99,7 +99,7 @@ skills/reagent-migration/
 
 - **Different migration.** `re-frame-migration` moves events/subs/db from v1 to v2 (`M-N`/`O-N` rules, the `migration/from-re-frame-v1/README.md` corpus). This skill moves *views* from Reagent to Freehand (`MIG-NN` rules). They compose: v1→v2 first, then this.
 - **Fewer leaves.** The domain is narrower (view tier only), so three tier catalogues + three supporting leaves suffice.
-- **Pre-alpha honesty is a first-class deliverable.** `catalog-reject.md` is not a footnote — the hold list is what keeps the migration honest about a view layer whose host boundary has not landed.
+- **Pre-alpha honesty is a first-class deliverable.** `catalog-reject.md` is not a footnote — the hold list is what keeps the migration honest about a pre-alpha view layer, naming the surfaces with no Freehand equivalent and recording, under §No longer a hold, the ones (like the React host boundary) that have since landed.
 
 ## 6. Open questions (deferred to Mike)
 

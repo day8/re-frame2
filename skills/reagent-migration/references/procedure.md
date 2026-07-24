@@ -25,24 +25,25 @@ Confirm all three, or stop:
 
 ## Step 1 — Scope a closed subtree
 
-Pick a namespace, or a leaf-to-root view subtree, that is **not called from views
-staying on Reagent**. This is stricter than it sounds and it is not a style
-preference: there is no outward bridge today, so a converted view can only be
-mounted by another Freehand view or by a root. A converted view whose only caller
-is still Reagent will never render.
+Pick a namespace, or a leaf-to-root view subtree, and convert **leaf views first,
+shared components last**, closing the subtree bottom-up until a root or an
+already-converted parent mounts it. Each pass then ends renderable and tested,
+which is what lets an interrupted migration resume cleanly.
 
-So convert **leaf views first, shared components last**, closing the subtree
-bottom-up until a root or an already-converted parent mounts it. Flag any inbound
-Reagent call site you cannot include in the subtree — that view is a boundary,
-and the whole subtree above it waits.
+Leaf-first is the clean default, not a hard wall. If a converted view must sit
+under a parent that is staying on Reagent, the outward bridge `v/->react` mounts
+it there — `[:> (v/->react the-view) {:frame f …}]` — so a converted view is never
+stranded un-rendered. Reach for the bridge deliberately, not as a way to skip the
+bottom-up discipline: it is a foreign boundary with its own prop-crossing and an
+explicit frame. Flag any inbound Reagent call site you are not bridging — that
+view is a boundary, and the subtree above it waits.
 
 ## Step 2 — Gate every candidate view (whole-view law)
 
 Before touching a view, scan its whole body for **D/R hits**, then route by tier:
 
 - **An R hit → hold the WHOLE view on Reagent**, honestly, and record why.
-  Foreign React heads and Reagent wrapper libraries (MIG-09/10/22), trusted
-  markup (MIG-34), `:ref` (MIG-29), Reagent introspection and schedulers
+  Trusted markup (MIG-34), `:ref` (MIG-29), Reagent introspection and schedulers
   (MIG-35), a frame-pinned reactive read (MIG-03). →
   [`catalog-reject.md`](catalog-reject.md).
 - **A D hit → decide it with the author, then convert the WHOLE view or hold the
@@ -52,7 +53,9 @@ Before touching a view, scan its whole body for **D/R hits**, then route by tier
   restructure (MIG-19/20), SSR path routing (MIG-23), ambient reads in plain fns
   (MIG-26), fn props on internal views (MIG-27), computed props (MIG-28),
   runtime-built markup (MIG-30), and the loop / render-prop shaping calls
-  (MIG-08/13).
+  (MIG-08/13). The foreign-React reshape (MIG-09/10/22) is now a judgment call
+  too — the React host boundary landed in both directions
+  ([`catalog-reject.md` §No longer a hold](catalog-reject.md#no-longer-a-hold)).
 
 Do not rewrite the clean parts of a held view — whole-view coherence,
 [`gotchas.md`](gotchas.md).
@@ -156,10 +159,12 @@ and it pins the intent the migration just rewrote.
 ## A single converted file is PROVISIONAL
 
 If a view's callers live in *other* files that are still Reagent, converting just
-its file leaves it un-rendered — there is no wrapper that lets a Reagent parent
-mount it. It compiles, and "compiles ≠ renders". Treat such a file as provisional
-until a converted parent or a root mounts it. That is exactly why the unit of a
-pass is a *closed subtree*, not a lone file.
+its file leaves it un-rendered unless you bridge it — a Reagent parent mounts a
+converted view only through `v/->react`. It compiles, and "compiles ≠ renders".
+Treat such a file as provisional until a converted parent, a root, or a
+deliberate `v/->react` bridge mounts it. That is why the unit of a pass is a
+*closed subtree*, not a lone file — a closed subtree renders end-to-end without a
+bridge at every seam.
 
 ## Resuming an interrupted migration
 
