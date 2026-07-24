@@ -6,13 +6,24 @@ a job — a per-request protocol, a worker, a wizard step — via declarative
 child completion often uses [final states](concepts.md#final-states) and parent
 `:on-done`.
 
-A machine doesn't have to be a singleton. When a state needs to run some self-contained, asynchronous activity — an HTTP request, a websocket session, a worker grinding through a shard — you can **spawn a child machine** to do it, scoped to that state's lifetime. The child is a full machine instance with its own `:state` and `:data`; we call it an **actor**.
+When a state needs self-contained async work — an HTTP request, a websocket session,
+a worker on a shard — **spawn a child machine** scoped to that state's lifetime. The
+child is a full machine instance with its own `:state` and `:data`; we call it an
+**actor**.
 
-The pattern earns its keep when an activity has a *lifetime that should match a state's lifetime*: start it when you enter the state, and — this is the part that's easy to get wrong by hand — tear it down on **every** way out of the state, including the ones you forgot about. Declare the binding once and the runtime enforces it.
+The point is lifetime matching: start on entry, and tear down on **every** way out —
+including the exits you forgot. Declare the binding once; the runtime enforces it.
+Hand-rolling that is where leaks hide.
 
-A spawned child can be **state-bound** — alive for exactly as long as a state is active — or **dynamically created**; re-frame2 spells both as **`:spawn`**. There is **no actor object**: a spawned actor's *liveness is its snapshot* — a plain value at `[:rf.runtime/machines :snapshots <actor-id>]` in the [frame's runtime-db](glossary.md#snapshot). You address it by `dispatch`-ing to its id, exactly like any other handler, and it reverts with the frame on time-travel.
+A spawned child can be **state-bound** (alive while a state is active) or
+**dynamically created**; both spell **`:spawn`**. There is **no actor object**:
+liveness *is* the snapshot at
+`[:rf.runtime/machines :snapshots <actor-id>]` in
+[runtime-db](glossary.md#snapshot). Address it with `dispatch` to its id; it reverts
+with the frame on time-travel.
 
-This page assumes you've met the transition table and [guards and actions](concepts.md#guards-and-actions) from [Concepts](concepts.md), plus [`:after` timers](automatic-transitions.md) — they carry the timeout story below.
+Assumes the transition table and [guards and actions](concepts.md#guards-and-actions),
+plus [`:after` timers](automatic-transitions.md) for the timeout story below.
 
 ---
 
@@ -20,7 +31,10 @@ This page assumes you've met the transition table and [guards and actions](conce
 
 Put a `:spawn` map on a state node. While the machine sits in that state, a child actor of the named machine exists; on any transition out of the state, it's destroyed.
 
-Here's the heart of the [websocket example](../../examples/patterns/websocket/): a connection machine whose `:active` state owns a live socket. The socket is its own machine (`:websocket/socket`), spawned on the `:active` *parent* so one socket spans the `:connecting` → `:authenticating` → `:connected` leaves nested inside it.
+From the [websocket example](../../examples/patterns/websocket/): a connection
+machine whose `:active` state owns a live socket. The socket is its own machine
+(`:websocket/socket`), spawned on the `:active` *parent* so one socket spans the
+`:connecting` → `:authenticating` → `:connected` leaves nested inside it.
 
 ```clojure
 (rf/reg-machine :ws/connection
@@ -128,7 +142,7 @@ A freshly-spawned actor needs a first nudge. Two ways:
 
 You will reach for `:on-spawn` to "capture the child's id into `:data`" — and it won't work. `:on-spawn` is an **advisory observation hook**: the runtime calls it with `{:data <parent-data> :id <new-id>}` and **drops its return value**. Writing `(assoc data :pending id)` records nothing (and emits a `:rf.warning/on-spawn-return-ignored` in dev). The runtime already tracks the id for you — so there's no self-dispatch dance to write, and no side-channel atom either.
 
-There are **two** first-class mechanisms; reach for whichever fits.
+There are **two** mechanisms; reach for whichever fits.
 
 ### 1. The `:rf/spawned` `:data` slot (read the id in-snapshot)
 
@@ -223,13 +237,25 @@ A spawned child that genuinely *completes* — a one-shot protocol, a finished h
  :on    {:auth/cancelled :idle}}
 ```
 
-When `:auth-flow` enters `:done`, the runtime reads its `:token`, hands it to the parent's `:on-done` as `result`, then tears the child down — no stale id left behind. The details worth internalising:
+When `:auth-flow` enters `:done`, the runtime reads its `:token`, hands it to the
+parent's `:on-done` as `result`, then tears the child down — no stale id left
+behind:
 
-- **`:on-done` is a data-fold, not a transition.** It's `(fn [{:keys [data result]}] new-data)` — it returns the parent's next `:data`; the parent's state doesn't move.
-- **`:on-error` IS a transition.** A child that fails — it reaches a `:final?` leaf flagged `:error? true`, or one of its actions throws — routes the parent through the `:on`-shaped `:on-error` spec. Failure is control flow, not just observability.
-- **Completion is event-shaped.** The `:output-key` value flows to `:on-done` at the moment of completion, then the child is gone — there is no long-lived output slot to read later. Want a *computed* output? Write it into the final state's `:data` with a transition `:action`; there's no `:output-fn`.
-- **Final means final — even for a singleton.** A root-level `:final?` leaf auto-destroys *any* machine, spawned or not. A state a machine rests in indefinitely (an `:authed` end-screen) is an ordinary leaf with `:final?` omitted.
-- **Nested finals are different.** A `:final?` leaf *inside a compound state* doesn't end the machine — it signals "this sub-flow is done" to the enclosing compound's own `:on-done`, and the machine keeps running. That's the hierarchical pattern; see [Hierarchical states → When a sub-flow finishes](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states).
+- **`:on-done` is a data-fold, not a transition.** `(fn [{:keys [data result]}] new-data)`
+  — returns the parent's next `:data`; the parent's state doesn't move.
+- **`:on-error` IS a transition.** A child that fails — `:final?` leaf flagged
+  `:error? true`, or a thrown action — routes the parent through the `:on`-shaped
+  `:on-error` spec. Failure is control flow, not just observability.
+- **Completion is event-shaped.** `:output-key` flows to `:on-done` at completion,
+  then the child is gone — no long-lived output slot. Want a *computed* output?
+  Write it into the final state's `:data` with a transition `:action`; no
+  `:output-fn`.
+- **Final means final — even for a singleton.** A root-level `:final?` leaf
+  auto-destroys *any* machine. A resting end-screen (`:authed`) is an ordinary leaf
+  with `:final?` omitted.
+- **Nested finals are different.** A `:final?` leaf *inside a compound* signals
+  "this sub-flow is done" to the compound's `:on-done`; the machine keeps running.
+  See [Hierarchical states → When a sub-flow finishes](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states).
 
 ---
 
@@ -254,10 +280,14 @@ When `:auth-flow` enters `:done`, the runtime reads its `:token`, hands it to th
           [:rf.machine/destroy (re-frame.machines/machine-by-system-id :logger)]]}))
 ```
 
-`[:rf.machine/spawn <spec>]` and `[:rf.machine/destroy <actor-id>]` are the surface; the [API reference](../api/re-frame.machines.md) documents them in full. Two properties worth internalising:
+`[:rf.machine/spawn <spec>]` and `[:rf.machine/destroy <actor-id>]` are the surface;
+the [API reference](../api/re-frame.machines.md) documents them in full:
 
-- **Spawning an unregistered `:machine-id` fails closed.** No snapshot, no id, no `:start` — the spawn rejects with `:rf.error/machine-spawn-unregistered-type`. There is no "spec-less spawn."
-- **Destroy is silently idempotent.** Destroying an already-gone actor is a no-op — no error, no second trace. The actor has exactly one Active → Stopped transition.
+- **Spawning an unregistered `:machine-id` fails closed.** No snapshot, no id, no
+  `:start` — rejects with `:rf.error/machine-spawn-unregistered-type`. There is no
+  "spec-less spawn."
+- **Destroy is silently idempotent.** Destroying an already-gone actor is a no-op —
+  no error, no second trace. Exactly one Active → Stopped transition.
 
 For the rare case of spawning from outside a handler (true boot time), wrap the `:rf.machine/spawn` in a one-shot event and `dispatch-sync` it. Inside a machine, prefer declarative `:spawn`; inside an ordinary handler, the imperative fx is the canonical surface.
 
@@ -363,14 +393,26 @@ When a state needs to spawn **N children in parallel** and resume on a join cond
 
 The runtime intercepts these at the parent's boundary, updates join state, and once the condition resolves, fires the parent event (`:on-all-complete` here) **and** unconditionally cancels any siblings still in flight. The bookkeeping — who's done, who failed, the resolution latch — is **runtime-owned** at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`; the parent keeps none of it in `:data`.
 
-A few rules worth knowing:
+Rules:
 
-- **Each child needs a unique `:id`** (the join key) on top of the usual spawn keys. Duplicate ids are a registration error.
-- **Join discriminators:** `:all` (default) or `:any`. `:on-all-complete` is required for `:all`; `:on-some-complete` is required for `:any`. A quorum ("N of M") join uses the data-only `:after` + `:done-guard` idiom, not a `:join` mode ([Spec 005 §Join semantics](../../spec/005-StateMachines.md#join-semantics)).
-- **Sibling cancellation on join resolution is unconditional** — when the join resolves, surviving siblings are torn down. A late result from an already-decided join fires no further parent event. A fan-out where each child is independently valuable is modelled as N independent single-`:spawn`s (fire-and-forget), not a non-cancelling join.
-- **An unregistered child type fails the whole invoke closed, atomically.** The runtime seeds a childless reject marker at the join slot (physically present, but with no children to wait on) and suppresses the registered siblings too — so a malformed fan-out spawns nothing rather than leaving orphans behind. A child that can never run can never deadlock an `:all` join.
-- **Wall-clock timeout:** same as single `:spawn` — an `:after` on the `:spawn-all`-bearing state. When it fires, the exit cascade cancels every surviving child.
+- **Each child needs a unique `:id`** (the join key) on top of the usual spawn keys.
+  Duplicate ids are a registration error.
+- **Join discriminators:** `:all` (default) or `:any`. `:on-all-complete` is
+  required for `:all`; `:on-some-complete` is required for `:any`. A quorum
+  ("N of M") join uses the data-only `:after` + `:done-guard` idiom, not a `:join`
+  mode.
+- **Sibling cancellation on join resolution is unconditional** — when the join
+  resolves, surviving siblings are torn down. A late result from an already-decided
+  join fires no further parent event. Independently valuable children: N single
+  `:spawn`s (fire-and-forget), not a non-cancelling join.
+- **An unregistered child type fails the whole invoke closed, atomically.** The
+  runtime seeds a childless reject marker and suppresses registered siblings too —
+  malformed fan-out spawns nothing rather than leaving orphans. A child that can
+  never run can never deadlock an `:all` join.
+- **Wall-clock timeout:** same as single `:spawn` — an `:after` on the
+  `:spawn-all`-bearing state. When it fires, the exit cascade cancels every
+  surviving child.
 
-`:spawn-all` packages the fan-out, the join condition, and the cancel-on-resolution cascade into one declaration.
+`:spawn-all` packages fan-out, join, and cancel-on-resolution into one declaration.
 
 ---

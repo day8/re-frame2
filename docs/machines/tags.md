@@ -1,13 +1,12 @@
 # State tags
 
 You know the [flat model](concepts.md): states, transitions, snapshot. This page is
-the first growth feature — how views ask **what is true** without hard-coding state
-names.
+how views ask **what is true** without hard-coding state names.
 
 Some questions are not "which state?" but "is it *busy*?" across `:loading`,
 `:retrying`, `:reconnecting`, and whatever you add next month. A
-**[state tag](glossary.md#state-tag)** is a semantic label on a state so a view asks
-for intent — busy, read-only, terminal — instead of enumerating names. *Ask, don't
+**[state tag](glossary.md#state-tag)** is a label on a state so a view asks for
+intent — busy, read-only, terminal — instead of enumerating names. *Ask, don't
 tell.*
 
 Reach for tags when:
@@ -19,11 +18,12 @@ Reach for tags when:
   state.
 
 If a label would only ever match one state, skip it — compare `:state` directly.
-Tags earn their keep when one label covers many states.
 
 ## Declaring tags on a state
 
-`:tags` is a state-node key whose value is a **set of keywords**. There's no separate registration step — it's just another slot on the state, alongside `:on`, `:entry`, and `:after`:
+`:tags` is a state-node key whose value is a **set of keywords**. No separate
+registration — just another slot on the state, alongside `:on`, `:entry`, and
+`:after`:
 
 ```clojure
 (rf/reg-machine :todos/loader
@@ -41,7 +41,9 @@ Tags earn their keep when one label covers many states.
     :error    {:tags #{:data/error}}}})
 ```
 
-Both `:loading` and `:retrying` wear `:data/in-flight`. A view that wants "show the spinner while a request is in flight" consumes that one tag and never disjoins two state keywords — and the day you add a third in-flight state, it's one `:tags` entry and the view picks it up for free.
+Both `:loading` and `:retrying` wear `:data/in-flight`. A view that wants "show the
+spinner while a request is in flight" consumes that one tag — and a third in-flight
+state is one `:tags` entry with no view change.
 
 Two rules:
 
@@ -183,4 +185,6 @@ The worked example — a `:checkout` region whose `:submit` waits for the `:form
 - **Not an autonomous driver.** A tag appearing never fires a transition by itself — it's read by guards, it doesn't trigger them. For a state change that should follow a `:data` condition on its own, use a guarded eventless `:always`.
 - **Not user-writable.** An action can't return `:tags` in its `{:data :fx}` map — the slot is runtime-owned and derived from `:state`.
 - **Not the `:meta` slot.** A state's `:meta` (e.g. `{:terminal? true}`) is static, tooling-visible metadata; `:tags` is the runtime projection of the *active* configuration. Both can sit on the same state; they are not synonyms.
-- **Not a replacement for `[:rf/machine id]`.** When a view needs the whole snapshot it still subscribes to `:rf/machine`; `machine-has-tag?` is for the predicate-shaped question. Both are first-class.
+- **Not a replacement for `[:rf/machine id]`.** When a view needs the whole snapshot
+  it still subscribes to `:rf/machine`; `machine-has-tag?` is for the
+  predicate-shaped question.

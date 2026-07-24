@@ -1,11 +1,11 @@
 # Tutorial: build a login machine
 
 Build one machine end to end — idle → submitting → authed / error / locked-out —
-adding one idea at a time. By the end you have a **complete, copy-pasteable** table
+one idea per step. By the end you have a **complete, copy-pasteable** table
 (guards, actions, HTTP, timeout, tags, lock-out) plus a view and a pure test.
 
 **Prerequisites.** [Core introduction](../core/introduction.md) (events, app-db,
-effects). Vocabulary after this walk-through: [The model](concepts.md).
+effects). Vocabulary for later pages: [The model](concepts.md).
 
 ## Step 0 — turn machines on
 
