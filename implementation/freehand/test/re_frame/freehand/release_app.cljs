@@ -27,7 +27,8 @@
   while shadow-cljs — which carries `freehand/test` on `:source-paths` —
   can still compile it into a real production bundle."
   (:require [re-frame.core :as rf]
-            [re-frame.freehand :as v]))
+            [re-frame.freehand :as v]
+            [re-frame.adapter.uix :as uix]))
 
 ;; ---------------------------------------------------------------------------
 ;; The application's handlers. Ordinary re-frame2: the root's preflight plan
@@ -35,11 +36,11 @@
 ;; below reads a value that is already there.
 ;; ---------------------------------------------------------------------------
 
-(rf/reg-event-db ::seed (fn [_ _] {:count 0}))
+(rf/reg-event ::seed (fn [_ _] {:db {:count 0}}))
 
-(rf/reg-event-db ::bump (fn [db _] (update db :count inc)))
+(rf/reg-event ::bump (fn [{:keys [db]} _] {:db (update db :count inc)}))
 
-(rf/reg-sub ::count :-> :count)
+(rf/reg-sub ::count (fn [db _] (:count db)))
 
 ;; ---------------------------------------------------------------------------
 ;; One view, declared twice — the same body in both execution modes, which is
@@ -74,9 +75,21 @@
    [counter-compiled {:label "compiled"}]])
 
 (defn ^:export -main
-  "The build's `:init-fn`. Mounts the root into `#app`, owning the frame it
-  runs over so the bundle carries the whole preflight path."
+  "The build's `:init-fn`. Installs a substrate adapter, then mounts the
+  root into `#app`, owning the frame it runs over so the bundle carries the
+  whole preflight path.
+
+  The reactive substrate needs an adapter before the first frame is made
+  (Spec 006 §Adapter selection at boot): `make-state-container` raises
+  `:rf.error/no-adapter-installed` until `rf/init!` has run. This is an
+  INTERACTIVE mount — a click dispatches an event, app-db changes, and the
+  view re-renders — so the adapter has to bridge reactive change into
+  React's re-render, exactly as a shipped Freehand app would. The UIx
+  adapter is the React-integrated adapter Freehand's own interactive DOM
+  mounts run against; a real consumer ships one like it, so the cost it
+  adds is a cost the bundle should carry rather than hide."
   []
+  (rf/init! uix/adapter)
   (v/mount [app {}]
            (js/document.getElementById "app")
            {:frame {:id             ::frame
