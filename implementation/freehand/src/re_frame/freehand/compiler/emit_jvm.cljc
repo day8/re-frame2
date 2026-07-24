@@ -256,18 +256,29 @@
                (get-in node [:key :present?]) (assoc :key (get-in node [:key :expr])))]
     `(node/mount ~(:fqn node) [~opts ~(emit-node e (:child node))])))
 
-(defn- emit-foreign [node]
+(defn- emit-foreign [e node]
   (if (:lazy? node)
     ;; a re-frame.freehand.react/lazy component IS callable on the JVM structural
     ;; render: it renders its declared fallback (or nothing) and NEVER invokes
     ;; the load thunk (which is not even emitted on the JVM). Props/children are
     ;; irrelevant — the fallback is capability-free markup baked into the value.
     `(~(:sym node) {})
-    `(re-frame.freehand.tree/jvm-host-op!
-      :foreign-component
-      ~(str "foreign React component " (:sym node) " in a JVM render — "
-            "foreign components never appear in the JVM tree; wrap the "
-            "subtree in v/client-only (S3)"))))
+    ;; A NON-LAZY foreign component has no JVM structural realisation, and the v1
+    ;; grammar refuses `:foreign` before emission (it is not in
+    ;; `grammar/admitted-ops`, so `grammar/check!` raises first). This arm is
+    ;; therefore unreachable in the normal pipeline; it is kept — like every other
+    ;; below-v1 arm — as the starting point for the slice that admits foreign
+    ;; heads. It now REFUSES THE SHAPE LOUDLY with the emitter's own compile
+    ;; diagnostic rather than emitting a call to `tree/jvm-host-op!`, a var that is
+    ;; defined nowhere: were a later grammar widening or a weaker seam to reach it,
+    ;; expansion would raise an intentional Freehand error, not an unresolved
+    ;; symbol (rf2-drpa3.174).
+    (env/fail! e :rf.ui.compile/unsupported-form
+               (str "foreign React component " (:sym node) " has no JVM structural "
+                    "render — a foreign component never appears in the JVM tree. "
+                    "Wrap the subtree in v/client-only so the JVM renders its "
+                    "capability-free fallback.")
+               {:op :foreign :sym (:sym node)})))
 
 (defn- emit-for
   "A keyed list site. `node/keyed-run` proves the keys before the run is
@@ -317,7 +328,11 @@
   them are the donor's, for node kinds the grammar does not yet admit:
   `grammar/check!` refuses those bodies before emission, so they are
   unreachable today and are kept as the starting point for the slice that
-  widens the grammar to cover them."
+  widens the grammar to cover them. The two that have no honest JVM form at
+  all — `:raw` and a non-lazy `:foreign` — refuse the shape loudly through
+  the emitter's own `env/fail!` rather than emitting a call to an undefined
+  host-op var, so a later widening or a weaker seam raises an intentional
+  Freehand diagnostic instead of an unresolved symbol (rf2-drpa3.174)."
   [e node]
   (case (:op node)
     :nothing  nil
@@ -343,8 +358,20 @@
                      [(emit-node e (:default node))]))
 
     ;; ---- below :re-frame.freehand/v1 --------------------------------------
-    :raw      `(re-frame.freehand.tree/jvm-host-op!
-                :v/raw "(v/raw ...) is a host React element")
+    ;; `:raw` embeds a host React element, which has no JVM structural render.
+    ;; The v1 grammar refuses `:raw` before emission (not in
+    ;; `grammar/admitted-ops`), so this arm is unreachable in the normal pipeline
+    ;; and is kept for the slice that admits embedded host elements. Like the
+    ;; foreign arm above it now refuses the shape loudly with the emitter's own
+    ;; compile diagnostic rather than naming `tree/jvm-host-op!`, a var defined
+    ;; nowhere — so a later grammar widening or a weaker seam raises an intentional
+    ;; Freehand error rather than an unresolved symbol (rf2-drpa3.174).
+    :raw      (env/fail! e :rf.ui.compile/unsupported-form
+                         (str "(v/raw ...) embeds a host React element, which has "
+                              "no JVM structural render — it is a browser-only shape. "
+                              "Keep the subtree interpreted, or wrap it in v/client-only "
+                              "so the JVM renders a capability-free fallback.")
+                         {:op :raw})
     :html     nil ; sole-child form carried by the parent element
     ;; A top-region frame-root SCOPES its ensured frame (rf2-vxgfnd.25): the
     ;; JVM has no React context, so it BINDS the dynamic-tier ambient frame
@@ -366,7 +393,7 @@
                       (fn []
                         (re-frame.freehand.tree/fragment
                          false nil ~@(keep #(emit-node e %) (:children node)))))
-    :foreign  (emit-foreign node)
+    :foreign  (emit-foreign e node)
     :slot     (emit-slot e node)
     ;; error-boundary is a CLIENT recovery mechanism (Spec 004 §The JVM
     ;; structural subset): the JVM/SSR renders the guarded CHILD transparently

@@ -41,19 +41,18 @@
   {:note "and :for takes htmlFor"                                 :attr :for              :prop "htmlFor"}
   {:note "an SVG kebab attribute is a camelCase React prop"       :attr :stroke-width     :prop "strokeWidth"}
   {:note "and so is the SVG viewBox"                              :attr :view-box         :prop "viewBox"}
-  {:note "data-* passes verbatim, casing intact (Spec 004B; React 19 separately warns at MOUNT about a camelCase data-* name, which is a question about that row rather than about this projection)"
-   :attr :data-fooBar :prop "data-fooBar"}
-  {:note "and a lowercase data-* is the ordinary case"            :attr :data-priority    :prop "data-priority"}
+  {:note "a lowercase data-* passes verbatim — a mixed-case data-* is REFUSED, not projected (Spec 004B §Attribute names, ruled option c; see :rejected)"
+   :attr :data-priority :prop "data-priority"}
   {:note "aria-* passes verbatim too"                             :attr :aria-hidden      :prop "aria-hidden"}
   {:note "an unrecognized name passes verbatim — React 16+ pass-through" :attr :my-thing   :prop "my-thing"}]
 
  ;; The structural tree is AUTHOR space. React prop names are the React
  ;; emitter's concern and appear nowhere in the value the JVM answers.
  :structural
- [{:note "author-space keys survive into :attrs, uncanonicalised"
-   :form [:section {:tab-index 3 :content-editable true :data-fooBar "kept"}]
+ [{:note "author-space keys survive into :attrs, uncanonicalised — a lowercase-hyphenated data-* included"
+   :form [:section {:tab-index 3 :content-editable true :data-foo-bar "kept"}]
    :tree {:tag :section
-          :attrs {:tab-index "3" :content-editable true :data-fooBar "kept"}
+          :attrs {:tab-index "3" :content-editable true :data-foo-bar "kept"}
           :rf.ui/tree-version 1}}
   {:note "and an SVG attribute keeps its authored kebab name beside its :ns"
    :form [:svg [:rect {:stroke-width 2}]]
@@ -207,7 +206,23 @@
   {:note "a string spelling reaches the same slot as the keyword one"
    :form [:div {:id "a" "id" "b"}] :error-id :rf.error/ui-tree-malformed}
   {:note "PRESENCE counts, not value — a nil-valued member is still a second declaration"
-   :form [:div {:id nil :x/id "b"}] :error-id :rf.error/ui-tree-malformed}]
+   :form [:div {:id nil :x/id "b"}] :error-id :rf.error/ui-tree-malformed}
+
+  ;; A mixed-case data-* name is REFUSED, not projected verbatim (Spec 004B
+  ;; §Attribute names, ruled option c; rf2-hl7hr). HTML setAttribute lowercases
+  ;; the name and .dataset drops any data-* carrying an uppercase letter, so the
+  ;; casing cannot mean what it says on any host surface. Per the same
+  ;; emitted-name law as the rows above, all four spellings are refused alike —
+  ;; the diagnostic teaches the one-keystroke fix (write :data-foo-bar, read
+  ;; element.dataset.fooBar).
+  {:note "a camelCase data-* name is refused — the HTML DOM cannot store the casing"
+   :form [:div {:data-fooBar "x"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "a namespace does not escape it — the refusal reads the emitted name"
+   :form [:div {:x/data-fooBar "x"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "nor does a string key"
+   :form [:div {"data-fooBar" "x"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "nor a symbol key"
+   :form [:div {data-fooBar "x"}] :error-id :rf.error/ui-tree-malformed}]
 
  ;; The control that makes the rows above mean something. Refusing by
  ;; emitted prop name is only correct if it refuses the names that ARE
