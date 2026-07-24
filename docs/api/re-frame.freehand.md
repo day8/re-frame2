@@ -29,9 +29,14 @@ create a mounted boundary, and where the constructor lives is what enforces it.
 The roster below is the whole door today. The compiled tier has landed — `{:compiled
 true}` on a declaration selects it — and so has the outward half of the host
 boundary, `v/->react`, which hands a declared view to React-world as a component
-value. The inward half is the remaining declared vacancy: nothing yet mints the
-qualified host leaf or the explicit React wrapper that would bring a third-party
-React component *into* a Freehand tree. It lands with its own EP-0036 slice.
+value. The inward direction needs no verb and is not a vacancy: a finished React
+element is already an ordinary browser child value, so a third-party React component
+enters a Freehand tree in an ordinary child position through the existing child fold —
+one shared React tree, with context propagation, `v/->react` content interleaved back
+through it, and synchronous teardown. Two boundaries stay firm: a bare React
+*component* at a vector head is not a legal Freehand descriptor (a created React
+*element* in a child position is), and the JVM structural renderer accepts no React
+elements — the child path is browser-only, like the mount verbs.
 
 ## Declaration
 
@@ -63,14 +68,20 @@ React component *into* a Freehand tree. It lands with its own EP-0036 slice.
       :children-policy   :optional (the default), :none, or :required
       :compiled          false (the default), or true to select the compiled tier
 
-  `{:compiled true}` is the **one-line promotion** — it selects the already-landed
-  compiled tier's finite grammar for that one declaration, and nothing else moves:
-  callers, structural output and the view's own tests are unchanged, because the
-  compiled tier reuses the interpreted tier's descriptor, props contract and boundary
-  node (see [spec/004D-Freehand-Compiled-Grammar.md](../../spec/004D-Freehand-Compiled-Grammar.md)).
-  What does change is that the body must sit inside the finite language: a form the
-  grammar does not admit is a build failure naming a recovery, never a silent
-  demotion.
+  `{:compiled true}` is the **one-line promotion**, and it reaches the declaration and
+  stops there: no call site changes, ever — mounting is `[todo-row {…}]` before and
+  after, because the compiled tier reuses the interpreted tier's descriptor, props
+  contract and boundary node (see [spec/004D-Freehand-Compiled-Grammar.md](../../spec/004D-Freehand-Compiled-Grammar.md)).
+  For a body **already inside** the grammar the marker is the whole change, structural
+  output and tests untouched; for a body that is not, the build refuses and names a
+  recovery, and taking it — extracting a keyed child, respelling a `^{:key k}` row as
+  the literal `:key` prop — adds view-boundary nodes, so the structural tree and any
+  test against it move *with the declaration*, never anything above it. Promotion also
+  decides **whether** some mistakes surface, not merely when: compile-tier a11y reads a
+  compiled body, so an `:on-click` on a bare `<th>` is reported the day the marker is
+  added and silent without it. What does change is that the body must sit inside the
+  finite language: a form the grammar does not admit is a build failure naming a
+  recovery, never a silent demotion.
 
   An unknown key, a **reserved-but-unimplemented** key (the props-schema options —
   `{:props-schema …}` — which the schema slice owns and which are refused until it

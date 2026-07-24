@@ -417,23 +417,39 @@
            [{:keys [text done?]}]
            [:li.row {:class {:done done?}} text])
 
-     The marker selects the versioned grammar `:re-frame.freehand/v1`
-     ([Spec 004D](../../../../spec/004D-Freehand-Compiled-Grammar.md)) for
-     THIS declaration and nothing else. Callers do not change, structural
-     output does not change, and the view's own tests do not change —
-     mounting is `[todo-row {…}]` either way, because the descriptor, the
-     props contract and the boundary node are the interpreted tier's and
-     the compiled tier reuses them.
+     Promotion reaches the DECLARATION and stops there: no call site
+     changes, ever. Mounting is `[todo-row {…}]` before and after,
+     because the descriptor, the props contract and the boundary node
+     are the interpreted tier's and the compiled tier reuses them — a
+     caller cannot tell which mode a view it mounts was declared in.
 
-     What does change is that the body must be inside a finite language.
-     Compilation is EXPLICIT: a form the grammar does not admit is a
-     build failure naming a recovery — never a silent demotion, and never
-     an interpreted walk hidden inside compiled markup, which would make
-     the analysis a compiled view's manifests and diagnostics rest on
-     untrue. Promotion is per-declaration and not transitive: a compiled
-     view may mount interpreted children, and the honest recovery for a
-     body that will not compile is to extract the awkward part into its
-     own declared child — or to drop the marker again, which is the same
+     For a body ALREADY INSIDE the grammar the marker is the whole
+     change: one line, with the structural output and the view's own
+     tests untouched alongside the callers. For a body that is not, the
+     build refuses and names the recovery, and taking it is a mechanical
+     refactor of the DECLARATION — a handler closing over a `for` binding
+     wants the loop body extracted into a keyed child view, a `^{:key k}`
+     row wants respelling as the literal `:key` prop a compiled list
+     requires. That extraction adds view-boundary nodes the interpreted
+     twin did not have, so the structural tree and any test written
+     against it move WITH the declaration. Nothing above it does.
+
+     Promotion also decides WHETHER some mistakes surface, not merely
+     when: the compile-tier a11y diagnostics read a compiled body and
+     have nothing to read in an interpreted one, so an `:on-click` on a
+     bare `<th>` is reported the day the marker is added and is silent
+     without it.
+
+     What promotion changes is the LANGUAGE the body is written in — it
+     selects the versioned grammar `:re-frame.freehand/v1`
+     ([Spec 004D](../../../../spec/004D-Freehand-Compiled-Grammar.md))
+     for this declaration and nothing else. Compilation is EXPLICIT: a
+     form the grammar does not admit is a build failure naming a recovery
+     — never a silent demotion, and never an interpreted walk hidden
+     inside compiled markup, which would make a compiled view's manifests
+     and diagnostics rest on something untrue. Promotion is
+     per-declaration and not transitive: a compiled view may mount
+     interpreted children, and dropping the marker again is the same
      one-line change in reverse.
 
      ## What the declaration refuses
