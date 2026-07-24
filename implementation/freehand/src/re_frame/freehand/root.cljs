@@ -484,6 +484,18 @@
   (reset! frame-ledger {})
   nil)
 
+(defn ^:no-doc downgrade-ledger-row-to-pre-6818!
+  "Rewrite `frame-id`'s ledger row to the pre-#6818 LEGACY shape — an
+  installed row that still names its `:installed-by` but has NO
+  `:installed-value` key — a test-only seam. There is no other way to
+  produce that shape: current code always records the install value, so a
+  suite proving the HMR migration recovers the exact authority a `defonce`
+  ledger carried across a reload without it must seed the shape a prior
+  build wrote. Never application API."
+  [frame-id]
+  (swap! frame-ledger update frame-id dissoc :installed-value)
+  nil)
+
 (defn- owner-of-container
   [dom-node]
   (some (fn [[rid ^Root r]]
@@ -685,6 +697,39 @@
                     "which the root ENSUREs and owns for its lifetime.")
                {:value (error/diag-value-summary frame-opt)})))
 
+(defn- installed-value-for
+  "The frame VALUE an owned ledger row carries as its incarnation-EXACT
+  teardown authority. Prefer the value the plan just produced (a fresh
+  install or a config-edit re-run); else the value the standing install
+  already recorded; else — and only else — reconstruct it from the live
+  frame's current incarnation token.
+
+  That last arm is the pre-#6818 LEGACY migration. `frame-ledger` is
+  `defonce`, so a row written before `:installed-value` existed survives a
+  hot reload WITHOUT one. On the ordinary same-plan remount `make-frame`
+  does not run (the frame is live and the fingerprint matches), so no fresh
+  value arrives and the recorded value is nil — and left there, the final
+  `release-frame!` would `destroy-frame!` a nil: no incarnation token, no
+  teardown, the root-owned frame left LIVE and untracked past its last root.
+  The remount is where the reloaded code meets that row, so the remount is
+  where it heals it.
+
+  The recovered authority is EXACT, not address-directed. A same-id frame
+  that survives the reload keeps its `:drain-lock` by identity, so
+  `frame-incarnation-token` answers the very token the original `make-frame`
+  value carried; the reconstructed value therefore destroys EXACTLY that
+  incarnation and no-ops against a same-id successor reseated after it. A
+  row that already recorded its value short-circuits before the token read,
+  so only a legacy row ever reaches it, and a frame no longer live yields no
+  token — harmless, since teardown will not destroy an absent frame either."
+  [frame-id fresh-value recorded-value]
+  (or fresh-value
+      recorded-value
+      (when-let [token (frame/frame-incarnation-token frame-id)]
+        (frame/make-frame-value {:id          frame-id
+                                 :runnable-id frame-id
+                                 :token       token}))))
+
 (defn- preflight!
   "Run `plan` to completion, and answer the frame-id it bound. Called
   BEFORE `createRoot`, so a body that reads a subscription on its first
@@ -782,10 +827,13 @@
                  {:config-fingerprint (if owned? config-fingerprint (:config-fingerprint r))
                   :installed-by       (if owned? (or (:installed-by r) root-id) (:installed-by r))
                   ;; The install authority: the fresh value when the plan just ran,
-                  ;; else the value from the install that stands. A scoped mount
+                  ;; else the value from the install that stands, else the exact
+                  ;; incarnation recovered for a pre-#6818 LEGACY row a `defonce`
+                  ;; ledger carried across a hot reload without one. A scoped mount
                   ;; carries nothing of its own and leaves the row's value be.
                   :installed-value    (if owned?
-                                        (or installed-value (:installed-value r))
+                                        (installed-value-for frame-id installed-value
+                                                             (:installed-value r))
                                         (:installed-value r))
                   :refs               (conj (or (:refs r) #{}) root-id)})))
       frame-id)))
