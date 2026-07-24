@@ -187,6 +187,29 @@
 ;; Components
 ;; ---------------------------------------------------------------------------
 
+(defn self-fqn
+  "The canonical current-namespace Var of the view being compiled — `<ns>/<name>`
+  — or nil outside a defview (a root form carries no `:self`). Identical to the
+  `:fqn` `env/classify-head` stamps on an exact self component node."
+  [e]
+  (when (:self e) (symbol (str (:ns e)) (str (:self e)))))
+
+(defn self-view-head
+  "The symbol a `:view` component call is emitted AGAINST.
+
+  For the EXACT self-recursive head — the view currently being compiled — that
+  is the canonical current-namespace Var (the node's `:fqn`), never the raw
+  authored `:sym`. In a namespace that REFERS a same-named public authoring verb
+  (e.g. `(defview sub …)` where the ns refers `re-frame.freehand/sub`), the bare
+  authored spelling resolves through the refer to the AUTHORING Var, while the
+  qualified `:fqn` resolves to the view itself; the authored spelling stays
+  diagnostic only (rf2 self-Var invariant). Every other head — an unrelated
+  internal view, a foreign component, a local shadow — keeps its authored
+  spelling."
+  [e node]
+  (let [sf (self-fqn e)]
+    (if (and sf (= (:fqn node) sf)) (:fqn node) (:sym node))))
+
 (defn- prop-value-form [e {:keys [value marker render-fn]}]
   (case marker
     :foreign    `re-frame.freehand.tree/opaque-foreign
@@ -227,7 +250,7 @@
                         entries)
         props-map (cond-> props-map
                     (:present? key-info) (assoc :key (:expr key-info)))]
-    `(node/mount ~(:sym node) [~props-map ~@child-forms])))
+    `(node/mount ~(self-view-head e node) [~props-map ~@child-forms])))
 
 (defn- emit-behavior
   "A `v/behavior` attachment on the structural host: an INERT MARKER. It
