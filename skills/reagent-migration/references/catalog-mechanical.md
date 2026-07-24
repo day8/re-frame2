@@ -56,7 +56,7 @@ Two shapes are *not* this rule. A `subscribe` that is *stored* rather than deref
 {:on-click #(dispatch [:go 1])}   =>   {:on-click [:go 1]}
 ```
 
-**MIG-05 — a `%`-extraction closure lifts to a projection marker** (closed set of three — `::v/value`, `::v/checked`, `::v/key`):
+**MIG-05 — a `%`-extraction closure lifts to a projection marker** (a closed roster — `::v/value`, `::v/checked`, `::v/key`, `::v/scroll-top`, `::v/new-state`):
 
 ```clojure
 ;; before → after
@@ -156,7 +156,7 @@ Add the Freehand require; drop `reagent.*` requires **only when the namespace ha
           )
 ```
 
-Alias Freehand as `v` and write `v/defview` / `v/sub` qualified. The projection markers are `::v/value` / `::v/checked` / `::v/key`, which resolve through that alias — so the alias is load-bearing, not cosmetic.
+Alias Freehand as `v` and write `v/defview` / `v/sub` qualified. The projection markers are `::v/value` / `::v/checked` / `::v/key` / `::v/scroll-top` / `::v/new-state`, which resolve through that alias — so the alias is load-bearing, not cosmetic.
 
 ## MIG-32 — framework `route-link` → `v/route-link`
 

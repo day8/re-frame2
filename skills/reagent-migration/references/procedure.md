@@ -79,7 +79,7 @@ anything during a migration pass.
 - **Requires (MIG-24):** add `[re-frame.freehand :as v]`; drop `reagent.*`
   requires **only** when the namespace has zero remaining uses (a held view keeps
   them). The `v` alias is load-bearing — the projection markers `::v/value` /
-  `::v/checked` / `::v/key` resolve through it.
+  `::v/checked` / `::v/key` / `::v/scroll-top` / `::v/new-state` resolve through it.
 - **Root (MIG-15):** once per root. `v/mount` carries the frame preflight in its
   `:frame` opt, and Freehand needs no adapter install of its own. On a mixed page
   keep `(rf/init! reagent-adapter/adapter)` for the roots still on Reagent, and
