@@ -825,7 +825,7 @@ fact, and re-running the build reproduces the id.
 |---|---|
 | `:rf.ui.compile/placeholder-not-top-level` | a `:rf.ui/*` placeholder keyword is nested inside an event-vector argument, where it dispatches as an ordinary keyword instead of splicing |
 | `:rf.ui.compile/bare-fn-in-loop` | a bare `fn` handler is authored inside a `for` row — it works, at a per-row closure cost, and defeats the data idiom |
-| `:rf.ui.compile/controlled-input-async-handler` | a controlled `:value`/`:checked` input's change handler is neither a literal event vector nor `(ui/event …)`, so it misses the controlled-input sync door |
+| `:rf.ui.compile/controlled-input-async-handler` | a controlled `:value`/`:checked` input's change handler is neither a literal event vector nor `v/event` — the sync door still opens at commit, decided from the runtime handler value, but nothing static pins the handler's class, so the site is **opaque**: its intent is absent from the compiled manifest and no structural test or tool can say what it dispatches before it fires |
 
 **Accessibility diagnostics.** Four checks, and the boundary around them is the
 point: **re-frame2 is not an accessibility framework.** These do not replace an
