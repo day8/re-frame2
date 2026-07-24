@@ -256,10 +256,21 @@
      :cljs (and (some? thrown) (identical? thrown (js/Object thrown)))))
 
 (defn note-failing-view!
-  "Record `view-id` as the declared view whose render threw `thrown` —
-  called by the OCCURRENCE seam of each host (the React function component
-  the interpreted emitter builds, the structural walk's mount) as that throw
-  passes through it, and by nothing else.
+  "Record `view-id` as the declared view whose render threw `thrown`, at
+  `phase` — called by the OCCURRENCE seam of each host (the React function
+  component the interpreted emitter builds, the structural walk's mount) as
+  that throw passes through it, and by nothing else.
+
+  `phase` is the moment the failure arose AT THIS SEAM, and is knowable only
+  here: `:render` when the declared view BODY threw as it was called, and
+  `:normalize` when the body returned and the emitter's WALK of what it
+  returned threw — a lazy child realised by the walk, common prop/event
+  validation refusing a value. The catching boundary is several fibers or
+  frames above and, like the view identity, cannot tell the two apart from
+  the throwable alone; so the phase rides the thrown value from the seam that
+  observed it, exactly as the identity does. A seam that owns only a body
+  call (the compiled tier, whose body walks internally) uses the `:render`
+  default arity.
 
   The FIRST writer for a given throw wins, because the innermost occurrence
   is the one that threw: the throw unwinds outward through every enclosing
@@ -267,18 +278,20 @@
   overwrite the culprit with itself. First-writer-wins is scoped to the ONE
   throw — a concurrent or interleaved failure is a different key and neither
   claims nor clears the other's note."
-  [thrown view-id]
-  (when (attributable? thrown)
-    #?(:clj  (.putIfAbsent ^java.util.Map failing-views thrown view-id)
-       :cljs (when-not (.has ^js failing-views thrown)
-               (.set ^js failing-views thrown view-id))))
-  nil)
+  ([thrown view-id] (note-failing-view! thrown view-id :render))
+  ([thrown view-id phase]
+   (when (attributable? thrown)
+     (let [note {:view-id view-id :phase phase}]
+       #?(:clj  (.putIfAbsent ^java.util.Map failing-views thrown note)
+          :cljs (when-not (.has ^js failing-views thrown)
+                  (.set ^js failing-views thrown note)))))
+   nil))
 
 (defn- noted-failing-view
-  "The view noted for `thrown`, or nil when no occurrence noted one. Reading
-  is not consuming: the note belongs to the throw, so a host that catches
-  the same throw twice (StrictMode, an HMR re-render) reads the same
-  answer."
+  "The note recorded for `thrown` — `{:view-id … :phase …}` — or nil when no
+  occurrence noted one. Reading is not consuming: the note belongs to the
+  throw, so a host that catches the same throw twice (StrictMode, an HMR
+  re-render) reads the same answer."
   [thrown]
   (when (attributable? thrown)
     #?(:clj  (.get ^java.util.Map failing-views thrown)
@@ -286,8 +299,8 @@
 
 (defn attributed-failure
   "Answer `caught` — a host's raw material for one failure — carrying the
-  identity of the declared view that actually threw, resolved from the
-  occurrence seam's note on `caught`'s own `:exception`
+  identity AND the phase of the declared view that actually threw, resolved
+  from the occurrence seam's note on `caught`'s own `:exception`
   ([[note-failing-view!]]).
 
   This is the whole value of a failure report. A record that names the
@@ -298,12 +311,20 @@
   share a catcher. A record that named some OTHER failure's thrower is worse
   again: it is a confident identification of an innocent view.
 
+  The `:phase` travels the same failure-local route. The boundary can only
+  supply a DEFAULT phase — it caught the throw where nothing tells it whether
+  the view body threw or the walk of what the body returned did — so the
+  seam's observed phase, when there is one, wins. A normalization/walk
+  failure and a view-body failure under the same view therefore fingerprint
+  APART, which is the whole point of `:phase` being public diagnostic data.
+
   When nothing was noted for this throw the record says so —
   [[unknown-view-id]], evidence marked incomplete, and a `:loss` naming why
-  — rather than substituting an identity it does not have."
+  — rather than substituting an identity it does not have, and the host's
+  default `:phase` is kept."
   [{:keys [exception] :as caught}]
-  (if-let [failing (noted-failing-view exception)]
-    (assoc caught :view-id failing)
+  (if-let [{:keys [view-id phase]} (noted-failing-view exception)]
+    (assoc caught :view-id view-id :phase phase)
     (assoc caught
            :view-id   unknown-view-id
            :complete? false

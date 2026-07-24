@@ -360,14 +360,28 @@
           ;; learn whose it was — the throwable carries no view identity, and
           ;; a boundary that guessed would name the guarded child or itself.
           ;; The note is against THIS throw, and is dropped if an inner
-          ;; occurrence already made one for it.
-          kids    (try
-                    (if-let [structural (descriptor/structural-body view)]
+          ;; occurrence already made one for it. The seam also records the
+          ;; PHASE, which is likewise unknowable at the catch: a compiled body
+          ;; walks internally, so its throw is `:render`; an interpreted body
+          ;; is called and then its result is walked, so a throw while CALLING
+          ;; is `:render` and a throw while WALKING what it returned — a lazy
+          ;; child realised here — is `:normalize`.
+          kids    (if-let [structural (descriptor/structural-body view)]
+                    (try
                       (node/children (structural props*))
-                      (children [((descriptor/render-body view) props*)]))
-                    (catch #?(:clj Throwable :cljs :default) e
-                      (eb/note-failing-view! e view-id)
-                      (throw e)))]
+                      (catch #?(:clj Throwable :cljs :default) e
+                        (eb/note-failing-view! e view-id :render)
+                        (throw e)))
+                    (let [form (try
+                                 ((descriptor/render-body view) props*)
+                                 (catch #?(:clj Throwable :cljs :default) e
+                                   (eb/note-failing-view! e view-id :render)
+                                   (throw e)))]
+                      (try
+                        (children [form])
+                        (catch #?(:clj Throwable :cljs :default) e
+                          (eb/note-failing-view! e view-id :normalize)
+                          (throw e)))))]
       (node/boundary view-id props keyed? key kids))))
 
 ;; ---------------------------------------------------------------------------
