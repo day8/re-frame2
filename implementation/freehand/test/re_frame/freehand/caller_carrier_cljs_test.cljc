@@ -1,26 +1,29 @@
 (ns re-frame.freehand.caller-carrier-cljs-test
   "`(v/spread-safe owned caller)`'s internal transport, and the fact that an
-  author cannot write it.
+  author cannot forge it.
 
   The guarded caller map rides to the element inside the owned attribute map,
   under a reserved key, because the fold that puts it UNDER the owned props
   belongs to the canonicaliser rather than to either front end. That leaves one
   key with two readings — transport to the walks, an ordinary namespaced
-  attribute to Freehand's own attribute law — and both readings were reachable
-  by writing the key:
+  attribute to Freehand's own attribute law. The forgery answer is a VALUE
+  mark, not a reserved name: the transport is a `CarriedCaller`, and an
+  authored value never is one, so a `:rf.ui/caller` an author writes is left in
+  the attribute map and treated as the ordinary attribute it is —
 
-    [:div {:rf.ui/caller \"authored\"}]        threw a raw ClassCastException,
-                                             folding a string as a map;
-    [:div {:rf.ui/caller {:data-x \"1\"}}]      rendered a PERFECTLY WELL-FORMED
-                                             element carrying `data-x` — caller
-                                             attributes forged onto an element
-                                             that never asked for them.
+    [:div {:rf.ui/caller \"ok\"}]      emits an ordinary `caller` attribute;
+    [:div {:rf.ui/caller {:x 1}}]     is refused by the ordinary
+                                      attribute-value grammar, because a map
+                                      is not an attribute value — exactly as
+                                      a map under any other name is;
 
-  The second is why the rows below assert the RESULT rather than that something
-  went wrong: a test that only demanded a throw, or a non-empty render, passed
-  against the defect.
+  and NEVER folded as caller attributes onto an element that did not ask for
+  them. Reserving the NAME as well (as an early fix did) burned the emitted
+  `caller` slot across every spelling and silently narrowed the pass-through
+  attribute law; the mark alone is sufficient, so the name is ordinary
+  (rf2-drpa3.132).
 
-  Three walks read one roster, so all three are asked here — the interpreted
+  Three walks read one rule, so all three are asked here — the interpreted
   structural walk, the interpreted React walk, and the compiled analyzer — plus
   the two runtime forwarding verbs, because `v/spread` could hand the same key
   to the same seam from the other side."
@@ -34,55 +37,51 @@
             #?(:cljs [re-frame.freehand.react :as fr])))
 
 (def ^:private spellings
-  "Every representation of the reserved carrier NAME. The walks classify an
-  attribute key by the prop name they are about to emit — the namespace is
-  dropped on the way to the DOM — so a qualified keyword, a plain keyword, a
-  string and a symbol are one name written four ways, and a guard that read the
-  raw key would leave three of them outside it."
+  "Every representation of the carrier NAME. The walks classify an attribute
+  key by the prop name they are about to emit — the namespace is dropped on the
+  way to the DOM — so a qualified keyword, a plain keyword, a string and a
+  symbol are one name written four ways. NONE of them is reserved: the mark, not
+  the name, is what makes transport transport."
   [:rf.ui/caller :caller :x/caller "caller" 'caller])
 
-(def ^:private forged-values
-  "What an authored carrier could carry. The MAP is the dangerous one — it is
-  the shape the fold expects, so it produced an element rather than an error."
-  ["authored" {:data-forged "yes"} nil])
-
 ;; ---------------------------------------------------------------------------
-;; The interpreted structural walk
+;; The interpreted structural walk — the carrier NAME is an ordinary attribute
 ;; ---------------------------------------------------------------------------
 
-(deftest an-authored-carrier-key-is-refused-by-the-structural-walk
-  (testing "Every spelling of the reserved name, carrying every shape an
-            author could give it, is refused with the grammar's own typed
-            diagnostic — including the map, which used to be folded."
-    (doseq [k spellings
-            raw forged-values]
+(deftest an-authored-carrier-key-is-an-ordinary-attribute-in-the-structural-walk
+  (testing "A scalar value under any spelling of the carrier name is the
+            ordinary attribute the pass-through law says it is — carried in
+            author space, not folded as transport (rf2-drpa3.132)."
+    (is (= {:rf.ui/caller "ok"} (:attrs (tree/render [:div {:rf.ui/caller "ok"}]))))
+    (is (= {:caller "ok"}       (:attrs (tree/render [:div {:caller "ok"}]))))
+    (is (= {:x/caller "ok"}     (:attrs (tree/render [:div {:x/caller "ok"}]))))
+    (is (= {"caller" "ok"}      (:attrs (tree/render [:div {"caller" "ok"}])))))
+
+  (testing "a nil value is the ordinary DROPPED attribute, not a carrier"
+    (is (nil? (:attrs (tree/render [:div {:rf.ui/caller nil}]))))
+    (is (nil? (:attrs (tree/render [:div {:caller nil}])))))
+
+  (testing "a MAP value is refused by the ordinary attribute-value grammar —
+            because a map is not an attribute value, exactly as under any other
+            name, and NOT by a reserved-name or transport-fold path"
+    (doseq [k spellings]
       (is (= :rf.error/ui-tree-malformed
-             (conf/caught-id #(tree/render [:div {k raw}])))
-          (str (pr-str k) " carrying " (pr-str raw) " is refused, not folded"))))
-
-  (testing "and the diagnostic names the verb that owns the transport"
+             (conf/caught-id #(tree/render [:div {k {:data-forged "yes"}}])))
+          (str (pr-str k) " carrying a map is refused as a map-valued attribute")))
     (is (str/includes? (conf/caught-message
                          #(tree/render [:div {:rf.ui/caller {:data-forged "yes"}}]))
-                       "(v/spread-safe owned caller)")))
+                       "no attribute spelling")
+        "the diagnostic is the ordinary attribute-value one, not the transport verb"))
 
-  (testing "the forged attributes are the point: this exact element, with this
-            exact attribute map, is what the defect rendered from an authored
-            carrier — and it is reachable ONLY through the verb"
-    (is (= {:data-forged "yes"}
-           (:attrs (tree/render [:div (v/spread-safe {} {:data-forged "yes"})])))
-        "non-vacuous: the guarded carrier still delivers exactly these attrs"))
-
-  (testing "not over-broad — an ordinary qualified attribute whose name is not
-            the reserved one keeps its authored spelling"
-    (is (= {:x/title "t"} (:attrs (tree/render [:div {:x/title "t"}]))))
-    (is (= {"rf.ui/caller" "s"} (:attrs (tree/render [:div {"rf.ui/caller" "s"}])))
-        "a STRING key has no namespace to drop, so its emitted name is the whole
-         string and it is a different attribute from the reserved one")))
+  (testing "and none of this forges anything: an authored map is never folded
+            as caller attributes onto the element"
+    (is (nil? (:attrs (tree/render [:div {:caller nil}])))
+        "no attrs at all — certainly no forged data-* the caller would carry")))
 
 (deftest a-guarded-caller-still-folds-under-the-owned-props
-  (testing "The transport itself is untouched by the refusal: owned wins,
-            `:class` composes sugar-then-owned-then-caller, and the caller's
-            own attributes arrive."
+  (testing "The transport itself is untouched: owned wins, `:class` composes
+            sugar-then-owned-then-caller, and the caller's own attributes
+            arrive — reached ONLY through the verb, via the value mark."
     (is (= {:aria-label "L"
             :data-x     "1"
             :class      "field owned-class caller-class"
@@ -96,23 +95,24 @@
 ;; The runtime forwarding verbs
 ;; ---------------------------------------------------------------------------
 
-(deftest a-forwarded-runtime-map-cannot-smuggle-the-carrier
-  (testing "`v/spread` reaches the element through the same seam, so a
-            runtime-assembled map carrying the reserved key is refused where a
-            literal one is — at the verb, before anything renders."
+(deftest a-forwarded-runtime-map-carries-the-carrier-name-as-an-ordinary-attribute
+  (testing "The carrier name is not reserved, so `v/spread` forwarding it is
+            not refused at the verb — it is the ordinary attribute it names.
+            A scalar rides through; a map value is refused by the ordinary
+            attribute-value grammar at the ELEMENT, as any map under any name
+            is (rf2-drpa3.132)."
+    (is (= {:rf.ui/caller "s"} (v/spread {} {:rf.ui/caller "s"}))
+        "v/spread forwards the ordinary attribute untouched")
+    (is (= {:rf.ui/caller "s"}
+           (:attrs (tree/render [:div (v/spread {} {:rf.ui/caller "s"})])))
+        "and it reaches the element as an ordinary attribute — never folded as transport")
     (is (= :rf.error/ui-tree-malformed
-           (conf/caught-id #(v/spread {} {:rf.ui/caller {:data-forged "yes"}}))))
-    (is (str/includes? (conf/caught-message
-                         #(v/spread {} {:rf.ui/caller {:data-forged "yes"}}))
-                       "A forwarded attribute map carries :rf.ui/caller")))
+           (conf/caught-id
+             #(tree/render [:div (v/spread {} {:rf.ui/caller {:data-forged "yes"}})])))
+        "a MAP value is refused at the element, as any map-valued attribute is"))
 
-  (testing "and a CALLER map handed to `v/spread-safe` cannot carry it either —
-            the guard canonicalizes the key to its name first, so the qualified
-            spelling is refused as the plain one is"
-    (is (= :rf.error/ui-tree-malformed
-           (conf/caught-id #(v/spread-safe {} {:rf.ui/caller {:data-forged "yes"}})))))
-
-  (testing "non-vacuous: an ordinary forwarded key passes both verbs"
+  (testing "non-vacuous: the guarded v/spread-safe transport still delivers
+            exactly its caller attrs through the value mark"
     (is (= {:title "t"} (v/spread {} {:title "t"})))
     (is (= {:data-x "1"}
            (:attrs (tree/render [:div (v/spread-safe {} {:data-x "1"})]))))))
@@ -121,32 +121,38 @@
 ;; The compiled analyzer
 ;; ---------------------------------------------------------------------------
 
-(deftest the-compiled-analyzer-refuses-the-carrier-spelling-too
-  (testing "One roster, three readers: the analyzer answers a literal carrier
-            key at build time with its own rejected-spelling error, so a
-            declaration cannot compile into the shape the interpreted walks
-            refuse."
+(deftest the-compiled-analyzer-treats-the-carrier-name-as-an-ordinary-prop
+  (testing "One rule, three readers: the analyzer no longer refuses a literal
+            carrier-name key — a scalar under it compiles as the ordinary
+            `caller` prop, so a declaration is not narrowed out of the
+            pass-through attribute language (rf2-drpa3.132)."
     (doseq [k [:rf.ui/caller :caller :x/caller]]
-      (is (= :rf.ui.compile/rejected-prop-spelling (reject-id [:div {k "authored"}]))
-          (str (pr-str k) " projects onto the reserved carrier slot"))))
+      (is (nil? (reject-id [:div {k "ok"}]))
+          (str (pr-str k) " is an ordinary attribute, not a rejected spelling"))))
 
-  (testing "not over-broad — a neighbouring qualified prop still compiles"
-    (is (nil? (reject-id '[:div {:x/title "ok"}])))))
+  (testing "the ordinary attribute-value rule still holds — a literal MAP under
+            it is refused as a collection value, as under any other prop"
+    (is (= :rf.ui.compile/collection-attr-value
+           (reject-id '[:div {:caller {:data-forged "yes"}} "x"])))))
 
 ;; ---------------------------------------------------------------------------
 ;; The interpreted React walk
 ;; ---------------------------------------------------------------------------
 
 #?(:cljs
-   (deftest an-authored-carrier-key-is-refused-by-the-react-walk
-     (testing "The sibling emitter reads the carrier through the same splitter,
-               so an authored key is refused there with the same typed
-               diagnostic rather than reaching React as a props object entry."
-       (doseq [k spellings
-               raw forged-values]
+   (deftest an-authored-carrier-key-is-an-ordinary-prop-in-the-react-walk
+     (testing "The sibling emitter reads the carrier through the same value
+               mark, so an authored scalar reaches React as the ordinary
+               `caller` prop and a map value is refused by the ordinary
+               attribute-value grammar — neither is folded as transport."
+       (doseq [k [:rf.ui/caller :caller :x/caller "caller"]]
+         (let [props (.-props (fr/element [:div {k "ok"}]))]
+           (is (= "ok" (gobj/get props "caller"))
+               (str (pr-str k) " emits the ordinary caller prop"))))
+       (doseq [k spellings]
          (is (= :rf.error/ui-tree-malformed
-                (conf/caught-id #(fr/element [:div {k raw}])))
-             (str (pr-str k) " carrying " (pr-str raw) " is refused by the React walk"))))))
+                (conf/caught-id #(fr/element [:div {k {:data-forged "yes"}}])))
+             (str (pr-str k) " carrying a map is refused as a map-valued attribute"))))))
 
 #?(:cljs
    (deftest a-guarded-caller-reaches-the-react-props-object
@@ -164,7 +170,5 @@
          (is (= "field owned-class caller-class" (gobj/get props "className")))
          (is (= "L" (gobj/get props "aria-label")))
          (is (= "1" (gobj/get props "data-x")))
-         (is (false? (gobj/containsKey props "caller"))
-             "no internal caller prop reaches React")
          (is (false? (gobj/containsKey props "rf.ui/caller"))
-             "and neither does the reserved key under its own name")))))
+             "no internal carrier prop reaches React under its own name")))))

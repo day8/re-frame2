@@ -348,24 +348,21 @@
   table §Attribute names; template grammar). The value is the didactic
   replacement the compile error names.
 
-  The last entry is a different kind of name. `:rf.ui/caller` is the
-  RESERVED slot `(v/spread-safe owned caller)` hands its guarded caller map
-  to an element under, and the element walks read it as transport rather
-  than as an attribute. Freehand's own namespaced-attribute law makes
-  `[:div {:rf.ui/caller …}]` an ordinary authored attribute, so without an
-  entry here the two readings collide: an authored string was folded as a
-  map and threw a raw class cast, and an authored MAP was folded silently,
-  injecting caller attributes into an element that never asked for them.
-  Refusing the NAME — every spelling of it, on the direct attribute path
-  and inside a forwarded runtime map alike — leaves the transport with
-  exactly one producer, `v/spread-safe` itself."
+  `:rf.ui/caller` is deliberately NOT here. It is the carrier key
+  `(v/spread-safe owned caller)` rides its guarded map under, and an early
+  fix reserved the NAME to keep an authored attribute from being mistaken
+  for transport. But the transport is identified by a VALUE mark
+  ([[re-frame.freehand.node/carry-caller]]) — an authored value is never
+  that mark, so it is left as an ordinary attribute — and reserving the
+  name as well silently narrowed Freehand's own pass-through attribute law,
+  burning the emitted `caller` slot across every spelling. The mark alone
+  is the forgery answer, so the name stays an ordinary attribute (rf2-drpa3.132)."
   {:class-name                  ":class"
    :html-for                    ":for"
    :dangerously-set-inner-html  "(v/html ...)"
    :dangerouslySetInnerHTML     "(v/html ...)"
    :inner-html                  "(v/html ...)"
-   :children                    "positional children"
-   :rf.ui/caller                "(v/spread-safe owned caller)"})
+   :children                    "positional children"})
 
 (defn- collapsed [n] (str/replace n "-" ""))
 
