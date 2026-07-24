@@ -30,6 +30,7 @@
             ;; it lands, and nothing discovered by scanning.
             [re-frame.freehand.bench.b1]
             [re-frame.freehand.bench.b2]
+            [re-frame.freehand.bench.b3]
             [re-frame.freehand.bench.falsifiability :as falsifiability]
             #?(:clj [clojure.pprint :as pp] :cljs [cljs.pprint :as pp])))
 
