@@ -500,6 +500,75 @@
 ;; `frame-standing` stays the sole authority even if the hook never fired.
 (defonce ^:private frame-ledger (atom {}))
 
+;; The UPGRADE boundary — a pre-#6871 FLAT row across the ownership-schema reload.
+;;
+;; `frame-ledger` is `defonce`, so the FIRST reload onto the nested-`:ownership`
+;; code above meets a row the immediately previous build wrote in the FLAT shape
+;; `{:config-fingerprint :installed-by :installed-value :refs}`. That row is NOT
+;; unprovable legacy data: its `:installed-value` IS the exact incarnation handle
+;; `make-frame` handed back, so it migrates LOSSLESSLY — `:installed-value` →
+;; `:handle`, `:installed-by` → `:plan-author`, `:config-fingerprint` →
+;; `:plan-fingerprint`, refs unchanged. Left un-normalized, `frame-standing`
+;; reads `(:ownership row)` as nil and mis-verdicts a live OWNED frame
+;; `:unowned-live`, so the ordinary same-plan HMR remount fails
+;; `:scope-config-less-or-own-the-lifetime` and neither `release-frame!` nor the
+;; destroy hook can match the flat handle — the root-owned frame leaks LIVE.
+;;
+;; So the ONE known flat shape is normalized IN PLACE at the door (`ledger-row!`),
+;; before any verdict, release or hook read consumes it — never a versioned
+;; migration framework, never a public API. A genuinely tokenless pre-#6818 row
+;; (an `:installed-by` with no `:installed-value`) normalizes to `:ownership`
+;; WITHOUT a `:handle`, so `frame-standing` still verdicts it `:legacy-live` and
+;; it stays unprovable/fail-loud: the handle is never backfilled from a bare id.
+
+(defn- pre-6871-flat-row?
+  "True of a row still in the pre-#6871 FLAT shape a `defonce` ledger carried
+  across the ownership-schema hot reload — one carrying the top-level
+  `:installed-by` / `:installed-value` / `:config-fingerprint` keys the nested
+  `:ownership` tuple replaced. The nested shape carries none of them at the top
+  level, and an owned or tombstoned row carries `:ownership`, so a top-level
+  flat key with NO `:ownership` is the unambiguous reload-survivor signal."
+  [row]
+  (and (map? row)
+       (not (contains? row :ownership))
+       (or (contains? row :installed-by)
+           (contains? row :installed-value)
+           (contains? row :config-fingerprint))))
+
+(defn- normalize-flat-row
+  "Rewrite a pre-#6871 FLAT ledger row into the nested `{:ownership {:handle
+  :plan-author :plan-fingerprint} :refs}` tuple, LOSSLESSLY: the exact
+  incarnation `:handle` from `:installed-value`, the `:plan-author` from
+  `:installed-by`, the `:plan-fingerprint` from `:config-fingerprint`, and the
+  `:refs` set unchanged. A row that named an installer but never recorded a
+  value — a genuinely tokenless pre-#6818 row, `:installed-value` absent —
+  becomes `:ownership` WITHOUT a `:handle`, so it stays `:legacy-live` and the
+  migration never backfills a handle from a bare id. A borrowed flat row (no
+  installer) becomes a plain `{:refs …}` with no `:ownership`. Applied only to a
+  [[pre-6871-flat-row?]] (the caller guards), so it need not be idempotent."
+  [row]
+  (let [{:keys [config-fingerprint installed-by installed-value refs]} row
+        ownership (when (some? installed-by)
+                    (cond-> {:plan-author      installed-by
+                             :plan-fingerprint config-fingerprint}
+                      (some? installed-value) (assoc :handle installed-value)))]
+    (cond-> {:refs (or refs #{})}
+      (some? ownership) (assoc :ownership ownership))))
+
+(defn- ledger-row!
+  "The ledger row for `frame-id`, normalizing a pre-#6871 FLAT reload-survivor
+  in place FIRST — persisted, so every read that follows this tick (the verdict,
+  the preflight write-merge's `prior`, release's owner/refs, the destroy hook's
+  handle) sees the one canonical nested shape rather than a stale flat one. A
+  row already nested, a borrowed row, or nil is returned unchanged with no swap.
+  `frame-standing` and the destroy hook are its callers; the other ledger reads
+  run only AFTER `frame-standing` has already normalized the row through here."
+  [frame-id]
+  (let [row (get @frame-ledger frame-id)]
+    (if (pre-6871-flat-row? row)
+      (get (swap! frame-ledger update frame-id normalize-flat-row) frame-id)
+      row)))
+
 (defn ^:no-doc live-root-ids
   "Every root-id currently live in the document — a registry read for
   tests and tools, never application API."
@@ -539,6 +608,29 @@
   successor). Never application API."
   [frame-id]
   (swap! frame-ledger update-in [frame-id :ownership] dissoc :handle)
+  nil)
+
+(defn ^:no-doc flatten-ledger-row-to-pre-6871!
+  "Rewrite `frame-id`'s ledger row DOWN to the pre-#6871 FLAT shape a `defonce`
+  ledger carried across the ownership-schema hot reload — the flat
+  `{:config-fingerprint :installed-by :installed-value :refs}` tuple the nested
+  `:ownership` model replaced — a test-only seam. There is no other way to
+  produce that shape: current code always writes the nested tuple, so a suite
+  proving the upgrade-boundary normalization ([[normalize-flat-row]]) must seed
+  the flat shape from the nested row the mount just wrote. The exact install
+  `:handle` is preserved as `:installed-value` (the owned-with-handle row,
+  migratable losslessly); a row already stripped of its handle by
+  [[downgrade-ledger-row-to-pre-6818!]] flattens with NO `:installed-value` (a
+  genuinely tokenless pre-#6818 row, which must stay unprovable). The `:refs`
+  set is carried across unchanged. Never application API."
+  [frame-id]
+  (swap! frame-ledger update frame-id
+         (fn [row]
+           (let [{:keys [handle plan-author plan-fingerprint]} (:ownership row)]
+             (cond-> {:refs (:refs row)}
+               (some? plan-fingerprint) (assoc :config-fingerprint plan-fingerprint)
+               (some? plan-author)      (assoc :installed-by plan-author)
+               (some? handle)           (assoc :installed-value handle)))))
   nil)
 
 (defn- owner-of-container
@@ -789,9 +881,14 @@
   A config-bearing plan requires `:absent` (create) or `:owned-live` (own the
   live incarnation); every other verdict is loud. The discrimination lives in
   the VERDICT, so the arms do not each re-derive it — and none can skip the
-  join, because this is the only accessor that returns an ownership fact."
+  join, because this is the only accessor that returns an ownership fact.
+
+  It reads through [[ledger-row!]], which normalizes a pre-#6871 FLAT
+  reload-survivor into the nested shape in place first — so the verdict is taken
+  over the canonical tuple and a live OWNED frame whose row survived the
+  ownership-schema reload is no longer mis-verdicted `:unowned-live`."
   [frame-id]
-  (let [ownership (:ownership (get @frame-ledger frame-id))]
+  (let [ownership (:ownership (ledger-row! frame-id))]
     (cond
       (nil? (frame/frame frame-id))               :absent
       (owns-live-incarnation? ownership frame-id) :owned-live
@@ -1036,9 +1133,13 @@
   freshness, never the proof — `frame-standing`'s join stays the sole authority
   even if this hook never fired. (A frame's own orderly release dissocs its row
   BEFORE calling `destroy-frame!`, so this hook finds no row and no-ops — only an
-  EXTERNAL destroy reaches a still-referenced owned row.)"
+  EXTERNAL destroy reaches a still-referenced owned row.)
+
+  Reads through [[ledger-row!]], so a pre-#6871 FLAT reload-survivor is
+  normalized before the handle join — a frame destroyed externally before its
+  first remount still tombstones the migrated row rather than being missed."
   [frame-id dying-token]
-  (let [row   (get @frame-ledger frame-id)
+  (let [row   (ledger-row! frame-id)
         token (frame/frame-value-incarnation-token (:handle (:ownership row)))]
     (when (and (some? token) (identical? token dying-token))
       (swap! frame-ledger update frame-id

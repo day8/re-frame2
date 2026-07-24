@@ -620,3 +620,196 @@
                   (is false (str "legacy-release loudness suite rejected: " e))
                   (.remove node)
                   (done)))))))))
+
+;; ===========================================================================
+;; FH-ROOT-005 — the UPGRADE boundary: a pre-#6871 FLAT ledger row across the
+;; ownership-schema hot reload (rf2-4pvsy)
+;;
+;; `frame-ledger` is `defonce`, so the FIRST reload onto the nested-`:ownership`
+;; code meets a row the immediately previous build wrote in the FLAT shape
+;; `{:config-fingerprint :installed-by :installed-value :refs}`. That row is NOT
+;; unprovable legacy data — its `:installed-value` IS the exact incarnation
+;; handle — so it must migrate LOSSLESSLY: `:installed-value` → `:handle`,
+;; `:installed-by` → `:plan-author`, `:config-fingerprint` → `:plan-fingerprint`,
+;; refs unchanged. Un-normalized, `frame-standing` reads `(:ownership row)` as nil
+;; and mis-verdicts a live OWNED frame `:unowned-live`, so the ordinary same-plan
+;; HMR remount fails `:scope-config-less-or-own-the-lifetime` and neither release
+;; nor the destroy hook can match the flat handle. The existing downgrade fixture
+;; removes `:handle` from the NEW nested shape and so cannot reach this UPGRADE
+;; boundary — these three rows do.
+;; ===========================================================================
+
+(deftest fh-root-005-a-pre-6871-flat-row-normalizes-across-the-ownership-schema-reload
+  (testing "Per FH-ROOT-005 / rf2-4pvsy (browser): a pre-#6871 FLAT defonce row
+            carrying its real :installed-value is normalized losslessly to the
+            nested :ownership tuple before any verdict reads it, so the ordinary
+            same-plan HMR remount SUCCEEDS as the idempotent no-op — durable state
+            is preserved (no reseed), the EXACT original incarnation survives
+            (make-frame never re-runs), and the migrated :handle is the identical
+            old incarnation token. The final unmount then destroys exactly that
+            incarnation and empties the ledger."
+    (if-not (browser?)
+      (skip! "the browser job runs the flat-row upgrade-boundary assertions")
+      (async done
+        (reg!)
+        (let [node       (host-node!)
+              fid        :fh.root/upgrade-owned
+              plan       {:frame {:id fid :initial-events [[:root/seed 11]]}}
+              orig-token (atom nil)
+              root-id    (atom nil)]
+          (-> (act #(v/mount [views/counter {}] node plan))
+              (.then
+                (fn [installer]
+                  (reset! orig-token (frame/frame-incarnation-token fid))
+                  (reset! root-id (:root-id (root/root-descriptor installer)))
+                  (is (= 11 (:n (frame/frame-app-db-value fid))) "the installer seeded the frame")
+                  ;; Seed the EXACT pre-#6871 FLAT row a defonce ledger carried
+                  ;; across the ownership-schema reload, with its real handle.
+                  (root/flatten-ledger-row-to-pre-6871! fid)
+                  (is (nil? (get-in (root/frame-ledger-snapshot) [fid :ownership]))
+                      "the seeded row is FLAT — no nested :ownership")
+                  (is (some? (get-in (root/frame-ledger-snapshot) [fid :installed-value]))
+                      "and it carries the exact install handle at :installed-value")
+                  ;; Mutate durable state, so a silent reseed to 11 would show. The
+                  ;; frame db value is read directly — timing-independent of the
+                  ;; reactive repaint, which is a substrate fact, not this fixture's.
+                  (act #(rf/dispatch-sync [:root/seed 99] {:frame fid}))))
+              (.then
+                (fn [_]
+                  (is (= 99 (:n (frame/frame-app-db-value fid))) "durable state is now 99")
+                  ;; The reloaded code re-runs the same-plan mount over the flat row.
+                  (act #(v/mount [views/counter {}] node plan))))
+              (.then
+                (fn [remounted]
+                  (is (root/root? remounted)
+                      "the same-plan HMR remount SUCCEEDED — no scope-or-own fail-loud")
+                  (is (= 99 (:n (frame/frame-app-db-value fid)))
+                      "durable state preserved — the idempotent no-op did NOT reseed to 11")
+                  (is (identical? @orig-token (frame/frame-incarnation-token fid))
+                      "the EXACT original incarnation survived — make-frame never re-ran")
+                  (let [owner (get-in (root/frame-ledger-snapshot) [fid :ownership])]
+                    (is (some? owner)
+                        "the flat row is normalized to the nested :ownership tuple")
+                    (is (identical? @orig-token
+                                    (frame/frame-value-incarnation-token (:handle owner)))
+                        "the migrated :handle is the identical old incarnation token — lossless")
+                    (is (= @root-id (:plan-author owner))
+                        "the author label is preserved (:installed-by → :plan-author)")
+                    (is (some? (:plan-fingerprint owner))
+                        "and the fingerprint (:config-fingerprint → :plan-fingerprint)"))
+                  (is (nil? (get-in (root/frame-ledger-snapshot) [fid :installed-value]))
+                      "the flat keys are gone — normalized in place, not shadowing the tuple")
+                  (act #(v/unmount! remounted))))
+              (.then
+                (fn [_]
+                  (is (nil? (frame/frame fid))
+                      "final unmount destroyed EXACTLY that original incarnation")
+                  (is (empty? (root/frame-ledger-snapshot)) "and emptied the ledger")
+                  (.remove node) (done))
+                (fn [e]
+                  (is false (str "flat-row upgrade-boundary suite rejected: " e))
+                  (.remove node) (done)))))))))
+
+(deftest fh-root-005-the-destroy-hook-tombstones-a-migrated-flat-row
+  (testing "Per FH-ROOT-005 / rf2-4pvsy (browser): a frame whose FLAT row survived
+            the reload is destroyed EXTERNALLY before its first remount. The
+            :freehand/on-frame-destroyed! hook normalizes the flat row first, so
+            it can match the migrated handle against the dying token — it
+            TOMBSTONES the row (drops the handle, stamps :destroyed-at) and, the
+            installer still referencing it, emits exactly one loud
+            :rf.warning/root-ensured-frame-destroyed-under-live-roots naming it.
+            Without the normalization the flat handle is unreachable and the row
+            is missed entirely."
+    (if-not (browser?)
+      (skip! "the browser job runs the migrated-flat destroy-hook assertions")
+      (async done
+        (reg!)
+        (let [node  (host-node!)
+              fid   :fh.root/upgrade-hook
+              plan  {:frame {:id fid :initial-events [[:root/seed 11]]}}
+              warns (atom [])
+              k     (listen! :rf.warning/root-ensured-frame-destroyed-under-live-roots warns)]
+          (-> (act #(v/mount [views/counter {}] node plan))
+              (.then
+                (fn [installer]
+                  ;; the pre-#6871 FLAT reload-survivor, carrying its real handle.
+                  (root/flatten-ledger-row-to-pre-6871! fid)
+                  (is (some? (get-in (root/frame-ledger-snapshot) [fid :installed-value]))
+                      "the seeded row is FLAT and carries the install handle")
+                  ;; external destroy while the installer is still a live ref.
+                  (rf/destroy-frame! fid)
+                  (is (= 1 (count @warns))
+                      "the migrated handle matched the dying token → exactly one loud diagnostic")
+                  (is (contains? (set (get-in (first @warns) [:tags :live-roots]))
+                                 (:root-id (root/root-descriptor installer)))
+                      "naming the live root that still referenced it")
+                  (let [owner (get-in (root/frame-ledger-snapshot) [fid :ownership])]
+                    (is (not (contains? owner :handle))
+                        "the tombstone dropped the migrated handle")
+                    (is (some? (:destroyed-at owner))
+                        "and stamped the destroy time — the flat row became a nested tombstone")
+                    (is (some? (:plan-author owner))
+                        "the author LABEL survives normalization"))
+                  (is (nil? (frame/frame fid)) "the frame is gone")
+                  (trace-tooling/unregister-listener! k)
+                  (act #(v/unmount! installer))))
+              (.then
+                (fn [_]
+                  (is (empty? (root/frame-ledger-snapshot))
+                      "final release of the tombstoned row empties the ledger, no re-alarm")
+                  (.remove node) (done)))
+              (.catch
+                (fn [e]
+                  (trace-tooling/unregister-listener! k)
+                  (is false (str "migrated-flat destroy-hook suite rejected: " e))
+                  (.remove node) (done)))))))))
+
+(deftest fh-root-005-a-tokenless-flat-row-stays-legacy-and-fails-loud
+  (testing "Per FH-ROOT-005 / rf2-4pvsy AC4 (browser): a genuinely tokenless
+            pre-#6818 row flattened to the FLAT shape — an :installed-by with NO
+            :installed-value — normalizes to :ownership WITHOUT a :handle, so it
+            stays :legacy-live: the config-bearing remount FAILS LOUD
+            (:scope-config-less-or-own-the-lifetime) before any mutation, the
+            exact live incarnation is untouched, and the migration NEVER backfills
+            a handle from the bare id."
+    (if-not (browser?)
+      (skip! "the browser job runs the tokenless-flat legacy assertions")
+      (async done
+        (reg!)
+        (let [node  (host-node!)
+              fid   :fh.root/upgrade-tokenless
+              plan  {:frame {:id fid :initial-events [[:root/seed 11]]}}
+              token (atom nil)]
+          (-> (act #(v/mount [views/counter {}] node plan))
+              (.then
+                (fn [installer]
+                  (reset! token (frame/frame-incarnation-token fid))
+                  ;; strip the handle (a genuinely tokenless pre-#6818 row), THEN
+                  ;; flatten it — an :installed-by with no :installed-value.
+                  (root/downgrade-ledger-row-to-pre-6818! fid)
+                  (root/flatten-ledger-row-to-pre-6871! fid)
+                  (is (nil? (get-in (root/frame-ledger-snapshot) [fid :ownership]))
+                      "the seeded row is FLAT")
+                  (is (contains? (get (root/frame-ledger-snapshot) fid) :installed-by)
+                      "and names an installer")
+                  (is (not (contains? (get (root/frame-ledger-snapshot) fid) :installed-value))
+                      "but carries NO install value — a genuinely tokenless legacy row")
+                  (let [data (error-data #(v/mount [views/counter {}] node plan))]
+                    (is (= :rf.error/frame-payload-conflict (:rf.error/id data))
+                        "normalized to :legacy-live (ownership, no handle), the remount fails loud")
+                    (is (= :scope-config-less-or-own-the-lifetime (:recovery data))
+                        "under scope-or-own — never a bare-id handle backfill")
+                    (is (identical? @token (frame/frame-incarnation-token fid))
+                        "the exact live incarnation is untouched — the guard fired before any mutation")
+                    (is (nil? (get-in (root/frame-ledger-snapshot) [fid :ownership :handle]))
+                        "the normalized legacy row carries no handle — unprovable, as the law requires"))
+                  (act #(v/unmount! installer))))
+              (.then
+                (fn [_]
+                  (is (some? (frame/frame fid))
+                      "the un-owned legacy row's teardown is a safe no-op — no address-directed destroy")
+                  (rf/destroy-frame! fid)
+                  (.remove node) (done))
+                (fn [e]
+                  (is false (str "tokenless-flat legacy suite rejected: " e))
+                  (.remove node) (done)))))))))
