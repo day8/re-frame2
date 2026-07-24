@@ -241,6 +241,8 @@
    :options-unknown-key     {:event [:article/save 3] :prevent-defualt true}
    :options-no-event        {:prevent-default true}
    :options-event-not-vector {:event :article/save}
+   :options-string-key      {"Enter" [:picker/accept]}
+   :options-empty           {}
    :string                  "cart/add"
    :number                  42
    :keyword                 :cart/add
@@ -262,12 +264,35 @@
   (testing "Per FH-EVENT-002: the options roster is CLOSED. A typo'd
             option that silently did nothing would be an event site that
             looks correct and is not — the failure this reject exists to
-            remove."
+            remove. A MAP at an event position is that options map and
+            nothing else (D007, discharged DELETE), so a string key is an
+            unknown option like any other and an empty map is an options
+            map missing its `:event` — neither is re-read as a second
+            grammar."
     (is (seq (:rejected-plans event-002)))
     (doseq [{:keys [form error-id]} (:rejected-plans event-002)]
       (is (contains? plan-forms form) (str "the suite carries a value for " form))
       (is (= error-id (conf/caught-id #(events/event-plan (get plan-forms form))))
           (str "rejects " form)))))
+
+(deftest fh-event-002-a-string-keyed-map-on-a-key-listener-is-rejected
+  (testing "Per FH-EVENT-002, at the SITE rather than the planner: the
+            exact spelling the closed key-condition form used to claim —
+            `{\"Enter\" [:picker/accept]}` on `:on-key-down` — is refused
+            with the ordinary bad-event diagnostic and mints no proxy.
+            NON-VACUOUS in the direction that matters: the reject is the
+            unknown-option one, so the map is read as the options map it
+            is and never silently reinterpreted or passed through."
+    (let [owner (events/owner :app/picker)
+          cand  (events/candidate owner)
+          run   #(events/site cand :on-key-down {"Enter" [:picker/accept]}
+                              events/payload-map
+                              {:tag :input :controlled? false :slot "onKeyDown"})]
+      (is (= :rf.error/view-bad-event (conf/caught-id run)))
+      (is (= :use-the-closed-listener-options (:recovery (conf/caught-data run)))
+          "the ordinary closed-roster recovery, not a key-condition one")
+      (is (= ["Enter"] (:unknown-keys (conf/caught-data run)))
+          "the string key is reported as the unknown OPTION it is"))))
 
 (deftest fh-event-002-a-site-yields-one-event-or-nil
   (testing "Per FH-EVENT-002: a committed site's callback yields exactly
@@ -644,226 +669,6 @@
         (successor {})
         (is (= dispatched @seen)
             "while the newly committed proxy dispatches normally")))))
-
-;; ---------------------------------------------------------------------------
-;; FH-EVENT-005 — the closed key-condition event map
-;; ---------------------------------------------------------------------------
-
-(def event-005 (conf/fixture :FH-EVENT-005))
-
-(defn- key-map-forms
-  "The values the FH-EVENT-005 `:form` tokens name. A thunk, because the
-  fn-carrying branches must be freshly built per assertion."
-  [calls]
-  {:one-key        {"Enter" [:picker/accept]}
-   :many-keys      {"Enter"     {:event [:picker/accept] :prevent-default true}
-                    "Escape"    [:picker/close]
-                    "ArrowDown" {:event [:picker/move 1] :prevent-default true}}
-   :nil-branch     {"Escape" nil}
-   :mixed-map      {"Enter" [:picker/accept] :prevent-default true}
-   :empty-map      {}
-   :handler-branch {"Enter" (v/handler [_] (swap! calls conj :handler))}
-   :bare-fn-branch {"Enter" (fn [_] (swap! calls conj :bare))}
-   :nested-key-map {"Enter" {"Escape" [:x]}}})
-
-(deftest fh-event-005-a-key-condition-map-classifies
-  (testing "Per FH-EVENT-005: a key-condition map normalizes to a `:key-map`
-            plan whose branches are each a classified DISPATCHING plan. It is a
-            separate closed form from the options map — string keys, one level —
-            and both emitters and the structural host read the one plan shape."
-    (is (seq (:classify event-005)) "the fixture's classify table loaded")
-    (let [forms (key-map-forms (atom []))]
-      (doseq [{:keys [form plan]} (:classify event-005)]
-        (is (contains? forms form) (str "the suite carries a value for " form))
-        (is (= plan (events/event-plan (get forms form))) (str "plan for " form))))))
-
-(deftest fh-event-005-a-v-event-branch-is-a-legal-intent
-  (testing "Per FH-EVENT-005: a `v/event` branch is a legal per-key intent —
-            it yields one event vector or nil like any other dispatching form."
-    (let [plan (events/event-plan {"Enter" (v/event [_e] [:picker/typed])})]
-      (is (= :key-map (:role plan)))
-      (is (= :event (:role (get (:branches plan) "Enter")))))))
-
-(deftest fh-event-005-a-malformed-key-map-is-rejected
-  (testing "Per FH-EVENT-005: a map mixing exact-key strings with listener
-            options, an empty map, and a branch that is not itself one intent
-            (a `v/handler`, a bare function, a NESTED key map) are each a loud
-            reject — the boundaries the one-level exact-key form must not blur."
-    (is (seq (:rejected event-005)))
-    (let [forms (key-map-forms (atom []))]
-      (doseq [{:keys [form error-id]} (:rejected event-005)]
-        (is (contains? forms form) (str "the suite carries a value for " form))
-        (is (= error-id (conf/caught-id #(events/event-plan (get forms form))))
-            (str "rejects " form))))))
-
-(deftest fh-event-005-a-branch-may-not-carry-a-whole-listener-option
-  (testing "Per FH-EVENT-005: a key branch carries its intent plus the two
-            PRE-DISPATCH mechanics, and nothing else. `:once`, `:capture` and
-            `:passive` are whole-listener facts — the first retires the site,
-            the other two decide native attachment — and all three are settled
-            before a keystroke is read, so a branch naming one is a typed
-            reject rather than a branch that accepts the option and then
-            discards it."
-    (is (seq (:branch-options event-005)) "the fixture's branch-option table loaded")
-    (doseq [{:keys [option accepted error-id]} (:branch-options event-005)]
-      (let [value {"Enter" {:event [:picker/accept] option true}}
-            run   #(events/event-plan value)]
-        (if accepted
-          (is (= {:role :event-options :event [:picker/accept] option true}
-                 (get (:branches (run)) "Enter"))
-              (str option " is a pre-dispatch mechanic a branch may carry"))
-          (is (= error-id (conf/caught-id run))
-              (str option " is a whole-listener fact a branch may not carry")))))))
-
-(defn- keystroke
-  "One keystroke argument for `k`, in the shape THIS host's `key-facts` seam
-  reads — a real event object in the browser, the structural payload map on the
-  JVM. The seam is named rather than hidden, exactly as `default-payload` is,
-  so one body of test code proves the law on both hosts."
-  [k]
-  #?(:cljs #js {:key k}
-     :clj  {:re-frame.freehand/key k}))
-
-(deftest fh-event-005-a-key-map-site-fires-once-per-keystroke
-  (testing "Per FH-EVENT-005: the counterexample the branch roster exists to
-            make unwritable. A committed key-map site invoked twice with the
-            same key dispatches its intent BOTH times — one firing per
-            keystroke — so a branch that could carry `:once` would be reading
-            back a promise the site never keeps."
-    (let [{:keys [branch key invocations dispatched]} (:repeated-key event-005)
-          {:keys [dispatch seen]} (recorder)
-          owner (events/owner :app/picker)
-          cand  (events/candidate owner)
-          proxy (events/site cand :on-key-down {key branch} events/default-payload
-                             {:tag :div :slot "onKeyDown"})]
-      (events/commit! cand dispatch)
-      (dotimes [_ invocations]
-        (proxy (keystroke key)))
-      (is (= dispatched @seen)
-          "every keystroke fires — the site retires nothing per branch")
-      (is (= :rf.error/view-bad-event
-             (conf/caught-id #(events/event-plan {key (assoc branch :once true)})))
-          "and asking for :once on that branch is refused rather than ignored"))))
-
-(deftest fh-event-005-a-key-map-is-legal-only-on-a-key-listener
-  (testing "Per FH-EVENT-005: a key-condition map selects an intent by
-            KeyboardEvent.key, so it is legal only on `:on-key-down` /
-            `:on-key-up`; on any other listener slot it is a typed authoring
-            error rather than a site that silently never fires."
-    (is (seq (:site-legality event-005)))
-    (doseq [{:keys [slot accepted error-id]} (:site-legality event-005)]
-      (let [owner   (events/owner :app/picker)
-            cand    (events/candidate owner)
-            element {:tag :div :slot slot}
-            run     #(events/site cand :on-key {"Enter" [:picker/accept]}
-                                  events/payload-map element)]
-        (if accepted
-          (is (fn? (run)) (str slot " accepts a key-condition map"))
-          (is (= error-id (conf/caught-id run)) (str slot " rejects a key-condition map")))))))
-
-(deftest fh-event-005-selection-is-exact-key-one-level
-  (testing "Per FH-EVENT-005: selection is one level and by EXACT equality —
-            the branch whose key equals the keystroke fires, a missing key is a
-            no-op, and a chord modifier (Ctrl/Alt/Meta) or an in-flight IME
-            composition matches nothing. This is acceptance 1/2/3 as a pure,
-            cross-host law over the selection facts."
-    (is (seq (:selections event-005)))
-    (let [plan (:selection-plan event-005)]
-      (doseq [{:keys [facts selected]} (:selections event-005)]
-        (is (= (when-not (= :none selected) selected)
-               (events/select-branch plan facts))
-            (str "facts " (pr-str facts)))))))
-
-;; ---------------------------------------------------------------------------
-;; FH-EVENT-005 — end to end through a committed proxy, both hosts
-;; ---------------------------------------------------------------------------
-
-#?(:clj
-   (deftest fh-event-005-a-committed-key-map-selects-and-dispatches-jvm
-     (testing "Per FH-EVENT-005 (structural host): a committed key-map site
-               fires exactly the mapped intent and only that one; a
-               non-matching key and a chord modifier dispatch nothing; and a
-               selected branch materializes `::v/key` from the same payload the
-               site supplies. The structural host reads the selection facts off
-               the plain payload map — one body, the same law as the browser."
-       (let [{:keys [dispatch seen]} (recorder)
-             owner (events/owner :app/picker)
-             cand  (events/candidate owner)
-             value {"Enter"     {:event [:picker/accept] :prevent-default true}
-                    "Escape"    [:picker/close]
-                    "ArrowDown" [:picker/moved :re-frame.freehand/key]}
-             proxy (events/site cand :on-key-down value events/payload-map
-                                {:tag :div :slot "onKeyDown"})]
-         (events/commit! cand dispatch)
-         (proxy {:re-frame.freehand/key "Enter"})
-         (is (= [[:picker/accept]] @seen) "the one mapped intent")
-         (proxy {:re-frame.freehand/key "Tab"})
-         (is (= [[:picker/accept]] @seen) "a non-matching key dispatches nothing")
-         (proxy {:re-frame.freehand/key "Enter" :chord? true})
-         (is (= [[:picker/accept]] @seen) "a chord modifier matches nothing")
-         (proxy {:re-frame.freehand/key "ArrowDown"})
-         (is (= [[:picker/accept] [:picker/moved "ArrowDown"]] @seen)
-             "the selected branch projects ::v/key from the payload")))))
-
-#?(:cljs
-   (deftest fh-event-005-a-real-key-selects-and-dispatches-one-intent
-     (testing "Per FH-EVENT-005 (browser host): a live KeyboardEvent for a
-               mapped key dispatches exactly the mapped intent and only that
-               one, running the selected branch's pre-dispatch mechanics first;
-               a non-matching key dispatches nothing; and a chord modifier or an
-               in-flight composition matches nothing — the boundary the closed
-               form must not blur, proven against real event objects."
-     (let [value {"Enter"  {:event [:picker/accept] :prevent-default true}
-                  "Escape" [:picker/close]
-                  "ArrowDown" [:picker/moved :re-frame.freehand/key]}
-           fire  (fn [e]
-                   (let [{:keys [dispatch seen]} (recorder)
-                         owner (events/owner :app/picker)
-                         cand  (events/candidate owner)
-                         proxy (events/site cand :on-key-down value
-                                            events/default-payload
-                                            {:tag :div :slot "onKeyDown"})]
-                     (events/commit! cand dispatch)
-                     (proxy e)
-                     @seen))]
-       (let [calls (atom [])
-             e     #js {:key "Enter"
-                       :preventDefault  #(swap! calls conj :prevent-default)
-                       :stopPropagation #(swap! calls conj :stop-propagation)}
-             {:keys [dispatch seen]} (recorder)
-             owner (events/owner :app/picker)
-             cand  (events/candidate owner)
-             proxy (events/site cand :on-key-down value events/default-payload
-                                {:tag :div :slot "onKeyDown"})]
-         (events/commit! cand dispatch)
-         (proxy e)
-         (is (= [[:picker/accept]] @seen) "the mapped intent, and only that one")
-         (is (= [:prevent-default] @calls)
-             "the selected branch's mechanics ran before dispatch, and only those"))
-       (is (= [] (fire #js {:key "Tab"})) "an unmapped key dispatches nothing")
-       (is (= [] (fire #js {:key "Enter" :ctrlKey true}))
-           "Ctrl+Enter matches nothing — modifier chords are v/event's job")
-       (is (= [] (fire #js {:key "Enter" :metaKey true})) "Meta+Enter matches nothing")
-       (is (= [] (fire #js {:key "Enter" :isComposing true}))
-           "a composing keystroke matches nothing")
-       (is (= [[:picker/moved "ArrowDown"]] (fire #js {:key "ArrowDown"}))
-           "a branch projects ::v/key off the live event")))))
-
-#?(:cljs
-   (deftest fh-event-005-key-facts-reads-the-live-event
-     (testing "Per FH-EVENT-005 (browser host): the one host seam reads the key
-               name, the composition flag, and a Ctrl/Alt/Meta chord off a live
-               KeyboardEvent — Shift is NOT a chord, since it is already baked
-               into `KeyboardEvent.key`."
-       (is (= {:key "Enter" :composing? false :chord? false}
-              (events/key-facts #js {:key "Enter"})))
-       (is (= {:key "?" :composing? false :chord? false}
-              (events/key-facts #js {:key "?" :shiftKey true}))
-           "Shift is not a chord — a shifted key still matches its exact key")
-       (is (:chord? (events/key-facts #js {:key "Enter" :ctrlKey true})))
-       (is (:chord? (events/key-facts #js {:key "Enter" :altKey true})))
-       (is (:chord? (events/key-facts #js {:key "Enter" :metaKey true})))
-       (is (:composing? (events/key-facts #js {:key "a" :isComposing true}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The one host-shaped seam — reading a live native event

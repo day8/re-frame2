@@ -6,9 +6,14 @@
 ;; rejected. The options map is closed: `:event` plus five listener
 ;; options, so a typo is a loud reject rather than an option that
 ;; silently does nothing.
+;;
+;; A MAP at an event position is that options map and NOTHING else
+;; (D007, discharged DELETE). So a string-keyed map is an unknown-option
+;; reject like any other typo, and an empty map is an options map with no
+;; `:event` — neither is quietly re-read as some second grammar.
 {:fh/id "FH-EVENT-002"
  :fh/law
- "An event-producing site yields exactly one event vector or nil after the closed listener options are interpreted; an unknown option key or a multi-intent vector is rejected."
+ "An event-producing site yields exactly one event vector or nil after the closed listener options are interpreted; a map at an event position is the listener-options map and nothing else, so an unknown option key (a string key included) or a multi-intent vector is rejected."
 
  ;; `:form` names a value the suite constructs; `:plan` is the normalized
  ;; site plan both emitters and the structural host read.
@@ -32,6 +37,10 @@
  [{:form :options-unknown-key   :error-id :rf.error/view-bad-event}
   {:form :options-no-event      :error-id :rf.error/view-bad-event}
   {:form :options-event-not-vector :error-id :rf.error/view-bad-event}
+  {:note "a string-keyed map is an unknown option, never a second grammar"
+   :form :options-string-key    :error-id :rf.error/view-bad-event}
+  {:note "an empty map is an options map missing its :event"
+   :form :options-empty         :error-id :rf.error/view-bad-event}
   {:form :string                :error-id :rf.error/view-bad-event}
   {:form :number                :error-id :rf.error/view-bad-event}
   {:form :keyword               :error-id :rf.error/view-bad-event}]

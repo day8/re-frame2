@@ -18,7 +18,6 @@
             [re-frame.freehand.compiler.env :as env]
             [re-frame.freehand.controlled :as controlled]
             [re-frame.freehand.conversion :as conv]
-            [re-frame.freehand.events :as events]
             [re-frame.freehand.fingerprint :as fingerprint]
             [re-frame.freehand.props-schema :as props-schema]
             [re-frame.freehand.rules :as rules]
@@ -1330,10 +1329,8 @@
 
 (defn- analyze-ui-event-fn
   "The `(v/event [e] body…)` seq form, lowered to the `(fn [e] body…)` the
-  runtime callback carries. One reader for the two positions a `v/event` is
-  legal in — the whole handler, and one branch of a key-condition map — so the
-  arity refusal, the walk and the loop-capture check cannot differ between
-  them."
+  runtime callback carries — so the arity refusal, the walk and the
+  loop-capture check are stated once."
   [e k form]
   (let [[_ bindings & body] form]
     (when-not (and (vector? bindings) (= 1 (count bindings)))
@@ -1356,118 +1353,9 @@
                            (str "v/event handler at " k) form)
       form*)))
 
-;; ---------------------------------------------------------------------------
-;; The compiled key-condition event map
-;; ---------------------------------------------------------------------------
-;;
-;; Spec 004 §Key-condition event maps, ruled by D007. The compiled tier reads
-;; the SAME closed form the runtime normalizer reads — string keys, one level,
-;; legal only on a key listener, each branch an existing dispatching value —
-;; because a declaration that means one thing interpreted and another with
-;; `{:compiled true}` is exactly the promotion break the compiled tier exists to
-;; make impossible. The two rosters this rests on are ASKED rather than
-;; restated: `events/key-slots` names the legal slots and `events/branch-options`
-;; the legal branch keys, so there is one grammar with two front ends.
-
-(defn- key-condition-map?
-  "Is this literal map at an event position the exact-key CONDITION form rather
-  than the listener OPTIONS map? Decided by the presence of a string key, the
-  way `events/map-plan` decides it at render."
-  [form]
-  (boolean (some string? (keys form))))
-
-(defn- analyze-key-branch
-  "One branch of a compiled key-condition map, lowered to the value the
-  emitters write into the map.
-
-  A branch names exactly ONE intent, so the roster is the dispatching one: an
-  event vector, an options map carrying `:event` and at most the two
-  pre-dispatch mechanics, a `v/event`, or `nil`. A literal branch lowers to
-  data; a `v/event` branch lowers to the roster callback its interpreted
-  spelling expands to, so the runtime classifies one branch grammar whichever
-  front end wrote it."
-  [e k key-str form]
-  (cond
-    (nil? form) nil
-
-    (vector? form) (analyze-event-vector! e k form)
-
-    (and (map? form) (or (empty? form) (key-condition-map? form)))
-    (env/fail! e :rf.ui.compile/bad-handler-options
-               (str "the " (pr-str key-str) " branch at " k " is "
-                    (if (empty? form) "an empty map" "another key-condition map")
-                    " — the exact-key form is ONE level deep and every branch names "
-                    "one intent. Nesting selects nothing: a keystroke carries a single "
-                    "key. Write {\"Enter\" [:accept] \"Escape\" [:close]}, and let "
-                    "(v/event [e] …) answer anything richer")
-               {:prop k :key key-str :form form})
-
-    (map? form)
-    (let [unknown (remove events/branch-options (keys form))]
-      (when (seq unknown)
-        (env/fail! e :rf.ui.compile/bad-handler-options
-                   (str "the " (pr-str key-str) " branch at " k " carries "
-                        (str/join ", " (map pr-str (sort unknown)))
-                        " — a branch is SELECTED after the keystroke arrives, so "
-                        (pr-str (vec (sort events/branch-options)))
-                        " is all it can still honour. :capture and :passive are decided "
-                        "when the listener is attached to the node and :once retires the "
-                        "whole site, every one of them before a key has been read. Drop "
-                        "the option rather than have it silently do nothing")
-                   {:prop k :key key-str :form form}))
-      (when-not (vector? (:event form))
-        (env/fail! e :rf.ui.compile/bad-handler-options
-                   (str "the " (pr-str key-str) " branch at " k " is an options map and "
-                        "needs a literal :event vector — {\"Enter\" {:event "
-                        "[:domain/event args...] :prevent-default true}}")
-                   {:prop k :key key-str :form form}))
-      (assoc form :event (analyze-event-vector! e k (:event form))))
-
-    (ui-event-form? e form)
-    ;; The interpreted `v/event` macro expands to this exact constructor, so the
-    ;; branch the runtime classifies is the same roster value in both modes.
-    (roster-callback :event (analyze-ui-event-fn e k form) 1)
-
-    :else
-    (env/fail! e :rf.ui.compile/bad-handler-options
-               (str "the " (pr-str key-str) " branch at " k " is not an intent — a key "
-                    "branch is an event vector, an options map carrying :event, a "
-                    "(v/event [e] …), or nil (dispatch nothing). A callback that is not "
-                    "itself an intent, and anything the compiler cannot see, are outside "
-                    "the one-level exact-key form")
-               {:prop k :key key-str :form form})))
-
-(defn- key-branch-data?
-  "Is this LOWERED branch still DATA — an event vector, an options map, or
-  `nil` — rather than the `v/event` constructor call only evaluation turns into
-  a callback? The site's `:serializable?` fact is the conjunction over the
-  branches, so one `v/event` branch makes the whole site opaque to the manifest
-  exactly as a whole-handler `v/event` does."
-  [branch]
-  (not (seq? branch)))
-
-(defn- analyze-key-map
-  "The whole compiled key-condition map: its slot legality, then every branch.
-
-  Legality is the runtime rule — a map that selects by `KeyboardEvent.key` is
-  legal only where a key IS carried — raised HERE, at build, rather than at the
-  first keystroke of a site that could never have fired."
-  [e k form]
-  (when-not (contains? events/key-slots (rules/caller-key-slot k))
-    (env/fail! e :rf.ui.compile/bad-handler-options
-               (str "a key-condition map at " k " — the exact-key form selects an intent "
-                    "by KeyboardEvent.key, so it is legal only on :on-key-down and "
-                    ":on-key-up. Put an ordinary click or input intent in an event vector "
-                    "or an options map")
-               {:prop k :form form}))
-  (reduce-kv (fn [m key-str branch]
-               (assoc m key-str (analyze-key-branch e k key-str branch)))
-             {}
-             form))
-
 (defn analyze-handler
   "Classify one :on-* entry. -> {:k kw :name str :classification
-  :vector|:options|:key-map|:fn|:dynamic :form form :capture? bool
+  :vector|:options|:fn|:dynamic :form form :capture? bool
   :hoistable? bool :serializable? bool}"
   [e k form]
   (when (:in-render-fn? e)
@@ -1494,92 +1382,50 @@
                 :serializable? true}))
 
       (map? form)
-      ;; A MAP is the one shape two closed forms share, and it is split HERE
-      ;; exactly as `events/map-plan` splits it at render: options first, then
-      ;; the string-keyed exact-key form, with the empty map and the mixed map
-      ;; named as the authoring errors they are. Same order, same three
-      ;; outcomes, so `{:compiled true}` cannot change which form a map IS.
-      (cond
-        (empty? form)
-        (env/fail! e :rf.ui.compile/bad-handler-options
-                   (str "an empty map at " k " is neither an options map — which "
-                        "states its intent under :event — nor a key-condition map, "
-                        "which names at least one exact KeyboardEvent.key branch. "
-                        "Write {:event [:domain/event args...]} or "
-                        "{\"Enter\" [:accept] \"Escape\" [:close]}")
-                   {:prop k :form form})
-
-        (not (key-condition-map? form))
-        (let [unknown (remove rules/handler-option-keys (keys form))]
-          (when (seq unknown)
-            (env/fail! e :rf.ui.compile/bad-handler-options
-                       (str "unknown handler option" (when (next unknown) "s") " "
-                            (str/join ", " (map pr-str unknown)) " at " k
-                            " — the closed listener vocabulary is "
-                            "{:event :prevent-default :stop-propagation :capture "
-                            ":passive :once}")
-                       {:prop k :form form}))
-          (when (and (:passive form) (:prevent-default form))
-            (env/fail! e :rf.ui.compile/contradictory-handler-options
-                       (str ":passive true with :prevent-default true at " k
-                            " — a passive listener promises the browser it will "
-                            "NEVER call preventDefault, so the combination is a "
-                            "contradiction (in any stage). Drop one of them")
-                       {:prop k :form form}))
-          (when-not (vector? (:event form))
-            (env/fail! e :rf.ui.compile/bad-handler-options
-                       (str "handler options map at " k " needs a literal "
-                            ":event vector — {:event [:domain/event args...] "
-                            ":prevent-default true ...}")
-                       {:prop k :form form}))
-          (let [event* (analyze-event-vector! e k (:event form))
-                form*  (assoc form :event event*)]
-            (add-event-site! e identity
-                             {:prop k :handler form*
-                              :classification :options :serializable? true})
-            (merge identity
-                   {:k k :name nm :classification :options :form form*
-                    :capture? (boolean (:capture form))
-                    :passive? (boolean (:passive form))
-                    :hoistable? (every? #(or (literal-scalar? %)
-                                             (contains? rules/placeholders %))
-                                        event*)
-                    :serializable? true})))
-
-        (every? string? (keys form))
-        (let [form* (analyze-key-map e k form)
-              data? (every? key-branch-data? (vals form*))]
-          ;; A key-condition map carries no whole-listener option — the roster
-          ;; that would name one is refused per branch — so the attachment lane
-          ;; is the ordinary one and there is nothing for the door to weigh. It
-          ;; is never hoisted: one committed site owns the whole selection, and
-          ;; a hoisted constant would be a second one.
+      ;; A MAP at an event position is the listener OPTIONS map and nothing
+      ;; else, held to the same closed roster `events/options-plan` holds it to
+      ;; at render — raised at BUILD here, under the build-time diagnostic id,
+      ;; so `{:compiled true}` cannot change what a map means.
+      (let [unknown (remove rules/handler-option-keys (keys form))]
+        (when (seq unknown)
+          (env/fail! e :rf.ui.compile/bad-handler-options
+                     (str "unknown handler option" (when (next unknown) "s") " "
+                          (str/join ", " (map pr-str unknown)) " at " k
+                          " — the closed listener vocabulary is "
+                          "{:event :prevent-default :stop-propagation :capture "
+                          ":passive :once}")
+                     {:prop k :form form}))
+        (when (and (:passive form) (:prevent-default form))
+          (env/fail! e :rf.ui.compile/contradictory-handler-options
+                     (str ":passive true with :prevent-default true at " k
+                          " — a passive listener promises the browser it will "
+                          "NEVER call preventDefault, so the combination is a "
+                          "contradiction (in any stage). Drop one of them")
+                     {:prop k :form form}))
+        (when-not (vector? (:event form))
+          (env/fail! e :rf.ui.compile/bad-handler-options
+                     (str "handler options map at " k " needs a literal "
+                          ":event vector — {:event [:domain/event args...] "
+                          ":prevent-default true ...}")
+                     {:prop k :form form}))
+        (let [event* (analyze-event-vector! e k (:event form))
+              form*  (assoc form :event event*)]
           (add-event-site! e identity
-                           {:prop k :handler (if data? form* :opaque)
-                            :classification :key-map :serializable? data?})
+                           {:prop k :handler form*
+                            :classification :options :serializable? true})
           (merge identity
-                 {:k k :name nm :classification :key-map :form form*
-                  :capture? false :passive? false :hoistable? false
-                  :serializable? data?}))
-
-        :else
-        (env/fail! e :rf.ui.compile/bad-handler-options
-                   (str "the map at " k " carries exact-key branch"
-                        (when (next (filter string? (keys form))) "es") " "
-                        (str/join ", " (map pr-str (sort (filter string? (keys form)))))
-                        " beside the listener option"
-                        (when (next (remove string? (keys form))) "s") " "
-                        (str/join ", " (map pr-str (sort (remove string? (keys form)))))
-                        " — the exact-key form and the options map are SEPARATE "
-                        "closed forms. State per-key intents as {\"Enter\" [:accept] …} "
-                        "and whole-listener options in an options map, never both in "
-                        "one map")
-                   {:prop k :form form}))
+                 {:k k :name nm :classification :options :form form*
+                  :capture? (boolean (:capture form))
+                  :passive? (boolean (:passive form))
+                  :hoistable? (every? #(or (literal-scalar? %)
+                                           (contains? rules/placeholders %))
+                                      event*)
+                  :serializable? true})))
 
       (ui-event-form? e form)
-      ;; The WHOLE-handler `v/event`, lowered to the same roster constructor a
-      ;; key-condition BRANCH lowers to, and to the same one the interpreted
-      ;; `v/event` macro expands to. Nothing between here and the DOM wraps it,
+      ;; The WHOLE-handler `v/event`, lowered to the same roster constructor
+      ;; the interpreted `v/event` macro expands to. Nothing between here and
+      ;; the DOM wraps it,
       ;; so the value the analyzer writes IS the value `events/event-plan`
       ;; classifies — and a bare fn there is the `:bare-fn` arm, which applies
       ;; the body and throws its event vector away (rf2-berc2).

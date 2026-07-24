@@ -14,9 +14,8 @@
   classified it `:bare-fn` — whose firing arm applies the function and
   THROWS AWAY the event vector it answered. Nothing raised, the build
   succeeded, the door reported `:event`, and the click did nothing at
-  all (rf2-berc2). A key-condition BRANCH was already correct, because
-  that arm lowers to the roster constructor; the whole-handler position
-  now lowers to the same one.
+  all (rf2-berc2). The whole-handler position now lowers to the roster
+  constructor the interpreted macro expands to.
 
   The rows below are deliberately about the ATTRIBUTED RESULT — the
   event vector a fired site really dispatched — because the defect
@@ -70,12 +69,7 @@
       (is (= :ui-event (:classification h)))
       (is (= '(re-frame.freehand.events/callback :event (fn [e] [:app/clicked]) 1)
              (:form h))
-          "the roster constructor, in the dispatching role, with the declared arity"))
-    (let [h (handler-of '[:input {:on-key-down {"Enter" (event [e] [:app/entered])}}])]
-      (is (= :key-map (:classification h)))
-      (is (= '(re-frame.freehand.events/callback :event (fn [e] [:app/entered]) 1)
-             (get (:form h) "Enter"))
-          "and a key-condition BRANCH lowers to the same constructor it always did")))
+          "the roster constructor, in the dispatching role, with the declared arity")))
 
   (testing "`v/handler` lowers to its own role through the same
             constructor, so the value a compiled site carries is the value
