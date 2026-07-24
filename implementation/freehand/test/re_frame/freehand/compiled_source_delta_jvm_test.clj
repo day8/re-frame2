@@ -57,7 +57,10 @@
     :compiled    "re_frame/freehand/compiled_views.cljc"}
    {:what        "the B1 measurement arms"
     :interpreted "re_frame/freehand/bench/b1/interpreted.cljc"
-    :compiled    "re_frame/freehand/bench/b1/compiled.cljc"}])
+    :compiled    "re_frame/freehand/bench/b1/compiled.cljc"}
+   {:what        "the B2 mount-storm roster"
+    :interpreted "re_frame/freehand/bench/b2/interpreted.cljc"
+    :compiled    "re_frame/freehand/bench/b2.cljc"}])
 
 (deftest promotion-is-exactly-one-option-map
   (testing "Every compiled twin is its interpreted original plus
