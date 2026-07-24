@@ -2386,8 +2386,10 @@
 ;; themselves stay reachable via the
 ;; `re-frame.event-emit` / `re-frame.error-emit` namespaces + the
 ;; `:error-emit/register-error-listener!` late-bind hooks for the internal
-;; consumers that already address them that way (router fan-out, the routing
-;; on-match-error trap, the SSR error projector).
+;; consumers that already address them that way (router fan-out, the SSR
+;; error projector). The routing `on-match-error` trap was RETIRED with the
+;; EP-0037 R1 fire-and-forget `:on-match` model — route readiness is the
+;; resource projection, so routing registers no error listener.
 
 (def ^{:doc "Walk `v` and substitute the frame's declared sensitive or
   large paths for wire egress (the durable declarations are classified by the

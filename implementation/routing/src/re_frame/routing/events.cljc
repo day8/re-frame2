@@ -282,7 +282,15 @@
                                 :prev-identities prev-identities
                                 ;; Preserve the handler's causal app-db input for
                                 ;; any `{:from-db …}` resource-scope resolver.
-                                :app-db          app-db}))
+                                :app-db          app-db
+                                ;; EP-0037 R1: the PRE-COMMIT runtime-db, so the
+                                ;; plan can read the Spec 016 resource facts AT
+                                ;; COMMIT — a blocking requirement that already
+                                ;; has usable data is not recorded as blocking,
+                                ;; and the seed below projects `:idle` with no
+                                ;; transient `:loading`. Routing does not
+                                ;; interpret it; it only threads it.
+                                :runtime-db      rdb}))
         ;; EP-0037 R1: route readiness is the PURE resource projection over
         ;; the (leaf-only, until R2) plan — NEVER driven by `:on-match`. Seed
         ;; `:transition` / `:error` from the freshly-built plan through the one
