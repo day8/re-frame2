@@ -1,6 +1,6 @@
 # Skills
 
-> Ten Claude Code skills that travel with the re-frame2 repo — for authoring code, authoring views on the experimental `re-frame.ui` compiled-view substrate, critiquing existing code, bootstrapping a project, migrating from v1, migrating Reagent views to the compiled-view substrate, building a new re-frame2 implementation, touring the Xray devtools panel, pair-programming with a running app, and running a retrospective on a pairing session.
+> Ten Claude Code skills that travel with the re-frame2 repo — for authoring code, maintaining donor views on the experimental `re-frame.ui` compiled-view substrate, critiquing existing code, bootstrapping a project, migrating from v1, migrating Reagent views to Freehand, building a new re-frame2 implementation, touring the Xray devtools panel, pair-programming with a running app, and running a retrospective on a pairing session.
 
 A **skill** is a small package of agent-shaped instructions plus optional scripts and reference leaves. When you load a skill into Claude Code (or any other Anthropic-skill-compatible agent), the model picks up its system prompt and its operating contract — so the same conversation that was *"help me write a re-frame2 event handler"* becomes a focused interaction that knows the canonical shapes, the cardinal rules, and where the depth lives.
 
