@@ -4,9 +4,14 @@
 
   The pilot's subject is the first question every adopter asks: *can I use a
   third-party React component?* Freehand answers with a small set of named
-  host shapes rather than a general escape hatch, and the honest finding of
-  this pilot is that only ONE of them is reachable in this tree. So the
-  suite below is deliberately two-sided:
+  host SHAPES rather than a general escape hatch, and of those the honest
+  finding is that only ONE — the registered behavior — is reachable in this
+  tree. (A component that is itself React needs no host shape at all: it
+  enters as an ordinary child value through the React emitter's child fold,
+  proven by real mount in `pilot-react-interop-dom-cljs-test`. The
+  structural host this suite runs on has no such arm — the same posture as
+  `v/client-only` — so that route is a browser one.) So the suite below is
+  deliberately two-sided:
 
     * the shape that EXISTS is exercised as an application author would —
       declared, mounted, commanded, and read back off the structural tree;
@@ -317,10 +322,13 @@
 (deftest an-opaque-host-refuses-freehand-children
   (testing "A chart or grid owns every descendant of its node. Declaring
             `{:opaque true}` turns 'children here are silently overwritten'
-            into a refusal at the use site — which is the correct trade, and
-            it is also the mechanism that makes the nested-React-root
-            workaround one-way: no Freehand content can be interleaved into
-            a foreign component's subtree."
+            into a refusal at the use site — which is the correct trade. It
+            is what makes the nested-root PATH one-way: no Freehand content
+            can be interleaved into an `{:opaque true}` host's subtree. That
+            is a property of this one path, not of React interop in general —
+            a React component reached as an ordinary child interleaves in
+            both directions, because it is in the shared tree rather than
+            behind an opaque node."
     (let [m (message #(t/render [pilot/opaque-host-with-children {}]))]
       (is (has? m "opaque") (str "got " (pr-str m)))
       (is (has? m "no Freehand children")))))
