@@ -610,13 +610,14 @@ structural host runs no browser mechanics because it fires no native event; the
 options still normalize and still ride the site plan, so both hosts read one
 shape.
 
-Keyboard branching is therefore an ordinary event: dispatch
+**Keyboard branching is an ordinary event.** Dispatch
 `[:picker/key-pressed ::v/key]` and branch in the registered handler, which can
-weigh committed application state; where the browser mechanic must be decided
+weigh committed application state; where the browser mechanic has to be decided
 synchronously in the listener, write `(v/event [e] …)`. A closed exact-key
-condition map was shipped subject to a delete-before-release pilot gate and
-**deleted** when the pilots showed no use of it — see
-[D007](../docs/design/freehand/decisions/D007-key-condition-event-maps.md).
+condition map shipped for a time under a delete-before-release pilot gate, and
+was **deleted** when the pilots showed no use for it —
+[D007](../docs/design/freehand/decisions/D007-key-condition-event-maps.md)
+records the fork and its outcome.
 
 **One event, or none.** After the shallow options are interpreted, a site yields
 exactly one event vector or `nil`. `nil` dispatches nothing — that is how a
