@@ -73,4 +73,15 @@
 
   {:note "an opaque behavior owns the descendants, so declared children are refused
           rather than rendered and silently overwritten"
-   :view :opaque-with-children :outcome :rf.error/behavior-bad-args}]}
+   :view :opaque-with-children :outcome :rf.error/behavior-bad-args}
+
+  {:note "the COMPILED twin of the empty opaque host renders — the positive control
+          the discriminating opaque-child case is measured against (rf2-drpa3.127)"
+   :view :opaque-host-compiled :outcome :renders}
+
+  {:note "and the COMPILED twin of the opaque-with-children host refuses on the same
+          diagnostic — the build cannot prove opacity (a registered fact), so the
+          compiled marker enforces the opaque-child law at render exactly as the
+          interpreted twin does. JVM, interpreted browser and compiled browser agree
+          (rf2-drpa3.127)"
+   :view :opaque-with-children-compiled :outcome :rf.error/behavior-bad-args}]}

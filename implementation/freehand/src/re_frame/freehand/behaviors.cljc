@@ -358,6 +358,28 @@
       (or (nil? rest*)
           (and (map? (first rest*)) (nil? (next rest*)))))))
 
+(defn- opaque-child!
+  "Raise the opaque-child law for behavior `use`: it is declared
+  `{:opaque true}`, so it owns its node's descendants and the node it decorates
+  carries no Freehand children — children declared there would render and then
+  be overwritten the moment the host connects.
+
+  The three paths reach ONE diagnostic once each has decided, in the child
+  representation it actually holds, that the decorated node is non-empty: the
+  JVM structural render and the interpreted browser walk through
+  [[read-opts]]'s [[childless?]] over a form or a structural node, and the
+  compiled browser path through [[element-childless?]] over the already-built
+  React element. One raise, so the modes agree rather than merely coincide."
+  [use]
+  (bad-args!
+    'v/behavior
+    (str "Behavior " use " is declared {:opaque true} — it owns the node's "
+         "descendants — so the node it decorates carries no Freehand children. "
+         "Children declared here would be rendered and then overwritten by the "
+         "host the moment it connects.")
+    :leave-an-opaque-behaviors-node-empty
+    {:use use}))
+
 (defn check-attach-opts!
   "Validate the closed option roster and the `:use`/`:config` values of one
   `[v/behavior {…} node]` call, and answer `{:use :target :config}` — every
@@ -449,14 +471,7 @@
           :decorate-exactly-one-element
           {:child (shape child)}))
       (when (and (:opaque (definition use)) (not (childless? child)))
-        (bad-args!
-          'v/behavior
-          (str "Behavior " use " is declared {:opaque true} — it owns the node's "
-               "descendants — so the node it decorates carries no Freehand children. "
-               "Children declared here would be rendered and then overwritten by the "
-               "host the moment it connects.")
-          :leave-an-opaque-behaviors-node-empty
-          {:use use}))
+        (opaque-child! use))
       {:use use :target target :config config :child child})))
 
 ;; ---------------------------------------------------------------------------
@@ -867,19 +882,49 @@
 ;; needs no walk and no candidate of its own here: the element's event sites
 ;; were already committed under the compiled view's candidate, and its
 ;; one-element shape was proven by the compiled analyzer. What is left is
-;; exactly the lifecycle — and that is the interpreted boundary's own
-;; `use-attachment!`/`attach`/`check-attach-opts!`, reached identically, so a
-;; compiled attachment connects, updates, commands and tears down the same as
-;; its interpreted twin (D013). The difference from `behavior-component` is the
-;; difference between the two modes and nothing else: the interpreted boundary
-;; WALKS its child from markup, this one is HANDED it already built — exactly
-;; the split `presence-boundary` has across `presence-node` and `emit-presence`.
+;; exactly the lifecycle PLUS the one child-dependent law the build could not
+;; settle — and that is the interpreted boundary's own
+;; `use-attachment!`/`attach`/`check-attach-opts!` plus the opaque-child guard,
+;; reached identically, so a compiled attachment connects, updates, commands,
+;; tears down AND refuses the same as its interpreted twin (D013). The
+;; difference from `behavior-component` is the difference between the two modes
+;; and nothing else: the interpreted boundary WALKS its child from markup, this
+;; one is HANDED it already built — exactly the split `presence-boundary` has
+;; across `presence-node` and `emit-presence`.
+
+(defn- element-childless?
+  "Does the already-built React element carry no Freehand children of its own?
+  The browser arm of the opaque-child law for a COMPILED attachment.
+
+  A compiled body resolved the decorated element at build, so there is no markup
+  form to walk here as [[childless?]] does — React holds the element's
+  descendants under `props.children`, undefined for the childless
+  `createElement(tag, props)` the emitter produces
+  ([[re-frame.freehand.compiled-react/el]]) and present otherwise. This is
+  [[childless?]]'s counterpart on the one child representation the compiled
+  browser path actually has: an element, not a form or a structural node."
+  [element]
+  (let [props (.-props element)]
+    (or (nil? props)
+        (nil? (unchecked-get props "children")))))
 
 (defn ^:no-doc behavior-el
   [js-props]
   (let [opts     (unchecked-get js-props "opts")
         child    (unchecked-get js-props "child")
         _        (check-attach-opts! opts)
+        ;; The child-dependent OPAQUE law, enforced at runtime for both a
+        ;; literal and a runtime-selected :use. `check-attach-opts!` proved the
+        ;; use and the config and `analyze-behavior` proved the one-element
+        ;; shape at build, but neither can prove an {:opaque true} behavior's
+        ;; element carries no children — the opacity is the REGISTERED
+        ;; definition's, resolvable only now. So the compiled browser path runs
+        ;; the same guard the other hosts run through `read-opts`, BEFORE
+        ;; `use-attachment!` installs a lifecycle arm: no connection opens and no
+        ;; host overwrites already-declared children (D013, FH-BEHAVIOR-002).
+        _        (when (and (:opaque (definition (:use opts)))
+                            (not (element-childless? child)))
+                   (opaque-child! (:use opts)))
         set-node (use-attachment! opts)]
     (attach child set-node)))
 

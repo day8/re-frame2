@@ -54,6 +54,7 @@
   [`spec/004B-UI-Tree-and-Conversion.md`](../../../../../spec/004B-UI-Tree-and-Conversion.md)."
   (:require [clojure.string :as str]
             [re-frame.error :as error]
+            [re-frame.freehand.behaviors :as behaviors]
             [re-frame.freehand.conversion :as conv]
             [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.errors :as eb]
@@ -476,19 +477,36 @@
   :mount-in-the-browser-or-move-the-live-subtree-behind-client-only)
 
 (defn- live-capability-site
-  "The FIRST live capability in `tree` the static HTML fold would drop, as
-  `{:view-id .. :tag .. :handlers [..]}`, or nil when the tree folds losslessly.
+  "The FIRST live capability in `tree` the static HTML fold would drop, as a map
+  naming it, or nil when the tree folds losslessly:
 
-  `:view-id` is the nearest ENCLOSING view boundary — the declaration an author
-  can go and edit — rather than the element, which is a position inside it."
+    {:capability :handler  :view-id .. :tag .. :handlers [..]}   a committed
+        event handler no hydration payload will reinstall on this path;
+    {:capability :behavior :view-id .. :behavior ..}             a v/behavior
+        attachment — a live host lifecycle (connect / command / disconnect over
+        a real node) a :server render owns no node for, folded here to an inert
+        marker nothing downstream restores (rf2-drpa3.116).
+
+  `:view-id` is the nearest ENCLOSING author view boundary — the declaration an
+  author can go and edit — rather than the element or the reserved behavior
+  boundary node, each a position inside it."
   [tree]
   (letfn [(scan [n view-id]
             (when (map? n)
-              (let [view-id (or (:view-id n) view-id)]
-                (or (when (seq (:events n))
-                      {:view-id  view-id
-                       :tag      (:tag n)
-                       :handlers (vec (sort (keys (:events n))))})
+              (let [behavior? (= behaviors/behavior-view-id (:view-id n))
+                    ;; the behavior boundary's own :view-id is the reserved
+                    ;; attachment id, not an author view — keep the enclosing
+                    ;; view for attribution and report the behavior separately.
+                    view-id   (if behavior? view-id (or (:view-id n) view-id))]
+                (or (when behavior?
+                      {:capability :behavior
+                       :view-id    view-id
+                       :behavior   (:use (:props n))})
+                    (when (seq (:events n))
+                      {:capability :handler
+                       :view-id    view-id
+                       :tag        (:tag n)
+                       :handlers   (vec (sort (keys (:events n))))})
                     (some #(scan % view-id) (:children n))))))]
     (scan tree nil)))
 
@@ -504,25 +522,43 @@
      The two recoveries are the ones the build-time arm names for a compiled
      view, because it is the same law: mount the tree in the browser with
      `v/mount` / `v/hydrate-root`, or move the live subtree behind a
-     `v/client-only` whose fallback is capability-free."
+     `v/client-only` whose fallback is capability-free.
+
+     A v/behavior attachment is refused on the SAME law and recovery: it is a
+     live host lifecycle over a real node, and folding it to its inert JVM
+     marker on a non-hydrating page ships a node whose behavior never connects
+     (rf2-drpa3.116)."
      [tree]
-     (if-let [{:keys [view-id tag handlers]} (live-capability-site tree)]
+     (if-let [{:keys [capability view-id tag handlers behavior]}
+              (live-capability-site tree)]
        (error/throw-error!
         :rf.error/static-render-requires-runtime
         'v/render-static
-        (str "v/render-static rendered a live event handler it cannot honour: "
-             (str/join ", " (map str handlers))
-             (when tag (str " on " tag))
+        (str "v/render-static rendered a "
+             (case capability
+               :handler  (str "live event handler it cannot honour: "
+                              (str/join ", " (map str handlers))
+                              (when tag (str " on " tag)))
+               :behavior (str "v/behavior attachment it cannot honour"
+                              (when behavior (str " (" behavior ")"))))
              (when view-id (str " in view " view-id))
              ". render-static is the pure :server static-HTML path — it emits no "
-             "hydration payload, so no client ever reinstalls the handler and "
-             "folding it away would ship a control that does nothing. Mount this "
-             "tree in the browser with v/mount / v/hydrate-root, or move the live "
-             "subtree behind a v/client-only with a capability-free fallback.")
+             "hydration payload, so "
+             (case capability
+               :handler  (str "no client ever reinstalls the handler and folding "
+                              "it away would ship a control that does nothing. ")
+               :behavior (str "no client ever connects the behavior and folding it "
+                              "to an inert marker would ship a node whose host "
+                              "lifecycle never runs. "))
+             "Mount this tree in the browser with v/mount / v/hydrate-root, or "
+             "move the live subtree behind a v/client-only with a capability-free "
+             "fallback.")
         {:recovery static-render-recovery
-         :extra    (cond-> {:capability :handler :handlers handlers}
-                     view-id (assoc :view-id view-id)
-                     tag     (assoc :tag tag))})
+         :extra    (cond-> {:capability capability}
+                     view-id  (assoc :view-id view-id)
+                     tag      (assoc :tag tag)
+                     handlers (assoc :handlers handlers)
+                     behavior (assoc :behavior behavior))})
        tree)))
 
 #?(:clj

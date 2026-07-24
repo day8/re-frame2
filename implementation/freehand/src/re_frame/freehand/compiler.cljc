@@ -109,6 +109,13 @@
                   :html    (vswap! caps conj :html)
                   :foreign (vswap! caps conj :foreign)
                   :slot    (vswap! caps conj :render-slot)
+                  ;; v/behavior — the ONE sanctioned imperative host boundary
+                  ;; (D013). A live host lifecycle (connect / update / command /
+                  ;; disconnect over a real node) is as much a runtime capability
+                  ;; as an effect or a ref, so the boundary is a named capability
+                  ;; rather than invisible — a behavior-bearing view must not
+                  ;; report an empty roster (rf2-drpa3.116).
+                  :behavior (vswap! caps conj :behavior)
                   :element (do (when (:custom? n) (vswap! caps conj :custom-element))
                                (when (get-in n [:props :spread])
                                  (vswap! caps conj :spread))
@@ -130,8 +137,8 @@
   "The full capability roster a compiled declaration carries: the
   STRUCTURAL capabilities its AST names (`:raw` / `:html` / `:foreign` /
   `:render-slot` / `:render-fn` / `:custom-element` / `:spread` /
-  `:spread-safe`) unioned with the REACTIVE and host-hook capabilities its
-  lexical `sites` own. The reactive four — `:sub`, `:event`, `:frame`,
+  `:spread-safe` / `:behavior`) unioned with the REACTIVE and host-hook
+  capabilities its lexical `sites` own. The reactive four — `:sub`, `:event`, `:frame`,
   `:dispatch-fn` — are exactly the set whose emptiness proves the ViewCell
   shell elidable ([[view-cell-elided?]]); `:local` / `:effect` and the
   folded interop-hook kinds are ordinary React machinery that ride a plain
@@ -200,9 +207,10 @@
   (-> `:ref`) and the re-frame.freehand.react host hooks (use-context -> `:context`,
   use-effect family -> `:effect`; `use-id` is EXEMPT — an inert deterministic id
   is static-safe), authored element/component `:ref` slots (a commit-phase host
-  hook a static render cannot honour -> `:ref`), and foreign heads (`:foreign`,
-  which a `react/lazy` head folds into). `:deps` are the view references to close
-  over transitively.
+  hook a static render cannot honour -> `:ref`), a `v/behavior` boundary (a live
+  host lifecycle a :server render owns no node for -> `:behavior`), and foreign
+  heads (`:foreign`, which a `react/lazy` head folds into). `:deps` are the view
+  references to close over transitively.
 
   SERVER REACHABILITY governs BOTH the dependency walk AND the capability
   collection: a `v/client-only` subtree is browser-only — the JVM emitter
@@ -214,10 +222,11 @@
   recorded and a site whose `:path` descends from one is excluded — the capability
   proof only counts the SERVER-REACHABLE sites, mirroring the dependency walk."
   [ast sites]
-  (let [deps     (volatile! #{})
-        foreign? (volatile! false)
-        ref?     (volatile! false)
-        co-paths (volatile! [])]
+  (let [deps      (volatile! #{})
+        foreign?  (volatile! false)
+        ref?      (volatile! false)
+        behavior? (volatile! false)
+        co-paths  (volatile! [])]
     (letfn [(walk [n]
               (when (map? n)
                 (if (= :client-only (:op n))
@@ -229,6 +238,15 @@
                   (do
                     (when (= :view (:op n))    (vswap! deps conj (:view-id n)))
                     (when (= :foreign (:op n)) (vreset! foreign? true))
+                    ;; a v/behavior boundary is a live host lifecycle (connect /
+                    ;; update / command / disconnect over a real node) — a pure
+                    ;; :server render owns no node and cannot honour it, so a
+                    ;; server-reachable behavior is a runtime-requiring
+                    ;; capability the JVM emitter would otherwise fold to an inert
+                    ;; marker and silently drop. Reached HERE by the same walk
+                    ;; that excludes a client-only subtree, so a behavior only in
+                    ;; a client arm is never counted (rf2-drpa3.116).
+                    (when (= :behavior (:op n)) (vreset! behavior? true))
                     ;; an authored `:ref` (element OR component props) is a
                     ;; commit-phase host hook — a static render cannot honour it,
                     ;; so a server-reachable ref is a runtime-requiring capability
@@ -256,8 +274,9 @@
                            (keep {:ref :ref :context :context :effect :effect
                                   :layout-effect :effect :effect-event :effect})
                            (map :kind (reachable :react)))
-               @foreign? (conj :foreign)
-               @ref?     (conj :ref))
+               @foreign?  (conj :foreign)
+               @ref?      (conj :ref)
+               @behavior? (conj :behavior))
        :deps @deps})))
 
 (defn build-view-static

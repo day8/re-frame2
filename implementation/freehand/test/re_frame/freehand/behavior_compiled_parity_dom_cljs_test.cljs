@@ -196,3 +196,67 @@
                         (is false (str "mount rejected: " e))
                         (teardown! container root)
                         (done)))))))))
+
+;; ===========================================================================
+;; The opaque-child law holds at RUNTIME in the compiled browser path
+;; ===========================================================================
+
+(defn- mount-outcome!
+  "Mount `view` and resolve with `{:id .. :connections ..}` — `::no-throw` when
+  it mounted, else the caught `:rf.error/id`. A render refusal rejects the act
+  promise (there is no error boundary), and because a behavior connects only on
+  COMMIT, a refused render leaves the connection table untouched — so the
+  companion count proves the refusal came BEFORE any attachment."
+  [view]
+  (let [[container root] (mount!)]
+    (-> (act #(.render root (element [view {}])))
+        (.then (fn [_]
+                 (let [n (behaviors/connection-count)]
+                   (teardown! container root)
+                   {:id ::no-throw :connections n}))
+               (fn [e]
+                 (let [n (behaviors/connection-count)]
+                   (.remove container)
+                   (try (.unmount root) (catch :default _ nil))
+                   {:id (or (:rf.error/id (ex-data e)) ::no-id) :connections n}))))))
+
+(deftest the-compiled-browser-path-enforces-the-opaque-child-law
+  (testing "rf2-drpa3.127, the discriminating case. An {:opaque true} behavior
+            owns its node's descendants, so a node carrying Freehand children is
+            refused — and the compiled build cannot prove that, because the
+            opacity is a REGISTERED fact and the child may carry a runtime-
+            selected :use. So the COMPILED BROWSER path enforces the opaque-child
+            law at runtime, raising :rf.error/behavior-bad-args BEFORE any
+            connection opens or the host overwrites already-rendered children. The
+            positive control — the same opaque behavior over an EMPTY node —
+            mounts and connects. The interpreted browser twin agrees on both, so
+            the compiled path is proven equal, not merely non-crashing."
+    (if-not (browser?)
+      (skip! "the browser job runs the opaque-child runtime refusal")
+      (async done
+        (setup!)
+        (-> (mount-outcome! bv/opaque-host-compiled)
+            (.then (fn [host]
+                     (is (= ::no-throw (:id host))
+                         "the compiled opaque behavior over an EMPTY node mounts (positive control)")
+                     (reset-lifecycle!)
+                     (mount-outcome! bv/opaque-with-children-compiled)))
+            (.then (fn [kids]
+                     (is (= :rf.error/behavior-bad-args (:id kids))
+                         "the compiled opaque behavior over a node WITH children is refused at runtime")
+                     (is (zero? (:connections kids))
+                         "and refused BEFORE any connection opened — no child-host overwrite")
+                     (reset-lifecycle!)
+                     (mount-outcome! bv/opaque-host)))
+            (.then (fn [i-host]
+                     (is (= ::no-throw (:id i-host))
+                         "the INTERPRETED opaque behavior over an empty node mounts too")
+                     (reset-lifecycle!)
+                     (mount-outcome! bv/opaque-with-children)))
+            (.then (fn [i-kids]
+                     (is (= :rf.error/behavior-bad-args (:id i-kids))
+                         "and the interpreted twin refuses on the SAME diagnostic — the two browser modes agree")
+                     (done)))
+            (.catch (fn [e]
+                      (is false (str "an opaque-child mount chain rejected unexpectedly: " e))
+                      (done))))))))
