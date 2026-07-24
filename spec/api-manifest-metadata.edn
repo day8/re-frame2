@@ -181,6 +181,27 @@
   ;; so only where React-world owns the tree. Spec 004 §The outward React bridge
   ;; owns the contract.
   {:namespace "re-frame.freehand" :var "->react" :kind :fn :facade? true :tier :advanced :owner "004" :status "EP-0036" :runtime-verified? false}
+  ;; The BEHAVIOR TOOL PLANE (EP-0036 F5g, D013 §8) — the two read-only
+  ;; projections over the live behavior connection table. They ride this
+  ;; `:cljs-only` block for the mount verbs' reason: a connection is a LIVE
+  ;; host fact, and the JVM structural render connects nothing, so a JVM arm
+  ;; could only answer an eternal `[]` — present-and-lying rather than
+  ;; honestly absent. Freehand carries no tier of host operations that exist
+  ;; only to answer emptily on the server (Spec 011 §The outward React bridge
+  ;; has no server arm states the same policy for `->react`).
+  ;;
+  ;; TOOLING, not advanced: an application has no business here and the paved
+  ;; path never reaches for them; they exist so a tool or a test can read
+  ;; which behaviors are connected and what the command channel decided,
+  ;; through the ONE public door rather than through the internal
+  ;; `re-frame.freehand.behaviors`. What they omit — node, private memory,
+  ;; any route to a host instance — is the contract, and it is omitted by
+  ;; construction. The scalar/set summaries and the window bound beside them
+  ;; (`connection-count`, `target-ids`, `command-log-limit`) deliberately do
+  ;; NOT cross: each is derivable from a projection, so they stay
+  ;; implementation/test helpers under `^:no-doc` and are rowed nowhere.
+  {:namespace "re-frame.freehand" :var "active-connections" :kind :fn :facade? true :tier :tooling :owner "004" :status "EP-0036" :runtime-verified? false}
+  {:namespace "re-frame.freehand" :var "command-log" :kind :fn :facade? true :tier :tooling :owner "004" :status "EP-0036" :runtime-verified? false}
   ;; --- Reagent adapter (day8/re-frame2-reagent) — probe fully-rowed ---
   {:namespace "re-frame.adapter.reagent" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}

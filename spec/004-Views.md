@@ -1825,8 +1825,10 @@ A behavior is the one place in the substrate where opaque host state lives, so
 it is the one place a reader most needs to see into — and the one place a
 careless inspection surface would hand out exactly what the contract refuses.
 Both halves are settled by making the tool plane a pair of read-only
-projections over the live table, published by the behavior namespace itself
-rather than through the public door:
+projections over the live table, published through the ONE public door as
+`v/active-connections` and `v/command-log` at the `tooling` tier — a tool
+projection a tool cannot reach without depending on an unsupported namespace is
+not a tool projection:
 
 - **the active connections** — one entry per live connection, carrying its
   generation, its registered behavior id, the frame it was committed under, the
@@ -1851,7 +1853,21 @@ event, and nothing on this plane dispatches. The traffic window is bounded for
 the same reason a trace ring is — an unbounded log is a retention leak dressed
 up as evidence — and a delivered row is written before the operation runs, so a
 command that crashes its host appears in the traffic rather than vanishing from
-it.
+it. The BOUND is contract; the number is not, and there is no retention option,
+no pagination and no filter, because a tool that wants less filters the value it
+was handed.
+
+Both are BROWSER-ONLY, and absent on the JVM exactly as the mount verbs and the
+outward React bridge are. A structural render connects nothing, so a JVM arm
+could only answer an eternal empty projection — present-and-lying where absence
+is honest, and Freehand carries no tier of host operations that exist purely to
+answer emptily on the server.
+
+The plane is TWO reads and no more. A scalar count of the live connections, the
+set of targets they claim and the traffic window's own bound are each derivable
+from a projection in one form, so none of them is published: a supported surface
+earns its place by being something a reader cannot compute for itself, and three
+more names would be three more things to keep true.
 
 #### The structural marker
 

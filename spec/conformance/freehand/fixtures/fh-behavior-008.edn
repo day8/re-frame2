@@ -21,7 +21,7 @@
 ;; is a retention leak dressed up as evidence.
 {:fh/id "FH-BEHAVIOR-008"
  :fh/law
- "The test/tool plane reads two read-only projections over the live behavior table — the active connections (generation, behavior id, frame, semantic target, public config) and a bounded window of command traffic (what the command named, and whether the channel delivered or refused it) — and neither exposes a node, a private memory or any route to a host instance, adds an application event, or calls a tool back."
+ "The test/tool plane reads two read-only projections over the live behavior table — the active connections (generation, behavior id, frame, semantic target, public config) and a bounded window of command traffic (what the command named, and whether the channel delivered or refused it) — published through the ONE public door as v/active-connections and v/command-log, so a tool reads the plane without requiring an implementation namespace; and neither exposes a node, a private memory or any route to a host instance, adds an application event, or calls a tool back."
 
  ;; The active-connection projection, pinned in both directions.
  :connection-keys
@@ -40,6 +40,16 @@
  :no-target
  {:behavior :re-frame.freehand.behavior-views/probe
   :config   {:label "quiet"}}
+
+ ;; THE DOOR. Both projections cross the ONE public namespace at the
+ ;; `tooling` tier — a tool projection a tool cannot reach without
+ ;; depending on an unsupported namespace is not a tool projection. The
+ ;; door read must be the SAME projection, not a second one that could
+ ;; drift; `:summaries-not-published` is the other half of the bound, and
+ ;; each name on it is derivable from a projection in one form.
+ :door
+ {:published               ["active-connections" "command-log"]
+  :summaries-not-published ["connection-count" "target-ids" "command-log-limit"]}
 
  ;; The command-traffic projection, pinned in both directions.
  :log-keys

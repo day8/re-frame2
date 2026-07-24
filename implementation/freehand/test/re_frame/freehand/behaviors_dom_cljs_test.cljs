@@ -25,7 +25,9 @@
                      visible refusal that performs no host work.
     FH-BEHAVIOR-008  the tool plane is two read-only projections over that
                      same live table, and what they OMIT — node, memory,
-                     any route to a host instance — is the assertion.
+                     any route to a host instance — is the assertion. They
+                     cross the ONE public door, and the door read is the
+                     SAME projection rather than a second one.
 
   This file rides the browser lane through its `-dom-cljs-test` suffix. It
   also matches the node suites' broader regex, where it has no DOM to mount
@@ -34,6 +36,11 @@
             ["react-dom/client" :as rdc]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; The DOOR, required alongside the internal namespace on
+            ;; purpose: FH-BEHAVIOR-008 asserts that the published verbs are
+            ;; the SAME projections rather than a second pair that could
+            ;; drift, and only a suite holding both can say so.
+            [re-frame.freehand :as v]
             [re-frame.freehand.behavior-views :as bv]
             [re-frame.freehand.behaviors :as behaviors]
             [re-frame.freehand.conformance :as conf]
@@ -639,6 +646,13 @@
                              row  (first rows)]
                          (is (= 1 (count rows))
                              "one mounted behavior, one projected connection")
+                         (is (= ["active-connections" "command-log"]
+                                (:published (:door fh-008)))
+                             "non-vacuous: the fixture really names the two door verbs")
+                         (is (= rows (v/active-connections))
+                             "and the DOOR answers that same projection — a tool
+                              reads the live plane through re-frame.freehand
+                              alone, never through the implementation namespace")
                          (is (= (set present) (set (keys row)))
                              "the key roster is closed in the present direction")
                          (absent-keys-are-absent rows absent "a live connection")
@@ -688,11 +702,16 @@
               (.then (fn [_]
                        (is (empty? (behaviors/command-log))
                            "a mount commands nothing, so the log starts empty")
+                       (is (empty? (v/command-log))
+                           "and the door says the same, before any traffic")
                        (doseq [{:keys [command]} traffic]
                          (conf/caught-id #(behaviors/command! frame-id command)))
                        (let [rows (behaviors/command-log)]
                          (is (= (count traffic) (count rows))
                              "every command left exactly one row, in order")
+                         (is (= rows (v/command-log))
+                             "and the DOOR answers that same window — one
+                              projection published, not a second one beside it")
                          (absent-keys-are-absent rows absent "a traffic row")
                          (doseq [[{:keys [note row resolved?]} got]
                                  (map vector traffic rows)]

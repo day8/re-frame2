@@ -1766,3 +1766,108 @@
      ;; is what makes the structural projection an inert marker wrapping the
      ;; author's own element.
      :render          (fn behavior-render [props] (:child (behaviors/read-opts props)))}))
+
+;; ---------------------------------------------------------------------------
+;; The behavior tool plane — two read-only projections
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §The tool plane. A behavior is the one place in the substrate where
+;; opaque host state lives, so it is the one place a reader most needs to see
+;; into — and the one place a careless inspection surface would hand out
+;; exactly what the contract refuses. The answer is a pair of READS over the
+;; live connection table, and they cross the door because the whole point of a
+;; tool projection is that a TOOL can reach it: `re-frame.freehand` is the one
+;; public door (Conventions §Freehand), so a projection published only from
+;; `re-frame.freehand.behaviors` would oblige every reader to depend on a
+;; namespace API governance classifies as unsupported.
+;;
+;; They are `tooling` tier and not `advanced`: an application has no business
+;; here, and the paved path never reaches for them. What they OMIT is the
+;; contract — no node, no private memory, no closure and no route to one —
+;; and the omission is by CONSTRUCTION, because each row is built from a
+;; connection's public half rather than filtered out of its whole.
+;;
+;; Browser-only, exactly like the mount verbs and `v/->react`: the live
+;; connection plane is a client capability, and a JVM structural render owns no
+;; connection to project. Freehand carries no tier of host operations that
+;; exist only to answer emptily on the server, so the verbs are honestly ABSENT
+;; on the host that cannot support them rather than present-and-lying with an
+;; eternal `[]`.
+;;
+;; The SCALAR and SET summaries beside them
+;; (`re-frame.freehand.behaviors/connection-count` / `target-ids`) and the
+;; window bound (`command-log-limit`) deliberately do NOT cross: each is
+;; derivable from a projection in one form, and a supported surface earns its
+;; place by being something a tool cannot compute for itself. They stay
+;; implementation/test helpers, marked `^:no-doc` where they live.
+
+#?(:cljs
+   (def ^{:doc "Every live behavior connection as DATA, oldest first — the
+  tool plane's first read.
+
+      (v/active-connections)
+      ;; => [{:generation 1
+      ;;      :behavior   :my.ns/autosize
+      ;;      :frame      :rf/default
+      ;;      :target     :composer/body
+      ;;      :config     {:max-rows 8}}]
+
+  `:generation` and `:behavior` are always present; `:frame`, `:target` and
+  `:config` appear only where the connection has one, so an absent target is
+  ABSENT rather than `nil`. Ordering is by the monotonic connection
+  generation, so the list reads as the order in which the connections
+  opened.
+
+  This is what a tool renders and a test asserts: which behaviors are
+  connected, under which frame, claiming which semantic ids, running on which
+  public config. THE PRIVATE MEMORY AND THE HOST NODE ARE ABSENT BY
+  CONSTRUCTION rather than by redaction — each row is built from the record's
+  public half, so there is no path from an inspection read to a live host
+  object. A projection that answered with a host instance would be the
+  registry the behavior contract exists to refuse, reached through the
+  inspection door instead of the front one.
+
+  A READ, never a stream: a tool asks, it is not called back, and nothing
+  here dispatches. Lifecycle facts are tool evidence, not domain events.
+
+  Browser-only, like the mount verbs — the JVM structural host connects
+  nothing, so it has no live plane to project.
+
+  Per [Spec 004 §The tool plane](../../../../spec/004-Views.md#the-tool-plane)."
+          :arglists '([])}
+     active-connections behaviors/active-connections))
+
+#?(:cljs
+   (def ^{:doc "The recent behavior-command traffic as DATA, oldest first —
+  the tool plane's second read, and a BOUNDED window.
+
+      (v/command-log)
+      ;; => [{:frame :rf/default :target :composer/body :op :refit
+      ;;      :behavior :my.ns/autosize :generation 1 :outcome :delivered}]
+
+  A row records what the command NAMED and what the channel DECIDED —
+  `:outcome` is `:delivered` or `:refused` — and never what the host made of
+  it. The operation's return value is the connection's private memory and has
+  no representation here; a delivered row is written BEFORE the operation
+  runs, so a command that crashes its host is in the log rather than missing
+  from it.
+
+  REFUSALS ARE RECORDED AS FAITHFULLY AS DELIVERIES, because a projection
+  that only saw the successes would be evidence for the one case nobody
+  debugs. `:behavior` and `:generation` appear exactly where the channel
+  RESOLVED a connection — every delivered row, and the refusal of an
+  operation a found behavior does not register — and are absent from a
+  refusal that resolved nothing. `:target` and `:op` appear only when the
+  command named them, which a malformed one does not.
+
+  BOUNDED, and that is a contract rather than an implementation detail: the
+  window holds the most recent rows and nothing older, because an unbounded
+  log is a retention leak dressed up as evidence, growing for as long as a
+  session lives. There is no retention option, no pagination and no filter —
+  a tool that wants less filters the value it was handed.
+
+  Browser-only, like [[active-connections]].
+
+  Per [Spec 004 §The tool plane](../../../../spec/004-Views.md#the-tool-plane)."
+          :arglists '([])}
+     command-log behaviors/command-log))

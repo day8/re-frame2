@@ -1101,6 +1101,100 @@ an open flag is writable and not buffered, so it takes the key and no generation
              {:target :composer/body :op :refit}]]}))
   ```
 
+## The behavior tool plane
+
+A behavior is the one place in the substrate where opaque host state lives, so it
+is the one place a reader most needs to see into — and the one place a careless
+inspection surface would hand out exactly what the contract refuses. Both halves
+are settled by making the tool plane two **read-only projections** over the live
+connection table, published here on the one public door so a tool never has to
+depend on an implementation namespace.
+
+They answer **values**. Neither answers a node, a private memory, or anything a
+caller could reach one through, and the omission is by *construction*: each row
+is built from a connection's public half rather than filtered out of its whole.
+Neither is an event stream either — a tool asks and is not called back, nothing
+here dispatches, and no application event is invented to carry a lifecycle fact.
+
+Both are **browser-only**, absent on the JVM exactly like the mount verbs and
+`->react`. A structural render connects nothing, so an eternal `[]` there would
+be present-and-lying where absence is honest.
+
+The scalar and set summaries beside them, and the window bound, are deliberately
+*not* published: `(count (v/active-connections))` and
+`(into #{} (keep :target) (v/active-connections))` are the same answers, and a
+supported surface earns its place by being something a reader cannot compute for
+itself.
+
+### `active-connections`
+
+- **Kind**: function (ClojureScript only)
+- **Signature**:
+  ```clojure
+  (active-connections) → [connection-map …]
+  ```
+- **Description**: every live behavior connection as data, oldest first by the
+  monotonic connection generation — which behaviors are connected, under which
+  frame, claiming which semantic ids, running on which public config.
+
+  `:generation` and `:behavior` are always present. `:frame`, `:target` and
+  `:config` appear only where the connection has one, so a behavior nothing
+  commands projects **no** `:target` — absent, never `nil`.
+
+  The private memory and the host node are **absent by construction**. A
+  projection that answered with a host instance would be the instance registry
+  the behavior contract exists to refuse, reached through the inspection door
+  instead of the front one. See
+  [spec/004-Views.md](../../spec/004-Views.md#the-tool-plane).
+- **Example**:
+  ```clojure
+  (v/active-connections)
+  ;; => [{:generation 1
+  ;;      :behavior   :my.ns/autosize
+  ;;      :frame      :rf/default
+  ;;      :target     :composer/body
+  ;;      :config     {:max-rows 8}}]
+  ```
+
+### `command-log`
+
+- **Kind**: function (ClojureScript only)
+- **Signature**:
+  ```clojure
+  (command-log) → [traffic-row …]
+  ```
+- **Description**: the recent behavior-command traffic, oldest first, as a
+  **bounded** window. A row records what the command *named* and what the channel
+  *decided* — `:outcome` is `:delivered` or `:refused` — and never what the host
+  made of it: the operation's return value is the connection's private memory and
+  has no representation here. A delivered row is written *before* the operation
+  runs, so a command that crashes its host is in the log rather than missing from
+  it.
+
+  **Refusals are recorded as faithfully as deliveries**, because a projection
+  that only saw the successes would be evidence for the one case nobody debugs.
+  `:behavior` and `:generation` appear exactly where the channel resolved a
+  connection — every delivered row, and the refusal of an operation a found
+  behavior does not register — and are absent from a refusal that resolved
+  nothing. `:target` and `:op` appear only where the command named them, which a
+  malformed one does not.
+
+  The window is bounded as **contract**, not as an implementation detail: an
+  unbounded log is a retention leak dressed up as evidence. There is no retention
+  option, no pagination and no filter — a tool that wants less filters the value
+  it was handed. See
+  [spec/004-Views.md](../../spec/004-Views.md#the-tool-plane).
+- **Example**:
+  ```clojure
+  (v/command-log)
+  ;; => [{:frame      :rf/default
+  ;;      :target     :composer/body
+  ;;      :op         :refit
+  ;;      :behavior   :my.ns/autosize
+  ;;      :generation 1
+  ;;      :outcome    :delivered}]
+  ```
+
 ## Related
 
 - [spec/004-Views.md](../../spec/004-Views.md) — the normative contract
