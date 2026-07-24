@@ -43,10 +43,17 @@
   It states no pass/fail about any bundle. Every reading is a byte count or a
   byte delta, which the harness can only publish — D021's NON-GOALS bar a
   byte-size threshold, so no matched-build figure has a route to a verdict.
-  The DETERMINISTIC reachability gate that DOES red is a different lane
-  (`scripts/check-freehand-evidence-elision.cjs`, over the goog.DEBUG control
-  pair): it flips the flag and holds lowering; this file flips lowering and
-  holds the flag. Complementary, not the same.
+  The gates that DO red are different lanes over the same release build, each
+  moving one variable and holding the rest:
+
+    `scripts/check-freehand-reachability.cjs`      moves the APP — an unused
+                                                   runtime module is absent
+    `scripts/check-freehand-evidence-elision.cjs`  moves `goog.DEBUG` — the
+                                                   dev-gated seam is absent
+    this file                                      moves LOWERING — and
+                                                   asserts nothing
+
+  Complementary, none of them the same claim.
 
   Node-only (`fs`/`zlib`/`vm` via b5). Like the mixed bundle test it is
   driven by a test rather than registered into the standing suite, because

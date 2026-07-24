@@ -924,6 +924,40 @@
                       :closure-defines {goog.DEBUG true}}
    :modules {:main {:init-fn re-frame.freehand.release-app/-main}}}
 
+  ;; rf2-drpa3.52 acceptance 1 — the REACHABILITY control, and the second
+  ;; control twin of :freehand-release. D021's B5 row asks for a
+  ;; deterministic proof that UNUSED RUNTIME MODULES are absent from the
+  ;; production bundle, and the naive oracles have both been measured wrong
+  ;; here (a debug flag survived 225 times inside prose; Closure inlines a
+  ;; small function's name, so grepping for it can never go red). The
+  ;; technique that works is a control build.
+  ;;
+  ;; The two controls differ in WHICH variable they move, and that is the
+  ;; whole difference between the two claims:
+  ;;
+  ;;   :freehand-release-control               goog.DEBUG moves — proves the
+  ;;                                           dev-gated EVIDENCE SEAM elides
+  ;;   :freehand-release-reachability-control  the APP moves — proves an
+  ;;                                           unused runtime MODULE elides
+  ;;
+  ;; Same :advanced, same goog.DEBUG false, same everything the release build
+  ;; sets. The entry is a strict SUPERSET of the release entry: it CALLS
+  ;; `release-app/-main` and additionally mounts a view that calls
+  ;; `v/controller-key`, the public door onto `re-frame.freehand.control`. So
+  ;; a string present here and absent from the release bundle is present
+  ;; BECAUSE of the controller and nothing else.
+  ;;
+  ;; Built and grep'd by `npm run test:freehand-reachability`
+  ;; (scripts/check-freehand-reachability.cjs), never served.
+  :freehand-release-reachability-control
+  {:target     :browser
+   :output-dir "out/freehand-release-reachability-control"
+   :asset-path "."
+   :compiler-options {:optimizations :advanced
+                      :infer-externs :auto
+                      :closure-defines {goog.DEBUG false}}
+   :modules {:main {:init-fn re-frame.freehand.bench.b5-reachability-control-app/-main}}}
+
   ;; The ClojureScript/Node lane of the Freehand B-spine (D021).
   ;;
   ;; `clojure -M:bench` is a JVM process, so it reaches every `.cljc`

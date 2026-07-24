@@ -37,12 +37,18 @@
   ## The deterministic gate is elsewhere, on purpose
 
   D021's B5 row also names a DETERMINISTIC reachability gate — that unused
-  runtime modules are absent from the production bundle, proven by the
-  F3d control-build technique. That gate needs a control build (the debug
-  flag flipped, everything else held) and lives in the build lane; it is
-  `rf2-drpa3.166`'s. This namespace is the EVIDENCE half only, and states
-  no pass/fail about a bundle at all: every measurement it declares is
-  `:bytes` or `:duration-ms`, which the harness can only publish.
+  runtime modules are absent from the production bundle, proven by the F3d
+  control-build technique. That gate needs a control build and a validated
+  oracle, so it is not a measurement and does not live here: it is
+  `implementation/scripts/check-freehand-reachability.cjs`, run by `npm run
+  test:freehand-reachability`, which holds `goog.DEBUG` still and moves the
+  APP. (Its sibling `check-freehand-evidence-elision.cjs` does the reverse —
+  holds the app and moves the flag — and proves a different thing: that the
+  dev-gated evidence seam elides.)
+
+  This namespace is the EVIDENCE half only, and states no pass/fail about a
+  bundle at all: every measurement it declares is `:bytes` or
+  `:duration-ms`, which the harness can only publish.
 
   ## Provenance ties each number to the artefact
 
