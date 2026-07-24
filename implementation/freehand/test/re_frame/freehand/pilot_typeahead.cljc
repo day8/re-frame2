@@ -170,17 +170,29 @@
   ;; schedule is ordinary `:dispatch-later`, and the token is what makes a
   ;; superseded one inert. An empty query schedules nothing — there is no
   ;; question to ask.
+  ;;
+  ;; It also REVOKES the in-flight claim, because the request that claim
+  ;; names has just been superseded — the keystroke moved the record past
+  ;; its token. The claim is the request token stamped into the slot it
+  ;; wrote, so dropping the slot drops the token with it: existence and
+  ;; identity stay one question. Without this the claim outlives its
+  ;; request until the NEXT debounce fires, and in that window a reply for
+  ;; the superseded token still names the standing claim and is believed —
+  ;; visible corruption the moment the query returns to what that reply
+  ;; answered. Supersession is the keystroke, not the next timer; the claim
+  ;; is revoked the instant the keystroke lands, leaving no acceptance gap.
   (rf/reg-event :acme.ui.typeahead/typed
     (fn [{:keys [db]} [_ k revision ms on-search text]]
       (let [r     (record db k)
             token (inc (:token r 0))
-            r*    (assoc (or r {})
-                         :reset-key revision
-                         :query     text
-                         :open?     true
-                         :active    0
-                         :token     token
-                         :error     nil)]
+            r*    (-> (or r {})
+                      (assoc :reset-key revision
+                             :query     text
+                             :open?     true
+                             :active    0
+                             :token     token
+                             :error     nil)
+                      (dissoc :in-flight))]
         (cond-> {:db (assoc-in db [records-root k] r*)}
           (not (str/blank? text))
           (assoc :fx [[:dispatch-later

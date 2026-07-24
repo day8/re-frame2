@@ -188,6 +188,59 @@
         (is (= "an" (:results-for (record)))
             "the visible answer still answers the current question")))))
 
+(deftest race-3b-an-obsolete-request-is-inert-before-any-newer-debounce-fires
+  (testing "RACE 3, the window RACE 3 does not close. RACE 3 lets the
+            newer keystroke's debounce FIRE — so the newer request claims
+            `:in-flight` and the older reply names a token nothing is
+            waiting for. But typing supersedes the older request the
+            instant the keystroke lands, not when the next debounce fires;
+            between them the older request must ALREADY be inert. A reply
+            that lands in that window, for a query the user has since typed
+            over and RETURNED to, must not be believed just because the
+            text matches again.
+
+            Drive it exactly: type `a` (token 1), fire its debounce so
+            token 1 is the claimed request, type `an` then `a` again
+            WITHOUT firing either newer debounce, then deliver token 1's
+            reply. It answers a question three keystrokes stale; it is
+            dropped, and nothing of its becomes visible merely because the
+            current text is `a` once more."
+    (seed! {})
+    (type! "a")
+    (fire-debounce! (:token (record)))
+    (let [req-1 (first (requests))]
+      (is (= 1 (:token (:in-flight (record)))) "token 1 is the claimed request")
+
+      (type! "an")
+      (type! "a")
+      (is (= 3 (:token (record))) "two more keystrokes moved the record past token 1")
+      (is (= "a" (:query (record))) "and the current query is `a` once more")
+
+      ;; The obsolete reply lands in the window before either newer
+      ;; debounce has fired. It names token 1 — which the record has left.
+      (reply! req-1 {:results results-a})
+      (is (nil? (:results-for (record)))
+          "the obsolete reply tagged NO answer — it was inert, not stored")
+      (is (empty? (:results (record)))
+          "and left no results behind")
+      (let [st (rf/subscribe-once [:acme.ui.typeahead/status k 0] {:frame fid})]
+        (is (empty? (:results st))
+            "nothing of token 1's answer is visible, though the text is `a` again")
+        (is (not (some #{"Amir Haddad"} (map :label (:results st))))
+            "specifically the token-1 results (results-a) are NOT shown"))
+
+      ;; Non-vacuity, same row: the LATEST token's due and reply land and
+      ;; become visible normally, so the drop above is selective, not a
+      ;; blanket refusal.
+      (fire-debounce! (:token (record)))
+      (let [req-2 (last (requests))]
+        (is (= 3 (:token (:in-flight (record)))) "the latest keystroke's request is now in flight")
+        (reply! req-2 {:results results-an})
+        (is (= results-an (:results (record))) "the current token's answer lands")
+        (is (= "a" (:results-for (record))) "tagged with the question it answers")
+        (let [st (rf/subscribe-once [:acme.ui.typeahead/status k 0] {:frame fid})]
+          (is (= results-an (:results st)) "and becomes visible normally"))))))
+
 (deftest race-4-stale-completion-cannot-clobber-what-the-user-typed
   (testing "RACE 4 — STALE COMPLETION, which is R-C1 exactly. A settle
             arrives while the user is mid-word. The baseline FAILS this:
