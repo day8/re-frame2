@@ -94,27 +94,16 @@
   "The full capability roster a compiled declaration carries: the
   STRUCTURAL capabilities its AST names (`:raw` / `:html` / `:foreign` /
   `:render-slot` / `:render-fn` / `:custom-element` / `:spread` /
-  `:spread-safe` / `:behavior`) unioned with the REACTIVE and host-hook
-  capabilities its lexical `sites` own. The reactive four — `:sub`, `:event`, `:frame`,
-  `:dispatch-fn` — are exactly the set whose emptiness proves the ViewCell
-  shell elidable ([[view-cell-elided?]]); `:local` / `:effect` and the
-  folded interop-hook kinds are ordinary React machinery that ride a plain
-  component, not the reactive shell."
+  `:spread-safe` / `:behavior`) unioned with the REACTIVE capabilities its
+  lexical `sites` own — `:sub`, `:event` and `:frame`, which with
+  `:dispatch-fn` are exactly the set whose emptiness proves the ViewCell
+  shell elidable ([[view-cell-elided?]])."
   [ast sites]
-  (-> (capabilities ast)
-      (into (cond-> #{}
-              (seq (:subs sites))         (conj :sub)
-              (seq (:events sites))       (conj :event)
-              (seq (:frame-ops sites))    (conj :frame)
-              (seq (:dispatch-fns sites)) (conj :dispatch-fn)
-              (seq (:locals sites))       (conj :local)
-              (seq (:effects sites))      (conj :effect)))
-      ;; the re-frame.freehand.react interop hooks fold onto the static-root
-      ;; capability vocabulary — v/ref/use-*-effect -> :effect, use-context
-      ;; -> :context (use-id is exempt, an inert deterministic id).
-      (into (keep {:ref :ref :effect :effect :layout-effect :effect
-                   :effect-event :effect :context :context})
-            (map :kind (:react sites)))))
+  (into (capabilities ast)
+        (cond-> #{}
+          (seq (:subs sites))      (conj :sub)
+          (seq (:events sites))    (conj :event)
+          (seq (:frame-ops sites)) (conj :frame))))
 
 (defn view-cell-elided?
   "True when a compiled view's analysis PROVES it carries no reactive
@@ -136,7 +125,6 @@
   [sites]
   (not (boolean (or (seq (:subs sites))
                     (seq (:events sites))
-                    (seq (:dispatch-fns sites))
                     (seq (:frame-ops sites))))))
 
 ;; ---------------------------------------------------------------------------
@@ -147,9 +135,8 @@
 (def ^:private runtime-requiring-site-caps
   "Site-kind -> the runtime-requiring capability token render-static rejects.
   Every one names a live-runtime need a pure `:server` static render cannot
-  honour (a sub read, a committed handler, a frame read, a host hook)."
-  {:events :handler :subs :sub :frame-ops :frame
-   :locals :local :effects :effect :dispatch-fns :dispatch-fn})
+  honour (a sub read, a committed handler, a frame read)."
+  {:events :handler :subs :sub :frame-ops :frame})
 
 (defn view-static-facts
   "The SERVER-REACHABLE static-render facts for one analyzed body — the small
@@ -160,10 +147,7 @@
      :deps <set of directly-referenced view-ids>}
 
   `:caps` unions the runtime-requiring SITE kinds (subs / committed handlers /
-  frame reads / host locals / effects / dispatch-fns), the substrate `v/ref`
-  (-> `:ref`) and the re-frame.freehand.react host hooks (use-context -> `:context`,
-  use-effect family -> `:effect`; `use-id` is EXEMPT — an inert deterministic id
-  is static-safe), authored element/component `:ref` slots (a commit-phase host
+  frame reads), authored element/component `:ref` slots (a commit-phase host
   hook a static render cannot honour -> `:ref`), a `v/behavior` boundary (a live
   host lifecycle a :server render owns no node for -> `:behavior`), and foreign
   heads (`:foreign`, which a `react/lazy` head folds into). `:deps` are the view
@@ -172,7 +156,7 @@
   SERVER REACHABILITY governs BOTH the dependency walk AND the capability
   collection: a `v/client-only` subtree is browser-only — the JVM emitter
   renders only its capability-free FALLBACK — so its views, its authored refs,
-  and its authored SITES (an inline `:on-click`, `sub`, effect …) never reach the
+  and its authored SITES (an inline `:on-click`, a `sub` …) never reach the
   static output and must not be counted (a static root never flips). Since the
   view-wide `sites` atom also carries the browser-only child's sites (the child
   is analyzed against the shared atom), each client-only node's `:path` is
@@ -224,13 +208,10 @@
                                                       (= co (subvec p 0 (count co)))))
                                                cos)))]
                         (fn [kind] (remove #(under-co? (:path %)) (get sites kind)))))]
-      {:caps (cond-> (into (into #{}
-                                 (keep (fn [[kind cap]]
-                                         (when (seq (reachable kind)) cap)))
-                                 runtime-requiring-site-caps)
-                           (keep {:ref :ref :context :context :effect :effect
-                                  :layout-effect :effect :effect-event :effect})
-                           (map :kind (reachable :react)))
+      {:caps (cond-> (into #{}
+                           (keep (fn [[kind cap]]
+                                   (when (seq (reachable kind)) cap)))
+                           runtime-requiring-site-caps)
                @foreign?  (conj :foreign)
                @ref?      (conj :ref)
                @behavior? (conj :behavior))
@@ -343,14 +324,18 @@
     are the view's finite reactive, intent, render-slot, trusted-markup
     and committed-frame site rosters — the same lexical sites the
     analyzer indexed, projected to their statically knowable facts.
-  - EVERY roster entry carries a `:source-coord` — `{:file :line :column}`
-    of the form that produced it, or of the enclosing declaration when the
-    reader anchored no narrower position (see
-    [[re-frame.freehand.compiler.analyze]]). Total and never invented, so a
-    manifest fact and a build-log line name the same lexical position, and
-    a diagnostic can say which SITE a capability came from rather than only
-    which view. The `:path` beside it is the deterministic occurrence
-    coordinate and answers a different question.
+  - A roster entry's `:source-coord` is TOTAL OR ABSENT — a whole
+    `{:file :line :column}` of the form that produced it, or of the
+    enclosing declaration when the reader anchored no narrower position;
+    omitted entirely when the declaration itself carries no reader
+    location, which is what a `v/defview` generated by a wrapper macro
+    looks like when the macro does not copy `(meta &form)` (see
+    [[re-frame.freehand.compiler.analyze]]). Never partial and never
+    invented, so a published coordinate and a build-log line name the same
+    lexical position, and a diagnostic can say which SITE a capability came
+    from rather than only which view. The `:path` beside it is the
+    deterministic occurrence coordinate, is always present, and answers a
+    different question.
   - `:capabilities` is the union of the structural and reactive
     capability bits ([[compiled-capabilities]]).
   - `:reactive?` and `:view-cell` carry the **capability-elision** verdict
@@ -441,9 +426,7 @@
                 ;; head or expression spelling one of them is a LOCAL, never a
                 ;; var, which is what makes `[title …]` a dynamic head rather
                 ;; than a mysteriously-resolving component.
-                e   (-> e0
-                        (env/with-locals (set (env/binding-syms (first params))))
-                        (assoc :hooks-region? true))
+                e   (env/with-locals e0 (set (env/binding-syms (first params))))
                 ast (ana/analyze-view-body e body)]
             (grammar/check! e view-id ast)
             (doseq [w @(:warnings e)]

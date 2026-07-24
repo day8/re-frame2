@@ -541,10 +541,13 @@ reaches ordinary re-frame dispatch. Its rules are deliberately small:
    by value: a named marker or a `[::v/read <path>]` door in an argument position
    is substituted, while the same form nested inside a map or a deeper vector is
    ordinary application data and survives untouched.
-3. **A door must read a shallow scalar.** A `[::v/read <path>]` whose read lands
-   on a host object, a collection or nothing is a typed error naming `v/event` —
-   the scalar law is what keeps a projected read equality-assertable and
-   host-neutral.
+3. **A projection must read a shallow scalar.** A read that lands on a host
+   object, a collection or nothing is a typed error naming `v/event` — the
+   scalar law is what keeps a projected read equality-assertable and
+   host-neutral. It binds **both spellings identically**: the named markers are
+   sugar over the door, so `::v/value` and `[::v/read [:target :value]]` accept
+   the same domain and refuse the same values. A named marker that admitted what
+   its own expansion refuses would be a second law wearing the door's name.
 4. **Every occurrence is replaced**, not merely the first.
 5. **A requested but unavailable payload is a typed error, and nothing is
    dispatched.** A malformed event reaching a handler is worse than no event; a
@@ -564,6 +567,13 @@ an options map's `:event`, a `v/event` body's result, interpreted, compiled,
 production and test. Both hosts share it, so a JVM structural test supplies a
 literal payload and asserts the exact dispatched vector without a browser — the
 production mechanism, not a test-only splice convention.
+
+"Every path" includes the vector a `v/event` body **returns**. A body that does
+its own work and then yields `[:table/scrolled [::v/read [:target :scrollTop]]]`
+has that door read off the **live callback argument the body was handed**,
+exactly as the same vector written declaratively would — the payload is read for
+the vector about to be dispatched, whichever way the site produced it. A door in
+a returned vector is therefore an ordinary projection and never an unmet one.
 
 **General dispatch gains no payload arity.** `rf/dispatch` and `rf/dispatch-sync`
 take an event vector and an optional opts map, and nothing else. Projection

@@ -52,20 +52,8 @@
    :locals    #{}
    :loop-syms #{}
    :in-loop?  false
-   ;; True in a defview's UNCONDITIONAL top region (the body + top-region
-   ;; let/do bodies), where host hooks (`local` / `effect`) are legal; cleared
-   ;; on entering a branch / loop / deferred callback. Set by the defview
-   ;; driver; false everywhere else (root forms, ui.test).
-   :hooks-region? false
    :path      []
    :warnings  (atom [])
-   ;; A shared monotonic ordinal over the LET-BODY host hooks (`local` +
-   ;; the six re-frame.freehand.react hooks) in source order. Stamped on react-hook
-   ;; sites so the hook signature detects a local↔react reorder (both live in
-   ;; the same top-region let, interleaved in React hook order) — a per-category
-   ;; count vector alone could not. Effects are structurally before (hook-prefix)
-   ;; and do not advance it.
-   :hook-ordinal (atom 0)
    ;; `:diagnostics` carries the compile-tier a11y findings (S4-C) — INCLUDING
    ;; suppressed ones, which stay manifest facts with their reason but never
    ;; print. Every other kind is a lowering/ownership site.
@@ -74,8 +62,7 @@
    ;; lowering the child declaration reports. It is what makes a compiled
    ;; manifest able to say where this body stops being compiled (D010).
    :sites     (atom {:events [] :subs [] :htmls [] :frame-ops []
-                     :slots [] :locals [] :effects [] :dispatch-fns [] :react []
-                     :views [] :diagnostics []})})
+                     :slots [] :views [] :diagnostics []})})
 
 (defn warn! [env w]
   (swap! (:warnings env) conj w)
@@ -84,14 +71,6 @@
 (defn add-site! [env kind site]
   (swap! (:sites env) update kind conj site)
   nil)
-
-(defn next-hook-ordinal!
-  "Advance and return (0-based) the shared body-hook ordinal — the source-order
-  position of a `local` / re-frame.freehand.react hook among the top-region let-body
-  hooks. Locals advance it without storing it; react-hook sites store theirs, so
-  a local↔react reorder shifts a react ordinal and changes the hook signature."
-  [env]
-  (dec (long (swap! (:hook-ordinal env) inc))))
 
 (defn compile-error
   "All analyzer/emitter compile errors carry {:rf.ui.compile/error <id>}

@@ -129,6 +129,66 @@
       (is (= error-id (conf/caught-id #(v/materialize-event event payload)))
           (str "rejects " (pr-str event) " under " (pr-str payload))))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-drpa3.162 — the one-reader/one-law joins, through the PUBLIC
+;; materializer (both hosts)
+;; ---------------------------------------------------------------------------
+
+(deftest a-missing-projection-diagnoses-over-heterogeneous-markers
+  (testing "Per rf2-drpa3.162: a payload's markers are heterogeneous by
+            construction — a named member is a keyword, a general door is a
+            vector — and those do not compare. Diagnosing a missing projection
+            from such a payload must stay the TYPED
+            :rf.error/view-missing-payload, reporting what IS available; a raw
+            host comparison error escaping here would replace the one
+            diagnostic an author can act on with one they cannot."
+    (let [payload {[:re-frame.freehand/read :key] "K"
+                   :re-frame.freehand/value       "V"}]
+      (is (= :rf.error/view-missing-payload
+             (conf/caught-id
+              #(v/materialize-event [:probe [:re-frame.freehand/read :key]
+                                     [:re-frame.freehand/read :missing]]
+                                    payload)))
+          "the missing door is a typed error, not a ClassCastException")
+      (is (= :rf.error/view-missing-payload
+             (conf/caught-id
+              #(v/materialize-event [:probe :re-frame.freehand/checked] payload)))
+          "and so is a missing NAMED member over the same mixed payload")
+      ;; The available roster is still reported, and in a stable order — a
+      ;; diagnostic that named nothing would be no better than the throw.
+      (is (= [:re-frame.freehand/value [:re-frame.freehand/read :key]]
+             (:available (conf/caught-data
+                          #(v/materialize-event
+                            [:probe [:re-frame.freehand/read :missing]]
+                            payload))))
+          "both marker shapes are reported, ordered by their printed form"))))
+
+(deftest both-spellings-accept-and-refuse-the-same-domain
+  (testing "Per rf2-drpa3.162: `::v/value` IS `[::v/read [:target :value]]`, so
+            the two spellings are ONE law. A named marker that dispatched a host
+            object or a collection while its own expansion refused one would
+            make the roster a second mechanism wearing the door's name."
+    (doseq [[label named door] [["value"     :re-frame.freehand/value
+                                 [:re-frame.freehand/read [:target :value]]]
+                                ["checked"   :re-frame.freehand/checked
+                                 [:re-frame.freehand/read [:target :checked]]]
+                                ["key"       :re-frame.freehand/key
+                                 [:re-frame.freehand/read [:key]]]]]
+      (testing label
+        (is (= [:probe "scalar"]
+               (v/materialize-event [:probe named] {named "scalar"})
+               (v/materialize-event [:probe door] {door "scalar"}))
+            "both spellings substitute a shallow scalar")
+        (doseq [[shape v] [["a map"        {:host "object"}]
+                           ["a vector"     [1 2]]
+                           ["a nil"        nil]]]
+          (is (= :rf.error/view-bad-event
+                 (conf/caught-id #(v/materialize-event [:probe named] {named v})))
+              (str "the named marker refuses " shape))
+          (is (= :rf.error/view-bad-event
+                 (conf/caught-id #(v/materialize-event [:probe door] {door v})))
+              (str "and so does the door, identically, for " shape)))))))
+
 (deftest fh-event-001-general-dispatch-gains-no-payload-arity
   (testing "Per FH-EVENT-001: projection belongs to the layer that
             understands UI callback payloads. General re-frame dispatch
@@ -975,3 +1035,57 @@
                           #js {:target #js {:value "hi"}})
                 [[:x "hi"]])
              "::v/value is [::v/read [:target :value]]")))))
+
+#?(:cljs
+   (deftest fh-read-door-in-a-v-event-result-reads-the-live-argument
+     (testing "Per rf2-drpa3.162 (browser host): the public contract says EVERY
+               path runs through one materializer — including the vector a
+               `v/event` body RETURNS. A body that does its own work and then
+               yields a vector carrying `[::v/read <path>]` has that door read
+               off the live callback argument it was handed, exactly as the same
+               vector written declaratively would. The payload is read for the
+               vector about to be dispatched, whichever way the site produced
+               it."
+       (let [{:keys [dispatch seen]} (recorder)
+             owner (events/owner :acme/table)
+             cand  (events/candidate owner)
+             proxy (events/site cand :on-scroll
+                     (events/callback
+                       :event
+                       (fn [_e] [:acme.table/scrolled [:ledger :q3]
+                                 [:re-frame.freehand/read [:target :scrollTop]]])
+                       1))]
+         (events/commit! cand dispatch)
+         (proxy #js {:target #js {:scrollTop 3200}})
+         (is (= [[:acme.table/scrolled [:ledger :q3] 3200]] @seen)
+             "the returned vector's door reads the LIVE argument, not nil"))
+       ;; A named member in a returned vector already worked (native-payload
+       ;; supplies the roster); it is asserted beside the door so the two
+       ;; spellings are shown to behave alike on this path too.
+       (let [{:keys [dispatch seen]} (recorder)
+             owner (events/owner :acme/table)
+             cand  (events/candidate owner)
+             proxy (events/site cand :on-scroll
+                     (events/callback
+                       :event
+                       (fn [_e] [:acme.table/scrolled :re-frame.freehand/scroll-top])
+                       1))]
+         (events/commit! cand dispatch)
+         (proxy #js {:target #js {:scrollTop 512}})
+         (is (= [[:acme.table/scrolled 512]] @seen)
+             "and so does a named member in the same position"))
+       ;; The door's scalar law still binds on this path — a returned vector is
+       ;; not a way around it.
+       (let [{:keys [dispatch seen]} (recorder)
+             owner (events/owner :acme/table)
+             cand  (events/candidate owner)
+             proxy (events/site cand :on-scroll
+                     (events/callback
+                       :event
+                       (fn [_e] [:acme/read [:re-frame.freehand/read :target]])
+                       1))]
+         (events/commit! cand dispatch)
+         (is (= :rf.error/view-bad-event
+                (conf/caught-id #(proxy #js {:target #js {:scrollTop 0}})))
+             "a returned door reading a host object is refused")
+         (is (= [] @seen) "and nothing is dispatched")))))

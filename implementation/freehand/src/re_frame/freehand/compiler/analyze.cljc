@@ -33,8 +33,7 @@
   scoping a subtree to an already-live frame."
   #{:text :nothing :expr :element :fragment :view :foreign
     :if :let :letfn :case :for :raw :html :frame-root :frame-provider :slot
-    :error-boundary :client-only :presence
-    :hook-prefix})
+    :error-boundary :client-only :presence})
 
 (defn literal-scalar? [x]
   (or (string? x) (number? x) (keyword? x) (boolean? x) (nil? x)))
@@ -54,51 +53,22 @@
 (def ^:private behavior-fqns #{'re-frame.freehand/behavior})
 (def ^:private sub-fqns       #{'re-frame.freehand/sub})
 (def ^:private frame-fqns     #{'re-frame.freehand/frame})
-(def ^:private local-fqns     #{'re-frame.freehand/local})
-(def ^:private effect-fqns    #{'re-frame.freehand/effect})
-(def ^:private dispatch-fn-fqns #{'re-frame.freehand/dispatch-fn})
 
-;; The frozen re-frame.freehand.react interop tier (Spec 004 §The React interop tier)
-;; plus the promoted substrate host hook `re-frame.freehand/ref` (rf2-u53yy.9). All are
-;; recognised in expression (let-binding value) position by the same finite-site
-;; machinery as `local`, position-checked, and — once the host-hook runtime slice
-;; lands — lowered to it. That slice HAS NOT LANDED (Spec 004B §refs "arrive with
-;; the host-lifecycle slice"; there is no host-hook runtime yet), so the analyzer
-;; recognises and position-checks these forms but REFUSES to lower them with an
-;; intentional Freehand diagnostic rather than emitting a call to a runtime var
-;; that is defined nowhere (rf2-1a9au — the same class as the dead JVM host-op arms
-;; rf2-drpa3.174 replaced with `env/fail!`). `lazy` is def-level only — recognised
-;; in a view body solely to reject it.
-(def ^:private ui-ref-fqns                 #{'re-frame.freehand/ref})
-(def ^:private react-use-effect-fqns       #{'re-frame.freehand.react/use-effect})
-(def ^:private react-use-layout-effect-fqns #{'re-frame.freehand.react/use-layout-effect})
-(def ^:private react-use-effect-event-fqns #{'re-frame.freehand.react/use-effect-event})
-(def ^:private react-use-context-fqns      #{'re-frame.freehand.react/use-context})
-(def ^:private react-use-id-fqns           #{'re-frame.freehand.react/use-id})
+;; The HOST-HOOK grammar — `local` / `effect` / `dispatch-fn`, the substrate
+;; `v/ref`, and the re-frame.freehand.react interop hooks — is NOT part of this
+;; analyzer. Its authoring vars are published by the host-hook / host-lifecycle
+;; slice, which has not landed (Spec 004B §refs: refs "arrive with the
+;; host-lifecycle slice"), so no such head can resolve here and every arm that
+;; recognised one was unreachable through the compiled door: the recognition
+;; ran off `env/resolves-to?`, and production resolution answers nil for a var
+;; that does not exist. The arms were removed with their site buckets and their
+;; hook-signature table rather than left standing as a grammar the compiler
+;; cannot actually see (rf2-1a9au). They return WITH the slice that publishes
+;; the vars — recognition and lowering landing together, which is the only
+;; order in which either is testable through the door.
+;;
+;; `lazy` is def-level only — recognised in a view body solely to reject it.
 (def ^:private react-lazy-fqns             #{'re-frame.freehand.react/lazy})
-;; :authored = the full authored head spelling used in diagnostics; :kind keyword
-;; + call arity, keyed by fqn set. No `:runtime` lowering target: the host-hook
-;; runtime slice has not landed, so a recognised hook is REFUSED, never lowered
-;; (rf2-1a9au).
-(def ^:private react-hook-specs
-  [{:fqns ui-ref-fqns                 :kind :ref
-    :min-args 0 :max-args 1 :authored "v/ref"}
-   {:fqns react-use-effect-fqns       :kind :effect
-    :min-args 1 :max-args 2 :authored "react/use-effect" :deferred-cb 0 :deps-arg 1}
-   {:fqns react-use-layout-effect-fqns :kind :layout-effect
-    :min-args 1 :max-args 2 :authored "react/use-layout-effect" :deferred-cb 0 :deps-arg 1}
-   {:fqns react-use-effect-event-fqns :kind :effect-event
-    :min-args 1 :max-args 1 :authored "react/use-effect-event" :deferred-cb 0}
-   {:fqns react-use-context-fqns      :kind :context
-    :min-args 1 :max-args 1 :authored "react/use-context"}
-   {:fqns react-use-id-fqns           :kind :id
-    :min-args 0 :max-args 0 :authored "react/use-id"}])
-
-(defn- react-hook-spec-for
-  "The react-hook spec `head` (an unshadowed symbol) resolves to, or nil."
-  [e* head]
-  (some (fn [spec] (when (env/resolves-to? e* head (:fqns spec)) spec))
-        react-hook-specs))
 (def ^:private frame-root-fqns #{'re-frame.freehand/frame-root})
 (def ^:private frame-provider-fqns #{'re-frame.freehand/frame-provider})
 
@@ -372,13 +342,6 @@
 
 (def ^:private runtime-sub-fqn 're-frame.freehand.reactive/sub-read)
 (def ^:private runtime-frame-ops-fqn 're-frame.freehand.frames/frame-ops)
-;; The `local` / `effect` / `dispatch-fn` / react-interop lowering targets that
-;; used to live here named `re-frame.freehand.hooks/*` — a runtime namespace that
-;; is defined nowhere (its slice has not landed). Emitting them produced an
-;; unresolved host-op var in every compiled/structural view that used a host hook.
-;; They are GONE: the analyzer now refuses a recognised host hook with an
-;; intentional Freehand diagnostic instead of lowering to a phantom var
-;; (rf2-1a9au). The targets return with the host-hook runtime slice.
 (def ^:private deferred-scope ::deferred-scope)
 (def ^:private transparent-macro-fqns
   "Closed macro set whose arguments are host-independent expression slots,
@@ -449,28 +412,56 @@
    [1 (:self-id e) kind (relative-source-anchor e form)
     (:path e) (vec expr-path)]))
 
+(defn- reader-coord
+  "A whole `{:file :line :column}` from `file` and the reader metadata `m`, or
+  nil when either half is missing. The two halves come from ONE reader
+  position and are never mixed with another's — a line the reader gave for
+  this form beside a column it gave for a different one would be a
+  coordinate nothing in the source agrees with."
+  [file m]
+  (when (and (string? file) (seq file)
+             (pos-int? (:line m)) (pos-int? (:column m)))
+    {:file file :line (:line m) :column (:column m)}))
+
 (defn- site-source-coord
   "The authored `{:file :line :column}` for a manifest site whose form is
   `form` — its OWN reader position when the reader anchored it, else the
-  declaration's.
+  enclosing DECLARATION's — or nil when neither was anchored.
 
-  TOTAL and never invented. Every roster entry carries a coordinate, so a
-  manifest fact and a build-log line can name the same lexical position;
-  and the coordinate is always one a reader really produced. The reader
+  TOTAL OR ABSENT, and never invented. A coordinate that is published is
+  whole, so a manifest fact and a build-log line can name the same lexical
+  position; and it is always one a reader really produced. The reader
   anchors lists on both hosts and macro-generated templates carry no
   metadata at all, so a site whose form was not anchored inherits its
-  enclosing DECLARATION's position — the widest true statement available —
-  rather than a fabricated line the source would not agree with.
+  declaration's position — the widest true statement available.
+
+  When the DECLARATION itself was never anchored the widest true statement
+  is silence, and the field is omitted. That is the shape a `v/defview`
+  generated by a wrapper macro has when the macro does not copy
+  `(meta &form)` onto the form it emits — a legal, useful authoring pattern.
+  Publishing half a coordinate there would make the manifest's documented
+  shape false for every reader of every entry, so absence carries the fact
+  instead: this declaration is real, and where it was written is not
+  knowable from what the reader kept.
 
   It is the AUTHORED coordinate and nothing else. The template `:path`
   beside it is the deterministic occurrence coordinate and answers a
   different question; neither is derivable from the other."
   [e form]
-  (let [m    (meta form)
-        base (:source e)]
-    (cond-> (select-keys base [:file :line :column])
-      (:line m)   (assoc :line (:line m))
-      (:column m) (assoc :column (:column m)))))
+  (let [base (:source e)
+        file (:file base)]
+    (or (reader-coord file (meta form))
+        (reader-coord file base))))
+
+(defn- with-source-coord
+  "Add `site`'s `:source-coord` — the total coordinate of `form`, or NOTHING
+  when no reader location survived. The key is absent rather than nil, so a
+  consumer reads presence with `contains?` / destructuring and never has to
+  tell a missing coordinate from a partial one."
+  [e form site]
+  (if-let [coord (site-source-coord e form)]
+    (assoc site :source-coord coord)
+    site))
 
 (declare rewrite-expr)
 
@@ -744,26 +735,6 @@
                   "part MOUNTS a defview that owns its own state")
              {:form form}))
 
-(defn- host-hook-unavailable!
-  "Refuse a recognised host-hook form whose runtime lowering target does not exist
-  yet. The `local` / `effect` / `dispatch-fn` / `re-frame.freehand.react` interop
-  forms are real Freehand grammar, position-checked by the finite-site machinery,
-  but their runtime — a per-host lowering target — arrives with the host-hook /
-  host-lifecycle slice, which HAS NOT LANDED (Spec 004B §refs: they \"arrive with
-  the host-lifecycle slice\"). Until it does, the analyzer refuses the form with an
-  intentional compile diagnostic rather than lowering it to a var that is defined
-  nowhere — the unresolved host-op symbol rf2-1a9au closed, the same class of bug
-  rf2-drpa3.174 fixed on the JVM emitter's dead host-op arms. `authored` is the
-  head spelling for the diagnostic; `kind` is the reserved capability keyword."
-  [e authored kind form]
-  (env/fail! e :rf.ui.compile/unsupported-form
-             (str "(" authored " …) is a host hook, but Freehand's host-hook "
-                  "runtime slice has not landed — there is no lowering target for "
-                  "it yet, so the analyzer recognises and position-checks the form "
-                  "but cannot compile it. Remove the host-hook use until the "
-                  "host-lifecycle slice ships.")
-             {:form form :host-hook kind}))
-
 (defn rewrite-expr
   "Rewrite an opaque expression, lowering resolved unshadowed `(sub q)` calls
   to the serialized two-argument runtime shape and recording stable lexical
@@ -1000,9 +971,11 @@
                                      {:form f})))
                      (let [sid   (lexical-site-id e :sub f p)
                            query (rw (second f) locals (conj p :query))]
-                       (env/add-site! e :subs {:sid sid :query (second f)
-                                               :source-coord (site-source-coord e f)
-                                               :path (:path e) :expr-path (vec p)})
+                       (env/add-site! e :subs
+                                      (with-source-coord
+                                        e f
+                                        {:sid sid :query (second f)
+                                         :path (:path e) :expr-path (vec p)}))
                        (with-same-meta f (list runtime-sub-fqn sid query))))
 
                     (and (symbol? head) (not (contains? locals head))
@@ -1028,93 +1001,13 @@
                                           "callback capture its committed ops bundle")
                                      {:form f})))
                       (let [sid (lexical-site-id e :frame f p)]
-                        (env/add-site! e :frame-ops {:sid sid
-                                                     :source-coord (site-source-coord e f)
-                                                     :path (:path e)
-                                                     :expr-path (vec p)})
+                        (env/add-site! e :frame-ops
+                                       (with-source-coord
+                                         e f
+                                         {:sid sid
+                                          :path (:path e)
+                                          :expr-path (vec p)}))
                         (with-same-meta f (list runtime-frame-ops-fqn))))
-
-                    ;; (local init) — view-local ephemera, a React useState hook.
-                    ;; Legal ONLY as a binding value in a defview's UNCONDITIONAL
-                    ;; top region (React hooks run once per render in fixed order):
-                    ;; not in a loop / branch / deferred callback / render-fn slot.
-                    (and (symbol? head) (not (contains? locals head))
-                         (env/resolves-to? e* head local-fqns))
-                    (do
-                      (when-not (= 2 (count f))
-                        (env/fail! e :rf.ui.compile/unsupported-form
-                                   "(local init) takes exactly one initial-value argument"
-                                   {:form f}))
-                      (when (or (nil? (:self-id e))
-                                (:in-loop? e)
-                                (contains? locals deferred-scope)
-                                (not (:hooks-region? e)))
-                        (if (:in-render-fn? e)
-                          (impure-slot-fail! e "local" f)
-                          (env/fail! e :rf.ui.compile/hook-misplaced
-                                     (str "(local init) is a host hook — legal ONLY as a "
-                                          "binding value in a defview's UNCONDITIONAL top "
-                                          "region: (let [[value set! update!] (local init)] "
-                                          "…). It cannot run in a loop, branch, deferred "
-                                          "callback, render-fn slot, or root expression "
-                                          "(host hooks run once per render in fixed order)")
-                                     {:form f})))
-                      ;; Position is legal, but the `local` runtime lowering target
-                      ;; (the host-hook slice) has not landed — refuse the form
-                      ;; loudly rather than lower it to a var defined nowhere
-                      ;; (rf2-1a9au).
-                      (host-hook-unavailable! e "local" :local f))
-
-                    ;; Host hooks — the substrate `v/ref` and the re-frame.freehand.react
-                    ;; interop hooks (use-effect / use-layout-effect /
-                    ;; use-effect-event / use-context / use-id) — value-position
-                    ;; host hooks obeying the SAME position law as `local`: legal
-                    ;; only where they evaluate unconditionally, once per render
-                    ;; (the straight-line top region — an outer let binding).
-                    ;; Recognised and position-checked, then REFUSED — the runtime
-                    ;; lowering target has not landed (rf2-1a9au).
-                    (and (symbol? head) (not (contains? locals head))
-                         (react-hook-spec-for e* head))
-                    (let [{:keys [kind min-args max-args authored deps-arg]}
-                          (react-hook-spec-for e* head)
-                          call-args (rest f)
-                          argc      (count call-args)]
-                      (when (or (< argc min-args) (> argc max-args))
-                        (env/fail! e :rf.ui.compile/unsupported-form
-                                   (str "(" authored " …) takes "
-                                        (if (= min-args max-args)
-                                          (str min-args)
-                                          (str min-args "–" max-args))
-                                        " argument(s); got " argc)
-                                   {:form f}))
-                      (when (or (nil? (:self-id e))
-                                (:in-loop? e)
-                                (contains? locals deferred-scope)
-                                (not (:hooks-region? e)))
-                        (if (:in-render-fn? e)
-                          (impure-slot-fail! e authored f)
-                          (env/fail! e :rf.ui.compile/react-hook-misplaced
-                                     (str "(" authored " …) is a host hook — legal ONLY "
-                                          "where it evaluates unconditionally, once per "
-                                          "render: the straight-line top region of a "
-                                          "defview body (an outer let binding). It cannot "
-                                          "run in a loop, branch, deferred callback, "
-                                          "render-fn slot, or root expression — React's "
-                                          "hook order must be static. Hoist it to the top "
-                                          "of the view body, or extract a keyed child view")
-                                     {:form f})))
-                      (when (and deps-arg (> argc deps-arg)
-                                 (not (vector? (nth call-args deps-arg))))
-                        (env/fail! e :rf.ui.compile/react-hook-bad-deps
-                                   (str "(" authored " setup deps): deps must be a "
-                                        "literal vector (compared by rf= value equality); "
-                                        "got " (pr-str (nth call-args deps-arg)))
-                                   {:form f}))
-                      ;; Position/arity/deps are legal, but the interop hook's
-                      ;; runtime lowering target (the host-hook slice) has not landed
-                      ;; — refuse the form loudly rather than lower it to a var
-                      ;; defined nowhere (rf2-1a9au).
-                      (host-hook-unavailable! e authored kind f))
 
                     ;; (react/lazy …) is DEF-LEVEL only — recognised in a body
                     ;; solely to reject it (per-render construction remount-loops).
@@ -1127,51 +1020,6 @@
                                     "head [HeavyChart {…}]. Calling it inside a view body "
                                     "mints a new component type per render and remount-loops")
                                {:form f})
-
-                    ;; (v/dispatch-fn) — the stable committed-frame dispatcher.
-                    ;; A render-time site like (frame): finite, not in a loop or
-                    ;; deferred callback. Its VALUE (a stable fn) is captured in
-                    ;; the body and used from effect/foreign callbacks later.
-                    (and (symbol? head) (not (contains? locals head))
-                         (env/resolves-to? e* head dispatch-fn-fqns))
-                    (do
-                      (when-not (= 1 (count f))
-                        (env/fail! e :rf.ui.compile/unsupported-form
-                                   (str "(v/dispatch-fn) takes no arguments — it returns "
-                                        "the stable committed-frame dispatcher")
-                                   {:form f}))
-                      (when (or (nil? (:self-id e))
-                                (:in-loop? e)
-                                (contains? locals deferred-scope))
-                        (if (:in-render-fn? e)
-                          (impure-slot-fail! e "dispatch-fn" f)
-                          (env/fail! e :rf.ui.compile/frame-in-loop
-                                     (str "(v/dispatch-fn) must be a finite render-time "
-                                          "site in a defview — it cannot run in a loop, "
-                                          "deferred callback, raw-fn/ref body, or root "
-                                          "expression. Capture it in the view body and use "
-                                          "it from an (effect …) or foreign callback")
-                                     {:form f})))
-                      ;; Position is legal, but the `dispatch-fn` runtime lowering
-                      ;; target (the host-hook slice) has not landed — refuse the
-                      ;; form loudly rather than lower it to a var defined nowhere
-                      ;; (rf2-1a9au).
-                      (host-hook-unavailable! e "v/dispatch-fn" :dispatch-fn f))
-
-                    ;; (effect …) is a leading STATEMENT, spliced before the
-                    ;; final template by analyze-hooks-body. Reaching rw means it
-                    ;; appeared as an ordinary expression (a binding value, an
-                    ;; argument, a branch) — misplaced.
-                    (and (symbol? head) (not (contains? locals head))
-                         (env/resolves-to? e* head effect-fqns))
-                    (if (:in-render-fn? e)
-                      (impure-slot-fail! e "effect" f)
-                      (env/fail! e :rf.ui.compile/hook-misplaced
-                                 (str "(effect …) is a host-effect STATEMENT — place it in a "
-                                      "defview's UNCONDITIONAL top region (or a top-region "
-                                      "let/do body) BEFORE the final template, never as an "
-                                      "expression, branch, or deferred callback")
-                                 {:form f}))
 
                    (fn-form? f) (rw-fn f locals p)
                    (contains? #{'let 'let* 'loop 'loop*} head) (rw-let f locals p)
@@ -1398,11 +1246,12 @@
 
 (defn- event-site-identity
   [e k form]
-  {:sid          (lexical-site-id e :event form [:handler k])
-   :site-index   (count (:events @(:sites e)))
-   :view-id      (:self-id e)
-   :source-coord (site-source-coord e form)
-   :path         (:path e)})
+  (with-source-coord
+    e form
+    {:sid        (lexical-site-id e :event form [:handler k])
+     :site-index (count (:events @(:sites e)))
+     :view-id    (:self-id e)
+     :path       (:path e)}))
 
 (defn- add-event-site!
   [e identity site]
@@ -2549,12 +2398,13 @@
                        ;; template path so tools can list every place escaping
                        ;; is bypassed. `:serializable?` is false for a dynamic
                        ;; string expression, true for a literal.
-                       (env/add-site! e :htmls {:form s*
-                                                :static? (string? s)
-                                                :serializable? (string? s)
-                                                :source-coord (site-source-coord
-                                                               e (first child-fs))
-                                                :path (:path e)})
+                       (env/add-site! e :htmls
+                                      (with-source-coord
+                                        e (first child-fs)
+                                        {:form s*
+                                         :static? (string? s)
+                                         :serializable? (string? s)
+                                         :path (:path e)}))
                        {:op :html :form s* :static? (string? s)})))
           node     {:op :element
                     :tag tag
@@ -2931,10 +2781,12 @@
     ;; not the AST node, deliberately: a child's promotion is not an edit to
     ;; this template and must not move this template's fingerprint.
     (when (= :view (:kind info))
-      (env/add-site! e :views {:view-id      (:view-id info)
-                               :lowering     (:lowering info)
-                               :source-coord (site-source-coord e form)
-                               :path         (:path e)}))
+      (env/add-site! e :views
+                     (with-source-coord
+                       e form
+                       {:view-id  (:view-id info)
+                        :lowering (:lowering info)
+                        :path     (:path e)})))
     (cond-> {:op (if (= :view (:kind info)) :view :foreign)
              :sym head
              :fqn (:fqn info)
@@ -3019,10 +2871,12 @@
                  (not inline?) (assoc :slot-value (if (literal-scalar? slotval)
                                                     slotval
                                                     (walk-expr e [:slot :value] slotval))))]
-      (env/add-site! e :slots {:sid sid
-                               :path (:path e)
-                               :source-coord (site-source-coord e form)
-                               :inline? inline?})
+      (env/add-site! e :slots
+                     (with-source-coord
+                       e form
+                       {:sid sid
+                        :path (:path e)
+                        :inline? inline?}))
       node)))
 
 ;; ---------------------------------------------------------------------------
@@ -3108,24 +2962,23 @@
                               (fn [i x] (walk-expr e [:error-boundary :on-error i] x)))
                              (rest on-error))
                        (meta on-error)))
-         ;; The child is CONDITIONALLY rendered (child vs fallback) → host hooks
-         ;; below it are illegal; frame-plan extraction DESCENDS through the
-         ;; boundary (004C §6), so :top-region? is preserved.
-         :child (analyze (assoc e :hooks-region? false) (first rest*))
+         ;; The child is CONDITIONALLY rendered (child vs fallback); frame-plan
+         ;; extraction DESCENDS through the boundary (004C §6), so :top-region?
+         ;; is preserved.
+         :child (analyze e (first rest*))
          :static? false
          :path (:path e)}))))
 
 (defn- analyze-capability-free
   "Analyze `form` as a CAPABILITY-FREE template (a client-only :fallback):
   deterministic structural markup only — the JVM/SSR and first-hydration render
-  must match, so reactive reads (sub/frame), host state/effects (local/
-  effect/dispatch-fn), and committed event handlers are compile errors. Returns
-  the fallback AST. `context` names the position for the diagnostic."
+  must match, so reactive reads (sub/frame) and committed event handlers are
+  compile errors. Returns the fallback AST. `context` names the position for the
+  diagnostic."
   [e context form]
-  (let [sub-sites (atom {:events [] :subs [] :htmls [] :frame-ops []
-                         :slots [] :locals [] :effects [] :dispatch-fns []})
-        ast       (analyze (assoc e :sites sub-sites :hooks-region? false) form)
-        found     (->> [:events :subs :frame-ops :locals :effects :dispatch-fns]
+  (let [sub-sites (atom {:events [] :subs [] :htmls [] :frame-ops [] :slots []})
+        ast       (analyze (assoc e :sites sub-sites) form)
+        found     (->> [:events :subs :frame-ops]
                        (filter #(seq (get @sub-sites %)))
                        (map name))]
     (when (seq found)
@@ -3135,15 +2988,15 @@
                       "swaps in the live subtree, so a capability here would tear "
                       "on hydration. Found " (str/join ", " (sort found))
                       ". A fallback is static markup (structure, props, branches, "
-                      "v/html); move reactive reads, host state/effects, and "
-                      "event handlers into the client subtree")
+                      "v/html); move reactive reads and event handlers into the "
+                      "client subtree")
                  {:form form :capabilities (vec (sort found))}))
     ast))
 
 (defn analyze-capability-free-template
   "Analyze `form` as a standalone CAPABILITY-FREE template (deterministic
-  structural markup: no reactive reads, host state/effects, or committed event
-  handlers) — the def-level entry for re-frame.freehand.react/lazy's `:fallback`.
+  structural markup: no reactive reads and no committed event handlers) — the
+  def-level entry for re-frame.freehand.react/lazy's `:fallback`.
   Returns the AST or fails loud. `context` names the position for diagnostics."
   [e context form]
   (analyze-capability-free e context form))
@@ -3186,10 +3039,9 @@
                  {:form form}))
     {:op :client-only
      :fallback (analyze-capability-free e "a v/client-only :fallback" (:fallback opts))
-     ;; the client subtree is browser-only — it ends the static top region and
-     ;; the hooks region (host content never appears on the JVM/SSR path).
-     :child (analyze (-> e (dissoc :top-region?) (assoc :hooks-region? false))
-                     (first rest*))
+     ;; the client subtree is browser-only — it ends the static top region
+     ;; (host content never appears on the JVM/SSR path).
+     :child (analyze (dissoc e :top-region?) (first rest*))
      :static? false
      :path (:path e)}))
 
@@ -3278,8 +3130,7 @@
                                            ;; provably cannot read its own
                                            ;; (v/presence-phase). S4-C check 4
                                            ;; keys off exactly this fact.
-                                           (assoc :hooks-region? false
-                                                  :presence-inline? true))
+                                           (assoc :presence-inline? true))
                                        c)))
                            body)]
       (doseq [ast child-asts]
@@ -3602,106 +3453,13 @@
                {:form form}))
   (first body))
 
-;; ---------------------------------------------------------------------------
-;; Host hooks — `effect` statements + the `local`/`effect` hooks region
-;; ---------------------------------------------------------------------------
-
-(defn effect-statement-form?
-  "True when `form` is a direct, unshadowed call resolving to public
-  `re-frame.freehand/effect` — the only form allowed to occupy the leading statement
-  prefix of a hooks region (a defview's top body or a top-region let/do body)."
-  [e form]
-  (and (seq? form)
-       (symbol? (first form))
-       (not (contains? (:locals e) (first form)))
-       (env/resolves-to? e (first form) effect-fqns)))
-
-(defn- analyze-effect-statement
-  "Analyze one leading `(effect …)` statement. `(effect [deps…] body…)` compares
-  deps by rf= (value deps); `(effect :connect body…)` runs at each connect. The
-  position and deps SHAPE are still validated, but the `effect` runtime lowering
-  target (the host-hook slice) has not landed, so a well-formed statement is
-  REFUSED with an intentional Freehand diagnostic rather than lowered to a var
-  that is defined nowhere (rf2-1a9au)."
-  [e index form]
-  ;; The purity fence is TRANSITIVE: a render-fn slot body inherits the enclosing
-  ;; hooks region, so a leading (effect …) would otherwise reach this seam and be
-  ;; emitted as a React lifecycle hook INSIDE the deferred callback. A slot body
-  ;; is a PURE render fragment — its effects belong to the owning view or a
-  ;; mounted defview (rf2-vtfzn).
-  (when (:in-render-fn? e)
-    (env/fail! e :rf.ui.compile/impure-slot-body
-               (str "(effect …) inside a v/render-fn slot body — a slot body is a "
-                    "PURE render fragment; a host effect is a lifecycle hook, which "
-                    "a slot body may not own. Run the effect in the OWNING view, or "
-                    "MOUNT a defview that owns its own effects")
-               {:form form}))
-  (when (or (nil? (:self-id e)) (not (:hooks-region? e)))
-    (env/fail! e :rf.ui.compile/hook-misplaced
-               (str "(effect …) is a host-effect statement — legal ONLY in a "
-                    "defview's UNCONDITIONAL top region (or a top-region let/do "
-                    "body), before the final template")
-               {:form form}))
-  (let [[_ deps-or-kw & body] form]
-    (when (empty? body)
-      (env/fail! e :rf.ui.compile/bad-effect
-                 (str "(effect [deps…] body…) / (effect :connect body…) needs a "
-                      "body form after the deps")
-                 {:form form}))
-    (when-not (or (= :connect deps-or-kw) (vector? deps-or-kw))
-      (env/fail! e :rf.ui.compile/bad-effect
-                 (str "(effect …) first argument must be a literal deps VECTOR "
-                      "(value deps compared by rf=) or the keyword :connect; got "
-                      (pr-str deps-or-kw))
-                 {:form form}))
-    ;; Position and deps shape are legal, but the `effect` runtime lowering target
-    ;; (the host-hook slice) has not landed — refuse the statement loudly rather
-    ;; than lower it to a var defined nowhere (rf2-1a9au).
-    (host-hook-unavailable! e "effect" :effect form)))
-
-(defn- analyze-hooks-body
-  "Analyze a hooks-region body: zero or more leading `(effect …)` STATEMENTS,
-  then exactly ONE final template. Returns the template AST, wrapped in a
-  `:hook-prefix` node carrying the lowered effect statement forms when any are
-  present (the emitters splice them before the template as a `do` sequence)."
-  [e head body form]
-  (loop [effects [] forms (seq body) index 0]
-    (cond
-      (nil? forms)
-      (env/fail! e :rf.ui.compile/multi-form-body
-                 (str head " needs exactly ONE final template after any leading "
-                      "(effect …) statements")
-                 {:form form})
-
-      (effect-statement-form? e (first forms))
-      (recur (conj effects (analyze-effect-statement e index (first forms)))
-             (next forms) (inc index))
-
-      (next forms)
-      (env/fail! e :rf.ui.compile/multi-form-body
-                 (str head " in template position takes leading (effect …) "
-                      "statements then exactly ONE template form — side effects "
-                      "don't belong in templates (statically-pure rule); siblings "
-                      "wrap in [:<> ...]")
-                 {:form form})
-
-      :else
-      (let [tmpl (analyze e (first forms))]
-        (if (seq effects)
-          {:op :hook-prefix :statements effects :body tmpl
-           :static? false :path (:path e)}
-          tmpl)))))
-
 (defn- analyze-if [e test then else form]
-  ;; Branches are CONDITIONAL — host hooks (local/effect) are illegal below them
-  ;; (React hooks run unconditionally, once per render, in fixed order).
-  (let [eb (assoc e :hooks-region? false)]
-    {:op :if :test (walk-expr e [:if :test] test)
-     :then (analyze (update eb :path conj :then) then)
-     :else (if (some? else)
-             (analyze (update eb :path conj :else) else)
-             {:op :nothing :static? true})
-     :static? false :path (:path e)}))
+  {:op :if :test (walk-expr e [:if :test] test)
+   :then (analyze (update e :path conj :then) then)
+   :else (if (some? else)
+           (analyze (update e :path conj :else) else)
+           {:op :nothing :static? true})
+   :static? false :path (:path e)})
 
 (defn- analyze-cond [e clauses form]
   (cond
@@ -3721,16 +3479,15 @@
   (let [[_ expr & clauses] form]
     (let [default? (odd? (count clauses))
           pairs    (partition 2 (if default? (butlast clauses) clauses))
-          default  (when default? (last clauses))
-          eb       (assoc e :hooks-region? false)]
+          default  (when default? (last clauses))]
       {:op :case
        :expr (walk-expr e [:case :expr] expr)
        :clauses (into []
                       (map-indexed (fn [i [test branch]]
-                                     [test (analyze (update eb :path conj [:case i]) branch)]))
+                                     [test (analyze (update e :path conj [:case i]) branch)]))
                       pairs)
        :default (if default?
-                  (analyze (update eb :path conj :case-default) default)
+                  (analyze (update e :path conj :case-default) default)
                   ::none)
        :static? false
        :path (:path e)})))
@@ -3752,12 +3509,7 @@
           bindings* (with-meta (vec rewritten) (meta bindings))
           eb        (update e* :path conj :body)]
       {:op :let :bindings bindings*
-       ;; A top-region let keeps its body in the hooks region, so leading
-       ;; (effect …) statements are legal there; a let below a branch/loop is
-       ;; not, so it is the strict single-template body.
-       :body (if (:hooks-region? eb)
-               (analyze-hooks-body eb (str head) body form)
-               (analyze eb (single-body! eb (str head) body form)))
+       :body (analyze eb (single-body! eb (str head) body form))
        :static? false :path (:path e)})))
 
 (defn- analyze-letfn [e form]
@@ -3874,8 +3626,7 @@
                            false (next ps) (conj out l r*))))
                 [scope out]))
             seq-exprs* (with-meta (vec rewritten) (meta seq-exprs))
-            e-body    (-> e-final (update :path conj :for)
-                          (assoc :hooks-region? false))
+            e-body    (update e-final :path conj :for)
             body-form (single-body! e "for" (vec body) form)
             _         (when (and (seq? body-form) (= 'for (first body-form)))
                         (env/fail! e :rf.ui.compile/nested-for-body
@@ -3948,12 +3699,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn analyze-view-body
-  "Analyze a defview body remainder: zero or
-  more leading `(effect …)` statements, then exactly ONE final template. The
-  env must carry `:hooks-region? true` and `:self-id`. Returns the body AST
-  (a `:hook-prefix` node when effect statements are present)."
+  "Analyze a defview body remainder: exactly ONE template form. The env must
+  carry `:self-id`. Returns the body AST."
   [e forms]
-  (analyze-hooks-body e "defview" forms (cons 'defview-body forms)))
+  (let [form (cons 'defview-body forms)]
+    (analyze e (single-body! e "defview" (vec forms) form))))
 
 (defn- analyze-list [e form]
   (let [head (first form)
@@ -3990,9 +3740,7 @@
         case     (analyze-case e form)
         let      (analyze-let e form)
         letfn    (analyze-letfn e form)
-        do       (if (:hooks-region? e)
-                   (analyze-hooks-body e "do" (vec (rest form)) form)
-                   (analyze e (single-body! e "do" (vec (rest form)) form)))
+        do       (analyze e (single-body! e "do" (vec (rest form)) form))
         for      (analyze-for e form))
 
       :else

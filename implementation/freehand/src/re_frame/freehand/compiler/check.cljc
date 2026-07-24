@@ -247,9 +247,7 @@
                   (assoc :self-children? (not= :none children-policy)
                          :self-closed-keys nil))
           _   (ana/reject-reactive-binding! e0 params)
-          e   (-> e0
-                  (env/with-locals (set (env/binding-syms (first params))))
-                  (assoc :hooks-region? true))
+          e   (env/with-locals e0 (set (env/binding-syms (first params))))
           ast (ana/analyze-view-body e body)]
       (grammar/check! e view-id ast)
       [])
