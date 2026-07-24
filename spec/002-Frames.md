@@ -468,7 +468,7 @@ A subsystem whose runtime-db writes ride through an **event handler** (one retur
 
 Which registrars mint authority:
 
-- **routing** — the routing façade stamps `:rf/framework-authority? true` on every `reg-event` it registers (`:rf.route/navigate`, `:rf.route/transitioned` / `:rf.route/handle-url-change`, `:rf.route/url-requested` / `:rf.route/continue` / `:rf.route/cancel`, `:rf.route.internal/settle-transition`, …) — every one reads and returns the reserved route slice.
+- **routing** — the routing façade stamps `:rf/framework-authority? true` on every `reg-event` it registers (`:rf.route/navigate`, `:rf.route/transitioned` / `:rf.route/handle-url-change`, `:rf.route/url-requested` / `:rf.route/continue` / `:rf.route/cancel`, …) — every one reads and returns the reserved route slice.
 - **SSR** — the SSR façade stamps it on `:rf/hydrate`, which installs the hydration metadata into the runtime-db partition.
 - **machines** — machine handlers carry the framework-owned `:rf/machine? true` stamp (minted by the machine registrar). The runtime folds that stamp into the authority check, so a machine implies framework-write authority **without** a separate `:rf/framework-authority?` key — its existing contract is unchanged.
 - **elision** and **SSR's non-event writes** — these subsystems write runtime-db through **privileged frame-state helpers** (`swap-runtime-db!` / `replace-frame-state!`), not through event handlers returning a `:rf.db/runtime` effect, so they never reach the event-handler diagnostic and mint no event-handler authority. (Elision's per-frame declaration registry and any full-frame install / restore path are in this category.)
@@ -1087,7 +1087,7 @@ Substrate-internal dispatch sites stamp their own specific `:source` kind so the
 | `:fx-dispatch` | `:dispatch` fx handler (non-machine parent) | the `:dispatch` reserved fx executes and enqueues a child dispatch from an ordinary event handler |
 | `:fx-dispatch-later` | `:dispatch-later` fx handler (non-machine parent) | the `:dispatch-later` reserved fx fires after its delay from an ordinary event handler |
 | `:http` | `re-frame.http_encoding/dispatch-reply-via-late-bind!` | managed-HTTP reply settle — `:on-success` / `:on-failure` cascade entry |
-| `:router` | `re-frame.routing` internal dispatches | routing-internal cascade (route-link click, on-match-error). |
+| `:router` | `re-frame.routing` internal dispatches | routing-internal cascade (route-link click, URL-change feed). |
 | `:ssr-hydration` | hydration boot site | the `:rf/hydrate` cascade per Spec 011 |
 | `:test` | test-harness dispatch (`dispatch-sync`, opt-in) | test-harness opt-in |
 | `:tool` | tooling adapters (Xray controls, Story play scripts, pair-MCP write surface) | tool-issued dispatch. |
