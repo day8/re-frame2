@@ -183,6 +183,22 @@
                   :row        (v/render-fn [r i]
                                 [ui/ledger-row-cells {:record r :index i}])}])
 
+(v/defview restoring-ledger
+  "The pilot's caller with scroll RESTORATION on — `:restore-scroll? true`,
+  the interpreted-only variant that writes its persisted offset back onto the
+  viewport before paint. Otherwise identical to [[live-ledger]], so the two
+  differ by exactly the option under test."
+  [_]
+  [ui/data-table {:table-key       ui/ledger-key
+                  :rows            (v/sub [:dom/rows])
+                  :row-key         :id
+                  :row-h           ui/row-h
+                  :viewport-h      ui/viewport-h
+                  :label           "Q3 ledger"
+                  :restore-scroll? true
+                  :row             (v/render-fn [r i]
+                                     [ui/ledger-row-cells {:record r :index i}])}])
+
 (defn- seed! [n]
   (live-frame/make-frame {:id fid})
   (ui/register!)
@@ -211,6 +227,22 @@
   signature the deterministic settle waits out)."
   []
   (get-in (frame/frame-app-db-value fid) [ui/tables-root ui/ledger-key :scroll-top]))
+
+(defn- viewport-scroll-top
+  "The live DOM `scrollTop` of the mounted viewport — the number the
+  restoration is about. It is what a fresh mount leaves at 0 and a restore
+  moves, so it is the discriminating reading: render alone cannot change it."
+  [container]
+  (.-scrollTop (viewport container)))
+
+(defn- seed-offset!
+  "Persist an offset into app-db BEFORE any table is mounted — the reserved
+  `::v/scroll-top` event, dispatched synchronously with NO viewport in the
+  document to move. This is the restore that a remount or a time-travel
+  produces: app-db holds a non-zero offset that no live DOM node put there."
+  [top]
+  (rf/dispatch-sync [:acme.ui.table/scrolled ui/ledger-key top] {:frame fid})
+  nil)
 
 ;; ===========================================================================
 ;; The mount
@@ -459,3 +491,149 @@
                   (unmount! container mounted)
                   (done)))
               (.catch (fn [e] (is false (str "mount threw " e)) (done)))))))))
+
+;; ===========================================================================
+;; RESTORATION — the reverse direction, and its promotion cost (rf2-g5xxv)
+;; ===========================================================================
+;;
+;; The pilot's dataflow is one-way: a scroll writes app-db, render reads it to
+;; pick the window. That is a DOM-DERIVED CACHE, and a cache cannot be
+;; restored. `:restore-scroll?` attaches the `:layout` restore behavior, which
+;; writes the persisted offset back onto the viewport before paint — the ONE
+;; sanctioned imperative seam, and the reason a restoring table is
+;; interpreted-only (the compiled grammar has no behavior form). These three
+;; suites prove the write happens, prove it is what moves the viewport, and —
+;; through a cache-only CONTROL seeded identically — prove they diverge exactly
+;; where the write is. The discipline is the deterministic settle the
+;; user-scroll suites use, never a single-tick race.
+
+(deftest a-seeded-offset-is-restored-into-a-fresh-viewport-before-paint
+  (testing "The restore the headline turns on: an offset persisted BEFORE any
+            table exists — the shape a remount or a time-travel leaves in
+            app-db — is written back onto the fresh viewport, so the DOM
+            scrollTop, the rendered row window and the app-db value all agree
+            at the first commit. Nothing scrolls the DOM; the only thing that
+            can move the viewport off zero is the restoration, which is what
+            makes this discriminating — strip the :layout write and the window
+            still reads r96…r124 while the viewport sits at 0."
+    (if-not (browser?)
+      (skip! "the browser job runs the restore assertions")
+      (async done
+        (let [container (host-node!)
+              state     (atom {})]
+          (seed! total)
+          (seed-offset! 3200)
+          (-> (act #(v/mount [restoring-ledger {}] container {:frame fid}))
+              (.then (fn [mounted]
+                       (swap! state assoc :mounted mounted)
+                       (live!)
+                       ;; The restore rides the mount's own layout commit; poll
+                       ;; the same way the user-scroll suites do, so the read is
+                       ;; off a state known to have settled rather than a race.
+                       (await-settle!
+                         #(and (= 3200 (viewport-scroll-top container))
+                               (= 3200 (ledger-scroll-top))
+                               (= 29 (count (row-nodes container))))
+                         "a seeded offset restores into the fresh viewport")))
+              (.then (fn [_]
+                       (is (= 3200 (viewport-scroll-top container))
+                           "the fresh viewport was moved to the persisted offset —
+                            the restoration wrote the DOM, nothing scrolled it")
+                       (is (= 3200 (ledger-scroll-top))
+                           "and app-db still holds that offset")
+                       (is (= 29 (count (row-nodes container)))
+                           "the window is the 29 rows the offset selects")
+                       (is (= (mapv #(str "r" %) (range 96 125)) (row-keys container))
+                           "r96 … r124 — the rows now under the restored viewport")
+                       (unmount! container (:mounted @state))
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "the restore pass threw " e))
+                        (done)))))))))
+
+(deftest time-travel-on-a-mounted-table-moves-the-viewport-not-only-the-window
+  (testing "The reverse direction the one-way dataflow never exercised: a
+            MOUNTED restoring table whose app-db offset is moved by an EVENT —
+            a time-travel restore, a programmatic set — and not by a scrollbar.
+            Render moves the window and the behavior's :update moves the
+            viewport to match, so the two never disagree. The existing mounted
+            suites move the DOM first; this one never touches it, so it fails
+            the moment the reverse write is removed."
+    (if-not (browser?)
+      (skip! "the browser job runs the time-travel assertions")
+      (async done
+        (let [container (host-node!)
+              state     (atom {})]
+          (seed! total)
+          (-> (act #(v/mount [restoring-ledger {}] container {:frame fid}))
+              (.then (fn [mounted]
+                       (swap! state assoc :mounted mounted)
+                       (is (= 0 (viewport-scroll-top container))
+                           "the fresh viewport starts at the top")
+                       (is (= (mapv #(str "r" %) (range 0 25)) (row-keys container))
+                           "showing the first window")
+                       (live!)
+                       ;; Move the STATE, not the DOM — the offset arrives the
+                       ;; way a restore-epoch leaves it, with the viewport at 0.
+                       (seed-offset! 3200)
+                       (await-settle!
+                         #(and (= 3200 (viewport-scroll-top container))
+                               (= "r96" (first (row-keys container))))
+                         "a state-only offset move drags the viewport after it")))
+              (.then (fn [_]
+                       (is (= 3200 (viewport-scroll-top container))
+                           "the viewport followed the state — the reverse
+                            direction render alone cannot produce")
+                       (is (= 3200 (ledger-scroll-top))
+                           "app-db and the DOM agree")
+                       (is (= (mapv #(str "r" %) (range 96 125)) (row-keys container))
+                           "and the window is the one that offset selects")
+                       (unmount! container (:mounted @state))
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "the time-travel pass threw " e))
+                        (done)))))))))
+
+(deftest without-restoration-a-seeded-offset-leaves-the-viewport-at-zero
+  (testing "The adversarial CONTROL that makes the restore load-bearing: the
+            SAME offset seeded before the SAME mount, but through
+            [[live-ledger]] — the cache-only table, `:restore-scroll?` absent.
+            Render still picks the remote window from the persisted offset, but
+            nothing writes it back, so the fresh viewport stays at scrollTop 0
+            while it paints r96…r124 at 3072px — the internally inconsistent
+            state the bug describes. This is the restore test with the :layout
+            write removed, and it must DIVERGE: a restoring table reads 3200
+            here, a cache-only one reads 0."
+    (if-not (browser?)
+      (skip! "the browser job runs the control assertions")
+      (async done
+        (let [container (host-node!)
+              state     (atom {})]
+          (seed! total)
+          (seed-offset! 3200)
+          (-> (act #(v/mount [live-ledger {}] container {:frame fid}))
+              (.then (fn [mounted]
+                       (swap! state assoc :mounted mounted)
+                       (live!)
+                       ;; Allow the same settle window the restore test grants,
+                       ;; so a slow restore could not pass here as its absence:
+                       ;; the window commits from the offset, then the viewport
+                       ;; is read on a table that never moved it.
+                       (await-settle!
+                         #(and (= 3200 (ledger-scroll-top))
+                               (= 29 (count (row-nodes container))))
+                         "the cache table renders the remote window from the offset")))
+              (.then (fn [_]
+                       (is (= 3200 (ledger-scroll-top))
+                           "app-db holds the seeded offset")
+                       (is (= (mapv #(str "r" %) (range 96 125)) (row-keys container))
+                           "and render picked the remote window from it")
+                       (is (= 0 (viewport-scroll-top container))
+                           "but the cache-only viewport was never moved — it sits
+                            at 0 under a window painted at 3072px, the exact
+                            inconsistency :restore-scroll? closes")
+                       (unmount! container (:mounted @state))
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "the control pass threw " e))
+                        (done)))))))))

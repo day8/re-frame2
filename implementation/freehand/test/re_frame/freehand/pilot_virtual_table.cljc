@@ -99,7 +99,17 @@
 (def tables-root
   "Where this library keeps its per-instance scroll state — a library
   decision, and ordinary app-db, so every table's position is visible to
-  tools, serialisable, and restored by time travel like anything else."
+  tools and serialisable.
+
+  The VALUE time-travels like any other state; whether a MOUNTED viewport
+  follows it is a separate question the table answers with `:restore-scroll?`
+  (see [[data-table]]). Without restoration the entry is a DOM-DERIVED CACHE —
+  the viewport writes it on scroll and reads it to pick the window, but
+  nothing writes it back, so a fresh or time-travelled state renders a remote
+  window while the viewport still sits at scrollTop 0. A table that needs the
+  reverse direction opts into the `:layout` [[restore-scroll]] behavior, which
+  is the honest cost: a viewport a behavior restores cannot be promoted,
+  because the compiled grammar admits no behavior form."
   :acme.ui/tables)
 
 (def default-overscan
@@ -170,6 +180,62 @@
       {:db (update db tables-root dissoc k)})))
 
 ;; ---------------------------------------------------------------------------
+;; Restoring the offset — the one imperative seam, and its cost
+;; ---------------------------------------------------------------------------
+;;
+;; The dataflow above is a ONE-WAY street: a scroll event writes the offset
+;; into app-db, and render reads it back to pick the window. That is all a
+;; DOM-DERIVED CACHE needs — the viewport is the source of truth and app-db
+;; trails it. But a cache cannot be RESTORED. Seed the offset before a mount,
+;; or move it by time travel under a mounted table, and render picks the
+;; remote window while the fresh viewport still sits at scrollTop 0: the rows
+;; are painted at 3072px and the box shows blank.
+;;
+;; Writing the persisted offset BACK onto the viewport is host work — it reads
+;; and mutates a live DOM node before the browser paints — which is exactly
+;; what `v/behavior`'s `:layout` timing is for and the ONE seam the substrate
+;; sanctions for it. The cost is explicit, and it is the point: a viewport a
+;; behavior restores cannot be PROMOTED, because the compiled grammar admits
+;; no behavior form. So restoration is OPT-IN (`:restore-scroll?`), the default
+;; table stays a compilable cache, and a table that needs the reverse
+;; direction takes it knowing it has chosen the interpreted tier.
+
+(defn- restore-scroll-top!
+  "Move `node`'s `scrollTop` to `top`, but ONLY when they differ — so a write
+  that would change nothing fires no spurious scroll event, and the behavior
+  never overwrites an offset the viewport already holds (the ordinary
+  user-scroll path, where the DOM already carries the value app-db just
+  learned)."
+  [node top]
+  #?(:cljs
+     (let [top (max 0 (long (or top 0)))]
+       (when (not= (.-scrollTop node) top)
+         (set! (.-scrollTop node) top))))
+  nil)
+
+(v/defbehavior restore-scroll
+  "Write the persisted scroll offset back onto the viewport, before paint.
+
+  `:config` carries `{:scroll-top n}` — the offset app-db holds for this
+  table. `:connect` restores it into a freshly mounted viewport; `:update`
+  follows it when the stored value MOVES (a time-travel restore, a
+  programmatic set) while the DOM has not. Both write through
+  [[restore-scroll-top!]], which touches the node only when it disagrees with
+  the state, so an ordinary user scroll — where app-db is merely trailing the
+  DOM — moves no host state at all.
+
+  `:layout`, because a restore that ran after paint would show the wrong rows
+  for one frame. Attaching this behavior is what makes a restoring table
+  interpreted-only: it is the promotion cost the [[tables-root]] note names."
+  {:timing  :layout
+   :connect (fn [{:keys [node config]}]
+              (restore-scroll-top! node (:scroll-top config))
+              nil)
+   :update  (fn [{:keys [node config]}]
+              (restore-scroll-top! node (:scroll-top config))
+              nil)})
+
+;; ---------------------------------------------------------------------------
 ;; The component
 ;; ---------------------------------------------------------------------------
 
@@ -192,7 +258,16 @@
   place in the window.
 
   `:row` may be absent, and then the table renders its rows empty: a
-  component may offer content it does not require."
+  component may offer content it does not require.
+
+  `:restore-scroll?` turns the app-db offset from a DOM-derived cache into
+  CONTROLLED, restorable state: the viewport is wrapped in the `:layout`
+  [[restore-scroll]] behavior, which writes the persisted offset back onto a
+  freshly mounted or time-travelled viewport before paint. It is off by
+  default because attaching a behavior makes the table interpreted-only — the
+  compiled grammar has no behavior form — so a caller opts in for a table
+  whose scroll position must survive a mount or a restore, and pays the
+  promotion cost knowingly."
   {:props [:map
            [:table-key :any]
            [:rows :any]
@@ -201,8 +276,10 @@
            [:label :string]
            [:row {:optional true} :any]
            [:row-key {:optional true} :any]
-           [:overscan {:optional true} :int]]}
-  [{:keys [table-key rows row row-h viewport-h label row-key overscan]}]
+           [:overscan {:optional true} :int]
+           [:restore-scroll? {:optional true} :boolean]]}
+  [{:keys [table-key rows row row-h viewport-h label row-key overscan
+           restore-scroll?]}]
   (let [total  (count rows)
         top    (v/sub [:acme.ui.table/scroll-top table-key])
         key-of (or row-key :id)
@@ -212,39 +289,52 @@
                         :scroll-top top
                         :overscan   overscan})
         start  (:start w)
-        end    (:end w)]
+        end    (:end w)
+        ;; The scrolling box, bound so the `:restore-scroll?` decision can
+        ;; wrap it in the restore behavior without duplicating it. The
+        ;; behavior owns exactly ONE node (`v/behavior`'s one-node rule), and
+        ;; the viewport — the element that carries `scrollTop` — is that node.
+        viewport
+        [:div {:data-part     "viewport"
+               :role          "grid"
+               :aria-label    label
+               :aria-rowcount total
+               :style         {:height viewport-h :overflow-y "auto"}
+               :on-scroll     [:acme.ui.table/scrolled table-key ::v/scroll-top]}
+         [:div {:data-part "canvas"
+                :style     {:height (* total row-h) :position "relative"}}
+          ;; Two spellings the grammar decides for you, and both are worth
+          ;; naming because a Reagent-shaped hand reaches for the other one:
+          ;;
+          ;;   * the `:let` MODIFIER, not a `let` wrapping the body — a
+          ;;     compiled `for` body is a keyed element, view or fragment
+          ;;     DIRECTLY, with nothing in between; and
+          ;;   * `:key` in the PROPS MAP, not `^{:key …}` metadata — the
+          ;;     tree carries no metadata contract, so the key is an
+          ;;     ordinary reserved prop slot in both modes.
+          (for [i (range start end)
+                :let [r (nth rows i)]]
+            [:div {:key           (key-of r)
+                   :data-part     "row"
+                   :role          "row"
+                   :aria-rowindex (inc i)
+                   :data-row-key  (str (key-of r))
+                   :style         {:position "absolute"
+                                   :top      (* i row-h)
+                                   :height   row-h}}
+             (v/slot row r i)])]]]
     [:div {:data-component component-id
            :data-part      "root"
            :style          {:--acme-table-row-h      (str row-h "px")
                             :--acme-table-viewport-h (str viewport-h "px")}}
-     [:div {:data-part     "viewport"
-            :role          "grid"
-            :aria-label    label
-            :aria-rowcount total
-            :style         {:height viewport-h :overflow-y "auto"}
-            :on-scroll     [:acme.ui.table/scrolled table-key ::v/scroll-top]}
-      [:div {:data-part "canvas"
-             :style     {:height (* total row-h) :position "relative"}}
-       ;; Two spellings the grammar decides for you, and both are worth
-       ;; naming because a Reagent-shaped hand reaches for the other one:
-       ;;
-       ;;   * the `:let` MODIFIER, not a `let` wrapping the body — a
-       ;;     compiled `for` body is a keyed element, view or fragment
-       ;;     DIRECTLY, with nothing in between; and
-       ;;   * `:key` in the PROPS MAP, not `^{:key …}` metadata — the
-       ;;     tree carries no metadata contract, so the key is an
-       ;;     ordinary reserved prop slot in both modes.
-       (for [i (range start end)
-             :let [r (nth rows i)]]
-         [:div {:key           (key-of r)
-                :data-part     "row"
-                :role          "row"
-                :aria-rowindex (inc i)
-                :data-row-key  (str (key-of r))
-                :style         {:position "absolute"
-                                :top      (* i row-h)
-                                :height   row-h}}
-          (v/slot row r i)])]]]))
+     (if restore-scroll?
+       ;; Restorable: the viewport follows the persisted offset before paint.
+       ;; `:config` is DATA — the offset alone — and the behavior reads it on
+       ;; connect and on every move, which is what closes the reverse
+       ;; direction render alone cannot.
+       [v/behavior {:use restore-scroll :config {:scroll-top top}} viewport]
+       ;; Cache-only: the offset trails the DOM and nothing writes it back.
+       viewport)]))
 
 ;; ===========================================================================
 ;; THE APPLICATIONS — two callers, two shapes of row content
