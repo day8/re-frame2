@@ -16,6 +16,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.freehand :as v]
+            [re-frame.freehand.behavior-views :as bv]
             [re-frame.freehand.compiler :as compiler]
             [re-frame.freehand.compiler.root :as root]
             [re-frame.freehand.node :as node]
@@ -52,6 +53,37 @@
   [_]
   [interactive-card {:label "x"}])
 
+;; A compiled view attaching a server-reachable v/behavior — a live host
+;; lifecycle (connect / command / disconnect over a real node) a pure :server
+;; render owns no node for. rf2-drpa3.116's adversary: before the capability
+;; walks learned the behavior marker, this folded to inert HTML that silently
+;; dropped the attachment. `bv/probe` is the conformance corpus's registered
+;; behavior, reused rather than re-declared.
+(v/defview static-behavior-card
+  {:compiled true}
+  [_]
+  [:section [v/behavior {:use bv/probe :target :static/probe} [:div.node "x"]]])
+
+;; A compiled parent whose only child is the behavior-bearing view — the
+;; behavior capability is NESTED, visible only through the transitive closure.
+(v/defview static-behavior-parent
+  {:compiled true}
+  [_]
+  [static-behavior-card {}])
+
+;; A view whose ONLY behavior lives in a v/client-only CLIENT arm — the JVM
+;; render produces only the capability-free fallback, so the behavior is never
+;; server-reachable and render-static must RENDER, not refuse. The negative
+;; control for the server-reachability rule (rf2-drpa3.116). Interpreted, because
+;; v/client-only is a browser-only subtree the compiled grammar does not admit —
+;; the interpreted render is where a client-only arm is legitimately dropped, so
+;; it is exactly where the "renders, does not refuse" control belongs.
+(v/defview client-only-behavior-card
+  [_]
+  [:section
+   (v/client-only {:fallback [:div.fallback "server"]}
+     [v/behavior {:use bv/probe :target :static/probe} [:div.node "x"]])])
+
 ;; ---------------------------------------------------------------------------
 ;; The PAVED PATH (rf2-drpa3.159) — the default `v/defview`, with no options map
 ;; at all. An interpreted declaration has no analysis, no finite grammar and no
@@ -83,6 +115,13 @@
 (v/defview plain-parent
   [_]
   [:section [plain-interactive-card {:label "x"}]])
+
+;; An INTERPRETED view attaching a v/behavior — an interpreted body carries no
+;; analysis, so this half of no-silent-elision is proved at RENDER: the fold
+;; refuses to drop the live host boundary the interpreted tree actually carries.
+(v/defview plain-behavior-card
+  [_]
+  [:section [v/behavior {:use bv/probe :target :static/probe} [:div.node "x"]]])
 
 (defn- caught-id
   "Run `f`; -> the thrown compile-error id (`:rf.ui.compile/error` ex-data),
@@ -134,6 +173,13 @@
 (def ^:private reads-state-outcome   (capture-render-static '[reads-state {}]))
 (def ^:private static-parent-outcome (capture-render-static '[static-parent]))
 (def ^:private static-card-expansion (expand-render-static '[static-card {:title "x"}]))
+
+;; The compiled behavior rejections are a BUILD-time verdict (static-capability-
+;; offender over the server-reachable {:caps :deps}), so they are captured at
+;; ns-load like reads-state / static-parent, while the index still carries the
+;; freshly-contributed facts (rf2-drpa3.116).
+(def ^:private behavior-card-outcome   (capture-render-static '[static-behavior-card {}]))
+(def ^:private behavior-parent-outcome (capture-render-static '[static-behavior-parent {}]))
 
 ;; The ambient build's `view-static` index AS IT STOOD at ns-load, for the same
 ;; reason: a clojure.test RUN can clear the per-build index before the deftests
@@ -217,6 +263,22 @@
             is an interactive view fails through the direct-view-dependency closure
             (checking the root view alone would silently ship inert UI)"
     (is (= :rf.ui.compile/static-root-requires-runtime (:id static-parent-outcome)))))
+
+(deftest render-static-rejects-a-compiled-behavior
+  (testing "rf2-drpa3.116: a compiled `v/behavior` attachment is a live host
+            lifecycle a pure :server render cannot honour — its server-reachable
+            :behavior capability is a loud BUILD error, never an inert marker
+            silently dropped from a non-hydrating page"
+    (is (= :rf.ui.compile/static-root-requires-runtime (:id behavior-card-outcome))))
+  (testing "the build error names the runtime-requiring behavior capability"
+    (is (str/includes? (str (:msg behavior-card-outcome)) "behavior"))))
+
+(deftest render-static-rejects-a-nested-compiled-behavior
+  (testing "the behavior capability proof is TRANSITIVE too — a compiled parent
+            whose only child is a behavior-bearing view fails through the
+            direct-view-dependency closure, exactly as a nested subscription or
+            handler does (rf2-drpa3.116)"
+    (is (= :rf.ui.compile/static-root-requires-runtime (:id behavior-parent-outcome)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The independence wall — the emitted code names NO compile-time re-frame.ssr
@@ -351,6 +413,35 @@
             before it probes anything — never silently rendered as an empty slot"
     (is (= :rf.error/view-read-outside-render
            (:id (static-render-error #(v/render-static [plain-reads-state {}])))))))
+
+(deftest render-static-rejects-an-interpreted-behavior
+  (let [{:keys [id msg data]}
+        (static-render-error #(v/render-static [plain-behavior-card {}]))]
+    (testing "rf2-drpa3.116: a v/behavior in an INTERPRETED body is proved at
+              RENDER — the interpreted tree carries the live host boundary and the
+              fold refuses to drop it, the same law the compiled arm proves at
+              build. So render-static, interpreted browser and compiled browser
+              agree: the behavior is honoured or the page fails loud, never
+              silently inert"
+      (is (= :rf.error/static-render-requires-runtime id)))
+    (testing "the diagnostic names the behavior capability and the shared recovery"
+      (is (str/includes? (str msg) "behavior"))
+      (is (= :mount-in-the-browser-or-move-the-live-subtree-behind-client-only
+             (:recovery data)))
+      (is (str/includes? (str msg) "v/client-only")))))
+
+(deftest render-static-renders-a-behavior-only-in-a-client-only-arm
+  (testing "the NEGATIVE control (rf2-drpa3.116): a behavior reachable ONLY in a
+            v/client-only client arm is NOT server-reachable — the JVM emitter
+            renders the capability-free fallback, so render-static admits the root
+            and folds it to HTML rather than refusing. Server reachability is what
+            separates a dropped live capability from a legitimately client-only one"
+    (let [html (v/render-static [client-only-behavior-card {}])]
+      (is (string? html) "the client-only behavior root renders, it does not refuse")
+      (is (str/includes? html "server")
+          "the capability-free fallback is what reaches the static output")
+      (is (not (str/includes? html "node"))
+          "and the client arm's behavior node never reaches the :server render"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cross-build / AOT resolution — the ambient index is a per-build convenience;

@@ -211,6 +211,24 @@
   [:section.host
    [:div.node "content"]])
 
+(v/defview opaque-host-compiled
+  "The compiled twin of `opaque-host` — an opaque behavior over an EMPTY node,
+  the positive control the discriminating opaque-child case is measured against
+  (rf2-drpa3.127)."
+  {:compiled true}
+  [_]
+  [v/behavior {:use canvas :target :probe/canvas}
+   [:div.node]])
+
+(v/defview opaque-with-children-compiled
+  "The compiled twin of `opaque-with-children` — an opaque behavior over a node
+  that carries Freehand children. The build cannot prove opacity (a registered
+  fact), so the compiled BROWSER path must refuse this at runtime, exactly as
+  the interpreted browser walk and the JVM structural render do (rf2-drpa3.127)."
+  {:compiled true}
+  [_]
+  [v/behavior {:use canvas} [:div.node "content the host would overwrite"]])
+
 ;; ---------------------------------------------------------------------------
 ;; Refused use sites — one view per arm of the closed grammar
 ;; ---------------------------------------------------------------------------

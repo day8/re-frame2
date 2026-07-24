@@ -103,7 +103,9 @@
    :view-child                bv/view-child
    :fragment-child            bv/fragment-child
    :text-child                bv/text-child
-   :opaque-with-children      bv/opaque-with-children})
+   :opaque-with-children      bv/opaque-with-children
+   :opaque-host-compiled      bv/opaque-host-compiled
+   :opaque-with-children-compiled bv/opaque-with-children-compiled})
 
 (deftest fh-behavior-002-the-use-site-is-data-and-owns-one-node
   (testing "Per FH-BEHAVIOR-002: the `[v/behavior {…} node]` option roster is
@@ -188,6 +190,26 @@
             (str note " — the compiled marker equals the interpreted one"))))
     (is (= [] (bv/ops))
         "and NOTHING ran on either side — the compiled marker is inert too")))
+
+(deftest the-compiled-manifest-names-the-behavior-capability
+  (testing "Per rf2-drpa3.116: a compiled behavior view is no longer invisible to
+            capability analysis. A `v/behavior` boundary is a live host lifecycle
+            — connect / command / disconnect over a real node — as much a runtime
+            capability as an effect or a ref, so it appears under ONE documented
+            token, `:behavior`, in BOTH the finite manifest's `:capabilities`
+            roster and render-static's server-reachable `:static-facts`. Before
+            this slice both sets were empty for a behavior-bearing view, telling a
+            tool it had no capability and letting render-static silently drop the
+            attachment."
+    (let [m (v/manifest bv/plain-compiled)]
+      (is (some? m) "the compiled behavior view carries a manifest")
+      (is (contains? (:capabilities m) :behavior)
+          "the capability roster names the behavior boundary")
+      (is (contains? (:caps (:static-facts m)) :behavior)
+          "and so does the server-reachable static-facts projection render-static walks")
+      (is (not= #{} (:capabilities m))
+          "so the manifest can no longer report an EMPTY capability roster for a
+           behavior-bearing view (the rf2-drpa3.116 reproduction)"))))
 
 (deftest fh-behavior-003-a-command-with-no-live-connection-is-refused
   (testing "Per FH-BEHAVIOR-003: a command crosses into a live host object,
