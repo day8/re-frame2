@@ -125,18 +125,16 @@
   updated runtime-db (a no-op when no slot exists). Per Spec 016 §Route
   integration (rf2-l2gofj).
 
-  WHY this is needed even though `drain-blocking` already clears stale-token
-  slots: drain is REPLY-driven — it only fires when a route-owned resource
-  actually settles AND that resource still lists the old nav-token among its
-  `:active-owners`. On supersession the prior owner is RELEASED from every
-  entry's `:active-owners` immediately, so a subsequent reply no longer
-  carries the old token and `drain-blocking` never visits the stale slot.
-  Worse, a resource that is aborted / never replies (orphaned in-flight) on
-  supersession leaves its old-token blocking entry permanently. Clearing the
+  WHY a superseded token's slot needs an explicit clear: `reconcile-readiness`
+  projects the LIVE nav-token only, so it never visits a stale slot at all —
+  and a reply-driven prune could not be relied on even if it did, because on
+  supersession the prior owner is RELEASED from every entry's `:active-owners`
+  immediately, and a resource that is aborted / never replies (orphaned
+  in-flight) would leave its old-token blocking entry forever. Clearing the
   whole slot deterministically at the route transition (when the prior owner
-  is released) guarantees old-token blocking state cannot accumulate or be
-  mistaken for live blocking. The CURRENT nav-token's slot is never the
-  target here — only a superseded token's."
+  is released) is what guarantees old-token blocking state cannot accumulate.
+  The CURRENT nav-token's slot is never the target here — only a superseded
+  token's."
   [runtime-db nav-token]
   (if (contains? (get-in runtime-db (blocking-slots-map-path)) nav-token)
     (update-in runtime-db (blocking-slots-map-path) dissoc nav-token)
