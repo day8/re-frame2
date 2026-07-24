@@ -583,7 +583,7 @@ Neither delegates to the other — they are sibling handlers over one shared sli
                      [:dispatch ev]))}))))
 ```
 
-The same handler runs **on the server during SSR** (no `:platforms` exclusion) — the request URL is fed in, the route slice is set, the view renders against it. The `:on-match` events also fire-and-forget server-side, so their synchronous effects stay symmetric with the client; they are not awaited, and required page data that must settle before render is a blocking `:resources` requirement, not an `:on-match` event (see [§Server-side rendering integration](#server-side-rendering-integration-per-011)). No SSR-specific routing code.
+The same handler runs **on the server during SSR** (no `:platforms` exclusion) — the request URL is fed in, the route slice is set, the view renders against it. The `:on-match` events also fire-and-forget server-side, so their synchronous effects stay symmetric with the client; they are not awaited, and required page data that must settle before render is a blocking `:resources` requirement, not an `:on-match` event (see [§Server-side rendering integration](#server-side-rendering-integration)). No SSR-specific routing code.
 
 ### Linking from views — plain-anchor semantics
 
@@ -842,7 +842,7 @@ Its contract is fire-and-forget (EP-0037 §`:on-match` is activation work):
 1. `:on-match` runs **only after a valid plan forms** — after a *successful* full activation. A committed **planning-failure** target dispatches **none** of its events (a failed activation is addressable route context, not an activation boundary; see [§Failed activation](#failed-activation)). When it does run, the runtime dispatches each event **in order** with normal run-to-completion semantics, after writing the `:rf/route` slice and before any view renders that depend on the seeded state.
 2. It **does not drive route readiness.** `:on-match` never sets `:rf.route/transition` to `:loading` or `:error`, never queues a settle, does not await the asynchronous effects its events start, does not infer when their transitive work finished, and does not correlate later global error records back to the route. Route readiness is the resource projection, independent of `:on-match`.
 3. Same-route-id navigations with **changed `:params` or `:query`** *do* re-fire `:on-match` (the route is becoming active again under new inputs). Same-route-id navigations with identical id/params/query do not re-fire, and a fragment-only change does not re-fire — this is the exact re-fire key set (request spelling and policy keys are irrelevant; the runtime compares the resolved facts).
-4. `:on-match` events run **server- and client-side**. SSR dispatches them through the request-local frame so synchronous event effects stay symmetric, but SSR does **not** wait for an arbitrary asynchronous tail (the only route-owned server wait is a blocking `:resources` requirement; see [§Server-side rendering integration](#server-side-rendering-integration-per-011)). Hydration does *not* re-fire `:on-match` — the seeded `app-db` already contains the data.
+4. `:on-match` events run **server- and client-side**. SSR dispatches them through the request-local frame so synchronous event effects stay symmetric, but SSR does **not** wait for an arbitrary asynchronous tail (the only route-owned server wait is a blocking `:resources` requirement; see [§Server-side rendering integration](#server-side-rendering-integration)). Hydration does *not* re-fire `:on-match` — the seeded `app-db` already contains the data.
 5. Each `:on-match` event is an ordinary event vector. Handlers may emit any `:fx` (typically `:http`, etc.). A synchronous handler **throw** stays visible through the ordinary [009](009-Instrumentation.md) event error channel, attributed to the event that threw — it is **not** rewritten into route-loader state. Applications that start asynchronous work from `:on-match` own its status and error state in the same event/effect subsystem that owns the work. The events are also enumerable: `(rf/handler-meta :route :route/cart)` returns the metadata, so tooling can render activation dependency graphs.
 
 The `:on-match` list is the **enumerable, machine-readable** answer to "what runs when this route activates?" `:on-match` is the canonical surface.
@@ -1665,6 +1665,7 @@ The `:rf.route/navigate` door itself carries **three request forms** (per [§Tar
 
 Guards are interceptors, not a special routing mechanism. They are registered once and referenced by id; they compose — list multiple refs in the `:interceptors` chain and they layer in order. Prefer `:can-enter` when the policy belongs to one route; reach for a frame-`:interceptors` guard when it spans many routes uniformly, and cover all three doors when you do.
 
+<a id="server-side-rendering-integration"></a>
 ## Server-side rendering integration (per [011](011-SSR.md))
 
 The server-side flow:
