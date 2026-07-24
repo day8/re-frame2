@@ -69,13 +69,20 @@
 (v/defview props-page
   "The composite the React prop-grammar assertion mounts: HTML author
   spellings that React canonicalises, an SVG attribute directly and
-  through a boundary, and a lowercase `data-*` name that reaches the DOM
-  verbatim (a mixed-case `data-*` is refused before it can mount — Spec
-  004B §Attribute names, option c — so the page carries only the lowercase
-  spelling)."
+  through a boundary, and two lowercase `data-*` names that reach the DOM
+  verbatim.
+
+  The second of those, `:data-foo-bar`, is the REPAIR the mixed-case
+  refusal teaches (Spec 004B §Attribute names, option c): a mixed-case
+  `data-*` is refused before it can mount, and this is the spelling the
+  diagnostic sends the author to. It is mounted here, rather than only
+  asserted structurally, because the claim the diagnostic makes is about
+  the DOM — the hyphen survives as the attribute name AND the platform
+  reads the word boundary back as `element.dataset.fooBar`. A refusal that
+  named a repair nobody had mounted would be a promise, not a fact."
   {:compiled true}
   [_]
-  [:section#props {:tab-index 3 :data-priority "high"}
+  [:section#props {:tab-index 3 :data-priority "high" :data-foo-bar "kept"}
    ;; contentEditable rides a CHILDLESS element on purpose: React warns
    ;; about a contentEditable subtree it also manages, and that warning is
    ;; about the declaration rather than about the prop spelling.

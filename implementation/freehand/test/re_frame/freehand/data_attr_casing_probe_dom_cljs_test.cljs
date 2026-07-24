@@ -27,10 +27,20 @@
        `.dataset` — so the word the author segmented is unreachable there too.
        A mixed-case `data-*` cannot mean what it says on any of the three.
 
+    3. THE SSR DIVERGENCE. The ruling's last premise is not a fact about
+       mounting at all: it is that SERIALISE-THEN-PARSE lowercases a `data-*`
+       name in EVERY namespace. `react-dom/server` writes the authored
+       spelling verbatim, and the HTML parser then lowercases it — including
+       inside SVG and MathML foreign content, where a CLIENT mount of the very
+       same props preserves it. Same declaration, two hosts, two different
+       attribute names on a foreign element. That is the divergence, probed
+       here rather than reasoned about.
+
   Rides the browser lane through its `-dom-cljs-test` suffix; under node it has
   no real React DOM and says so."
   (:require ["react" :as react]
             ["react-dom/client" :as rdc]
+            ["react-dom/server" :as rds]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
             [goog.object :as gobj]
@@ -203,4 +213,98 @@
                        (done)))
               (.catch (fn [e]
                         (ms/destroy-root! c1 r1) (ms/destroy-root! c2 r2) (ms/destroy-root! c3 r3)
+                        (is false (str "probe failed: " e)) (done)))))))))
+
+;; ===========================================================================
+;; Obligation 2, continued — the SSR serialise-then-parse divergence
+;; ===========================================================================
+
+(def ^:private html-ns "http://www.w3.org/1999/xhtml")
+
+(defn- attr-names
+  "EVERY attribute name the element carries, as a set. Read off the element
+  rather than probed one name at a time, so a name that is NOT there is part
+  of the value two hosts get compared on."
+  [el]
+  (set (array-seq (.getAttributeNames el))))
+
+(defn- parse-as-html
+  "Parse `markup` the way a browser parses an SSR response, and answer the
+  resulting `<body>`. `text/html` is the whole point: it is the HTML parser,
+  with its foreign-content rules, that a server's bytes actually meet — an XML
+  parse would preserve everything and prove nothing."
+  [markup]
+  (.-body (.parseFromString (js/DOMParser.) (str "<!doctype html><body>" markup) "text/html")))
+
+(deftest ssr-serialise-then-parse-lowercases-in-every-namespace
+  (testing "The ruling's last premise, probed rather than reasoned:
+            `react-dom/server` writes an authored mixed-case data-* name
+            VERBATIM, and parsing that markup as HTML lowercases it in ALL
+            THREE namespaces — including SVG and MathML foreign content, where
+            a client mount of the SAME props preserves it. So the identical
+            declaration yields one attribute name on the server and a
+            different one on the client, on exactly the elements React does
+            not reconcile the difference away. The HTML element is the
+            contrast that makes the claim namespace-specific: there the two
+            hosts agree, because both lowercase.
+
+            Non-vacuous by construction: every name is fresh, and the markup
+            assertion proves the server emitted the authored spelling — so
+            whatever the parsed DOM has lost, the PARSE lost."
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job owns the SSR serialise-then-parse probe")
+      (async done
+        (let [html-name (fresh-mixed)
+              svg-name  (fresh-mixed)
+              math-name (fresh-mixed)
+              tree      (react/createElement
+                          "div" nil
+                          (react/createElement "div" (js-props "ssrh" html-name))
+                          (react/createElement "svg" nil
+                            (react/createElement "rect" (js-props "ssrs" svg-name)))
+                          (react/createElement "math" nil
+                            (react/createElement "mi" (js-props "ssrm" math-name))))
+              markup    (rds/renderToStaticMarkup tree)
+              body      (parse-as-html markup)
+              [container root] (ms/create-root!)
+              check
+              (fn [where nm expect-ns selector client-preserves?]
+                (let [parsed (.querySelector body selector)
+                      client (.querySelector container selector)]
+                  (is (some? parsed) (str where ": the parsed markup carries the element"))
+                  (is (some? client) (str where ": the client mount carries the element"))
+                  (when (and parsed client)
+                    (is (= expect-ns (.-namespaceURI parsed))
+                        (str where ": the parser really put it in this namespace — otherwise"
+                             " \"lowercased in every namespace\" is a claim about three HTML"
+                             " elements"))
+                    (is (contains? (attr-names parsed) (lowered nm))
+                        (str where ": parsing LOWERCASED the authored name"))
+                    (is (not (contains? (attr-names parsed) nm))
+                        (str where ": and the authored spelling is gone from the parsed DOM"))
+                    (if client-preserves?
+                      (do (is (contains? (attr-names client) nm)
+                              (str where ": the CLIENT mount preserved the authored spelling"))
+                          (is (not= (attr-names client) (attr-names parsed))
+                              (str where ": so client and SSR carry DIFFERENT attribute names"
+                                   " from identical props — the divergence the refusal rests on")))
+                      (do (is (contains? (attr-names client) (lowered nm))
+                              (str where ": the client mount lowercased it too"))
+                          (is (= (attr-names client) (attr-names parsed))
+                              (str where ": so client and SSR agree here — the divergence is"
+                                   " specific to foreign content")))))))]
+          ;; The server emitted what the author wrote. Everything the parsed
+          ;; DOM has lost below, the PARSE lost.
+          (doseq [nm [html-name svg-name math-name]]
+            (is (str/includes? markup nm)
+                (str "react-dom/server serialises " nm " verbatim")))
+          (-> (render! root tree)
+              (.then (fn [_]
+                       (check "SSR/client HTML"   html-name html-ns   "#ssrh" false)
+                       (check "SSR/client SVG"    svg-name  svg-ns    "#ssrs" true)
+                       (check "SSR/client MathML" math-name mathml-ns "#ssrm" true)
+                       (ms/destroy-root! container root)
+                       (done)))
+              (.catch (fn [e]
+                        (ms/destroy-root! container root)
                         (is false (str "probe failed: " e)) (done)))))))))

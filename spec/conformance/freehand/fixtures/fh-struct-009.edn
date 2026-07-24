@@ -43,6 +43,8 @@
   {:note "and so is the SVG viewBox"                              :attr :view-box         :prop "viewBox"}
   {:note "a lowercase data-* passes verbatim — a mixed-case data-* is REFUSED, not projected (Spec 004B §Attribute names, ruled option c; see :rejected)"
    :attr :data-priority :prop "data-priority"}
+  {:note "and so does the hyphenated REPAIR the refusal's diagnostic teaches"
+   :attr :data-foo-bar  :prop "data-foo-bar"}
   {:note "aria-* passes verbatim too"                             :attr :aria-hidden      :prop "aria-hidden"}
   {:note "an unrecognized name passes verbatim — React 16+ pass-through" :attr :my-thing   :prop "my-thing"}]
 
@@ -60,13 +62,27 @@
           :children [{:tag :rect :ns :svg :attrs {:stroke-width "2"}}]
           :rf.ui/tree-version 1}}]
 
- ;; Read off `document`, after a real react-dom/client mount of :view.
+ ;; Read off `document`, after a real react-dom/client mount of :view. A row
+ ;; may also carry `:dataset`, read off `element.dataset` — the platform's own
+ ;; projection of a `data-*` attribute name, which is a different observable
+ ;; from the attribute and the one a `data-*` author actually reads.
  :dom
  [{:note "tabIndex reaches the DOM as tabindex"
    :selector "#props" :attrs {"tabindex" "3"}}
 
   {:note "a data-* name passes verbatim"
    :selector "#props" :attrs {"data-priority" "high"}}
+
+  ;; The mounted REPAIR. Refusing `:data-fooBar` is only a repair if the
+  ;; spelling the diagnostic sends the author to is lossless in the DOM, and
+  ;; that is a claim about a mounted element rather than about a tree: the
+  ;; hyphenated name survives as the attribute AND the platform reads the word
+  ;; boundary back as `dataset.fooBar` — the very segmentation the mixed-case
+  ;; spelling loses (its `.dataset` entry is absent, and a silent lowercasing
+  ;; would have keyed off the unsegmented `foobar`). Mounted through Freehand,
+  ;; so the repair is proven on the substrate's own path (rf2-hl7hr).
+  {:note "the REPAIR mounts losslessly: :data-foo-bar reaches the DOM verbatim and reads back as element.dataset.fooBar"
+   :selector "#props" :attrs {"data-foo-bar" "kept"} :dataset {"fooBar" "kept"}}
 
   {:note "contentEditable is a booleanish attribute React writes as a string"
    :selector "#ce" :attrs {"contenteditable" "true"}}
@@ -214,7 +230,8 @@
   ;; casing cannot mean what it says on any host surface. Per the same
   ;; emitted-name law as the rows above, all four spellings are refused alike —
   ;; the diagnostic teaches the one-keystroke fix (write :data-foo-bar, read
-  ;; element.dataset.fooBar).
+  ;; element.dataset.fooBar), which the `:dom` table mounts and reads back
+  ;; rather than merely naming.
   {:note "a camelCase data-* name is refused — the HTML DOM cannot store the casing"
    :form [:div {:data-fooBar "x"}] :error-id :rf.error/ui-tree-malformed}
   {:note "a namespace does not escape it — the refusal reads the emitted name"
