@@ -15,14 +15,23 @@ Two independent guards live here, and the difference between them matters:
       every id is well-formed, unique, filed under its own area, cites a real
       spec anchor, and names a fixture file that exists.
     * The EXECUTION CENSUS (`census`) reconciles the index against the suites
-      that RUN it — that every active row's fixture is actually read by a test,
-      and that every host the row claims is served by a lane one of those tests
-      runs in.
+      that RUN it — that every active row's fixture is reached by an ASSERTION,
+      and that the assertions reaching it run in lanes serving every
+      mode/host cell the row claims.
 
 Neither executes a fixture; running a law is the harness's job
 (`spec/conformance/freehand/README.md` §What this is not).  What the census adds
 is the missing edge between the ledger and the runs: without it a row can name a
 real fixture nobody ever reads, and the structural check will call that green.
+
+The census reads FORMS, not characters, and the distinction is the whole of its
+credibility.  A scan of raw source counts a commented-out proof, a `#_`-discarded
+one, an id written in a docstring, and a `def` no test ever reads — four ways to
+delete a law's proof while leaving its row standing.  It also has to read the
+reader: a `#?(:clj (deftest …))` in a `.cljc` suite is discovered by both runners
+and asserts in only one, so taking the lane from the filename credits the row
+with a lane it never enters.  Both readings are enforced below, and both are
+self-tested with the DEFECT KIND pinned, not just the count.
 
 An id is an address.  An address that resolves to nothing is worse than no
 address at all, so this guard fails the build when:
@@ -61,10 +70,17 @@ and, from the execution census:
                              `implementation/freehand/test/` reads.  The row
                              names a file, the file exists, and nothing asserts
                              against it: a law proven by nobody.
-    * UNEXECUTED HOST      — an `active` row claims a host no lane among its
-                             proving tests serves.  A `common jvm browser` row
-                             read only from a `.cljs` suite is a claim about the
-                             JVM that the JVM never sees.
+    * DEAD PROOF SITE      — the id IS written in a suite, and no `deftest`
+                             reaches it: commented out, `#_`-discarded, sitting
+                             in a docstring, or bound to a name nothing asserts
+                             on.  The shape a text scan calls proof.
+    * UNEXECUTED CELL      — an `active` row claims a (mode, host) cell that no
+                             lane among its ASSERTING tests serves.  A
+                             `common jvm browser` row read only from a `.cljs`
+                             suite is a claim about the JVM the JVM never sees;
+                             so is one whose only assertion sits in a
+                             `#?(:clj …)` arm, which never enters the node lane
+                             that proves the browser column's structural cell.
     * DANGLING PROOF       — a test reads a fixture for an id the index does not
                              carry as an `active` row (a deleted or retired law
                              whose suite outlived it).
@@ -939,11 +955,12 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
 
     The manifest is DERIVED — from the `(conf/fixture :FH-…)` sites in
     `implementation/freehand/test/` and the lane each file runs in — so there is
-    no second copy of the mapping to keep in step.  Five facts fall out, and each
-    is a defect shape: a row nothing reads, a row read only from lanes that do
-    not serve the hosts it claims, a fixture or a proof site left behind by a row
-    that no longer exists, a roster area holding no proven law at all, and an id
-    the corpus cites that the index does not carry.
+    no second copy of the mapping to keep in step.  Seven facts fall out, and
+    each is a defect shape: a row nothing reads, a row whose id is written where
+    no assertion can reach it, a row asserted only from lanes that do not serve
+    the (mode, host) cells it claims, a fixture or a proof site left behind by a
+    row that no longer exists, a roster area holding no proven law at all, and an
+    id the corpus cites that the index does not carry.
 
     Only `active` rows are CLAIMS, so only they are reconciled against the
     suites.  A `retired` row is a burnt id: it proves nothing and needs no
@@ -1198,6 +1215,7 @@ def _write_census_fixture(
     test_dir.mkdir(parents=True, exist_ok=True)
     filler = "".join(
         f"(def fx-{area.lower()} (conf/fixture :{_filler_id(area)}))\n"
+        f"(deftest filler-{area.lower()} (is (seq fx-{area.lower()})))\n"
         for area in AREAS
         if area not in sections
     )
@@ -1216,13 +1234,23 @@ def _write_census_fixture(
 
 
 def _proof(row_id: str = "FH-CALL-001") -> str:
-    return f"(ns x)\n(def fx (conf/fixture :{row_id}))\n"
+    """A real proof: a fixture bound to a name, and a `deftest` that asserts on
+    it.  The binding ALONE is not a proof, which is what several cases below
+    exist to say — so the green fixtures have to be honest about it too, or the
+    census is being self-tested against the very shape it is meant to reject."""
+    name = f"fx-{row_id.lower()}"
+    return (
+        f"(ns x)\n"
+        f"(def {name} (conf/fixture :{row_id}))\n"
+        f"(deftest proves-{row_id.lower()} (is (seq {name})))\n"
+    )
 
 
 def _build_census_fixtures(base: Path) -> None:
-    """One mini-repo per census rule.  Each pins exactly one reading of the
-    host/mode matrix, so a change to `HOST_LANES` or `_lanes_for` that is not
-    also a change to Spec 008 fails here first."""
+    """One mini-repo per census rule.  Each pins exactly one reading — of the
+    host/mode matrix, or of what counts as a proof — so a change to
+    `_cell_lanes`, `_lanes_for` or the form scan that is not also a change to
+    Spec 008 fails here first."""
     cases: dict[
         str, tuple[dict[str, str], dict[str, str], tuple[str, ...], tuple[str, ...]]
     ] = {
@@ -1254,8 +1282,67 @@ def _build_census_fixtures(base: Path) -> None:
             (),
             (),
         ),
+        # Green: the proving `deftest` lives in a `#?(:clj …)` arm, and the row
+        # claims only cells the JVM lane proves.  The narrowing has to be a
+        # narrowing, not a refusal.
+        "census_reader_conditional_clj_arm_serves_jvm": (
+            {"CALL": _row(applicability="common jvm ssr")},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "#?(:clj (deftest t (is (seq fx))))\n"},
+            (),
+            (),
+        ),
         # Red: the row names a real fixture nobody reads.
         "census_unproven_row": ({"CALL": _row()}, {}, (), ()),
+        # Red: the id is there, the assertions are not.  A law retired by
+        # commenting out its proof, with the row left standing.
+        "census_commented_proof_site": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 ";; (def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is true))\n"},
+            (),
+            (),
+        ),
+        # Red: a reader-discarded form.  It survives every text scan and the
+        # reader never sees it.
+        "census_discarded_proof_site": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "#_(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is true))\n"},
+            (),
+            (),
+        ),
+        # Red: the fixture is read, bound, and never asserted on - the dead def.
+        # The file has real tests; none of them names `fx`.
+        "census_dead_def": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= 1 1)))\n"},
+            (),
+            (),
+        ),
+        # Red: the id appears inside a docstring.  Prose about a law is not a
+        # proof of it, and prose is where an id is MOST likely to be written.
+        "census_proof_site_in_a_docstring": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": '(ns x "see (conf/fixture :FH-CALL-001)")\n'
+                                 "(deftest t (is true))\n"},
+            (),
+            (),
+        ),
+        # Red: the missing arm.  A `common jvm browser` row whose only assertion
+        # is in a `#?(:clj …)` arm never enters the node lane, so the browser
+        # cell - structural, proven in the node runtime - is unproven, however
+        # the file is named.
+        "census_reader_conditional_hides_the_browser_arm": (
+            {"CALL": _row(applicability="common jvm browser")},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "#?(:clj (deftest t (is (seq fx))))\n"},
+            (),
+            (),
+        ),
         # Red: a `common jvm browser` row read only from a mounted `.cljs`
         # suite — node and browser, never the JVM it claims.
         "census_unexecuted_host": (
@@ -1449,45 +1536,73 @@ def _run_self_tests(verbose: bool = False) -> int:
         # A block before the first section orphans both its header and its row.
         ("orphan_row", 2),
     ]
-    census_cases: list[tuple[str, int]] = [
-        ("census_clean", 0),
-        ("census_ssr_served_by_jvm", 0),
-        ("census_qualified_host", 0),
-        ("census_planned_row_is_not_a_claim", 0),
-        ("census_unproven_row", 1),
-        ("census_unexecuted_host", 1),
-        ("census_qualified_host_needs_a_browser", 1),
-        ("census_dangling_proof", 1),
-        ("census_orphan_fixture", 1),
-        ("census_empty_area", 1),
-        ("census_dangling_citation", 1),
-        ("census_retired_row_answers_a_citation", 0),
+    # The census cases pin the defect KIND as well as the count, because this
+    # guard exists to stop a green being read off the wrong evidence and a
+    # self-test that only counts makes exactly that mistake about itself.  Six of
+    # these cases red at 1 defect for two different reasons, and only one of them
+    # is the reason the case was written for.
+    census_cases: list[tuple[str, int, str | None]] = [
+        ("census_clean", 0, None),
+        ("census_ssr_served_by_jvm", 0, None),
+        ("census_qualified_host", 0, None),
+        ("census_planned_row_is_not_a_claim", 0, None),
+        ("census_reader_conditional_clj_arm_serves_jvm", 0, None),
+        ("census_unproven_row", 1, "UNPROVEN ROW"),
+        ("census_commented_proof_site", 1, "DEAD PROOF SITE"),
+        ("census_discarded_proof_site", 1, "DEAD PROOF SITE"),
+        ("census_dead_def", 1, "DEAD PROOF SITE"),
+        ("census_proof_site_in_a_docstring", 1, "DEAD PROOF SITE"),
+        ("census_reader_conditional_hides_the_browser_arm", 1, "UNEXECUTED CELL"),
+        ("census_unexecuted_host", 1, "UNEXECUTED CELL"),
+        ("census_qualified_host_needs_a_browser", 1, "UNEXECUTED CELL"),
+        ("census_dangling_proof", 1, "DANGLING PROOF"),
+        ("census_orphan_fixture", 1, "ORPHAN FIXTURE"),
+        ("census_empty_area", 1, "EMPTY AREA"),
+        ("census_dangling_citation", 1, "DANGLING CITATION"),
+        ("census_retired_row_answers_a_citation", 0, None),
     ]
     failures = 0
     with tempfile.TemporaryDirectory(prefix="fh_index_selftest_") as tmp:
         base = Path(tmp)
         _build_self_test_fixtures(base)
         _build_census_fixtures(base)
-        for guard, guard_cases in ((check, cases), (census, census_cases)):
-            for fixture, expected in guard_cases:
+        both: tuple[tuple, ...] = (
+            (check, [(name, n, None) for name, n in cases]),
+            (census, census_cases),
+        )
+        for guard, guard_cases in both:
+            for fixture, expected, kind in guard_cases:
                 root = base / fixture
                 saved_stderr = sys.stderr
-                sys.stderr = _DevNull()
+                sys.stderr = captured = _Captured()
                 try:
                     got = guard(root, verbose=False)
                 finally:
                     sys.stderr = saved_stderr
-                if got == expected:
-                    if verbose:
-                        sys.stderr.write(
-                            f"self-test PASS: {fixture} (defects={got})\n"
-                        )
-                else:
+                if got != expected:
                     sys.stderr.write(
                         f"self-test FAIL: {fixture} expected defects={expected}, "
                         f"got {got}\n"
                     )
                     failures += 1
+                elif kind and kind not in captured.text:
+                    # The case red, but not for the reason it was written for —
+                    # which is the same mistake the guard itself exists to catch.
+                    fired = next(
+                        (l.strip() for l in captured.text.splitlines()
+                         if l.startswith("  ") and l.strip()),
+                        "(no defect line)",
+                    )
+                    sys.stderr.write(
+                        f"self-test FAIL: {fixture} red with the right COUNT and "
+                        f"the wrong defect: expected {kind}, got {fired!r}\n"
+                    )
+                    failures += 1
+                elif verbose:
+                    sys.stderr.write(
+                        f"self-test PASS: {fixture} (defects={got}"
+                        f"{', ' + kind if kind else ''})\n"
+                    )
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
@@ -1498,9 +1613,16 @@ def _run_self_tests(verbose: bool = False) -> int:
     return 0
 
 
-class _DevNull:
-    def write(self, *_args, **_kwargs) -> int:
-        return 0
+class _Captured:
+    """A stderr stand-in that keeps what was written, so a self-test can ask
+    WHICH defect fired and not merely how many."""
+
+    def __init__(self) -> None:
+        self.text = ""
+
+    def write(self, s: str, *_args, **_kwargs) -> int:
+        self.text += s
+        return len(s)
 
     def flush(self) -> None:  # pragma: no cover
         return None
