@@ -31,13 +31,30 @@
       disconnect, so unmount releases every dependency and retires every
       callback.
 
+  ## `:render` performance instrumentation is not reg-view-only
+
+  Spec 009 §Performance instrumentation describes the `:render` bucket as
+  the adapter reg-view wrapper's — but Freehand is a FIRST-CLASS render
+  path, so [[render]] brackets its element-producing work in the same
+  `(performance/mark-and-measure :render <view-id> …)` the reg-view
+  wrapper uses, emitting a `rf:render:<view-id>` measure per render. It is
+  the substrate hook the naming convention's parenthetical (\"view render,
+  when substrate exposes a hook\") anticipates. Every reactive tier —
+  interpreted, compiled-reactive and behavior — is measured here at the
+  one shared chokepoint; the compiled `:elided` path has no shell, so its
+  own bracket lives at its render site in [[re-frame.freehand.react]].
+  Default-off and `:advanced`-DCE'd exactly like the reg-view bracket
+  (`re-frame.performance/enabled?`), so an off build carries no render
+  timing at all.
+
   Normative owner:
   [`spec/006-ReactiveSubstrate.md`](../../../../../spec/006-ReactiveSubstrate.md)
   §The Freehand atomic shell."
   (:require ["react" :as react]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.frame :as frame]
-            [re-frame.freehand.cell :as cell]))
+            [re-frame.freehand.cell :as cell]
+            [re-frame.performance :as performance :include-macros true]))
 
 ;; A shared, never-mutated empty deps array for mount-only layout effects.
 ;; React reads deps element-wise, so one instance serves every view and
@@ -129,7 +146,17 @@
         ;; occurrence mounted mid-session catches up rather than fighting.
         _        (cell/advance-generation! c body-revision)
         cand     (cell/candidate c frame-id)
-        element  (render-candidate cand)]
+        ;; Per Spec 009 §Performance instrumentation: every render of a
+        ;; declared view brackets the element-producing work — the view body
+        ;; and the emitter walk that normalises what it returned — in a
+        ;; `rf:render:<view-id>` measure, the SAME `:render` bucket the
+        ;; adapter reg-view wrapper emits. One chokepoint for all three tier
+        ;; components (interpreted, compiled-reactive, behavior), since each
+        ;; produces its element through this one candidate. Default-off; under
+        ;; :advanced + `re-frame.performance/enabled?=false` the bracket DCEs
+        ;; and the form collapses to the bare `(render-candidate cand)`.
+        element  (performance/mark-and-measure :render view-id
+                   (render-candidate cand))]
     ;; Reconcile after every committed render, with this render's exact
     ;; candidate. There is deliberately no cleanup: ownership lives on
     ;; the cell, never on a render.
