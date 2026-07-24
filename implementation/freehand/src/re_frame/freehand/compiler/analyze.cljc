@@ -18,7 +18,6 @@
             [re-frame.freehand.compiler.env :as env]
             [re-frame.freehand.controlled :as controlled]
             [re-frame.freehand.conversion :as conv]
-            [re-frame.freehand.events :as events]
             [re-frame.freehand.fingerprint :as fingerprint]
             [re-frame.freehand.props-schema :as props-schema]
             [re-frame.freehand.rules :as rules]
