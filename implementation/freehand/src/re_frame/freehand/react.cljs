@@ -67,7 +67,8 @@
             [re-frame.freehand.presence-runtime :as presence-runtime]
             [re-frame.freehand.shell :as shell]
             [re-frame.freehand.top-layer :as top-layer]
-            [re-frame.freehand.tree :as tree]))
+            [re-frame.freehand.tree :as tree]
+            [re-frame.performance :as performance :include-macros true]))
 
 (defn- malformed!
   [reason extra]
@@ -594,8 +595,16 @@
                   :compiled
                   (fn [cand]
                     (cell/with-capture cand (fn [] (run body js-props)))))))
+            ;; The `:elided` compiled path renders straight — no ViewCell, no
+            ;; shell — so its `rf:render:<view-id>` measure is bracketed HERE
+            ;; rather than in `shell/render`. Same `:render` bucket, same
+            ;; default-off / :advanced-DCE discipline (Spec 009 §Performance
+            ;; instrumentation); the reactive paths are measured once in the
+            ;; shell, so an elided view is the only render that would go
+            ;; uncounted without this.
             (fn freehand-compiled-view [js-props]
-              (run (:body @slot) js-props)))]
+              (performance/mark-and-measure :render view-id
+                (run (:body @slot) js-props))))]
     (gobj/set c "displayName" (str view-id))
     c))
 
