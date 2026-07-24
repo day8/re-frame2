@@ -212,7 +212,12 @@
     (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}])
     (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation])]
       (is (some? pending) "precondition: pending-nav slot populated")
-      (is (= :can-leave (:reason pending)) ":reason is :can-leave")
+      ;; `/home` matches no registered route here (`:route/home` is "/"), so
+      ;; the replay destination stays the RAW `{:url …}` escape rather than
+      ;; being rewritten as the not-found route's address — continuing would
+      ;; otherwise change the requested URL.
+      (is (= {:url "/home"} (:destination pending))
+          "the leave-only pending value carries the raw replayable destination")
 
       ;; User cancels.
       (rf/dispatch-sync [:rf.route/cancel (:id pending)])
