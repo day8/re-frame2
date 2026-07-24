@@ -109,29 +109,48 @@ done-bar for a subtree is:
 
 Handler slots hold event vectors **as data**, so "what does this button do" is an
 equality check with no browser. `re-frame.freehand.test` (conventionally aliased
-`t`) is five names over the structural tree — `render`, `find`, `find-all`,
-`attrs`, `text`:
+`t`) is five names that query values over the structural tree — `render`, `find`,
+`find-all`, `attrs`, `text` — plus one bracket, `with-render`, that opens the
+discardable render a state-reading view is checked inside. A view that reads
+nothing renders with a bare `render`:
 
 ```clojure
 (:require [re-frame.core :as rf]
           [re-frame.freehand.test :as t])
 
 (deftest add-button-carries-intent
+  (let [tree   (t/render [product-card {:product {:id 42 :name "Hat"}}])
+        button (t/find tree #(= :button (:tag %)))]
+    (is (= "Add to cart" (t/text button)))
+    (is (= [:cart/add 42] (:on-click (t/attrs button))))))
+```
+
+`(:on-click node)` reads a *field* and misses; the projection `(t/attrs node)` is
+the attribute read. Host-bearing behaviour — real listeners, focus, presence
+timing — belongs to a mounted browser test, not this tier.
+
+**A migrated view that reads state renders inside `with-render`.** The moment a
+conversion applies the MIG-02 deref-drop, the view's body calls `v/sub`, and
+`v/sub` is legal only during an active declared render. `render` is a walk, not a
+host, so it opens none of its own — a bare `t/render` of a `v/sub`-reading view is
+refused with `:rf.error/view-read-outside-render`. This is the common case, not
+the exotic one; wrap the render and the view runs **as written**, with nothing
+published:
+
+```clojure
+(deftest badge-shows-the-cart-count
   (rf/with-new-frame [_ (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})]
-    (let [tree   (t/render [product-card {:product {:id 42 :name "Hat"}}])
-          button (t/find tree #(= :button (:tag %)))]
-      (is (= "Add to cart" (t/text button)))
-      (is (= [:cart/add 42] (:on-click (t/attrs button)))))))
+    (rf/dispatch-sync [:cart/add 42])
+    (let [tree (t/with-render (t/render [cart-badge {}]))]
+      (is (= "1" (t/text tree))))))
 ```
 
 Frame scope is the ordinary bracket (`rf/with-new-frame` / `rf/with-frame`), state
 is driven with `rf/dispatch-sync`, and the checkpoint is a **fresh** `render` —
-there is no frame option and no fixture. `(:on-click node)` reads a *field* and
-misses; the projection `(t/attrs node)` is the attribute read. Host-bearing
-behaviour — real listeners, focus, presence timing — belongs to a mounted browser
-test, not this tier.
+inside `with-render` whenever the view reads state, bare when it does not. There
+is no frame option and no fixture.
 
-A migrated view that had no test is a good place to add one: it costs three lines
+A migrated view that had no test is a good place to add one: it costs a few lines
 and it pins the intent the migration just rewrote.
 
 ## A single converted file is PROVISIONAL

@@ -27,7 +27,8 @@
        "Lifts the handler: {:on-click #(dispatch [:buy amt])} becomes {:on-click [:buy amt]} (MIG-04).",
        "Adds the require [re-frame.freehand :as v] (MIG-24) and cites the MIG ids for each change.",
        "Does NOT treat the event vector [:buy amt] or the query vector [:total] as hiccup to respell/spread.",
-       "Does NOT add {:compiled true} — a migration pass emits interpreted declarations."
+       "Does NOT add {:compiled true} — a migration pass emits interpreted declarations.",
+       "If it writes a structural test for the converted price view, it renders the now v/sub-reading body inside (t/with-render (t/render …)); a bare (t/render …) of a state-reading view raises :rf.error/view-read-outside-render, so dropping the with-render bracket is wrong."
      ]},
 
     {"id": 14, "kind": "behavioural", "tier": "D", "name": "d-decide-form2-local-state",

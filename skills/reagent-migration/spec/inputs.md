@@ -22,9 +22,9 @@ The current door, for orientation: `defview`, `mount`, `hydrate-root`,
 `handler`, `render-fn`, `raw-fn`, `projections`, `materialize-event`, `slot`,
 `spread`, `spread-safe`, `controller-key`, `controller-revision`,
 `controller-current?`, `presence`, `presence-phase`, `route-link`, `markup`,
-`error-boundary`, `defbehavior`, `behavior` — plus `render` / `find` /
-`find-all` / `attrs` / `text` on the test surface. **Re-read the roster rather
-than trusting this list**; it grows a row at a time.
+`error-boundary`, `defbehavior`, `behavior` — plus `render` / `with-render` /
+`find` / `find-all` / `attrs` / `text` on the test surface. **Re-read the roster
+rather than trusting this list**; it grows a row at a time.
 
 ## 2. Normative grounding — the specs
 
