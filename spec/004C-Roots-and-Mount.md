@@ -194,6 +194,12 @@ the mechanism adds no production bytes or runtime work.
 
 ## 3. The mount grammar and the host signature set
 
+This section states the contract on the **re-frame.ui door** — the compiled substrate,
+whose mount entry points are macros over literal root forms. The interpreted **Freehand
+door** realises the same grammar and identity model through ordinary runtime functions
+(`v/mount`, `v/hydrate-root`, `v/unmount!`); its paved-path spelling is **The Freehand
+paved path** below, and it ships no `create-root` and no `render!`.
+
 **The literal mount grammar:**
 
 ```clojure
@@ -201,9 +207,9 @@ the mechanism adds no production bytes or runtime work.
 (ui/mount root-form dom-node opts)
 ```
 
-`mount` remains a **macro over a literal root form** (ratified — the compiler must see
+On this door, `mount` is a **macro over a literal root form** — the compiler must see
 the root to keep the AST closed and extract frame plans; a runtime-assembled vector is
-a compile error pointing at `ui/view`/`ui/element`). The third argument is the **root
+a compile error pointing at `ui/view`/`ui/element`. The third argument is the **root
 opts map** — this is where root identity rides; the "nowhere to provide a root
 id" gap is closed here:
 
@@ -245,8 +251,9 @@ derive from**, so its identity set is `:root-id` / `:identifier-prefix` only; su
 - **Every root-form-accepting entry point requires the literal root form at the call
   site** — `mount`, `render!`, `hydrate-root`, `render-static`, and `ui.test/render`
   (§8) alike; the same compile error rejects runtime-assembled vectors everywhere.
-- **Verb kinds (ratified, shipped S1).** `mount`, `create-root`, `render!`, and
-  `hydrate-root` are **macros**; `unmount!` is a plain **function**. The four macros must
+- **Verb kinds on the re-frame.ui door (ratified, shipped S1).** On this door, `mount`,
+  `create-root`, `render!`, and `hydrate-root` are **macros**; `unmount!` is a plain
+  **function**. The four macros must
   see their argument shape at compile time — `mount`/`render!`/`hydrate-root` keep the
   literal root form's AST closed and extract the static frame plans, and `create-root`
   fixes literal identity opts (feeding the descriptor and build-time duplicate detection).
@@ -256,7 +263,13 @@ derive from**, so its identity set is `:root-id` / `:identifier-prefix` only; su
   question; the stale "all fns" labelling and its route-to-Mike delta are retired. The
   compile-time contract is locked by the frozen roster: an unauthored `create-root`
   identity is `:rf.ui.compile/missing-root-id`, and an out-of-grammar opt (a stray
-  `:disambiguator` among them) is `:rf.ui.compile/bad-root-opts`.
+  `:disambiguator` among them) is `:rf.ui.compile/bad-root-opts`. The interpreted
+  **Freehand door** ships a different roster: `v/mount`, `v/hydrate-root` and `v/unmount!`
+  are ordinary runtime **functions** — documented as `Fn` — it publishes no `create-root`
+  and no `render!`, and its one macro is `render-static`, the only Freehand verb whose
+  site the build indexes (§7, Layer 1). A Freehand client mount carries a live runtime,
+  so its duplicate-, container- and prefix-detection is the runtime claim-before-render
+  of Layer 3 (§7), not a build-time index.
 - Frame preflight (ENSURE + `:initial-events` drain, exactly once, before React) runs
   before the first `render!` on a Root and before `hydrate-root`'s hydration. **This
   compiled host-root sequencing — preflight completing before `createRoot`/`render!`
@@ -363,9 +376,14 @@ All ids below follow the one-catalogue `:rf.error/*` scheme (Spec 009 rows land 
 their stage); each carries a data map naming both parties with
 source coordinates in dev.
 
-**Layer 1 — build time (S1).** The compiler indexes every
-`mount`/`render!`/`hydrate-root`/`render-static` site's statically resolved root-id.
-Two sites with equal root-ids **reachable from one entry point's module closure** =
+**Layer 1 — build time (S1).** On the **re-frame.ui macro door**, the compiler indexes
+every `mount`/`render!`/`hydrate-root`/`render-static` macro site's statically resolved
+root-id. On the interpreted **Freehand door** only `render-static` reaches this layer —
+its `mount`/`hydrate-root` are runtime functions with no build-time site to index, and
+`render-static` alone has no client runtime, so build-time registration is the only place
+its identity can be caught; a Freehand client mount is caught instead at Layer 3's
+claim-before-render (below). Either way, two indexed sites with equal root-ids
+**reachable from one entry point's module closure** =
 build error `:rf.error/duplicate-root-id` (build tier), data
 `{:root-id … :provenance [:derived :derived] :sites [coord coord]}` with the didactic
 fix (*"same view mounts twice — add `:disambiguator` or author `:root-id`"* when both
@@ -373,7 +391,9 @@ are derived). The entry-point closure is the build-time projection of "one page"
 sites in disjoint entry closures never co-occur and may legally reuse a root-id.
 `[S1-CONFIRM]` — confirm entry-closure scoping (vs. whole-build strictness) when the
 first multi-entry consumer lands; entry-closure is the conservative reading that does
-not break multi-page builds.
+not break multi-page builds. The macro door and its build-time root indexing are
+revisited only if a named consumer for mount-site descriptors or static frame plans
+materialises — not for door symmetry.
 
 **Layer 2 — server render time (S5).** Page assembly registers each root (manifest
 *and* `render-static` root — static roots hold identity too, so a static and a live
