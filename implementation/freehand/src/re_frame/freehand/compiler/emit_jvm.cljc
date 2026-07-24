@@ -257,11 +257,19 @@
     (into [] (for [~@(:seq-exprs node)] ~(emit-node e (:body node))))))
 
 (defn- emit-slot
-  "A `v/slot` invocation: gate the render-fn value (nil renders nothing; a
+  "A `v/slot` invocation: evaluate the slot value and every argument ONCE
+  in source order, then gate the render-fn value (nil renders nothing; a
   bare fn — anything that is not a render-fn — is the didactic
-  `invalid-slot!`), then invoke the carrier's compiled body with the runtime
-  args — a fixed-arity call whose args evaluate only when the slot renders.
-  The rendered output is an ordinary tree child.
+  `invalid-slot!`) and invoke the carrier's compiled body with the
+  already-evaluated args — a fixed-arity call. The rendered output is an
+  ordinary tree child.
+
+  The arguments are bound BEFORE the gate, not inlined inside it, so each
+  runs exactly once whether or not the slot renders — the eager
+  function-call semantics an interpreted `v/slot` has, preserved across
+  promotion (rf2-drpa3.133). Gating the args away for a nil slot dropped a
+  `v/sub` the analyzer attributes to the enclosing view, silently changing
+  dependency capture between modes.
 
   The gate is the COMPILED half of the mode asymmetry the interpreted
   `v/slot` widens: an interpreted body may pass an ordinary pure function as
@@ -273,11 +281,14 @@
                   `(events/callback :render-fn
                                     (fn [~@params] ~(emit-node e body))
                                     ~(count params))
-                  (:slot-value node))]
-    `(let [~rf ~slotval]
+                  (:slot-value node))
+        args    (:args node)
+        argsyms (mapv (fn [_] (gensym "rf-ui-arg")) args)]
+    `(let [~rf ~slotval
+           ~@(interleave argsyms args)]
        (when (events/slot-ready? ~rf)
-         (events/check-slot-arity! ~rf ~(count (:args node)))
-         ((events/callback-fn ~rf) ~@(:args node))))))
+         (events/check-slot-arity! ~rf ~(count args))
+         ((events/callback-fn ~rf) ~@argsyms)))))
 
 (defn emit-node
   "AST node -> the form that builds it (nil for a statically-absent child).

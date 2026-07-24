@@ -250,6 +250,37 @@
       (is (.contains emitted "re-frame.freehand.compiled-react/el")
           "and the render-fn's own body was lowered through the React emitter"))))
 
+(deftest a-compiled-slot-evaluates-its-arguments-before-the-gate
+  (testing "rf2-drpa3.133 — an interpreted `v/slot` is an ordinary eager
+            call, so its arguments evaluate before the nil-slot gate is
+            even reached. Promotion must not move that evaluation inside the
+            gate: the emitted body binds each argument in the `let` BEFORE
+            the `slot-ready?` `when`, so a side-effecting argument — a
+            `v/sub` the analyzer attributes to the enclosing view — runs
+            whether or not the slot renders. Asserted on the emitted FORM,
+            so the React lowering is pinned without the deferred
+            compiled-browser runtime; the behavioural cross-mode oracle is
+            `slots-grammar-parity-jvm-test`."
+    (let [[e ast] (analyzed '[:div (v/slot (:slot props) (probe-arg))])
+          form    (emit-react/emit-react-body e '[props] ast)
+          nodes   (tree-seq coll? seq form)
+          gate    (first (filter (fn [x]
+                                   (and (seq? x)
+                                        (= 'clojure.core/when (first x))
+                                        (some (fn [y]
+                                                (and (seq? y)
+                                                     (= 're-frame.freehand.events/slot-ready?
+                                                        (first y))))
+                                              (tree-seq coll? seq x))))
+                                 nodes))]
+      (is (some? gate)
+          "the slot lowers to a slot-ready? gate")
+      (is (some #{'(probe-arg)} nodes)
+          "the argument expression is emitted at all")
+      (is (not (some #{'(probe-arg)} (tree-seq coll? seq gate)))
+          "and it is NOT evaluated inside the gate — it is bound before it,
+           so a nil slot still runs it once"))))
+
 (deftest a-call-site-render-fn-prop-carries-the-slot-across-the-boundary
   (testing "The library seam — content authored at the CALL SITE and
             invoked by the callee through `v/slot`. The analyzer records

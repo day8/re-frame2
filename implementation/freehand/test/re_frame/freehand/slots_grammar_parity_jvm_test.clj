@@ -351,3 +351,60 @@
       (let [[i c] (rendered view props)]
         (is (= i (read-string (pr-str i))) "interpreted")
         (is (= c (read-string (pr-str c))) "compiled")))))
+
+;; ---------------------------------------------------------------------------
+;; A slot argument evaluates once in both modes — even when the slot is absent
+;; ---------------------------------------------------------------------------
+;;
+;; The parity table above compares OUTPUT, and output cannot see an evaluation
+;; that produced nothing. `v/slot` is an ordinary eager call interpreted, so
+;; every argument runs before the gate ever sees a nil slot; both compiled
+;; emitters used to inline the arguments INSIDE the `slot-ready?` gate, so an
+;; absent slot skipped them. With an optional slot, that dropped a `v/sub` the
+;; analyzer attributes to the enclosing view's own render — a promotion changing
+;; dependency capture at the exact composition seam. So the oracle here is the
+;; evaluation COUNT, not the tree (rf2-drpa3.133).
+
+(def ^:private slot-arg-evals (atom 0))
+
+(defn- counted-arg
+  "A side-effecting slot ARGUMENT: bumps a shared counter and answers a
+  value. Stands in for a `v/sub` the analyzer treats as the enclosing
+  view's own render-time read — an evaluation the two modes must agree on."
+  []
+  (swap! slot-arg-evals inc)
+  "arg")
+
+(v/defview eager-slot-arg-interpreted
+  [{:keys [slot]}]
+  [:div (v/slot slot (counted-arg))])
+
+(v/defview eager-slot-arg-compiled
+  {:compiled true}
+  [{:keys [slot]}]
+  [:div (v/slot slot (counted-arg))])
+
+(deftest a-slot-argument-evaluates-the-same-number-of-times-in-both-modes
+  (testing "rf2-drpa3.133 — promoting a view to {:compiled true} must not
+            change how many times a slot argument runs. Over both an ABSENT
+            slot and a present one, a side-effecting argument evaluates the
+            SAME number of times in each mode — the eager function-call
+            semantics the interpreted `v/slot` has, preserved across
+            promotion. The count is the oracle: 'the output looks the same'
+            passes against a skipped or doubled evaluation."
+    ;; The present-slot row's render-fn answers TEXT, not markup: it is an
+    ;; interpreted render-fn passed as a runtime prop, so a Hiccup body would
+    ;; be a raw vector child the compiled parent rightly refuses (D010). The
+    ;; oracle here is the ARGUMENT's evaluation count, not the slot's output.
+    (doseq [{:keys [note slot]} [{:note "absent slot"  :slot nil}
+                                 {:note "present slot" :slot (v/render-fn [x] (str "got-" x))}]]
+      (reset! slot-arg-evals 0)
+      (tree/render [eager-slot-arg-interpreted {:slot slot}])
+      (let [interpreted @slot-arg-evals]
+        (reset! slot-arg-evals 0)
+        (tree/render [eager-slot-arg-compiled {:slot slot}])
+        (let [compiled @slot-arg-evals]
+          (is (= interpreted compiled)
+              (str note " — the argument evaluates the same number of times in both modes"))
+          (is (= 1 interpreted)
+              (str note " — non-vacuous: the interpreted arm really evaluated it once")))))))

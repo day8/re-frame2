@@ -485,9 +485,10 @@
 (defn- emit-slot
   "A `v/slot` invocation — the BROWSER half of the lowering
   [[re-frame.freehand.compiler.emit-jvm/emit-slot]] states structurally,
-  and the same three runtime calls in the same order: the carrier is
-  gated (nil renders nothing), its declared arity is checked against the
-  argument count, and its body is invoked with the runtime arguments.
+  and the same runtime calls in the same order: the slot value and every
+  argument evaluate ONCE, in source order; then the carrier is gated (nil
+  renders nothing), its declared arity is checked against the argument
+  count, and its body is invoked with the already-evaluated arguments.
 
   Only the render-fn's BODY differs, and it differs the way every other
   arm does: it is emitted through this emitter, so an inline slot builds
@@ -497,19 +498,26 @@
   slot gate and the boundary's opaque prop record are one implementation
   across both modes and both hosts (rf2-ckviw).
 
-  The arguments are inlined at the CALL rather than collected into a
-  sequence, so a slot that does not render evaluates none of them."
+  The arguments are bound in the `let` BEFORE the gate rather than inlined
+  at the call, so each evaluates exactly once whether or not the slot
+  renders — the eager function-call semantics an interpreted `v/slot` has,
+  preserved across promotion (rf2-drpa3.133). Inlining them inside the gate
+  made an absent slot skip a `v/sub` the analyzer attributes to the
+  enclosing view, silently changing dependency capture between modes."
   [e st node]
   (let [rf      (gensym "rf-fh-slot")
         slotval (if-let [{:keys [params body]} (:render-fn node)]
                   `(events/callback :render-fn
                                     (fn [~@params] ~(emit-node e st body))
                                     ~(count params))
-                  (:slot-value node))]
-    `(let [~rf ~slotval]
+                  (:slot-value node))
+        args    (:args node)
+        argsyms (mapv (fn [_] (gensym "rf-fh-arg")) args)]
+    `(let [~rf ~slotval
+           ~@(interleave argsyms args)]
        (when (events/slot-ready? ~rf)
-         (events/check-slot-arity! ~rf ~(count (:args node)))
-         ((events/callback-fn ~rf) ~@(:args node))))))
+         (events/check-slot-arity! ~rf ~(count args))
+         ((events/callback-fn ~rf) ~@argsyms)))))
 
 (defn- emit-presence
   [e st node]
