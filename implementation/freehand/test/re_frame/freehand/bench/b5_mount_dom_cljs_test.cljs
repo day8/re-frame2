@@ -236,12 +236,19 @@
                     :fixture   {:shape :mixed
                                 :leaves 2
                                 :tiers [:interpreted :compiled]
+                                :subject :recompiled-shape-not-the-release-artefact
                                 :measurement-method
                                 (str "wall time across act(v/mount) resolution — mount into a "
                                      "fresh container under a fresh owned frame whose "
                                      ":initial-events seed app-db, to React's first committed "
                                      "render; " warmup " warmup mounts discarded, " samples
-                                     " measured, one mount in flight at a time")}
+                                     " measured, one mount in flight at a time. The SUBJECT is "
+                                     "this namespace's recompilation of the mixed shape in the "
+                                     "browser-test build, NOT out/freehand-release/main.js: the "
+                                     "release build has no :dev-http and nothing serves it. So "
+                                     "this is the mount cost of the SHAPE under the build the "
+                                     "record's :build names, and is not the production bundle's "
+                                     "initial-mount cost")}
                     :build     (prov/detect-build)
                     :host      (prov/detect-host)
                     :sampling  {:warmup warmup :samples samples}

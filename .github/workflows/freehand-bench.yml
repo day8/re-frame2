@@ -45,12 +45,14 @@ name: freehand bench
 # emitter, which is ClojureScript-only; and B2's mounted storm, B4's latency
 # row and B5's initial-mount reading only exist in a real browser. So there
 # are three jobs below running the same registry, the same provenance record
-# and the same gate/evidence split, each uploading its own artefact. Three
-# artefacts because they are three hosts — a result record names its own
-# `:host` and `:build`, and pooling a Chromium number with a V8 `:none` one
-# or a JIT-warmed JVM one would be the pooling D021 forbids — but ONE
-# harness, because a second report shape is a second place a threshold could
-# be added.
+# and the same gate/evidence split, each uploading what it published. They
+# are separate artefacts because they are separate hosts — a result record
+# names its own `:host` and `:build`, and pooling a Chromium number with a
+# V8 `:none` one or a JIT-warmed JVM one would be the pooling D021 forbids
+# — but ONE harness, because a second report shape is a second place a
+# threshold could be added. The ClojureScript lane uploads two: its standing
+# registry run, and B5's matched-build row, whose subject is three
+# `:advanced` bundles rather than the process measuring them.
 #
 # WHAT THE BROWSER CANNOT READ. A page has no environment and no git, so
 # every environment-derived provenance field a mounted workload publishes
@@ -146,13 +148,23 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  # The ClojureScript half of the same suite. See TWO LANES, ONE HARNESS
+  # The ClojureScript half of the same suite. See THREE LANES, ONE HARNESS
   # above: this job adds a host, not a harness.
+  #
+  # It carries TWO Node readings. The first is the standing registry run
+  # (`bench:freehand-node`). The second is B5's MATCHED BUILD row
+  # (rf2-x4jda): three `:advanced` release bundles measured for bytes and
+  # parse/compile, plus the byte delta between the interpreted and compiled
+  # shapes. Those bundles are artefacts nothing else in CI builds, and the
+  # two B5 Node tests SKIP when they are absent — so until this job built
+  # them the matched figures existed only in a developer's terminal and a
+  # pull-request body, which is not a durable publication with provenance.
   react-evidence:
     name: Freehand B-spine evidence — ClojureScript lane (pinned worker)
     # PINNED for the same reason the JVM lane is. See THE PIN above.
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # Room for three `:advanced` compiles on top of the two Node runs.
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: implementation
@@ -206,6 +218,73 @@ jobs:
         with:
           name: freehand-bench-node-${{ github.sha }}
           path: implementation/out/freehand-bench-node.edn
+          if-no-files-found: error
+          retention-days: 90
+
+      # B5's matched build row. The three shapes hold the entry structure,
+      # the optimisation level and `goog.DEBUG` still and vary only lowering,
+      # so the delta between the outer two is a reading of promotion. (Not
+      # exclusively: the twins are two namespaces and each ships its own ids
+      # and namespace docstring. The published fixture names that confound —
+      # see re-frame.freehand.bench.b5/not-matched-on.)
+      - name: Build the three matched release bundles
+        run: npx shadow-cljs release freehand-release freehand-release-interpreted freehand-release-compiled
+
+      # `test:freehand` is the artefact here: the B5 rows publish their
+      # records to stdout as `;;`-headed EDN, exactly as the sibling lanes
+      # do, and the transcript around them is the run that produced them.
+      - name: Measure the matched bundles and capture the B5 records
+        env:
+          # Node can read this one at run time, unlike the browser lane —
+          # set explicitly so the record does not depend on GITHUB_SHA
+          # happening to be exported.
+          RF2_REVISION: ${{ github.sha }}
+        run: |
+          status=0
+          npm run test:freehand > out/freehand-bench-b5.log 2>&1 || status=$?
+          grep -A1 '^;; B5' out/freehand-bench-b5.log || true
+          tail -5 out/freehand-bench-b5.log
+          exit $status
+
+      # PROVENANCE, not numbers — the same law the browser lane keeps. Two
+      # ways this row can quietly publish nothing, and both red here: a run
+      # that could not name its revision (every record prints NOT CITABLE),
+      # and a run where the bundles were not built (both B5 tests SKIP, the
+      # log is green, and no matched figure exists). The second is exactly
+      # what happened before this job built them, so the floor counts the
+      # three shapes rather than trusting the exit code.
+      - name: Refuse to publish unattributable or absent B5 evidence
+        run: |
+          log=out/freehand-bench-b5.log
+          if grep -q 'NOT CITABLE' "$log"; then
+            echo "The B5 row published unattributable evidence:" >&2
+            grep -n 'NOT CITABLE' "$log" >&2
+            echo "RF2_REVISION was '${RF2_REVISION}'." >&2
+            exit 1
+          fi
+          shapes=$(grep -c 'B5 matched shape' "$log" || true)
+          if [ "$shapes" -ne 3 ]; then
+            echo "Expected 3 matched-shape records, found ${shapes}. The B5" >&2
+            echo "matched-build test SKIPS unless all three bundles are on" >&2
+            echo "disk, so a green suite with no records means the release" >&2
+            echo "builds above did not produce them." >&2
+            exit 1
+          fi
+          for label in 'B5 shipped-cost evidence' 'B5 per-promotion byte delta'; do
+            if ! grep -F "$label" "$log" | grep -q 'citable$'; then
+              echo "No citable record for: ${label}" >&2
+              exit 1
+            fi
+          done
+          echo "Published 3 matched shapes, the shipped-cost row and the"
+          echo "promotion delta at ${RF2_REVISION}."
+
+      - name: Upload the B5 matched-build records
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: freehand-bench-b5-${{ github.sha }}
+          path: implementation/out/freehand-bench-b5.log
           if-no-files-found: error
           retention-days: 90
 
