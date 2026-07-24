@@ -2,10 +2,15 @@
   "Real CLJS-analyzer resolution proofs for the expression macro barrier."
   (:require [cljs.analyzer :as cljs-analyzer]
             [cljs.analyzer.api :as cljs-api]
+            [cljs.compiler :as cljs-comp]
             [cljs.core]
             [cljs.env :as cljs-env]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [clojure.walk :as walk]
             [re-frame.freehand.compiler.analyze :as analyze]
+            [re-frame.freehand.compiler.emit-jvm :as emit-jvm]
+            [re-frame.freehand.compiler.emit-react :as emit-react]
             [re-frame.freehand.compiler.env :as env]
             [re-frame.freehand.compiler.root :as root]))
 
@@ -245,4 +250,128 @@
       (testing "a legal element root still analyzes through the root compiler"
         (is (= :element
                (:op (:ast (root/analyze-root (referred-env aenv nil) 'v/mount '[:div "x"])))))))))
+
+;; ---------------------------------------------------------------------------
+;; self-Var emitters: recursive defviews mount + define their current-ns Var
+;; ---------------------------------------------------------------------------
+;;
+;; The .274 analyzer proofs above stop at classification (the self head is an
+;; internal :view). This block drives the REAL emitters and compiles the emitted
+;; self boundary to REAL JavaScript through cljs.compiler. The defect: both live
+;; emitters emitted the raw authored `:sym` for a self boundary, so in a ns that
+;; REFERS re-frame.freehand/{sub,frame} a compiled `(defview sub [] [sub {}])`
+;; mounted the AUTHORING verb (`re_frame.freehand.sub`) instead of recursing on
+;; its own current-namespace Var (`cljs.user.sub`). The emitters now carry the
+;; canonical `:fqn` for a self head, and the CLJS realisation completes the
+;; same-named-refer shadowing (dropping the name from the live ns `:uses`) so the
+;; `(def …)` DEFINES — and the head REFERENCES — the one current-namespace Var.
+;; These rows diff the emitted JS bytes; the counterfactual pins the delta so the
+;; discriminator is a compiled fact, not a reasoned AST shape.
+
+(defn- self-react-body
+  "The React realisation of `(defview <verb> [] [<verb> {}])` in the referred
+  cljs.user namespace — the self view named `verb` recurses on a bare `[verb {}]`
+  self head. Emitting it also completes the same-named-refer shadow in the live
+  analyzer state (the JVM-only `:uses` drop)."
+  [aenv verb]
+  (let [e   (referred-env aenv verb)
+        ast (analyze/analyze e [verb {}])]
+    (emit-react/emit-react-body e [] ast)))
+
+(defn- self-jvm-body
+  "The JVM structural realisation of the same self view."
+  [aenv verb]
+  (let [e   (referred-env aenv verb)
+        ast (analyze/analyze e [verb {}])]
+    (emit-jvm/emit-structural-body e [] ast)))
+
+(defn- mount-heads
+  "Every head symbol handed to a `…/mount` call in `form` — the structural
+  `node/mount` and the compiled `compiled-react/mount` both name the self
+  component call's target as their first argument."
+  [form]
+  (let [hits (atom [])]
+    (walk/postwalk
+     (fn [x]
+       (when (and (seq? x) (symbol? (first x))
+                  (str/ends-with? (name (first x)) "mount"))
+         (swap! hits conj (second x)))
+       x)
+     form)
+    @hits))
+
+(defn- compile-js
+  "Real cljs.compiler JavaScript for `form` analyzed in cljs.user (warnings
+  silenced — the point is the munged target, not the diagnostic)."
+  [aenv form]
+  (binding [cljs-analyzer/*cljs-warnings*
+            (zipmap (keys cljs-analyzer/*cljs-warnings*) (repeat false))]
+    (cljs-comp/emit-str
+     (cljs-analyzer/analyze (assoc aenv :context :expr) form))))
+
+(deftest real-cljs-self-head-emits-and-defines-current-namespace-var
+  ;; Accept rows. Reverting either emitter to the raw authored `:sym` re-captures
+  ;; re_frame.freehand.<verb> in the emitted JavaScript; dropping the `:uses`
+  ;; shadow completion leaves the `(def …)` clobbering the authoring Var and the
+  ;; qualified head undefined (the split identity). Every row below fails then.
+  (doseq [verb '[sub frame]]
+    (let [self-fqn  (symbol "cljs.user" (name verb))
+          author-re (re-pattern (str "re_frame\\.freehand\\." (name verb) "\\b"))
+          def-re    (re-pattern (str "cljs\\.user\\." (name verb) "\\s*="))
+          head-re   (re-pattern (str "mount\\(cljs\\.user\\." (name verb) ","))]
+      (testing (str "CLJS: (def " verb " …) DEFINES and recurses on the current-ns Var")
+        (with-referred-cljs-env
+          (fn [aenv]
+            (let [react-body (self-react-body aenv verb) ; side-effect: :uses drop
+                  js         (compile-js aenv (list 'def verb react-body))]
+              (is (re-find def-re js)
+                  "the def defines the current-namespace Var")
+              (is (re-find head-re js)
+                  "the recursive mount head references the current-namespace Var")
+              (is (not (re-find author-re js))
+                  "zero authoring-Var reference — not clobbered, not captured")))))
+      (testing (str "CLJS: the emitted self mount head is the current-ns fqn (" verb ")")
+        (with-referred-cljs-env
+          (fn [aenv]
+            (let [heads (mount-heads (self-react-body aenv verb))]
+              (is (seq heads) "a self component call is emitted")
+              (is (every? #(= self-fqn %) heads)
+                  "every self head is cljs.user/<verb>, never the bare refer")
+              (is (not-any? #(= verb %) heads)
+                  "the raw authored spelling never reaches the mount head")))))
+      (testing (str "JVM: the structural self call targets the current-ns fqn (" verb ")")
+        (with-referred-cljs-env
+          (fn [aenv]
+            (let [heads (mount-heads (self-jvm-body aenv verb))]
+              (is (seq heads) "a self component call is emitted")
+              (is (every? #(= self-fqn %) heads)
+                  "every JVM self call head is cljs.user/<verb>")
+              (is (not-any? #(= verb %) heads)
+                  "the raw authored spelling never reaches the JVM head"))))))))
+
+(deftest a-bare-authored-self-head-would-capture-the-authoring-var
+  ;; The counterfactual the fix defeats: a bare authored head compiles to the
+  ;; REFERRED authoring Var — the exact defect. Pins the JS delta so a regression
+  ;; is legible, not silent.
+  (with-referred-cljs-env
+    (fn [aenv]
+      (doseq [verb '[sub frame]]
+        (is (= (str "re_frame.freehand." (name verb)) (compile-js aenv verb))
+            "a bare head resolves through the refer to the authoring Var")
+        (is (= (str "cljs.user." (name verb))
+               (compile-js aenv (symbol "cljs.user" (name verb))))
+            "the qualified head resolves to the current-namespace Var")))))
+
+(deftest a-non-recursive-view-leaves-the-refer-and-heads-untouched
+  ;; Preserve unrelated behavior: a view that does NOT reference itself neither
+  ;; rewrites a head to an fqn nor mutates the ns `:uses` — a later referred
+  ;; (sub …) still resolves to the authoring Var, and an ordinary internal-view
+  ;; head keeps its authored spelling.
+  (with-referred-cljs-env
+    (fn [aenv]
+      (let [e   (referred-env aenv 'panel)
+            ast (analyze/analyze e [:div "x"])]
+        (emit-react/emit-react-body e [] ast)
+        (is (= "re_frame.freehand.sub" (compile-js aenv 'sub))
+            "a non-recursive view does not drop a referred verb from :uses")))))
 
