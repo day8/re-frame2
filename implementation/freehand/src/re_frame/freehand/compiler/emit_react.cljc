@@ -69,14 +69,7 @@
             [re-frame.freehand.controlled :as controlled]
             [re-frame.freehand.conversion :as conv]
             [re-frame.freehand.events :as events]
-            [re-frame.freehand.top-layer :as top-layer]
-            ;; JVM-only: a self-recursive view completes the same-named `:refer`
-            ;; shadowing in the LIVE CLJS analyzer state so its `(def …)` and
-            ;; recursive head resolve to the current-namespace Var rather than
-            ;; the referred authoring Var (see `emit-react-body`). Never loaded
-            ;; on the CLJS host — the emitter only mutates analyzer state on the
-            ;; JVM macro-expansion path.
-            #?(:clj [cljs.env])))
+            [re-frame.freehand.top-layer :as top-layer]))
 
 (declare emit-node)
 
@@ -587,12 +580,11 @@
         ;; a namespace that REFERS a same-named public authoring verb (e.g.
         ;; `(defview sub …)` refers `re-frame.freehand/sub`) resolves through the
         ;; refer to the authoring Var, while the qualified `:fqn` resolves to the
-        ;; view. `emit-react-body` reads the recorded flag to complete the
-        ;; shadowing in the live analyzer state so the `(def …)` matches. Every
-        ;; other head keeps its authored spelling.
+        ;; view. The DECLARATION completes the matching shadow on its own
+        ;; `(def …)` (`re-frame.freehand/shadow-same-named-refer!`), so both
+        ;; halves name one Var. Every other head keeps its authored spelling.
         sf        (self-fqn e)
         self?     (and sf (= (:fqn node) sf))]
-    (when self? (swap! st assoc :self-ref? true))
     `(re-frame.freehand.compiled-react/mount
       ~(if self? (:fqn node) (:sym node)) ~props-map
       ~@(mapv #(emit-node e st %) (:children node)))))
@@ -750,24 +742,4 @@
   (let [st   (new-state)
         body `(fn ~params (re-frame.freehand.compiled-react/root ~(emit-node e st ast)))
         bs   (:binds @st)]
-    ;; A self-recursive view whose name collides with a same-named `:refer`
-    ;; (e.g. `(defview sub …)` where the ns refers `re-frame.freehand/sub`) must
-    ;; resolve its OWN `(def …)` and recursive head to the current-namespace Var,
-    ;; not the refer. The CLJS analyzer already signals this shadowing on the def
-    ;; (its `:redef` warning, and it adds the name to `:excludes`) — but
-    ;; `cljs.analyzer/resolve-var` ranks `:uses` (refers) ABOVE `:defs` and
-    ;; ignores `:excludes`, so a bare def name still resolves through the refer
-    ;; and BOTH clobbers the public authoring Var (`re_frame.freehand.sub = …`)
-    ;; and leaves the qualified self head (`<ns>.sub`) undefined — a split
-    ;; identity. Completing the shadowing the analyzer already intends — dropping
-    ;; the view's own name from the live ns `:uses` — makes the `(def …)`, its
-    ;; structural and React realisations, and every recursive head share the one
-    ;; canonical current-namespace Var. JVM-only: this is the macro-expansion
-    ;; path with the live compiler env; non-recursive views and the CLJS-host
-    ;; self-compile path are untouched, and no runtime code is added.
-    #?(:clj
-       (when (and (:self-ref? @st) (:self e) (some? cljs.env/*compiler*))
-         (swap! cljs.env/*compiler* update-in
-                [:cljs.analyzer/namespaces (:ns e) :uses]
-                dissoc (:self e))))
     (if (seq bs) `(let [~@bs] ~body) body)))

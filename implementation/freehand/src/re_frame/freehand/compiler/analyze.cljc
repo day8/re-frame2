@@ -66,8 +66,26 @@
 ;; the vars — recognition and lowering landing together, which is the only
 ;; order in which either is testable through the door.
 ;;
-;; `lazy` is def-level only — recognised in a view body solely to reject it.
-(def ^:private react-lazy-fqns             #{'re-frame.freehand.react/lazy})
+;; `re-frame.freehand.react/lazy` went the same way (rf2-tb5yq): the namespace
+;; is browser-only and defines no `lazy`, so the def-level-only rejection arm
+;; that recognised `(react/lazy …)` in a body could never fire. It returns with
+;; the slice that ships the verb. The FOREIGN-head lazy handling in
+;; `compiler.env/classify-head` is untouched — that keys on `:rf.ui/lazy` var
+;; metadata and on the marked runtime value, not on an unpublished authoring
+;; var, so it is reachable on its own terms.
+;;
+;; FIVE unpublished heads REMAIN recognised below — `frame`, `raw`, `html`,
+;; `frame-root`, `frame-provider` — and every one is likewise unreachable
+;; through the production door. They are deliberately still standing: each is
+;; entangled with a surface a conformance row already pins (`:frame-ops` and
+;; `:html-sites` are manifest rosters in `FH-STRUCT-010`; `raw` mints the
+;; `:foreign` crossing-prop marker; `frame-root` drives the root-identity static
+;; frame-plan scan), so removing one is a change to the conformance contract and
+;; not merely to this file. `re-frame.freehand.unpublished-head-absence-jvm-test`
+;; pins the fact — the six vars unpublished on both hosts, production resolution
+;; nil for each, and the `re-frame.freehand.frames/*` lowerings naming a
+;; namespace that does not exist — so the state is asserted rather than
+;; rediscovered.
 (def ^:private frame-root-fqns #{'re-frame.freehand/frame-root})
 (def ^:private frame-provider-fqns #{'re-frame.freehand/frame-provider})
 
@@ -1007,18 +1025,6 @@
                                           :path (:path e)
                                           :expr-path (vec p)}))
                         (with-same-meta f (list runtime-frame-ops-fqn))))
-
-                    ;; (react/lazy …) is DEF-LEVEL only — recognised in a body
-                    ;; solely to reject it (per-render construction remount-loops).
-                    (and (symbol? head) (not (contains? locals head))
-                         (env/resolves-to? e* head react-lazy-fqns))
-                    (env/fail! e :rf.ui.compile/react-lazy-misplaced
-                               (str "(react/lazy …) is DEF-LEVEL only — bind it at the top "
-                                    "level: (def HeavyChart (react/lazy load-thunk "
-                                    "{:fallback tpl})), then use the component as a foreign "
-                                    "head [HeavyChart {…}]. Calling it inside a view body "
-                                    "mints a new component type per render and remount-loops")
-                               {:form f})
 
                    (fn-form? f) (rw-fn f locals p)
                    (contains? #{'let 'let* 'loop 'loop*} head) (rw-let f locals p)

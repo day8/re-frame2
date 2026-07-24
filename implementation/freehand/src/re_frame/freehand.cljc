@@ -121,6 +121,44 @@
 ;; ---------------------------------------------------------------------------
 
 #?(:clj
+   (defn- shadow-same-named-refer!
+     "Complete the shadowing a `defview` DECLARATION already intends, in the
+     live CLJS analyzer state: drop `sym` from the declaring namespace's
+     `:uses` so the `(def sym …)` below defines — and every reference to the
+     bare name resolves to — the CURRENT-namespace Var.
+
+     A namespace that `:refer`s a same-named public authoring verb
+     (`(:require [re-frame.freehand :refer [sub]])` and then `(v/defview sub
+     …)`) is the case. The CLJS analyzer already signals the shadowing on the
+     `def` — it warns `:redef` and adds the name to `:excludes` — but
+     `cljs.analyzer/resolve-var` ranks `:uses` (refers) ABOVE `:defs` and
+     ignores `:excludes`. So without this the bare def name resolves through
+     the refer and the declaration BOTH clobbers the public authoring Var
+     (`re_frame.freehand.sub = …`) and leaves the qualified current-namespace
+     Var (`<ns>.sub`) undefined: one declaration, two identities.
+
+     This runs at the DECLARATION boundary, not at an emitter's, because the
+     `(def …)` is what needs the shadow. Every declaration gets it — compiled
+     or interpreted, recursive or not — since whether a body happens to
+     mention its own name cannot decide which Var the definition lands in
+     (rf2-rr26cq).
+
+     CLJS macro expansion only (`&env` carries a `:ns`), where the
+     ClassLoader definitionally has ClojureScript, so `cljs.env` is reached by
+     late resolution and this door keeps no compile-time dependency on it. A
+     `.clj`/JVM declaration has no analyzer state and nothing to shadow: the
+     Clojure reader refuses a `def` of a referred name outright."
+     [menv ns-sym sym]
+     (when (some? (:ns menv))
+       (let [ns'     (or (get-in menv [:ns :name]) ns-sym)
+             compiler (some-> (requiring-resolve 'cljs.env/*compiler*) deref)]
+         (when (some? compiler)
+           (swap! compiler update-in
+                  [:cljs.analyzer/namespaces ns' :uses]
+                  dissoc sym))))
+     nil))
+
+#?(:clj
    (defn ^:no-doc parse-defview-args
      "Parse `(defview name docstring? opts? [props] body+)` into
      `{:docstring :opts :params :body}`, or nil when the shape is not one
@@ -314,6 +352,13 @@
                            react (assoc :react react)))
                        (assoc entry :render
                               `(fn ~(symbol (str sym "-render")) ~params ~@body)))]
+         ;; The declaration DEFINES its current-namespace Var, whatever the
+         ;; consuming namespace happens to refer under the same name — see
+         ;; [[shadow-same-named-refer!]]. It runs HERE, once, for both
+         ;; lowerings: the `(def …)` below is the boundary that needs it, and
+         ;; a body's recursion (or lack of it) is not what decides which Var a
+         ;; definition lands in.
+         (shadow-same-named-refer! &env ns-sym sym)
          ;; The var metadata is what a COMPILE-TIME head classifier reads: a
          ;; compiled body resolves `[panel {…}]` before any descriptor exists,
          ;; so view-ness, the children policy and the LOWERING have to be
