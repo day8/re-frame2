@@ -541,15 +541,45 @@ jobs:
         continue-on-error: true
         run: python scripts/check_keyword_catalogue_drift.py --verbose
 
+      # Reproduce-command integrity guard (rf2-m6kdb). The final "Report every
+      # failing invariant check" step below prints, per failing checker, a local
+      # "reproduce with" command. The first cut reconstructed that command from
+      # the step id alone and dropped the `--self-test` flag for every step whose
+      # id ends `_selftest`, so a red self-test was reported as a live-scan
+      # command that could pass — the copy-pasted command reproduced the wrong
+      # mode. The aggregator now derives the command from each step's real
+      # `run:` line; this guard makes that safe by asserting, over every checker
+      # step, that the `run:` is a single-line `python scripts/<name>.py …`
+      # invocation the aggregator can parse, that `<name>.py` exists, that the id
+      # (minus any `_selftest`) equals the script stem, and that an id ends
+      # `_selftest` IFF its real command carries `--self-test` (so both the
+      # derived command and the id-only fallback pick the same live-vs-self-test
+      # mode). Self-test first (proves it fires on the mode-mismatch + drift
+      # shapes), then the live scan asserts this workflow is clean. See
+      # scripts/check_ci_reproduce_commands.py.
+      - name: Self-test the reproduce-command integrity guard
+        id: check_ci_reproduce_commands_selftest
+        continue-on-error: true
+        run: python scripts/check_ci_reproduce_commands.py --self-test --verbose
+
+      - name: Verify each failure's reproduce command matches its checker step
+        id: check_ci_reproduce_commands
+        continue-on-error: true
+        run: python scripts/check_ci_reproduce_commands.py --check --verbose
+
       # The verdict. Every checker above carries `continue-on-error: true`, so
       # the job never short-circuits and its RESULT is decided only here.
-      # `toJSON(steps)` is the map of every step that declared an `id` — and
-      # each checker's id IS its script stem, so the failure list doubles as
-      # the local reproduction command. `outcome` is the step's real result
-      # (`conclusion` is laundered to success by continue-on-error), so
-      # `outcome == 'failure'` is the honest signal. The list goes to the run
-      # summary and to `::error::` annotations as well as stdout, so a red
-      # build names every broken invariant on the run page — no log fetch.
+      # `toJSON(steps)` is the map of every step that declared an `id`. Each
+      # failing checker's reproduce command is derived from its REAL `run:` line
+      # (via `check_ci_reproduce_commands.py --emit`, reading the checked-out
+      # workflow), so the printed command IS what the step ran and cannot drift
+      # from it — rf2-m6kdb: id-only reconstruction silently dropped the
+      # `--self-test` flag for every `_selftest` step, printing the live scan
+      # instead. `outcome` is the step's real result (`conclusion` is laundered
+      # to success by continue-on-error), so `outcome == 'failure'` is the
+      # honest signal. The list goes to the run summary and to `::error::`
+      # annotations as well as stdout, so a red build names every broken
+      # invariant on the run page — no log fetch.
       - name: Report every failing invariant check
         if: ${{ always() }}
         env:
@@ -572,9 +602,23 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           printf '%s\n' "$failed" | while IFS= read -r id; do
-            script="scripts/${id%_selftest}.py"
-            echo "::error::  $id — reproduce with: python $script"
-            echo "- \`$id\` — reproduce with \`python $script\`" >> "$GITHUB_STEP_SUMMARY"
+            # Derive the reproduce command from the step's REAL `run:` line so it
+            # never drifts from what the step ran (rf2-m6kdb).
+            cmd=$(python scripts/check_ci_reproduce_commands.py --emit "$id" 2>/dev/null) || cmd=""
+            if [ -z "$cmd" ]; then
+              # Fallback if the helper cannot parse the step: reconstruct from the
+              # id, appending `--self-test` for `_selftest` ids so the live-vs-
+              # self-test mode is still correct. The check_ci_reproduce_commands
+              # guard step fails the job if any checker ever drifts out of the
+              # single-line `run: python scripts/<id-stem>.py …` shape this
+              # fallback assumes.
+              case "$id" in
+                *_selftest) cmd="python scripts/${id%_selftest}.py --self-test" ;;
+                *)          cmd="python scripts/${id}.py" ;;
+              esac
+            fi
+            echo "::error::  $id — reproduce with: $cmd"
+            echo "- \`$id\` — reproduce with \`$cmd\`" >> "$GITHUB_STEP_SUMMARY"
           done
 
           echo
