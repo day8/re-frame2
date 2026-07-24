@@ -274,20 +274,29 @@
   (:signature (get (fr/boundary-cache) (:view-id (v/describe view)))))
 
 (defn- shell-census
-  "The arm's RUNTIME shell census: each declaration's mounted occurrence
-  count, filed under the wrapper React reconciled for it.
+  "The arm's shell census: each declaration's mounted OCCURRENCE count,
+  filed under the wrapper React reconciled for it.
 
-  Both inputs are observations of a live page. Nothing here subtracts a
-  manifest verdict from a mount count — the manifest's own prediction is
-  compared against this total afterwards, which is the cross-check and
-  not the source."
+  Both inputs are observations of a live page — occurrences counted off
+  `document`, classified by the wrapper the emitter minted. Nothing here
+  subtracts a manifest verdict from a mount count; the manifest's own
+  prediction is compared against this total afterwards, which is the
+  cross-check and not the source.
+
+  What this is NOT: a count of live, allocated or retained ViewCell
+  OBJECTS. It counts DOM occurrences and classifies each by the wrapper
+  TYPE React selected for its declaration — an `-occurrences` count, not
+  an object-liveness reading. Retained-object evidence (allocation,
+  survival past unmount) would need a heap probe this bench deliberately
+  does not carry, and its keys say `-occurrences` so no reader mistakes
+  the one for the other."
   [container roster selectors]
   (reduce (fn [acc [view sel]]
             (let [n (.-length (.querySelectorAll container sel))]
               (if (= :elided (second (reconciled-wrapper view)))
-                (update acc :omitted-shells + n)
-                (update acc :retained-shells + n))))
-          {:omitted-shells 0 :retained-shells 0}
+                (update acc :omitted-shell-occurrences + n)
+                (update acc :retained-shell-occurrences + n))))
+          {:omitted-shell-occurrences 0 :retained-shell-occurrences 0}
           (map vector roster selectors)))
 
 ;; ---------------------------------------------------------------------------
@@ -297,7 +306,12 @@
 (defn evidence-record
   "The result record for one mounted arm — every provenance field D021
   requires that a browser can name, the mount-time distribution, and the
-  runtime census as a published property.
+  wrapper-classified occurrence census as a published property.
+
+  The census counts DOM occurrences classified by reconciled wrapper type;
+  it is not a live-object reading, and `:census-method` in the fixture
+  says so, so a reader never takes a `-occurrences` count for a
+  retained-ViewCell-object count.
 
   Public because a record nobody can build outside the assertion that
   publishes it is a record nobody can check."
@@ -311,9 +325,13 @@
                   :boundaries          (reduce + 0 counts)
                   :measurement-method
                   (str "wall time bracketing one v/mount inside a React act boundary, "
-                       "host node to committed DOM; shells are folded from two runtime "
-                       "readings — each declaration's occurrence count off document, and "
-                       "the wrapper signature React reconciled for it")}
+                       "host node to committed DOM")
+                  :census-method
+                  (str "each declaration's occurrence count off document, classified by "
+                       "the wrapper signature React reconciled for it — wrapper-classified "
+                       "DOM occurrences, NOT a count of live/allocated/retained ViewCell "
+                       "objects; retained-object liveness evidence would need a heap probe "
+                       "this bench does not carry and remains open")}
    :build        (prov/detect-build)
    :host         (prov/detect-host)
    :sampling     {:warmup warmup :samples (count times)}
@@ -330,15 +348,25 @@
 (defn- publish!
   "Write the record to the console as EDN, prefixed with whether it is
   citable. Evidence that is not attributable to a revision is still worth
-  reading and is not worth citing, and the line says which it is."
+  reading and is not worth citing, and the line says which it is.
+
+  A citable record goes through `provenance/result` — the ONE documented
+  emission door — so the same validation that governs the JVM lane governs
+  a browser record too, rather than a bypass that console-logs whatever it
+  was handed. A record missing only its revision (this build compiles none
+  in) is printed as NOT CITABLE without forcing it through the door, which
+  would throw; a release-lane build that sets the revision closure-define
+  makes it citable with no change here."
   [record]
   (let [ds (prov/defects record)]
-    (js/console.log
-      (str ";; B2 mounted-storm evidence — "
-           (if (seq ds)
-             (str "NOT CITABLE (" (count ds) " provenance field(s) unnamed by this build)")
-             "citable")
-           "\n" (pr-str record)))))
+    (if (seq ds)
+      (js/console.log
+        (str ";; B2 mounted-storm evidence — NOT CITABLE ("
+             (count ds) " provenance field(s) unnamed by this build)\n"
+             (pr-str record)))
+      (js/console.log
+        (str ";; B2 mounted-storm evidence — citable\n"
+             (pr-str (prov/result record)))))))
 
 ;; ===========================================================================
 ;; The storm, mounted — every deterministic claim at one scale
@@ -364,13 +392,13 @@
             (str id " / " sel ": React minted a boundary for this declaration"))
         (is (= [lowering view-cell] sig)
             (str id " / " sel ": React reconciled the wrapper this declaration earned"))))
-    (is (= (if elides? total 0) (:omitted-shells census))
-        (str id ": the shells the mount actually omitted"))
-    (is (= (if elides? 0 total) (:retained-shells census))
-        (str id ": the shells the mount actually retained"))
-    (is (= (b2/omitted plan) (:omitted-shells census))
+    (is (= (if elides? total 0) (:omitted-shell-occurrences census))
+        (str id ": the occurrences whose reconciled wrapper omitted the shell"))
+    (is (= (if elides? 0 total) (:retained-shell-occurrences census))
+        (str id ": the occurrences whose reconciled wrapper retained the shell"))
+    (is (= (b2/omitted plan) (:omitted-shell-occurrences census))
         (str id ": the manifest's static prediction and the mounted page agree "
-             "about how many shells this storm omits"))
+             "about how many occurrences omit the shell"))
     (publish! (evidence-record arm scale census counts samples))
     (.-innerHTML container)))
 
@@ -457,7 +485,7 @@
             a browser has no git and this test build does not compile one
             in. A record that quietly lost its scale or its build mode
             would red here."
-    (let [census {:omitted-shells 8 :retained-shells 0}
+    (let [census {:omitted-shell-occurrences 8 :retained-shell-occurrences 0}
           record (evidence-record (first arms) small-scale census [2 2 2 2] [1.0 2.0 3.0])]
       (is (empty? (remove #(= [:revision] (:path %)) (prov/defects record)))
           "every provenance field a browser can name is named")
