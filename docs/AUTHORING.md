@@ -41,8 +41,10 @@ below, know *why*.
    `mkdocs.yml`). Readers already get a left sidebar, section nesting, and
    prev/next from that build — do **not** re-implement navigation on the page.
    No "What's next" / "You can now" footers; no mini-TOCs that restate the left
-   nav. Useful cross-links go inline where relevant. A short "you can ship with
-   this" recap is not ceremony; a list of later chapters is.
+   nav; no **`## Start here`** (or similar) reading-order lists — MkDocs already
+   puts those headings in the page TOC and they only restate the sidebar. Useful
+   cross-links go inline where relevant. A short "you can ship with this" recap is
+   not ceremony; a list of later chapters is.
 
 ## Voice
 
@@ -122,6 +124,7 @@ not a second curriculum track. Optional depth goes at the end under **`## Advanc
 | `## Troubleshooting` | "When things go wrong", "Unhappy path" |
 | `## Advanced` | "Going further", "Day one / Going further" two-speed openers |
 | (no label) | "Basics", "Day-one checklist", "Essential" |
+| (omit) | `## Start here`, on-page reading-order mini-TOCs |
 
 ## Progressive pacing
 
@@ -199,10 +202,11 @@ not re-teach it.
 Interceptors and images are **structure but rare** — open with when-not; do not
 imply every app needs them on day two.
 
-**Domain corpora** (machines, resources, async, routing, ssr): index with **Start
-here** (tutorial first when one exists, then model, then growth in dependency
-order) → tutorial → model/concepts → growth pages → operate / migrate. Index also
-states **prerequisites** and **when not to use this artefact**.
+**Domain corpora** (machines, resources, async, routing, ssr): **nav order** is the
+reading order (tutorial first when one exists, then model, then growth in dependency
+order) — do not restate it on the index under `## Start here`. Index states
+**prerequisites** and **when not to use this artefact**, then the page's own job
+(demo, scope table, …).
 
 **Canon apps.** Counter for Core model pages (no server). RealWorld once server data
 enters. Domain corpora keep their own anchors (XState / login+websocket; TanStack

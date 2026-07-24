@@ -13,20 +13,8 @@ A **machine** makes that shape explicit: one data table of states and transition
 driven by ordinary `dispatch`, read by ordinary `subscribe`, living in the same
 [frame](../core/frames.md) as the rest of re-frame2. No second runtime.
 
-## Start here
-
-1. **[Tutorial](tutorial.md)** — build a login machine in six steps (guard, action,
-   HTTP, view, pure test).
-2. **[The model](concepts.md)** — the flat grammar those steps rely on: register,
-   snapshot, encapsulation, self-transitions, finals.
-3. Open a growth page when a need appears (tags for views, hierarchy for nested
-   flows, actors for workers, …). The left nav lists them in dependency order.
-
 **Prerequisites.** The [Core introduction](../core/introduction.md) — events, app-db,
 subscriptions, effects. Machines plug into those; they do not replace them.
-
-Optional: [examples](examples.md), [XState mapping](coming-from-xstate.md),
-[glossary](glossary.md).
 
 ## A machine in four lines
 

@@ -20,22 +20,8 @@ reply arrives later as an **ordinary [event](../core/events.md)**:
 No `await`, no callback nesting, no resumed stack frame. Success and failure each
 have a name on the same wire as everything else.
 
-<a id="in-this-section"></a>
-
-## Start here
-
-1. **[Tutorial](tutorial.md)** — smallest request → failures → view → schema → retry →
-   race cure → network-free test. Best first hour.
-2. **[Managed HTTP](http.md)** — the full model/reference: args map, reply envelope,
-   closed failure kinds, retry, cancel, testing.
-3. Production when you need it: [interceptors and secrets](http-going-further.md).
-
 **Prerequisites.** [Effects](../core/effects.md) — returning an effect map from a
 handler. Managed HTTP plugs into that pipeline; it does not replace events or app-db.
-
-Optional later: [your own async fx](custom-effects.md),
-[why no await](continuations-are-data.md), [Promises mapping](coming-from-promises.md),
-[examples](examples.md).
 
 ## Scope
 

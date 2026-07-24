@@ -18,20 +18,8 @@ in the browser; only genuinely one-sided code is fenced with `:platforms`.
 (ssr/hydrate! {:frame :app :render-tree-fn (fn [] ((rf/view :app/root)))})
 ```
 
-## Start here
-
-1. **[Tutorial](tutorial.md)** — build the lifecycle by hand (REPL → frame per request →
-   payload → hydrate → mismatch → platforms → Ring).
-2. **[The model](concepts.md)** — why the same code runs on a JVM; request lifecycle;
-   fail-closed payload; hydrate-then-verify; platform gates; error projection.
-3. Open only when a need appears:
-   [response](response.md) · [head](head.md) · [streaming](streaming.md).
-
 **Prerequisites.** [Core introduction](../core/introduction.md) — events, app-db, views,
 frames. SSR plugs into those; it does not replace them.
-
-Also: [testing](testing.md), [examples](examples.md),
-[Next.js mapping](coming-from-nextjs.md), [glossary](glossary.md).
 
 ## When *not* to use SSR
 
