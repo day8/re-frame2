@@ -1695,19 +1695,55 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:reason    :string]])
 
 (def ResourceRoutePlanTags
-  ;; a route :resources entry could not be PLANNED on route entry — its
-  ;; :scope / :params did not resolve (a fail-closed scope/params throw caught
-  ;; at the route-resource planning boundary). Surfaced on the route slice's
-  ;; :error (visible to the :rf/route sub + Xray) and emitted as an error
-  ;; trace, NEVER a silent cache miss; FIRST-error-wins when several route
-  ;; resources fail to plan. Per Spec 016 §Route integration.
+  ;; a route :resources entry could not be PLANNED — its :scope / :params did
+  ;; not resolve (a fail-closed scope/params throw caught at the route-resource
+  ;; planning boundary), or the :parent branch / :after / identity-collapse
+  ;; graph could not be formed. On a navigation-commit failure it is surfaced on
+  ;; the route slice's :error (visible to the :rf/route sub + Xray) and emitted
+  ;; as an error trace, NEVER a silent cache miss; FIRST-error-wins when several
+  ;; route resources fail to plan. A WARM-mode prefetch planning failure carries
+  ;; :plan-cause :prefetch and NO :nav-token (a preload owns no route state — it
+  ;; is emitted as a trace only, never written to any slice). Per Spec 016
+  ;; §Route integration.
   [:map
    [:category    :keyword]
    [:route-id    :keyword]
-   [:resource-id :keyword]
-   [:nav-token   :any]
-   [:cause       {:optional true} :any]   ;; the underlying canonicalization / validation ex-data
+   [:resource-id {:optional true} :keyword]   ;; absent for a branch-resolution / collapse-cycle failure that names no single resource
+   [:nav-token   {:optional true} :any]       ;; ABSENT for a :plan-cause :prefetch failure (a warm-mode preload has no nav-token)
+   [:plan-cause  {:optional true} :keyword]   ;; :prefetch on a warm-mode intent-preload planning failure; absent for a navigation-commit failure
+   [:cause       {:optional true} :any]        ;; the underlying canonicalization / validation ex-data
    [:reason      :string]])
+
+(def RoutePrefetchedTags
+  ;; the SINGLE summary trace :rf.route/prefetch emits per warm-mode preload
+  ;; (Spec 012 §Route-plan prefetch). :warmed is the count of unique effective-
+  ;; plan requirements run through Resources in warm mode (0 when Resources is
+  ;; absent or the plan is empty); :plan-error is true when the warm plan could
+  ;; not be built (the ordinary :rf.error/resource-route-plan diagnostic with
+  ;; :plan-cause :prefetch fired). Frame-attributed for epoch capture. This is
+  ;; NOT an activation trace: no :rf.route/activated / nav-token-allocated pair
+  ;; fires for a prefetch.
+  [:map
+   [:category   {:optional true} :keyword]
+   [:route-id   :keyword]
+   [:warmed     :int]
+   [:plan-error {:optional true} :boolean]
+   [:frame      {:optional true} :any]])
+
+(def PrefetchBadAddressTags
+  ;; [:rf.route/prefetch {address}] carried a value that is not a closed
+  ;; :rf/route-address (a missing / non-keyword :to, a raw :url escape, a policy
+  ;; / edit key, or an unknown key). The always-on structural gate rejected it
+  ;; BEFORE any planning ran — no ensures dispatched, current route readiness
+  ;; untouched. Distinct from :rf.error/resource-route-plan (a well-formed
+  ;; address whose plan could not be built). Per Spec 012 §Route-plan prefetch.
+  [:map
+   [:category  {:optional true} :keyword]
+   [:where     :keyword]                  ;; :event
+   [:reason    :keyword]                  ;; the first extraction-law violation (e.g. :unknown-keys / :bad-address)
+   [:keys      {:optional true} [:vector :any]]
+   [:frame     {:optional true} :any]
+   [:recovery  {:optional true} :keyword]])
 
 (def ResourceRouteBlockingTags
   ;; a BLOCKING route resource FAILED its first load — the runtime flips the
@@ -3575,7 +3611,7 @@ Implementations rank candidates by descending `route-rank` then by ascending reg
 > **Owner:** [012-Routing §The RouteAddress value](012-Routing.md#the-routeaddress-value)
 > **Status:** v1-required
 
-The caller-authored **address** of one registered named destination — the closed `{:to :params :query :fragment}` map every navigation door, `route-url`, `rf/route-link`, and `v/route-link` resolves through ([EP-0037](../docs/EP/EP-0037-route-planning-and-activation-ownership.md) §Terms, §Canonical `RouteAddress`). It is destination *intent*, never navigation policy (`:replace?` / `:scroll` / `:bypass-leave?`) and never an in-place edit (`:query-merge`); those travel beside the address in the same flat public map but keep their own shapes, so a future feature cannot make a policy or edit key serialisable as a destination. The resolved *fact* is the [`:rf/route-slice`](#rfroute-slice) — facts say `:route-id`, intent says `:to`.
+The caller-authored **address** of one registered named destination — the closed `{:to :params :query :fragment}` map every navigation door, `route-url`, `rf/route-link`, `v/route-link`, and `:rf.route/prefetch` resolves through ([EP-0037](../docs/EP/EP-0037-route-planning-and-activation-ownership.md) §Terms, §Canonical `RouteAddress`). `:rf.route/prefetch` accepts **only** this named form (never a raw `:url`), rejecting anything else before planning with `:rf.error/prefetch-bad-address` (see [012 §Route-plan prefetch](012-Routing.md#route-plan-prefetch--warm-mode-intent-preload)). It is destination *intent*, never navigation policy (`:replace?` / `:scroll` / `:bypass-leave?`) and never an in-place edit (`:query-merge`); those travel beside the address in the same flat public map but keep their own shapes, so a future feature cannot make a policy or edit key serialisable as a destination. The resolved *fact* is the [`:rf/route-slice`](#rfroute-slice) — facts say `:route-id`, intent says `:to`.
 
 ```clojure
 (def RouteAddress
