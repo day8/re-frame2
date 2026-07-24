@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Validate the Freehand conformance index — ids, citations, fixtures, sections.
+"""Validate the Freehand conformance index — ids, citations, fixtures, sections,
+and the census that says every active row is actually PROVEN where it claims.
 
 The Freehand view substrate proves its two-mode / multi-host parity row by row.
 Each law carries a permanent `FH-<AREA>-<NNN>` id, and the index at
@@ -7,6 +8,21 @@ Each law carries a permanent `FH-<AREA>-<NNN>` id, and the index at
 spec paragraph that OWNS the law, the modes and hosts it binds, the fixture that
 proves it, and its status.  The scheme, the allocation rule, and the column
 grammar are documented in `spec/conformance/freehand/README.md`.
+
+Two independent guards live here, and the difference between them matters:
+
+    * The STRUCTURAL check (`check`) validates the index as a document — that
+      every id is well-formed, unique, filed under its own area, cites a real
+      spec anchor, and names a fixture file that exists.
+    * The EXECUTION CENSUS (`census`) reconciles the index against the suites
+      that RUN it — that every active row's fixture is actually read by a test,
+      and that every host the row claims is served by a lane one of those tests
+      runs in.
+
+Neither executes a fixture; running a law is the harness's job
+(`spec/conformance/freehand/README.md` §What this is not).  What the census adds
+is the missing edge between the ledger and the runs: without it a row can name a
+real fixture nobody ever reads, and the structural check will call that green.
 
 An id is an address.  An address that resolves to nothing is worse than no
 address at all, so this guard fails the build when:
@@ -33,6 +49,23 @@ address at all, so this guard fails the build when:
     * BAD TABLE HEADER     — a section's table header is not the six columns.
     * UNKNOWN / DUPLICATE / MISSING AREA SECTION — the section roster no longer
                              matches the area roster.
+
+and, from the execution census:
+
+    * UNPROVEN ROW         — an `active` row whose fixture no test in
+                             `implementation/freehand/test/` reads.  The row
+                             names a file, the file exists, and nothing asserts
+                             against it: a law proven by nobody.
+    * UNEXECUTED HOST      — an `active` row claims a host no lane among its
+                             proving tests serves.  A `common jvm browser` row
+                             read only from a `.cljs` suite is a claim about the
+                             JVM that the JVM never sees.
+    * DANGLING PROOF       — a test reads a fixture for an id the index does not
+                             carry as an `active` row (a deleted or retired law
+                             whose suite outlived it).
+    * ORPHAN FIXTURE       — a fixture file on disk no `active` row names.  A
+                             deletion that removes the row but leaves the bytes
+                             is how a resurrected id acquires a stale meaning.
 
 Every defect names the offending row (its id, or its raw first cell when the id
 itself is the defect) and its line number.
@@ -63,6 +96,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from check_doc_slugs import _slug_index  # noqa: E402
 
 INDEX_REL = Path("spec/conformance/freehand/conformance-index.md")
+FIXTURES_REL = Path("spec/conformance/freehand/fixtures")
+TESTS_REL = Path("implementation/freehand/test")
 
 # The area roster, in index order.  Closed at any given moment — an id or a
 # section naming an area that is not here fails — but the programme EP
@@ -115,6 +150,59 @@ _SECTION_RE = re.compile(r"^###\s+FH-([A-Z]+)\b")
 _FENCE_RE = re.compile(r"^\s*(```|~~~)")
 _LINK_RE = re.compile(r"^\[[^\]]+\]\(([^)\s]+)\)$")
 _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
+
+# --------------------------------------------------------------------------
+# The execution census
+# --------------------------------------------------------------------------
+#
+# A proof site is a call to the fixture-loading macro,
+# `re-frame.freehand.conformance/fixture`, under any alias:
+#
+#     (def props-001 (conf/fixture :FH-PROPS-001))
+#     [(conformance/fixture :FH-STRUCT-001) ...]
+#
+# Reading the SITE rather than a hand-kept manifest is the whole point: the
+# manifest is DERIVED, so it cannot drift from the tests, and a second copy of
+# the mapping — which is what a hand-kept manifest is — cannot go stale because
+# it does not exist.
+_PROOF_SITE_RE = re.compile(r"\(\s*(?:[A-Za-z0-9.*+!_'?<>=-]+/)?fixture\s+(:FH-[A-Z]+-\d{3})\b")
+
+_CLJ_SUFFIXES = (".clj", ".cljc", ".cljs")
+
+# Which lane runs a test file, derived from the three discovery rules in force —
+# not asserted here, mirrored from where they are actually configured:
+#
+#   jvm      `clojure -M:test` in implementation/freehand.  cognitect-test-runner
+#            discovers namespaces ending `-test` over the `:clj` platform, which
+#            is `.clj` + `.cljc`.
+#   node     `npm run test:freehand` — the :node-test-freehand build's ns-regexp
+#            `^re-frame\.freehand\..+-cljs-test$`, which matches `-cljs-test` AND
+#            `-dom-cljs-test`, over `.cljs` + `.cljc`.
+#   browser  `npm run test:browser` — the :browser-test build's ns-regexp
+#            `-dom-cljs-test$`, `.cljs` only.  The mounted tier: real DOM, real
+#            listeners.
+LANES: tuple[str, ...] = ("jvm", "node", "browser")
+
+# Which lanes serve a host token, from the host/mode matrix in
+# `spec/008-Testing.md` §The host/mode matrix.  Two readings there are load
+# bearing and neither is this script's invention:
+#
+#   * The `browser` column's STRUCTURAL cell "is the host-neutral tree proven in
+#     the node runtime; it needs no real DOM".  So the node lane serves
+#     `browser`, and the Chromium lane serves the mounted cell of the same
+#     column.
+#   * The `ssr` column is "structural tree -> 011": the runner proves the tree —
+#     and for Freehand the JVM render IS the server shell — while 011 owns
+#     emission and hydration.  So the JVM lane serves `ssr`.
+#   * A qualified host is opaque to the structural render and is "proven by
+#     connecting the real behaviour or wrapper in a browser", so `host:<name>`
+#     is served by the browser lane alone.
+HOST_LANES: dict[str, frozenset[str]] = {
+    "jvm": frozenset({"jvm"}),
+    "browser": frozenset({"node", "browser"}),
+    "ssr": frozenset({"jvm"}),
+}
+_QUALIFIED_HOST_LANES = frozenset({"browser"})
 
 
 def _cells(line: str) -> list[str]:
@@ -383,6 +471,193 @@ def check(repo_root: Path, verbose: bool = False) -> int:
 
 
 # --------------------------------------------------------------------------
+# The execution census
+# --------------------------------------------------------------------------
+
+
+def _active_rows(index: Path) -> list[tuple[int, str, str, str]]:
+    """`(line_no, id, applicability, fixture_path)` for each `active` row.
+
+    A second, deliberately forgiving pass over the index: the census answers a
+    different question from `check`, and a row too malformed to parse here has
+    already been reported there.  Reporting it twice, in two vocabularies,
+    would bury the one defect that matters under its own echo.
+    """
+    rows: list[tuple[int, str, str, str]] = []
+    in_fence = False
+    for line_no, raw in enumerate(
+        index.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        if _FENCE_RE.match(raw):
+            in_fence = not in_fence
+            continue
+        if in_fence or not raw.lstrip().startswith("|"):
+            continue
+        cells = _cells(raw)
+        if len(cells) != len(COLUMNS):
+            continue
+        row_id = _unquote(cells[0])
+        if not _ID_RE.match(row_id) or cells[5] != "active":
+            continue
+        rows.append((line_no, row_id, cells[3], _unquote(cells[4])))
+    return rows
+
+
+def _lanes_for(path: Path) -> frozenset[str]:
+    """The lanes that run the test file at `path` (see LANES)."""
+    name = path.name
+    if name.endswith("_test.clj"):
+        return frozenset({"jvm"})
+    if name.endswith("_test.cljc"):
+        return frozenset({"jvm", "node"} if name.endswith("_cljs_test.cljc")
+                         else {"jvm"})
+    if name.endswith("_dom_cljs_test.cljs"):
+        return frozenset({"node", "browser"})
+    if name.endswith("_cljs_test.cljs"):
+        return frozenset({"node"})
+    return frozenset()
+
+
+def _scan_proof_sites(repo_root: Path) -> dict[str, list[Path]]:
+    """Map each `FH` id to the test files whose source reads its fixture."""
+    sites: dict[str, list[Path]] = {}
+    test_root = repo_root / TESTS_REL
+    if not test_root.is_dir():
+        return sites
+    for path in sorted(test_root.rglob("*")):
+        if path.suffix not in _CLJ_SUFFIXES or not _lanes_for(path):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for keyword in sorted(set(_PROOF_SITE_RE.findall(text))):
+            sites.setdefault(keyword[1:], []).append(path)
+    return sites
+
+
+def _host_lanes(host: str) -> frozenset[str]:
+    return HOST_LANES.get(host, _QUALIFIED_HOST_LANES)
+
+
+def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
+    """Reconcile the index against the suites that run it.  Return the defect
+    count.
+
+    The manifest is DERIVED — from the `(conf/fixture :FH-…)` sites in
+    `implementation/freehand/test/` and the lane each file runs in — so there is
+    no second copy of the mapping to keep in step.  Three facts fall out, and
+    each is a defect shape: a row nothing reads, a row read only from lanes that
+    do not serve the hosts it claims, and a fixture or a proof site left behind
+    by a row that no longer exists.
+    """
+    index = repo_root / INDEX_REL
+    if not index.is_file():
+        sys.stderr.write(f"error: no Freehand conformance index at {index}\n")
+        return 1
+
+    rows = _active_rows(index)
+    sites = _scan_proof_sites(repo_root)
+    defects: list[str] = []
+    table: list[tuple[str, str, str, str, str]] = []
+
+    for line_no, row_id, applicability, fixture in rows:
+        tokens = applicability.split()
+        mode = next((t for t in tokens if t in MODE_TOKENS), "?")
+        hosts = [t for t in tokens if t not in MODE_TOKENS]
+        proving = sites.get(row_id, [])
+        lanes: set[str] = set()
+        for path in proving:
+            lanes |= _lanes_for(path)
+
+        if not proving:
+            defects.append(
+                f"  UNPROVEN ROW: {INDEX_REL.as_posix()}:{line_no} [{row_id}] "
+                f"no test under {TESTS_REL.as_posix()}/ reads `{fixture}` - an "
+                "active row names the fixture that PROVES it, so a fixture "
+                "nobody reads is a law nobody proves"
+            )
+        else:
+            for host in hosts:
+                serving = _host_lanes(host)
+                if not (lanes & serving):
+                    defects.append(
+                        f"  UNEXECUTED HOST: {INDEX_REL.as_posix()}:{line_no} "
+                        f"[{row_id}] claims host `{host}`, served by the "
+                        f"{'/'.join(sorted(serving))} lane(s), but its fixture "
+                        f"is read only from the {'/'.join(sorted(lanes))} "
+                        "lane(s) - narrow the applicability cell or prove the "
+                        "law where it claims to bind"
+                    )
+        table.append((
+            row_id,
+            mode,
+            " ".join(hosts),
+            ",".join(l for l in LANES if l in lanes) or "-",
+            ", ".join(p.name for p in proving) or "-",
+        ))
+
+    active_ids = {row_id for _, row_id, _, _ in rows}
+    for row_id in sorted(set(sites) - active_ids):
+        where = ", ".join(
+            p.relative_to(repo_root).as_posix() for p in sites[row_id]
+        )
+        defects.append(
+            f"  DANGLING PROOF: {where} reads a fixture for [{row_id}], which "
+            f"is not an `active` row in {INDEX_REL.as_posix()} - a suite "
+            "outlived its law"
+        )
+
+    fixtures_dir = repo_root / FIXTURES_REL
+    if fixtures_dir.is_dir():
+        named = {fixture for _, _, _, fixture in rows}
+        for path in sorted(fixtures_dir.glob("*.edn")):
+            rel = path.relative_to(repo_root).as_posix()
+            if rel not in named:
+                defects.append(
+                    f"  ORPHAN FIXTURE: {rel} is named by no `active` row in "
+                    f"{INDEX_REL.as_posix()} - a deletion that removes the row "
+                    "and leaves the bytes is how a re-used id acquires a stale "
+                    "meaning"
+                )
+
+    if report:
+        widths = [max(len(r[i]) for r in ([("Id", "Mode", "Hosts", "Lanes", "Proving tests")] + table))
+                  for i in range(5)]
+        header = ("Id", "Mode", "Hosts", "Lanes", "Proving tests")
+        sys.stdout.write(
+            "  ".join(h.ljust(w) for h, w in zip(header, widths)).rstrip() + "\n"
+        )
+        sys.stdout.write("  ".join("-" * w for w in widths) + "\n")
+        for row in table:
+            sys.stdout.write(
+                "  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip() + "\n"
+            )
+        sys.stdout.write(
+            f"\n{len(table)} active row(s); "
+            f"{sum(1 for r in table if r[3] != '-')} with an executed "
+            "applicable arm.\n"
+        )
+
+    if defects:
+        sys.stderr.write(
+            f"\n{len(defects)} Freehand conformance-census defect(s) found:\n\n"
+        )
+        for line in defects:
+            sys.stderr.write(line + "\n")
+        sys.stderr.write(
+            "\nFix: an `active` row is a claim that a law is PROVEN on the "
+            "modes and hosts its applicability cell names.  Either write the "
+            "proof, or narrow the cell to what is proven - see "
+            "spec/008-Testing.md #the-hostmode-matrix.\n"
+        )
+    elif verbose:
+        sys.stderr.write(
+            f"Freehand conformance census OK: {len(table)} active row(s), each "
+            "read by a test in every lane its hosts name.\n"
+        )
+
+    return len(defects)
+
+
+# --------------------------------------------------------------------------
 # Self-tests — hermetic fixtures generated into a temp dir, mirroring
 # scripts/check_ep_status_sync.py's style.  Each fixture is a mini-repo: an
 # mkdocs.yml at the root (the repo-root guard), a spec/ doc with a real
@@ -432,6 +707,92 @@ def _write_fixture(root: Path, sections: dict[str, str]) -> None:
         body.append(_HEADER)
         body.append(sections.get(area, ""))
     (root / INDEX_REL).write_text("".join(body), encoding="utf-8")
+
+
+def _write_census_fixture(
+    root: Path,
+    sections: dict[str, str],
+    tests: dict[str, str],
+    extra_fixtures: tuple[str, ...] = (),
+) -> None:
+    """A census mini-repo: an index, plus a test tree that reads (or fails to
+    read) its fixtures.  `tests` maps a filename under
+    `implementation/freehand/test/re_frame/freehand/` to its source."""
+    _write_fixture(root, sections)
+    test_dir = root / TESTS_REL / "re_frame" / "freehand"
+    test_dir.mkdir(parents=True, exist_ok=True)
+    for name, source in tests.items():
+        (test_dir / name).write_text(source, encoding="utf-8")
+    for name in extra_fixtures:
+        (root / FIXTURES_REL / name).write_text("{}\n", encoding="utf-8")
+
+
+def _proof(row_id: str = "FH-CALL-001") -> str:
+    return f"(ns x)\n(def fx (conf/fixture :{row_id}))\n"
+
+
+def _build_census_fixtures(base: Path) -> None:
+    """One mini-repo per census rule.  Each pins exactly one reading of the
+    host/mode matrix, so a change to `HOST_LANES` or `_lanes_for` that is not
+    also a change to Spec 008 fails here first."""
+    cases: dict[str, tuple[dict[str, str], dict[str, str], tuple[str, ...]]] = {
+        # Green: a `common jvm browser` row read from a `.cljc` suite, which
+        # runs in the JVM lane AND the node lane.
+        "census_clean": ({"CALL": _row()}, {"a_cljs_test.cljc": _proof()}, ()),
+        # Green: `ssr` is served by the JVM lane — the JVM render IS the server
+        # shell, and 011 owns emission (Spec 008 §The host/mode matrix).
+        "census_ssr_served_by_jvm": (
+            {"CALL": _row(applicability="common jvm ssr")},
+            {"a_cljs_test.cljc": _proof()},
+            (),
+        ),
+        # Green: a qualified host is proven by connecting the real wrapper in a
+        # browser, so a mounted `-dom-cljs-test` suite serves it.
+        "census_qualified_host": (
+            {"CALL": _row(applicability="compiled host:ag-grid")},
+            {"a_dom_cljs_test.cljs": _proof()},
+            (),
+        ),
+        # Green: only an `active` row is a claim, so the `planned` row beside a
+        # proven one needs no proof of its own.
+        "census_planned_row_is_not_a_claim": (
+            {"CALL": _row() + _row(row_id="FH-CALL-002",
+                                   fixture=NO_FIXTURE, status="planned")},
+            {"a_cljs_test.cljc": _proof()},
+            (),
+        ),
+        # Red: the row names a real fixture nobody reads.
+        "census_unproven_row": ({"CALL": _row()}, {}, ()),
+        # Red: a `common jvm browser` row read only from a mounted `.cljs`
+        # suite — node and browser, never the JVM it claims.
+        "census_unexecuted_host": (
+            {"CALL": _row()},
+            {"a_dom_cljs_test.cljs": _proof()},
+            (),
+        ),
+        # Red: a qualified host claimed by a suite that never enters a browser.
+        "census_qualified_host_needs_a_browser": (
+            {"CALL": _row(applicability="compiled host:ag-grid")},
+            {"a_cljs_test.cljc": _proof()},
+            (),
+        ),
+        # Red: a suite that outlived its law.
+        "census_dangling_proof": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": _proof() + _proof("FH-CALL-002")},
+            (),
+        ),
+        # Red: a deletion that took the row and left the bytes.
+        "census_orphan_fixture": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": _proof()},
+            ("fh-call-002.edn",),
+        ),
+    }
+    for name, (sections, tests, extra) in cases.items():
+        root = base / name
+        root.mkdir(parents=True, exist_ok=True)
+        _write_census_fixture(root, sections, tests, extra)
 
 
 def _build_self_test_fixtures(base: Path) -> None:
@@ -560,32 +921,49 @@ def _run_self_tests(verbose: bool = False) -> int:
         # A block before the first section orphans both its header and its row.
         ("orphan_row", 2),
     ]
+    census_cases: list[tuple[str, int]] = [
+        ("census_clean", 0),
+        ("census_ssr_served_by_jvm", 0),
+        ("census_qualified_host", 0),
+        ("census_planned_row_is_not_a_claim", 0),
+        ("census_unproven_row", 1),
+        ("census_unexecuted_host", 1),
+        ("census_qualified_host_needs_a_browser", 1),
+        ("census_dangling_proof", 1),
+        ("census_orphan_fixture", 1),
+    ]
     failures = 0
     with tempfile.TemporaryDirectory(prefix="fh_index_selftest_") as tmp:
         base = Path(tmp)
         _build_self_test_fixtures(base)
-        for fixture, expected in cases:
-            root = base / fixture
-            saved_stderr = sys.stderr
-            sys.stderr = _DevNull()
-            try:
-                got = check(root, verbose=False)
-            finally:
-                sys.stderr = saved_stderr
-            if got == expected:
-                if verbose:
-                    sys.stderr.write(f"self-test PASS: {fixture} (defects={got})\n")
-            else:
-                sys.stderr.write(
-                    f"self-test FAIL: {fixture} expected defects={expected}, "
-                    f"got {got}\n"
-                )
-                failures += 1
+        _build_census_fixtures(base)
+        for guard, guard_cases in ((check, cases), (census, census_cases)):
+            for fixture, expected in guard_cases:
+                root = base / fixture
+                saved_stderr = sys.stderr
+                sys.stderr = _DevNull()
+                try:
+                    got = guard(root, verbose=False)
+                finally:
+                    sys.stderr = saved_stderr
+                if got == expected:
+                    if verbose:
+                        sys.stderr.write(
+                            f"self-test PASS: {fixture} (defects={got})\n"
+                        )
+                else:
+                    sys.stderr.write(
+                        f"self-test FAIL: {fixture} expected defects={expected}, "
+                        f"got {got}\n"
+                    )
+                    failures += 1
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        sys.stderr.write(f"all {len(cases)} self-tests passed.\n")
+        sys.stderr.write(
+            f"all {len(cases) + len(census_cases)} self-tests passed.\n"
+        )
     return 0
 
 
@@ -614,6 +992,15 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="Run the bundled fixture-based self-tests and exit.",
     )
+    parser.add_argument(
+        "--report",
+        action="store_true",
+        help=(
+            "Print the per-row applicable-arm table to stdout: every active "
+            "row, its mode and hosts, the lanes that prove it, and the tests "
+            "that read its fixture."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.self_test:
@@ -632,6 +1019,7 @@ def main(argv: list[str]) -> int:
         return 2
 
     defects = check(repo_root, verbose=args.verbose)
+    defects += census(repo_root, verbose=args.verbose, report=args.report)
     return 0 if defects == 0 else 1
 
 
