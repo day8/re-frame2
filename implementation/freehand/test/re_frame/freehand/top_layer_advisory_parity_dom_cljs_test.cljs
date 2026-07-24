@@ -166,7 +166,8 @@
   (testing "The :on-close half of the dialog axis: a nil dynamic :on-close
             leaves the modal unreconciled — exactly one advisory, naming the
             modal mechanism — and a non-nil :on-close suppresses it and really
-            reaches the DOM (a native close() fires it). In each mode."
+            reaches the DOM: the browser's own dismissal fires a `close` event,
+            and the author's :on-close receives it. In each mode."
     (if-not (top-layer?)
       (ms/skip! "the browser job runs the dialog advisory assertions")
       (async done
@@ -195,11 +196,21 @@
                   (.then (fn [_]
                            (is (= 1 (count @records))
                                (str label ": a non-nil :on-close published NO further advisory"))
-                           (.close (dlg))
+                           (is (true? (.matches (dlg) ":modal"))
+                               (str label ": the dialog is still a real modal before dismissal"))
+                           ;; The browser's own dismissal — Escape, the close button,
+                           ;; close() — fires a non-bubbling `close` event, which React
+                           ;; attaches directly to the node and delivers to :on-close. It
+                           ;; is dispatched SYNCHRONOUSLY here rather than via .close(),
+                           ;; because a queued close() event is diverted inside React's act
+                           ;; environment (the popover's toggle is not) — so this is the
+                           ;; deterministic form of the same wiring proof.
+                           (reset! seen [])
+                           (.dispatchEvent (dlg) (js/Event. "close" #js {:bubbles true}))
                            (ms/tick!)))
                   (.then (fn [_]
                            (is (= [:closed] @seen)
-                               (str label ": the non-nil :on-close reached the DOM and fired on close()"))
+                               (str label ": the non-nil :on-close received the close event at the DOM"))
                            (unlisten! k)
                            (ms/destroy-root! container root)
                            nil))
