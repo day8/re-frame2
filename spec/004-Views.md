@@ -2059,8 +2059,163 @@ FH-TOPLAYER-002, FH-TOPLAYER-003, FH-TOPLAYER-004, FH-TOPLAYER-005.
 
 ### The outward React bridge
 
-**Lands in:** F5 — composition and integration. Carries descriptor-only acceptance,
-prop mapping, caching and frame selection, and the structural-host failure mode.
+Every other verb on the door points inward: a Freehand tree mounts Freehand
+boundaries. Some React libraries reverse the arrow and ask for a **component
+value** rather than an element — a grid's `cellRenderer`, a drag overlay, a
+virtual list's row component, a plugin API that takes a component and decides
+for itself when to render it. `v/->react` is the one crossing that answers
+them, and it is the outward half of the same host boundary the qualified leaf
+and the explicit wrapper are the inward halves of, not a fourth host shape.
+
+```clojure
+(def person-cell-react (v/->react person-cell))
+
+;; then, in React-world
+#js {:cellRenderer person-cell-react}
+```
+
+What comes back mounts the descriptor exactly as an ordinary Freehand parent
+would. Events, subscriptions, error identity, evidence and selected-commit
+fencing inside the exported subtree are the ones the view already had; nothing
+about being reached from React changes what the view is.
+
+#### Only a declared view crosses
+
+The argument is a descriptor. A plain function, a hiccup vector, a view's id
+keyword or a rendered form is refused, and the refusal names the two recoveries
+that exist: export a declared view, or write an explicit React wrapper.
+
+The restriction is what makes the exported component debuggable. A declared view
+carries a qualified id, source coordinates and a lowering, so a failure inside
+the foreign library's subtree names the view rather than stopping at an
+anonymous wrapper, and a hot reload has something stable to reload *into*. A
+bridge that accepted any function would hand React an opaque closure and throw
+all of that away at the boundary where it is most needed.
+
+The option roster is **closed** and holds exactly one key, `:map-props`, whose
+value is a function. An unknown option is refused rather than ignored. The
+closure is deliberate: prop schemas, child conversion, ref forwarding, callback
+maps and lifecycle options would together amount to a second React component
+model expressed as configuration, and a short wrapper is clearer and more
+powerful than any of it.
+
+**Conformance:** [FH-REACT-001](conformance/freehand/conformance-index.md#fh-react--react-bridges).
+
+#### One shallow prop rule, or one explicit adapter
+
+Without `:map-props`, every own enumerable property of the foreign props object
+becomes an entry in the view's props map **by exact name**, with its value
+carried across untouched: `"person-id"` is `:person-id` and `"acme/id"` is
+`:acme/id`. There is no camelisation and no deep walk.
+
+Deep conversion is refused because there is no honest general version of it. A
+library like a data grid hands its renderer a large mutable parameter object
+holding DOM nodes, service handles and callbacks; walking it would be expensive
+and would produce a value that only looks like data. Such a library supplies the
+one explicit adapter instead:
+
+```clojure
+(defn cell-props [params]
+  {:person-id (.. params -data -id)
+   :column-id (.. params -column getColId)})
+
+(def person-cell-react (v/->react person-cell {:map-props cell-props}))
+```
+
+The adapter receives the raw foreign object and returns **the one props map**.
+It is ordinary top-level code at the host edge, and that is the point: the
+projection from foreign object to values is named, localised and testable on its
+own, rather than hidden inside a conversion rule the substrate would have to
+pretend was general. If a library's protocol needs hooks, refs, or an imperative
+handle returned, the adapter is insufficient **by design** and a wrapper is the
+unit.
+
+Three property names belong to the bridge, and the view sees none of them:
+
+- **`frame`** selects the frame (below). It is consumed, never forwarded.
+- **`children`** is React's content slot, and it becomes the boundary's
+  **trailing children** — the same slot, on the other side of the boundary. So
+  React content nests inside an exported view, each element riding the ordinary
+  child walk, which already carries a finished React element through untouched.
+  The view's declared `:children-policy` still decides: a view that accepts no
+  children refuses them here with its own diagnostic, not a bridge-specific one.
+- **`ref`** is **refused**. Freehand has no ref protocol —
+  [§Absent at the declaration and call surface](#absent-at-the-declaration-and-call-surface)
+  retires the neutral ref and effect tier outright — and a `ref` that resolved
+  silently to nothing would leave a foreign owner holding a handle that never
+  fills. The refusal names the wrapper, or a registered behavior over one node,
+  as the recovery.
+
+Because `frame` is the bridge's own property name, `:frame` may not appear in
+the props map the view is mounted with. In the shallow arm it cannot: the
+property was consumed. In the adapter arm the adapter is authoring the map
+itself, so a `:frame` key there is a genuine collision — the same name read two
+ways, only one of which can happen — and it is refused naming the view.
+
+**Conformance:** FH-REACT-002.
+
+#### The exported component is stable
+
+React reconciles on component **type**. Exporting the same view twice therefore
+has to answer the identical object, or the foreign library unmounts and rebuilds
+its subtree every time the exporting expression runs — which is precisely the
+mistake a hand-written wrapper makes and this verb exists to stop.
+
+Identity is keyed on the **view id** and the adapter's identity, not on the
+descriptor object. A hot reload mints a fresh descriptor for the same view, so a
+descriptor-keyed cache would make every reload a remount; keying on the id lets
+a reload republish the redefined body through the component React has already
+mounted. Two different adapters over one view are two different exports and two
+different components, because they do different things.
+
+Memoisation is an identity guarantee, not a promise about how often the foreign
+library renders the component. That remains the library's business.
+
+**Conformance:** FH-REACT-003.
+
+#### A frame is selected, never created
+
+An own `frame` prop — a frame-id keyword, or a live frame value — **scopes** an
+already-live frame for the exported subtree. It creates nothing, refreshes
+nothing and destroys nothing: frame creation belongs to the host application's
+boot, and a bridge that quietly minted one would split an application into two
+runtimes that agree about nothing.
+
+**Own-property presence decides which arm runs, not truthiness.** An explicit
+`frame={null}` is a stated target that names no frame, and it fails loud rather
+than falling through to the ambient one; a malformed target and a target naming
+no live frame each fail with their own diagnostic. Every one of those failures
+is attributed to the bridge rather than to the shared frame provider, because
+the bridge is the surface the caller used.
+
+With **no** `frame` property the exported view resolves its frame by the
+ordinary ambient chain, exactly as a view mounted anywhere else does — a foreign
+frame boundary above it supplies one, and a subtree under no frame boundary at
+all fails with the ordinary `:rf.error/no-frame-context`. There is no default
+and no silent fallback in either direction.
+
+**Conformance:** FH-REACT-004.
+
+#### Host and server policy
+
+The bridge is a **browser** verb, published under the same reader conditional as
+`v/mount`, `v/hydrate-root` and `v/unmount!` and absent on the JVM. A React
+component value has no meaning in a structural render, and Freehand does not
+carry a tier of host operations that exist only to raise on the server: the
+verb is honestly absent on the host that cannot support it rather than present
+and throwing.
+
+That absence **is** the server policy, and it is stated rather than inferred.
+Freehand's server render is `v/render-static`, a structural fold with no React
+in it ([011 §The server render on the Freehand paved path](011-SSR.md#the-server-render-on-the-freehand-paved-path)),
+so nothing a server render can reach is an exported component. The bridge
+therefore reads no server-renderer context internal to make one work, and a
+foreign React tree that renders on a server is outside this contract: the
+integration is client-side, and a use site that must appear in server output
+supplies its own server-truthful fallback rather than expecting the bridge to
+infer one from the foreign library.
+
+**Conformance:** FH-REACT-005.
 
 ### Structural rendering, roots, and SSR
 

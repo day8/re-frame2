@@ -1,0 +1,60 @@
+;; FH-REACT-001 — the outward bridge takes a declared view, and one option.
+;;
+;; The whole value of exporting a DESCRIPTOR rather than a function is that the
+;; thing React ends up holding still has a qualified id, a source coordinate and
+;; a lowering — so a failure inside a foreign library's subtree names the view,
+;; and a hot reload has something stable to reload into. A bridge that accepted
+;; any callable would hand React an opaque closure and throw all of that away at
+;; exactly the boundary where it is least recoverable.
+;;
+;; `:rejected` is therefore spelled as the four shapes a caller actually reaches
+;; for — the view's OWN id keyword and a rendered form are the two near-misses,
+;; and both classify as "not a descriptor" rather than as some softer thing.
+;;
+;; The option roster is the second half of the row and is closed at one key. An
+;; unknown option is REFUSED rather than ignored, because the failure mode of
+;; ignoring is silent: a caller who writes `:map-props?` or `:props-mapper` gets
+;; the default shallow rule and a subtly wrong render, with nothing anywhere
+;; saying the option did not exist.
+{:fh/id "FH-REACT-001"
+ :fh/law
+ "The outward bridge exports a DECLARED view and nothing else — a plain function, a hiccup vector, a view id keyword and a rendered form are each refused naming a declared view or an explicit wrapper as the recovery — and its option roster is closed at the single `:map-props` adapter, which must be a function: an unknown option is refused rather than ignored."
+
+ ;; The one diagnostic every refusal on this row carries.
+ :error :rf.error/ui-tree-malformed
+
+ ;; What a declared view answers with: a real React component type, and a
+ ;; displayName naming the view rather than an anonymous wrapper.
+ :accepted
+ {:view-id      :re-frame.freehand.to-react-views/person-cell
+  :display-name "v/->react(:re-frame.freehand.to-react-views/person-cell)"}
+
+ ;; Not descriptors. Each names what a caller plausibly passed instead.
+ :rejected
+ [{:note "a plain function — the shape a wrapper-writer reaches for"
+   :kind :fn
+   :recovery :export-a-declared-view-or-write-a-wrapper}
+  {:note "a hiccup vector — markup, not a view"
+   :kind :vector
+   :recovery :export-a-declared-view-or-write-a-wrapper}
+  {:note "the view's own id keyword — the nearest miss there is"
+   :kind :keyword
+   :recovery :export-a-declared-view-or-write-a-wrapper}
+  {:note "a rendered form — the view already mounted"
+   :kind :rendered
+   :recovery :export-a-declared-view-or-write-a-wrapper}]
+
+ ;; The closed option roster.
+ :options
+ {:roster   [:map-props]
+  :accepted {:note "the one adapter, a function of the foreign props object"}
+  :rejected
+  [{:note     "an unknown option is refused, never ignored"
+    :opts     {:map-porps :fn}
+    :recovery :use-map-props-or-write-a-wrapper}
+   {:note     "the adapter must be a function"
+    :opts     {:map-props :not-a-fn}
+    :recovery :supply-a-one-argument-function}
+   {:note     "the options slot is a map"
+    :opts     :not-a-map
+    :recovery :supply-an-options-map}]}}

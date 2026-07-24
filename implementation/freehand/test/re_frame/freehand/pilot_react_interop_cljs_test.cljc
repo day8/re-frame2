@@ -144,24 +144,33 @@
 ;; ===========================================================================
 ;;
 ;; The AG-Grid-class case: a library that wants a COMPONENT VALUE, not an
-;; element (`{:cellRenderer …}`). D014 rules the spelling `v/->react`; F5c is
-;; the slice. Neither has landed, so this integration cannot be attempted at
-;; all — and unlike the leaf there is not even a refusal to meet, because
-;; there is no call to make.
+;; element (`{:cellRenderer …}`). This shape has since LANDED, and the pilot's
+;; assertion was rewritten rather than left green, exactly as the file's
+;; preamble promised: the row below records what an adopter can do now, and
+;; where the shape's bound sits.
 
-(deftest the-outward-bridge-does-not-exist-yet
-  (testing "`v/->react` is D014's ruled spelling for handing a declared view
-            to a React library that takes a component value. It is not on the
-            door. An adopter integrating AG Grid's `cellRenderer` today
-            writes a hand-rolled UIx/Helix wrapper — which is exactly the
-            repetition D014 exists to remove. This assertion FAILS the day
-            F5c lands, which is the point of writing it."
+(deftest the-outward-bridge-is-the-one-shape-that-landed
+  (testing "`v/->react` hands a declared view to a React library that takes a
+            component value, and it is a BROWSER verb — so the JVM sees an
+            absence here and the mounted suites see the bridge. That split is
+            the shape's own contract rather than a gap: a React component value
+            has no meaning in a structural render, and Freehand's server render
+            is a structural fold.
+
+            What the shape does NOT lift is the other direction. This is the
+            outward half; a third-party React component still cannot enter a
+            Freehand tree as a leaf or a wrapper, which is the finding the two
+            refusals above carry."
     #?(:clj
        (let [publics (set (map name (keys (ns-publics (find-ns 're-frame.freehand)))))]
+         (is (seq publics) "non-vacuous: the door publishes vars to examine")
          (is (not (contains? publics "->react"))
-             "v/->react is absent — F5c has not landed"))
+             "the outward bridge is a browser verb: absent on the JVM, like the mount verbs")
+         (is (not (contains? publics "mount"))
+             "control: the mount verbs are absent here for the same reason"))
        :cljs
-       (is true "the door's public roster is enumerated on the JVM arm"))))
+       (is (fn? v/->react)
+           "the outward bridge is on the door in the browser — F5c landed"))))
 
 ;; ===========================================================================
 ;; SHAPE 3 — the registered behavior, which DOES exist

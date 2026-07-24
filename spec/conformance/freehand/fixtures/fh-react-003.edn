@@ -1,0 +1,49 @@
+;; FH-REACT-003 — the exported component is one object, and stays one across a
+;; reload.
+;;
+;; React reconciles on component TYPE. Everything in this row follows from that
+;; single fact: a bridge that answered a fresh function per call would instruct
+;; React to unmount and rebuild the foreign library's whole subtree every time
+;; the exporting expression ran — losing a grid's scroll offset, a chart's
+;; animation state and an editor's selection for no reason at all. That is
+;; exactly the bug a hand-written wrapper ships, and removing it is most of why
+;; this verb exists.
+;;
+;; The reload arm is the one that decides the CACHE KEY, and it is the assertion
+;; that distinguishes a correct implementation from a plausible one. A hot
+;; reload mints a FRESH descriptor object for the same view, so a cache keyed on
+;; descriptor identity is a cache that misses on every reload — technically
+;; memoised, and a remount in practice. Keying on the view id makes the reload a
+;; republication: same component, new body.
+;;
+;; `:distinct` is the guard against over-sharing. Identity must not be so eager
+;; that two genuinely different exports collapse into one, so both axes of the
+;; key are proven to separate.
+{:fh/id "FH-REACT-003"
+ :fh/law
+ "Exporting one view with one adapter answers the IDENTICAL component object every time, including across a redefinition of the view — which republishes the new body through the component React already mounted rather than minting a new type — while a different adapter over the same view, and the same adapter over a different view, are each a different component."
+
+ ;; Repeated exports of one view.
+ :repeats 3
+
+ ;; The reload. The same view id, a genuinely different descriptor object, and
+ ;; a body whose output moved — so the republication is observable rather than
+ ;; merely asserted.
+ :reload
+ {:view-id       :re-frame.freehand.to-react-views/reloadable
+  :before        "person 7"
+  :after         "PERSON 7"
+  :same-component true
+  :note "a fresh descriptor for the same id must not mint a fresh component type"}
+
+ ;; Both axes of the cache key separate.
+ :distinct
+ [{:note "the same view under two different adapters"
+   :axis :adapter}
+  {:note "two different views under no adapter"
+   :axis :view}]
+
+ ;; The two views the `:view` axis uses.
+ :views
+ {:a :re-frame.freehand.to-react-views/person-cell
+  :b :re-frame.freehand.to-react-views/badge}}

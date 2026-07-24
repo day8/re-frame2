@@ -1,0 +1,59 @@
+;; FH-REACT-004 — the bridge selects a frame; it never creates one.
+;;
+;; A migration seam is exactly where a framework is tempted to be helpful about
+;; frames, and exactly where being helpful is worst: a bridge that created a
+;; frame when it could not find one would split an application into two runtimes
+;; that share no state and agree about nothing, and the symptom would be
+;; "my dispatch does nothing" rather than an error.
+;;
+;; The row therefore turns on OWN-PROPERTY PRESENCE rather than truthiness. The
+;; distinction is not pedantry: `frame={null}` and no `frame` at all read the
+;; same under any truthiness test, and they are opposite intentions. A caller
+;; who wrote the property meant to state a target, so a target that names
+;; nothing is a failure; a caller who omitted it meant the ambient chain.
+;;
+;; `:attribution` is the half a delegating implementation gets wrong. Scoping
+;; through a shared provider makes it easy to let the provider's own diagnostic
+;; escape — which blames `frame-provider` at a call site that never mentioned
+;; one, on precisely the migration seam this verb exists to simplify.
+{:fh/id "FH-REACT-004"
+ :fh/law
+ "An own `frame` prop SCOPES an already-live frame and creates, refreshes and destroys nothing; own-property presence decides, so an explicit nil, a malformed target and a target naming no live frame each fail loud and self-attributed to the bridge rather than falling through to the ambient chain, while an OMITTED prop resolves the frame ambiently and fails with the ordinary no-frame-context diagnostic under no frame boundary at all."
+
+ ;; Every typed failure on this row names the bridge, not the shared provider.
+ :attribution v/->react
+
+ ;; The live frame the scoping arm selects, and the state it reads through so a
+ ;; render proves the frame actually arrived rather than merely being accepted.
+ :frame-id  :to-react/host
+ :db        {:person {:name "Ada"}}
+ :query     [:person/name]
+ :props     {:salutation "Hello"}
+ :rendered  "Hello, Ada"
+
+ ;; A frame is SCOPED, never owned: the count of live frames does not move
+ ;; across an export, a render, and an unmount.
+ :creates-no-frame true
+
+ ;; An OWN `frame` property naming nothing usable. Each is a stated target, so
+ ;; each fails rather than falling through.
+ :stated-but-unusable
+ [{:note  "an explicit nil — the case truthiness gets wrong"
+   :target nil
+   :error :rf.error/no-frame-context}
+  {:note  "a malformed target"
+   :target 42
+   :error :rf.error/bad-frame-provider-arg}
+  {:note  "a keyword naming no live frame"
+   :target :to-react/never-created
+   :error    :rf.error/frame-provider-frame-absent
+   :recovery :ensure-or-create-the-frame}]
+
+ ;; The OMITTED property — the sole ambient case.
+ :ambient
+ {:note  "no `frame` property: the ordinary chain resolves it"
+  :rendered "Hello, Ada"}
+
+ :no-boundary
+ {:note  "omitted, and no frame boundary above the exported component at all"
+  :error :rf.error/no-frame-context}}

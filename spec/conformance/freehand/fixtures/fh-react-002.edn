@@ -1,0 +1,83 @@
+;; FH-REACT-002 — one shallow prop rule, or one explicit adapter, and the three
+;; names the bridge keeps for itself.
+;;
+;; The shallow rule is stated as a TABLE of exact names rather than as prose
+;; about "matching", because every plausible bug here is a name transformation
+;; somebody thought was helpful: camelising `person-id` to `personId`,
+;; namespace-dropping `acme/id` to `id`, or deep-walking a value into Clojure
+;; data. `:shallow` therefore carries a namespaced key, a hyphenated key, and a
+;; value that MUST arrive as the identical JS object it went in as — the one
+;; assertion a `js->clj` would fail.
+;;
+;; The three owned names are the other half. `frame` is consumed; `children`
+;; crosses to the boundary's trailing-children slot, which is what lets React
+;; content nest inside an exported view at all; `ref` is refused outright,
+;; because Freehand retired the neutral ref tier and a ref resolving silently to
+;; nothing would leave a foreign owner holding a handle that never fills.
+;;
+;; `:reserved-collision` is the rejection the reserved name earns. It can only
+;; arise in the ADAPTER arm — the shallow arm consumed the property — and it is
+;; the one case where the same name would be read two ways at once.
+{:fh/id "FH-REACT-002"
+ :fh/law
+ "Props cross by ONE shallow own-property pass matching exact names with values untouched — no camelisation, no deep walk — or by the one explicit adapter that returns the props map; and the three names the bridge owns behave as declared: `frame` is consumed, `children` becomes the boundary's trailing children under the view's own declared children policy, `ref` is refused, and a props map carrying the reserved `:frame` is refused naming the view."
+
+ :error :rf.error/ui-tree-malformed
+
+ ;; The live frame the owned-name rows scope through. A frame is only ever
+ ;; created by the host application, so every row that touches one names it
+ ;; here rather than conjuring one at the bridge.
+ :frame-id :to-react/adapted
+
+ ;; The default arm. `:foreign` is the own-enumerable property table a library
+ ;; supplies; `:props` is the map the view is mounted with, by exact name.
+ :shallow
+ {:foreign {"person-id" 7
+            "column-id" "amount"
+            "acme/id"   "A-1"}
+  :props   {:person-id 7
+            :column-id "amount"
+            :acme/id   "A-1"}
+  ;; The names a transformation would have produced. None of them may appear.
+  :never   [:personId :id :acmeId :person_id]}
+
+ ;; A value is carried across, never converted. The probe hands in a JS object
+ ;; and asserts the view received THAT object — identical, not equal-looking.
+ :uncoerced
+ {:prop "params"
+  :note "a foreign parameter object arrives as itself; a deep walk would answer an equal-looking Clojure map and fail identity"}
+
+ ;; The adapter arm. The adapter sees the RAW foreign object — every property,
+ ;; including the ones the bridge reserves and the ones the projection ignores —
+ ;; and returns the one props map. The `frame` property is in the table
+ ;; deliberately: an adapter does not displace the bridge's own reading of it,
+ ;; so the exported subtree is still scoped while the props map is entirely the
+ ;; adapter's.
+ :adapter
+ {:foreign  {"data" {"id" 11} "unmapped" "ignored"}
+  :sees     ["data" "unmapped" "frame"]
+  :props    {:person-id 11}
+  :note     "the projection is named, localised code at the host edge"}
+
+ ;; The three owned names.
+ :owned
+ {:frame    {:note "consumed by the bridge; never a props-map key"
+             :never :frame}
+  :children {:note  "React's content slot becomes the boundary's trailing children"
+             :title "Totals"
+             :text  "nested"}
+  :ref      {:note     "refused — Freehand has no ref protocol"
+             :recovery :write-a-wrapper-or-use-a-behavior}}
+
+ ;; The view's own declared policy still decides. A view declaring
+ ;; `:children-policy :none` refuses React children with the DECLARATION's
+ ;; diagnostic, not a bridge-specific one.
+ :children-policy
+ {:view  :re-frame.freehand.to-react-views/badge
+  :error :rf.error/view-children-policy}
+
+ ;; The reserved-name collision, reachable only through the adapter.
+ :reserved-collision
+ {:props    {:frame :some/frame}
+  :recovery :rename-the-prop
+  :names    "re-frame.freehand.to-react-views/person-cell"}}
