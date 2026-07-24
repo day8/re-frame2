@@ -35,6 +35,11 @@ address at all, so this guard fails the build when:
     * OUT-OF-ORDER ID      — ordinals within a section are dense and ascending;
                              appending out of order means the allocation rule was
                              not followed and a collision is one merge away.
+    * GAP IN AREA          — the other half of that rule, and the half that was
+                             documented but never enforced: ordinals are DENSE.
+                             A gap means an id was deleted where the convention
+                             is to retire it, and the id is now free to be
+                             re-allocated to a different law.
     * MISSING CITATION     — the canonical-paragraph cell is not a markdown link
                              with an anchor.
     * BROKEN CITATION      — the cited spec file does not exist, the anchor does
@@ -71,6 +76,12 @@ and, from the execution census:
                              fifteen; an area with none means the law was never
                              written, and an index of empty sections satisfies
                              every structural rule above trivially.
+    * DANGLING CITATION    — an `FH-…` id cited somewhere under `spec/` that the
+                             index carries no row for, at any status.  This is
+                             the one detector for a TOP-of-area deletion: it
+                             leaves no ordinal gap, so nothing in the index can
+                             see it, and the surviving citations are the only
+                             evidence the id was ever allocated.
 
 Every defect names the offending row (its id, or its raw first cell when the id
 itself is the defect) and its line number.
@@ -319,6 +330,7 @@ def check(repo_root: Path, verbose: bool = False) -> int:
     section_has_header = False
     last_ordinal: dict[str, int] = {}
     row_count = 0
+    by_status: dict[str, int] = {}
 
     in_fence = False
     for line_no, raw in enumerate(
@@ -412,6 +424,14 @@ def check(repo_root: Path, verbose: bool = False) -> int:
             if previous is not None and ordinal <= previous:
                 defect(line_no, "OUT-OF-ORDER ID", label,
                        f"follows {area}-{previous:03d}; ids ascend within an area")
+            elif previous is not None and ordinal > previous + 1:
+                missing = ", ".join(
+                    f"FH-{area}-{n:03d}" for n in range(previous + 1, ordinal)
+                )
+                defect(line_no, "GAP IN AREA", label,
+                       f"follows {area}-{previous:03d}, so {missing} is missing; "
+                       "ordinals are DENSE within an area - a withdrawn law "
+                       "keeps its row at status `retired`, it is not deleted")
             last_ordinal[area] = max(ordinal, previous or 0)
 
         if not law:
@@ -430,6 +450,7 @@ def check(repo_root: Path, verbose: bool = False) -> int:
             defect(line_no, "BAD STATUS", label,
                    f"`{status}` - expected one of {', '.join(sorted(STATUSES))}")
         else:
+            by_status[status] = by_status.get(status, 0) + 1
             reason = _check_fixture(fixture, status, repo_root)
             if reason:
                 kind = "MISSING FIXTURE" if status == "active" else "MISPLACED FIXTURE"
@@ -467,9 +488,18 @@ def check(repo_root: Path, verbose: bool = False) -> int:
             "active) a real fixture.\n"
         )
     elif verbose:
+        # The status breakdown is spelled out because two different numbers are
+        # true at once and a reader who takes the wrong one draws the wrong
+        # conclusion: the TOTAL counts every id ever allocated, `active` counts
+        # the laws that currently BIND, and only the second is the applicable-row
+        # count the census reconciles.
+        breakdown = ", ".join(
+            f"{by_status[s]} {s}" for s in ("active", "planned", "retired")
+            if by_status.get(s)
+        )
         sys.stderr.write(
-            f"Freehand conformance index OK: {row_count} row(s) across "
-            f"{len(sections_seen)} area section(s).\n"
+            f"Freehand conformance index OK: {row_count} row(s) ({breakdown}) "
+            f"across {len(sections_seen)} area section(s).\n"
         )
 
     return len(defects)
@@ -480,15 +510,16 @@ def check(repo_root: Path, verbose: bool = False) -> int:
 # --------------------------------------------------------------------------
 
 
-def _active_rows(index: Path) -> list[tuple[int, str, str, str]]:
-    """`(line_no, id, applicability, fixture_path)` for each `active` row.
+def _parse_rows(index: Path) -> list[tuple[int, str, str, str, str]]:
+    """`(line_no, id, applicability, fixture_path, status)` for each parseable
+    row, at every status.
 
     A second, deliberately forgiving pass over the index: the census answers a
     different question from `check`, and a row too malformed to parse here has
     already been reported there.  Reporting it twice, in two vocabularies,
     would bury the one defect that matters under its own echo.
     """
-    rows: list[tuple[int, str, str, str]] = []
+    rows: list[tuple[int, str, str, str, str]] = []
     in_fence = False
     for line_no, raw in enumerate(
         index.read_text(encoding="utf-8").splitlines(), start=1
@@ -502,10 +533,23 @@ def _active_rows(index: Path) -> list[tuple[int, str, str, str]]:
         if len(cells) != len(COLUMNS):
             continue
         row_id = _unquote(cells[0])
-        if not _ID_RE.match(row_id) or cells[5] != "active":
+        if not _ID_RE.match(row_id):
             continue
-        rows.append((line_no, row_id, cells[3], _unquote(cells[4])))
+        rows.append((line_no, row_id, cells[3], _unquote(cells[4]), cells[5]))
     return rows
+
+
+# Where an `FH-…` id may be cited.  `spec/` is the normative corpus and the
+# whole reason ids are permanent: a citation there is what a `retired` row keeps
+# honest.  Two files are excluded, and both for the same reason — they are the
+# documents that DEFINE the scheme, so they speak in illustrative ids
+# (`FH-PROPS-007`, `FH-AREA-NNN`) that are examples rather than citations.
+_CITATION_ROOT = Path("spec")
+_CITATION_EXCLUDED = (
+    INDEX_REL,
+    Path("spec/conformance/freehand/README.md"),
+)
+_CITATION_SUFFIXES = (".md",)
 
 
 def _lanes_for(path: Path) -> frozenset[str]:
@@ -542,23 +586,45 @@ def _host_lanes(host: str) -> frozenset[str]:
     return HOST_LANES.get(host, _QUALIFIED_HOST_LANES)
 
 
+def _scan_citations(repo_root: Path) -> dict[str, list[Path]]:
+    """Map each `FH` id cited in the normative corpus to the files citing it."""
+    cited: dict[str, list[Path]] = {}
+    root = repo_root / _CITATION_ROOT
+    if not root.is_dir():
+        return cited
+    excluded = {repo_root / rel for rel in _CITATION_EXCLUDED}
+    for path in sorted(root.rglob("*")):
+        if path.suffix not in _CITATION_SUFFIXES or path in excluded:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for row_id in sorted(set(re.findall(r"\bFH-[A-Z]+-\d{3}\b", text))):
+            cited.setdefault(row_id, []).append(path)
+    return cited
+
+
 def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
     """Reconcile the index against the suites that run it.  Return the defect
     count.
 
     The manifest is DERIVED — from the `(conf/fixture :FH-…)` sites in
     `implementation/freehand/test/` and the lane each file runs in — so there is
-    no second copy of the mapping to keep in step.  Four facts fall out, and each
+    no second copy of the mapping to keep in step.  Five facts fall out, and each
     is a defect shape: a row nothing reads, a row read only from lanes that do
     not serve the hosts it claims, a fixture or a proof site left behind by a row
-    that no longer exists, and a roster area holding no proven law at all.
+    that no longer exists, a roster area holding no proven law at all, and an id
+    the corpus cites that the index does not carry.
+
+    Only `active` rows are CLAIMS, so only they are reconciled against the
+    suites.  A `retired` row is a burnt id: it proves nothing and needs no
+    fixture, but it is still a row, so a citation to it resolves.
     """
     index = repo_root / INDEX_REL
     if not index.is_file():
         sys.stderr.write(f"error: no Freehand conformance index at {index}\n")
         return 1
 
-    rows = _active_rows(index)
+    all_rows = _parse_rows(index)
+    rows = [(n, i, a, f) for n, i, a, f, status in all_rows if status == "active"]
     sites = _scan_proof_sites(repo_root)
     defects: list[str] = []
     table: list[tuple[str, str, str, str, str]] = []
@@ -636,6 +702,22 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
                     "id acquires a stale meaning"
                 )
 
+    # The one detector for a deletion at the TOP of an area: it leaves no
+    # ordinal gap, so the index cannot see it, and the citations that outlive it
+    # are the only surviving evidence the id was ever allocated.  Every row
+    # counts here, whatever its status — that is the whole point of retiring an
+    # id rather than freeing it.
+    addressed = {row_id for _, row_id, _, _, _ in all_rows}
+    for row_id, paths in sorted(_scan_citations(repo_root).items()):
+        if row_id not in addressed:
+            where = ", ".join(p.relative_to(repo_root).as_posix() for p in paths)
+            defects.append(
+                f"  DANGLING CITATION: {where} cites [{row_id}], which "
+                f"{INDEX_REL.as_posix()} carries no row for - an id is an "
+                "address, and a withdrawn law keeps its row at status `retired` "
+                "so the address still answers"
+            )
+
     if report:
         widths = [max(len(r[i]) for r in ([("Id", "Mode", "Hosts", "Lanes", "Proving tests")] + table))
                   for i in range(5)]
@@ -649,9 +731,12 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
                 "  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip() + "\n"
             )
         sys.stdout.write(
-            f"\n{len(table)} active row(s); "
-            f"{sum(1 for r in table if r[3] != '-')} with an executed "
-            "applicable arm.\n"
+            f"\n{len(table)} APPLICABLE row(s) - every `active` row, the ones "
+            "whose laws bind - of which "
+            f"{sum(1 for r in table if r[3] != '-')} have an executed applicable "
+            f"arm.  {len(all_rows)} row(s) in the index in total; the remaining "
+            f"{len(all_rows) - len(table)} are addressed ids that do not bind "
+            "(`retired`, `planned`) and are not applicable rows.\n"
         )
 
     if defects:
@@ -661,16 +746,20 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
         for line in defects:
             sys.stderr.write(line + "\n")
         sys.stderr.write(
-            "\nFix: an `active` row is a claim that a law is PROVEN on the "
-            "modes and hosts its applicability cell names.  Either write the "
-            "proof, or narrow the cell to what is proven - see "
-            "spec/008-Testing.md #the-hostmode-matrix.\n"
+            "\nFix: an `active` row is a claim that a law is PROVEN on the modes "
+            "and hosts its applicability cell names - so either write the proof, "
+            "or narrow the cell to what is proven (spec/008-Testing.md "
+            "#the-hostmode-matrix).  An id that stops binding keeps its row at "
+            "status `retired` rather than being deleted, so every citation still "
+            "resolves (spec/conformance/freehand/README.md).\n"
         )
     elif verbose:
+        burnt = len(all_rows) - len(rows)
         sys.stderr.write(
-            f"Freehand conformance census OK: {len(table)} active row(s) across "
-            f"{len(AREAS)} area(s), none empty, each row read by a test in every "
-            "lane its hosts name.\n"
+            f"Freehand conformance census OK: {len(table)} APPLICABLE row(s) "
+            f"across {len(AREAS)} area(s), none empty, each read by a test in "
+            f"every lane its hosts name; {burnt} further id(s) addressed but not "
+            "binding.\n"
         )
 
     return len(defects)
@@ -752,6 +841,7 @@ def _write_census_fixture(
     sections: dict[str, str],
     tests: dict[str, str],
     extra_fixtures: tuple[str, ...] = (),
+    citations: tuple[str, ...] = (),
 ) -> None:
     """A census mini-repo: a FULL index — every area carrying a clean row unless
     the caller overrode it — plus a test tree that reads (or fails to read) its
@@ -774,6 +864,11 @@ def _write_census_fixture(
         (test_dir / name).write_text(source, encoding="utf-8")
     for name in extra_fixtures:
         (root / FIXTURES_REL / name).write_text("{}\n", encoding="utf-8")
+    if citations:
+        (root / _CITATION_ROOT / "099-Citing.md").write_text(
+            "# Citing\n\n" + "\n".join(f"see {c}" for c in citations) + "\n",
+            encoding="utf-8",
+        )
 
 
 def _proof(row_id: str = "FH-CALL-001") -> str:
@@ -784,15 +879,18 @@ def _build_census_fixtures(base: Path) -> None:
     """One mini-repo per census rule.  Each pins exactly one reading of the
     host/mode matrix, so a change to `HOST_LANES` or `_lanes_for` that is not
     also a change to Spec 008 fails here first."""
-    cases: dict[str, tuple[dict[str, str], dict[str, str], tuple[str, ...]]] = {
+    cases: dict[
+        str, tuple[dict[str, str], dict[str, str], tuple[str, ...], tuple[str, ...]]
+    ] = {
         # Green: a `common jvm browser` row read from a `.cljc` suite, which
         # runs in the JVM lane AND the node lane.
-        "census_clean": ({"CALL": _row()}, {"a_cljs_test.cljc": _proof()}, ()),
+        "census_clean": ({"CALL": _row()}, {"a_cljs_test.cljc": _proof()}, (), ()),
         # Green: `ssr` is served by the JVM lane — the JVM render IS the server
         # shell, and 011 owns emission (Spec 008 §The host/mode matrix).
         "census_ssr_served_by_jvm": (
             {"CALL": _row(applicability="common jvm ssr")},
             {"a_cljs_test.cljc": _proof()},
+            (),
             (),
         ),
         # Green: a qualified host is proven by connecting the real wrapper in a
@@ -800,6 +898,7 @@ def _build_census_fixtures(base: Path) -> None:
         "census_qualified_host": (
             {"CALL": _row(applicability="compiled host:ag-grid")},
             {"a_dom_cljs_test.cljs": _proof()},
+            (),
             (),
         ),
         # Green: only an `active` row is a claim, so the `planned` row beside a
@@ -809,14 +908,16 @@ def _build_census_fixtures(base: Path) -> None:
                                    fixture=NO_FIXTURE, status="planned")},
             {"a_cljs_test.cljc": _proof()},
             (),
+            (),
         ),
         # Red: the row names a real fixture nobody reads.
-        "census_unproven_row": ({"CALL": _row()}, {}, ()),
+        "census_unproven_row": ({"CALL": _row()}, {}, (), ()),
         # Red: a `common jvm browser` row read only from a mounted `.cljs`
         # suite — node and browser, never the JVM it claims.
         "census_unexecuted_host": (
             {"CALL": _row()},
             {"a_dom_cljs_test.cljs": _proof()},
+            (),
             (),
         ),
         # Red: a qualified host claimed by a suite that never enters a browser.
@@ -824,11 +925,13 @@ def _build_census_fixtures(base: Path) -> None:
             {"CALL": _row(applicability="compiled host:ag-grid")},
             {"a_cljs_test.cljc": _proof()},
             (),
+            (),
         ),
         # Red: a suite that outlived its law.
         "census_dangling_proof": (
             {"CALL": _row()},
             {"a_cljs_test.cljc": _proof() + _proof("FH-CALL-002")},
+            (),
             (),
         ),
         # Red: a deletion that took the row and left the bytes.
@@ -836,6 +939,7 @@ def _build_census_fixtures(base: Path) -> None:
             {"CALL": _row()},
             {"a_cljs_test.cljc": _proof()},
             ("fh-call-002.edn",),
+            (),
         ),
         # Red: a roster area holding no proven law — the shape an index of bare
         # section headers has, which every structural rule passes trivially.
@@ -843,12 +947,30 @@ def _build_census_fixtures(base: Path) -> None:
             {"CALL": _row(), "DIAG": ""},
             {"a_cljs_test.cljc": _proof()},
             (),
+            (),
+        ),
+        # Red: the corpus cites an id the index carries no row for — the one
+        # detector for a deletion at the TOP of an area, which leaves no gap.
+        "census_dangling_citation": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": _proof()},
+            (),
+            ("FH-CALL-002",),
+        ),
+        # Green: the same citation once the withdrawn law keeps its row at
+        # `retired` — a burnt id still answers, and needs no fixture or proof.
+        "census_retired_row_answers_a_citation": (
+            {"CALL": _row() + _row(row_id="FH-CALL-002",
+                                   fixture=NO_FIXTURE, status="retired")},
+            {"a_cljs_test.cljc": _proof()},
+            (),
+            ("FH-CALL-002",),
         ),
     }
-    for name, (sections, tests, extra) in cases.items():
+    for name, (sections, tests, extra, cited) in cases.items():
         root = base / name
         root.mkdir(parents=True, exist_ok=True)
-        _write_census_fixture(root, sections, tests, extra)
+        _write_census_fixture(root, sections, tests, extra, cited)
 
 
 def _build_self_test_fixtures(base: Path) -> None:
@@ -867,6 +989,11 @@ def _build_self_test_fixtures(base: Path) -> None:
         "area_mismatch": {"PROPS": _row()},
         "out_of_order_id": {
             "CALL": _row(row_id="FH-CALL-002") + _row(row_id="FH-CALL-001")
+        },
+        # The other half of the dense-and-ascending rule: a deletion where the
+        # convention is a retirement, leaving the id free to be re-allocated.
+        "gap_in_area": {
+            "CALL": _row(row_id="FH-CALL-001") + _row(row_id="FH-CALL-003")
         },
         "citation_not_a_link": {"CALL": _row(citation="004-Views.md#template-grammar")},
         "citation_no_anchor": {"CALL": _row(citation="[v](../../004-Views.md)")},
@@ -955,6 +1082,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("unknown_area_in_id", 1),
         ("area_mismatch", 1),
         ("out_of_order_id", 1),
+        ("gap_in_area", 1),
         ("citation_not_a_link", 1),
         ("citation_no_anchor", 1),
         ("citation_missing_file", 1),
@@ -988,6 +1116,8 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("census_dangling_proof", 1),
         ("census_orphan_fixture", 1),
         ("census_empty_area", 1),
+        ("census_dangling_citation", 1),
+        ("census_retired_row_answers_a_citation", 0),
     ]
     failures = 0
     with tempfile.TemporaryDirectory(prefix="fh_index_selftest_") as tmp:

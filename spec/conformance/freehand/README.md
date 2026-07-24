@@ -141,11 +141,11 @@ Two guards, and the difference between them is the difference between an index
 that is well-formed and one that is true.
 
 **The structural check** reads the index as a document. It fails on a duplicate
-or ill-formed id, a row filed under the wrong area, an out-of-order id, a
-citation whose spec file or anchor does not exist, a citation that points outside
-`spec/`, a missing or misplaced fixture, an unknown applicability token or a
-broken axis, an unknown status, and a section roster that no longer matches the
-area roster above.
+or ill-formed id, a row filed under the wrong area, an out-of-order id, a *gap*
+in an area's ordinals, a citation whose spec file or anchor does not exist, a
+citation that points outside `spec/`, a missing or misplaced fixture, an unknown
+applicability token or a broken axis, an unknown status, and a section roster
+that no longer matches the area roster above.
 
 **The execution census** reads the index against the suites that run it. A row
 naming a real fixture nobody reads passes the structural check and proves
@@ -154,9 +154,20 @@ nothing, so the census derives — from the `(conf/fixture :FH-…)` sites in
 are actually proven and where. It fails on a row no test reads, a row read only
 from lanes that do not serve the hosts its applicability cell claims, a test that
 reads a fixture for a row the index no longer carries, a fixture file left on
-disk by a row that was deleted, and a roster area holding no `active` row at all
-— the roster carries an area because a law lives there, and an index of bare
-section headers satisfies every structural rule above trivially.
+disk by a row that was deleted, a roster area holding no `active` row at all —
+the roster carries an area because a law lives there, and an index of bare
+section headers satisfies every structural rule above trivially — and an
+`FH-<AREA>-<NNN>` cited anywhere under `spec/` that the index carries no row
+for, at any status.
+
+That last one is the only guard against a deletion at the **top** of an area.
+Delete `FH-EVENT-005` when `FH-EVENT-004` is its neighbour and the ordinals stay
+dense, so nothing in the index can tell the id was ever allocated — the
+citations that outlive it are the sole surviving evidence. Retire the row
+instead and the address answers, which is the whole reason the status exists.
+The two documents that *define* the scheme, this file and the index, are
+exempt: they speak in illustrative ids like `FH-PROPS-007`, which are examples
+rather than citations.
 
 The lane a file runs in is not asserted here; it is mirrored from where it is
 configured — cognitect-test-runner's discovery for `clojure -M:test`, and the two
