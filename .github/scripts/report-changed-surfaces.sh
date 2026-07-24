@@ -47,6 +47,7 @@ cljs_prod=false
 bundle_isolation=false
 reagent_slim_bundle=false
 freehand_evidence_elision=false
+freehand_reachability=false
 adapter_testbed_smokes=false
 ui_smoke=false
 tools_jvm=false
@@ -69,6 +70,7 @@ mark_all() {
   bundle_isolation=true
   reagent_slim_bundle=true
   freehand_evidence_elision=true
+  freehand_reachability=true
   adapter_testbed_smokes=true
   ui_smoke=true
   tools_jvm=true
@@ -585,6 +587,18 @@ else
         cljs_node_test=true
         cljs_browser=true
         freehand_evidence_elision=true
+        # rf2-zl8ao — the release entry is SHARED with the B5 reachability
+        # probe: `:freehand-release` is the production half of both control
+        # pairs, so a change to this app can root `re-frame.freehand.control`
+        # (a controlled input added to a release view) and break reachability
+        # without touching anything the evidence gate watches. A POSIX `case`
+        # takes the FIRST match, so this file can never reach the reachability
+        # case below — arm it here instead. Scoped to the entry: `evidence` and
+        # `cell` are the evidence gate's producers and not this one's.
+        case "$file" in
+          implementation/freehand/test/re_frame/freehand/release_app.cljs)
+            freehand_reachability=true ;;
+        esac
         ;;
       implementation/freehand/*.md)
         # rf2-drpa3.70 — prose under the artefact root. The two host suites
@@ -597,6 +611,55 @@ else
         # depth under the artefact.
         implementation_jvm=true
         cljs_node_test=true
+        ;;
+      implementation/freehand/src/re_frame/freehand/control.cljc|implementation/freehand/src/re_frame/freehand.cljc|implementation/freehand/test/re_frame/freehand/bench/b5_reachability_control_app.cljs)
+        # rf2-zl8ao — the B5 REACHABILITY gate's Freehand producer surfaces.
+        # `npm run test:freehand-reachability` (rf2-drpa3.52 acceptance 1)
+        # builds `:freehand-release` and its strict-superset twin
+        # `:freehand-release-reachability-control` and proves the semantic
+        # controller runtime (`re-frame.freehand.control`) is ABSENT from the
+        # production bundle and PRESENT in the control — 8,691 chars an
+        # unusing page does not ship. It landed as a local-only command with
+        # no workflow invocation, the same way its sibling did.
+        #
+        # DIFFERENT CLAIM from the evidence-elision gate above, not a
+        # duplicate: that pair moves `goog.DEBUG` and holds the app still
+        # (a DEV-GATED SEAM elides); this pair holds the flag still and moves
+        # the APP (an UNUSED MODULE elides). The controller strings are absent
+        # from the goog.DEBUG=true control too, so that build cannot prove
+        # this one. Hence two arms and two jobs.
+        #
+        # These are what can invalidate it:
+        #   - control.cljc  — the two refusal doors whose exact strings the
+        #     probe greps (`record-key`'s absent-`:control` and nil-`:control`
+        #     messages). Reword either and the grep goes vacuous — which the
+        #     positive-control half catches, but only if the gate RUNS.
+        #   - freehand.cljc — the facade, and the ONLY namespace requiring
+        #     `re-frame.freehand.control` (`controller-key` is `def`'d to
+        #     `control/record-key`). It owns the single production call edge:
+        #     root the door from a paved path here and the module ships.
+        #   - b5_reachability_control_app.cljs — the CONTROL entry. Lose the
+        #     `v/controller-key` call and the oracle stops being validated.
+        # The release entry `release_app.cljs` — the production half both
+        # bundles compile — is armed in the shared case above, which shadows
+        # this one.
+        #
+        # Deliberately NOT the whole `implementation/freehand/**` tree: two
+        # `:advanced` builds on every PR of a large programme is cost the
+        # sibling ruling (rf2-xwa4n) declined, and this gate shares one of
+        # those two builds with it. Unlike the evidence gate there is no
+        # sole-requirer JVM law pinning the narrowness yet (rf2-drpa3.52's
+        # boundary walk covers the evidence schema, not `control`), so the
+        # backstop for a NEW production edge appearing outside these files is
+        # the unconditional nightly run in expensive-tests.yml.
+        #
+        # The three host arms below are replicated from the artefact-root
+        # case: a POSIX `case` takes the FIRST match, so this case SHADOWS
+        # `implementation/freehand/*` — it must widen, never narrow.
+        implementation_jvm=true
+        cljs_node_test=true
+        cljs_browser=true
+        freehand_reachability=true
         ;;
       implementation/freehand/*)
         # rf2-drpa3.58 — the Freehand view substrate artefact (EP-0036).
@@ -949,6 +1012,23 @@ else
         reagent_slim_bundle=true
         freehand_evidence_elision=true
         ;;
+      implementation/scripts/check-freehand-reachability.cjs)
+        # rf2-zl8ao — self-protection, exactly as for the sibling checker
+        # above. This script IS the B5 reachability gate: the two controller
+        # door sentinels, the non-vacuity survivor, the empty-bundle refusal
+        # and the oracle-before-result ordering all live in it. The generic
+        # `implementation/scripts/*` case below never arms
+        # freehand_reachability, so without this arm a PR could soften the
+        # gate's own teeth while avoiding the job that runs it. The remaining
+        # static-script surfaces it shares with the generic case stay armed
+        # too; this case widens coverage, it does not narrow it.
+        cljs_node_test=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        reagent_slim_bundle=true
+        freehand_reachability=true
+        ;;
       implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/*)
         # rf2-8jz9t + rf2-bxdk8 + rf2-cjp0i + rf2-k9ekz + rf2-t5slp —
         # adapter_testbed_smokes and story_xray_browser are NOT fired
@@ -1012,6 +1092,22 @@ else
         case "$file" in
           implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
             freehand_evidence_elision=true ;;
+        esac
+        # rf2-zl8ao — the same trio DEFINES the B5 reachability gate too, and
+        # for its own reasons: shadow-cljs.edn declares the reachability
+        # CONTROL build (`:freehand-release-reachability-control`), whose
+        # `:init-fn` is the superset entry and whose `goog.DEBUG false` /
+        # `:advanced` settings must stay IDENTICAL to `:freehand-release` —
+        # let them drift and the pair stops being a controlled comparison.
+        # package.json carries the `test:freehand-reachability` script that
+        # builds both and invokes the checker, and the lockfile pins the
+        # shadow-cljs (hence Closure) version whose DCE the absence claim
+        # rests on. Scoped to the three build-config files, like the arms
+        # above; `implementation/scripts/*` stays off (the checker has its
+        # own case above).
+        case "$file" in
+          implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
+            freehand_reachability=true ;;
         esac
         ;;
       examples/*)
@@ -1310,6 +1406,7 @@ emit cljs_prod "$cljs_prod"
 emit bundle_isolation "$bundle_isolation"
 emit reagent_slim_bundle "$reagent_slim_bundle"
 emit freehand_evidence_elision "$freehand_evidence_elision"
+emit freehand_reachability "$freehand_reachability"
 emit adapter_testbed_smokes "$adapter_testbed_smokes"
 emit ui_smoke "$ui_smoke"
 emit tools_jvm "$tools_jvm"
