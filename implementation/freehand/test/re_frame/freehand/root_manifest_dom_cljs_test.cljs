@@ -35,6 +35,10 @@
             [re-frame.freehand.root :as root]
             [re-frame.freehand.root-id :as root-id]
             [re-frame.freehand.root-views :as views]
+            ;; The nil-rooted `nothing` view — its SERVER render is empty,
+            ;; which is exactly the empty-container-with-a-manifest case
+            ;; FH-ROOT-007 pins as an adoption rather than a fallback.
+            [re-frame.freehand.tree-views :as tree-views]
             [re-frame.late-bind :as late-bind]
             ;; The SSR artefact's manifest namespace: it publishes the
             ;; discovery hook at ns-load and owns the wire form. Requiring it
@@ -242,17 +246,18 @@
         (remove-page! node)))))
 
 ;; ===========================================================================
-;; FH-ROOT-007 — the ordering
+;; FH-ROOT-007 — the fallback, and the empty server render it must NOT eat
 ;; ===========================================================================
 
-(deftest fh-root-007-the-fallback-precedes-manifest-discovery
+(deftest fh-root-007-an-empty-container-with-no-manifest-falls-back
   (testing "Per FH-ROOT-007 (browser): a client-only first load has an empty
             container AND no manifest — a page the server never rendered
-            emits neither. So the empty container is recognised BEFORE any
-            manifest is asked for; asking first would turn every client-only
-            first load into {:missing :manifest} and delete the fallback
-            outright. The root that comes up carries the DERIVED identity,
-            because there is no server render here to read one from."
+            emits neither. Manifest ABSENCE beside an empty container is the
+            fallback: the root mounts client-side under the DERIVED identity,
+            because there is no server render here to read one from, and it
+            asks for no SSR artefact. (The sibling test below is the other
+            half: an empty container WITH a manifest is an empty SERVER
+            render, and it adopts.)"
     (if-not (browser?)
       (skip! "the browser job runs the fallback assertions")
       (let [expected (:empty-container root-007)
@@ -267,3 +272,51 @@
             "and it says so")
         (v/unmount! mounted)
         (remove-page! node)))))
+
+(deftest fh-root-007-an-empty-server-render-is-adopted-under-the-manifest
+  (testing "Per FH-ROOT-007 (browser): manifest PRESENCE — not a non-empty
+            container — is the server-render evidence. The nil-rooted
+            `nothing` view renders nothing, so the server emits an EMPTY
+            container that still carries its Root Manifest beside it; that
+            empty SERVER render is ADOPTED under the manifest's identity
+            rather than falling back to a client mount. The manifest names an
+            id and a prefix the `nothing` view's own derivation would never
+            produce, so every adopted fact below can only have been read off
+            the wire — the fixture supplies the sentinel, the render carries
+            it, and neither the assertion nor the fallback planted it."
+    (if-not (browser?)
+      (skip! "the browser job runs the hydration assertions")
+      (async done
+        (let [expected (:empty-server-render root-007)
+              wire-id  (:root-id expected)
+              derived  (:derived-root-id expected)
+              prefix   (:identifier-prefix expected)
+              node     (server-page! "" (:manifest expected))
+              mounted  (v/hydrate-root node [tree-views/nothing {}])
+              desc     (root/root-descriptor mounted)]
+          (is (not= derived wire-id)
+              "the fixture's manifest names an id the nil-rooted view would never
+               derive — without that this whole test is a tautology")
+          (is (= (:hydrated expected) (root/hydrated? mounted))
+              "an EMPTY container with a manifest beside it ADOPTED — it did not take
+               the fallback, which is the whole correction")
+          (is (= wire-id (:root-id desc))
+              "and it took the MANIFEST's root-id, never the derived one")
+          (is (= (:provenance expected) (:root-id-provenance desc))
+              "the descriptor says the identity came off the wire, not out of a
+               derivation")
+          (is (= derived (:view-id desc))
+              ":view-id stays the CLIENT's own fact — the nil-rooted view this site
+               mounted")
+          (is (= #{wire-id} (root/live-root-ids))
+              "the registry is keyed on the wire id — the derived id claims nothing")
+          (is (= prefix (root/root-identifier-prefix mounted))
+              "and the effective identifierPrefix is the server's, verbatim")
+          (settle
+            (fn []
+              (v/unmount! mounted)
+              (is (empty? (root/live-root-ids))
+                  "a hydrated empty root is an ordinary root — it tears down the same
+                   way")
+              (remove-page! node)
+              (done))))))))

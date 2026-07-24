@@ -18,19 +18,20 @@
 ;; real hydration with a real mismatch — falling back there would throw away
 ;; the adoption the server render was paid for on the strength of one wrong
 ;; character, and would hide the disagreement while doing it.
-;; THE FALLBACK PRECEDES MANIFEST DISCOVERY, and that ordering is part of
-;; the law rather than an implementation detail. A hydrating root reads its
-;; identity from the Root Manifest the server emits beside the container
-;; (FH-ROOT-006) — but a page the server never rendered emits no manifest
-;; either. Asking for one FIRST would make every client-only first load a
-;; hard failure and delete this row outright. So the empty container is
-;; recognised first, and the root that comes up carries the DERIVED
-;; identity an ordinary mount would give it. Only a container that DOES
-;; carry server markup is required to carry the manifest saying what it was
-;; rendered as.
+;; MANIFEST PRESENCE IS THE SERVER-RENDER EVIDENCE, not a non-empty
+;; container. A declared view may render nothing (an empty
+;; `re-frame.freehand.tree-views/nothing`), so the server can emit an empty
+;; container that still carries its Root Manifest — an empty SERVER render,
+;; adopted under the manifest's identity (FH-ROOT-006), which is how
+;; `hydrated?` tells it apart from a client-only load. The FALLBACK is
+;; taken when NO manifest is adjacent: a page the server never rendered
+;; emits neither markup nor a manifest, so the empty container with nothing
+;; beside it comes up under the DERIVED identity an ordinary mount would
+;; give it, and asks for no SSR artefact. Only a container that DOES carry
+;; server markup, with nothing adjacent, is the broken-render failure.
 {:fh/id "FH-ROOT-007"
  :fh/law
- "A hydrating root whose container carries nothing to adopt takes the FALLBACK — an ordinary client mount under the DERIVED identity, recognised BEFORE any Root Manifest is asked for and reported as the mount kind rather than as adoption errors — while a container carrying markup that merely disagrees stays on the adoption path, reads its identity from the manifest, and takes the mismatch."
+ "Manifest PRESENCE, not a non-empty container, is a hydrating root's server-render evidence: an empty container the server emitted for a view that rendered nothing still carries its Root Manifest and is ADOPTED under that identity, while a container with NO manifest adjacent takes the FALLBACK when it is empty — an ordinary client mount under the DERIVED identity, reported as the mount kind rather than as adoption errors and asking for no SSR artefact — and a container carrying markup that merely disagrees stays on the adoption path, reads its identity from the manifest, and takes the mismatch."
 
  :view  :greeting
  :props {:name "world"}
@@ -44,6 +45,23 @@
                    :manifest-present false
                    :root-id    :re-frame.freehand.root-views/greeting
                    :provenance :derived}
+
+ ;; The empty SERVER render, and the point of the correction: a declared
+ ;; view rendered nothing, so the container is empty — but the server
+ ;; emitted its Root Manifest beside it all the same. Manifest PRESENCE is
+ ;; what proves this empty DOM is a server render rather than a client-only
+ ;; first load, so it ADOPTS under the manifest's identity instead of
+ ;; falling back. The id and prefix are ones the nil-rooted view's OWN
+ ;; derivation would never produce, so a passing assertion can only have
+ ;; read them off the wire — never derived them and never planted them.
+ :empty-server-render {:derived-root-id :re-frame.freehand.tree-views/nothing
+                       :manifest {:rf.root/schema-version 1
+                                  :root-id           :fh.root/empty-from-the-wire
+                                  :identifier-prefix "empty-srv-"}
+                       :root-id    :fh.root/empty-from-the-wire
+                       :identifier-prefix "empty-srv-"
+                       :provenance :manifest
+                       :hydrated   true}
 
  ;; Whitespace-only is the same case — a formatted page skeleton is empty.
  :whitespace-container {:html "\n  " :hydrated false}
