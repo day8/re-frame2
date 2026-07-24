@@ -1,0 +1,109 @@
+;; Conformance fixture: routing/address-extraction
+;;
+;; EP-0037 R0 — conformance row 1 (address parity, incl. flat-wrapper
+;; extraction proof). Per Spec 012 §The extraction law: every navigation
+;; door extracts and validates the RouteAddress (`{:to :params :query
+;; :fragment}`) from the flat public request map BEFORE validation, over
+;; closed key classes. Only the extracted address reaches the closed
+;; `:rf/route-address` schema; navigation policy (`:replace?`) and in-place
+;; edits (`:query`) are separate classes.
+;;
+;; The fixture pins the R0 arms of address parity:
+;;   1. FLAT-WRAPPER EXTRACTION — a request carrying an address plus the
+;;      policy key `:replace?` navigates to the target the ADDRESS names;
+;;      the policy changes only the EFFECT (`:rf.nav/replace-url` vs
+;;      `:rf.nav/push-url`), never the resolved target/URL. `route-url`
+;;      builds the SAME URL from the same address fields (parity across
+;;      surfaces).
+;;   2. `:params-requires-destination` — an in-place request carrying
+;;      `:params` (no `:to`/`:url`) rejects with `:rf.error/navigate-bad-
+;;      request`; changing path params always requires a destination.
+;;   3. EDIT-BRANCH complement — an in-place `{:query ...}` request follows
+;;      the edit branch: it PATCHES the current location (route-id + params
+;;      carried, query replaced) and is never validated/stored as a
+;;      RouteAddress.
+;;   4. WHOLE-ROSTER validation before extraction — a misspelled/foreign key
+;;      (namespaced included) rejects with `:reason :unknown-keys` even when
+;;      `:to` is present, so extraction can never silently discard a key.
+;;
+;; Per [012 §The extraction law] (#the-extraction-law) and
+;; [§Validity rules] (#validity-rules--the-always-on-structural-gate).
+
+{:fixture/id           :routing/address-extraction
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler :core/fx :core/error :core/trace}
+ :fixture/doc          "EP-0037 R0 address parity (row 1): a flat wrapper carrying an address plus the policy key :replace? navigates to the address's target — policy changes only the effect (replace-url vs push-url), not the resolved target/URL, and route-url builds the same URL. In-place :params rejects with :params-requires-destination; an in-place {:query} follows the edit branch (route-id + params carried, query replaced); an unknown key (namespaced included) rejects with :unknown-keys before extraction."
+
+ :fixture/registry
+ {:event {:rf/init           {:doc "Seed the current route."}
+          :rf.route/navigate {:doc "Navigate to a registered route."}}
+  :route {:route/home    {:path "/"}
+          :route/article {:path   "/articles/:slug"
+                          :params [:map [:slug :string]]}}
+  :fx    {:rf.nav/push-url    {:platforms #{:client}}
+          :rf.nav/replace-url {:platforms #{:client}}
+          :rf.nav/scroll      {:platforms #{:client}}}}
+
+ ;; The fixture does NOT override :rf.route/navigate — the runtime's built-in
+ ;; handler (per Spec 012) extracts the address, applies policy, and emits the
+ ;; push/replace effect, which is exactly what :effects-routed asserts.
+ :fixture/handlers
+ {:event {:rf/init [[:set-runtime [:rf.runtime/routing :current] {:route-id :route/home :params {}}]]}
+  :fx    {:rf.nav/push-url    [[:noop]]
+          :rf.nav/replace-url [[:noop]]
+          :rf.nav/scroll      [[:noop]]}}
+
+ :fixture/frame-config {:initial-events [[:rf/init]] :platform :client}
+
+ :fixture/dispatches
+ [;; (1) Flat wrapper: address (:to/:params/:query) + policy (:replace?).
+  ;;     Extracts to route/article; :replace? honoured as REPLACE, not part
+  ;;     of the address.
+  [:rf.route/navigate {:to :route/article :params {:slug "routing-as-data"} :query {:tab "comments"} :replace? true}]
+
+  ;; (2) In-place :params (no :to/:url) — REJECTS. Changing path params is a
+  ;;     destination, never an in-place edit.
+  [:rf.route/navigate {:params {:slug "x"}}]
+
+  ;; (3) In-place {:query} — EDIT branch. Stays on route/article, carries the
+  ;;     slug, replaces the query wholesale. Never validated as a RouteAddress.
+  [:rf.route/navigate {:query {:tab "history"}}]
+
+  ;; (4) Unknown namespaced key beside a valid :to — REJECTS before
+  ;;     extraction (whole-roster validation), so a misspelled/foreign key is
+  ;;     never silently discarded.
+  [:rf.route/navigate {:to :route/article :params {:slug "x"} :my-app/replace? true}]]
+
+ :fixture/calls
+ ;; Address parity across surfaces: route-url builds the SAME URL from the
+ ;; same address fields the flat wrapper carried in dispatch (1) — the policy
+ ;; key is absent here yet the URL is identical, so policy is not address.
+ [{:call :route-url :route-id :route/article :params {:slug "routing-as-data"} :query {:tab "comments"}
+   :expect "/articles/routing-as-data?tab=comments"}]
+
+ :fixture/expect
+ ;; Final slice after all four dispatches: the in-place edit (3) left
+ ;; route/article + slug intact and replaced the query; (2) and (4) rejected
+ ;; and changed nothing. Submap match tolerates :transition/:nav-token/etc.
+ {:final-runtime-db
+  {:rf.runtime/routing
+   {:current {:route-id :route/article
+              :params   {:slug "routing-as-data"}
+              :query    {:tab "history"}
+              :fragment nil}}}
+
+  ;; Policy honoured separately from the address: (1) REPLACES (:replace?
+  ;; true), (3) PUSHES (default, edit branch). The resolved URLs come from the
+  ;; extracted address only.
+  :effects-routed
+  [{:fx-id :rf.nav/replace-url :args "/articles/routing-as-data?tab=comments"}
+   {:fx-id :rf.nav/push-url    :args "/articles/routing-as-data?tab=history"}]
+
+  ;; Both rejections ride the always-on structural gate BEFORE any extraction.
+  :trace-emissions
+  [{:operation :rf.error/navigate-bad-request
+    :op-type   :error
+    :tags      {:where :event :reason :params-requires-destination :keys [:params]}}
+   {:operation :rf.error/navigate-bad-request
+    :op-type   :error
+    :tags      {:where :event :reason :unknown-keys :keys [:my-app/replace?]}}]}}

@@ -3569,6 +3569,44 @@ The structural-rank tuple `match-url` computes for each registered route, per [0
 
 Implementations rank candidates by descending `route-rank` then by ascending registration time (stable sort) — the **earlier** registration wins an equal-score tie. Equal-score candidates **whose patterns can match a common URL** (the [012 §Route ranking algorithm](012-Routing.md#route-ranking-algorithm) rule-6 "same URL family" — co-matchability, decided by language intersection over the patterns' segment automata) emit `:rf.warning/route-shadowed-by-equal-score` at registration time per [API.md §Error contract](API.md#error-contract). Equal rank alone MUST NOT warn — rank tuples ignore literal segment text, so `/x/:id` and `/y/:slug` tie structurally yet never co-match (rf2-6gzobp). The warning's `:tags` carry `{:route-id <the NEW, shadowed route> :shadowed-by <the existing winner> :rank <the tied structural RouteRank>}`.
 
+### `:rf/route-address`
+
+> **Layer:** Public
+> **Owner:** [012-Routing §The RouteAddress value](012-Routing.md#the-routeaddress-value)
+> **Status:** v1-required
+
+The caller-authored **address** of one registered named destination — the closed `{:to :params :query :fragment}` map every navigation door, `route-url`, `rf/route-link`, and `v/route-link` resolves through ([EP-0037](../docs/EP/EP-0037-route-planning-and-activation-ownership.md) §Terms, §Canonical `RouteAddress`). It is destination *intent*, never navigation policy (`:replace?` / `:scroll` / `:bypass-leave?`) and never an in-place edit (`:query-merge`); those travel beside the address in the same flat public map but keep their own shapes, so a future feature cannot make a policy or edit key serialisable as a destination. The resolved *fact* is the [`:rf/route-slice`](#rfroute-slice) — facts say `:route-id`, intent says `:to`.
+
+```clojure
+(def RouteAddress
+  [:map {:closed true}
+   [:to       :keyword]                                                    ;; required — the registered route id
+   [:params   {:optional true} :map]                                       ;; path params; omitted normalises to {}
+   [:query    {:optional true} :map]                                       ;; query params; omitted normalises to {}
+   [:fragment {:optional true} [:maybe :string]]])                         ;; #fragment; omitted / nil normalises to no fragment
+```
+
+The map is **closed**: an unknown address key fails at the authoring or event boundary in every build (dev *and* prod) — the same closure the navigate structural gate enforces (`:rf.error/navigate-bad-request`, `:reason :unknown-keys`; see [012 §The extraction law](012-Routing.md#the-extraction-law)). `:to` is required; omitted `:params` / `:query` normalise to `{}`, an omitted or `nil` `:fragment` to no fragment. Route param / query validation, canonical EDN identity, query defaults, URL encoding, and not-found behaviour remain owned by [012](012-Routing.md#the-routeaddress-value). The value is **extracted** from the flat public map each door accepts *before* validation, so only the four address keys ever reach this schema — never the convenient flat props/request map a door accepts. There is no record, constructor, builder, relative-address language, or redirect object; applications name address constants with ordinary Clojure values. Implementations register it via `reg-app-schema [:rf/route-address]`.
+
+### `:rf/route-destination`
+
+> **Layer:** Runtime
+> **Owner:** [012-Routing §The raw-URL escape](012-Routing.md#raw-url-escape)
+> **Status:** v1-required
+
+The closed **replay union** of a `:rf/route-address` and the raw-URL escape — the shape runtime state uses when it must preserve a requested destination that may have no named-route spelling ([EP-0037](../docs/EP/EP-0037-route-planning-and-activation-ownership.md) §Terms, §Raw URL escape). Leave-only pending-navigation and entry-denial payloads carry it; a matching raw URL normalises to the named branch, and only a destination that cannot be reified without changing the requested URL stays raw. It never absorbs navigation policy — a pending leave stores explicit policy beside it (see [§`:rf/pending-navigation`](#rfpending-navigation)).
+
+```clojure
+(def RouteDestination
+  [:or
+   RouteAddress                                                            ;; the named-destination branch (:rf/route-address)
+   [:map {:closed true}
+    [:url      :string]                                                    ;; the raw-URL escape; a raw URL IS the address
+    [:fragment {:optional true} [:maybe :string]]]])                       ;; explicit #fragment override of a URL-embedded one
+```
+
+The raw branch is a required string `:url` plus an optional string-or-`nil` `:fragment`; it excludes `:to`, `:params`, `:query`, and `:query-merge` (a raw URL IS the address). It is a *replay* shape only — it does **not** give `route-url` or prefetch a second accepted input spelling; those take a `:rf/route-address`.
+
 ### `:rf/route-slice`
 
 > **Layer:** Runtime

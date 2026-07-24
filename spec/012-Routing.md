@@ -86,6 +86,8 @@ Both live in `re-frame.routing` — they are **not** on the `rf/` (`re-frame.cor
 - `:rf/route-rank` — structural rank tuple (see [Spec-Schemas.md](Spec-Schemas.md#rfroute-rank)).
 - `:rf/route-slice` — the `:rf/route` slice shape (see [Spec-Schemas.md](Spec-Schemas.md#rfroute-slice)).
 - `:rf/pending-navigation` — the pending-nav slot shape (see [Spec-Schemas.md §`:rf/pending-navigation`](Spec-Schemas.md#rfpending-navigation)).
+- `:rf/route-address` — the closed caller-authored address `{:to :params :query :fragment}` every door resolves through (EP-0037 R0; see [Spec-Schemas.md §`:rf/route-address`](Spec-Schemas.md#rfroute-address) and [§The RouteAddress value](#the-routeaddress-value)).
+- `:rf/route-destination` — the address / raw-URL replay union used by pending-leave and entry-denial payloads (EP-0037 R0; see [Spec-Schemas.md §`:rf/route-destination`](Spec-Schemas.md#rfroute-destination)).
 
 ### Trace events
 
@@ -729,6 +731,102 @@ The three validation paths surface failures through **three different error/no-e
 The split is principled (per [§Param validation at the call site](#param-validation-at-the-call-site) above): caller-bug paths throw, event-boundary paths reject with a structured error, URL-driven paths route to the canonical not-found id. A consumer reading "the user tried to reach a route they can't parse" therefore branches differently per source: a caller-bug surfaces as an exception in dev (and as a substrate error in production); an event-boundary failure surfaces via the standard error substrate; a URL-driven failure surfaces via the not-found view's `:reason :validation` branch.
 
 **Asymmetry with flows.** Flows' validation surface is **flat by comparison** — `reg-flow` rejects a malformed flow map with one of **six** explicit error ids that all fire at registration time, all under `:rf.error/flow-*`: `:rf.error/flow-missing-id`, `:rf.error/flow-bad-id`, `:rf.error/flow-bad-inputs`, `:rf.error/flow-bad-output`, `:rf.error/flow-bad-path`, and `:rf.error/flow-bad-marks` (the registration-validation family, owned by [Spec-Schemas §FlowMeta](Spec-Schemas.md) and catalogued in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue); reference implementation `implementation/flows/src/re_frame/flows/registry.cljc`). These are distinct from flows' **runtime** error ids (`:rf.error/flow-cycle`, `:rf.error/flow-path-overlap`, `:rf.error/flow-eval-exception`, per [013 §Failure semantics](013-Flows.md#failure-semantics)). Flows have a single validation time for the registration family (registration) and a single surface (registration-throw); routing has three validation times (caller-fn invocation / event-boundary interceptor / URL-driven match) and three surfaces (synchronous throw / structured error / not-found route). The asymmetry is **not a bug** — it is principled per the table above — but it does mean that an AI scanning routing for "validation error ids" does not see one closed family, and a tool building an aggregate "show me all validation failures" surface needs to subscribe to two distinct error ids plus a slice-write predicate. The split is the cost of routing's caller-bug-vs-user-input distinction; flows have no such distinction (registration is always caller code).
+
+<a id="the-routeaddress-and-the-shared-planning-pipeline"></a>
+## The `RouteAddress` and the shared planning pipeline (EP-0037 R0)
+
+[EP-0037](../docs/EP/EP-0037-route-planning-and-activation-ownership.md) makes routing one inspectable planning boundary: a caller-authored **address** is resolved once into a target, an active branch, and navigation policy, and every navigation door executes that one plan. This section is the R0 contract — the address value, the law that extracts it from the flat public maps each door accepts, the ordered planning pipeline every door lowers to, and the resolved-target / plan diagnostic projection. The stages that graduate later (honest readiness, the parent-to-leaf branch plan, terminal entry) are named to their EP-0037 sections and land in EP-0037's later slices; existing runtime behaviour is otherwise preserved.
+
+<a id="the-routeaddress-value"></a>
+### The `RouteAddress` value
+
+A registered destination is one closed, ordinary EDN map — caller *intent* for one named route (EP-0037 §Terms, §Canonical `RouteAddress`):
+
+```clojure
+{:to       :route/article
+ :params   {:slug "routing-as-data"}
+ :query    {:tab :comments}
+ :fragment "reply-42"}
+```
+
+Its schema id is `:rf/route-address` ([Spec-Schemas §`:rf/route-address`](Spec-Schemas.md#rfroute-address)): a closed `[:map {:closed true} [:to :keyword] [:params {:optional true} :map] [:query {:optional true} :map] [:fragment {:optional true} [:maybe :string]]]`. `:to` is required; omitted `:params` / `:query` normalise to `{}`, an omitted or `nil` `:fragment` to no fragment. There is no record, constructor, builder, relative-address language, or redirect object — an application names address constants and pure functions with ordinary Clojure values.
+
+The same four fields are consumed wherever an address is stored, printed, linked, navigated to, denied, returned to, or prefetched: `rf.routing/route-url`, `rf/route-link` / `v/route-link` (as control fields inside the larger props map), the destination branch of `:rf.route/navigate`, the named destination carried by entry-denied and pending-leave data, application redirect / return-to state, and `:rf.route/prefetch`. Two companion values complete the vocabulary (EP-0037 §Terms):
+
+- **`RouteDestination`** ([`:rf/route-destination`](Spec-Schemas.md#rfroute-destination)) — the closed replay union of a `RouteAddress` and the raw-URL escape, used where runtime state must replay a destination that may have no named spelling. It never absorbs navigation policy.
+- **`ResolvedTarget`** — planner output (`:route-id`, `:params`, `:query`, `:fragment`, `:url`) after matching, defaults, and validation. It is a *fact*, not another accepted input spelling; facts say `:route-id`, intent says `:to`.
+
+Policy and edits are deliberately **not** part of the address. Navigation policy (`:replace?`, `:scroll`, and the leave-only `:bypass-leave?`) and the in-place edit `:query-merge` travel in the same flat map but keep their own shapes, so no future feature can make a policy or edit key serialisable as a destination (EP-0037 §Navigation policy and in-place edits). Public call sites stay flat — a `:rf.route/navigate` request is an address plus navigation policy; a `route-link` props map is an address plus link behaviour and ordinary DOM attributes — and no nested `{:address … :policy …}` envelope is introduced to encode the separation.
+
+<a id="the-extraction-law"></a>
+### The extraction law
+
+Every door extracts and validates the address through **one** shared law over closed key classes (EP-0037 §Normative extraction from flat public maps):
+
+```clojure
+address keys       #{:to :params :query :fragment}
+policy keys        #{:replace? :scroll :bypass-leave?}
+edit keys          #{:query :query-merge :fragment}
+link behavior keys #{:prefetch}
+```
+
+Key **presence** selects the request branch *before* any validation:
+
+1. **`:to` present** — the extractor selects exactly the address keys and validates that extracted map against `:rf/route-address`. `:query` and `:fragment` are destination facts in this branch.
+2. **`:url` present** — the extractor selects the raw destination and validates it against the raw arm of `:rf/route-destination`. `:to`, `:params`, `:query`, and `:query-merge` are forbidden beside it; an explicit `:fragment` overrides the URL-embedded one under the existing fragment rule.
+3. **neither `:to` nor `:url`** — `:query`, `:query-merge`, and `:fragment` are **in-place edits**. They are never validated or stored as a `RouteAddress`. A `:params` key in this branch retains the named `:rf.error/navigate-bad-request` reason `:params-requires-destination`: changing path params always requires a destination (see [§In-place navigation](#in-place-navigation)).
+
+Policy keys are extracted and validated **separately** from the address. Every closed control-map boundary — navigation, URL generation, prefetch, stored-destination replay — validates its **whole accepted-key roster before extraction**, so extraction can never silently discard a misspelled address, policy, or edit key; the navigate structural gate's `:unknown-keys` rejection (namespaced keys included) is exactly this whole-roster check (see [§Validity rules](#validity-rules--the-always-on-structural-gate)). Because only the extracted address reaches the closed schema, a flat wrapper carrying `{:to … :params … :replace? true}` navigates to the same target and URL whether or not the policy key is present — the policy changes the *effect* (`replaceState` vs `pushState`), not the destination. (The set-valued `:bypass-guards?` is retired in favour of the boolean `:bypass-leave?` in EP-0037 R4; see [§Navigation blocking](#navigation-blocking--pending-nav-protocol).)
+
+`route-link` is the one deliberate exception, because its props map is *also* an open DOM-attribute map: it validates the recognised routing controls (including `:prefetch`), strips the exact address and behaviour keys before DOM emission, and passes the remaining attributes and children to the view substrate. It does not ask routing to classify every misspelled control against a caller-authored DOM attribute; host / view DOM diagnostics own unknown attributes. The schema is therefore closed over the *extracted address*, not over the convenient flat props map a link accepts (EP-0037 §Normative extraction from flat public maps).
+
+<a id="raw-url-escape"></a>
+#### The raw-URL escape
+
+`{:url "/partner/supplied/path"}` remains a stringly escape accepted by navigation doors that must handle an already-authored URL (deep-link handlers, server-redirect targets, a programmatic redirect from a string). It is **not** a `RouteAddress`, cannot combine with `:params` / `:query`, and is not accepted by `route-url` or prefetch. If it matches a registered route the planner produces the same resolved target and canonical named address it would from `:to`; if it does not, the existing same-origin / not-found rules apply (see [§Target form](#target-form--route-id-or-url-string)). Where runtime state must replay either form, `:rf/route-destination` is the closed union of a `RouteAddress` and this raw map; a matching raw URL normalises to the named branch, and only a destination that cannot be reified without changing the requested URL stays raw (EP-0037 §Raw URL escape).
+
+<a id="the-one-planning-pipeline"></a>
+### The one planning pipeline
+
+Every navigation door — a `route-link` click, `:rf.route/navigate`, Back / Forward, initial load, and SSR — lowers to the **same** ordered stages. Doors differ in cause and history / scroll policy, not in target, entry, resource, or readiness semantics (EP-0037 §One planning pipeline for every door):
+
+| Stage | Result | Failure / short-circuit |
+|---|---|---|
+| 1. Validate intent | accepted address / raw URL / in-place edit plus policy | a malformed request rejects before any guard or history effect |
+| 2. Resolve target | canonical target, URL, named address when possible, parent branch | schema / URL failures follow the existing not-found or caller-error contract |
+| 3. Classify transition | full, fragment-only, or no-op | a no-op terminates before guards, pending state, history, scroll, or activation |
+| 4. Decide leave | allow, or a leave-only pending navigation | full and fragment-only transitions consult the current route; pending leave preserves it, and popstate restores its URL |
+| 5. Decide entry | allow, or a terminal entry denial | full and fragment-only transitions consult the target route; denial commits no target and creates no pending entry |
+| 6. Build activation plan | for a full transition, the effective resource plan and old/new identity diff | fragment-only skips activation planning; a planning failure produces a failed plan and no partial resource plan executes |
+| 7. Commit and activate | route facts / plan ownership, history / scroll effects, resource ensures, activation events | stale completions stay fenced by token / generation |
+
+Classification precedes the guards deliberately: an exact **no-op** evaluates neither guard — nothing is being left or entered, and a redundant request must not create pending or denied state. A **full** transition evaluates `:can-leave` then `:can-enter`, including a same-route activation whose canonical `:params` or `:query` changed; query is data-bearing, so the in-place request form is not an implicit guard bypass. A **fragment-only** transition preserves 012's existing both-guard [fragment contract](#fragments) and skips only resource planning and activation. Initial load has no current leave guard but evaluates target entry normally. Transition kind is derived from resolved **facts**, not request spelling (EP-0037 §Resolved target and route plan): *full* when there is no current target or `:route-id` / `:params` / `:query` differ, *fragment-only* when those three are equal and only `:fragment` differs, *no-op* when all four are equal. A changed in-place `:query` / `:query-merge` is therefore a full, data-bearing activation, not a weaker path.
+
+The programmatic, link, URL-change, initial-load, and SSR handlers may remain separate public events for cause-specific tests and host integration, but they call the **same** resolver, decisions, planner, and commit assembler — no door reimplements guard coverage or resource planning. The existing [state-first ordering](#state-first-url-second-update-order-is-locked) holds: the frame's committed route facts and next plan ownership are established before any client history effect and before activation events; a URL-driven door performs no push (the browser has already moved), and a blocked or denied popstate restores the current route's URL by replace.
+
+<a id="failed-activation"></a>
+#### Failed activation
+
+A resource-planning failure is a committed **failed activation**, not a return to the prior page (EP-0037 §One planning pipeline for every door, §Honest activation and readiness): the target and URL **commit**, route readiness projects `:error`, and **no** resource ensure from the invalid plan runs. The target's `:on-match` events do **not** run — committing target facts makes the failure addressable and gives client and SSR error views stable route context, but a failed activation is not a successful activation boundary for analytics, host notification, or state seeding. The structured planning error and its trace are the causal facts an application observes; a retry is a fresh navigation and dispatches `:on-match` only after its plan forms successfully.
+
+Plan execution is atomic at this boundary: a failed plan contributes an empty next-ownership set, so after the failed target / error facts are installed every owner held only by the previous route plan is released, no partially planned next owner is attached, and no partial ensure is dispatched. A committed full activation allocates a fresh nav-token; a fragment-only transition and a no-op allocate none, and prefetch (not an activation) allocates none. The full readiness projection — `:rf.route/transition` / `:rf.route/error` as a resource-derived value — graduates in EP-0037 R1, and the parent-to-leaf branch plan in R2; the terminal-entry protocol that retires the resumable enter machinery graduates in R4. R0 fixes the stage order and the failed-activation rule above; existing runtime behaviour is otherwise preserved.
+
+<a id="resolved-target-and-the-plan-diagnostic-projection"></a>
+### Resolved target and the plan diagnostic projection
+
+Planning turns the caller's address into resolved **facts** — a `ResolvedTarget`:
+
+```clojure
+{:route-id :route/article
+ :params   {:slug "routing-as-data"}
+ :query    {:tab :comments}
+ :fragment "reply-42"
+ :url      "/articles/routing-as-data?tab=comments#reply-42"}
+```
+
+It is passed to guard subscriptions, recorded in diagnostics, and used to derive the parent chain. The internal **route plan** is plain data carrying at least the source address or raw-URL request, the resolved target, the cause (`:link`, `:navigate`, `:popstate`, `:initial`, or `:ssr`), the parent-to-leaf branch, the effective resource requirements and their contributors, the transition kind, history / scroll policy, and the old/new resource-identity diff for ownership handoff. It is an implementation and tooling seam — this contract adds no public `RoutePlan` constructor or promise-returning router object; its observable laws are public and its diagnostic projection is visible in trace / Xray (EP-0037 §Resolved target and route plan).
+
+The plan must be legible without executing view code, and its diagnostic projection graduates with the planner (EP-0037 §Tooling and observability): **R0 exposes only the source address and cause, the resolved target, the parent-to-leaf branch, and the behaviour-preserving leaf resource plan** — the minimum needed to prove the shared spine. R2 adds occurrence / dependency groups, contributor dedupe advisories, the grouped order, and the identity diff; later slices prove the integrated view. No slice is licence to build a second Xray graph or a general-purpose public plan debugger.
 
 ## Per-route data loading
 
