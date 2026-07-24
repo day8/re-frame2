@@ -90,21 +90,6 @@ scripts/test-fast-pr.sh                # fast pre-checkin spine
 scripts/test-jvm-implementation.sh     # all implementation JVM artefacts
 scripts/test-jvm-tools.sh              # tool JVM artefacts
 scripts/test-rigorous-local.sh         # expensive local/release-sized sweep
-
-# From implementation/:
-npm install                          # one-time, installs shadow-cljs + react
-npm run test:cljs                    # node-runtime CLJS tests (fast, default gate)
-npm run test:ui                      # re-frame.ui substrate suite (adapter-isolation check + node tests)
-npm run test:ui-warm-watch           # re-frame.ui warm-watch recompile probe
-npm run test:browser                 # browser tests via Playwright
-npm run test:elision                 # production elision probe
-npm run test:perf-bundle             # perf-budget bundle check
-npm run test:bundle-isolation        # tools must not leak into production bundles
-npm run test:reagent-slim:bundle-isolation # slim must not pull stock Reagent/react-dom/server
-npm run test:adapter-smokes          # adapter-smoke runner (one mount+dispatch+assert smoke per adapter)
-npm run test:xray-feature-gate       # Xray feature-matrix browser gate
-npm run test:mcp-conformance         # cross-server MCP wire-vocabulary conformance
-npm run story:build                  # build the story artefact
 ```
 
 Per-artefact tests run from each artefact directory via `clojure -M:test` (see e.g. `tools/story/deps.edn` `:test` alias). The canonical matrix and PR/nightly/release split lives in `TESTING.md`; workflow gates live in `.github/workflows/`.
@@ -119,12 +104,8 @@ Docs build from repo root with `mkdocs build --strict` (config in `mkdocs.yml`).
 
 Top-level layout:
 
-- `spec/` — the specification (primary artefact; AI-targeted)
 - `implementation/` — CLJS reference: `core/` + `ui/` (re-frame.ui, the EXPERIMENTAL compiled-view substrate, offered alongside the adapters) + per-substrate `adapters/` (Reagent, reagent-slim, UIx — first-class, actively supported) + per-feature artefacts (machines, schemas, resources, …). The top-level `implementation/shadow-cljs.edn` + `implementation/deps.edn` coordinate the cross-artefact classpath.
 - `tools/` — dev/inspection tools that consume the Spec 009 instrumentation API and Tool-Pair contract (`template/`, `story/`, `story-mcp/`, `re-frame2-pair-mcp/`, `xray/`, `machines-viz/`, `testbed-support/`, `mcp-base/`, `mcp-conformance/`). Bundle-isolated from production builds; nothing in `implementation/` may `:require` from `tools/`.
-- `examples/` — worked examples per substrate.
-- `docs/` — human-facing guide (`docs/core/`) and operational docs.
-- `skills/` — Claude Code skills for re-frame2 workflows.
 
 ## Conventions & Patterns
 
