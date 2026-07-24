@@ -148,7 +148,7 @@ No parallel `:loading?` flag — the machine's state IS the UI signal.
 
 ## Pointers
 
-SKILL-REDIRECT.md → *Pattern — Boot* (auth-machine retry-ownership, SSR handoff), *EP — Frames (002)* (`:initial-events`), *EP — State machines (005)* (substrate), *EP — SSR (011)*, *EP — HTTP requests (014)*. `:final?` / `:on-done` / `:output-key` → `../references/state-machines/spawn.md` §Final states. Retry-ownership boundary → `patterns/managed-http.md`.
+SKILL-REDIRECT.md → *Pattern — Bootstrap* (auth-machine retry-ownership, SSR handoff), *EP — Frames (002)* (`:initial-events`), *EP — State machines (005)* (substrate), *EP — SSR (011)*, *EP — HTTP requests (014)*. `:final?` / `:on-done` / `:output-key` → `../references/state-machines/spawn.md` §Final states. Retry-ownership boundary → `patterns/managed-http.md`.
 
 ---
 

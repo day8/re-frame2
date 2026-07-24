@@ -32,7 +32,6 @@ allowed-tools:
   - mcp__re-frame2-pair__read-view-dependencies
   - mcp__re-frame2-pair__read-view-event-sites
   - mcp__re-frame2-pair__read-mounted-views
-  - mcp__re-frame2-pair__explain-render
   - mcp__re-frame2-pair__record
   - mcp__re-frame2-pair__read-recording
   - mcp__re-frame2-pair__watch-until
