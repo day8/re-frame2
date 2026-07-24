@@ -769,6 +769,25 @@
 ;; retained here, exactly as `re-frame.freehand.evidence` retains nothing (its
 ;; `retention` names Spec 009's per-frame ring and no second store). The
 ;; accumulator that folds these records is downstream (rf2-drpa3.167).
+;;
+;; TWO PLANES, split along the publication line. The installed sink is an
+;; observability CONSUMER of the commit, never an authority over it, so its
+;; behaviour must not decide whether the commit stands:
+;;
+;;   - The FRAMEWORK's record is built and VALIDATED through `evidence/record`
+;;     BEFORE the bundle is published. A malformed record — a bad occurrence, a
+;;     projection that claims more than it knows — fails loud from the evidence
+;;     door before anything is live, so the documented all-or-nothing boundary
+;;     holds: a commit the schema would refuse publishes NOTHING.
+;;   - The CONSUMER's sink is called only AFTER the publish, inside a guard. A
+;;     tool callback that throws is contained and reported — it can never turn a
+;;     live, connected, published commit into an exception at the caller, and a
+;;     normal sink still receives the pre-built record exactly once per commit.
+;;
+;; The report never routes back through the sink (no recursion): a contained
+;; throw is surfaced on the host console and in the single bounded
+;; `last-sink-escape` slot, both dev-gated so the whole plane DCEs in
+;; production alongside the record construction it guards.
 
 (defonce ^:private evidence-sink
   ;; The installed occurrence-record sink, or nil for the no-op default.
@@ -791,6 +810,30 @@
     (reset! evidence-sink f)
     prev))
 
+(defonce ^:private last-sink-escape
+  ;; The single bounded diagnostic slot for a CONTAINED evidence-sink throw
+  ;; (`{:view-id … :error e}` | nil), newest escape wins. The evidence sink is a
+  ;; DEBUG-only tool CONSUMER of the commit, never an authority over it: a
+  ;; throwing sink must not turn a published, connected commit into an exception
+  ;; at the caller. So `commit!` validates the record BEFORE it publishes, and
+  ;; DELIVERS it to the sink only AFTER, inside a guard that records any consumer
+  ;; throw here. Observable via [[last-evidence-sink-escape]] so a contained
+  ;; throw is never silent. An atom because it is written at RUNTIME (a tool
+  ;; callback throwing), never compile time — the same shape as `evidence-sink`,
+  ;; and like it a `defonce` so reloading this namespace keeps a recorded escape.
+  (atom nil))
+
+(defn last-evidence-sink-escape
+  "The most recent CONTAINED evidence-sink throw as `{:view-id … :error e}`, or
+  nil when no installed sink has thrown since load (and always nil in a
+  production build, where the whole dev evidence plane is elided).
+
+  A throwing DEBUG sink can never turn a published commit into an exception at
+  the caller — it is contained at the seam and surfaced HERE, plus one host
+  console report, so the escape is never silent. A tool/test read."
+  []
+  @last-sink-escape)
+
 (defn- occurrence-of
   "The runtime OCCURRENCE key for `cell` — the mounted boundary's own
   identity, never a query key or a lexical site id (D020). A root
@@ -802,21 +845,83 @@
    :key    #?(:clj  (System/identityHashCode cell)
               :cljs (goog/getUid cell))})
 
-(defn emit-commit-evidence!
-  "DEV-GATED render-path evidence seam: when a sink is installed, build the
-  commit occurrence-record for `cell` at `lowering` / `generation`,
-  validate it through `re-frame.freehand.evidence/record`, and deliver it.
+(defn- commit-evidence-record
+  "DEV-GATED, BEFORE publication: when a sink is installed, build the commit
+  occurrence-record for `cell` at `lowering` / `generation` and VALIDATE it
+  through `re-frame.freehand.evidence/record`. Answers `[sink record]` — the
+  captured sink and its validated record — for delivery once the bundle is
+  live, or nil when the seam is inert (no sink, or debug disabled).
 
-  Compiles out of production entirely — the `interop/debug-enabled?` gate
-  is a `goog.DEBUG` constant under `:advanced`, so the whole body (and the
-  evidence schema it reaches) DCEs when `goog.DEBUG=false`. A malformed
-  record throws from `evidence/record` at the seam rather than reaching a
-  reader; that is the point of validating here."
+  FAIL-LOUD on a malformed FRAMEWORK record: `evidence/commit-record` throws
+  HERE, before `commit!` publishes anything, so an emission the schema refuses
+  aborts the whole commit rather than reaching a reader or leaving a
+  half-published bundle. That is the framework plane and it stays loud — only
+  the CONSUMER's own failure (the sink throwing) is contained, downstream and
+  only after a selected publication.
+
+  The sink is captured together with its record so the tool that was installed
+  when the commit began is the one delivered to, even if a listener the publish
+  fires swaps the sink mid-flush.
+
+  The `interop/debug-enabled?` gate stands alone as the body's outermost form,
+  so under `:advanced` with `goog.DEBUG=false` Closure folds it to `false`, the
+  branch DCEs, and neither the record construction nor the evidence schema it
+  reaches survives into a production bundle."
   [^ViewCell cell lowering generation]
   (when interop/debug-enabled?
     (when-let [sink @evidence-sink]
-      (sink (evidence/commit-record (view-id cell) lowering
-                                    (occurrence-of cell) generation))))
+      [sink (evidence/commit-record (view-id cell) lowering
+                                    (occurrence-of cell) generation)])))
+
+(defn- report-sink-escape!
+  "Contain a THROWING evidence sink: record the escape in the single bounded
+  [[last-sink-escape]] slot (newest wins) and, on CLJS, emit ONE host
+  `console.error` naming the offending view. The bundle is already published
+  and live by the time this runs, so the report is a pure after-the-fact
+  account that can neither un-publish the commit nor reach the caller.
+
+  Reporting NEVER routes back through `evidence-sink` — it is the console and
+  escape-slot path, not another sink call — so a throwing sink cannot recurse
+  through the report. Called only from the debug-gated deliver branch, so the
+  whole helper DCEs under `goog.DEBUG=false`."
+  [view-id e]
+  (reset! last-sink-escape {:view-id view-id :error e})
+  #?(:cljs (when (exists? js/console)
+             (.error js/console
+                     (str "re-frame.freehand: the evidence sink (a DEBUG tool "
+                          "consumer — e.g. Xray) threw while consuming the "
+                          (pr-str view-id) " commit record. The throw was CONTAINED, "
+                          "so the commit is published and live and the caller was not "
+                          "affected — a debug observer cannot corrupt a commit. Fix the "
+                          "sink installed with (set-evidence-sink! …). Cause: "
+                          (error/ex-message-safe e))))
+     :clj nil)
+  nil)
+
+(defn emit-commit-evidence!
+  "DEV-GATED, AFTER publication: deliver the pre-built, pre-validated `captured`
+  record to the installed sink, CONTAINING any failure the sink CONSUMER
+  raises. `captured` is the `[sink record]` [[commit-evidence-record]] built
+  and validated BEFORE the publish, or nil when the seam is inert.
+
+  The sink is an observability consumer of the commit, not an authority over
+  it: a tool callback that throws must not turn a live, published, connected
+  commit into an exception at the caller. So a throw is caught and reported
+  through [[report-sink-escape!]] (the bounded escape slot and one host console
+  line), never rethrown and never routed back through the sink.
+
+  A normal (non-throwing) sink receives the captured record EXACTLY ONCE per
+  selected commit — the one `sink` call below. The `interop/debug-enabled?`
+  gate stands alone so the whole delivery-and-containment machinery DCEs under
+  `:advanced` with `goog.DEBUG=false`, alongside the record it consumes."
+  [^ViewCell cell captured]
+  (when interop/debug-enabled?
+    (when captured
+      (let [[sink record] captured]
+        (try
+          (sink record)
+          (catch #?(:clj Throwable :cljs :default) e
+            (report-sink-escape! (view-id cell) e))))))
   nil)
 
 (defn commit!
@@ -884,7 +989,25 @@
                                                    :frame-id (:frame-id (:target r))
                                                    :value    (:value (get readings k))
                                                    :owned?   (obs/owned? (:handle r))}))
-                                              order)}]
+                                              order)}
+                ;; Build and VALIDATE the dev evidence record BEFORE the publish
+                ;; below — the two-plane split: a malformed FRAMEWORK
+                ;; record fails loud here, so a commit the schema would refuse
+                ;; publishes nothing and the all-or-nothing boundary holds. The
+                ;; CONSUMER sink is not called yet — only after the bundle is
+                ;; live, where its failure is contained rather than fatal. Not
+                ;; callback-capable (it derefs the sink slot and validates a
+                ;; value — no app code), so it sits between the currency re-check
+                ;; and the publish without reopening that window. Like the
+                ;; acquisition and commit-read failures above, a throw here
+                ;; releases this candidate's freshly acquired handles in reverse
+                ;; order and RETHROWS — the fail-loud path leaks nothing, and the
+                ;; catch never swallows a framework error.
+                captured (try
+                           (commit-evidence-record owner-cell lowering (.-generation cand))
+                           (catch #?(:clj Throwable :cljs :default) e
+                             (release-all! (rseq (fresh-handles order staged)))
+                             (throw e)))]
             ;; ONE publication. Dependencies, frame and evidence become
             ;; live in a single write, and the event site table becomes
             ;; live against this exact frame with no host yield between
@@ -908,10 +1031,13 @@
             (when (some (fn [[k {:keys [evidence]}]] (moved? (get readings k) evidence)) staged)
               (advance-revision! owner-cell))
             ;; The dev-gated occurrence-record seam (rf2-3naow): a SELECTED
-            ;; commit is the one place the whole bundle is live, so it is
-            ;; where the record is emitted. Compiles out with the gate in
-            ;; production; an abandoned candidate reaches neither branch.
-            (emit-commit-evidence! owner-cell lowering (.-generation cand))
+            ;; commit is the one place the whole bundle is live, so it is where
+            ;; the record — built and validated above, before the publish — is
+            ;; DELIVERED to the consumer sink. A throwing sink is contained (the
+            ;; commit already stands), so delivery cannot turn `:published` into
+            ;; an exception. Compiles out with the gate in production; an
+            ;; abandoned candidate reaches neither branch.
+            (emit-commit-evidence! owner-cell captured)
             :published)))))))
 
 (defn disconnect!
