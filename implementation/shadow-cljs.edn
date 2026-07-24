@@ -818,6 +818,15 @@
    :ns-regexp "^re-frame\\.freehand\\..+-cljs-test$"
    :main      re-frame.test-quiet.shadow-node/main
    ;; The load-bearing watch hook is inherited from :build-defaults.
+   ;;
+   ;; rf2-41igl: :redef stays OFF on this build alone. With it ON the
+   ;; build reports exactly one warning — `->Box`, the positional
+   ;; constructor `(defrecord Box …)` generates in
+   ;; structural_data_round_trip_cljs_test.cljc, shadowing cljs.core/->Box.
+   ;; That is a test namespace, in scope here but not in :freehand-release,
+   ;; so the redef is a test-only artefact. shadow-cljs toggles :redef per
+   ;; build, not per symbol, so the class toggle scoped to this one build
+   ;; is the narrowest lever. (The bench build below no longer needs it.)
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
 
@@ -882,8 +891,7 @@
    :main      re-frame.freehand.bench.node/-main
    :output-to "out/freehand-bench-node.js"
    ;; The load-bearing hook is inherited from :build-defaults.
-   :compiler-options {:warnings      {:redef false}
-                      :infer-externs false}}
+   :compiler-options {:infer-externs false}}
 
   ;; rf2-vxgfnd.6 — the G-1 direct-render parity gate (07 §5) for the
   ;; re-frame.ui compiled-view substrate. A :node-script RELEASE build
