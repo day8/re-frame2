@@ -2,7 +2,7 @@
   "skill_name": "reagent-migration",
   "schema_version": "1",
   "convention": "anthropics/skills/skill-creator evals.json — two kinds. `kind:\"trigger\"` fixtures carry `should_trigger` for description-optimisation (train/held-out trigger accuracy). `kind:\"behavioural\"` fixtures carry a `tier` (M/D/R) and `expectations[]` asserting the skill applies / reasons / declines correctly on a Reagent→Freehand fixture input.",
-  "notes": "Positives target Reagent-view→Freehand prompts on an already-re-frame2 app (v/defview, deref-drop, moving off Reagent hiccup). Negatives target the DIFFERENT v1→v2 events/subs/db migration (re-frame-migration), authoring on re-frame2 (re-frame2), greenfield (re-frame2-setup), live runtime (re-frame2-pair), and the first-class 'stay on Reagent' non-goal. Behavioural fixtures cover the M/D/R tiers, and several exist specifically to catch the failure mode of emitting a Freehand verb that is described in the design corpus but not exported (local, effect, ref, an outward React bridge, a trusted-markup form).",
+  "notes": "Positives target Reagent-view→Freehand prompts on an already-re-frame2 app (v/defview, deref-drop, moving off Reagent hiccup). Negatives target the DIFFERENT v1→v2 events/subs/db migration (re-frame-migration), authoring on re-frame2 (re-frame2), greenfield (re-frame2-setup), live runtime (re-frame2-pair), and the first-class 'stay on Reagent' non-goal. Behavioural fixtures cover the M/D/R tiers, and several exist specifically to catch the failure mode of emitting a Freehand verb that is described in the design corpus but not exported (local, effect, ref, a trusted-markup form; the outward React bridge v/->react was once such a gap and has since shipped, so it is verified against the live roster rather than assumed absent).",
   "evals": [
     {"id": 1,  "kind": "trigger", "name": "explicit-views-to-freehand", "should_trigger": true,  "prompt": "Migrate my Reagent views to Freehand — I'm already on re-frame2 and want the re-frame-native view layer."},
     {"id": 2,  "kind": "trigger", "name": "reg-view-to-defview",        "should_trigger": true,  "prompt": "Convert my reg-view components to v/defview."},
@@ -18,7 +18,7 @@
     {"id": 12, "kind": "trigger", "name": "neg-vocab-migrate-db",   "should_trigger": false, "prompt": "Migrate my Postgres database from 12 to 14.", "rationale": "Vocabulary hit ('migrate') on an unrelated surface."},
 
     {"id": 13, "kind": "behavioural", "tier": "M", "name": "m-transform-defview-sub-lift",
-     "prompt": "Convert this to Freehand:\n(defn price [amt cur] [:button {:on-click #(dispatch [:buy amt])} @(subscribe [:total])])\n(defn app [] [:div [price 1 2]])",
+     "prompt": "Convert this to Freehand, and write a structural test that asserts the converted price view shows the cart total:\n(defn price [amt cur] [:button {:on-click #(dispatch [:buy amt])} @(subscribe [:total])])\n(defn app [] [:div [price 1 2]])",
      "expectations": [
        "Rewrites the header to (v/defview price [{:keys [amt cur]}] ...) — positional params become one destructured props map (MIG-01).",
        "Declares the props parameter on the zero-prop view as [_], never [] — a zero-arity defview raises :rf.error/defview-bad-args at macro-expansion.",
@@ -28,7 +28,8 @@
        "Adds the require [re-frame.freehand :as v] (MIG-24) and cites the MIG ids for each change.",
        "Does NOT treat the event vector [:buy amt] or the query vector [:total] as hiccup to respell/spread.",
        "Does NOT add {:compiled true} — a migration pass emits interpreted declarations.",
-       "If it writes a structural test for the converted price view, it renders the now v/sub-reading body inside (t/with-render (t/render …)); a bare (t/render …) of a state-reading view raises :rf.error/view-read-outside-render, so dropping the with-render bracket is wrong."
+       "Writes the requested structural test: requires [re-frame.freehand.test :as t], drives state under an rf/with-new-frame + rf/dispatch-sync bracket, and renders the now v/sub-reading price body inside (t/with-render (t/render [price {:amt 1 :cur 2}])).",
+       "Uses the with-render bracket for that state-reading render — a bare (t/render [price …]) of a v/sub-reading view raises :rf.error/view-read-outside-render, so an answer whose test renders bare is WRONG and only the (t/with-render (t/render …)) form passes."
      ]},
 
     {"id": 14, "kind": "behavioural", "tier": "D", "name": "d-decide-form2-local-state",
@@ -100,13 +101,14 @@
        "Holds/decides the WHOLE view (cardinal rule 2) rather than half-migrating it."
      ]},
 
-    {"id": 21, "kind": "behavioural", "tier": "R", "name": "r-foreign-react-component-holds",
+    {"id": 21, "kind": "behavioural", "tier": "D", "name": "d-foreign-react-component-inward",
      "prompt": "Migrate this view to Freehand:\n(ns app.picker (:require [\"react-datepicker\" :default DatePicker]))\n(defn booking [] [:div [:> DatePicker {:selected @(subscribe [:date]) :onChange #(dispatch [:date/set %])}]])",
      "expectations": [
-       "Declines and holds the WHOLE view on Reagent (MIG-09/10): Freehand's vector-head classification is total — a declared Freehand view, a keyword element, or a declared host descriptor — and the qualified host leaf for a foreign React component has not landed.",
-       "Does NOT invent a spelling for the foreign head, and does NOT present v/event / v/handler / v/render-fn / v/raw-fn as evidence that the foreign boundary is open — those serve the boundaries that exist.",
-       "Phrases the hold specifically and without apology, names the missing surface, and notes that Reagent remains a fully-supported configuration.",
-       "Notes that leaf views below it with no foreign heads can still convert, so the hold is scoped rather than blanket."
+       "Does NOT blanket-decline as a foreign-React reject: the React host boundary has landed inward, so this is a judgment-flavoured conversion (MIG-09/10), not a wait.",
+       "Recognises the reshape — a bare React COMPONENT at a vector head ([:> DatePicker …]) is still illegal, so it CREATES a React element (react/createElement, a JSX helper, or reagent.core/as-element) and places that ELEMENT in a CHILD position, never at the head.",
+       "Crosses the foreign props as ordinary React props on the created element: the fn-valued :onChange and the :selected value are foreign React props, NOT Freehand projection markers or a v/event site, and the @(subscribe [:date]) deref becomes a render-time (v/sub [:date]) read feeding :selected.",
+       "States the limit that decides the call: the JVM structural renderer accepts no React elements, so the region around the foreign child is browser-only and cannot be covered by a t/render structural test — assert the Freehand parts structurally, cover the integration in a mounted browser test.",
+       "Decides the WHOLE view with the author (cardinal rule 2); does NOT invent a Freehand host descriptor or wrapper verb for the foreign head."
      ]},
 
     {"id": 22, "kind": "behavioural", "tier": "R", "name": "r-trusted-markup-holds",

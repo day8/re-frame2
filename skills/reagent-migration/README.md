@@ -2,14 +2,14 @@
 
 > ↑ [`skills/`](..) — index of all re-frame2 skills.
 
-A `Skill` that helps `Claude Code` **migrate Reagent view code to [Freehand](https://github.com/day8/re-frame2/blob/main/spec/004-Views.md)** — `re-frame.freehand`, aliased `v`, re-frame2's re-frame-native view layer. A Reagent hiccup view becomes a `v/defview` mounted in brackets and never called, `@(subscribe …)` becomes `(v/sub …)`, `#(dispatch …)` handlers lift to event vectors, and the state and lifecycle Reagent kept inside the component move to where re-frame can see them. The mechanical rewrites are applied directly; the judgment calls are **reasoned** (this is an AI skill, not a codemod); the cases Freehand does not yet handle are **declined honestly** ("keep this on Reagent, or wait").
+A `Skill` that helps `Claude Code` **migrate Reagent view code to [Freehand](https://github.com/day8/re-frame2/blob/main/spec/004-Views.md)** — `re-frame.freehand`, aliased `v`, re-frame2's re-frame-native view layer. A Reagent hiccup view becomes a `v/defview` mounted in brackets and never called, `@(subscribe …)` becomes `(v/sub …)`, `#(dispatch …)` handlers lift to event vectors, and the state and lifecycle Reagent kept inside the component move to where re-frame can see them. The mechanical rewrites are applied directly; the judgment calls are **reasoned** (this is an AI skill, not a codemod); the cases Freehand has no equivalent for are **declined honestly** ("keep this on Reagent").
 
 ## Read this first — optional, second, pre-alpha
 
 This skill is **not on anyone's critical path**, and the README says so before anything else:
 
 - **It is the OPTIONAL, SECOND step.** The migration journey is two moves, in order: **(1)** re-frame v1 → re-frame2 (the *required* foundation — the [`re-frame-migration`](../re-frame-migration) skill; it leaves your views on Reagent), then **(2)** — optionally — Reagent views → Freehand (*this* skill).
-- **Freehand is PRE-ALPHA.** Its host boundary (foreign React components) and outward React bridge are declared and have not landed, so a view that touches a third-party React component cannot move yet. The skill names those gaps and holds the affected views on Reagent.
+- **Freehand is PRE-ALPHA.** A few surfaces are declared but not landed — an author-declared `:ref`, a trusted-markup verb — so a view that leans on one holds on Reagent, and the skill says why. (The React host boundary landed in both directions, so a foreign React component is a judgment call now, not a wait.)
 - **Staying on Reagent is a first-class, fully-supported choice.** A re-frame2 app running Reagent, UIx or Helix views through its adapter is a complete, supported configuration. Freehand is a **peer view layer**, not a successor, and the skill never implies you *should* move.
 
 **When to reach for it (narrow):** you are *already on re-frame2* and *specifically want to trial Freehand* for some views. That is the whole trigger.
@@ -20,7 +20,7 @@ This skill is **not on anyone's critical path**, and the README says so before a
 - **The transformation catalog**, organised by what you do with each rule (`MIG-NN` ids the report cites so an author can audit any change):
   - **M-tier ("do this")** — unambiguous mechanical rewrites with a before→after each: `reg-view`→`v/defview` and the one-props-map law, deref-drop, dispatch-lifting with the `::v/value` projection markers, prop respelling, key-meta→prop, plain hiccup, mount and frame preflight, ns requires, the `route-link` head-rename.
   - **D-tier ("how to DECIDE")** — the judgment cases where the skill earns its keep: Form-2/`with-let` state (app-db, a semantic controller, or a behavior), Form-3 lifecycle (a registered behavior, an event, or `v/error-boundary`), the `:on-*` handler split, derived state, the ratom-as-store restructure, SSR path routing, computed props, runtime-built markup.
-  - **R-tier ("don't migrate — stay on Reagent, or wait")** — the honesty backbone: foreign React heads and Reagent wrapper libraries (the host boundary has not landed), trusted markup, `:ref`, Reagent introspection and schedulers, and a frame-pinned reactive read.
+  - **R-tier ("don't migrate — stay on Reagent")** — the honesty backbone: trusted markup, `:ref`, Reagent introspection and schedulers, and a frame-pinned reactive read. (Foreign React heads and Reagent wrapper libraries used to sit here; the host boundary landed, so they are a judgment call now.)
 - **An incremental procedure** — migrate a closed subtree at a time, leaf → root; verify it compiles, renders, and passes tests; iterate. Never big-bang. Includes the structural test surface (`re-frame.freehand.test`), which asserts a button's intent as data without a browser.
 - **The gotchas** — brackets-mount-parens-inline, the exactly-one-props-map law, the bare-symbol trap (`[:li item]` is content, not a spread), whole-view coherence, render-scoped reads, and why you migrate interpreted rather than promoting mid-flight.
 
@@ -42,7 +42,7 @@ The skill is knowledge Claude reads and then applies to a consumer's Reagent cod
 - reasons through the D-tier decisions with the author;
 - declines the R-tier cases honestly, holding those views on Reagent.
 
-One standing rule governs all of it: **emit only what has shipped.** Freehand's design corpus describes forms — `local`, `effect`, `ref`, an outward React bridge, a trusted-markup verb — that are not exported. The skill checks the API catalogue before it writes a verb, and names the gap when there isn't one.
+One standing rule governs all of it: **emit only what has shipped.** Freehand's design corpus describes forms — `local`, `effect`, `ref`, a trusted-markup verb — that are not exported (while others, like the outward bridge `v/->react`, since have been). The skill checks the API catalogue before it writes a verb, and names the gap when there isn't one.
 
 ## Status
 
@@ -62,7 +62,7 @@ skills/reagent-migration/
 │   ├── mental-model.md        # the Reagent→Freehand view shift
 │   ├── catalog-mechanical.md  # M-tier — "do this" (before→after per rule)
 │   ├── catalog-judgment.md    # D-tier — "here's how to DECIDE"
-│   ├── catalog-reject.md      # R-tier — "don't migrate — stay on Reagent, or wait"
+│   ├── catalog-reject.md      # R-tier — "don't migrate — stay on Reagent"
 │   ├── procedure.md           # incremental, closed-subtree passes
 │   └── gotchas.md             # brackets-vs-parens, bare-symbol trap, whole-view coherence
 ├── evals/

@@ -49,11 +49,12 @@ rather than trusting this list**; it grows a row at a time.
 
 `docs/EP/EP-0036-*`, `docs/design/freehand/decisions/` and
 `docs/design/freehand/draft-guide/` describe the design, including forms that
-are **declared and not exported** — `local`, `effect`, `ref`, `v/->react`,
-`v/html`, `v/check`, `v/client-only`, a React interop hook tier. They are
-useful for understanding *why* a shape is the way it is, and dangerous as a
-source of call shapes. **Every verb goes through §1 before it is written**
-(design L9).
+are **declared and not exported** — `local`, `effect`, `ref`, `v/html`,
+`v/check`, a React interop hook tier. They are useful for understanding *why* a
+shape is the way it is, and dangerous as a source of call shapes: some names once
+on this list (`v/->react`, `v/client-only`) have since shipped, which is exactly
+why **every verb goes through §1 before it is written** (design L9) rather than a
+remembered "not yet" list.
 
 ## 4. Tertiary inputs (shape the discipline, not quoted)
 
@@ -76,11 +77,13 @@ source of call shapes. **Every verb goes through §1 before it is written**
 
 ## 6. Update procedure
 
-1. **A Freehand surface LANDS** (most consequentially the qualified host leaf for
-   foreign React components, and the outward React bridge) → move its cases out
-   of `catalog-reject.md` into the mechanical or judgment catalogue with the now-real
-   target, and re-check `procedure.md` §Step 1, whose closed-subtree constraint is
-   a *consequence* of the missing outward bridge.
+1. **A Freehand surface LANDS** → move its cases out of `catalog-reject.md` into
+   the mechanical or judgment catalogue with the now-real target, and re-check
+   `procedure.md` §Step 1. This has already happened for the React host boundary:
+   the inward path (a created React element in a child position) and the outward
+   bridge (`v/->react`) both shipped, so those holds moved to `catalog-reject.md`
+   §No longer a hold and Step 1's closed-subtree discipline became a clean default
+   rather than a constraint forced by a missing bridge.
 2. **A rule's tier changes** (M↔D↔R) → move its treatment between the
    catalogues, and re-check `procedure.md`'s gate list.
 3. **A new construct needs a rule** → add a before→after (M), a decision (D) or a

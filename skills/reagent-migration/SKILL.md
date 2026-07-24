@@ -53,7 +53,7 @@ This skill is **not** on anyone's critical path. Three facts frame every use:
 1. **It is OPTIONAL and SECOND.** The migration journey is two moves, in order:
    - **(1) re-frame v1 → re-frame2** — the *required* foundation, owned by the **[`re-frame-migration`](../re-frame-migration)** skill. This moves events, subscriptions, `app-db`, effects, and boot. It leaves your **views on Reagent** via the fully-supported Reagent adapter.
    - **(2) Reagent views → Freehand** — *this* skill. Optional. Do it only *after* (1), and only if the author wants the re-frame-native view layer.
-2. **Freehand is PRE-ALPHA.** Say so plainly; do not oversell it. Parts of the design are declared and not yet landed — most consequentially the **host boundary** (foreign React components) and the **outward React bridge**. This skill names those gaps honestly and holds the affected views on Reagent.
+2. **Freehand is PRE-ALPHA.** Say so plainly; do not oversell it. Parts of the design are declared and not yet landed — an author-declared `:ref`, a trusted-markup verb, view-local `local` / `effect`. This skill names those gaps honestly and holds the affected views on Reagent. (The React host boundary, once the biggest gap, has since landed in both directions.)
 3. **Staying on Reagent is a FIRST-CLASS choice.** A re-frame2 app running Reagent (or UIx, or Helix) views through its adapter is a complete, supported configuration — not a half-migrated one. Freehand is a **peer view layer**, not a successor. **Never imply the author "should" move.**
 
 **When to use this skill (narrow and self-limiting):** the author is *already on re-frame2*, and *specifically wants to trial Freehand* for some or all of their views. That is the whole trigger. Anything short of both halves → they stay where they are, and this skill has no job.
@@ -72,7 +72,7 @@ Reagent runs a view **at render time as an ordinary function** that returns hicc
 ## Cardinal rules (the invariants)
 
 1. **This is an AI skill that applies JUDGMENT — it is NOT a codemod.** There is no rewrite tool to run. The skill's power is that for an ambiguous view it *reasons* about the right shape rather than emitting a flag. Apply the mechanical rewrites directly; for the judgment cases, decide with the author.
-2. **The whole view is the unit of migration — never half-migrate a view.** A converted `v/defview` has no ambient `subscribe`/`dispatch`, so a body with some sites rewritten and some not does not run. When a view raises a judgment call (D-tier), decide it with the author, then convert the **whole** view or hold the **whole** view. When a view needs a surface that has not landed (R-tier), hold it on Reagent and say why.
+2. **The whole view is the unit of migration — never half-migrate a view.** A converted `v/defview` has no ambient `subscribe`/`dispatch`, so a body with some sites rewritten and some not does not run. When a view raises a judgment call (D-tier), decide it with the author, then convert the **whole** view or hold the **whole** view. When a view needs a surface with no Freehand equivalent (R-tier), hold it on Reagent and say why.
 3. **Incremental, never big-bang.** Migrate one namespace / one closed subtree at a time; verify it renders and its tests pass; then move on — [`references/procedure.md`](references/procedure.md).
 4. **The MIG rule catalog is the shared vocabulary.** Every rewrite cites a `MIG-NN` id, so the author can trace any change back to a rule. Don't invent transforms; if a construct matches no rule, treat it as a hold (rule 2).
 5. **Views only.** This skill rewrites the **view tier** — hiccup, handlers, mounts, view-held state. It never touches events, subs, fx, machines, schemas, or routes (that dataflow is re-frame2 already, from step 1). Where a view forces a dataflow change (a new `reg-sub`, a hoisted event), the skill *names* it for the author — it does not reach across into the dataflow layer.
@@ -85,13 +85,13 @@ The rule catalog is split three ways by **what you do with the rule**, not by co
 
 - **[`references/catalog-mechanical.md`](references/catalog-mechanical.md) — M-tier ("do this").** Unambiguous, observably-identical rewrites with a before→after for each: `reg-view`/Form-1 → `v/defview` (MIG-01), deref-drop (MIG-02), dispatch-lifting + payload projection + `preventDefault` (MIG-04/05/06), key-meta → prop (MIG-07), prop respelling (MIG-11), `doall` strip (MIG-12), plain hiccup pass-through (MIG-14), mount (MIG-15), ns requires (MIG-24), `route-link` head-rename (MIG-32). Apply these directly.
 - **[`references/catalog-judgment.md`](references/catalog-judgment.md) — D-tier ("here's how to DECIDE").** The cases that earn the skill its keep: view-local state (MIG-16 Form-2/`with-let`), lifecycle (MIG-17 Form-3), non-conforming `:on-*` handlers (MIG-18), derived state (MIG-19), the ratom-as-store restructure (MIG-20), SSR path routing (MIG-23), plain-fn ambient reads (MIG-26), fn-valued props on internal views (MIG-27), computed props (MIG-28), runtime-built markup (MIG-30), and the loop / render-prop shaping calls (MIG-08/13). For each: the *decision* the AI makes, not a flag.
-- **[`references/catalog-reject.md`](references/catalog-reject.md) — R-tier ("don't migrate this — stay on Reagent, or wait").** The honesty backbone: foreign React components and Reagent wrapper libraries (MIG-09/10/22 — the host boundary has not landed), trusted markup (MIG-34), DOM refs (MIG-29), Reagent introspection and schedulers (MIG-35), and the frame-pinned read (MIG-03). This list is what makes the migration honest: some views should not move yet.
+- **[`references/catalog-reject.md`](references/catalog-reject.md) — R-tier ("don't migrate this — stay on Reagent").** The honesty backbone: trusted markup (MIG-34), DOM refs (MIG-29), Reagent introspection and schedulers (MIG-35), and the frame-pinned read (MIG-03). This list is what makes the migration honest: some views have no Freehand equivalent. (Its old foreign-React holds MIG-09/10/22 landed — the leaf now records them under §No longer a hold, a judgment call rather than a wait.)
 
 ## The procedure (incremental)
 
 Full loop in [`references/procedure.md`](references/procedure.md). The shape:
 
-1. **Scope a closed subtree.** Pick a namespace or a leaf-to-root view subtree whose views are not called *from* views staying on Reagent — there is no outward bridge today, so a converted view can only be mounted by another Freehand view or by a root.
+1. **Scope a closed subtree.** Convert leaf views first, closing bottom-up so each pass ends renderable and tested. Leaf-first is the clean default, not a wall — the outward bridge `v/->react` mounts a converted view under a parent staying on Reagent when one is unavoidable.
 2. **Assess the view first (rule 2).** Scan each candidate for D/R hits. An **R** hit → hold the whole view on Reagent. A **D** hit → decide it with the author, then convert the whole view or hold the whole view.
 3. **Apply the M-tier rewrites** to the clean views, atomically per view (a header change and all its call sites in one edit).
 4. **Fix the ns requires and the root last** (MIG-24, MIG-15): add `[re-frame.freehand :as v]`; drop `reagent.*` requires only when nothing in the namespace still needs them.
@@ -107,7 +107,7 @@ The traps that mangle a view silently → [`references/gotchas.md`](references/g
 - [ ] Each converted view is whole — no half-migrated bodies (rule 2).
 - [ ] Every rewrite cites its `MIG-NN` id so the author can audit it.
 - [ ] The D-tier views were *decided with the author*, not silently rewritten.
-- [ ] The R-tier views were left on Reagent with an honest reason ("Freehand has no host boundary yet — keep this on Reagent, or wait").
+- [ ] The R-tier views were left on Reagent with an honest reason ("Freehand exports no trusted-markup verb / no author-declared ref — keep this on Reagent").
 - [ ] Every Freehand verb emitted appears in `spec/API.md` (cardinal rule 6).
 - [ ] Requires cleaned up last (MIG-24); no orphaned `reagent.*` requires, none dropped that a held view still needs.
 - [ ] The subtree compiles and its tests pass (the skill ran the gates), and the programmer has **rendered** and eyeballed the converted views.
@@ -121,7 +121,7 @@ Hand off: *"Views migrated to Freehand where it made sense; the rest stay on Rea
 - **Don't half-migrate a view** (cardinal rule 2) — coherence over coverage.
 - **Don't auto-spread a bare symbol child** (`[:li item]`) — it is content, not props.
 - **Don't reach for `{:compiled true}` during the migration.** Promotion is a separate, later decision on a hot leaf; opting in mid-migration turns interpreted-legal bodies into build failures for no benefit.
-- **Don't emit a verb because a design document names it.** `local`, `effect`, `ref`, an outward React bridge and a trusted-markup form all appear in Freehand's design corpus and none of them is exported. Check `spec/API.md` (cardinal rule 6).
+- **Don't emit a verb because a design document names it.** `local`, `effect`, `ref` and a trusted-markup form appear in Freehand's design corpus and none is exported. (The outward bridge `v/->react` *is* exported now — which is exactly why you check `spec/API.md` before assuming either way, cardinal rule 6.)
 - **Don't reach into the dataflow layer** — name the `reg-sub`/event the view needs; let the author write it (cardinal rule 5).
 
 ---

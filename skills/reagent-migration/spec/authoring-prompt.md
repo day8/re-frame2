@@ -10,7 +10,7 @@
 >
 > *Read these first, in order:*
 >
-> *1. `skills/reagent-migration/spec/design.md` — the locked decisions (L1–L11). The load-bearing ones: L1 (AI skill not codemod), L2 (OPTIONAL, SECOND, PRE-ALPHA; Reagent/UIx/Helix stay first-class peers), L4 (whole view is the unit — never half-migrate), L6 (closed subtrees are a hard constraint, because there is no outward React bridge), L8 (migrate interpreted, never promote mid-flight), L9 (emit only what has shipped), L10 (generic to any Reagent app).*
+> *1. `skills/reagent-migration/spec/design.md` — the locked decisions (L1–L11). The load-bearing ones: L1 (AI skill not codemod), L2 (OPTIONAL, SECOND, PRE-ALPHA; Reagent/UIx/Helix stay first-class peers), L4 (whole view is the unit — never half-migrate), L6 (closed subtrees, the recommended default — the outward bridge `v/->react` relaxed it from a hard constraint), L8 (migrate interpreted, never promote mid-flight), L9 (emit only what has shipped), L10 (generic to any Reagent app).*
 > *2. `skills/reagent-migration/spec/inputs.md` — the inputs. The primary one is the **exported roster** (`spec/API.md` §Freehand views, `docs/api/re-frame.freehand.md`), because it decides whether a rewrite target exists at all. Spec 004 / 004B / 004C / 004D / 008 / 011 are the contract. The design corpus (EP-0036, the decision records, the draft guide) is a HAZARD, not an input: it describes forms that are not exported.*
 > *3. `skills/re-frame-migration/` — the structural sibling. Match its SHAPE: `SKILL.md` router + `README.md` + the distribution triad (`LICENSE` / `package.json` / `.claude-plugin/plugin.json`) + `references/` leaves + `spec/` meta-docs + `evals/evals.json`. Match its front-matter format, voice, and cardinal-rules density.*
 >
@@ -24,7 +24,7 @@
 >
 > *Voice: tight, declarative, recipe-shaped; full sentences over dash-chained fragments. Tables for rule lookups; code blocks for before→after shapes. Cite `MIG-NN` in every catalogue.*
 >
-> *Don't: ship or invoke a codemod; oversell Freehand (it is pre-alpha — say so); emit `local` / `effect` / `ref` / `v/->react` / `v/html` / `v/check` / `v/client-only` or any other verb absent from `spec/API.md`; add `{:compiled true}` during a migration pass; write `*.md` outside `skills/reagent-migration/` (except the index registration in `skills/README.md` + the docs mirror/nav); commit anything under `ai/`; use this repo's testbeds or paths as examples (stay generic); claim AI authorship in commits/PR.*
+> *Don't: ship or invoke a codemod; oversell Freehand (it is pre-alpha — say so); emit `local` / `effect` / `ref` / `v/html` / `v/check` or any other verb absent from `spec/API.md` (verify against the live roster — names like `v/->react` and `v/client-only` have since shipped); add `{:compiled true}` during a migration pass; write `*.md` outside `skills/reagent-migration/` (except the index registration in `skills/README.md` + the docs mirror/nav); commit anything under `ai/`; use this repo's testbeds or paths as examples (stay generic); claim AI authorship in commits/PR.*
 >
 > *Open the PR titled `feat(skills): reagent-migration — AI skill for Reagent→Freehand view migration`. Body: the sibling shape matched, the M/D/R catalogue distilled (which rules), the optional/second/pre-alpha framing, the incremental procedure, the per-tier evals. Surface OQ1/OQ2 from `design.md` for Mike.*
 
@@ -38,10 +38,12 @@
 
 ## When to re-author
 
-- **A major Freehand surface lands** — the qualified host leaf for foreign React
-  components, or the outward React bridge. Either one collapses a large part of
-  `catalog-reject.md` and relaxes the closed-subtree constraint in
-  `procedure.md`; that is a rebuild, not an edit.
+- **A major Freehand surface lands** — a new host-boundary direction, a
+  trusted-markup verb, an author-declared ref. It moves cases out of
+  `catalog-reject.md` and can relax `procedure.md`'s closed-subtree default. The
+  React host boundary was exactly this and was absorbed by editing the affected
+  leaves; reach for a full reauthor only when the *shape* of the skill changes,
+  not for a surface that slots into the existing tiers.
 - The positioning changes (Freehand graduates from pre-alpha, or publishes a
   Maven coordinate) → design L2 changes; update this `spec/` folder first, then
   the skill.

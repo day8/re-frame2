@@ -46,6 +46,13 @@ allowed-tools:
     artefact is scheduled for deletion once absorption completes. Nothing here is
     a target for **new** view work.
 
+    This skill deliberately keeps its `re-frame.ui` donor-maintenance scope — and
+    its name — rather than being retargeted into "the Freehand skill": it remains
+    the maintenance home for existing `day8/re-frame2-ui` views until that donor
+    artefact is itself removed (the EP-0036 donor-deletion step). Freehand view
+    work is served in the meantime by [`reagent-migration`](../reagent-migration)
+    and `spec/004-Views.md`.
+
     Load this skill for an app that **already depends on `day8/re-frame2-ui`**:
     reading, reviewing, debugging or maintaining views it already has. For
     porting Reagent views onto the re-frame-native layer, use
