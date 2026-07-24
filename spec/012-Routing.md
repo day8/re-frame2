@@ -14,7 +14,7 @@ The complete routing API surface, for quick audit. Each entry links to its norma
 
 ### Registration
 
-- **`reg-route`** — registers a route. Canonical 3-slot grammar `(reg-route id metadata path)` (per [001 §Registration grammar](001-Registration.md#registration-grammar)): the URL **`:path` pattern is the third VALUE slot** (a route has no handler fn — its defining value is the pattern, the legitimate "handler-or-value" reading), and the middle slot is the pure reflection-metadata map. Reserved metadata keys: `:doc`, `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`, `:on-match`, `:on-error`, `:scroll`, `:can-leave`, `:can-enter`, `:sensitive`, `:large` (`:path` is the VALUE slot, not a metadata key — declaring it inside the metadata map is a loud `:rf.error/route-bad-metadata`). `:sensitive` / `:large` are projection-relative data classification — see [§Route data classification](#route-data-classification). See [§Reserved route-metadata keys](#reserved-route-metadata-keys) and [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) for `:can-leave` / `:can-enter`. Returns its `id` argument per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
+- **`reg-route`** — registers a route. Canonical 3-slot grammar `(reg-route id metadata path)` (per [001 §Registration grammar](001-Registration.md#registration-grammar)): the URL **`:path` pattern is the third VALUE slot** (a route has no handler fn — its defining value is the pattern, the legitimate "handler-or-value" reading), and the middle slot is the pure reflection-metadata map. Reserved metadata keys: `:doc`, `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`, `:on-match`, `:scroll`, `:can-leave`, `:can-enter`, `:sensitive`, `:large` (`:path` is the VALUE slot, not a metadata key — declaring it inside the metadata map is a loud `:rf.error/route-bad-metadata`). `:sensitive` / `:large` are projection-relative data classification — see [§Route data classification](#route-data-classification). See [§Reserved route-metadata keys](#reserved-route-metadata-keys) and [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) for `:can-leave` / `:can-enter`. Returns its `id` argument per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
 - **Path-pattern grammar** — five productions (literal, named param, optional segment group, splat, root). See [§Path-pattern grammar](#path-pattern-grammar-canonical).
 - **Route ranking** — six-rule cascade for resolving overlapping matches. See [§Route ranking algorithm](#route-ranking-algorithm).
 
@@ -29,7 +29,7 @@ Routing state splits into two tiers — **durable** runtime-db state under `[:rf
 
 ### Events
 
-Audience column: **user** = an event apps dispatch or handle directly; **runtime** = an internal plumbing event the runtime fires at itself, sub-namespaced under `:rf.route.internal/*` so the user-facing `:rf.route/*` surface stays tidy. Apps and tools should never dispatch `:rf.route.internal/*` events. The same audience-split principle scopes `:rf.route.nav-token/*` and `:rf.machine.internal/*`.
+Audience column: **user** = an event apps dispatch or handle directly. Every v1 routing event is user-facing. The `:rf.route.internal/*` sub-namespace stays reserved for runtime-fired plumbing events — it has no members in v1 (EP-0037 R1 retired the readiness-settle and on-match error-trap internals), but the convention holds so a future internal event does not have to widen the tidy user-facing `:rf.route/*` surface. Apps and tools never dispatch `:rf.route.internal/*` events. The same audience-split principle scopes `:rf.route.nav-token/*` and `:rf.machine.internal/*`.
 
 | Event | Audience | Purpose | Source |
 |---|---|---|---|
@@ -41,8 +41,6 @@ Audience column: **user** = an event apps dispatch or handle directly; **runtime
 | `:rf.route/entry-blocked` | user | Dispatched by the runtime when a `:can-enter` (enter) guard rejects — the mirror of `:rf.route/navigation-blocked`. | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
 | `:rf.route/continue` | user | User-dispatched: confirm pending navigation (re-runs `:can-enter`). | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
 | `:rf.route/cancel` | user | User-dispatched: cancel pending navigation. | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
-| `:rf.route.internal/settle-transition` | runtime | Runtime-fired after the `:on-match` drain to land `:transition` at `:idle`. Nav-token-guarded. | [§Per-route data loading](#per-route-data-loading) |
-| `:rf.route.internal/on-match-error` | runtime | Runtime-fired by the corpus-wide error-emit listener when an `:on-match` event throws; flips `:transition :error`, populates `:rf.route/error`, chains `:on-error`. Nav-token-guarded. | [§Per-route error handling](#per-route-error-handling) |
 
 ### Effects (`reg-fx`)
 
@@ -63,8 +61,8 @@ Audience column: **user** = an event apps dispatch or handle directly; **runtime
 | `:rf.route/params` | Path params. |
 | `:rf.route/query` | Query params. |
 | `:rf.route/fragment` | The URL `#fragment` or nil. |
-| `:rf.route/transition` | `:idle` / `:loading` / `:error`. |
-| `:rf.route/error` | Structured error map when `:transition = :error`. |
+| `:rf.route/transition` | `:idle` / `:loading` / `:error` — the resource-derived readiness projection over the active plan (see [§Route readiness is a resource projection](#route-readiness-is-a-resource-projection)). |
+| `:rf.route/error` | Structured planning / blocking-first-load error when `:transition = :error`, else nil. |
 | `:rf.route/chain` | The `:parent`-chain of the active route. |
 | `:rf/pending-navigation` | The pending-nav slot, or nil. |
 
@@ -249,7 +247,7 @@ The cascade is **structural** — the score is computable from each pattern's pa
 
 #### Reserved route-metadata keys
 
-The pattern reserves fourteen keys on `reg-route`'s metadata map, plus the URL `:path` pattern in the third VALUE slot (`:path` is not a metadata key; it is the canonical 3-slot value). All metadata keys are optional. This is the largest registration shape in the v2 surface — for context, `reg-flow` carries six keys total ([013 §The registration shape](013-Flows.md#the-registration-shape)) and `reg-event` reserves only the cross-kind registration metadata. The scale reflects the cross-cutting concerns routing absorbs (URL ↔ params, query/path separation, lifecycle hooks at navigation boundaries, layout chains, scroll behaviour, data classification); the keys do not cluster naturally as one flat list. The four axes below name the clusters (the **Shape** axis additionally carries the value-slot `:path`) so generators reading "what does `reg-route` accept?" can branch on intent rather than scan the docstrings.
+The pattern reserves thirteen keys on `reg-route`'s metadata map, plus the URL `:path` pattern in the third VALUE slot (`:path` is not a metadata key; it is the canonical 3-slot value). All metadata keys are optional. This is the largest registration shape in the v2 surface — for context, `reg-flow` carries six keys total ([013 §The registration shape](013-Flows.md#the-registration-shape)) and `reg-event` reserves only the cross-kind registration metadata. The scale reflects the cross-cutting concerns routing absorbs (URL ↔ params, query/path separation, lifecycle hooks at navigation boundaries, layout chains, scroll behaviour, data classification); the keys do not cluster naturally as one flat list. The four axes below name the clusters (the **Shape** axis additionally carries the value-slot `:path`) so generators reading "what does `reg-route` accept?" can branch on intent rather than scan the docstrings.
 
 ##### The four axes
 
@@ -258,7 +256,7 @@ The keys cluster into four axes by what each controls (the value-slot `:path` be
 | Axis | Keys | What it controls |
 |---|---|---|
 | **Shape** — URL ↔ params binding | `:path` (the VALUE slot), `:params`, `:query`, `:query-defaults`, `:query-retain` | What URLs match this route and how their parts coerce into a params/query map. The contract surface that `match-url` and `route-url` agree on. `:path` is the third positional VALUE; the rest are metadata keys. |
-| **Lifecycle hooks** — events the runtime dispatches at navigation boundaries | `:on-match`, `:on-error`, `:can-leave`, `:can-enter` | Events the runtime fires on route activation (`:on-match`), on `:on-match` errors (`:on-error`), a sub-id consulted before navigation **away** from this route (`:can-leave`), and a sub-id consulted before navigation **into** this route (`:can-enter` — the first-class mirror). These are the route's reactive surface — handlers run from app code, the runtime owns the dispatch points. |
+| **Lifecycle hooks** — events the runtime dispatches at navigation boundaries | `:on-match`, `:can-leave`, `:can-enter` | Events the runtime fires-and-forgets on a *successful* route activation (`:on-match`; see [§Per-route data loading](#per-route-data-loading)), a sub-id consulted before navigation **away** from this route (`:can-leave`), and a sub-id consulted before navigation **into** this route (`:can-enter` — the first-class mirror). These are the route's reactive surface — handlers run from app code, the runtime owns the dispatch points. `:on-match` does not drive route readiness or carry an error hook — managed page-read readiness is declared with `:resources` (see [§Route readiness is a resource projection](#route-readiness-is-a-resource-projection)). |
 | **Layout** — how the route fits with neighbours | `:doc`, `:parent`, `:tags`, `:scroll` | How the route is described (`:doc`), composed with others (`:parent` chains layout shells; see [§Nested layouts](#nested-layouts)), grouped for interceptors (`:tags`), and visually transitioned (`:scroll`; see [§Scroll restoration](#scroll-restoration)). |
 | **Classification** — data hygiene | `:sensitive`, `:large` | Projection-relative paths (rooted at the route's `{:query … :params …}` projection) whose values are redacted (`:sensitive`) or kept off the wire (`:large`) at egress while the route is active. Lowered into the per-frame elision registry at activation, dropped on route change. See [§Route data classification](#route-data-classification). |
 
@@ -284,8 +282,7 @@ Because `reg-route` carries the largest shape in the surface, a typo'd key (`:on
 | `:query-retain` | shape | set of keywords | Query-string keys that should be carried through subsequent navigations even when the caller did not supply them. See "Query strings and fragments". |
 | `:tags` | layout | set of keywords | User-defined tags (e.g. `:requires-auth`); read by interceptors. |
 | `:parent` | layout | route-id | Parent route id (for the nested-layout convention; see "Nested layouts"). |
-| `:on-match` | lifecycle | vector of event vectors | Events the runtime dispatches every time this route becomes the active route (server- and client-side). See "Per-route data loading". |
-| `:on-error` | lifecycle | event vector | Event the runtime dispatches if any `:on-match` event errors. See "Per-route error handling". |
+| `:on-match` | lifecycle | vector of event vectors | Events the runtime **fires-and-forgets**, in order, after a *successful* full activation (server- and client-side); a committed planning-failure target dispatches none of them. It never drives route readiness or awaits async tails. See "Per-route data loading". |
 | `:can-leave` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation **away from** this route. The sub receives the pending target as an argument (`(fn [inputs [_ target] …])`). **Strict contract**: `true` allows, `false` blocks, any other value blocks AND emits `:rf.error/can-leave-non-boolean`. See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol). |
 | `:can-enter` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation **into** this route — the first-class mirror of `:can-leave`. The sub receives the pending target as an argument. **Strict contract**: `true` allows, `false` blocks, any other value blocks AND emits `:rf.error/can-enter-non-boolean`. On a block the runtime dispatches `:rf.route/entry-blocked` (the mirror of `:rf.route/navigation-blocked`). See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol). |
 | `:scroll` | layout | enum | Declarative scroll behaviour on entering this route — `:top` / `:restore` / `:preserve`, or `false` to suppress the effect. Closed vocabulary. See "Scroll restoration". |
@@ -315,7 +312,7 @@ The framework reg-sub `[:rf/route]` reads against `[:rf.runtime/routing :current
 
 `:fragment` carries the URL `#fragment` part (per "Fragments" below). `:nav-token` is the runtime-allocated navigation epoch (per "Navigation tokens — stale-result suppression" below). Both are runtime-managed; user code reads them through subs.
 
-`:transition` is a tiny FSM driven by the runtime: `:idle` when no navigation is in flight; `:loading` while the active route's `:on-match` events are draining; `:error` if any `:on-match` event errors. See "Per-route data loading" and "Per-route error handling" below.
+`:transition` (`:idle` / `:loading` / `:error`) and `:error` are **not** a runtime-driven FSM over the `:on-match` drain. They are the **resource-derived readiness projection** over the active route plan: `:loading` while a blocking first load is pending, `:error` when the plan could not be formed or a blocking first load failed, `:idle` otherwise (including when the route declares no resources). `:on-match` never moves them. They ride in the stored slice for ergonomic whole-route reads, but a runtime that caches them there keeps that cache reconstructible from the plan plus managed-resource state and reconciles it through one pure projector. See [§Route readiness is a resource projection](#route-readiness-is-a-resource-projection) below.
 
 A canonical schema for the slice is registered as `:rf/route-slice` (see [Spec-Schemas.md](Spec-Schemas.md#rfroute-slice)).
 
@@ -404,14 +401,14 @@ Programmatic navigation is one event carrying ONE flat **request map**:
                               :params     path-params
                               :query      query-params
                               :fragment   fragment
-                              :transition (if (seq (:on-match route-meta)) :loading :idle)
+                              :transition :idle    ;; resource-derived readiness projection derives :loading/:error from the plan
                               :error      nil
                               :nav-token  nav-token}))
            :fx (into [[push-fx-id url]
                       [:rf/trace [:rf.route.nav-token/allocated {:route-id route-id :nav-token nav-token}]]
                       (when-let [scroll (resolve-scroll route-meta request fragment)]
                         [:rf.nav/scroll scroll])]
-                     ;; per-route :on-match dispatches (see "Per-route data loading")
+                     ;; per-route :on-match fire-and-forget dispatches (see "Per-route data loading")
                      (for [ev (:on-match route-meta)]
                        [:dispatch ev]))})))))
 ```
@@ -578,7 +575,7 @@ Neither delegates to the other — they are sibling handlers over one shared sli
                         :params     params
                         :query      query
                         :fragment   fragment
-                        :transition (if (seq (:on-match route-meta)) :loading :idle)
+                        :transition :idle    ;; resource-derived readiness projection derives :loading/:error from the plan
                         :error      nil
                         :nav-token  nav-token})
          :fx (into [[:rf/trace [:rf.route.nav-token/allocated {:route-id route-id :nav-token nav-token}]]]
@@ -586,7 +583,7 @@ Neither delegates to the other — they are sibling handlers over one shared sli
                      [:dispatch ev]))}))))
 ```
 
-The same handler runs **on the server during SSR** (no `:platforms` exclusion) — the request URL is fed in, the route slice is set, the view renders against it. The `:on-match` events also fire server-side, populating server-rendered data the same way they would client-side. No SSR-specific routing code.
+The same handler runs **on the server during SSR** (no `:platforms` exclusion) — the request URL is fed in, the route slice is set, the view renders against it. The `:on-match` events also fire-and-forget server-side, so their synchronous effects stay symmetric with the client; they are not awaited, and required page data that must settle before render is a blocking `:resources` requirement, not an `:on-match` event (see [§Server-side rendering integration](#server-side-rendering-integration-per-011)). No SSR-specific routing code.
 
 ### Linking from views — plain-anchor semantics
 
@@ -809,7 +806,7 @@ The programmatic, link, URL-change, initial-load, and SSR handlers may remain se
 
 A resource-planning failure is a committed **failed activation**, not a return to the prior page (EP-0037 §One planning pipeline for every door, §Honest activation and readiness): the target and URL **commit**, route readiness projects `:error`, and **no** resource ensure from the invalid plan runs. The target's `:on-match` events do **not** run — committing target facts makes the failure addressable and gives client and SSR error views stable route context, but a failed activation is not a successful activation boundary for analytics, host notification, or state seeding. The structured planning error and its trace are the causal facts an application observes; a retry is a fresh navigation and dispatches `:on-match` only after its plan forms successfully.
 
-Plan execution is atomic at this boundary: a failed plan contributes an empty next-ownership set, so after the failed target / error facts are installed every owner held only by the previous route plan is released, no partially planned next owner is attached, and no partial ensure is dispatched. A committed full activation allocates a fresh nav-token; a fragment-only transition and a no-op allocate none, and prefetch (not an activation) allocates none. The full readiness projection — `:rf.route/transition` / `:rf.route/error` as a resource-derived value — graduates in EP-0037 R1, and the parent-to-leaf branch plan in R2; the terminal-entry protocol that retires the resumable enter machinery graduates in R4. R0 fixes the stage order and the failed-activation rule above; existing runtime behaviour is otherwise preserved.
+Plan execution is atomic at this boundary: a failed plan contributes an empty next-ownership set, so after the failed target / error facts are installed every owner held only by the previous route plan is released, no partially planned next owner is attached, and no partial ensure is dispatched. A committed full activation allocates a fresh nav-token; a fragment-only transition and a no-op allocate none, and prefetch (not an activation) allocates none. The readiness projection — `:rf.route/transition` / `:rf.route/error` as a resource-derived value over the (leaf-only, until R2) plan — lands in EP-0037 R1 (see [§Route readiness is a resource projection](#route-readiness-is-a-resource-projection)); R2 replaces its plan input with the parent-to-leaf branch plan without changing the projector; the terminal-entry protocol that retires the resumable enter machinery graduates in R4. R0 fixed the stage order and the failed-activation rule above; R1 makes `:on-match` fire-and-forget and derives readiness from managed resources.
 
 <a id="resolved-target-and-the-plan-diagnostic-projection"></a>
 ### Resolved target and the plan diagnostic projection
@@ -830,25 +827,25 @@ The plan must be legible without executing view code, and its diagnostic project
 
 ## Per-route data loading
 
-A route may declare a vector of events the runtime dispatches whenever the route becomes active. This is the pattern's **declarative loader**. The mechanism is purely event-driven; no new effect substrate.
+A route may declare a vector of events the runtime **fires-and-forgets** whenever the route becomes active. This is the pattern's **activation hook** — useful for synchronous seeding, analytics / host notification, and application-owned work that naturally begins at activation. The mechanism is purely event-driven; no new effect substrate. `:on-match` is **not** a readiness mechanism: managed page-read data that must be present before a view renders is declared with `:resources`, which drives the resource-derived readiness projection ([§Route readiness is a resource projection](#route-readiness-is-a-resource-projection)).
 
 ```clojure
 (rf/reg-route :route/cart
   {:doc      "The cart page."
    :path     "/cart"
-   :on-match [[:cart/load-items]
-              [:user/load-prefs]]})
+   :on-match [[:analytics/viewed-cart]
+              [:cart/seed-ui-state]]})
 ```
 
-Semantics:
+Its contract is fire-and-forget (EP-0037 §`:on-match` is activation work):
 
-1. When `:rf.route/handle-url-change` (URL-driven) or `:rf.route/navigate` (programmatic) makes this route the active route, the runtime dispatches each event in `:on-match`, **in order**, after writing the `:rf/route` slice and before any view renders that depend on the loaded data.
-2. The runtime sets `:rf.route/transition` to `:loading` while these dispatches drain, and back to `:idle` when they complete (per the run-to-completion drain semantics, this is observable through trace events; see [009](009-Instrumentation.md)).
-3. Same-route-id navigations with **changed `:params` or `:query`** *do* re-fire `:on-match` (the route is becoming active again under new inputs). Same-route-id navigations with identical params do not re-fire — the runtime compares the post-update `:rf/route` slice against the pre-update slice and skips dispatch when nothing relevant changed.
-4. `:on-match` events run **server- and client-side**. SSR populates server-rendered data via the same vector. Hydration does *not* re-fire `:on-match` events — the seeded `app-db` already contains the data.
-5. Each `:on-match` event is an ordinary event vector. Handlers may emit any `:fx` (typically `:http`, etc.). The events are also enumerable: `(rf/handler-meta :route :route/cart)` returns the metadata, so tooling can render route-loading dependency graphs.
+1. `:on-match` runs **only after a valid plan forms** — after a *successful* full activation. A committed **planning-failure** target dispatches **none** of its events (a failed activation is addressable route context, not an activation boundary; see [§Failed activation](#failed-activation)). When it does run, the runtime dispatches each event **in order** with normal run-to-completion semantics, after writing the `:rf/route` slice and before any view renders that depend on the seeded state.
+2. It **does not drive route readiness.** `:on-match` never sets `:rf.route/transition` to `:loading` or `:error`, never queues a settle, does not await the asynchronous effects its events start, does not infer when their transitive work finished, and does not correlate later global error records back to the route. Route readiness is the resource projection, independent of `:on-match`.
+3. Same-route-id navigations with **changed `:params` or `:query`** *do* re-fire `:on-match` (the route is becoming active again under new inputs). Same-route-id navigations with identical id/params/query do not re-fire, and a fragment-only change does not re-fire — this is the exact re-fire key set (request spelling and policy keys are irrelevant; the runtime compares the resolved facts).
+4. `:on-match` events run **server- and client-side**. SSR dispatches them through the request-local frame so synchronous event effects stay symmetric, but SSR does **not** wait for an arbitrary asynchronous tail (the only route-owned server wait is a blocking `:resources` requirement; see [§Server-side rendering integration](#server-side-rendering-integration-per-011)). Hydration does *not* re-fire `:on-match` — the seeded `app-db` already contains the data.
+5. Each `:on-match` event is an ordinary event vector. Handlers may emit any `:fx` (typically `:http`, etc.). A synchronous handler **throw** stays visible through the ordinary [009](009-Instrumentation.md) event error channel, attributed to the event that threw — it is **not** rewritten into route-loader state. Applications that start asynchronous work from `:on-match` own its status and error state in the same event/effect subsystem that owns the work. The events are also enumerable: `(rf/handler-meta :route :route/cart)` returns the metadata, so tooling can render activation dependency graphs.
 
-The `:on-match` list is the **enumerable, machine-readable** answer to "what loads when this route is active?" `:on-match` is the canonical surface.
+The `:on-match` list is the **enumerable, machine-readable** answer to "what runs when this route activates?" `:on-match` is the canonical surface.
 
 ### Route `:resources` and named scope resolvers (EP-0016 integration)
 
@@ -856,12 +853,37 @@ The `:resources` route-metadata key (owned by the [Resources artefact](016-Resou
 
 - a route-resource entry `:scope` MAY be a **named scope resolver reference** `{:from-db <resolver-id>}` (a `reg-resource-scope` resolver, [016 §Resolver references](016-Resources.md#resolver-references--from-db-id)), in addition to the existing concrete value or `(fn [route ctx] …)` route resolver;
 - a `{:from-db …}` reference is **resolved at route-entry planning time against the frame db** — the resources route-entry plan (`:routing/on-route-entry`) runs the named resolver before planning the resource's ensure, so route ownership, the blocking slot under the nav-token, and route-leave release all key on the resolved concrete scope;
-- resolution is **fail-closed**: a resolver that returns `nil` at a route-resource site is a route/resource **planning error** (`:rf.error/resource-route-plan-failed`, surfaced on the route slice's transition/error state and Xray), **never** a silent substitution of `:rf.scope/global` and never a silent skip. This is the routing-side application of the resources fail-closed scope boundary;
+- resolution is **fail-closed**: a resolver that returns `nil` at a route-resource site is a route/resource **planning error** (the canonical `:rf.error/resource-route-plan`, surfaced on the route slice's transition/error state and Xray), **never** a silent substitution of `:rf.scope/global` and never a silent skip. This is the routing-side application of the resources fail-closed scope boundary;
 - the route-resource `:params` / `:scope` / `:when` functions remain the one site with a **populated** planning context — `(fn [route ctx] …)` — because route-entry planning has a real route match and planning context to thread (contrast the reserved-nil `ctx` on resource/mutation fns, [016 §The `ctx` argument is reserved](016-Resources.md#the-ctx-argument-is-reserved-across-resourcemutation-fn-surfaces)).
 
 The mechanism is the existing late-bound seam; the design change is purely the resolver-reference `:scope` form and its planning-time, fail-closed resolution. Spec 016 owns the full route-resource plan contract ([016 §Route integration](016-Resources.md#route-integration)); 012 names only this accepted-`:scope`-form extension.
 
 > **`:on-match` events read route params from cofx, not from the event vector.** Each `:on-match` event runs with full access to the frame's state via cofx, including the freshly-written route slice. The route slice is framework-owned **runtime-db** state (per [§The `:rf/route` slice](#the-rfroute-slice)), so a handler that needs params/query reads them from the `:rf.db/runtime` cofx — `(get-in (:rf.db/runtime cofx) [:rf.runtime/routing :current])` — or, more idiomatically, derives them through the public route subs (`:rf.route/params`, `:rf.route/query`). It does NOT read the slice from the app `:db` cofx (the slice does not live in app-db). The event vector carries no param substitution.
+
+### Route readiness is a resource projection
+
+The public `:rf.route/transition` and `:rf.route/error` reads name the route's **honest readiness** — whether the managed page-read data the route requires is present, still loading, or failed. Their meaning is a **pure projection over the active route plan's blocking resource requirements** (EP-0037 §Route readiness is a resource projection), *not* a state driven by the `:on-match` drain:
+
+| Effective-plan state | `:rf.route/transition` | `:rf.route/error` |
+|---|---|---|
+| plan could not be formed | `:error` | the structured planning error (`:rf.error/resource-route-plan`) |
+| any blocking first load is pending and none has failed | `:loading` | `nil` |
+| a blocking first load failed | `:error` | the deterministic first failure in effective plan order (`:rf.error/resource-route-blocking`) |
+| all blocking requirements have usable data, or there are none | `:idle` | `nil` |
+| Resources artefact absent | `:idle` | `nil` |
+
+The table uses [Spec 016](016-Resources.md) resource terms, not router-local guesses:
+
+- a blocking requirement has **usable data** when its active resource identity projects `:rf.resource/has-data? true`;
+- a blocking **first load is pending** when that identity has no usable data and is absent / `:idle`, or projects `:rf.resource/loading? true`;
+- a blocking **first load failed** when the identity has no usable data and its resource status is `:error`; and
+- `:fetching` **with** usable data is a background **refresh** (including a stale revalidation). It never makes the route `:loading`, and a refresh failure stays on the resource's `:refresh-error` channel — it does not make the route `:error`.
+
+**Previous-data projection** for a newly-keyed requirement (`:keep-previous?`) may keep useful pixels on screen, but it does **not** make the new identity's first load complete: the route stays `:loading` until the new identity has its own usable data. A **non-blocking** first load, an intent **prefetch**, and arbitrary **`:on-match`** work likewise never change route transition — their honest status lives on their owning resource / application read model.
+
+This projection has **one pure implementation** used by the `:rf.route/transition` / `:rf.route/error` subscriptions, SSR wait / render decisions, Xray, and any cached route-slice fields. A runtime **may** cache the projected `:transition` / `:error` in the stored slice (runtime-db) for efficient whole-route reads and incremental updates, but the cache is **not** independent authority: it must be reconstructible from the active plan plus managed-resource / planning state, and it is reconciled through the same projector on **hydration**, **epoch restore**, and **every resource settlement**. Hydration and epoch restore must not preserve a route `:loading` (or `:error`) value that the restored resource state contradicts (per OI-2, 2026-07-24).
+
+R1 applies this projector to R0's behaviour-preserving **leaf-only** resource plan. R2 replaces that input with the effective **parent-to-leaf** branch plan; it does not change the readiness table or fork the projector. This staging lets activation honesty land before branch composition without an interim readiness contract.
 
 ## Route-not-found — `:rf.route/not-found` (canonical)
 
@@ -879,7 +901,7 @@ The mechanism is the existing late-bound seam; the design change is purely the r
 Semantics:
 
 1. **Trigger.** When `match-url` returns `nil` (no path-pattern matches), or when validation failure routes to "not found" (per [§Param validation at the call site](#param-validation-at-the-call-site)), the runtime sets `:rf/route` to `{:route-id :rf.route/not-found :params {:url <url>} ...}` and proceeds with that route's `:on-match` events.
-2. **Same machinery.** `:rf.route/not-found` is an ordinary `reg-route`. It can declare `:on-match`, `:on-error`, `:scroll`, `:head`, `:tags` — all behave normally. The view tree's `case` over `:rf.route/id` renders the not-found view from the leaf.
+2. **Same machinery.** `:rf.route/not-found` is an ordinary `reg-route`. It can declare `:on-match`, `:scroll`, `:head`, `:tags` — all behave normally. The view tree's `case` over `:rf.route/id` renders the not-found view from the leaf.
 3. **Required by contract.** Apps **must** register a `:rf.route/not-found` route. If no `:rf.route/not-found` is registered when an unmatched URL arrives, the runtime emits a `:rf.warning/no-not-found-route` trace event and falls back to a built-in placeholder view (a minimal `<h1>Not Found</h1>` page) so the request still produces a response. Test fixtures and the conformance corpus assume the user-registered shape.
 4. **Validation failures.** A URL that matches a route's path but fails the route's `:params` / `:query` schema also routes to `:rf.route/not-found`, with `:reason :validation` in the `:params` slice (per [§URL changes are events](#url-changes-are-events)).
 5. **Malformed percent-encoding.** A URL carrying malformed `%`-sequences (`%`, `%a`, `%XX`, …) produces a route-miss, **never an exception**. Malformed encoding anywhere in the URL — captured path segments, query keys, query values, or the `#fragment` portion — fails the whole match closed: `match-url` returns nil and the URL-change handlers (`:rf.route/transitioned` / `:rf.route/handle-url-change`) write `:rf.route/not-found` with `{:url url :reason :malformed-url}` in the slice's `:params`. A `:rf.warning/malformed-url` trace fires alongside the standard `:rf.error/no-such-handler`. The `:reason` discriminator distinguishes the malformed-URL case from a bare miss (`{:url url}`) and from a validation failure (`{:url url :reason :validation}`) Hostile URLs, partner integrations with broken escaping, and back-button to a malformed link must never crash a request handler on SSR.
@@ -889,54 +911,12 @@ Tooling enumerates `(rf/handler-meta :route :rf.route/not-found)` to confirm the
 
 ## Per-route error handling
 
-If any event in `:on-match` errors (a handler throws, a registered fx errors, or a downstream handler errors during the drain — per [009](009-Instrumentation.md)'s structured error contract), the runtime:
+There is **no** route-owned `:on-match` error handling, and no corpus-wide error correlation back to the route. `:on-match` is fire-and-forget ([§Per-route data loading](#per-route-data-loading)): the runtime dispatches its events and does not observe, correlate, or rewrite their outcomes into route state. Two honest channels carry failures instead:
 
-1. Sets `:rf.route/transition` to `:error`.
-2. Populates `:rf.route/error` with the structured error map (schema: `:rf/error` per [009](009-Instrumentation.md#error-contract)).
-3. If the route declares an `:on-error` event, dispatches it. The error map lives in the route slice (**runtime-db**), so the handler reads it from the `:rf.db/runtime` cofx — `(get-in (:rf.db/runtime cofx) [:rf.runtime/routing :current :error])` — or via the `:rf.route/error` sub. The handler writes its own app data through the ordinary `:db` effect.
+1. **A synchronous `:on-match` handler throw** is visible through the ordinary [009](009-Instrumentation.md#error-contract) event error channel (`:rf.error/handler-exception`), **attributed to the event that threw** — not to the route. It carries no routing-domain attribution slots and does not flip `:rf.route/transition`. Tools, off-box shippers, and application error listeners observe it exactly as they observe any other event throw.
+2. **Managed page-read failures** surface through the resource-derived readiness projection ([§Route readiness is a resource projection](#route-readiness-is-a-resource-projection)): a blocking first-load failure projects `:rf.route/transition :error` with the deterministic first failure (`:rf.error/resource-route-blocking`) on `:rf.route/error`; a planning failure projects `:error` with `:rf.error/resource-route-plan`. Views inspect those reads and render an error surface. A background-refresh failure stays on the resource's `:refresh-error` channel and does **not** make the route `:error`.
 
-```clojure
-(rf/reg-route :route/cart
-  {:path     "/cart"
-   :on-match [[:cart/load-items]]
-   :on-error [:route/cart-load-failed]})
-
-(rf/reg-event :route/cart-load-failed
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [error (get-in rt [:rf.runtime/routing :current :error])]   ;; route slice is runtime-db
-      ;; surface a contextual error UI; toast; redirect; whatever the app needs.
-      {:db (assoc-in db [:cart :load-error] (:rf.error/message error))})))   ;; app data → app-db
-```
-
-`:on-error` is **route-scoped** error handling, layered over [009](009-Instrumentation.md)'s structured error contract — it doesn't replace it. The structured error trace event still fires; `:on-error` is the route's response to it. Routes without an `:on-error` slot leave `:rf.route/transition :error` set; views may inspect `:rf.route/error` and render an error banner.
-
-### Failure semantics — later `:on-match` events and first-error-wins
-
-A route's `:on-match` is a vector of events dispatched **in order** inside one navigation drain. The drain is re-frame2's locked FIFO run-to-completion drain (per [002 §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics)), which does **not** cancel events already queued. Two failure-semantics rules follow, and are part of the contract:
-
-1. **Later `:on-match` events still run after an earlier one fails (continuation).** For `:on-match [[:load/a] [:load/b]]` where `:load/a`'s handler throws, `:load/b` **still runs** — the runtime does not abort the remaining loaders. The error is observed by the always-on `:on-match` trap (see [§`:on-match` exception attribution](#on-match-exception-attribution)), which dispatches its `:transition :error` flip to the **back** of the drain queue; the already-queued `:load/b` runs ahead of it. This continuation is the deliberate consequence of the locked FIFO drain: cancelling already-queued events would require a generic front-of-queue / cancellation primitive that re-frame2 does not expose, and a route loader is an ordinary event whose own side effects (its `:db` write, its `:fx`) are governed by run-to-completion like any other. Loaders that must short-circuit on a sibling's failure read `:rf.route/transition` (or the `:rf.route/error` sub) and self-guard — the same idiom the framework's own `settle-transition` uses.
-
-2. **First-error-wins when multiple `:on-match` events throw.** If both `:load/a` and `:load/b` throw in the same transition, the route's `:rf.route/error` and its routing-domain attribution slots ([§`:on-match` exception attribution](#on-match-exception-attribution)) record the **first** attributed failure, and a declared `:on-error` dispatches **exactly once**. The trap drops every later same-`:nav-token` failure once the slice is already `:transition :error`. This matches XState v5's errored-transition semantics (the first error is the recorded one) and keeps `:on-error` from firing per-throw. A genuinely *new* navigation (a fresh `:nav-token`) is not suppressed — its own commit resets the slice off `:error` before its loaders run, so a failure after a recovery still records.
-
-**Final state is always `:error`.** Regardless of queue interleaving (the settle event may run between a failing loader and the trap's error flip), the slice lands on `:transition :error`: `settle-transition` only settles `:loading → :idle` and never clobbers `:error`, and the error flip is the last write for the transition's `:nav-token`. Subscribers see the settled post-drain state (`:error`); the transient `:idle` that settle may write before the error flip is internal to the synchronous drain and is never an observable resting state.
-
-### `:on-match` exception attribution
-
-The error map written to `:rf.route/error` carries two routing-domain attribution slots in addition to the standard [009](009-Instrumentation.md#error-contract) shape:
-
-| Slot | Value | Purpose |
-|---|---|---|
-| `:rf.route/on-match-id` | the failing event-id | Identifies the `:on-match` event vector whose handler threw. |
-| `:rf.route/on-match-frame` | the dispatching frame-id | Identifies the frame whose `:on-match` drain was in flight. |
-
-These slots ride on the structured error so downstream consumers — Xray's event lens, an off-box Sentry/Honeybadger shipper, the SSR error projection per [011](011-SSR.md), an `:on-error` handler — can identify the throw as `:on-match`-attributed **without** re-running the corpus-wide error-emit (the `:errors` stream of `register-listener!`) discrimination logic that the runtime uses to wire the trap. Mirrors the flow-attribution slots `:rf.flow/failed-id` / `:rf.flow/failed-frame` (per [013 §Failure semantics](013-Flows.md#failure-semantics) and). Tools that read `:rf.error/handler-exception` outside the routing listener's discrimination context get the same attribution the trap itself uses.
-
-**How the listener attributes a throw.** The corpus-wide error listener sees every `:rf.error/handler-exception` record and must decide whether the throw belongs to the active (`:loading`) route's `:on-match` drain. The discriminator is **full `:on-match` event-vector identity**: the failing record's `:event` vector must be byte-for-byte one of the route's declared `:on-match` vectors. This is tighter than bare event-**id** membership — a button handler's `[:app/load-x 'from-button]` does not collide with the route's `[:app/load-x 'from-route]`, and a bare `[:app/load-x]` does not collide with the route's `[:app/load-x 42]` — so a non-routing throw whose id merely coincides with an `:on-match` id during the loading window is **not** mis-attributed. The full vector rides the always-on error record (per [009 §Record shape](009-Instrumentation.md)), so the discriminator survives `:advanced` + `goog.DEBUG=false`.
-
-Two edges are part of the contract:
-
-- **Wire-elision fallback.** When [009 §size-elision](009-Instrumentation.md) replaces a large `:event` with the sentinel `:rf.size/large-elided`, the full vector is unavailable. The discriminator then falls back to coarse event-**id** membership — a wider window that can mis-attribute a coincidental same-id throw, which preserves the `:on-error` chain for a genuine large-payload loader throw.
-- **Residual identical-vector coincidence (accepted limitation).** A *different* drain dispatching the byte-for-byte **identical** `:on-match` vector during the loading window remains indistinguishable from the genuine `:on-match` throw on the always-on substrate: the error record carries no cause/run correlation, and the epoch cause-event-id surface that would disambiguate it is dev-only and elides in production. This is an accepted limitation, not a bug — the on-match-attribution code's docstring points here for the normative statement.
+> **Migration — `:on-error` as "page failed" is retired.** Route metadata `:on-error`, the internal `:rf.route.internal/on-match-error` trap and its `:rf.route/on-match-error-trap` listener, and the `:rf.route/on-match-id` / `:rf.route/on-match-frame` attribution slots are removed with **no alias** (EP-0037 §Backwards Compatibility). A guide or app that used `:on-error` to mean *"a required page read failed"* declares that read as a **blocking `:resources`** requirement and renders off `:rf.route/transition :error` + `:rf.route/error`. Work that `:on-match` merely *starts* (analytics, host notification, application-owned async) keeps its status and error state in the same event/effect subsystem that owns it — the router no longer manufactures a route error from it, and there is no longer a first-error-wins ordering or an identical-vector attribution caveat to reason about.
 
 ## Navigation tokens — stale-result suppression
 
@@ -1692,16 +1672,17 @@ The server-side flow:
 1. HTTP request arrives.
 2. `make-frame` per request. `:initial-events` fire `[:rf/server-init request]`, which dispatches `[:rf.route/handle-url-change (:uri request)]`.
 3. Route slice is set from the URL; the same handler runs on server and client. Path params, query params, defaults, and `:query-retain` keys are populated.
-4. The matched route's `:on-match` events dispatch — the same vector that runs client-side. Server-side data loaders complete before the drain settles.
-5. Drain settles; root view renders against the populated state.
-6. HTML + serialised state ship to the client.
+4. The matched route's `:on-match` events dispatch through the request-local frame — the same **fire-and-forget** vector that runs client-side, so synchronous event effects stay symmetric. They are **not** awaited: the server does not claim to wait for an arbitrary asynchronous tail started by `:on-match` (EP-0037 §`:on-match` is activation work).
+5. The **only** route-owned server wait is a **blocking `:resources`** requirement. The server builds the route's resource plan, ensures it, and waits only for the blocking first loads of the current plan / nav-token; route readiness is the resource projection ([§Route readiness is a resource projection](#route-readiness-is-a-resource-projection)) — a render that must reflect required page data waits on those resources, not on `:on-match`. Work that must settle before server render is therefore a blocking route resource, not an `:on-match` event.
+6. Drain settles and blocking resources resolve; root view renders against the populated + resource-projected state.
+7. HTML + serialised state ship to the client.
 
 On the client, hydration runs `[:rf/hydrate state]` which restores the route along with everything else. **`:on-match` does not re-fire on hydration** — the seeded `app-db` already contains the loaded data. The first client render produces the same HTML the server rendered (same `:rf.route/id`, same `:params`, same `:query`).
 
 ## Tooling and AI-amenability
 
 - `(rf/registrations :route)` enumerates every registered route. Tools and agents enumerate them; AI scaffolding consults this before generating new routes to avoid collisions.
-- `(rf/handler-meta :route :route/cart)` returns the route's metadata: path, params shape, query shape, `:on-match`, `:on-error`, `:scroll`, `:parent`, tags, source coords. The `:on-match` slot is **enumerable** — tools render route-loading dependency graphs without parsing handler bodies.
+- `(rf/handler-meta :route :route/cart)` returns the route's metadata: path, params shape, query shape, `:on-match`, `:scroll`, `:parent`, tags, source coords. The `:on-match` slot is **enumerable** — tools render activation dependency graphs without parsing handler bodies.
 - The `:rf/route` sub gives the entire route map; `:rf.route/id`, `:rf.route/params`, `:rf.route/query`, `:rf.route/transition`, `:rf.route/error` are conveniences.
 - `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/transitioned`, `:rf.route/url-requested` are stable, named events; trace events surface every navigation and every URL request.
 - A registered `:rf.route/not-found` is required (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)); tools surface the `:rf.warning/no-not-found-route` trace event for apps missing the registration.
@@ -1732,9 +1713,7 @@ None of these clear on `destroy-frame!` and none should. A new feature artefact 
 
 ### What the teardown looks like
 
-`destroy-frame!` calls `(swap! frame-registry dissoc frame-id)` which drops the whole frame's frame-state (both partitions) along with everything else (per [002 §Destroy](002-Frames.md#destroy)). The route slice (`[:rf.runtime/routing :current]`) and the pending-nav slot (`[:rf.runtime/routing :pending-navigation]`) live in the reserved **runtime-db** child `:rf.runtime/routing` (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)) and release in lockstep when the frame value goes away. The host-side transient caches — the saved **scroll-position cache** and the **nav-token / pending-nav counter** high-water marks — are held outside the frame value in module-private per-frame atoms (per [§Scroll restoration](#scroll-restoration) and [§Navigation tokens — stale-result suppression](#navigation-tokens--stale-result-suppression)), so `destroy-frame!` fires the single `:routing/on-frame-destroyed!` late-bind hook to drop that frame's entry in *both* caches. Beyond those there is no orphaned listener and no leaked timer to clear.
-
-The corpus-wide `:rf.error/handler-exception` listener (`on-match-error-listener`, registered at routing-artefact load time per [§Per-route error handling](#per-route-error-handling)) is process-global and survives every `destroy-frame!`. It is `defonce`-protected and re-discriminates each handler-exception against the failing frame's current route slice (`[:rf.runtime/routing :current]`) — destroying frame `:left` simply means future exceptions thrown in `:left`'s drain no longer trigger the listener (the frame is gone) and the listener continues to discriminate `:right`'s exceptions normally.
+`destroy-frame!` calls `(swap! frame-registry dissoc frame-id)` which drops the whole frame's frame-state (both partitions) along with everything else (per [002 §Destroy](002-Frames.md#destroy)). The route slice (`[:rf.runtime/routing :current]`) and the pending-nav slot (`[:rf.runtime/routing :pending-navigation]`) live in the reserved **runtime-db** child `:rf.runtime/routing` (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)) and release in lockstep when the frame value goes away. The host-side transient caches — the saved **scroll-position cache** and the **nav-token / pending-nav counter** high-water marks — are held outside the frame value in module-private per-frame atoms (per [§Scroll restoration](#scroll-restoration) and [§Navigation tokens — stale-result suppression](#navigation-tokens--stale-result-suppression)), so `destroy-frame!` fires the single `:routing/on-frame-destroyed!` late-bind hook to drop that frame's entry in *both* caches. Beyond those there is no orphaned listener and no leaked timer to clear — EP-0037 R1 retired the corpus-wide `:on-match` error-emit listener, so routing installs no process-global error listener that would survive `destroy-frame!`.
 
 ## Multi-frame routing
 
@@ -1889,7 +1868,7 @@ Per [§Per-route data loading](#per-route-data-loading) a route's `:resources` p
 
 The **code-loading axis** — per-route code splitting, so a route's view code is not in the first-paint bundle until that route is reached — is named here so it stops being a blind spot. v1 ships no story for it, shipped *or* deferred *or* rejected: the [§The root view dispatches on `:rf.route/id`](#the-root-view-dispatches-on-rfrouteid) pattern resolves each route's leaf view at render time, which requires every route's view code loaded up front, and nothing in this spec speaks to lazily-loaded route code. React Router v7's route modules (`lazy:`) and TanStack Router's prefetchable chunks make "don't ship the admin panel to every visitor" a config line; re-frame2 apps that outgrow single-bundle today must hand-roll a host module loader (a CLJS app would reach for `shadow.lazy` plus a "module pending" sentinel) that races `:on-match` with no defined interaction.
 
-CLJS whole-program optimisation plus gzip pushes the single-bundle wall much further out than in JS-ecosystem apps, and no example or user has hit it — so this is deliberately **seam-only, committing to nothing**. The shape a post-v1 revisit would consider (recorded so the axis is on the map, not blessed): a host-discretion route-metadata key `:load` naming a host-specific loadable (a `shadow.lazy` loadable, in the CLJS reference) that the runtime resolves *before* dispatching `:on-match`, folding into the existing transition protocol — `:rf.route/transition` stays `:loading` until the load and `:on-match` both settle, a load failure routes through the route's existing `:on-error` under a new `:rf.error/route-load-failed` category, a superseded in-flight load is discarded like any other stale async (per [§Navigation tokens](#navigation-tokens--stale-result-suppression)), and SSR ignores `:load` on the server side because server bundles are eager — the runtime already knows which side it is on (the `:server`/`:client` platform split, [011](011-SSR.md)). The contract, were it ever shipped, would be only the ordering and the error category — never a particular module system. Deferred until an app demonstrates the single-bundle cost; naming the seam now costs one item and commits the spec to nothing. Untracked note — no bead filed yet (seam-only, committing to nothing until the trigger fires).
+CLJS whole-program optimisation plus gzip pushes the single-bundle wall much further out than in JS-ecosystem apps, and no example or user has hit it — so this is deliberately **seam-only, committing to nothing**. The shape a post-v1 revisit would consider (recorded so the axis is on the map, not blessed): a host-discretion route-metadata key `:load` naming a host-specific loadable (a `shadow.lazy` loadable, in the CLJS reference) that the runtime resolves as part of activation, folding into the **resource-derived readiness projection** ([§Route readiness is a resource projection](#route-readiness-is-a-resource-projection)) — a pending code-load is treated as a blocking first-load requirement, so `:rf.route/transition` stays `:loading` until it settles; a load failure projects `:rf.route/transition :error` with a new `:rf.error/route-load-failed` category on `:rf.route/error`, exactly as a blocking resource first-load failure does; a superseded in-flight load is discarded like any other stale async (per [§Navigation tokens](#navigation-tokens--stale-result-suppression)); and SSR ignores `:load` on the server side because server bundles are eager — the runtime already knows which side it is on (the `:server`/`:client` platform split, [011](011-SSR.md)). The contract, were it ever shipped, would be only the ordering and the error category — never a particular module system. Deferred until an app demonstrates the single-bundle cost; naming the seam now costs one item and commits the spec to nothing. Untracked note — no bead filed yet (seam-only, committing to nothing until the trigger fires).
 
 ## Resolved decisions
 

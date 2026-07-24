@@ -3622,8 +3622,8 @@ The shape of the route slice — lives in **runtime-db** at `[:rf.runtime/routin
    [:params      {:optional true} :map]                                    ;; path params (matches the route's :params schema)
    [:query       {:optional true} :map]                                    ;; query params (matches the route's :query schema; includes :query-defaults)
    [:fragment    {:optional true} [:maybe :string]]                        ;; URL fragment (#section); nil when absent. Per [012 §Fragments](012-Routing.md#fragments).
-   [:transition  {:optional true} [:enum :idle :loading :error]]           ;; navigation transition state
-   [:error       {:optional true} :any]                                    ;; populated when :transition = :error; conforms to :rf/error-event per 009
+   [:transition  {:optional true} [:enum :idle :loading :error]]           ;; RESOURCE-DERIVED readiness projection over the active plan (EP-0037 R1): :loading = blocking first load pending, :error = plan/blocking-first-load failure, :idle otherwise. NOT driven by :on-match. Cache is reconstructible + reconciled through one pure projector on hydration/epoch-restore/resource-settle. Per [012 §Route readiness is a resource projection](012-Routing.md#route-readiness-is-a-resource-projection).
+   [:error       {:optional true} :any]                                    ;; populated when :transition = :error (planning error :rf.error/resource-route-plan, or blocking first-load failure :rf.error/resource-route-blocking); conforms to :rf/error-event per 009
    [:nav-token   {:optional true} :any]])                                  ;; per-navigation epoch token; per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)
 ```
 
@@ -3648,8 +3648,7 @@ The shape of the **stored / effective** route-meta. Reserved keys per [012 §Res
    [:query-retain    {:optional true} [:set :keyword]]                     ;; query keys carried through subsequent navigations
    [:tags            {:optional true} [:set :keyword]]
    [:parent          {:optional true} :keyword]                            ;; parent route id; used by :rf.route/chain sub
-   [:on-match        {:optional true} [:vector [:vector :any]]]            ;; events to dispatch when this route becomes active
-   [:on-error        {:optional true} [:vector :any]]                      ;; event vector to dispatch if any :on-match event errors. NB: the machine `:spawn` slot also has an `:on-error` key with a DIFFERENT shape (an :on-shaped Transition — see §:rf/invoke-all-spec); disambiguate by owner
+   [:on-match        {:optional true} [:vector [:vector :any]]]            ;; events the runtime FIRES-AND-FORGETS after a successful activation (EP-0037 R1). Never drives readiness; a planning-failure target dispatches none. Per [012 §Per-route data loading](012-Routing.md#per-route-data-loading).
    [:can-leave       {:optional true} :keyword]                            ;; sub-id; (subscribe [<sub-id>]) returns boolean — true means "OK to leave". Per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol).
    [:can-enter       {:optional true} :keyword]                            ;; sub-id; enter-gate mirror of :can-leave (rf2-p69yaz). Block dispatches :rf.route/entry-blocked. Per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol).
    [:scroll          {:optional true} [:enum :top :restore :preserve false]] ;; CLOSED vocabulary; `false` suppresses the :rf.nav/scroll fx. The map form was REMOVED (rf2-px26m) — nothing interpreted it, so it validated and then silently no-op'd. Per [012 §Custom scroll strategies](012-Routing.md#custom-scroll-strategies).
