@@ -129,13 +129,19 @@
   [s needle]
   (dec (count (.split s needle))))
 
-(defn- census-normalise
-  "An entry source reduced to what reaches the artefact, with the two arms'
-  distinguishing marks folded away:
+(defn- code-lines
+  "An entry source's CODE: `;;` comment lines and blank lines dropped.
+  Comments are not compiled, so each arm's prose is free to describe its own
+  arm — including quoting the `{:compiled true}` marker — while the census's
+  subject stays what reaches the artefact."
+  [src]
+  (->> (string/split-lines src)
+       (remove #(string/starts-with? (string/triml %) ";;"))
+       (remove string/blank?)))
 
-    - `;;` comment lines and blank lines dropped. Comments are not compiled,
-      so the arms' prose is free to differ and the census's subject stays the
-      code;
+(defn- census-normalise
+  "An entry source's code with the two arms' distinguishing marks folded away:
+
     - the `{:compiled true}` markers dropped — the ONE difference the delta is
       a reading of;
     - the arm segment folded to a single token, in both the hyphen spelling
@@ -145,13 +151,17 @@
   Two sources that normalise to the same string differ in lowering and in
   nothing else."
   [src]
-  (->> (string/split-lines src)
-       (remove #(string/starts-with? (string/triml %) ";;"))
+  (->> (code-lines src)
        (remove #(= compiled-marker (string/trim %)))
-       (remove string/blank?)
        (map #(string/replace % #"release[-_]app[-_]lowered[-_](?:none|full)"
                              "release-app-lowered-ARM"))
        (string/join "\n")))
+
+(defn- marker-count
+  "How many view declarations in this source carry `{:compiled true}` — in the
+  CODE, not in the prose describing it."
+  [src]
+  (count (filter #(= compiled-marker (string/trim %)) (code-lines src))))
 
 (deftest the-two-arms-are-one-source-in-two-states
   (testing "The premise every figure in this file is read under. The #6887
@@ -171,8 +181,8 @@
       (testing "and the equality is not vacuous: the markers really are there,
                 on all three view declarations of the compiled arm and on none
                 of the interpreted arm's"
-        (is (= 3 (occurrences compiled compiled-marker)))
-        (is (= 0 (occurrences interp compiled-marker))))
+        (is (= 3 (marker-count compiled)))
+        (is (= 0 (marker-count interp))))
       (testing "neither arm carries a namespace DOCSTRING. :advanced does not
                 strip one and the view manifest ships it once per declared
                 view, so a docstring here lands three times inside the artefact
