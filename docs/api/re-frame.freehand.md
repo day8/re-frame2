@@ -837,6 +837,45 @@ an open flag is writable and not buffered, so it takes the key and no generation
        (:message toast)]))
   ```
 
+## Client-only subtrees
+
+### `client-only`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (client-only {:fallback tpl} client-tpl)
+  ```
+- **Description**: a subtree only the **browser** may render, and the
+  capability-free markup that stands in its place everywhere else.
+  `:fallback` is **mandatory** — there is no arity that omits it and no
+  default, because a browser-only subtree without one is a hole in the
+  server's output. It is also the whole option roster; anything else is
+  refused at the call.
+
+    Which arm renders is decided by the root's **phase**. The structural
+  render on either host is `:server` phase and produces the fallback; an
+  ordinary `v/mount` is born `:client` and produces the client subtree on its
+  first and only render; a **hydrating** root boots `:server` — so React
+  adopts the server's own fallback markup — then flips once, swapping every
+  client-only site in the root in the single update that one root-scoped write
+  produces, strictly after the adoption commit.
+
+    An **interpreted** form. The compiled grammar refuses it and names the way
+  out (extract the site into a declared child, or keep the view interpreted),
+  because a compiled body cannot see through the boundary to analyse what it
+  claims. See
+  [spec/004-Views.md](../../spec/004-Views.md#client-only-subtrees) and
+  [spec/011-SSR.md](../../spec/011-SSR.md#the-phase-flip-on-the-freehand-paved-path).
+- **Example**:
+  ```clojure
+  (v/defview location-panel [{:keys [centre]}]
+    [:section.location
+     [:h2 "Where you are"]
+     (v/client-only {:fallback [:div.map-shell "Map loads in the browser"]}
+       [live-map {:centre centre}])])
+  ```
+
 ## Framework views
 
 ### `route-link`

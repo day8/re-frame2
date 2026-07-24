@@ -1381,6 +1381,16 @@
   ;; reconciles the same rows.
   ["re-frame.freehand" "presence"]          {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "presence-phase"]    {:tier :advanced    :owner "004" :status "EP-0036"}
+  ;; `client-only` (EP-0036 F5g) — the browser-only subtree and its MANDATORY
+  ;; capability-free fallback. `.cljc` and host-neutral like the presence pair,
+  ;; and for the same reason: the site returns a reserved-head vector BOTH
+  ;; interpreted walks read, so the structural render answers the fallback on
+  ;; the JVM and in ClojureScript alike. It is therefore a `:classification`
+  ;; row (JVM-introspected, CLJS-probe-reconciled) rather than a `:cljs-only`
+  ;; one — unlike the mount verbs, which have no JVM arm at all. Spec 004
+  ;; §Client-only subtrees owns the boundary; Spec 011 §Phase flip owns the
+  ;; root-scoped `:server` -> `:client` write that completes it.
+  ["re-frame.freehand" "client-only"]       {:tier :advanced    :owner "004" :status "EP-0036"}
   ;; A framework-supplied view is not a privileged one: `route-link` is an
   ;; ORDINARY declaration, so its manifest row is an ordinary descriptor Var.
   ;; Routing owns the href / click law (Spec 012); Freehand supplies the
