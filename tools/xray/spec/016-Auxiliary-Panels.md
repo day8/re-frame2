@@ -738,8 +738,11 @@ needs an explicit micro-spec when implementation lands; the prior
 When the focused cascade is a routing cascade
 (`:rf.route/navigate` or `:rf.route/handle-url-change`), the Epoch
 panel's "EFFECTS HANDLERS RAN" section adds a dedicated `:on-match`
-dispatch chain sub-section showing each loader event, drain duration,
-and any `:on-error` consequence. See
+dispatch chain sub-section showing each fire-and-forget loader event and
+its drain duration. `:on-match` is fire-and-forget (EP-0037 R1): a
+throwing loader is an ordinary Spec 009 `:rf.error/handler-exception`
+attributed to the event, not a route `:on-error` consequence, and never
+changes route readiness. See
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.2 R.2.
 
 ### Epoch panel — retry timeline
