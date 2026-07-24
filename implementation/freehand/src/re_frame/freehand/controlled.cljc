@@ -155,6 +155,65 @@
   [slot]
   (contains? door-slots slot))
 
+;; ---------------------------------------------------------------------------
+;; The one control whose value is COLLECTION-shaped
+;; ---------------------------------------------------------------------------
+;;
+;; A native `<select multiple>` is the single element in the DOM whose `value`
+;; is not a scalar: what is selected is a LIST of option values, and React's own
+;; contract says so — it reads the prop as an array and reports a shape error
+;; for anything else. That is a fact about ONE host element, not a general
+;; collection-valued attribute grammar, and it is stated here for the same
+;; reason the rest of this namespace is: the emitters must not each decide it.
+;;
+;; Both slot names are DERIVED from the same projection an authored key takes,
+;; not spelled as literals, so a guard reading them cannot drift from what the
+;; emitters write and every representation of the name reduces to them.
+
+(def ^:private value-slot
+  "The FINAL-NORMALIZED slot a `value` is written into."
+  (prop-slot :value))
+
+(def ^:private multiple-slot
+  "The FINAL-NORMALIZED slot whose truth turns a native `<select>`'s
+  `value` from a scalar into a collection."
+  (prop-slot :multiple))
+
+(defn select-value-slot?
+  "Is `k` the `value` slot of a native `<select>` — the ONE attribute in
+  the grammar whose authored value may be COLLECTION-shaped?
+
+  Asked of the TAG and the emitted slot, and NOT of `multiple`. What a
+  `<select>` accepts must be decidable from facts both execution modes
+  hold with equal certainty: the tag and the attribute key are lexical in
+  every declaration, while `multiple` may be a runtime value the compiler
+  cannot see. Keying acceptance on it would let a compiled declaration
+  REFUSE at render what its interpreted twin renders, which is a worse
+  failure than the mismatched-shape warning React already raises for a
+  collection on a single select."
+  [tag k]
+  (and (= :select tag) (= value-slot (prop-slot k))))
+
+(defn multiple-select?
+  "Does this element declare a native `<select multiple>` — the control
+  whose EMPTY `value` is the empty COLLECTION rather than the empty
+  string?
+
+  Two attribute sources, because a compiled element's attributes arrive in
+  two: what the compiler settled and what only the render knows. Either
+  may carry the flag, and either may be `nil`. The flag is read through
+  the same slot projection every other rule here reads, so `:x/multiple`
+  counts exactly as `:multiple` does; each source is a map, or any seqable
+  of `[key value]` pairs.
+
+  Only the EMPTY value turns on this — see [[select-value-slot?]] for why
+  acceptance does not."
+  [tag attrs more-attrs]
+  (letfn [(flagged? [entries]
+            (some (fn [[k v]] (and v (= multiple-slot (prop-slot k)))) entries))]
+    (and (= :select tag)
+         (boolean (or (flagged? attrs) (flagged? more-attrs))))))
+
 (defn controlled-props?
   "Does this element's authored attribute key sequence make it controlled
   — do any of the keys normalize onto a [[controlled-slots]] slot?
@@ -183,28 +242,46 @@
   {"value"   ""
    "checked" false})
 
+(def multiple-select-empty-values
+  "The same table, with the ONE row a native `<select multiple>` reads
+  differently: no options selected is the empty COLLECTION, because that
+  control's value is the list of selected option values rather than a
+  scalar. React reads the empty string there as a shape error and says so.
+
+  A Clojure vector, not a host array — this is semantic space, the values
+  the structural tree records. Turning it into the array React's contract
+  requires is the React emitter's own last step, exactly as every other
+  final-shape conversion is."
+  (assoc controlled-empty-values value-slot []))
+
 (defn empty-control-slot
   "The React prop slot an explicitly nil attribute `k` on `tag` must still
   be WRITTEN into, paired with the controlled-empty value it takes — or
   `nil` when this is not a controlled slot on a supported native control,
   where an emitter's ordinary nil-attribute omission stands.
 
-      (empty-control-slot :input :x/value) ;=> [\"value\" \"\"]
-      (empty-control-slot :input :checked) ;=> [\"checked\" false]
-      (empty-control-slot :input :title)   ;=> nil
-      (empty-control-slot :div   :value)   ;=> nil
+      (empty-control-slot :input  :x/value)    ;=> [\"value\" \"\"]
+      (empty-control-slot :input  :checked)    ;=> [\"checked\" false]
+      (empty-control-slot :input  :title)      ;=> nil
+      (empty-control-slot :div    :value)      ;=> nil
+      (empty-control-slot :select :value true) ;=> [\"value\" []]
 
   Scoped to exactly the door's first two facts, and read through the same
   [[prop-slot]] projection, so a spelling that makes a node CONTROLLED is
-  the spelling that clears it.
+  the spelling that clears it. `multiple?` is the element's
+  [[multiple-select?]] verdict — the one fact that changes what EMPTY
+  means — and defaults to false, which every control but a multiple
+  select is.
 
   An ENTRY rather than the value alone, because the empty `checked` value
   IS `false`: a caller asking `(when-let [v …])` would silently drop the
   unchecked case — the same presence-versus-truth collapse this rule
   exists to undo."
-  [tag k]
-  (when (contains? controlled-tags tag)
-    (find controlled-empty-values (prop-slot k))))
+  ([tag k] (empty-control-slot tag k false))
+  ([tag k multiple?]
+   (when (contains? controlled-tags tag)
+     (find (if multiple? multiple-select-empty-values controlled-empty-values)
+           (prop-slot k)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The compiled tier's vocabulary, mapped onto the roster's

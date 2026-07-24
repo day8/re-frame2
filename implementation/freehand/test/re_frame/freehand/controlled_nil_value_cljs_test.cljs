@@ -96,6 +96,75 @@
         "present-false was already distinguishable from absent")))
 
 ;; ---------------------------------------------------------------------------
+;; The one control whose value is COLLECTION-shaped
+;; ---------------------------------------------------------------------------
+
+(defn- js-value
+  "A `value` prop read back as ordinary Clojure data, so a row can say what
+  it means. A JavaScript array becomes a vector — and the fact that it WAS
+  an array is asserted separately, because that is React's own contract for
+  a multiple select and the thing an emitter gets wrong."
+  [form]
+  (let [v (slot form "value")]
+    (if (array? v) (vec v) v)))
+
+(deftest a-multiple-selects-value-reaches-react-as-an-array
+  (testing "A native `<select multiple>` is the single element whose value
+            React reads as a COLLECTION: its selection is the list of
+            chosen option values, and React reports any other shape. The
+            author writes ordinary Clojure data and the emitter converts at
+            the boundary — the last step, not a second grammar."
+    (let [form [:select {:multiple true :value ["a" "b"] :on-change [:e]}]]
+      (is (array? (slot form "value")) "the value prop IS a JavaScript array")
+      (is (= ["a" "b"] (js-value form)) "carrying the authored option values, in order"))
+    (is (= ["a" "1"] (js-value [:select {:multiple true :value [:a 1] :on-change [:e]}]))
+        "whose members took the ordinary attribute-value conversion")))
+
+(deftest an-explicit-nil-on-a-multiple-select-is-the-empty-array
+  (testing "The controlled EMPTY value of a collection-shaped slot is the
+            empty collection. The empty string clears a scalar field and is
+            a shape error here — React says so, loudly — while an omitted
+            prop is the uncontrolled claim the door already contradicted."
+    (doseq [form [[:select {:multiple true :value nil :on-change [:e]}]
+                  [:select {:multiple true :x/value nil :on-change [:e]}]
+                  [:select {:x/multiple true :value nil :on-change [:e]}]]]
+      (is (present? form "value") (str (pr-str form) " keeps its value prop"))
+      (is (array? (slot form "value"))
+          (str (pr-str form) " — as an array, which is what React requires here"))
+      (is (= [] (js-value form)) (str (pr-str form) " — and it selects nothing")))))
+
+(deftest a-single-select-is-untouched-by-the-collection-rule
+  (testing "The control that makes the rule mean something. Without
+            `multiple` a select's value is a scalar, and its controlled
+            empty value is the empty STRING exactly as it was — React
+            reports an array there as the wrong shape."
+    (is (= "" (slot [:select {:value nil :on-change [:e]}] "value"))
+        "an explicit nil still clears a single select with the empty string")
+    (is (= "" (slot [:select {:multiple false :value nil :on-change [:e]}] "value"))
+        "and an explicitly FALSE multiple is a single select")
+    (is (= "a" (slot [:select {:value "a" :on-change [:e]}] "value"))
+        "a scalar value is untouched")
+    (is (not (present? [:div {:multiple true :value nil}] "value"))
+        "and nothing is excepted for an element that is not a native control")))
+
+(deftest an-ordinary-collection-attribute-value-is-still-refused
+  (testing "Widening ONE slot on ONE tag is not a general collection
+            attribute grammar. Everywhere else a collection still has no
+            attribute spelling, and inside the exception the members take
+            the same closed scalar grammar — a set among them, because its
+            read order is not a value the two hosts agree on."
+    (doseq [form [[:div {:value ["a"]}]
+                  [:input {:value ["a"]}]
+                  [:select {:multiple true :title ["a"]}]
+                  [:select {:multiple true :value #{"a"}}]
+                  [:select {:multiple true :value {:a 1}}]]]
+      (let [ex (try (fr/element form) nil (catch :default e e))]
+        (is (some? ex) (str (pr-str form) " is refused"))
+        (when ex
+          (is (= :rf.error/ui-tree-malformed (:rf.error/id (ex-data ex)))
+              (str (pr-str form) " — the walk's existing diagnostic, not a new one")))))))
+
+;; ---------------------------------------------------------------------------
 ;; The verdict and the emission are ONE decision
 ;; ---------------------------------------------------------------------------
 

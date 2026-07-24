@@ -97,16 +97,31 @@
                    o)))
              #js {} v))
 
+(defn- react-control-value
+  "One semantic control value in the shape React takes it. Every scalar is
+  itself; the COLLECTION a native `<select multiple>`'s `value` carries
+  becomes the JavaScript array React's contract requires — the one place
+  an emitted control value's SHAPE differs from the semantic value the
+  structural tree records, and the last step rather than a second grammar."
+  [v]
+  (if (vector? v) (into-array v) v))
+
 (defn- put-plain-attr!
   [o tag k raw]
-  (let [semantic (conv/attr-value raw)]
+  (let [select-value? (controlled/select-value-slot? tag k)
+        semantic      (if select-value? (conv/select-value raw) (conv/attr-value raw))]
     (when (= ::conv/reject semantic)
       (malformed! (str "The " k " attribute on " tag " carries a " (type-name raw)
                        ", which has no attribute spelling. An attribute value is a string, a "
                        "keyword, a symbol, a number or a boolean; :class and :style have their "
-                       "own richer grammars.")
+                       "own richer grammars."
+                       (when select-value?
+                         (str " A <select>'s :value additionally takes a SEQUENTIAL collection "
+                              "of them, which is what a multiple select's selection is; a set "
+                              "is not one, because its order is not a value the two hosts "
+                              "agree on.")))
                   {:attr k :value (shape raw)}))
-    (gobj/set o (conv/react-prop-name k) semantic)))
+    (gobj/set o (conv/react-prop-name k) (react-control-value semantic))))
 
 (defn ^:no-doc put-class!
   "Compose `sugar` (the tag's `.class` shorthand names) with the AUTHORED
@@ -145,20 +160,27 @@
   The compiled tier resolves an element's literal attributes at build
   time and calls this for the rest, so the values a compiler cannot see
   are converted by the one function that converts them when nobody
-  compiled anything."
-  [o tag k raw]
-  (let [k (conv/attr-key k)]
-    (when-some [refusal (conv/attr-key-refusal k)]
-      (malformed! (str "The element " tag " carries " k ". " refusal)
-                  {:attr k}))
-    (cond
-      (= :key k)   nil
-      (nil? raw)   (when-some [empty-slot (controlled/empty-control-slot tag k)]
-                     (gobj/set o (key empty-slot) (val empty-slot)))
-      (= :class k) (put-class! o tag nil raw)
-      (= :style k) (put-style! o tag raw)
-      :else        (put-plain-attr! o tag k raw))
-    o))
+  compiled anything.
+
+  `multiple?` is the element's
+  [[re-frame.freehand.controlled/multiple-select?]] verdict, which the
+  caller settled once for the whole element — it changes only what an
+  EMPTY `<select>` value is. It defaults to false, which every control but
+  a multiple select is."
+  ([o tag k raw] (put-attr! o tag k raw false))
+  ([o tag k raw multiple?]
+   (let [k (conv/attr-key k)]
+     (when-some [refusal (conv/attr-key-refusal k)]
+       (malformed! (str "The element " tag " carries " k ". " refusal)
+                   {:attr k}))
+     (cond
+       (= :key k)   nil
+       (nil? raw)   (when-some [empty-slot (controlled/empty-control-slot tag k multiple?)]
+                      (gobj/set o (key empty-slot) (react-control-value (val empty-slot))))
+       (= :class k) (put-class! o tag nil raw)
+       (= :style k) (put-style! o tag raw)
+       :else        (put-plain-attr! o tag k raw))
+     o)))
 
 (defn- react-props
   "The React props object for one element: the author attribute map in
@@ -178,7 +200,14 @@
         ;; values are irrelevant (an explicit nil is still controlled), and
         ;; the slot is what an alias resolves to, so `:x/value` counts
         ;; exactly as `:value` does.
-        controlled? (controlled/controlled-props? (keys attrs))]
+        controlled? (controlled/controlled-props? (keys attrs))
+        ;; The COLLECTION-shaped `value` verdict is a property of the
+        ;; WHOLE element too, and settled here beside the door's for the
+        ;; same reason: a native `<select multiple>`'s selection is a list
+        ;; of option values, so its EMPTY value is the empty collection
+        ;; rather than the empty string, and React reports the wrong shape
+        ;; loudly.
+        multi?      (controlled/multiple-select? tag attrs nil)]
     (when-let [c (conv/class-string sugar-classes)]
       (gobj/set o "className" c))
     (when sugar-id
@@ -226,8 +255,8 @@
         ;; screen. The exception is scoped exactly as the door is, and
         ;; read through the same slot projection (rf2-drpa3.120).
         (nil? raw)
-        (when-some [empty-slot (controlled/empty-control-slot tag k)]
-          (gobj/set o (key empty-slot) (val empty-slot)))
+        (when-some [empty-slot (controlled/empty-control-slot tag k multi?)]
+          (gobj/set o (key empty-slot) (react-control-value (val empty-slot))))
 
         (conv/handler-key? k)
         (if (some? cand)

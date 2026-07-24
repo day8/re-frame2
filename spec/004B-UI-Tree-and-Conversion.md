@@ -239,10 +239,28 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
   `checked`. One projection, so the structural tree and the React props describe one
   declaration the same way, and a server render and its client hydration agree rather
   than differing by exactly this attribute. Scoped as the door is, and read through the
-  same normalized slot, so `:x/value` clears the field precisely as `:value` does.
+  same normalized slot, so `:x/value` clears the field precisely as `:value` does. A
+  native `<select multiple>` is the one control whose empty value is not a scalar: its
+  selection is a list, so its controlled empty is the empty **collection** `[]`, and the
+  empty string is a shape error the client reports. Whether the element is a multiple
+  select is a property of the *whole element*, settled once from its attributes exactly
+  as the controlled-input door's element half is.
 - collection values outside `:class`/`:style` (e.g. `:data-foo {:a 1}`) → rejected,
   didactic (React would render `"[object Object]"` garbage) — at the declaration in
-  compiled mode, at the walk in interpreted mode.
+  compiled mode, at the walk in interpreted mode. **One host element is excepted**:
+  a native `<select>`'s `value`, because a `<select multiple>`'s value is not a scalar
+  — what is selected is the *list* of chosen option values, and the client contract
+  reads the prop as an array. A **sequential** value there converts member by member
+  through the rows above (`[:a "b" 3]` → `["a" "b" "3"]`) and the tree records ordinary
+  data; a set is refused with every other collection, because a set has no order and the
+  vector read out of one is not a value the two hosts agree on. Turning the recorded
+  collection into the host array is the client emitter's own final step, exactly as
+  every other final-shape conversion is. The exception is the `value` slot on the
+  `select` tag and nothing else: acceptance deliberately does **not** consult
+  `multiple`, whose value a compiled declaration may not be able to see, so a
+  declaration cannot compile in one mode and be refused in the other. The **empty**
+  value does consult it — see the `nil` row above, where a multiple select's controlled
+  empty is `[]` rather than `""`.
 - everything else — a function in an attribute slot, a host object — is likewise
   rejected: the value grammar above is closed, and a value outside it has no
   cross-host spelling to carry.

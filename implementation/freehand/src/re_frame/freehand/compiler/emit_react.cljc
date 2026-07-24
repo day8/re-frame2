@@ -167,6 +167,19 @@
                      (:entries sty)))]
     `(re-frame.freehand.compiled-react/style! ~o ~tag ~form)))
 
+(defn- build-time-attr?
+  "Can this attribute be settled at BUILD time?
+
+  A literal value can — that is the point of the tier. A literal `nil`
+  cannot: whether a nil entry is DROPPED or written as a controlled
+  input's empty value is one rule, it depends on facts about the whole
+  element, and it belongs to the runtime rule the interpreted walk already
+  applies rather than to a second statement of it here. So a literal nil
+  rides the dynamic path beside the values only the render knows, and the
+  compiled props object is the interpreted one by construction."
+  [{:keys [literal? value]}]
+  (and literal? (some? value)))
+
 (defn- literal-attr-pair
   "One literal attribute as its `[react-prop-name value]` pair, resolved
   at BUILD time — the projection the interpreted walk pays per attribute
@@ -176,18 +189,17 @@
   than surviving to the first render that reaches it, with the diagnostic
   the JVM emitter raises for the same value."
   [e tag {:keys [k value react-name kind]}]
-  (when (some? value)
-    (if (= :property kind)
-      [react-name value]
-      (let [semantic (conv/attr-value value)]
-        (when (= ::conv/reject semantic)
-          (env/fail! e :rf.ui.compile/collection-attr-value
-                     (str "the " k " attribute on " tag " carries " (pr-str value)
-                          ", which has no attribute spelling — an attribute value is "
-                          "a string, keyword, symbol, number or boolean; :class and "
-                          ":style have their own grammars")
-                     {:attr k}))
-        [(conv/react-prop-name (conv/attr-key k)) semantic]))))
+  (if (= :property kind)
+    [react-name value]
+    (let [semantic (conv/attr-value value)]
+      (when (= ::conv/reject semantic)
+        (env/fail! e :rf.ui.compile/collection-attr-value
+                   (str "the " k " attribute on " tag " carries " (pr-str value)
+                        ", which has no attribute spelling — an attribute value is "
+                        "a string, keyword, symbol, number or boolean; :class and "
+                        ":style have their own grammars")
+                   {:attr k}))
+      [(conv/react-prop-name (conv/attr-key k)) semantic])))
 
 (defn- element-facts
   "The CONTROLLED-INPUT door's element half for one handler site, as a
@@ -251,24 +263,38 @@
                           all-attrs)
         attrs       (remove (fn [{:keys [k]}] (contains? top-layer-keys k)) all-attrs)
         controlled? (controlled/controlled-props? (map :k attrs))
+        ;; The multiple-select verdict, from the LITERAL `multiple` — the
+        ;; only spelling a build-time constant can be read from. It decides
+        ;; one thing: what an EMPTY `<select>` value is. Acceptance of a
+        ;; collection value deliberately does NOT turn on it (see
+        ;; `controlled/select-value-slot?`), so a `multiple` this tier
+        ;; cannot see can cost React's own shape warning on an explicitly
+        ;; nil value and can never refuse a declaration the interpreted
+        ;; walk renders.
+        multi?      (controlled/multiple-select?
+                      tag
+                      (keep (fn [{:keys [k value] :as attr}]
+                              (when (build-time-attr? attr) [k value]))
+                            attrs)
+                      nil)
         cls         (:class props)
         sty         (:style props)
         key-info    (:key props)
-        literals    (into [] (comp (filter :literal?)
-                                   (keep #(literal-attr-pair e tag %)))
+        literals    (into [] (comp (filter build-time-attr?)
+                                   (map #(literal-attr-pair e tag %)))
                           attrs)
         literals    (cond-> literals
                       (static-class-string cls) (conj ["className" (static-class-string cls)])
                       (and sty (:static? sty) (static-style-obj sty))
                       (conj ["style" (static-style-obj sty)]))
-        dynamics    (remove :literal? attrs)
+        dynamics    (remove build-time-attr? attrs)
         o           (gensym "rf-fh-props")
         writes      (cond-> []
                       (and cls (not (:static? cls))) (conj (dynamic-class-form o tag cls))
                       (and sty (not (:static? sty))) (conj (style-write o tag sty))
                       true (into (map (fn [{:keys [k value]}]
                                         `(re-frame.freehand.compiled-react/attr!
-                                          ~o ~tag ~k ~value))
+                                          ~o ~tag ~k ~value ~multi?))
                                       dynamics))
                       true (into (handler-writes o tag controlled? (:events props)))
                       (seq top) (conj `(re-frame.freehand.top-layer/install!

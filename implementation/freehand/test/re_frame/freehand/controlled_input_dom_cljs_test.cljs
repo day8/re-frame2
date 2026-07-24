@@ -102,6 +102,7 @@
   (rf/reg-sub (first query) (fn [db _] (:text db)))
   (rf/reg-sub :fh-input/len (fn [db _] (count (:text db))))
   (rf/reg-sub :fh-input/flag (fn [db _] (:flag db)))
+  (rf/reg-sub :fh-input/picked (fn [db _] (:picked db)))
   (rf/reg-event evt (fn [{:keys [db]} [_ text]] {:db (assoc db :text text)})))
 
 (defn- app-text [] (:text (frame/frame-app-db-value fid)))
@@ -172,6 +173,24 @@
   [_]
   [:div [clearable-field {}] [clearable-box {}]])
 
+(v/defview multi-select-field
+  "A native `<select multiple>` — the ONE control whose value is not a
+  scalar. Its `value` is PRESENT on every render, so the node is
+  controlled on every render; what changes is whether that value is a list
+  of chosen option values or the empty selection."
+  [_]
+  [:select {:id        "multi"
+            :multiple  true
+            :value     (cell/observe! [:fh-input/picked])
+            :on-change [evt :re-frame.freehand/value]}
+   [:option {:value "a"} "Alpha"]
+   [:option {:value "b"} "Bravo"]
+   [:option {:value "c"} "Charlie"]])
+
+(v/defview multi-select-page
+  [_]
+  [:div [multi-select-field {}]])
+
 ;; ---------------------------------------------------------------------------
 ;; Typing, as the browser delivers it
 ;; ---------------------------------------------------------------------------
@@ -233,6 +252,12 @@
   (act #(do (frame/replace-app-db! fid db)
             (.render root (shell/provide-frame fid (fr/element [clearing-page {}]))))))
 
+(defn- render-multi-select-page!
+  "Write `db` and render the multiple-select page from it, inside one act."
+  [root db]
+  (act #(do (frame/replace-app-db! fid db)
+            (.render root (shell/provide-frame fid (fr/element [multi-select-page {}]))))))
+
 (defn- spy-console-errors!
   "Collect what React says on `console.error` while a transition runs, and
   answer the restore thunk. The controlled↔uncontrolled complaint is a
@@ -252,6 +277,15 @@
   `value`/`checked` prop raises."
   [lines]
   (filterv #(re-find #"(?i)uncontrolled|should not be null" %) lines))
+
+(defn- value-shape-complaints
+  "The captured console lines that are React telling us a `<select>`'s
+  `value` is the WRONG SHAPE — a scalar on a multiple select, or an array
+  on a single one. Like the controlled/uncontrolled complaint it is a
+  console diagnostic and nothing else, so a suite that does not listen for
+  it renders a visibly-correct page over a contract it is breaking."
+  [lines]
+  (filterv #(re-find #"(?i)must be an array|must be a scalar" %) lines))
 
 ;; ===========================================================================
 ;; FH-INPUT-003 — rapid typing, and the control that proves it is a claim
@@ -552,3 +586,73 @@
                         (is false (str "mount rejected: " e))
                         (teardown! container root)
                         (done)))))))))
+
+;; ===========================================================================
+;; A CONTROLLED native `<select multiple>`, in a real browser
+;; ===========================================================================
+
+(deftest a-controlled-multiple-select-selects-exactly-the-authored-values
+  (testing "A native `<select multiple>` is the single element in the DOM
+            whose value is not a scalar: what is selected is the LIST of
+            chosen option values, and React's own contract reads the prop
+            as an array. An author writes ordinary Clojure data and the
+            emitter converts at the boundary — so a vector selects exactly
+            those options, and an explicit nil clears every one of them
+            while the node stays controlled.
+
+            The EMPTY selection is mounted first, deliberately. React
+            validates a select's value SHAPE when the element is created,
+            and an explicit nil is exactly where a scalar-only empty-value
+            table would hand it the empty string — the wrong shape, on
+            the transition an author uses to clear a field. Neither half is
+            visible to a structural assertion, and a wrong shape does not
+            throw: React writes a console diagnostic and renders a page
+            that can look entirely correct, which is why the console is
+            watched here as closely as the DOM is."
+    (if-not (browser?)
+      (skip! "the browser job runs the multiple-select assertions")
+      (async done
+        (reg!)
+        (make-frame! {:picked nil})
+        (let [[container root] (mount!)
+              errors  (atom [])
+              restore (spy-console-errors! errors)
+              picked  (fn [n] (mapv #(.-value %) (array-seq (.-selectedOptions n))))
+              finish  (fn [] (restore) (teardown! container root) (done))]
+          (-> (render-multi-select-page! root {:picked nil})
+              (.then
+                (fn [_]
+                  (let [sel (node container "multi")]
+                    (is (true? (.-multiple sel)) "the node really is a multiple select")
+                    (is (= [] (picked sel))
+                        "an explicitly nil value mounts with nothing selected")
+                    (is (= [] (value-shape-complaints @errors))
+                        (str "and React accepted the value's SHAPE at mount — the empty "
+                             "selection reached it as an array, not as the empty string a "
+                             "scalar control clears with: " (pr-str @errors)))
+                    (-> (render-multi-select-page! root {:picked ["a" "c"]})
+                        (.then
+                          (fn [_]
+                            (is (identical? sel (node container "multi"))
+                                "the SAME host node — a value transition, not a remount")
+                            (is (= ["a" "c"] (picked sel))
+                                (str "exactly the authored options are selected — the node "
+                                     "holds " (pr-str (picked sel))))
+                            (-> (render-multi-select-page! root {:picked nil})
+                                (.then
+                                  (fn [_]
+                                    (is (identical? sel (node container "multi")))
+                                    (is (= [] (picked sel))
+                                        (str "an explicit nil cleared every selected option "
+                                             "— the node holds " (pr-str (picked sel))))
+                                    (is (= [] (control-complaints @errors))
+                                        (str "React raised no controlled/uncontrolled "
+                                             "diagnostic across the whole sequence: "
+                                             (pr-str @errors)))
+                                    (is (= [] (value-shape-complaints @errors))
+                                        (str "and none about the value's shape: "
+                                             (pr-str @errors)))
+                                    (finish))))))))))
+              (.catch (fn [e]
+                        (is false (str "mount rejected: " e))
+                        (finish)))))))))

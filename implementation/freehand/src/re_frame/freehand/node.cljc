@@ -359,19 +359,32 @@
   emitter writes ([[re-frame.freehand.controlled/empty-control-slot]]) —
   one projection, so the two hosts describe one declaration the same way.
   Read as an ENTRY and not as a value, because the empty `checked` IS
-  `false`: a truth test here would drop exactly the unchecked case."
-  [tag k v]
+  `false`: a truth test here would drop exactly the unchecked case.
+
+  `multi?` is the element's
+  [[re-frame.freehand.controlled/multiple-select?]] verdict, settled once
+  for the whole element by [[element]] because it is a property of the
+  element and not of the attribute being folded. It changes exactly one
+  thing: what EMPTY means on a `<select multiple>`'s `value`, whose
+  selection is a list of option values rather than a scalar."
+  [tag multi? k v]
   (if (nil? v)
-    (when-some [empty-slot (controlled/empty-control-slot tag k)]
+    (when-some [empty-slot (controlled/empty-control-slot tag k multi?)]
       [k (val empty-slot)])
-    (let [semantic (conv/attr-value v)]
+    (let [select-value? (controlled/select-value-slot? tag k)
+          semantic      (if select-value? (conv/select-value v) (conv/attr-value v))]
       (when (= :re-frame.freehand.conversion/reject semantic)
         (malformed!
           're-frame.freehand/render
           (str "The " k " attribute on " tag " carries a " (type-name v)
                ", which has no attribute spelling. An attribute value is a string, a "
                "keyword, a symbol, a number or a boolean; :class and :style have their "
-               "own richer grammars.")
+               "own richer grammars."
+               (when select-value?
+                 (str " A <select>'s :value additionally takes a SEQUENTIAL collection "
+                      "of them, which is what a multiple select's selection is; a set "
+                      "is not one, because its order is not a value the two hosts "
+                      "agree on.")))
           {:attr k :value (shape v)}))
       [k semantic])))
 
@@ -473,7 +486,7 @@
 
   An ordinary key passes through untouched, namespace and all: the
   structural tree carries authored names."
-  [tag [attrs events class style] k v]
+  [tag multi? [attrs events class style] k v]
   (let [k (conv/attr-key k)]
     (cond
       (= :key k)            [attrs events class style]
@@ -483,7 +496,7 @@
                                      (assoc events k c)
                                      events)
                              class style]
-      :else                 [(if-let [e (attr-entry tag k v)]
+      :else                 [(if-let [e (attr-entry tag multi? k v)]
                                (conj attrs e)
                                attrs)
                              events class style])))
@@ -658,9 +671,9 @@
   attribute — with `:class` the ONE exception: the two class values COMPOSE,
   owned classes first, because a caller passing `.mt-4` is adding a class and
   not replacing the component's own."
-  [tag attrs es caller]
+  [tag multi? attrs es caller]
   (let [[c-attrs c-es c-class c-style]
-        (reduce-kv #(dyn-attr-entry tag %1 %2 %3) [{} {} nil nil] caller)
+        (reduce-kv #(dyn-attr-entry tag multi? %1 %2 %3) [{} {} nil nil] caller)
         c-attrs (if-let [c (class-string tag nil c-class)]
                   (assoc c-attrs :class c)
                   c-attrs)
@@ -697,12 +710,18 @@
   representation."
   [{:keys [tag attrs dyn class sugar style events key? key-val children caller]}]
   (let [ctx        (conv/enter-ns *ns-context* tag)
+        ;; The COLLECTION-shaped `value` verdict is a property of the whole
+        ;; element, exactly as the controlled-input door's element half is,
+        ;; so it is settled once — over both attribute sources, because a
+        ;; compiled element's `multiple` may be a literal the compiler
+        ;; folded or a value only this render knows.
+        multi?     (controlled/multiple-select? tag attrs dyn)
         ;; `:class` and `:style` ride the accumulator because an ALIASED
         ;; spelling of either arrives through `:dyn` — the front end
         ;; discriminates on the exact keyword — and has to reach the one
         ;; place each is composed rather than land beside it.
         [attrs es class style]
-        (reduce-kv #(dyn-attr-entry tag %1 %2 %3) [(or attrs {}) {} class style] dyn)
+        (reduce-kv #(dyn-attr-entry tag multi? %1 %2 %3) [(or attrs {}) {} class style] dyn)
         attrs      (if-let [c (class-string tag sugar class)]
                      (assoc attrs :class c)
                      attrs)
@@ -718,7 +737,7 @@
         ;; component owns, which is why it happens once the owned class and
         ;; style have already resolved. The deny law ran at the call, so what
         ;; arrives here cannot carry a structural or owned key.
-        [attrs es] (if (some? caller) (fold-caller tag attrs es caller) [attrs es])
+        [attrs es] (if (some? caller) (fold-caller tag multi? attrs es caller) [attrs es])
         ;; The DOM top layer's desired-state pair is Freehand vocabulary, not
         ;; attributes: it leaves `:attrs` here and becomes the reserved
         ;; structural fact below. Extracting it at the ONE canonicaliser both
