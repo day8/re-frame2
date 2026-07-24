@@ -821,6 +821,39 @@
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
 
+  ;; rf2-8kas5 — the Freehand artefact's RELEASE build: the substrate
+  ;; compiled the way a consumer ships it.
+  ;;
+  ;; The build above is a test build, and until this one existed it was
+  ;; the artefact's only one. So nothing anywhere compiled Freehand under
+  ;; `:advanced` with `goog.DEBUG` false, and any claim about what the
+  ;; substrate COSTS on a page — bundle bytes, parse/eval, what survives
+  ;; DCE — had no artefact to measure. Not a thin measurement: no
+  ;; measurement at all.
+  ;;
+  ;; Shape follows the sibling advanced builds (:proof-pack-single,
+  ;; :ui-g13-prod): both settings pinned rather than left to `release`'s
+  ;; defaults, so the build says what it is at the point a reader is
+  ;; looking. `re-frame.freehand.release-app` mounts a small real
+  ;; application — a subscription read, a dispatch, the compiled twin of
+  ;; the same body, and a root that owns its frame — because an entry that
+  ;; only REQUIRED the door would be DCE'd to nearly nothing and would
+  ;; report a cost no consumer pays. The entry sits under `freehand/test/`
+  ;; (on :source-paths above, outside the artefact's published :paths),
+  ;; exactly where the sibling bundle probes live.
+  ;;
+  ;; Built by `npm run build:freehand-release`; the bundle lands at
+  ;; out/freehand-release/main.js. No :dev-http — like every other
+  ;; advanced build here it is compiled and inspected, never served.
+  :freehand-release
+  {:target     :browser
+   :output-dir "out/freehand-release"
+   :asset-path "."
+   :compiler-options {:optimizations :advanced
+                      :infer-externs :auto
+                      :closure-defines {goog.DEBUG false}}
+   :modules {:main {:init-fn re-frame.freehand.release-app/-main}}}
+
   ;; rf2-vxgfnd.6 — the G-1 direct-render parity gate (07 §5) for the
   ;; re-frame.ui compiled-view substrate. A :node-script RELEASE build
   ;; (:advanced — the gate measures + inspects PRODUCTION emission):
