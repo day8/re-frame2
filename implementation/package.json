@@ -46,6 +46,8 @@
     "test:browser-prod-elision": "shadow-cljs release browser-test-prod-elision && node scripts/check-ui-mounted-prod-elision.cjs && node scripts/serve-and-run-browser-tests.cjs --root out/browser-test-prod-elision --port 8023",
     "test:elision": "shadow-cljs release elision-probe elision-probe-control && node scripts/check-elision.cjs",
     "test:freehand-evidence-elision": "shadow-cljs release freehand-release freehand-release-control && node scripts/check-freehand-evidence-elision.cjs",
+    "test:freehand-reachability": "shadow-cljs release freehand-release freehand-release-reachability-control && node scripts/check-freehand-reachability.cjs",
+    "build:freehand-matched": "shadow-cljs release freehand-release freehand-release-interpreted freehand-release-compiled",
     "test:perf-bundle": "shadow-cljs release examples/counter examples/counter-perf && node scripts/check-perf-bundle.cjs",
     "test:schemas-bundle": "shadow-cljs release schemas-bundle-probe schemas-bundle-probe-malli && node scripts/check-schemas-bundle.cjs",
     "test:bundle-isolation": "shadow-cljs release examples/counter examples/counter-uix examples/login examples/login-uix examples/realworld-resources bundle-isolation-positive-control && node scripts/check-bundle-isolation.test.cjs && node scripts/check-bundle-isolation.cjs && node scripts/check-uix-reagent-free.cjs && node scripts/check-login-bundle-isolation.cjs",

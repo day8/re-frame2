@@ -4,11 +4,20 @@
 
   The evidence half of B5 ([[re-frame.freehand.bench.b5-bundle-cljs-test]])
   measures the ONE mixed `:freehand-release` bundle. This file measures all
-  THREE matched shapes — interpreted-only, mixed, compiled-only — that differ
-  ONLY in view lowering (`:freehand-release-interpreted`, `:freehand-release`,
+  THREE matched shapes — interpreted-only, mixed, compiled-only
+  (`:freehand-release-interpreted`, `:freehand-release`,
   `:freehand-release-compiled` in `implementation/shadow-cljs.edn`: same entry
-  app, same `:advanced`, same `goog.DEBUG` false), and publishes the
-  per-promotion BYTE DELTA between the interpreted and compiled shapes.
+  structure, same `:advanced`, same `goog.DEBUG` false), and publishes the
+  BYTE DELTA between the interpreted and compiled shapes as a whole-app total
+  and a per-promoted-view mean.
+
+  Lowering is the dominant variable across the twins and not the only one:
+  they are two namespaces, so each ships its own registered ids, root DOM id
+  and namespace docstring — `:advanced` strips none of those. The confound is
+  named in the published fixture
+  ([[re-frame.freehand.bench.b5/not-matched-on]]) and measured at +297 raw
+  bytes of an 18,475-byte raw delta. Holding it still needs one shared entry
+  shape across the three builds, which is `rf2-x4jda`'s remaining work.
 
   Two things keep it honest, and both are tested here without any bundle on
   disk:
@@ -34,10 +43,17 @@
   It states no pass/fail about any bundle. Every reading is a byte count or a
   byte delta, which the harness can only publish — D021's NON-GOALS bar a
   byte-size threshold, so no matched-build figure has a route to a verdict.
-  The DETERMINISTIC reachability gate that DOES red is a different lane
-  (`scripts/check-freehand-evidence-elision.cjs`, over the goog.DEBUG control
-  pair): it flips the flag and holds lowering; this file flips lowering and
-  holds the flag. Complementary, not the same.
+  The gates that DO red are different lanes over the same release build, each
+  moving one variable and holding the rest:
+
+    `scripts/check-freehand-reachability.cjs`      moves the APP — an unused
+                                                   runtime module is absent
+    `scripts/check-freehand-evidence-elision.cjs`  moves `goog.DEBUG` — the
+                                                   dev-gated seam is absent
+    this file                                      moves LOWERING — and
+                                                   asserts nothing
+
+  Complementary, none of them the same claim.
 
   Node-only (`fs`/`zlib`/`vm` via b5). Like the mixed bundle test it is
   driven by a test rather than registered into the standing suite, because
@@ -48,6 +64,7 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.freehand.bench :as bench]
             [re-frame.freehand.bench.b5 :as b5]
+            [re-frame.freehand.bench.measure :as m]
             [re-frame.freehand.bench.provenance :as prov]))
 
 (def ^:private sampling {:warmup 2 :samples 8})
@@ -90,6 +107,45 @@
       (is (= 50  (:brotli-bytes d)) "brotli delta")
       (is (= "interp-sha"   (:interpreted-sha256 d)) "the interpreted side's digest rides the delta")
       (is (= "compiled-sha" (:compiled-sha256 d))    "and the compiled side's"))))
+
+(deftest the-delta-is-published-as-a-record-not-a-bare-map
+  (testing "The delta routes through the SAME door every other B5 figure
+            does. It used to be printed straight to the console as a map:
+            no `:host`, no `:build`, no `:sampling`, no `:baseline`, and no
+            visit to `provenance/result` — published under weaker discipline
+            than the readings it was derived from. As a workload it carries
+            the whole record shape, gets validated at the one door, and
+            still states no verdict: every measurement it declares observes
+            bytes, which the harness can only publish."
+    (let [interp   (synthetic-measured "interp" 1000 400 380 300)
+          compiled (synthetic-measured "compiled" 1150 460 430 350)
+          w        (bench/workload
+                     (b5/promotion-delta-workload
+                       {:id :B5/synthetic-promotion-delta
+                        :doc "the delta over two synthetic artefacts"
+                        :sampling {:warmup 0 :samples 1}
+                        :promoted-views 3}
+                       interp compiled))
+          record   (bench/run-workload w (assoc fixture-provenance :revision "r"))]
+      (is (empty? (filter m/gate? (:measurements w)))
+          "the delta declares no gate at all — a byte figure has no route to a verdict")
+      (is (empty? (:gate-failures record)) "and reds nothing")
+      (is (= :interpreted-vs-compiled (get-in record [:baseline :kind]))
+          "the delta names D021's interpreted-versus-compiled comparator")
+      (is (= :interpreted (get-in record [:baseline :reference :arm]))
+          "measured against the interpreted arm")
+      (is (= 150 (get-in record [:distribution :B5/promotion-delta-raw-bytes :p50]))
+          "the whole-app raw delta rides the record")
+      (is (= 50 (get-in record [:distribution :B5/promotion-delta-raw-bytes-mean-per-view :p50]))
+          "and the per-view figure is that total over the promoted view count")
+      (testing "the fixture states what the two artefacts hold still and what
+                they do not, so the delta's attribution travels with it"
+        (is (= 3 (get-in record [:fixture :promoted-views])))
+        (is (= "interp" (get-in record [:fixture :interpreted-artefact])))
+        (is (= "compiled" (get-in record [:fixture :compiled-artefact])))
+        (is (string? (get-in record [:fixture :matched-on])))
+        (is (re-find #"namespace docstring" (get-in record [:fixture :not-matched-on]))
+            "the confound is named, not implied")))))
 
 (deftest promotion-delta-can-be-negative-when-promotion-shrinks
   (testing "The delta is evidence, not a threshold: when the compiled shape
@@ -152,16 +208,28 @@
                             measured)
                (assoc fixture-provenance :revision revision))))))
 
+(def ^:private promoted-views
+  "How many view declarations the interpreted and compiled entries promote
+  together — `counter-a`, `counter-b` and the `app` root
+  (`re-frame.freehand.release-app-interpreted` against
+  `…-compiled`, which adds `{:compiled true}` to all three).
+
+  A FIXTURE PARAMETER, stated here because this is where the fixture is
+  known; `b5` measures files and does not read the entries that produced
+  them. It is what makes the per-view figure mean anything, and the figure
+  is published as the MEAN it is."
+  3)
+
 (deftest the-three-shapes-and-their-delta-are-measured-when-built
   (testing "The matched build lane's real reading, published when the three
             bundles are on disk. Each shape's bytes and parse/compile are
             measured off its own artefact through the shared probe, and the
-            per-promotion delta between the interpreted and compiled shapes is
-            published as evidence — the byte cost of promoting the app's
-            views, attributable to lowering because that is the only thing
-            that differs across the three. When any shape is unbuilt this
-            SKIPS rather than fabricate a delta between files that are not
-            there."
+            byte delta between the interpreted and compiled shapes is
+            published as evidence — the cost of promoting the app's views,
+            as a whole-app total and a per-view mean, with the fixture naming
+            both what the twins hold still and what they do not. When any
+            shape is unbuilt this SKIPS rather than fabricate a delta between
+            files that are not there."
     (let [present (into {} (filter (comp b5/bundle-present? val)) b5/matched-bundle-paths)]
       (if-not (= 3 (count present))
         (is true (str "not all three matched bundles are on disk — build "
@@ -200,24 +268,26 @@
               "the delta is tied to the interpreted bundle it was taken over")
           (is (= (:sha256 compiled) (:compiled-sha256 delta))
               "and to the compiled bundle")
-          (js/console.log
-            (str ";; B5 per-promotion byte delta (compiled minus interpreted) — "
-                 (if revision
-                   "evidence, no threshold"
-                   (str "NOT CITABLE (this run cannot name the source revision; set "
-                        "RF2_REVISION, or run in CI)"))
-                 "\n"
-                 (pr-str {:revision      revision
-                          :interpreted   {:raw    (:raw-bytes interp)
-                                          :gzip6  (:gzip6-bytes interp)
-                                          :brotli (:brotli-bytes interp)
-                                          :sha256 (:sha256 interp)}
-                          :mixed         {:raw    (:raw-bytes mixed)
-                                          :gzip6  (:gzip6-bytes mixed)
-                                          :brotli (:brotli-bytes mixed)
-                                          :sha256 (:sha256 mixed)}
-                          :compiled      {:raw    (:raw-bytes compiled)
-                                          :gzip6  (:gzip6-bytes compiled)
-                                          :brotli (:brotli-bytes compiled)
-                                          :sha256 (:sha256 compiled)}
-                          :promotion-delta delta}))))))))
+          ;; And the delta is published the way every other B5 figure is —
+          ;; through the workload harness and out the ONE provenance door,
+          ;; not console-logged as a bare map beside the records it derives
+          ;; from. Without a revision there is nothing to publish and nothing
+          ;; is invented; the three shapes' bytes above are still true.
+          (if-not revision
+            (js/console.log
+              (str ";; B5 per-promotion byte delta — NOT CITABLE (this run cannot name "
+                   "the source revision; set RF2_REVISION, or run in CI). Byte facts "
+                   "only: no result record was built.\n"
+                   (pr-str (assoc delta :promoted-views promoted-views
+                                        :mixed-sha256 (:sha256 mixed)))))
+            (publish! "B5 per-promotion byte delta (compiled minus interpreted)"
+                      (bench/run-workload
+                        (b5/promotion-delta-workload
+                          {:id             :B5/promotion-delta
+                           :doc            (str "the byte cost of promoting the release app's "
+                                                promoted-views " views, interpreted shape to "
+                                                "compiled shape")
+                           :sampling       {:warmup 0 :samples 1}
+                           :promoted-views promoted-views}
+                          interp compiled)
+                        (assoc fixture-provenance :revision revision)))))))))

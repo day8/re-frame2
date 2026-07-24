@@ -87,6 +87,24 @@
    ;; measurement is a number about nothing.
    (goog-define build-revision ""))
 
+#?(:cljs
+   ;; The hardware class crosses the SAME compile-time boundary, and for the
+   ;; same reason: a page cannot read `process.env`, so a lane that configures
+   ;; `RF2_HARDWARE_CLASS` in the runner's environment configures nothing the
+   ;; browser can see. Carrying only the revision across and leaving this to
+   ;; `detect-hardware-class`'s fallback is how the pinned release worker came
+   ;; to publish thirteen records labelled `:developer-workstation` — records
+   ;; `result` certified, because the ledger asks for a keyword and got one.
+   ;;
+   ;;   :closure-defines {re-frame.freehand.bench.provenance/build-hardware-class "release-worker"}
+   ;;
+   ;; The `:browser-test-freehand-bench` build reads it from
+   ;; `RF2_HARDWARE_CLASS` through `#shadow/env`, so the define says which
+   ;; class the LANE configured rather than which class someone typed into a
+   ;; config file. Left empty, detection falls back exactly as before — an
+   ;; unconfigured local browser run is a developer workstation, and says so.
+   (goog-define build-hardware-class ""))
+
 (defn detect-revision
   "The source revision the measured code was built from.
 
@@ -106,19 +124,38 @@
                  (catch Exception _ nil))
          :cljs (blank->nil build-revision))))
 
+(defn hardware-class
+  "The class implied by a `configured` value and whether the run is in CI.
+
+  Pure, and public, so the precedence is provable without an environment:
+  a configured class wins, an unconfigured CI run is a `:shared-ci-runner`
+  — honest, because a shared runner's distribution is comparable with other
+  shared-runner distributions and with nothing else — and anything else is
+  a developer workstation."
+  [configured ci?]
+  (if-let [c (blank->nil configured)]
+    (keyword c)
+    (if ci? :shared-ci-runner :developer-workstation)))
+
 (defn detect-hardware-class
   "The hardware class this run's numbers may be compared within.
 
-  Configured (`RF2_HARDWARE_CLASS`) or detected — never a literal naming
-  one machine. In CI without an explicit class the runner is a
-  `:shared-ci-runner`, which is honest: a shared runner's distribution is
-  comparable with other shared-runner distributions and with nothing
-  else. D021's pinned scheduled worker sets `RF2_HARDWARE_CLASS` to say
-  so."
+  Configured or detected — never a literal naming one machine. The
+  configuration reaches the run by whichever route its host has:
+  `RF2_HARDWARE_CLASS` where there is an environment to read, and the
+  compile-time [[build-hardware-class]] define where there is not. A
+  browser has no `process.env`, so a lane that exports the variable and
+  stops there has told the runner and not the page — which is how a pinned
+  release worker published a page's numbers under
+  `:developer-workstation`.
+
+  D021's pinned scheduled worker sets `RF2_HARDWARE_CLASS`; the browser
+  lane's build reads that same variable at COMPILE time into the define."
   []
-  (if-let [configured (blank->nil (env "RF2_HARDWARE_CLASS"))]
-    (keyword configured)
-    (if (blank->nil (env "CI")) :shared-ci-runner :developer-workstation)))
+  (hardware-class (or (blank->nil (env "RF2_HARDWARE_CLASS"))
+                      #?(:cljs (blank->nil build-hardware-class)
+                         :clj  nil))
+                  (some? (blank->nil (env "CI")))))
 
 (defn detect-host
   "The browser/runtime and hardware class this run happened on."

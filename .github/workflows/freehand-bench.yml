@@ -45,22 +45,31 @@ name: freehand bench
 # emitter, which is ClojureScript-only; and B2's mounted storm, B4's latency
 # row and B5's initial-mount reading only exist in a real browser. So there
 # are three jobs below running the same registry, the same provenance record
-# and the same gate/evidence split, each uploading its own artefact. Three
-# artefacts because they are three hosts — a result record names its own
-# `:host` and `:build`, and pooling a Chromium number with a V8 `:none` one
-# or a JIT-warmed JVM one would be the pooling D021 forbids — but ONE
-# harness, because a second report shape is a second place a threshold could
-# be added.
+# and the same gate/evidence split, each uploading what it published. They
+# are separate artefacts because they are separate hosts — a result record
+# names its own `:host` and `:build`, and pooling a Chromium number with a
+# V8 `:none` one or a JIT-warmed JVM one would be the pooling D021 forbids
+# — but ONE harness, because a second report shape is a second place a
+# threshold could be added. The ClojureScript lane uploads two: its standing
+# registry run, and B5's matched-build row, whose subject is three
+# `:advanced` bundles rather than the process measuring them.
 #
-# THE REVISION. A browser has no environment and no git, so a mounted
-# workload can only learn the revision it was compiled from at BUILD time,
-# through the closure-define `re-frame.freehand.bench.provenance` documents.
-# The browser lane's build reads it from `RF2_REVISION` via `#shadow/env`
-# and this workflow sets that to `github.sha`. Without it every record the
-# mount publishes prints NOT CITABLE and is worth reading but not citing —
-# which is why the lane asserts on the WORD, not on any number: a lane that
-# publishes unattributable evidence has failed at its one job, while a
-# distribution that moved has not.
+# WHAT THE BROWSER CANNOT READ. A page has no environment and no git, so
+# every environment-derived provenance field a mounted workload publishes
+# has to arrive at BUILD time, through the closure-defines
+# `re-frame.freehand.bench.provenance` documents. Two fields do:
+# `RF2_REVISION` (which commit the bundle was compiled from) and
+# `RF2_HARDWARE_CLASS` (which class its numbers may be compared within).
+# The browser lane's build reads BOTH via `#shadow/env`; this workflow sets
+# the first to `github.sha` and the second to the same class the sibling
+# lanes configure. Setting them in a job's `env:` alone configures the
+# RUNNER, not the page — which is exactly how this lane's first run
+# published thirteen correctly-revisioned records that all named
+# `:developer-workstation`.
+#
+# So the lane asserts on WORDS, never on numbers: a record that cannot name
+# its revision, or that names a machine class the lane is not, has failed
+# at the one job evidence has. A distribution that moved has not.
 
 on:
   schedule:
@@ -139,13 +148,23 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  # The ClojureScript half of the same suite. See TWO LANES, ONE HARNESS
+  # The ClojureScript half of the same suite. See THREE LANES, ONE HARNESS
   # above: this job adds a host, not a harness.
+  #
+  # It carries TWO Node readings. The first is the standing registry run
+  # (`bench:freehand-node`). The second is B5's MATCHED BUILD row
+  # (rf2-x4jda): three `:advanced` release bundles measured for bytes and
+  # parse/compile, plus the byte delta between the interpreted and compiled
+  # shapes. Those bundles are artefacts nothing else in CI builds, and the
+  # two B5 Node tests SKIP when they are absent — so until this job built
+  # them the matched figures existed only in a developer's terminal and a
+  # pull-request body, which is not a durable publication with provenance.
   react-evidence:
     name: Freehand B-spine evidence — ClojureScript lane (pinned worker)
     # PINNED for the same reason the JVM lane is. See THE PIN above.
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # Room for three `:advanced` compiles on top of the two Node runs.
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: implementation
@@ -202,6 +221,73 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+      # B5's matched build row. The three shapes hold the entry structure,
+      # the optimisation level and `goog.DEBUG` still and vary only lowering,
+      # so the delta between the outer two is a reading of promotion. (Not
+      # exclusively: the twins are two namespaces and each ships its own ids
+      # and namespace docstring. The published fixture names that confound —
+      # see re-frame.freehand.bench.b5/not-matched-on.)
+      - name: Build the three matched release bundles
+        run: npx shadow-cljs release freehand-release freehand-release-interpreted freehand-release-compiled
+
+      # `test:freehand` is the artefact here: the B5 rows publish their
+      # records to stdout as `;;`-headed EDN, exactly as the sibling lanes
+      # do, and the transcript around them is the run that produced them.
+      - name: Measure the matched bundles and capture the B5 records
+        env:
+          # Node can read this one at run time, unlike the browser lane —
+          # set explicitly so the record does not depend on GITHUB_SHA
+          # happening to be exported.
+          RF2_REVISION: ${{ github.sha }}
+        run: |
+          status=0
+          npm run test:freehand > out/freehand-bench-b5.log 2>&1 || status=$?
+          grep -A1 '^;; B5' out/freehand-bench-b5.log || true
+          tail -5 out/freehand-bench-b5.log
+          exit $status
+
+      # PROVENANCE, not numbers — the same law the browser lane keeps. Two
+      # ways this row can quietly publish nothing, and both red here: a run
+      # that could not name its revision (every record prints NOT CITABLE),
+      # and a run where the bundles were not built (both B5 tests SKIP, the
+      # log is green, and no matched figure exists). The second is exactly
+      # what happened before this job built them, so the floor counts the
+      # three shapes rather than trusting the exit code.
+      - name: Refuse to publish unattributable or absent B5 evidence
+        run: |
+          log=out/freehand-bench-b5.log
+          if grep -q 'NOT CITABLE' "$log"; then
+            echo "The B5 row published unattributable evidence:" >&2
+            grep -n 'NOT CITABLE' "$log" >&2
+            echo "RF2_REVISION was '${RF2_REVISION}'." >&2
+            exit 1
+          fi
+          shapes=$(grep -c 'B5 matched shape' "$log" || true)
+          if [ "$shapes" -ne 3 ]; then
+            echo "Expected 3 matched-shape records, found ${shapes}. The B5" >&2
+            echo "matched-build test SKIPS unless all three bundles are on" >&2
+            echo "disk, so a green suite with no records means the release" >&2
+            echo "builds above did not produce them." >&2
+            exit 1
+          fi
+          for label in 'B5 shipped-cost evidence' 'B5 per-promotion byte delta'; do
+            if ! grep -F "$label" "$log" | grep -q 'citable$'; then
+              echo "No citable record for: ${label}" >&2
+              exit 1
+            fi
+          done
+          echo "Published 3 matched shapes, the shipped-cost row and the"
+          echo "promotion delta at ${RF2_REVISION}."
+
+      - name: Upload the B5 matched-build records
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: freehand-bench-b5-${{ github.sha }}
+          path: implementation/out/freehand-bench-b5.log
+          if-no-files-found: error
+          retention-days: 90
+
   # The BROWSER half of the same suite (rf2-drpa3.147, rf2-drpa3.52). See
   # THREE LANES, ONE HARNESS and THE REVISION above: this job adds a host and
   # the revision that host cannot otherwise learn.
@@ -229,7 +315,11 @@ jobs:
         working-directory: implementation
     env:
       # The same configured class as the sibling lanes; the HOST difference
-      # stays visible in each record's `:host`, where it belongs.
+      # stays visible in each record's `:host`, where it belongs. Unlike the
+      # sibling lanes, setting it here is not enough on its own — the
+      # :browser-test-freehand-bench build reads it at COMPILE time through
+      # `#shadow/env` into the provenance namespace's `build-hardware-class`
+      # define, because the page it ends up in cannot read this environment.
       RF2_HARDWARE_CLASS: release-worker
       # What makes a mounted record CITABLE. Read at compile time by the
       # :browser-test-freehand-bench build's `#shadow/env`, baked into the
@@ -302,10 +392,20 @@ jobs:
       # The one thing this lane is allowed to fail on, and it is not a
       # number. D021 forbids an automatic numeric pass/fail, and nothing here
       # asserts a millisecond or a byte. What it asserts is PROVENANCE: a
-      # record that cannot name its revision is not evidence anyone may cite,
-      # so a lane that published only unattributable records did not do its
-      # job — most likely because RF2_REVISION never reached the compile.
-      - name: Refuse to publish unattributable evidence
+      # record that cannot name its revision, or that names the wrong
+      # machine, is not evidence anyone may cite — so a lane that published
+      # only unattributable or mislabelled records did not do its job.
+      #
+      # BOTH environment-derived provenance fields are checked, because both
+      # cross the same compile-time boundary and either can be dropped in
+      # silence. A page cannot read `process.env`: setting RF2_HARDWARE_CLASS
+      # in this job's `env:` configures the RUNNER, and only the build's
+      # `#shadow/env` define carries it into the page. The first time this
+      # lane ran it published thirteen records with the right revision and
+      # `:developer-workstation` for the class — certified by
+      # `provenance/result`, because the ledger asks for a keyword and got
+      # one. A wrong keyword is what the ledger cannot see and this step can.
+      - name: Refuse to publish unattributable or mislabelled evidence
         run: |
           log=out/freehand-bench-browser.log
           if grep -q 'NOT CITABLE' "$log"; then
@@ -323,7 +423,26 @@ jobs:
             echo "artefact is worse than a red one, because it looks green." >&2
             exit 1
           fi
-          echo "Published $citable citable result record(s) at ${RF2_REVISION}."
+          wrong=$(grep -o ':hardware-class :[A-Za-z0-9_-]*' "$log" \
+                  | grep -v ":hardware-class :${RF2_HARDWARE_CLASS}\$" | sort -u || true)
+          if [ -n "$wrong" ]; then
+            echo "This lane published records naming a hardware class it is not:" >&2
+            echo "$wrong" >&2
+            echo "RF2_HARDWARE_CLASS was '${RF2_HARDWARE_CLASS}'. It is read at COMPILE" >&2
+            echo "time by the :browser-test-freehand-bench build and reaches the page as" >&2
+            echo "the provenance namespace's build-hardware-class define — a browser" >&2
+            echo "cannot read this job's environment, so the define is the only route." >&2
+            exit 1
+          fi
+          classed=$(grep -c ":hardware-class :${RF2_HARDWARE_CLASS}" "$log" || true)
+          if [ "$classed" -eq 0 ]; then
+            echo "No record named a hardware class at all — the :host provenance" >&2
+            echo "field stopped being published, so the 'no wrong class' check above" >&2
+            echo "passed vacuously." >&2
+            exit 1
+          fi
+          echo "Published $citable citable result record(s) at ${RF2_REVISION},"
+          echo "$classed of them naming hardware class ${RF2_HARDWARE_CLASS}."
 
       - name: Upload the browser result records
         if: always()

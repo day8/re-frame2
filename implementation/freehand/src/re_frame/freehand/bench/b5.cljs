@@ -37,12 +37,18 @@
   ## The deterministic gate is elsewhere, on purpose
 
   D021's B5 row also names a DETERMINISTIC reachability gate — that unused
-  runtime modules are absent from the production bundle, proven by the
-  F3d control-build technique. That gate needs a control build (the debug
-  flag flipped, everything else held) and lives in the build lane; it is
-  `rf2-drpa3.166`'s. This namespace is the EVIDENCE half only, and states
-  no pass/fail about a bundle at all: every measurement it declares is
-  `:bytes` or `:duration-ms`, which the harness can only publish.
+  runtime modules are absent from the production bundle, proven by the F3d
+  control-build technique. That gate needs a control build and a validated
+  oracle, so it is not a measurement and does not live here: it is
+  `implementation/scripts/check-freehand-reachability.cjs`, run by `npm run
+  test:freehand-reachability`, which holds `goog.DEBUG` still and moves the
+  APP. (Its sibling `check-freehand-evidence-elision.cjs` does the reverse —
+  holds the app and moves the flag — and proves a different thing: that the
+  dev-gated evidence seam elides.)
+
+  This namespace is the EVIDENCE half only, and states no pass/fail about a
+  bundle at all: every measurement it declares is `:bytes` or
+  `:duration-ms`, which the harness can only publish.
 
   ## Provenance ties each number to the artefact
 
@@ -206,7 +212,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn promotion-delta
-  "The per-promotion BYTE delta between an interpreted-shape and a
+  "The WHOLE-APP BYTE delta between an interpreted-shape and a
   compiled-shape [[measure-bundle]]d artefact: `compiled` minus
   `interpreted`, per encoding.
 
@@ -215,9 +221,26 @@
   replaces — and a negative one means promotion shrank the bundle. Which way
   it falls, and how far, is a fact about the two artefacts, published as
   evidence: D021's NON-GOALS bar a byte-size threshold, so a delta has no
-  route to a verdict however large it is. Because the two artefacts differ
-  ONLY in lowering (same entry app, same `:advanced`, same `goog.DEBUG`
-  false), this delta is attributable to lowering and nothing else.
+  route to a verdict however large it is.
+
+  ## What this delta is, and is not, attributable to
+
+  It is a WHOLE-APP figure over every view the two entries promote together,
+  not a per-view one. [[promotion-delta-workload]] publishes both, and names
+  the per-view figure for the mean it is.
+
+  And lowering is the DOMINANT variable across the twins, not the only one.
+  The two entries are two namespaces, so each carries its own namespace name
+  into the bundle — through the ids the registrar keys on
+  (`…release-app-interpreted/bump` against `…release-app-compiled/bump`), the
+  root's DOM id, and the namespace docstring, which `:advanced` does NOT
+  strip: it ships once per declared view in both bundles. That prose differs
+  between the twins because it describes different things. Holding it still
+  needs one shared entry shape, which is `rf2-x4jda`'s remaining work; until
+  then the confound is NAMED in the published fixture rather than papered
+  over, and it is small — measured at merge `7ce0788d7e`, +297 raw bytes
+  against a raw delta of 18,475 (1.6%), of which +345 is docstring prose and
+  −48 the shorter identifiers.
 
   Both maps must be from the same [[measure-bundle]] shape; the raw, gzip
   (6 and 9) and brotli deltas are answered, plus each side's digest so the
@@ -230,14 +253,115 @@
    :interpreted-sha256 (:sha256 interpreted)
    :compiled-sha256    (:sha256 compiled)})
 
+(def matched-on
+  "What the two twins genuinely hold still — the claim the delta rests on."
+  (str "same entry structure (a root over two counter leaves), same handlers, "
+       "same view bodies character-for-character, same :advanced optimisation, "
+       "same goog.DEBUG false, same output shape"))
+
+(def not-matched-on
+  "What the two twins do NOT hold still, stated so a reader can discount it.
+
+  Published in the delta's fixture because a caveat that lives only in a
+  reviewer's memory is not part of the evidence. See [[promotion-delta]]."
+  (str "the two entries are two NAMESPACES, so each ships its own namespace "
+       "name: the registered event/sub/frame ids, the root's DOM id, and the "
+       "namespace docstring, which :advanced does not strip and which differs "
+       "in prose between the twins. Measured at 7ce0788d7e this accounted for "
+       "+297 raw bytes of an 18,475-byte raw delta (1.6%). Removing it needs "
+       "one shared entry shape across the three builds (rf2-x4jda)"))
+
+(defn promotion-delta-workload
+  "The per-promotion byte delta as a WORKLOAD, so it reaches the SAME door
+  every other B5 figure does.
+
+  The delta was previously printed straight to the console as a bare map: it
+  bypassed `provenance/result`, carried none of the record shape the ledger
+  requires, and so was published under weaker discipline than the readings it
+  was derived from. It is a derived byte fact, which is a thing this harness
+  already knows how to publish — the byte readings ride
+  [[workload]] as constants too — so it needs no new machinery, only the
+  existing one.
+
+  `promoted-views` is the number of view declarations the two entries promote
+  together, and is a FIXTURE PARAMETER supplied by the caller: this namespace
+  measures files and does not read the entries that produced them. It is what
+  makes the per-view figure meaningful, and the figure is published as the
+  MEAN it is — this app's promoted views are the same body twice under one
+  root, so their individual costs are not separately observable from bytes.
+
+  Baseline `:interpreted-vs-compiled`, referencing the interpreted arm: this
+  is precisely D021's first named comparator."
+  [{:keys [id doc sampling promoted-views]} interpreted compiled]
+  (let [d       (promotion-delta interpreted compiled)
+        per-view #(/ (get d %) promoted-views)]
+    {:id      id
+     :doc     doc
+     :fixture {:interpreted-artefact (:path interpreted)
+               :compiled-artefact    (:path compiled)
+               :interpreted-sha256   (:sha256 interpreted)
+               :compiled-sha256      (:sha256 compiled)
+               :promoted-views       promoted-views
+               :measurement-method
+               (str "compiled-minus-interpreted on-disk and compressed bytes over "
+                    (:path interpreted) " and " (:path compiled)
+                    "; the per-view figures are that total divided by the "
+                    promoted-views " view declarations the two entries promote "
+                    "together — a MEAN, not a per-declaration observation")
+               :matched-on     matched-on
+               :not-matched-on not-matched-on}
+     :baseline {:kind      :interpreted-vs-compiled
+                :reference {:arm  :interpreted
+                            :note (str "the interpreted-only twin " (:path interpreted)
+                                       ", sha256 " (:sha256 interpreted))}}
+     :sampling sampling
+     :measurements
+     [{:id         :B5/promotion-delta-raw-bytes
+       :doc        "whole-app uncompressed byte delta, compiled minus interpreted"
+       :observable :bytes}
+      {:id         :B5/promotion-delta-gzip6-bytes
+       :doc        "whole-app gzip-6 byte delta, compiled minus interpreted"
+       :observable :bytes}
+      {:id         :B5/promotion-delta-gzip9-bytes
+       :doc        "whole-app gzip-9 byte delta, compiled minus interpreted"
+       :observable :bytes}
+      {:id         :B5/promotion-delta-brotli-bytes
+       :doc        "whole-app brotli byte delta, compiled minus interpreted"
+       :observable :bytes}
+      {:id         :B5/promotion-delta-raw-bytes-mean-per-view
+       :doc        "the raw delta divided by the promoted view count — a mean, not a per-declaration reading"
+       :observable :bytes}
+      {:id         :B5/promotion-delta-gzip6-bytes-mean-per-view
+       :doc        "the gzip-6 delta divided by the promoted view count — a mean"
+       :observable :bytes}
+      {:id         :B5/promotion-delta-brotli-bytes-mean-per-view
+       :doc        "the brotli delta divided by the promoted view count — a mean"
+       :observable :bytes}]
+     :run
+     (fn [_]
+       {:B5/promotion-delta-raw-bytes                  (:raw-bytes d)
+        :B5/promotion-delta-gzip6-bytes                (:gzip6-bytes d)
+        :B5/promotion-delta-gzip9-bytes                (:gzip9-bytes d)
+        :B5/promotion-delta-brotli-bytes               (:brotli-bytes d)
+        :B5/promotion-delta-raw-bytes-mean-per-view    (per-view :raw-bytes)
+        :B5/promotion-delta-gzip6-bytes-mean-per-view  (per-view :gzip6-bytes)
+        :B5/promotion-delta-brotli-bytes-mean-per-view (per-view :brotli-bytes)})}))
+
 ;; ---------------------------------------------------------------------------
 ;; The workload
 ;; ---------------------------------------------------------------------------
 
-(def measurement-method
-  "How the readings are taken, published verbatim in the fixture so a
-  reader knows exactly what each number is a number of."
-  (str "on-disk bytes of out/freehand-release/main.js and its size under "
+(defn measurement-method
+  "How the readings over `path` were taken, published verbatim in the fixture
+  so a reader knows exactly what each number is a number of.
+
+  A function of the artefact, not a constant. The three matched shapes route
+  through this same probe, and a method line that named
+  `out/freehand-release/main.js` while its own fixture's `:artefact` named a
+  different file described a measurement that did not happen — the exact
+  drift the #6887 audit found on the two twins' records."
+  [path]
+  (str "on-disk bytes of " path " and its size under "
        "zlib gzip (levels 6 and 9) and brotli at the library default; "
        "parse/compile is the wall time of new vm.Script over the source with "
        "a per-call nonce comment appended to defeat V8's content-keyed "
@@ -267,7 +391,7 @@
               :gzip6-bytes        gzip6-bytes
               :gzip9-bytes        gzip9-bytes
               :brotli-bytes       brotli-bytes
-              :measurement-method measurement-method}
+              :measurement-method (measurement-method path)}
    :baseline {:kind      :before-vs-after
               :reference {:revision :the-revision-before-this
                           :note     (str "the same bundle's bytes and parse/compile on the "
