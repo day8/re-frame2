@@ -554,8 +554,16 @@ jobs:
       # (minus any `_selftest`) equals the script stem, and that an id ends
       # `_selftest` IFF its real command carries `--self-test` (so both the
       # derived command and the id-only fallback pick the same live-vs-self-test
-      # mode). Self-test first (proves it fires on the mode-mismatch + drift
-      # shapes), then the live scan asserts this workflow is clean. See
+      # mode). Because the guard exists to protect the aggregation contract, it
+      # discovers checker steps INDEPENDENTLY of their id (by their
+      # `python scripts/check_*.py` run shape within this job) and additionally
+      # requires every one to carry a unique `check_*` id and
+      # `continue-on-error: true` — a checker with no id is invisible to
+      # `toJSON(steps)` so its failure is unreported (the job goes green), and
+      # one missing `continue-on-error` restores short-circuiting so the later
+      # invariants never run. Self-test first (proves it fires on the
+      # mode-mismatch, no-id, missing-continue-on-error, and drift shapes), then
+      # the live scan asserts this workflow is clean. See
       # scripts/check_ci_reproduce_commands.py.
       - name: Self-test the reproduce-command integrity guard
         id: check_ci_reproduce_commands_selftest
