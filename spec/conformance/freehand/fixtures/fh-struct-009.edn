@@ -269,6 +269,21 @@
    :form [:div.a.b {class "c"}]
    :tree {:tag :div :attrs {:class "a b c"} :rf.ui/tree-version 1}
    :props {"className" "a b c"}}
+  ;; The one-map case: an exact :class beside an alias projecting onto the class
+  ;; slot COMPOSES — sugar first, then the exact :class, then the alias — rather
+  ;; than the last entry written winning. This is the .93 routing rule reached
+  ;; with both spellings in one map; a last-wins fold silently dropped one class,
+  ;; and for a hash map which one is iteration order, contract on no host
+  ;; (rf2-c9kus RULING: COMPOSE — class is set-valued with a deterministic union,
+  ;; unlike the referential id slot rf2-5r1af REFUSES).
+  {:note "an exact :class and an alias in one map COMPOSE, sugar-then-exact-then-alias, never last-wins"
+   :form [:div.a {:class "b" :x/class "c"}]
+   :tree {:tag :div :attrs {:class "a b c"} :rf.ui/tree-version 1}
+   :props {"className" "a b c"}}
+  {:note "and the source order of the two keys does not change the verdict — exact-first either way"
+   :form [:div.a {:x/class "c" :class "b"}]
+   :tree {:tag :div :attrs {:class "a b c"} :rf.ui/tree-version 1}
+   :props {"className" "a b c"}}
   {:note "an aliased :style reaches the CSS grammar, so a number still gains px"
    :form [:div {:x/style {:color "red" :width 4}}]
    :tree {:tag :div :attrs {:style {:color "red" :width "4px"}} :rf.ui/tree-version 1}
