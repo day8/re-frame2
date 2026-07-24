@@ -27,9 +27,9 @@ The guard checks `:user`, the request decorator reads `:token`, and logout clear
 
 These paths live in [app-db](../glossary.md#app-db) — your app's single state map. To be precise, each [frame](../glossary.md#frame) has its own app-db: a frame is one isolated, running instance of your app (think one mounted app instance), and most apps run exactly one. That per-frame isolation is what lets a second logged-in tab coexist with this one without their tokens crossing wires — a property that pays off again in the request decorator and the route guard below.
 
-### Persist the token through one seam
+### Persist the token through one effect
 
-A page reload throws away app-db, so to stay logged in across refreshes the token has to live somewhere durable — `localStorage`. The tempting move is to sprinkle `localStorage` calls through login, logout, and your tests. Don't. Give persistence exactly **one seam**: a single [effect](../glossary.md#effect) that writes on a truthy token and removes on `nil`. Login, logout, and tests all hit the same edge.
+A page reload throws away app-db, so to stay logged in across refreshes the token has to live somewhere durable — `localStorage`. The tempting move is to sprinkle `localStorage` calls through login, logout, and your tests. Don't. Give persistence exactly **one effect**: a single [effect](../glossary.md#effect) that writes on a truthy token and removes on `nil`. Login, logout, and tests all hit the same edge.
 
 ```clojure
 ;; Adapted from examples/real-apps/realworld_http/auth.cljs
@@ -53,7 +53,7 @@ One [effect handler](../glossary.md#effect-handler), two behaviours, called from
 
 ### Read the saved token back at boot
 
-Persisting is half the seam; reading the value *back* when the app reboots is the other half. Skip the boot read and every refresh silently logs the user out.
+Persisting is half the story; reading the value *back* when the app reboots is the other half. Skip the boot read and every refresh silently logs the user out.
 
 But there's a rule in the way. An [event handler](../glossary.md#event-handler) is pure, and reading `localStorage` is reaching out to the world. Handlers that reach out to the world are like a well salted paper cut — we try hard to avoid them. The escape hatch is a [coeffect](../glossary.md#coeffect): a declared input the framework supplies *before* the handler runs, so the handler stays pure ([Coeffects](../coeffects.md) owns the full story). A handler that wants the saved token declares it under `:rf.cofx/requires`.
 
@@ -97,7 +97,7 @@ A provided coeffect needs an owner to stamp its value. For session restore that 
 
 The token is a credential, so classify its path `:sensitive`. You do this by returning a [classification](../glossary.md#data-classification) effect from the init event (step 4 wires it up). Classifying the *path* means the raw token never leaves the box — not in traces, not in [Xray](../glossary.md#xray) captures, not in SSR payloads — while your handlers keep seeing the real value ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)).
 
-That's the complete slice: two paths, one persistence seam, one boot-read coeffect, one classification. Everything below stands on it.
+That's the complete slice: two paths, one persistence effect, one boot-read coeffect, one classification. Everything below stands on it.
 
 ## 2. Wire the login form
 
@@ -136,7 +136,7 @@ The failure handler is unchanged from the form recipe. Notice login does **not**
 
     Once login, register, and session restore start coordinating ("can't submit while restoring"), graduate to a five-state [machine](../../machines/glossary.md#machine) — `idle → submitting/restoring → authed | error` — as the RealWorld example does ([auth.cljs](../../../examples/real-apps/realworld_http)). The tell: when an `if` over a `:status` keyword grows into a nest of "but only if not also…" conditions. That's a state machine wearing a trench coat.
 
-## 3. Decorate requests once, at the frame seam
+## 3. Decorate requests once, at the frame boundary
 
 Now the user has a token. Every authenticated request needs to carry it in an `Authorization` header. The naive approach threads the token through every request builder — and one forgotten call site is one unauthenticated request shipped to production.
 
@@ -165,10 +165,10 @@ This is the production shape, and three small choices make it so:
 - It returns `ctx` unchanged when there's no token, which is why login and public reads stay untouched.
 - `Authorization` sits on the framework's built-in redaction denylist, so the live request carries it while off-box traces never do.
 
-That's all step 3 needs. But the same seam has a *response* side, and it's where you catch an expired token:
+That's all step 3 needs. But the same interceptor chain has a *response* side, and it's where you catch an expired token:
 
 ```clojure
-;; A response-side hook on the SAME seam: catch a 401 and force logout.
+;; A response-side hook on the SAME chain: catch a 401 and force logout.
 ;; `:after` sees the canonical reply envelope — {:status :ok :value …} or
 ;; {:status :error :error {:kind :rf.http/http-4xx :status 401 …}}. A 401
 ;; is a *failure* reply, so the HTTP status lives inside the failure map
@@ -205,7 +205,7 @@ An interceptor map carries **`:before`**, **`:after`**, or both — supply at le
 
     Re-evaluating `reg-http-interceptor` with the same id replaces the slot **in place** — its position in the chain is preserved, which is exactly what you want on a file save. `clear-http-interceptor` removes the slot entirely; a later re-registration then **appends to the end** of the chain. So don't clear-then-reg in hot-reload paths unless you genuinely want a fresh end-of-chain slot.
 
-One write site, not many. The frame seam is the single write site for this decoration, so there's no per-request call site to forget — one forgotten wrapper around an `http-xhrio` map is one unauthenticated request, and there are no wrappers here. It's the same shift you make moving from passing an `axios` config object around everywhere to registering one request interceptor: the decoration becomes structural, not something each caller has to remember.
+One write site, not many. The frame-scoped interceptor is the single write site for this decoration, so there's no per-request call site to forget — one forgotten wrapper around an `http-xhrio` map is one unauthenticated request, and there are no wrappers here. It's the same shift you make moving from passing an `axios` config object around everywhere to registering one request interceptor: the decoration becomes structural, not something each caller has to remember.
 
 ## 4. Guard the protected routes
 
@@ -391,9 +391,9 @@ Why read *and clear*? Because a stash that lingers is a footgun. The user logs i
 
 Logout has to clear three things: the session slice, the persisted token, *and* the departing user's cached server reads. Skip that last one and the next account sees the previous account's feed — precisely the bug you don't want anywhere near an auth flow.
 
-The first two are easy — they're the slice and the persistence seam you already built. The third, clearing a user's cached server reads, is one causal event when you use [resources](../../resources/glossary.md#resource) (a *resource* being a managed, cached read of server state): `:rf.resource/clear-scope`.
+The first two are easy — they're the slice and the persistence effect you already built. The third, clearing a user's cached server reads, is one causal event when you use [resources](../../resources/glossary.md#resource) (a *resource* being a managed, cached read of server state): `:rf.resource/clear-scope`.
 
-To clear *a user's* cached reads you need a way to name "this user's scope." That's a **named resource-scope resolver**: a pure function, registered once, that derives a canonical [scope](../../resources/glossary.md#scope) value from app-db. The same resolver is used by your resources, your route loads, and logout — one scope currency, no per-call-site seams:
+To clear *a user's* cached reads you need a way to name "this user's scope." That's a **named resource-scope resolver**: a pure function, registered once, that derives a canonical [scope](../../resources/glossary.md#scope) value from app-db. The same resolver is used by your resources, your route loads, and logout — one scope currency, no per-call-site divergence:
 
 ```clojure
 ;; Register once at boot. The resolver is PURE — it derives a scope from db,
@@ -422,7 +422,7 @@ Now logout itself. There's one subtlety, and the ordering is the whole game: res
 
 `clear-scope` earns its keep: it removes that scope's cache entries, releases their owners, aborts in-flight requests nothing else owns, suppresses late replies (by scope-plus-generation checks), and emits a trace row explaining what was removed, aborted, and left alone. Every other scope stays intact, and there's no hand-maintained list of keys to forget (see [Server state: resources](../../resources/concepts.md)). Don't use resources? Drop that one `:fx` row and the rest stands.
 
-??? note "Going deeper — `resolve-resource-scope` is pure, and that's load-bearing"
+??? note "Going deeper — `resolve-resource-scope` is pure, and that matters"
 
     It reads the resolver registry against a `db` value with no dispatch, no app-state mutation, and no trace. That's exactly why you can call it *inline* in the handler to capture `old-scope` before the clear. Note the `:cause :logout` on the payload: `clear-scope` records it in resource history so Xray can attribute the eviction. And there's **no `:snapshot-db` key** — a whole-db snapshot riding an event vector would be an egress-bearing record on traces.
 

@@ -24,7 +24,7 @@ docs/core/api/03-effects.md (rf2-d8mvke.3 finding 2). No residue test scanned th
 human-facing surface for the retired API as *live recommended* code, so the
 migration-breaking examples survived. This gate is that scan.
 
-THE POLICY (docs/core/AUTHORING.md §Delta teaching)
+THE POLICY (docs/AUTHORING.md §Delta teaching)
 
     "Retired v1 surfaces (`inject-cofx`, `:rf.world/inputs`) appear *only* on
      that migration page, marked superseded — never in teaching prose

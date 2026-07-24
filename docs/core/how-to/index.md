@@ -14,7 +14,7 @@ This is where most of your time goes: turning a feature request into stages of t
 
 | I want to… | Recipe |
 |---|---|
-| set up a re-frame.ui project — the dependency and the two load-bearing Shadow settings | [Install re-frame.ui and configure Shadow](install-re-frame-ui.md) |
+| set up a re-frame.ui project — the dependency and the required Shadow hook | [Install re-frame.ui and configure Shadow](install-re-frame-ui.md) |
 | boot and mount the app, with hot reload | [Boot and mount an app](boot-and-mount-an-app.md) |
 | add login and keep the user logged in | [Add authentication](add-auth.md) |
 | build a form — local edits, validation, clean submit | [Build a form](build-a-form.md) |

@@ -180,7 +180,7 @@ this same hot-reload-safe listener pattern.
 | Frame already exists (boot, test, SSR, tooling) | `make-frame` then `frame-provider {:frame …}` |
 
 ```clojure
-;; Day-one app root — ensure + scope in one form
+;; App root — ensure + scope in one form
 [rf/frame-root {:id app-frame :initial-events [[:counter/initialise]]}
  [counter-app]]
 
@@ -226,7 +226,7 @@ Why so strict? The namespace may be loaded by a test host, a Story tool, or
 another namespace that wants the registrations without mounting the app. Lazy
 DOM work keeps all of those safe.
 
-## When boot goes wrong
+## Troubleshooting
 
 Boot is where the "did you wire it up?" mistakes surface, and each one [fails loud](../glossary.md#fail-loud-not-silent) with a named [error](../errors.md) rather than a blank page. Three, in the order you're likely to meet them.
 

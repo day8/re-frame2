@@ -71,7 +71,7 @@ The counter was a warm-up. Now a real chain — a RealWorld-style login that sta
                    :session/error  (:kind error))}))
 ```
 
-Now look at that code for the *seams* — a "seam" being a spot where the test can step in and substitute a value without editing the handler. There are two. First, the clock: the handler **declares** it with `:rf.cofx/requires [:rf/time-ms]` and reads it as a delivered fact — a [coeffect](../glossary.md#coeffect), a declared input the framework injects — instead of calling the host clock directly. That seam lets a test hand it an exact value. Second, the HTTP request: it's an **effect** in the returned effect map — a described side-effect, data, not a live connection. That seam lets a test answer it without a network. Both seams are the same idea: the world arrives as data (coeffects) and leaves as data (effects), the model owned by [Effects and coeffects](../coeffects.md).
+Now look at that code for the *edges* — a spot where the test can step in and substitute a value without editing the handler. There are two. First, the clock: the handler **declares** it with `:rf.cofx/requires [:rf/time-ms]` and reads it as a delivered fact — a [coeffect](../glossary.md#coeffect), a declared input the framework injects — instead of calling the host clock directly. That edge lets a test hand it an exact value. Second, the HTTP request: it's an **effect** in the returned effect map — a described side-effect, data, not a live connection. That edge lets a test answer it without a network. Both edges are the same idea: the world arrives as data (coeffects) and leaves as data (effects), the model owned by [Effects and coeffects](../coeffects.md).
 
 !!! note "Where do `:value` and `:error` come from?"
 
@@ -174,7 +174,7 @@ One misuse to head off now, because it looks so plausible: `poll-until` is for *
 
 ### Redirect anything: `:fx-overrides`
 
-The stub table is sugar over a more general seam. A per-dispatch `:fx-overrides` map redirects any effect id for that one dispatch — you can point it at a function, or at another registered effect:
+The stub table is sugar over a more general edge. A per-dispatch `:fx-overrides` map redirects any effect id for that one dispatch — you can point it at a function, or at another registered effect:
 
 ```clojure
 (deftest login-sends-the-right-request
@@ -188,7 +188,7 @@ The stub table is sugar over a more general seam. A per-dispatch `:fx-overrides`
       (is (= "/api/users/login" (get-in @sent [:request :url]))))))
 ```
 
-This is redirect-not-mock in a single frame. The override receives the **exact args map the handler built** — the same data production would interpret — so you assert on the request without ever performing it. Nothing about the handler was faked; only the answerer changed. The same seam silences a logger, captures your own custom effects, or swaps in `:rf.http/managed-canned-success` by keyword (the framework-shipped success stub — it shares the canned-reply machinery `with-managed-request-stubs` runs under its route table):
+This is redirect-not-mock in a single frame. The override receives the **exact args map the handler built** — the same data production would interpret — so you assert on the request without ever performing it. Nothing about the handler was faked; only the answerer changed. The same edge silences a logger, captures your own custom effects, or swaps in `:rf.http/managed-canned-success` by keyword (the framework-shipped success stub — it shares the canned-reply machinery `with-managed-request-stubs` runs under its route table):
 
 ```clojure
 ;; Redirect to the framework-shipped canned-success stub by keyword.
@@ -213,7 +213,7 @@ This is redirect-not-mock in a single frame. The override receives the **exact a
 
 ### The `:test` preset — deterministic defaults in one key
 
-The two seams above — redirect HTTP to a stub, make generated facts strict — are exactly what most test frames want by default. Rather than spell them out per test, declare the intent with `{:preset :test}` and the frame is born with the deterministic defaults already in place. It's the same `rf/make-frame` you've used all along; you just hand its config map one extra key:
+The two edges above — redirect HTTP to a stub, make generated facts strict — are exactly what most test frames want by default. Rather than spell them out per test, declare the intent with `{:preset :test}` and the frame is born with the deterministic defaults already in place. It's the same `rf/make-frame` you've used all along; you just hand its config map one extra key:
 
 ```clojure
 ;; A test frame that never reaches the network and fails loud on an
@@ -250,7 +250,7 @@ Sometimes the property under test is not the settled state but *which event the 
       (is (= [[:nav/goto :login]] @dispatched)))))
 ```
 
-One boundary to know before you lean on this: a per-call override rides the run it starts — the `:dispatch` / `:dispatch-later` children of that dispatch inherit it — but it does **not** survive an asynchronous hop. An HTTP reply is a *fresh* dispatch (tagged `:source :http`), so a per-call capture on the request's dispatch never sees the reply run's follow-ups. To capture across the hop, use the lexical seam: `rf/with-fx-overrides` wraps a body so every dispatch in its dynamic extent — replies included — carries the override. (That's the same seam `with-managed-request-stubs` uses to install its own routing.)
+One boundary to know before you lean on this: a per-call override rides the run it starts — the `:dispatch` / `:dispatch-later` children of that dispatch inherit it — but it does **not** survive an asynchronous hop. An HTTP reply is a *fresh* dispatch (tagged `:source :http`), so a per-call capture on the request's dispatch never sees the reply run's follow-ups. To capture across the hop, use the lexical boundary: `rf/with-fx-overrides` wraps a body so every dispatch in its dynamic extent — replies included — carries the override. (That's the same boundary `with-managed-request-stubs` uses to install its own routing.)
 
 !!! warning "Gotcha — scope a `:dispatch` override per-call, never per-frame"
 
