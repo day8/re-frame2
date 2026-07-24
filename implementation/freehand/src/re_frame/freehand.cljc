@@ -1413,11 +1413,17 @@
   ([Spec 011 §Phase flip](../../../../spec/011-SSR.md#phase-flip)).
 
   Both arms are ordinary Clojure expressions, so an interpreted body
-  EVALUATES both and renders one. Evaluating markup is building a vector; it
-  is the WALK that touches a host, and the walk enters only the selected arm.
-  Reach for a real host object in the argument itself — rather than inside
-  the view the argument names — and you have moved the browser call outside
-  the boundary that exists to contain it.
+  EVALUATES both and renders one. Evaluating markup is building a vector; a
+  host is touched only when an element is RENDERED, and only the
+  phase-selected arm is ever rendered. The two walks reach that guarantee by
+  different routes: the structural render enters ONLY the fallback and never
+  the client subtree, while the browser React walk builds BOTH arms into
+  elements — recording each arm's event sites under the body that wrote them
+  — and hands them to the phase-conditional boundary, which mounts one.
+  Building the unselected arm's element is not rendering it: it costs one vdom
+  construction and runs nothing. Reach for a real host object in the argument
+  itself — rather than inside the view the argument names — and you have moved
+  the browser call outside the boundary that exists to contain it.
 
   Per [Spec 004 §Client-only subtrees](../../../../spec/004-Views.md#client-only-subtrees)."
   [opts client-tpl]
