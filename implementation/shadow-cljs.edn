@@ -859,6 +859,30 @@
                       :closure-defines {goog.DEBUG false}}
    :modules {:main {:init-fn re-frame.freehand.release-app/-main}}}
 
+  ;; rf2-drpa3.166 — the CONTROL twin of :freehand-release, and the only
+  ;; thing that differs between the two is `goog.DEBUG`. It is one half of
+  ;; the F4g production-isolation ELISION PROBE PAIR: build both, and the
+  ;; dev-gated occurrence-record emission seam (rf2-3naow) DCEs out of the
+  ;; goog.DEBUG=false RELEASE bundle while surviving in this goog.DEBUG=true
+  ;; CONTROL — proving the evidence schema the seam reaches does not ship.
+  ;;
+  ;; A separate build id, not a `--config-merge` invocation, so the gate is
+  ;; a plain `shadow-cljs release freehand-release freehand-release-control`
+  ;; — the same shape the sibling elision pair (:elision-probe /
+  ;; :elision-probe-control) takes. SAME entry (release-app/-main), SAME
+  ;; :advanced optimisation; only the flag moves, so a byte that appears
+  ;; here and not in the release bundle appeared BECAUSE of the flag and
+  ;; nothing else. The control is a MEASUREMENT artefact — compiled and
+  ;; grep'd by scripts/check-freehand-evidence-elision.cjs, never served.
+  :freehand-release-control
+  {:target     :browser
+   :output-dir "out/freehand-release-control"
+   :asset-path "."
+   :compiler-options {:optimizations :advanced
+                      :infer-externs :auto
+                      :closure-defines {goog.DEBUG true}}
+   :modules {:main {:init-fn re-frame.freehand.release-app/-main}}}
+
   ;; The ClojureScript/Node lane of the Freehand B-spine (D021).
   ;;
   ;; `clojure -M:bench` is a JVM process, so it reaches every `.cljc`

@@ -24,13 +24,20 @@
   \"did this code survive `:advanced`\". Production ISOLATION — that the
   emission and the schema it reaches DCE out of the shipping bundle — is
   proven separately by a control-build probe, because a require-graph
-  walk cannot see what dead-code elimination removed. The seam sits behind
-  `re-frame.interop/debug-enabled?` (`goog.DEBUG`), and building
-  `:freehand-release` two ways discriminates on the emission door's own
-  string `occurrence-keyed schema (D020)`: ABSENT (0) under
-  `goog.DEBUG=false`, PRESENT (1) under a `goog.DEBUG=true` control of the
-  same entry. (rf2-3naow measured 744089 release / 794930 control bytes;
-  the fuller shipped-cost probe is rf2-drpa3.52.)
+  walk cannot see what dead-code elimination removed. That probe is the
+  automated gate `npm run test:freehand-evidence-elision`
+  (`scripts/check-freehand-evidence-elision.cjs`, rf2-drpa3.166): it
+  builds `:freehand-release` and its `:freehand-release-control` twin —
+  the SAME `:advanced` entry, `goog.DEBUG` the only difference — and greps
+  both for the emission doors' own strings (the record door's
+  `occurrence-keyed schema (D020)` and the projection door's
+  `This evidence projection cannot be emitted`). The seam sits behind
+  `re-frame.interop/debug-enabled?` (`goog.DEBUG`), so each string is
+  ABSENT under `goog.DEBUG=false` (the branch DCE'd — the schema does not
+  ship) and PRESENT under the `goog.DEBUG=true` control (the branch is
+  live — the grep's positive control, retaining exactly what the release
+  proves absent). Measured ~744K release / ~795K control bytes; the
+  fuller shipped-cost probe is rf2-drpa3.52.
 
   This test USED to assert the schema was unreachable from any render —
   true only while nothing emitted evidence. That assertion was replaced,
