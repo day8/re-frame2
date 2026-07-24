@@ -95,7 +95,12 @@
     (doseq [[label p] [["a compiled declaration's manifest" (ev/manifest-projection compiled-probe)]
                        ["an interpreted declaration's manifest" (ev/manifest-projection interpreted-probe)]
                        ["a static accessibility roster" (ev/a11y-projection [a-finding])]
-                       ["an empty accessibility roster" (ev/a11y-projection [])]]]
+                       ["an empty accessibility roster" (ev/a11y-projection [])]
+                       ;; The render-path kind the dev-gated seam emits (rf2-3naow):
+                       ;; a SELECTED commit's occurrence projection. Enumerated here
+                       ;; too so criterion 1's "all emitted record kinds" is literal —
+                       ;; the seam's own kind states the four axes like every other.
+                       ["a selected commit's occurrence projection" (ev/commit-projection 812)]]]
       (doseq [{:keys [key]} ev/projection-fields]
         (is (contains? p key) (str label " states " key)))
       (is (= [] (ev/defects p)) (str label " is emittable")))))
