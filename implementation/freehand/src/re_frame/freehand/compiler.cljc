@@ -586,6 +586,14 @@
     into (the manifest half of D010). The crossings marked `:interpreted`
     are the view's **interp slots**; the manifest names sites, a render
     counts mounts, and neither is derivable from the other.
+  - `:static-facts` is the render-static server-reachable `{:caps :deps}`
+    projection ([[view-static-facts]]) — the same small closure
+    `v/render-static`'s no-silent-elision proof walks. It is computed HERE,
+    once, and the ambient `view-static` build index is populated FROM this
+    manifest key rather than from a second call, so the two publications
+    are one value and cannot drift. Carrying it on the manifest is what
+    makes a view compiled in ANOTHER build (AOT, a precompiled jar) still
+    fact-bearing when this build's index knows nothing about it.
 
   Sites and mounts are different quantities and MUST NOT be conflated:
   every roster here is a per-declaration STATIC fact, and occurrence
@@ -603,7 +611,8 @@
      :reactive?     (not elided?)
      :view-cell     (if elided? :elided :present)
      :crossings     (mapv #(select-keys % [:view-id :lowering :source-coord :path])
-                          (:views sites))}))
+                          (:views sites))
+     :static-facts  (view-static-facts ast sites)}))
 
 (defn compile-structural-view
   "Lower a `{:compiled true}` declaration's body to its STRUCTURAL
@@ -662,7 +671,8 @@
               (binding [*out* *err*]
                 (println (str "WARNING re-frame.freehand [" view-id "] "
                               (:id w) ": " (:msg w)))))
-            (let [sites @(:sites e)]
+            (let [sites    @(:sites e)
+                  manifest (structural-manifest view-id ast sites)]
               ;; The render-static no-silent-elision facts (Spec 004C §3,
               ;; EP-0034 §2): contribute this view's server-reachable
               ;; `{:caps :deps}` to the ambient `view-static` build index so
@@ -675,12 +685,20 @@
               ;; (which lowers through here, not through `defview**`) left the
               ;; index empty and every render-static proof reported the view
               ;; UNPROVEN.
+              ;;
+              ;; The contributed value is READ OFF THE MANIFEST rather than
+              ;; recomputed. The ambient index is a per-build convenience and the
+              ;; manifest is the durable cross-build carrier, and a view whose two
+              ;; publications disagreed would prove one thing in the build that
+              ;; compiled it and another in the build that consumes it. One
+              ;; projection, published twice, is the only shape in which that
+              ;; cannot happen (rf2-drpa3.159).
               (when-not (build/shadow-build-pass?)
                 (build/contribute! build/view-static ns-sym view-id
-                                   (view-static-facts ast sites)))
+                                   (:static-facts manifest)))
               (cond-> {:body     (emit-jvm/emit-structural-body e params ast)
                        :grammar  grammar/version
-                       :manifest (structural-manifest view-id ast sites)
+                       :manifest manifest
                        :sites    sites}
                 ;; The BROWSER realisation, emitted only where there is a
                 ;; browser to emit for. Both lowerings come out of ONE

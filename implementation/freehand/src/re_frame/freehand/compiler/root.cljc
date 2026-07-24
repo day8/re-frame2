@@ -49,7 +49,7 @@
             [re-frame.freehand.compiler.env :as env]
             [re-frame.freehand.fingerprint :as fingerprint]
             [re-frame.freehand.root-id :as root-id]
-            #?@(:clj [[re-frame.registrar :as registrar]
+            #?@(:clj [[re-frame.freehand.descriptor :as descriptor]
                       [re-frame.freehand.compiler :as compiler]
                       [re-frame.freehand.compiler.emit-jvm :as emit-jvm]])))
 
@@ -606,17 +606,44 @@
               ~dom-node
               ~(react-opts-form prefix opts))))))))
 
-(defn registered-view-static-facts
-  "The render-static `{:caps :deps}` facts a compiled view carries on its
-  REGISTERED manifest (`re-frame.freehand.tree/register-view!` → the `:view` registrar
-  entry) — the cross-build-context resolution seam (rf2-uv7n6 hole 2). A view
-  compiled in ANOTHER build (AOT / precompiled JAR) is absent from THIS build's
-  `view-static` index, but its registration runs when its namespace loads, so its
-  manifest (carrying `:static-facts`) is resolvable here. nil when the view is
-  unregistered or its manifest predates static-facts — a genuinely UNPROVEN
-  dependency the caller must fail loud on rather than treat as static-safe."
+(defn declared-view
+  "The DECLARED view value a Freehand view-id names, or nil.
+
+  A Freehand `v/defview` mints its id from the declaring namespace and the
+  declared symbol and admits no `:id` override (the option roster is closed),
+  so the id and the Var are two spellings of one thing and the id is
+  resolvable back to the declaration without an index. That is what makes a
+  CROSS-BUILD read possible at all: a view compiled in another build (AOT, a
+  precompiled jar) contributes nothing to this build's registries, but its
+  `def` runs when its namespace loads, so the descriptor is here.
+
+  Deliberately NON-loading. `find-ns` answers only for a namespace that is
+  already loaded, which for a render-static dependency it always is — the root
+  form's head resolved, so the declaration it names was read. Requiring the
+  namespace HERE, mid-expansion, would let a fact lookup run arbitrary
+  load-time code, which is not a proof step's business."
   [view-id]
-  (get-in (registrar/lookup :view view-id) [:rf.ui/manifest :static-facts]))
+  (when (and (keyword? view-id) (namespace view-id))
+    (when-let [ns' (find-ns (symbol (namespace view-id)))]
+      (when-let [vr (ns-resolve ns' (symbol (name view-id)))]
+        (let [v (deref vr)]
+          (when (descriptor/view? v) v))))))
+
+(defn registered-view-static-facts
+  "The render-static `{:caps :deps}` facts a COMPILED view carries on its
+  declared manifest (`re-frame.freehand.compiler/structural-manifest` →
+  `:static-facts`, published on the descriptor `v/defview` defs) — the
+  cross-build-context resolution seam (rf2-uv7n6 hole 2, rf2-drpa3.159).
+
+  A view compiled in ANOTHER build (AOT / precompiled JAR) is absent from THIS
+  build's `view-static` index, but its declaration runs when its namespace
+  loads, so the manifest is resolvable here through [[declared-view]]. nil when
+  the id names no declaration, when the declaration is INTERPRETED (an
+  interpreted body has no analysis and therefore no facts to carry — see
+  [[static-capability-offender]]), or when a compiled manifest predates
+  `:static-facts`."
+  [view-id]
+  (some-> (declared-view view-id) descriptor/manifest :static-facts))
 
 (defn- static-capability-offender
   "The render-static transitive static-capability proof (Spec 004C §3, EP-0034
@@ -627,17 +654,35 @@
                                    form itself, `:rf.root/root-form`) carrying a
                                    runtime-requiring capability;
     - `{:view-id .. :unproven? true}`  the first referenced view whose facts are
-                                   genuinely UNOBTAINABLE (absent from BOTH the
-                                   ambient index and the registered manifest);
-    - nil                          the whole server-reachable closure is proven
-                                   static-safe.
+                                   genuinely UNOBTAINABLE — a COMPILED view
+                                   whose manifest predates `:static-facts`, or
+                                   an id naming no reachable declaration at all;
+    - nil                          the whole server-reachable closure is
+                                   admitted (proven static-safe at BUILD time,
+                                   or handed to the render — see below).
 
-  Cycle-safe: the closure follows direct compiled-view dependencies breadth-first
-  over a `seen` set, so a self-recursive or mutually-recursive view terminates.
-  Each dependency's facts resolve from the ambient index first, then from its
-  registered manifest (a cross-build/AOT view). Unknown facts are NOT proof of
-  static safety (rf2-uv7n6 hole 2): a dependency resolvable from NEITHER source is
-  reported UNPROVEN, never silently skipped."
+  Cycle-safe: the closure follows direct view dependencies breadth-first over a
+  `seen` set, so a self-recursive or mutually-recursive view terminates. Each
+  dependency's facts resolve from the ambient index first, then from its
+  declared manifest (a cross-build/AOT view). Unknown facts are NOT proof of
+  static safety (rf2-uv7n6 hole 2): a dependency resolvable from NEITHER source
+  is reported UNPROVEN, never silently skipped.
+
+  ## The interpreted arm (rf2-drpa3.159)
+
+  An INTERPRETED declaration has no finite grammar, no analysis step and no
+  manifest — that is what the mode IS, and `v/manifest` reports nil for one
+  rather than inventing a roster. So there are no build-time facts to resolve
+  and there never can be, and reporting the ordinary paved-path view UNPROVEN
+  told the author to recompile something that was not stale. The law does not
+  weaken: the interpreted tier proves it where its capabilities actually become
+  visible, in the RENDER. `re-frame.freehand.tree/emit-static-html` audits the
+  structural tree the render produced and refuses to fold a live capability
+  away, and a reactive read fails on its own account
+  (`:rf.error/view-read-outside-render`). Each tier proves the same law with
+  what it actually has — the compiled one with its analysis, the interpreted one
+  with its render — so an interpreted dependency is ADMITTED here and NOT
+  descended into (its children are its own render's to audit)."
   [own-facts index]
   (if (seq (:caps own-facts))
     {:view-id :rf.root/root-form :caps (:caps own-facts)}
@@ -652,7 +697,15 @@
               (if (seq caps)
                 {:view-id vid :caps caps}
                 (recur (into queue deps) (conj seen vid)))
-              {:view-id vid :unproven? true})))))))
+              (if-let [view (declared-view vid)]
+                (if (= :interpreted (:lowering (descriptor/describe view)))
+                  ;; No analysis exists to consult — the render is this
+                  ;; declaration's proof. Admit, and do not descend.
+                  (recur queue (conj seen vid))
+                  ;; A COMPILED declaration with no facts is genuinely stale:
+                  ;; its manifest was built before `:static-facts` existed.
+                  {:view-id vid :unproven? true :reason :stale-compiled})
+                {:view-id vid :unproven? true :reason :unresolvable}))))))))
 
 (defn render-static-form
   "`(v/render-static root-form)` — the pure `:server`-phase static-HTML render
@@ -672,15 +725,19 @@
       cannot). This is the kind-label delta a fn could not honour.
     - NO SILENT ELISION (Spec 004C §3, EP-0034 §2) — a runtime-requiring
       capability (subs, committed handlers, effects, refs, context, foreign / lazy
-      heads) anywhere in the root's SERVER-REACHABLE view closure is a loud
-      `:rf.ui.compile/static-root-requires-runtime` build error with source
-      coordinates, never a capability dropped from the static output. The proof is
-      transitive: `compiler/view-static-facts` projects each compiled view's own
-      server-reachable capabilities + direct-view dependencies into the
-      `view-static` build index, and `static-capability-offender` closes over it
-      cycle-safe. `use-id` is exempt (an inert deterministic id is static-safe);
-      `v/client-only` stays legal (only its capability-free fallback is
-      server-reachable — a static root never flips).
+      heads) anywhere in the root's SERVER-REACHABLE view closure fails LOUD,
+      never as a capability dropped from the static output. Each tier proves that
+      with what it actually has. A COMPILED view is proven at BUILD time:
+      `compiler/view-static-facts` projects its server-reachable capabilities +
+      direct-view dependencies onto its manifest and into the `view-static` build
+      index, and `static-capability-offender` closes over both cycle-safe, so a
+      breach is `:rf.ui.compile/static-root-requires-runtime` with source
+      coordinates. An INTERPRETED view has no analysis to consult — there is no
+      finite grammar and no manifest — so it is proven at RENDER, by
+      `re-frame.freehand.tree/emit-static-html`, which refuses to fold a live
+      capability out of the structural tree. `use-id` is exempt (an inert
+      deterministic id is static-safe); `v/client-only` stays legal (only its
+      capability-free fallback is server-reachable — a static root never flips).
     - IDENTITY PARTICIPATION (§7) — with no opts the root-id derives from the
       single mounted view, so `resolve-root-identity` enforces exactly one view
       (`:rf.ui.compile/no-single-mounted-view` otherwise). The derived identity is
@@ -734,28 +791,43 @@
           ;; lazy heads) is a loud BUILD error with source coordinates — never a
           ;; silently dropped capability. `v/client-only` stays legal (only its
           ;; capability-free fallback is server-reachable); `use-id` is exempt.
-          (when-let [{:keys [view-id caps unproven?]}
+          (when-let [{:keys [view-id caps unproven? reason]}
                      (static-capability-offender
                       (compiler/view-static-facts ast @(:sites e))
                       (compiler/build-view-static))]
             (if unproven?
-              ;; A referenced view whose render-static facts are UNOBTAINABLE
-              ;; (absent from both the ambient index and the registered manifest)
-              ;; is UNPROVEN — a loud build error, never a silently-inert render
-              ;; that could drop an interactive dependency's handler (hole 2).
+              ;; A referenced view whose render-static facts are UNOBTAINABLE is
+              ;; UNPROVEN — a loud build error, never a silently-inert render that
+              ;; could drop an interactive dependency's handler (hole 2). The
+              ;; diagnostic states WHICH of the two obtainable-fact routes failed,
+              ;; because they have different recoveries and a message naming the
+              ;; wrong one sends the author to recompile a view that is not stale
+              ;; (rf2-drpa3.159).
               (fail :rf.ui.compile/static-root-unproven-dependency
-                    (str "v/render-static: the static root depends on view "
-                         (pr-str view-id) " whose render-static facts are "
-                         "UNPROVEN — they are absent from this build's view-static "
-                         "index AND from the view's registered manifest (an "
-                         "AOT/precompiled view compiled before static-facts, or a "
-                         "stale registration). Unknown facts are not proof of "
-                         "static safety, so render-static fails loud rather than "
-                         "shipping a possibly-inert render. Recompile "
-                         (pr-str view-id) " against a current re-frame.freehand, or "
-                         "mount this tree in the browser with v/mount / "
-                         "v/hydrate-root")
-                    {:root-id root-id :unproven-view view-id})
+                    (if (= :unresolvable reason)
+                      (str "v/render-static: the static root depends on view "
+                           (pr-str view-id) " whose render-static facts are "
+                           "UNPROVEN — the id names no reachable v/defview "
+                           "declaration, so neither this build's view-static index "
+                           "nor a declared manifest can answer for it. Unknown "
+                           "facts are not proof of static safety, so render-static "
+                           "fails loud rather than shipping a possibly-inert "
+                           "render. Require the namespace that declares "
+                           (pr-str view-id) " from this server render namespace, "
+                           "or mount this tree in the browser with v/mount / "
+                           "v/hydrate-root")
+                      (str "v/render-static: the static root depends on COMPILED "
+                           "view " (pr-str view-id) " whose render-static facts are "
+                           "UNPROVEN — its declared manifest carries no "
+                           ":static-facts, so it was compiled before those facts "
+                           "existed (an AOT/precompiled artefact built against an "
+                           "older re-frame.freehand). Unknown facts are not proof "
+                           "of static safety, so render-static fails loud rather "
+                           "than shipping a possibly-inert render. Recompile "
+                           (pr-str view-id) " against a current re-frame.freehand, "
+                           "or mount this tree in the browser with v/mount / "
+                           "v/hydrate-root"))
+                    {:root-id root-id :unproven-view view-id :reason reason})
               (fail :rf.ui.compile/static-root-requires-runtime
                     (str "v/render-static: the static root's server-reachable view "
                          "closure requires runtime capability "
