@@ -109,6 +109,131 @@
     (is (= grammar/admitted-ops (into #{} (map :op) rows))
         "one row per admitted node kind, and no row outside the roster")))
 
+;; ---------------------------------------------------------------------------
+;; The OTHER axis — one row per props CARRIER
+;; ---------------------------------------------------------------------------
+;;
+;; The table above is per node KIND, and a per-kind table has a structural
+;; blind spot: `grammar/check!` walks `:op`, and so does the coverage
+;; assertion, but the content an author writes mostly lives INSIDE a node's
+;; `:props`. `:element` is admitted, so an emitter that never read
+;; `(:spread props)` produced a perfectly well-formed `:element` with the
+;; whole forwarded attribute map missing, and every row above stayed green.
+;;
+;; Three defects of exactly that shape landed in a row — a call-site
+;; `v/render-fn` emitting `nil`, `v/spread` / `v/spread-safe` dropped
+;; entirely, a call-site `v/event` emitting `nil` — so the table gained the
+;; second axis. Each row names a carrier, proves the analyzed AST really
+;; FILLS it, and asserts the emitted form REACHES the lowering that carrier
+;; requires. The coverage assertions hold the tables to
+;; `grammar/element-props-carriers` and `grammar/crossing-prop-markers`,
+;; exactly as the kind table is held to `grammar/admitted-ops`.
+
+(defn- emitted
+  "The React lowering of one body, as text to look for calls in."
+  [body]
+  (let [[e ast] (analyzed body)]
+    (pr-str (emit-react/emit-react-body e '[props] ast))))
+
+(def element-rows
+  "One source body per ELEMENT props carrier. `:reaches` is the call that
+  proves the emitter read it — a per-carrier claim, because `some?` on the
+  whole emission proves nothing: a dropped carrier still emits an element."
+  [{:carrier :attrs       :body '[:div {:title (:t props)}]
+    :reaches "compiled-react/attr!"}
+   {:carrier :class       :body '[:div {:class (:c props)}]
+    :reaches "compiled-react/class!"}
+   {:carrier :style       :body '[:div {:style (:s props)}]
+    :reaches "compiled-react/style!"}
+   {:carrier :events      :body '[:div {:on-click [:app/go]}]
+    :reaches "re-frame.freehand.reactive/event-site"}
+   {:carrier :key         :body '[:div {:key (:k props)}]
+    :reaches "cljs.core/unchecked-set"}
+   {:carrier :spread      :body '[:div.sugar (v/spread (:attrs props) {:class "c"})]
+    :reaches "re-frame.freehand.node/spread-attrs"}
+   {:carrier :safe-spread :body '[:input (v/spread-safe {:value "v"} (:attrs props))]
+    :reaches "re-frame.freehand.node/safe-caller-attrs"}])
+
+(def crossing-rows
+  "One source body per CROSSING prop marker. `:reaches` is what the emitted
+  props map must carry for the prop to arrive at all."
+  [{:marker nil          :body '[:div [leaf {:label (:l props)}]]
+    :reaches ":label (:l props)"}
+   {:marker :render-fn   :body '[:div [leaf {:row (v/render-fn [r] [:span r])}]]
+    :reaches ":render-fn"}
+   {:marker :ui-event    :body '[:div [leaf {:on-pick (v/event [x] [:app/picked x])}]]
+    :reaches ":event"}
+   {:marker :handler     :body '[:div [leaf {:on-done (v/handler [x] (prn x))}]]
+    :reaches ":handler"}
+   {:marker :foreign     :body '[:div [leaf {:node (v/raw (host-element))}]]
+    :reaches "(host-element)"}
+   {:marker :v/raw-fn    :body '[:div [leaf {:cb (v/raw-fn (:f props))}]]
+    :reaches "re-frame.freehand.events/raw-fn"}])
+
+(defn- carriers-of
+  "Every ELEMENT props carrier the analyzed AST actually filled."
+  [ast]
+  (let [found (volatile! #{})]
+    (walk/postwalk (fn [x]
+                     (when (= :element (:op x))
+                       (doseq [[k v] (:props x)
+                               :when (and (contains? grammar/element-props-carriers k)
+                                          (if (= :key k) (:present? v) (seq v)))]
+                         (vswap! found conj k)))
+                     x)
+                   ast)
+    @found))
+
+(deftest the-react-emitter-reads-every-element-props-carrier
+  (testing "A carrier the emitter never reads is not a crash and not a
+            diagnostic — it is a well-formed element missing exactly what
+            the author put in that slot. So each row proves its carrier is
+            really in the analyzed props, then proves the emission reaches
+            the lowering that carrier requires."
+    (doseq [{:keys [carrier body reaches]} element-rows]
+      (let [[_ ast] (analyzed body)]
+        (is (contains? (carriers-of ast) carrier)
+            (str carrier " — the row really fills the carrier it names")))
+      (is (.contains ^String (emitted body) ^String reaches)
+          (str carrier " — the emitted body reaches " reaches)))))
+
+(deftest the-react-emitter-lowers-every-crossing-prop-marker
+  (testing "A marked crossing prop carries ANALYSED CONTENT under its own
+            key rather than a plain `:value`, which is exactly the shape an
+            emitter reading only `:value` turns into `nil` — a prop that
+            reaches the boundary ABSENT and renders nothing. Each row
+            asserts what the emitted props map must carry, and that it
+            carries no nil under the prop's own key."
+    (doseq [{:keys [marker body reaches]} crossing-rows]
+      (let [text (emitted body)]
+        (is (.contains ^String text ^String reaches)
+            (str marker " — the emitted props map reaches " reaches))
+        (is (not (re-find #":(label|row|on-pick|on-done|node|cb) nil" text))
+            (str marker " — and the boundary is not handed an absent prop"))))))
+
+(deftest the-props-tables-cover-the-whole-admitted-rosters
+  (testing "A per-carrier table is only as good as its coverage, so the
+            coverage is the assertion — the same claim the node-kind table
+            above makes, on the axis that table cannot see."
+    (is (= grammar/element-props-carriers (into #{} (map :carrier) element-rows))
+        "one row per element props carrier, and no row outside the roster")
+    (is (= grammar/crossing-prop-markers (into #{} (map :marker) crossing-rows))
+        "one row per crossing prop marker, and no row outside the roster")))
+
+(deftest a-ref-is-refused-rather-than-silently-unread
+  (testing "`:ref` is a props carrier no v1 emitter lowers, so the grammar
+            refuses it. Silently leaving it unread rendered an element with
+            the ref gone, while the same declaration INTERPRETED refuses
+            outright — one declaration, two answers, neither of them said."
+    (is (= :rf.ui.compile/unsupported-form
+           (try (analyzed '[:div {:ref (v/raw-fn (:f props))}])
+                nil
+                (catch clojure.lang.ExceptionInfo ex
+                  (:rf.ui.compile/error (ex-data ex)))))
+        "a compiled :ref names the grammar that refused it")
+    (is (some? (analyzed '[:div {:title "t"}]))
+        "non-vacuous: the same element without a ref compiles")))
+
 (deftest a-compiled-slot-lowers-to-the-shared-carrier-contract
   (testing "The browser lowering reaches the SAME three runtime calls the
             structural one does — the gate, the host-independent arity

@@ -364,31 +364,35 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- prop-value-form
-  "One call-site prop value. `v/raw-fn` and `v/event` / `v/handler` props
-  are OUTSIDE `:re-frame.freehand/v1`'s reachable surface today (the
-  markers exist because the analyzer is shared with the wider grammar),
-  so the ordinary arm is the whole of what a v1 crossing carries: the
-  walked value, handed to the boundary verbatim, exactly as the
-  interpreted walk hands it.
+  "One call-site prop value — one arm per
+  [[re-frame.freehand.compiler.grammar/crossing-prop-markers]] member.
 
-  A `:render-fn` entry is the exception, and it is not optional: the
-  analyzer records a lexically-visible slot body as an ANALYSED template
-  rather than a form, so such an entry carries no `:value` at all. Left
-  to the ordinary arm it emits `nil` — a prop-carried slot that reaches
-  the seam ABSENT, gating cleanly and rendering nothing, which is the
-  quietest possible failure. The arm below mirrors
-  [[re-frame.freehand.compiler.emit-jvm/prop-value-form]]'s call for
-  call: the same [[re-frame.freehand.events/callback]] carrier the
-  interpreted `v/render-fn` macro expands to, so the boundary records one
-  marker whichever mode wrote the slot; only the BODY differs, and it
-  differs the way every other arm does — it is emitted through this
-  emitter, so the deferred body builds React elements."
+  The ordinary arm (marker `nil`) is the walked value handed to the
+  boundary verbatim, exactly as the interpreted walk hands it, and
+  `:foreign` — a `(v/raw …)` host element — is that same value: React
+  takes the element it was given.
+
+  The other three carry ANALYSED CONTENT rather than a plain value, and
+  each is the shape that reaches an emitter reading only `:value` as
+  `nil`: a prop the boundary receives ABSENT, gating cleanly and
+  rendering nothing, which is the quietest possible failure. Each is
+  rebuilt into the very value the interpreted spelling expands to — the
+  same [[re-frame.freehand.events/callback]] roster carrier — so the
+  boundary records one marker whichever mode wrote the prop. Only a
+  `:render-fn`'s BODY differs, and it differs the way every other arm
+  does: it is emitted through this emitter, so the deferred body builds
+  React elements."
   [e st {:keys [value marker render-fn]}]
   (case marker
     :render-fn `(events/callback
                  :render-fn
                  (fn [~@(:params render-fn)] ~(emit-node e st (:body render-fn)))
                  ~(count (:params render-fn)))
+    ;; `v/raw-fn`'s whole promise is that the identity a foreign API receives
+    ;; is the identity it was given, and the roster carrier is how the
+    ;; boundary knows not to stabilize it. The analyzer strips the wrapper to
+    ;; walk the fn, so the wrapper is restored here.
+    :v/raw-fn `(events/raw-fn ~value)
     value))
 
 (defn- emit-view
