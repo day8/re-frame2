@@ -799,6 +799,67 @@
              (pilot/error-region-id "acme-buffered" [:invoice 1 :reference]))
           "a vector address is a stable identity, refused nothing"))))
 
+(deftest the-accepted-identity-domain-is-injective-and-equality-faithful
+  (testing "rf2-drpa3.146, audit follow-up to #6832. `pr-str` is neither
+            canonical nor injective over arbitrary EDN, so encoding EVERY
+            non-collection plus every sequential collection through it still
+            broke the contract two ways. The repair NARROWS the accepted domain
+            to the closed roster the pilot's callers actually use — a string,
+            keyword, integer, or vector of them — over which `pr-str` IS both
+            equality-faithful and injective, and refuses everything else loudly.
+            The two exact probes the audit named are pinned below on both hosts."
+    (let [reason (fn [identity]
+                   (try (pilot/error-region-id "acme-buffered" identity)
+                        nil
+                        (catch #?(:clj Throwable :cljs :default) e
+                          (:acme.ui/error (ex-data e)))))
+          id     (fn [identity] (pilot/error-region-id "acme-buffered" identity))]
+
+      (testing "probe 1 — canonicity. `(= [1 2] '(1 2))`, so a `pr-str` id
+                would SPLIT one identity into two. The vector is accepted and
+                names one stable id; its equal list twin is out of the roster
+                and refused, so no second id is ever emitted for the identity"
+        (is (= [1 2] '(1 2))
+            "non-vacuous: the vector and list are `=`, the split a naive codec makes")
+        (is (= (id [1 2]) (id [1 2]))
+            "the accepted vector pins ONE stable id across calls")
+        (is (= :unstable-field-identity (reason '(1 2)))
+            "and its equal list twin is refused, not given a second id"))
+
+      (testing "probe 2 — injectivity. `(symbol \"true\")` and `true` are
+                distinct values whose `pr-str` both prints `true`, so a
+                `pr-str` id would ALIAS two identities onto one. Both are out of
+                the roster and refused, so neither collides; the ACCEPTED
+                look-alikes stay distinct instead"
+        (is (= "true" (pr-str (symbol "true")) (pr-str true))
+            "non-vacuous: a symbol, a boolean and a string all print `true`")
+        (is (= :unstable-field-identity (reason (symbol "true")))
+            "a symbol is refused — a distinct value shares its print")
+        (is (= :unstable-field-identity (reason true))
+            "and so is a boolean — neither can alias onto one id")
+        (is (not= (id :true) (id "true"))
+            "while the accepted look-alikes are two ids: keyword `:true` versus string \"true\""))
+
+      (testing "the roster's other exclusions are refused too, each for a print
+                that is not a canonical, type-unique identity"
+        (is (= :unstable-field-identity (reason 1.5))
+            "a float carries no type-unique integer/keyword/string print")
+        (is (= :unstable-field-identity (reason [:invoice '(1) :reference]))
+            "and a list NESTED inside an otherwise-accepted vector fails the whole")
+        (is (= :unstable-field-identity (reason #{:a}))
+            "an unordered set stays refused, as #6832 established"))
+
+      (testing "the roster's members — and vectors recursively of them — are
+                accepted, and pin distinct values to distinct ids"
+        (is (not= (id :invoice) (id "invoice"))
+            "a keyword and the string of its name are two ids")
+        (is (not= (id 1) (id "1"))
+            "an integer and the string of its digits are two ids")
+        (is (not= (id [:invoice 1]) (id [:invoice 2]))
+            "two vector addresses are two ids")
+        (is (= (id [:invoice [1 2] :ref]) (id [:invoice [1 2] :ref]))
+            "a nested-vector address is accepted and stable across calls")))))
+
 ;; ===========================================================================
 ;; R-A9 — asynchronous transform race safety
 ;; ===========================================================================
