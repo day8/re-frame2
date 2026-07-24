@@ -85,7 +85,7 @@ supported contracts.
 |---|---|---|
 | interpreted Freehand | native; assumes re-frame | unrestricted default authoring and execution mode |
 | compiled Freehand | native; assumes re-frame | finite-site lowering over the same declarations and semantic ABI |
-| `re-frame.ui` | native; donor only | temporary code source and alpha-train migration surface; deleted at the gate |
+| `re-frame.ui` | native; donor only | temporary code source and in-tree migration surface, never published; deleted at the gate |
 | Reagent, UIx, and Helix adapters | independent | external-renderer escape hatches retained under their existing programme rulings |
 | Replicant | independent | whole-state architectural comparison point; not co-mounted as part of Freehand |
 
@@ -266,10 +266,12 @@ F6 does not do it automatically.
 
 ## Backwards Compatibility
 
-This is pre-alpha, so migration is direct. The shipped alpha-train
-`re-frame.ui` surface continues only during coexistence. Freehand never depends on
-it. Any temporary forwarding facade lives in the donor artifact, gains no new
-semantics, and is removed at the gate.
+This is pre-alpha, so migration is direct. `re-frame.ui` is never published — it
+is in-tree donor code for the whole of its life, so no consumer ever depends on a
+`day8/re-frame2-ui` coordinate and there is no external surface to keep
+compatible. The in-tree surface continues only during coexistence. Freehand never
+depends on it. Any temporary forwarding facade lives in the donor artifact, gains
+no new semantics, and is removed at the gate.
 
 Donor names and reserved placeholders are mechanically renamed rather than kept as
 aliases. Forms rejected by the common model (`local` and neutral ref/effect/hook

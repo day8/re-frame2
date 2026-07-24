@@ -493,10 +493,9 @@ withFixture(
   }
 }
 
-// Real-tree floor: the current implementation/ tree must be fully covered, every
-// publishable adapter discovered under adapters/ and resolved by its real,
-// validated dedicated gate, and the now-publishable ui substrate (rf2-vxgfnd.99.2)
-// discovered AND covered by its generic ARTEFACTS isolation entry.
+// Real-tree floor: the current implementation/ tree must be fully covered and
+// every publishable adapter discovered under adapters/ and resolved by its real,
+// validated dedicated gate.
 const realCoverage = assertCanonicalInventoryCovered();
 assert(realCoverage.ok,
   `real implementation/ tree must be fully covered; missing: ${realCoverage.missing.map((rt) => `${rt.relPath} (${(rt.reasons || []).join('; ')})`).join(', ')}`);
@@ -505,18 +504,26 @@ for (const relPath of Object.keys(DEDICATED_ISOLATION_GATES)) {
   assert(rt && rt.via === 'dedicated' && rt.relPath.startsWith('adapters/'),
     `${relPath}: must be discovered under adapters/ and covered by its validated dedicated gate`);
 }
-// rf2-vxgfnd.99.2 — ui declares a real :clein/build now, so it is a REQUIRED
-// browser-optional runtime and must be covered by its generic ARTEFACTS entry
-// (sentinel rf.error/ui-tree-malformed, positive control onModule 'ui').
-assert(realCoverage.required.some((rt) => rt.relPath === 'ui'),
-  'publishable ui must be in the required browser-optional set (it declares :clein/build)');
-const uiCov = realCoverage.covered.find((c) => c.relPath === 'ui');
-assert(uiCov && uiCov.via === 'generic',
-  'ui must be covered by its generic ARTEFACTS isolation entry');
+// rf2-a32r7 — ui is NOT publishable (re-frame.ui is donor-only and is never
+// published), so it is not discovered as a required browser-optional runtime and
+// carries no coverage obligation here. Its ARTEFACTS entry stays: the gate's own
+// loop scans every entry, so the sentinel check that keeps re-frame.ui bodies out
+// of the no-feature counter bundle still runs, and its positive control still
+// proves the sentinel is real. Coverage is what publication compels; scanning an
+// in-tree browser-capable runtime is free and remains worth doing.
+assert(!realCoverage.required.some((rt) => rt.relPath === 'ui'),
+  'ui must NOT be in the required browser-optional set — it declares no :clein/build (rf2-a32r7)');
 
-// Every generic-coverage path must correspond to a real publishable per-feature
-// runtime on disk (so a stale relPath can't paper over a missing runtime).
+// Every generic-coverage path must be a real implementation/ runtime on disk (so
+// a stale relPath can't paper over a missing runtime). Publishable ones are held
+// to the stronger structural test; `ui` is the one in-tree-only entry.
+const NON_PUBLISHABLE_GENERIC = new Set(['ui']);
 for (const relPath of genericCoveragePaths()) {
+  if (NON_PUBLISHABLE_GENERIC.has(relPath)) {
+    assert(fs.existsSync(path.join(REPO_ROOT, 'implementation', relPath, 'deps.edn')),
+      `generic-coverage relPath '${relPath}' must be a real implementation/ artefact directory`);
+    continue;
+  }
   assert(pathDeclaresBuildAlias(path.join(REPO_ROOT, 'implementation'), relPath),
     `generic-coverage relPath '${relPath}' must be a real publishable implementation/ artefact`);
 }

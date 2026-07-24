@@ -311,12 +311,12 @@ release train have no Freehand successor and are DELETEd outright.
 | `implementation/scripts/lib/g13-timing-evidence.cjs` | the mass-mount timing-evidence library | MOVE | F6 | pending |
 | `implementation/scripts/lib/g8-latency-evidence.cjs` | the input-latency evidence library | MOVE | F6 | pending |
 | `implementation/scripts/bundle-isolation-positive-control/*` | the positive control proving the donor client sentinel is emitted | MOVE | F6 | pending |
-| `implementation/scripts/_release-ui-required-gate.test.cjs` | the guard asserting the donor is a required artifact of the release train; the donor is never published, so nothing succeeds it | DELETE | F6 | pending |
+| `implementation/scripts/_release-ui-required-gate.test.cjs` | the guard asserting the donor is a required artifact of the release train; the donor is never published, so nothing succeeds it | DELETE | F6 | done |
 | `implementation/scripts/_ui-deps-edn-boundary.test.cjs` | the guard scoping optional artifacts out of the donor's production dependencies | REPLACE | F6 | pending |
-| `.github/scripts/verify-version-lockstep.sh` | the release inventory's assertion that the donor artifact is publishable; the surrounding inventory serves other artifacts and stays | DELETE | F6 | pending |
+| `.github/scripts/verify-version-lockstep.sh` | the release inventory's assertion that the donor artifact is publishable; the surrounding inventory serves other artifacts and stays | DELETE | F6 | done |
 | `.github/scripts/report-changed-surfaces.sh` | the changed-surface router that maps donor paths to gates | REPLACE | F6 | pending |
 | `.github/workflows/test.yml` | the donor-suite jobs on the pull-request train | REPLACE | F6 | pending |
-| `.github/workflows/release.yml` | the donor deploy leaf, pre-deploy JVM test, and release-body row | DELETE | F6 | pending |
+| `.github/workflows/release.yml` | the donor deploy leaf, pre-deploy JVM test, and release-body row | DELETE | F6 | done |
 | `.github/workflows/lint.yml` | donor paths in the lint surface | REPLACE | F6 | pending |
 | `.github/workflows/portability.yml` | donor paths in the portability matrix | REPLACE | F6 | pending |
 | `TESTING.md` | the donor rows of the canonical test matrix | REPLACE | F6 | pending |
