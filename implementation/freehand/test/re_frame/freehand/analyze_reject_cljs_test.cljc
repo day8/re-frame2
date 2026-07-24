@@ -142,6 +142,35 @@
             exactly the site the metadata one was refused"
     (is (nil? (reject-id '(for [x xs] [:li {:key x} x]))))))
 
+(deftest a-select-value-admits-a-literal-selection
+  (testing "rf2-b6poy. A native `<select>`'s value is the ONE attribute
+            whose authored value may be collection-shaped, and the guard
+            refused a LITERAL one — so
+            `[:select {:multiple true :value [\"a\" \"b\"]}]` failed to
+            compile while its interpreted twin rendered it, and a COMPUTED
+            selection of the same shape compiled. Asserted on BOTH hosts,
+            because the guard lives in a .cljc the two targets share."
+    (is (nil? (reject-id '[:select {:multiple true :value ["a" "b"]}]))
+        "the literal selection compiles")
+    (is (nil? (reject-id '[:select {:value ["a"]}]))
+        "acceptance is the TAG and the SLOT, never `multiple` — which may be
+         a runtime value the compiler cannot see")
+    (is (nil? (reject-id '[:select {:multiple true :x/value ["a"]}]))
+        "and an aliased value slot is the same slot"))
+  (testing "the widening is one slot on one tag, and a set stays refused"
+    (is (= :rf.ui.compile/collection-attr-value
+           (reject-id '[:select {:multiple true :value #{"a"}}]))
+        "a set has no order the two hosts agree on")
+    (is (= :rf.ui.compile/collection-attr-value
+           (reject-id '[:select {:multiple true :value {:a 1}}]))
+        "and a map has no members to convert")
+    (is (= :rf.ui.compile/collection-attr-value
+           (reject-id '[:select {:title ["a"]}]))
+        "an ordinary attribute on a select is untouched")
+    (is (= :rf.ui.compile/collection-attr-value
+           (reject-id '[:input {:value ["a"]}]))
+        "and so is a value slot on any other tag")))
+
 (deftest finite-sites
   (is (= :rf.ui.compile/sub-in-loop
          (reject-id '(for [x xs] [:li {:key x} (sub [:q x])]))))
