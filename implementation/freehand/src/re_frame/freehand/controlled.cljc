@@ -120,10 +120,7 @@
   cannot dispatch, but because what they dispatch (and whether they
   dispatch at all, or later, from a promise) is unknowable at the moment
   the door would have to open. `:render-fn` and `:raw-fn` never reach an
-  event position's dispatch path at all. `:key-map` is absent for a
-  different reason again: it is legal only on a key listener, and no key
-  listener is a [[door-slots]] slot, so admitting it here would decide
-  nothing."
+  event position's dispatch path at all."
   #{:event-vector :event-options :event})
 
 ;; ---------------------------------------------------------------------------
@@ -310,7 +307,6 @@
 (def ^:private compiled-roles
   {:vector   :event-vector
    :options  :event-options
-   :key-map  :key-map
    :ui-event :event
    :handler  :handler
    :fn       :bare-fn})

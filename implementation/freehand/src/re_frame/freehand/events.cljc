@@ -22,10 +22,9 @@
 
     2. **The closed event grammar at an event position.** A vector, an
        options map carrying `:event` plus the closed listener options, a
-       key-condition map selecting an intent by `KeyboardEvent.key` on a
-       key listener, a roster callback, a bare function, or `nil`.
-       [[event-plan]] is TOTAL over that roster and raises
-       `:rf.error/view-bad-event` for anything else.
+       roster callback, a bare function, or `nil`. [[event-plan]] is
+       TOTAL over that roster and raises `:rf.error/view-bad-event` for
+       anything else.
 
     3. **Per-site committed slots.** A render builds an ownership-free
        candidate table; only the SELECTED render commits it. Each site
@@ -588,9 +587,8 @@
   emitter reads. The roster is closed — an unknown key is a typo, and a
   typo that silently does nothing is the failure mode this rejects.
 
-  The exact-key condition map for `:on-key-down` / `:on-key-up` is a
-  SEPARATE closed form with its own slice; it is not a variant of this
-  one, and mixing the two in one map is an error."
+  A MAP at an event position is this form and no other, so the roster is
+  the whole grammar of a map there."
   #{:event :prevent-default :stop-propagation :once :passive :capture})
 
 (defn- options-plan
@@ -621,16 +619,12 @@
       (:passive m)          (assoc :passive true)
       (:capture m)          (assoc :capture true))))
 
-(declare map-plan)
-
 (defn event-plan
   "Classify the value at an event position into its closed **site plan**,
   or `nil` when the position is empty. TOTAL over the roster:
 
     a vector        → `:event-vector`   — declarative intent
     an options map  → `:event-options`  — intent plus listener options
-    a key map       → `:key-map`        — exact-`KeyboardEvent.key` branches,
-                                          legal only on a key listener
     a roster callback → its role        — `:event` / `:handler` /
                                           `:render-fn` / `:raw-fn`
     a bare function → `:bare-fn`        — legal at a native `:on-*` site,
@@ -638,199 +632,28 @@
                                           adapter owns its lifetime
     `nil`           → `nil`             — an empty position
 
-  A MAP is the one shape two closed forms share, so it is classified by
-  [[map-plan]] — options first (`:event`), then the string-keyed
-  key-condition form — and `:rf.error/view-bad-event` for anything else,
-  naming the roster. The plan is a plain map, so both emitters and the
-  structural host read one shape."
+  A MAP is the options map and nothing else, so it is classified by
+  [[options-plan]] against the closed [[event-options]] roster, and
+  `:rf.error/view-bad-event` for anything else, naming the roster. The
+  plan is a plain map, so both emitters and the structural host read one
+  shape."
   [v]
   (cond
     (nil? v)      nil
     (vector? v)   {:role :event-vector :event v}
     (callback? v) {:role (callback-role v) :f (callback-fn v)}
-    (map? v)      (map-plan v)
+    (map? v)      (options-plan v)
     (fn? v)       {:role :bare-fn :f v}
     :else
     (bad-event!
       'v/event-site
-      (str "An event position takes an event vector, an options map carrying :event, a "
-           "key-condition map (on a key listener), one of the declared callback forms "
-           "(v/event, v/handler, v/render-fn, v/raw-fn), a plain function, or nil; got a "
-           (value-tag v) ".")
+      (str "An event position takes an event vector, an options map carrying :event, one "
+           "of the declared callback forms (v/event, v/handler, v/render-fn, v/raw-fn), a "
+           "plain function, or nil; got a " (value-tag v) ".")
       :use-one-of-the-declared-event-forms
-      {:legal-forms [:event-vector :event-options :key-map :v-event :v-handler :v-render-fn
+      {:legal-forms [:event-vector :event-options :v-event :v-handler :v-render-fn
                      :v-raw-fn :bare-fn :nil]
        :value       (error/diag-value-summary v)})))
-
-;; ---------------------------------------------------------------------------
-;; The closed key-condition event map
-;; ---------------------------------------------------------------------------
-;;
-;; Spec 004 §Event intent and the payload materializer, ruled by D007. A
-;; SEPARATE closed form from the options map, legal only on `:on-key-down` /
-;; `:on-key-up`. Its keys are exact `KeyboardEvent.key` strings and each value
-;; is an existing DISPATCHING event form — a vector, an options map carrying
-;; `:event` and at most the two PRE-DISPATCH mechanics, `v/event`, or `nil`.
-;; The three whole-listener facts (`:once`, `:capture`, `:passive`) are refused
-;; inside a branch, because a branch is chosen after the keystroke and all three
-;; are settled before it. Selection is one level and by exact equality:
-;; a missing key is a no-op, an in-flight IME composition or a chord modifier
-;; matches nothing, and each selected branch runs its OWN pre-dispatch mechanics
-;; before its intent dispatches. Everything richer — modifier chords, ordering,
-;; wildcards, platform aliases, state predicates — stays `v/event`'s job.
-;;
-;; The whole form ships SUBJECT TO its delete-before-release pilot gate (D007):
-;; if the F5 component/library pilots (rf2-drpa3.44) show no repeated real use,
-;; it is DELETED before release rather than kept for symmetry, at the F6e donor
-;; deletion (rf2-drpa3.57). This bead (rf2-drpa3.23) carries that obligation.
-
-(def key-slots
-  "The two React event slots a key-condition map is legal on — the slots the
-  emitter writes for `:on-key-down` and `:on-key-up`."
-  #{"onKeyDown" "onKeyUp"})
-
-(def branch-options
-  "The CLOSED option roster a SELECTED key branch may carry — its `:event`
-  vector plus the two PRE-DISPATCH browser mechanics.
-
-  It is [[event-options]] minus the three WHOLE-LISTENER facts, and the
-  subtraction states WHEN each option is read rather than a taste in
-  vocabulary. `:capture` and `:passive` are native attachment facts, settled
-  when the listener goes on the node; `:once` retires the SITE, which is a
-  property of the site and not of one key. All three are decided before any
-  keystroke has been looked at, so a branch — chosen only once the key has
-  arrived — cannot honour one. Accepting them here and then dropping them is
-  the exact failure the closed listener roster exists to refuse, so the branch
-  roster refuses them too.
-
-  ONE roster, asked by both front ends: the compiled analyzer validates a
-  literal branch against this set rather than restating it, so the interpreted
-  and compiled tiers cannot accept different branch grammars."
-  #{:event :prevent-default :stop-propagation})
-
-(defn- branch-plan
-  "Classify one key branch's value into its dispatching site plan, or `nil`. A
-  branch names exactly ONE intent, so only the dispatching roster — an event
-  vector, an options map carrying `:event`, or `v/event` — and `nil` are legal;
-  a `v/handler`, a bare function, a render/raw callback, and a NESTED key map
-  are refused, which is precisely what keeps the form one level deep.
-
-  An options-map branch is additionally held to [[branch-options]]: the three
-  whole-listener facts are refused HERE rather than normalized into a plan that
-  nothing downstream can read, because a branch that accepts `:once` and fires
-  every time is worse than one that says it cannot."
-  [k v]
-  (let [plan (event-plan v)]
-    (cond
-      (or (nil? plan)
-          (contains? #{:event-vector :event} (:role plan)))
-      plan
-
-      (= :event-options (:role plan))
-      (let [whole-listener (remove branch-options (keys v))]
-        (when (seq whole-listener)
-          (bad-event!
-            'v/event-site
-            (str "The key-condition branch " (pr-str k) " carries the whole-listener "
-                 "option" (when (next whole-listener) "s") " "
-                 (pr-str (vec (sort whole-listener)))
-                 ". A branch is selected AFTER the keystroke arrives, and "
-                 (pr-str (vec (sort branch-options))) " is all that can still be honoured "
-                 "then: :capture and :passive are decided when the listener is attached to "
-                 "the node, and :once retires the whole SITE — every one of them is settled "
-                 "before a key has been read. Freehand refuses them here rather than "
-                 "accepting them and doing nothing. Drop the option: one-shot acceptance is "
-                 "state the receiving re-frame handler owns better than a listener does, and "
-                 "an attachment lane belongs to the whole listener — write that listener as "
-                 "one options map, or as a (v/event [e] …) that reads the key itself.")
-            :keep-whole-listener-options-off-key-branches
-            {:key k
-             :whole-listener-keys (vec (sort whole-listener))
-             :legal-keys          (vec (sort branch-options))}))
-        plan)
-
-      :else
-      (bad-event!
-        'v/event-site
-        (str "The key-condition branch " (pr-str k) " is a " (name (:role plan))
-             "; a key branch names ONE intent — an event vector, an options map "
-             "carrying :event, v/event, or nil. A callback that is not itself an "
-             "intent, and a nested key map, are outside the one-level exact-key form.")
-        :name-one-intent-per-key-branch
-        {:key k :role (:role plan)}))))
-
-(defn- key-map-plan
-  "Normalize a validated key-condition map into its `:key-map` site plan — the
-  exact-key branches, each already a classified dispatching plan."
-  [m]
-  {:role     :key-map
-   :branches (into {} (map (fn [[k v]] [k (branch-plan k v)])) m)})
-
-(defn- map-plan
-  "Classify a MAP at an event position — the one shape two closed forms share.
-  An OPTIONS map carries the keyword listener roster (`:event` …); a
-  KEY-CONDITION map carries exact-`KeyboardEvent.key` string branches. They are
-  SEPARATE forms: a map that mixes the two, or an empty map that is neither, is
-  a typed authoring error rather than a silently degenerate site. Options are
-  decided first, so a `:event` map is never read as a key map."
-  [m]
-  (cond
-    (empty? m)
-    (bad-event!
-      'v/event-site
-      (str "An empty map is neither an options map — which states its intent under "
-           ":event — nor a key-condition map, which names at least one exact "
-           "KeyboardEvent.key branch. Write {:event [:my-event …]} or {\"Enter\" [:accept] …}.")
-      :state-an-event-or-a-key-branch
-      {})
-
-    (not-any? string? (keys m))
-    (options-plan m)
-
-    (every? string? (keys m))
-    (key-map-plan m)
-
-    :else
-    (bad-event!
-      'v/event-site
-      (str "A key-condition map's keys are exact KeyboardEvent.key strings, but this map "
-           "also carries the listener-option key(s) "
-           (pr-str (vec (sort (remove string? (keys m)))))
-           ". The exact-key form and the options map are SEPARATE closed forms — state "
-           "per-key intents as {\"Enter\" [:accept] …} and whole-listener options in an "
-           "options map, never both in one map.")
-      :do-not-mix-key-branches-and-listener-options
-      {:string-keys (vec (sort (filter string? (keys m))))
-       :option-keys (vec (sort (remove string? (keys m))))})))
-
-(defn select-branch
-  "Pick the branch a key-condition `plan` fires for the selection `facts`
-  `{:key :composing? :chord?}`, or `nil` for no branch. A chord modifier
-  (Ctrl/Alt/Meta) or an in-flight IME composition matches nothing; otherwise the
-  branch is the one whose key EXACTLY equals `:key`, and an absent key — like an
-  explicit `nil` branch — dispatches nothing. One level, exact equality, no
-  wildcard, ordering or modifier syntax: everything else is `v/event`'s job."
-  [plan {:keys [key composing? chord?]}]
-  (when-not (or composing? chord?)
-    (get (:branches plan) key)))
-
-(defn key-facts
-  "Read the branch-selection facts off a live key event (browser) or the
-  structural payload map (JVM): the key name, whether an IME composition is in
-  flight, and whether a CHORD modifier — Ctrl, Alt or Meta — is held. Shift is
-  deliberately NOT a chord: it is already reflected in `KeyboardEvent.key`
-  (\"?\" is not \"/\"), so excluding it would make every shifted key
-  unmatchable. This is the one host-shaped seam of the key-condition form,
-  exactly parallel to [[native-payload]]."
-  [x]
-  #?(:cljs {:key        (unchecked-get x "key")
-            :composing? (boolean (unchecked-get x "isComposing"))
-            :chord?     (boolean (or (unchecked-get x "ctrlKey")
-                                     (unchecked-get x "altKey")
-                                     (unchecked-get x "metaKey")))}
-     :clj  {:key        (:re-frame.freehand/key x)
-            :composing? (boolean (:composing? x))
-            :chord?     (boolean (:chord? x))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading the live payload — the one host-shaped seam
@@ -999,30 +822,19 @@
        nil        nil
        :render-fn (:f plan)
        :raw-fn    (:f plan)
-       (do
-         (when (and (= :key-map (:role plan))
-                    (some? element)
-                    (not (contains? key-slots (:slot element))))
-           (bad-event!
-             'v/event-site
-             (str "A key-condition map selects an intent by KeyboardEvent.key, so it is legal "
-                  "only on :on-key-down and :on-key-up — this one is on a " (pr-str (:slot element))
-                  " site. Put an ordinary click or input intent in a vector or an options map.")
-             :put-key-condition-maps-on-key-listeners
-             {:slot (:slot element)}))
-         (let [owner (.-owner candidate)
-               sites (.-sites candidate)
-               proxy (or (committed-proxy owner site-key)
-                         (:proxy (get @sites site-key))
-                         (mint-proxy owner site-key))
-               door? (and (some? element)
-                          (controlled/door? (assoc element
-                                                   :role     (:role plan)
-                                                   :capture? (:capture plan)
-                                                   :passive? (:passive plan))))]
-           (vswap! sites assoc site-key
-                   (assoc plan :proxy proxy :payload payload-fn :door door?))
-           proxy))))))
+       (let [owner (.-owner candidate)
+             sites (.-sites candidate)
+             proxy (or (committed-proxy owner site-key)
+                       (:proxy (get @sites site-key))
+                       (mint-proxy owner site-key))
+             door? (and (some? element)
+                        (controlled/door? (assoc element
+                                                 :role     (:role plan)
+                                                 :capture? (:capture plan)
+                                                 :passive? (:passive plan))))]
+         (vswap! sites assoc site-key
+                 (assoc plan :proxy proxy :payload payload-fn :door door?))
+         proxy)))))
 
 (defn commit!
   "COMMIT time: publish `candidate`'s exact site table to its owner,
@@ -1193,16 +1005,6 @@
   [plan state args]
   (let [dispatch (lane plan state)]
     (case (:role plan)
-      :key-map
-      ;; Select one branch by exact key off the live event (a chord modifier or
-      ;; an in-flight composition matches nothing), then run THAT branch's own
-      ;; pre-dispatch mechanics and fire it. A missing key dispatches nothing.
-      ;; The branch inherits the SITE's payload extractor, so a branch intent may
-      ;; carry `::v/key` (or any projection) like any other event.
-      (when-some [branch (select-branch plan (key-facts (first args)))]
-        (apply-mechanics! branch args)
-        (fire! (assoc branch :payload (:payload plan)) state args))
-
       (:event-vector :event-options)
       (dispatch (materialize-event (:event plan) (payload plan (:event plan) args)))
 
