@@ -612,10 +612,10 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
             rel = path.relative_to(repo_root).as_posix()
             if rel not in named:
                 defects.append(
-                    f"  ORPHAN FIXTURE: {rel} is named by no `active` row in "
-                    f"{INDEX_REL.as_posix()} - a deletion that removes the row "
-                    "and leaves the bytes is how a re-used id acquires a stale "
-                    "meaning"
+                    f"  ORPHAN FIXTURE: {rel} [{path.stem.upper()}] is named by "
+                    f"no `active` row in {INDEX_REL.as_posix()} - a deletion "
+                    "that removes the row and leaves the bytes is how a re-used "
+                    "id acquires a stale meaning"
                 )
 
     if report:

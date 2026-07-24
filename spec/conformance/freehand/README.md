@@ -134,14 +134,40 @@ not execution.
 ```bash
 python scripts/check_freehand_conformance_index.py            # validate the index
 python scripts/check_freehand_conformance_index.py --self-test  # prove the gate has teeth
+python scripts/check_freehand_conformance_index.py --report     # the applicable-arm table
 ```
 
-It fails on a duplicate or ill-formed id, a row filed under the wrong area, an
-out-of-order id, a citation whose spec file or anchor does not exist, a citation
-that points outside `spec/`, a missing or misplaced fixture, an unknown
-applicability token or a broken axis, an unknown status, and a section roster
-that no longer matches the area roster above. Each defect names the offending
-row and line. It runs on every pull request.
+Two guards, and the difference between them is the difference between an index
+that is well-formed and one that is true.
+
+**The structural check** reads the index as a document. It fails on a duplicate
+or ill-formed id, a row filed under the wrong area, an out-of-order id, a
+citation whose spec file or anchor does not exist, a citation that points outside
+`spec/`, a missing or misplaced fixture, an unknown applicability token or a
+broken axis, an unknown status, and a section roster that no longer matches the
+area roster above.
+
+**The execution census** reads the index against the suites that run it. A row
+naming a real fixture nobody reads passes the structural check and proves
+nothing, so the census derives — from the `(conf/fixture :FH-…)` sites in
+`implementation/freehand/test/` and the lane each test file runs in — which rows
+are actually proven and where. It fails on a row no test reads, a row read only
+from lanes that do not serve the hosts its applicability cell claims, a test that
+reads a fixture for a row the index no longer carries, and a fixture file left on
+disk by a row that was deleted.
+
+The lane a file runs in is not asserted here; it is mirrored from where it is
+configured — cognitect-test-runner's discovery for `clojure -M:test`, and the two
+shadow-cljs `ns-regexp`s for `npm run test:freehand` and `npm run test:browser`.
+Which lane serves which host comes from [008-Testing.md §The host/mode
+matrix](../../008-Testing.md#the-hostmode-matrix): the `browser` column's
+structural cell is the host-neutral tree proven in the node runtime, the `ssr`
+column is the structural tree the JVM render already emits as the server shell,
+and a qualified host is proven by connecting the real wrapper in a browser.
+
+Each defect names the offending row and line. Both guards run on every pull
+request; `--self-test` drives one deliberately broken mini-repo per defect shape
+and fails if any of them passes.
 
 ## What this is not
 
@@ -165,4 +191,8 @@ substrate's two-mode, multi-host parity contract, and the two schemes never
 share an id space.
 
 **Not a fixture runner.** Nothing here executes. Adding a row makes a law
-addressable and citable; making it *run* is the harness's job.
+addressable and citable; making it *run* is the harness's job. The census above
+does not soften that: it reconciles the index with the suites that execute
+fixtures, and executes none itself. "Every row is proven somewhere applicable" is
+a fact the census establishes; "every row is green" is a fact about a run, and
+the lanes report it.
