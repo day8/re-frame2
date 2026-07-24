@@ -688,6 +688,52 @@
                         (.remove c-interpreted)
                         (done)))))))))
 
+(deftest a-permitted-caller-handler-through-v-spread-safe-becomes-a-committed-site
+  (testing "The deny law below proves `v/spread-safe` REFUSES a caller
+            handler that would clobber an owned one. That is only half the
+            claim: the form exists to forward a caller map SAFELY, so the
+            PERMITTED handler — a family the component does not own — has to
+            reach the DOM as a live committed site rather than being blocked
+            along with the forged one. Asserted the way its `v/spread` twin
+            above asserts the same thing: what app-db holds after a REAL
+            click, in both modes."
+    (if-not (browser?)
+      (skip! "the browser job runs the forwarding assertions")
+      (async done
+        (register!)
+        (seed! {:presses 0 :text ""})
+        ;; `safe-probe` owns `:on-input`, so `:on-click` is a family it does
+        ;; NOT own — permitted by the same guard that denies `:on-input`.
+        (let [caller        {:title "from-caller" :on-click [:compiled/pressed]}
+              c-compiled    (host-node!)
+              c-interpreted (host-node!)
+              mounts        (atom [])]
+          (-> (act #(reset! mounts
+                            [(v/mount [safe-probe {:attrs caller}] c-compiled {:frame fid})
+                             (v/mount [safe-probe-interpreted {:attrs caller}]
+                                      c-interpreted {:frame fid})]))
+              (.then (fn [_]
+                       (is (= 0 (:presses (db))) "nothing dispatched before the click")
+                       (act #(.click (.querySelector c-compiled "input")))))
+              (.then (fn [_]
+                       (is (= 1 (:presses (db)))
+                           "a PERMITTED caller handler became a committed site and
+                            dispatched through the compiled fold")
+                       (act #(.click (.querySelector c-interpreted "input")))))
+              (.then (fn [_]
+                       (is (= 2 (:presses (db)))
+                           "and the interpreted twin's permitted caller handler
+                            dispatched too, so the guard blocks the forged carrier
+                            without blocking the good one in either mode")
+                       (doseq [[c m] (map vector [c-compiled c-interpreted] @mounts)]
+                         (unmount! c m))
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "permitted caller-handler arm rejected: " e))
+                        (.remove c-compiled)
+                        (.remove c-interpreted)
+                        (done)))))))))
+
 (deftest a-compiled-v-event-prop-arrives-at-the-boundary-and-dispatches
   (testing "The same defect one boundary further out. A `(v/event …)` at a
             CALL SITE is analysed content, and an emitter reading only
