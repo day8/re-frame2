@@ -106,12 +106,7 @@ no `[data-rf-xray-host]` layout host, no `day8/re-frame2-xray` coord,
 no Xray npm deps — rather than promise a panel that cannot mount on an
 element-shaped React substrate (its README notes the devtools story
 honestly; element-substrate support is parked behind a demand
-trigger). The EXPERIMENTAL `:ui` variant carries no Xray coord and no
-preload either — see
-[001 §EXPERIMENTAL `:ui` variant](001-Substrate-Variants.md#experimental-ui-variant) —
-but keeps the inert layout host, which stays empty and collapses via
-the `:empty` rule below. Three wiring points land on the Reagent
-scaffold:
+trigger). Three wiring points land on the Reagent scaffold:
 
 - **deps.edn** carries the `day8/re-frame2-xray` runtime coord at the
   same `{{rf2-version}}` pin as the core coord (Xray publishes in
@@ -189,12 +184,8 @@ tools/template/
     │   ├── core.cljs
     │   ├── core_with_stories.cljs        ; picked when :include-story? true
     │   └── views.cljs
-    ├── _uix/                             ; UIx-specific (deps.edn / core.cljs / views.cljs)
-    │   └── ...
-    └── _ui/                              ; EXPERIMENTAL re-frame.ui variant — adds its own
-        └── ...                           ;   shadow-cljs.edn (one-setting build-hook contract,
-                                          ;   no Xray preload) + README.md alongside
-                                          ;   deps.edn / core.cljs / views.cljs
+    └── _uix/                             ; UIx-specific (deps.edn / core.cljs / views.cljs)
+        └── ...
 ```
 
 `root/` files are bulk-copied by deps-new's `:root` mechanism with
@@ -261,12 +252,12 @@ the template's own additions.
 |---|---|---|
 | `{{namespace}}` | `{{top/ns}}.{{main/ns}}` | `acme.my-app` |
 | `{{nested-dirs}}` | `{{top/file}}/{{main/file}}` | `acme/my_app` |
-| `{{substrate}}` | The chosen substrate name, lower-case | `reagent`, `uix`, `ui` |
-| `{{substrate-label}}` | The chosen substrate's display name (used in the `shadow-cljs.edn` comment + `package.json` description) | `Reagent`, `UIx`, `re-frame.ui` |
+| `{{substrate}}` | The chosen substrate name, lower-case | `reagent`, `uix` |
+| `{{substrate-label}}` | The chosen substrate's display name (used in the `shadow-cljs.edn` comment + `package.json` description) | `Reagent`, `UIx` |
 | `{{story-tag}}` | `package.json` `description` suffix that varies by `:include-story?` — lets one shared `package.json` serve both paths | `""`, `", with Story playground"` |
-| `{{xray-npm-deps}}` | `package.json` `devDependencies` fragment carrying the npm packages the Xray preload compiles against (`@xyflow/react` + `elkjs`, required by the machine canvas via `day8/re-frame2-machines-viz`). Reagent-only (rf2-p6f6u): empty for `:uix` (no Xray pieces) and `:ui` (no Xray coord). | `""`, `",\n    \"@xyflow/react\": \"12.4.2\",\n    \"elkjs\": \"^0.11.1\""` |
-| `{{xray-preload}}` | The shared `shadow-cljs.edn`'s `:app`-build devtools slot: Reagent wires `:devtools {:preloads [day8.re-frame2-xray.preload]}` (+ its rationale comment); `:uix` emits nothing, so its `:app` build has no `:devtools` key (rf2-p6f6u). The `:ui` variant emits its own `shadow-cljs.edn` and never sees this token. | `""`, the `:devtools` fragment |
-| `{{xray-host-aside}}` | The `[data-rf-xray-host]` right-side layout host `<aside>` in **both** index.html variants (`root/` + `_css_tailwind/`). Empty for `:uix` (no panel can fill it); present on `:reagent` and `:ui` (the `:ui` README documents its inert host). | `""`, the `<aside class="rf2-xray-host" …>` line |
+| `{{xray-npm-deps}}` | `package.json` `devDependencies` fragment carrying the npm packages the Xray preload compiles against (`@xyflow/react` + `elkjs`, required by the machine canvas via `day8/re-frame2-machines-viz`). Reagent-only (rf2-p6f6u): empty for `:uix` (no Xray pieces). | `""`, `",\n    \"@xyflow/react\": \"12.4.2\",\n    \"elkjs\": \"^0.11.1\""` |
+| `{{xray-preload}}` | The shared `shadow-cljs.edn`'s `:app`-build devtools slot: Reagent wires `:devtools {:preloads [day8.re-frame2-xray.preload]}` (+ its rationale comment); `:uix` emits nothing, so its `:app` build has no `:devtools` key (rf2-p6f6u). | `""`, the `:devtools` fragment |
+| `{{xray-host-aside}}` | The `[data-rf-xray-host]` right-side layout host `<aside>` in **both** index.html variants (`root/` + `_css_tailwind/`). Empty for `:uix` (no panel can fill it); present on `:reagent`. | `""`, the `<aside class="rf2-xray-host" …>` line |
 | `{{xray-host-css}}` | The `.rf2-xray-host` sizing rules + rationale comment in **both** app.css variants. One value serves both files; empty for `:uix`. | `""`, the `.rf2-xray-host` block |
 | `{{xray-readme-devtools}}` | The README "In-app devtools" section: Reagent documents the shipped panel (preload / host / Ctrl+Shift+C / click-to-source); `:uix` notes honestly that Xray rides the ratom-family substrates today and what instrumentation the scaffold still gives (rf2-p6f6u). | per-substrate section text |
 | `{{xray-readme-csp-note}}` | The README "Production hardening" development-flavoured-CSP paragraph: the Reagent text explains Xray's inline-style reliance; the `:uix` text stands on the views' inline `:style` props alone. | per-substrate paragraph text |

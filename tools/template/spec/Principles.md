@@ -135,7 +135,7 @@ that should surface immediately. Pass a non-keyword, get an
 `ex-info` naming the valid set.
 
 The substrate **value** is also strict: anything not in
-`#{:reagent :uix :ui}` throws with a clear message naming the
+`#{:reagent :uix}` throws with a clear message naming the
 valid set. No silent fallback to default, no "did you mean...?"
 fuzz. The user sees the typo and fixes it.
 

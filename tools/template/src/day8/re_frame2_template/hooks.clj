@@ -7,11 +7,9 @@
      2. `template-fn` selects the files for the requested variant.
      3. `post-process-fn` prints the generated project's next steps.
 
-   The supported matrix is Reagent and UIx, plus the EXPERIMENTAL
-   `:ui` variant (the first-party re-frame.ui compiled-view substrate —
-   2026-07-19 template-menu ruling); Story and SSR are mutually exclusive
-   Reagent-only options; Tailwind is available on every substrate. Unknown
-   keys and unsupported combinations fail closed.
+   The supported matrix is Reagent and UIx; Story and SSR are mutually
+   exclusive Reagent-only options; Tailwind is available on every
+   substrate. Unknown keys and unsupported combinations fail closed.
 
    deps-new performs flat `{{key}}` substitution, not conditional template
    syntax. Variants with structural differences therefore use separate
@@ -30,15 +28,7 @@
   {:reagent {:label "Reagent"
              :badge-url "https://img.shields.io/badge/substrate-Reagent-1abc9c.svg"}
    :uix     {:label "UIx"
-             :badge-url "https://img.shields.io/badge/substrate-UIx-3498db.svg"}
-   ;; EXPERIMENTAL — the first-party re-frame.ui compiled-view substrate
-   ;; (2026-07-19 template-menu ruling). Emits the minimal consumer-shaped
-   ;; app from docs/core/how-to/install-re-frame-ui.md: `defview` views,
-   ;; `ui/mount`, and the ONE load-bearing build-hook setting. The
-   ;; adapters remain the supported default; this variant's surface may
-   ;; change between alpha releases.
-   :ui      {:label "re-frame.ui"
-             :badge-url "https://img.shields.io/badge/substrate-re--frame.ui%20(EXPERIMENTAL)-e67e22.svg"}})
+             :badge-url "https://img.shields.io/badge/substrate-UIx-3498db.svg"}})
 
 ;; -- :substrate coercion ----------------------------------------------------
 
@@ -312,16 +302,13 @@
           main-ns         (->ns-form main)
           ;; Xray wiring is REAGENT-ONLY (rf2-p6f6u ruling, 2026-07-22).
           ;; Xray's panel shell renders through the ratom-family
-          ;; substrates; on the element-shaped React substrates (UIx,
-          ;; re-frame.ui) the panel cannot mount (rf2-qgfo4 made the
-          ;; mount verbs refuse cleanly), so the :uix scaffold stops
-          ;; promising it: no preload, no [data-rf-xray-host] layout
-          ;; host, no day8/re-frame2-xray coord, no Xray npm deps —
-          ;; until real element-substrate support lands (rf2-p6f6u (a),
-          ;; parked behind a demand trigger). The :ui variant already
-          ;; ships no Xray coord/preload but keeps the inert layout
-          ;; host its README documents, so only :uix takes the honest
-          ;; empty values below.
+          ;; substrates; on the element-shaped React substrate (UIx) the
+          ;; panel cannot mount (rf2-qgfo4 made the mount verbs refuse
+          ;; cleanly), so the :uix scaffold stops promising it: no
+          ;; preload, no [data-rf-xray-host] layout host, no
+          ;; day8/re-frame2-xray coord, no Xray npm deps — until real
+          ;; element-substrate support lands (rf2-p6f6u (a), parked
+          ;; behind a demand trigger).
           uix?            (= substrate :uix)]
       {:substrate           (name substrate)
        :substrate-kw        substrate
@@ -346,18 +333,16 @@
        ;; JS dependency (found by the rf2-b16va G1-G4 external-consumer
        ;; validation; the in-repo emitted-test tier masks it by junctioning
        ;; implementation/node_modules). The :uix variant ships no Xray
-       ;; pieces (rf2-p6f6u — see the `uix?` note above) and the
-       ;; EXPERIMENTAL :ui variant ships no Xray coord (minimal consumer
-       ;; shape), so both emit empty. Pins ride lockstep with
-       ;; implementation/package.json (version_lockstep_test.clj).
+       ;; pieces (rf2-p6f6u — see the `uix?` note above), so it emits
+       ;; empty. Pins ride lockstep with implementation/package.json
+       ;; (version_lockstep_test.clj).
        :xray-npm-deps       (if (= substrate :reagent)
                               (str ",\n    \"@xyflow/react\": \"12.4.2\","
                                    "\n    \"elkjs\": \"^0.11.1\"")
                               "")
        ;; The shared shadow-cljs.edn's :app-build devtools slot. Reagent
        ;; wires the Xray preload; :uix wires nothing (the emitted build map
-       ;; simply has no :devtools key). The :ui variant emits its own
-       ;; shadow-cljs.edn and never sees this token.
+       ;; simply has no :devtools key).
        :xray-preload        (if uix?
                               ""
                               (str "\n   ;; :devtools/preloads loads Xray in dev watch/compile builds."
@@ -367,8 +352,7 @@
                                    "\n   :devtools   {:preloads [day8.re-frame2-xray.preload]}"))
        ;; The [data-rf-xray-host] right-side layout host in both
        ;; index.html variants (root/ + _css_tailwind/). Dropped from :uix
-       ;; (no panel can fill it); kept on :reagent and :ui (the :ui README
-       ;; documents its inert, collapsed host).
+       ;; (no panel can fill it); kept on :reagent.
        :xray-host-aside     (if uix?
                               ""
                               (str "\n      <aside class=\"rf2-xray-host\""
@@ -556,18 +540,12 @@
                         "editorconfig"         ".editorconfig"
                         "cljfmt.edn"           ".cljfmt.edn"
                         "clj-kondo/config.edn" ".clj-kondo/config.edn"
-                        ;; Substrate-invariant across the adapter substrates.
+                        ;; Substrate-invariant: the React substrate is
+                        ;; chosen in deps.edn + core.cljs, never in the
+                        ;; build configs.
+                        "shadow-cljs.edn"      "shadow-cljs.edn"
                         "package.json"         "package.json"}
         shared-files   (cond-> shared-common
-                         ;; The adapter substrates share one build config
-                         ;; (Xray preload included). The EXPERIMENTAL :ui
-                         ;; variant emits its OWN shadow-cljs.edn instead —
-                         ;; the one-setting install contract of
-                         ;; docs/core/how-to/install-re-frame-ui.md, with
-                         ;; no Xray preload (the minimal consumer shape
-                         ;; carries no Xray coord).
-                         (not= substrate "ui")
-                         (assoc "shadow-cljs.edn" "shadow-cljs.edn")
                          ;; SSR folds these slices into core.cljc.
                          (not include-ssr?)
                          (assoc "events.cljs"      (str "src/" nested "/events.cljs")
@@ -617,22 +595,6 @@
             {"deps.edn"        "deps.edn"
              "core.cljs"       (str "src/" nested "/core.cljs")
              "views.cljs"      (str "src/" nested "/views.cljs")}
-            :only]]
-
-          ;; EXPERIMENTAL (2026-07-19 template-menu ruling). The
-          ;; re-frame.ui compiled-view scaffold: its own deps.edn (core +
-          ;; ui + schemas; NO Xray coord), its own shadow-cljs.edn (the
-          ;; post-S6 one-setting build-hook contract, no Xray preload),
-          ;; and an EXPERIMENTAL-marked README that replaces the SPA
-          ;; README the root copy laid down (transforms run after the
-          ;; root copy — same mechanism as README_with_ssr.md).
-          "ui"
-          [["_ui" "."
-            {"deps.edn"        "deps.edn"
-             "shadow-cljs.edn" "shadow-cljs.edn"
-             "README.md"       "README.md"
-             "core.cljs"       (str "src/" nested "/core.cljs")
-             "views.cljs"      (str "src/" nested "/views.cljs")}
             :only]])
 
         ;; This transform runs after the root copy and replaces the plain-CSS
@@ -662,10 +624,6 @@
         css-tag        (if (= css :tailwind) " (Tailwind CSS)" "")]
     (println (str "Generated a re-frame2 application " (:name data)
                   " (" substrate " substrate" feature-tag css-tag ")."))
-    (when (= "ui" substrate)
-      (println (str "NOTE: the re-frame.ui substrate is EXPERIMENTAL - its "
-                    "surface may change between alpha releases. The Reagent "
-                    "and UIx adapters are the supported defaults.")))
     (println "Next steps:")
     ;; `:target-dir` is preprocess-options' computed output dir
     ;; (defaults to `(:main data)` when no `:target-dir` arg is given).
