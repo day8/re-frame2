@@ -16,17 +16,14 @@
 ;; on the JVM during CLJS compilation (and for JVM-tree emission, later
 ;; consumed by the ssr artefact) — and the client kernel is `.cljs`.
 ;;
-;; PUBLICATION (rf2-vxgfnd.99.2 — the blocking pre-tag S7 gate). This
-;; artefact now carries its :clein + :clein/build descriptor: it ships as
-;; day8/re-frame2-ui on the lockstep release train, sourced from the
-;; repo-root VERSION, depending on core via :local/root "../core" (the
-;; release workflow rewrites that to :mvn/version at deploy time). Per the
-;; ratified packaging decision (spec/006 §R-6, core and ui ship together)
-;; ui is a REQUIRED artefact of the alpha train: the version-lockstep gate
-;; (.github/scripts/verify-version-lockstep.sh) both inventories every
-;; :clein/build artefact AND asserts ui is publishable, so a core-only tag
-;; that dropped this descriptor fails before deploy. The deploy leaf +
-;; jvm-ui pre-deploy test + release-body row live in release.yml.
+;; NOT PUBLISHED (rf2-a32r7). This artefact carries NO :clein / :clein/build
+;; descriptor — deliberate, not an omission. Mike ruled on 2026-07-22 that
+;; day8/re-frame2-ui is not to be published: re-frame.ui is donor-only code
+;; being absorbed into Freehand (EP-0036), and the standalone artefact is
+;; deleted at the F6e gate (rf2-drpa3.57). It is therefore absent from the
+;; lockstep inventory in .github/scripts/verify-version-lockstep.sh and from
+;; the release.yml deploy matrix, so no version tag can publish it. Consume
+;; it in-tree via :local/root; there is no consumable Maven coordinate.
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../core"}}
 
@@ -62,31 +59,4 @@
                        ;; the seam is reached through core's late-bind registry
                        ;; (`ui -> core late-bind <- routing`, no cycle).
                        day8/re-frame2-routing   {:local/root "../routing"}}
-         :main-opts   ["-m" "re-frame.test-quiet.runner"]}
-
-  ;; Clojars deployment (rf2-vxgfnd.99.2).
-  ;; The release workflow runs `clojure -M:clein deploy` from this
-  ;; artefact's directory, which builds pom + jar and pushes to Clojars.
-  ;;
-  ;; IMPORTANT: when this artefact is published, the `day8/re-frame2`
-  ;; core dep above is replaced by an :mvn/version coordinate — clein
-  ;; reads :deps and writes them into pom.xml, and a :local/root entry
-  ;; would resolve to nothing for downstream consumers. The release
-  ;; workflow swaps :local/root → :mvn/version before invoking clein.
-  ;; The :test-only extra-deps (resources, routing) are NOT in the
-  ;; published pom: clein packages the base :deps map, and the G-13
-  ;; production-dependency boundary (scripts/_ui-deps-edn-boundary.test.cjs)
-  ;; pins that those stay test-scoped.
-  :clein {:extra-deps {io.github.noahtheduke/clein
-                       {:git/url "https://github.com/day8/clein.git"
-                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
-          :main-opts  ["-m" "noahtheduke.clein"]}
-
-  :clein/build
-  {:lib      day8/re-frame2-ui
-   :main     re-frame.ui
-   :url      "https://github.com/day8/re-frame2"
-   :version  "../../VERSION"
-   :license  {:name "MIT"
-              :url  "https://opensource.org/licenses/MIT"}
-   :src-dirs ["src"]}}}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

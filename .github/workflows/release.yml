@@ -36,29 +36,17 @@
 # split set is now closed; further
 # additions require a new Spec-ulation increment.
 #
-# # The re-frame.ui substrate is a REQUIRED artefact (rf2-vxgfnd.99.2)
+# # re-frame.ui is NOT published (rf2-a32r7)
 #
-# implementation/ui/ (`day8/re-frame2-ui`; epic rf2-vxgfnd — the
-# compiled-view substrate, a new EXPERIMENTAL view layer offered alongside
-# the first-class Reagent / reagent-slim / UIx adapters per EP-0030
-# §Resolved Decisions) ships on the lockstep release train: it carries a
-# jvm-ui pre-deploy test in the `test` job, a `ui` deploy leaf in the
-# matrix below (after deploy-core,
-# local-root ../core), a verify-version-lockstep.sh inventory entry, and a
-# release-notes line — all landed together per the ratified packaging
-# decision (spec/006 §R-6: core and ui ship together).
-#
-# ui is not merely inventoried-if-publishable, it is REQUIRED. The generic
-# inventory guard (rf2-qmhysc) is conditional — "IF a deps.edn declares
-# :clein/build THEN it must be inventoried + in the deploy matrix" — so it
-# cannot, by construction, require ui to BECOME publishable: dropping ui's
-# :clein/build would revert it to pre-publication and the conditional
-# guard would fall silent, allowing a core-only alpha tag (the rf2-pc479y
-# drift this gate exists to prevent). verify-version-lockstep.sh therefore
-# adds a REQUIRED_PUBLISHABLE positive assertion (rf2-vxgfnd.99.2): ui MUST
-# be publishable, so a core-only tag FAILS the verify-version-lockstep job
-# before the test gate and any deploy. That block is proven by the
-# hermetic `_release-ui-required-gate.test.cjs` in the script-policy suite.
+# implementation/ui/ (`re-frame.ui`) has no deploy leaf, no pre-deploy test
+# and no release-notes row here, and no entry in the
+# verify-version-lockstep.sh inventory. Mike ruled on 2026-07-22 that
+# day8/re-frame2-ui is not to be published: it is donor-only code being
+# absorbed into Freehand (EP-0036) and the standalone artefact is deleted
+# at the F6e gate (rf2-drpa3.57). Its deps.edn carries no :clein/build, so
+# the conditional inventory guard (rf2-qmhysc) correctly stays silent about
+# it. Publishing it would be irreversible, so this absence is load-bearing:
+# do not add a leaf back without a ruling that reverses 2026-07-22.
 #
 # # Lockstep versioning policy through 1.0
 #
@@ -217,16 +205,10 @@ jobs:
         working-directory: implementation/adapters/uix
         run: clojure -M:test
 
-      # rf2-vxgfnd.99.2 — day8/re-frame2-ui is a published, REQUIRED artefact
-      # (spec/006 §R-6). Unlike the adapter probes above, ui ships a substantial
-      # JVM-runnable suite (the .cljc template analyzer + JVM node-schema emitter
-      # + build-hook tests), so a non-zero exit is a REAL failure that MUST stop
-      # the release — no skip-on-empty fallback. Mirrors the jvm-ui job in
-      # .github/workflows/test.yml.
-      - name: JVM tests (ui artefact)
-        working-directory: implementation/ui
-        run: clojure -M:test
-
+      # No `ui` pre-deploy step: re-frame.ui is not published (rf2-a32r7), so
+      # nothing in this workflow deploys it and there is no release-blocking
+      # obligation on its suite. The donor's JVM lane still runs on every PR
+      # via the jvm-ui job in .github/workflows/test.yml.
       - name: JVM tests (schemas artefact)
         working-directory: implementation/schemas
         run: clojure -M:test
@@ -388,13 +370,6 @@ jobs:
             artefact: day8/re-frame2-uix
             directory: implementation/adapters/uix
             local-root: ../../core
-          # rf2-vxgfnd.99.2 — the compiled-view substrate. A per-feature-tier
-          # artefact (implementation/ui/, one level deep), so local-root ../core
-          # like schemas/machines/… — NOT the ../../core the deeper adapters use.
-          - leaf: ui
-            artefact: day8/re-frame2-ui
-            directory: implementation/ui
-            local-root: ../core
           - leaf: schemas
             artefact: day8/re-frame2-schemas
             directory: implementation/schemas
@@ -624,7 +599,6 @@ jobs:
             - `day8/re-frame2-reagent` ${{ needs.deploy-core.outputs.version }}
             - `day8/reagent-slim` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-uix` ${{ needs.deploy-core.outputs.version }}
-            - `day8/re-frame2-ui` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-schemas` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-machines` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-routing` ${{ needs.deploy-core.outputs.version }}
