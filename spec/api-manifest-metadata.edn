@@ -167,6 +167,20 @@
   {:namespace "re-frame.freehand" :var "mount" :kind :fn :facade? true :tier :front-porch :owner "004C" :status "EP-0036" :runtime-verified? false}
   {:namespace "re-frame.freehand" :var "hydrate-root" :kind :fn :facade? true :tier :front-porch :owner "011" :status "EP-0036" :runtime-verified? false}
   {:namespace "re-frame.freehand" :var "unmount!" :kind :fn :facade? true :tier :front-porch :owner "004C" :status "EP-0036" :runtime-verified? false}
+  ;; `->react` (EP-0036 F5c, D014) is the OUTWARD React bridge: a declared view
+  ;; exported as the React COMPONENT VALUE a library asks for when its API takes
+  ;; a component rather than an element. It rides this `:cljs-only` block with
+  ;; the mount verbs, and for exactly their reason — a React component value has
+  ;; no meaning in a JVM structural render, and Freehand's server render
+  ;; (`render-static`) is a structural fold with no React in it. Freehand carries
+  ;; no tier of host operations that exist only to raise on the server, so the
+  ;; verb is honestly ABSENT on the host that cannot support it rather than
+  ;; present-and-throwing; that absence is the bridge's whole SSR policy (Spec
+  ;; 011 §The outward React bridge has no server arm). ADVANCED, not
+  ;; front-porch: the paved path never reaches for it, and an application does
+  ;; so only where React-world owns the tree. Spec 004 §The outward React bridge
+  ;; owns the contract.
+  {:namespace "re-frame.freehand" :var "->react" :kind :fn :facade? true :tier :advanced :owner "004" :status "EP-0036" :runtime-verified? false}
   ;; --- Reagent adapter (day8/re-frame2-reagent) — probe fully-rowed ---
   {:namespace "re-frame.adapter.reagent" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}

@@ -103,7 +103,13 @@
                 ;; a moment earlier. It sits BELOW this namespace and takes
                 ;; nothing back from it.
                 :cljs [[re-frame.freehand.compiled-react]
-                       [re-frame.freehand.root :as root]]))
+                       [re-frame.freehand.root :as root]
+                       ;; The OUTWARD React bridge's runtime. Browser-only for
+                       ;; the same reason `root` is: it answers with a React
+                       ;; component value, which a JVM structural render has no
+                       ;; use for. It sits BELOW this door and takes nothing
+                       ;; back from it.
+                       [re-frame.freehand.to-react :as to-react]]))
   #?(:cljs (:require-macros [re-frame.freehand
                              :refer [defbehavior defview event handler render-fn
                                      render-static]])))
@@ -704,6 +710,90 @@
   Per [Spec 004C §The mount grammar](../../../../spec/004C-Roots-and-Mount.md)."
           :arglists '([root])}
      unmount! root/unmount!))
+
+;; ---------------------------------------------------------------------------
+;; The outward React bridge — `v/->react`
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §The outward React bridge (D014). Every other verb on this door
+;; points inward. This one points out: it turns a declared view into the React
+;; COMPONENT VALUE a library asks for when its API takes a component rather
+;; than an element, and it is the only such crossing the substrate supplies
+;; without a hand-written wrapper.
+;;
+;; Browser-only, exactly like the mount verbs above and for the same reason: a
+;; React component value has no meaning in a JVM structural render. Freehand's
+;; server render is `v/render-static`, a structural fold with no React in it,
+;; so there is no server arm for this bridge to have — which is the whole of
+;; its SSR policy, and why it reads no React internal to make one work.
+
+#?(:cljs
+   (def ^{:doc "Export the declared `view` as a React component a foreign
+  React tree can render.
+
+      (def PersonCell (v/->react person-cell))
+
+      ;; then, in React-world
+      #js {:cellRenderer PersonCell}
+
+  The OUTWARD half of the host boundary. What comes back mounts the
+  descriptor exactly as an ordinary Freehand parent would, so events,
+  subscriptions, error identity and commit fencing inside the exported
+  subtree are the ones the view already had.
+
+  DESCRIPTOR ONLY. A plain function or a hiccup vector is refused,
+  naming a declared view or an explicit React wrapper as the recovery —
+  declared identity is what makes the exported component debuggable, and
+  a foreign protocol that needs hooks, refs or a React lifecycle is a
+  wrapper you write rather than a view you export.
+
+  ONE SHALLOW PROP RULE. Every own enumerable property of the foreign
+  props object becomes a props-map entry by EXACT name, value untouched:
+  `\"person-id\"` is `:person-id`, `\"acme/id\"` is `:acme/id`. No
+  camelisation, no deep walk. A library that hands over a large mutable
+  parameter object — AG Grid's renderer params, a grid editor's context —
+  supplies the ONE explicit adapter instead:
+
+      (def PersonCell
+        (v/->react person-cell {:map-props (fn [params] {:person-id …})}))
+
+  The adapter receives the raw foreign object and returns the one props
+  map. It is deliberately ordinary top-level code at the host edge: an
+  honest projection, testable on its own, rather than a claim that the
+  whole foreign object is data.
+
+  THREE NAMES THE BRIDGE OWNS, and the view sees none of them. `frame`
+  selects the frame (below). `children` is React's content slot and
+  becomes the boundary's TRAILING CHILDREN, so React content nests inside
+  an exported view and each element rides the ordinary child walk
+  untouched. `ref` is REFUSED — Freehand has no ref protocol, and a ref
+  that resolved to nothing would leave a foreign owner holding a handle
+  that never fills.
+
+  A FRAME IS SELECTED, NEVER CREATED. An own `frame` prop — a frame-id
+  keyword or a live frame value — SCOPES an already-live frame; nil, a
+  malformed target, or one naming no live frame fails loud, attributed to
+  this bridge rather than to the shared provider. Presence of the property
+  decides, not truthiness, so an explicit `frame={null}` is a stated
+  target that fails rather than a silent fall-through. With NO `frame`
+  prop the exported view resolves its frame by the ordinary ambient
+  chain, and a subtree under no frame boundary at all fails with the
+  ordinary `:rf.error/no-frame-context`.
+
+  STABLE IDENTITY. Repeated exports of the same view with the same adapter
+  answer the IDENTICAL component object, including across hot reloads —
+  React reconciles on component type, so a fresh function every call would
+  remount the foreign library's subtree for no reason. A reload
+  republishes the redefined body through the component React already
+  mounted.
+
+  Browser-only, like the mount verbs: a React component value has no
+  meaning in a JVM structural render, and Freehand's server render
+  (`v/render-static`) is a structural fold with no React in it.
+
+  Per [Spec 004 §The outward React bridge](../../../../spec/004-Views.md)."
+          :arglists '([view] [view opts])}
+     ->react to-react/->react))
 
 ;; ---------------------------------------------------------------------------
 ;; Server render — `v/render-static`

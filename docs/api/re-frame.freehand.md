@@ -27,8 +27,11 @@ carrying no view-id, no source and no lowering — `v/defview` is the only way t
 create a mounted boundary, and where the constructor lives is what enforces it.
 
 The roster below is the whole door today. The compiled tier has landed — `{:compiled
-true}` on a declaration selects it — and the host boundary is the remaining declared
-vacancy, landing with its own EP-0036 slice.
+true}` on a declaration selects it — and so has the outward half of the host
+boundary, `v/->react`, which hands a declared view to React-world as a component
+value. The inward half is the remaining declared vacancy: nothing yet mints the
+qualified host leaf or the explicit React wrapper that would bring a third-party
+React component *into* a Freehand tree. It lands with its own EP-0036 slice.
 
 ## Declaration
 
@@ -252,6 +255,81 @@ vacancy, landing with its own EP-0036 slice.
 
   (v/render-static [footer {:year 2026}])
   ;; => "<footer>© 2026</footer>"
+  ```
+
+## React bridges
+
+### `->react`
+
+- **Kind**: function (CLJS / browser only)
+- **Signature**:
+  ```clojure
+  (->react view) → React component
+  (->react view {:map-props f}) → React component
+  ```
+- **Description**: export a declared view as the React **component value** a
+  library asks for when its API takes a component rather than an element — a grid's
+  `cellRenderer`, a drag overlay, a virtual list's row component, a plugin slot.
+  Every other verb on the door points inward; this one points out, and it is the
+  outward half of the same host boundary rather than a general interop layer.
+
+  What comes back mounts the descriptor exactly as an ordinary Freehand parent
+  would, so events, subscriptions, error identity, evidence and commit fencing
+  inside the exported subtree are the ones the view already had.
+
+  **Descriptor only.** A plain function, a hiccup vector, a view's id keyword or a
+  rendered form is refused, naming the two recoveries that exist: export a declared
+  view, or write an explicit React wrapper. Declared identity is what keeps the
+  exported component debuggable once React owns it — a failure inside the foreign
+  library's subtree names the view rather than stopping at an anonymous wrapper.
+  The option roster is **closed** at one key, `:map-props`, and an unknown option
+  is refused rather than ignored.
+
+  **One shallow prop rule, or one explicit adapter.** Without `:map-props`, every
+  own enumerable property becomes a props-map entry **by exact name**, value
+  untouched: `"person-id"` is `:person-id` and `"acme/id"` is `:acme/id`. There is
+  no camelisation and no deep walk. A library that hands over a large mutable
+  parameter object supplies the adapter instead; it receives the raw object and
+  returns the one props map, and it is deliberately ordinary top-level code at the
+  host edge — a named, testable projection rather than a conversion rule the
+  substrate would have to pretend was general.
+
+  **Three names belong to the bridge**, and the view sees none of them. `frame`
+  selects the frame. `children` is React's content slot and becomes the boundary's
+  **trailing children**, so React content nests inside an exported view, under the
+  view's own declared `:children-policy`. `ref` is **refused** — Freehand has no
+  ref protocol, and a ref resolving silently to nothing would leave a foreign owner
+  holding a handle that never fills. Because `frame` is the bridge's name, a props
+  map carrying `:frame` is refused too.
+
+  **Identity is stable.** React reconciles on component type, so one view plus one
+  adapter answers the identical object — keyed on the **view id**, which is what
+  makes a hot reload a republication rather than a remount of the foreign library's
+  whole subtree.
+
+  **A frame is selected, never created.** An own `frame` prop — a frame-id keyword
+  or a live frame value — scopes an already-live frame. Own-property *presence*
+  decides, not truthiness, so an explicit `frame={null}` is a stated target that
+  fails rather than falling through; a malformed target and one naming no live
+  frame each fail with their own diagnostic, all attributed to this bridge. With no
+  `frame` prop the exported view resolves ambiently, exactly as a view mounted
+  anywhere else does.
+
+  Browser-only, like the mount verbs, and that absence is the server policy: a
+  React component value has no meaning in a structural render, and Freehand's
+  server render is `v/render-static`.
+  See [spec/004-Views.md](../../spec/004-Views.md#the-outward-react-bridge).
+- **Example**:
+  ```clojure
+  ;; value props already suit the view's ABI
+  (def person-cell-react (v/->react person-cell))
+
+  ;; a foreign parameter object gets one named projection
+  (defn cell-props [params]
+    {:person-id (.. params -data -id)
+     :column-id (.. params -column getColId)})
+
+  (def person-cell-mapped (v/->react person-cell {:map-props cell-props}))
   ```
 
 ## Inspection

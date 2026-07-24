@@ -1,0 +1,38 @@
+;; FH-REACT-005 — the bridge is a browser verb, and its absence on the JVM IS
+;; the server policy.
+;;
+;; A React component value has no meaning in a structural render, so the only
+;; thing a JVM arm could do is raise. Freehand deliberately carries no tier of
+;; host operations that exist purely to raise on the server — the donor's
+;; hook/ref/effect tier went with them — so the verb is honestly absent on the
+;; host that cannot support it, exactly as `mount`, `hydrate-root` and
+;; `unmount!` are.
+;;
+;; That absence is worth an executable row rather than a sentence, because it is
+;; what makes the SSR claim checkable. Freehand's server render is a structural
+;; fold with no React in it; if nothing a server render can reach is an exported
+;; component, then the bridge is never asked to make a React context visible
+;; under a server renderer, and it maintains no path — and no internal-slot read
+;; — to do so. `:server-renderer-seam` states that in the only honest form
+;; available: the roster of internals the bridge does NOT read.
+;;
+;; `:present-on` is the non-vacuity half. A row asserting only absence would
+;; stay green if the verb were deleted outright.
+{:fh/id "FH-REACT-005"
+ :fh/law
+ "The bridge is a browser verb and is ABSENT on the JVM — the door publishes it under the same reader conditional as the mount verbs — so no server render can contain an exported component, and the bridge reads no server-renderer context internal to make one work."
+
+ :var "->react"
+
+ ;; Absent from the door's JVM surface, alongside the verbs it shares a reader
+ ;; conditional with. `render-static` is the control in the other direction: a
+ ;; JVM/server verb that IS on the JVM surface, so "the probe found nothing" can
+ ;; never be the reason this row is green.
+ :absent-on-jvm  ["->react" "mount" "hydrate-root" "unmount!"]
+ :present-on-jvm ["render-static" "defview" "sub"]
+
+ ;; The React internals a server-renderer context path would have to read. The
+ ;; bridge reads none of them, because it has no server render to serve.
+ :server-renderer-seam
+ {:reads-no-internal ["_currentValue" "_currentValue2"]
+  :note "frame scoping goes through the ordinary shared React frame context; there is no server-renderer arm to special-case"}}
