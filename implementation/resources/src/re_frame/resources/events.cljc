@@ -1279,24 +1279,19 @@
   :poll)
 
 (defn- entry-revalidation-in-flight?
-  "True iff `entry` already has a LIVE refetch in flight — its
-  `:current-work` points at a work-ledger record whose status is
-  non-terminal AND not `:abort-requested` (i.e. `:queued` / `:running`: work
-  that will produce a usable reply). Such an entry needs no new revalidation
-  refetch — one is already running. A `:current-work` pointer alone is NOT
-  proof of live work: the linked record may be terminal (a settled attempt
-  whose entry write has not yet cleared the pointer) or `:abort-requested`
-  (a doomed, owner-released attempt) — both fall through as NOT in-flight, so
-  revalidation can legitimately start fresh work. Mirrors the `joinable?`
-  gate in `ensure-load` (rf2-v4ygg5): only a genuinely live attempt blocks a
-  new generation. Per Spec 016 §Race / §Deferred slices (rf2-wankrd:
-  coalesce focus + visibility revalidation for in-flight stale entries)."
+  "True iff `entry` already has a LIVE refetch in flight — work that will
+  produce a usable reply. Such an entry needs no new revalidation refetch: one
+  is already running. Liveness is `work-ledger/live-work?`, the ONE definition
+  of that question (rf2-kqxe6.6) — a `:current-work` POINTER alone is not proof
+  of work, since the linked record may be terminal (a settled attempt whose
+  entry write has not yet cleared the pointer) or `:abort-requested` (a doomed,
+  owner-released attempt); both fall through as NOT in-flight, so revalidation
+  can legitimately start fresh work. The same predicate backs `ensure-load`'s
+  `joinable?` gate (rf2-v4ygg5), so only a genuinely live attempt blocks a new
+  generation. Per Spec 016 §Race / §Deferred slices (rf2-wankrd: coalesce focus
+  + visibility revalidation for in-flight stale entries)."
   [runtime-db entry]
-  (when-let [work-id (:current-work entry)]
-    (let [status (:status (work-ledger/get-record runtime-db work-id))]
-      (and (some? status)
-           (not (work-ledger/terminal? status))
-           (not= :abort-requested status)))))
+  (work-ledger/live-work? runtime-db (:current-work entry)))
 
 (defn- active-stale-scan
   "Pure scan: given the frame's `runtime-db` value and the live `clock-ms`,

@@ -1580,7 +1580,30 @@
                       {:route-id :route/leaf
                        :route-meta {:resources [{:resource :audit/leaf :id :lf
                                                  :params (fn [_] nil)}]}}])]
-      (is (= {:route-id :route/leaf :local-id :lf} (:contributor (:plan-error plan)))))))
+      (is (= {:route-id :route/leaf :local-id :lf} (:contributor (:plan-error plan))))))
+  (testing "a resolver throwing its OWN :contributor cannot publish a FALSE one"
+    ;; rf2-kqxe6.6 — `:contributor` is the PLANNER's key. A `:when` / `:params`
+    ;; / `:scope` resolver is arbitrary programmer code and may throw any
+    ;; `ex-info`, including one carrying an unnamespaced `:contributor` of its
+    ;; own. Treating that as authoritative published a fabricated attribution
+    ;; on BOTH the route slice and the error trace, defeating the whole point
+    ;; of Spec 016 §Effective parent-chain resource plans rule 3. The planner
+    ;; knows the actual contributor and always wins.
+    (let [[plan traces] (ancestor-plan-error
+                          (ancestor-branch
+                            {:resource :audit/ancestor :id :anc
+                             :params   (fn [_]
+                                         (throw (ex-info "boom"
+                                                  {:contributor {:route-id :wrong
+                                                                 :local-id :wrong}})))}))
+          err  (:plan-error plan)
+          tags (:tags (first (errors-of traces :rf.error/resource-route-plan)))]
+      (is (= {:route-id :route/ancestor :local-id :anc} (:contributor err))
+          "the ACTUAL contributing declaration, not the resolver's claim")
+      (is (some? tags))
+      (is (= {:route-id :route/ancestor :local-id :anc} (:contributor tags))
+          "the trace agrees with the slice — one source of truth")
+      (is (= :route/leaf (:route-id err)) "the leaf target is unchanged"))))
 
 (deftest r2-warm-prefetch-planning-failure-is-attributed-too
   ;; The warm plan shares `materialize-occurrences`, so the same attribution

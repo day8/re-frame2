@@ -656,13 +656,20 @@
 
   The ex-data is carried through verbatim (`:reason` / `:recovery` /
   `:resource-id` keep their site-specific values, so a nil-scope failure stays
-  self-explaining); the ORIGINAL ex is the cause. An already-attributed ex
-  passes through untouched — the innermost frame is the specific one."
+  self-explaining); the ORIGINAL ex is the cause.
+
+  `:contributor` is the ONE key the planner owns and always stamps. A `:when` /
+  `:params` / `:scope` resolver is programmer code that may throw any `ex-info`
+  it likes, including one carrying its own unnamespaced `:contributor` — and
+  honouring that would publish a FALSE attribution on the route slice and the
+  error trace, which is exactly what rule 3 forbids. The planner knows the
+  ACTUAL contributor here and wins; the caller's value stays reachable on the
+  cause (`(ex-data (ex-cause e))`). No idempotence guard is needed: the two call
+  sites are structurally disjoint (the `order-by-after` attribution happens in
+  the inner reduce's COLLECTION expression, before the per-entry catch can see
+  anything), so no exception is ever attributed twice."
   [ex contributor]
-  (let [data (ex-data ex)]
-    (if (:contributor data)
-      ex
-      (ex-info (ex-message ex) (assoc data :contributor contributor) ex))))
+  (ex-info (ex-message ex) (assoc (ex-data ex) :contributor contributor) ex))
 
 (defn- materialize-occurrences
   "Resolve every admitted occurrence across the parent-to-leaf `branch`
