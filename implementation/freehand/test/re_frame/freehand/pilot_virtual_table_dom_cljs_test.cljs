@@ -16,13 +16,14 @@
     nothing\" — a key comparison proves what the tree intended, and
     element identity proves what React did;
   - the same for a REORDER: a record moving to the front takes its
-    element with it and leaves the others alone.
-
-  Every mount here is INTERPRETED, and that is a bound rather than a
-  choice: a compiled body carrying `v/slot` has no CLJS lowering, so the
-  compiled tier's browser cell is BLOCKED for a table with a caller row
-  slot. Promotion parity is proven structurally instead, in
-  `pilot-virtual-table-parity-jvm-test`.
+    element with it and leaves the others alone;
+  - and PROMOTION PARITY read off the document rather than off a tree:
+    the interpreted table and its compiled twin, mounted side by side on
+    one page, scrolled to the same offset by two real scrollbars, and
+    producing the same markup character for character. That row needs
+    both halves of a compiled render slot reaching a browser — the
+    compiled tier's browser lowering and the React emitter's `:slot`
+    arm — and it is here because both have landed.
 
   This file rides the browser lane through its `-dom-cljs-test` suffix.
   It also matches the node suites' broader regex, where it has no DOM to
@@ -35,6 +36,7 @@
             [re-frame.freehand :as v]
             [re-frame.freehand.cell :as cell]
             [re-frame.freehand.pilot-virtual-table :as ui]
+            [re-frame.freehand.pilot-virtual-table-compiled :as compiled]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.root :as root]
             [re-frame.live-frame :as live-frame]
@@ -120,6 +122,27 @@
 
 (defn- viewport [container]
   (.querySelector container "[data-part='viewport']"))
+
+(defn- dom-shape
+  "A mounted subtree as comparable data: every element, its attribute
+  names and values, its text, and its children in document order.
+
+  Deliberately NOT `outerHTML`. The two emitters write the same
+  attributes to an element in a different ORDER — the interpreted walk
+  puts a sugar `.class` first, the compiled emitter writes it last —
+  which nothing in a browser can observe but which makes string equality
+  a false negative. Comparing the attribute SET is the parity question
+  that actually means something, and it is stricter than
+  `outerHTML` everywhere else: a missing attribute, a changed value, an
+  extra node or a reordered child all still fail."
+  [node]
+  (if (= 3 (.-nodeType node))
+    (.-nodeValue node)
+    {:tag      (.-tagName node)
+     :attrs    (into (sorted-map)
+                     (map (fn [a] [(.-name a) (.-value a)]))
+                     (js/Array.from (.-attributes node)))
+     :children (mapv dom-shape (js/Array.from (.-childNodes node)))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The application under test — rows live in app-db, so a dispatch can
@@ -293,6 +316,68 @@
                        (done)))
               (.catch (fn [e]
                         (is false (str "the reorder pass threw " e))
+                        (done)))))))))
+
+(deftest promotion-changes-nothing-about-the-mounted-table
+  (testing "Promotion parity, read off the document. The interpreted
+            table and its compiled twin mount side by side on one page,
+            each gets a real scrollbar dragged to the same offset, and at
+            both offsets they hold the same rows, in the same order, with
+            the same elements, attributes and text.
+
+            This is the stronger form of the structural parity row: it
+            proves not only that the two emitters denote the same tree
+            but that React builds the same document from them, that the
+            compiled `v/slot` really lowers a caller's row content
+            through the React emitter, and that the compiled `v/event`
+            scroll site delivers a live browser event into app-db exactly
+            as the interpreted one does."
+    (if-not (browser?)
+      (skip! "the browser job runs the mount assertions")
+      (async done
+        (let [a     (host-node!)
+              b     (host-node!)
+              state (atom {})
+              rows  (ui/ledger-rows 200)]
+          (seed! 200)
+          (-> (act #(v/mount [ui/ledger {:rows rows}] a {:frame fid}))
+              (.then (fn [m-a]
+                       (swap! state assoc :a m-a)
+                       (act #(v/mount [compiled/ledger {:rows rows}] b {:frame fid}))))
+              (.then (fn [m-b]
+                       (swap! state assoc :b m-b)
+                       (is (= 25 (count (row-nodes a)))
+                           "non-vacuous: the interpreted arm mounted 25 rows")
+                       (is (= 25 (count (row-nodes b)))
+                           "and so did the compiled arm")
+                       (is (= (mapv #(str "r" %) (range 0 25)) (row-keys a))
+                           "the first 25 records, in order")
+                       (is (= (row-keys a) (row-keys b))
+                           "the same rows, in the same order")
+                       (is (= (dom-shape (viewport a)) (dom-shape (viewport b)))
+                           "and the same document: every element, every
+                            attribute, every character of text, in order")
+                       (live!)
+                       (scroll-to! (viewport a) 3200)
+                       (scroll-to! (viewport b) 3200)
+                       (settle!)))
+              (.then (fn [_]
+                       (is (= 3200 (get-in (frame/frame-app-db-value fid)
+                                           [ui/tables-root ui/ledger-key :scroll-top]))
+                           "a real scroll on either arm reached app-db")
+                       (is (= 29 (count (row-nodes a)))
+                           "the interpreted arm holds exactly 29 rows")
+                       (is (= 29 (count (row-nodes b)))
+                           "and so does the compiled one")
+                       (is (= (mapv #(str "r" %) (range 96 125)) (row-keys b))
+                           "r96 … r124 — the compiled window is the same window")
+                       (is (= (dom-shape (viewport a)) (dom-shape (viewport b)))
+                           "and scrolled, the two documents are still identical")
+                       (unmount! a (:a @state))
+                       (unmount! b (:b @state))
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "the parity pass threw " e))
                         (done)))))))))
 
 (deftest the-editing-grid-mounts-exactly-one-hundred-controlled-cells
