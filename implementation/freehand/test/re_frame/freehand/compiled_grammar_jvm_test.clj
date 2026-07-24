@@ -154,7 +154,7 @@
             rather than left implicit."
     (is (= :re-frame.freehand/v1 grammar/version))
     (is (= #{:text :nothing :expr :element :fragment :view :for :if :let :letfn :case
-             :presence :slot}
+             :presence :slot :behavior}
            grammar/admitted-ops)
         "the admitted node kinds are exactly the v1 roster")
     (is (contains? grammar/recoveries :keep-interpreted)

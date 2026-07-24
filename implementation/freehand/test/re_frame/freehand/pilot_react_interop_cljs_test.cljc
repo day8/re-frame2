@@ -415,30 +415,23 @@
                 :message (ex-message ex))))))
 
 #?(:clj
-   (deftest a-compiled-body-cannot-attach-the-one-reachable-host-shape
-     (testing "The compiled tier refuses `[v/behavior …]` at BUILD time. So
-               the ONLY host shape Freehand offers today is unavailable in
-               the compiled mode, and any view that owns a chart, a grid or
-               an editor is interpreted-forever — no promotion, ever, for
-               precisely the views whose neighbours most want it.
+   (deftest a-compiled-body-attaches-the-one-reachable-host-shape
+     (testing "The compiled tier now HAS a `[v/behavior …]` form
+               (rf2-drpa3.116/.127/.153). So the one host shape Freehand
+               offers is reachable in the compiled mode too, and a view that
+               owns a chart, a grid or an editor — anything that measures —
+               can be promoted rather than interpreted-forever.
 
-               The refusal also MISNAMES what it refused. `v/behavior` is a
-               FRAMEWORK-supplied boundary declared on the public door, and
-               the analyzer classifies it `:op :foreign` — `a foreign
-               component boundary`. An author reading that goes looking for
-               the third-party component they did not write. Two sibling
-               framework boundaries declared the ordinary way, `v/route-link`
-               and `v/markup`, compile without comment, which is what makes
-               the misclassification legible as one."
-       (let [d (compile-body '[v/behavior {:use :x/y :target :t} [:div]])]
-         (is (= :rf.ui.compile/unsupported-form (:rf.ui.compile/error d))
-             (str "the compiled grammar refuses the attachment; got " (pr-str d)))
-         (is (= :foreign (:op d))
-             "classified as a FOREIGN component — the misnaming")
-         (is (str/includes? (:message d) "foreign component boundary")
-             "and the sentence says so to the author")
-         (is (= :extract-declared-child (first (:recovery d)))
-             "naming the recovery this pilot then takes"))
+               `v/behavior` is a FRAMEWORK-supplied boundary declared on the
+               public door, and the analyzer names it for what it is: it
+               lowers to `:op :behavior` and compiles, exactly like the two
+               sibling framework boundaries declared the ordinary way,
+               `v/route-link` and `v/markup`. The old refusal misnamed it a
+               `:op :foreign` `foreign component boundary`, which sent an
+               author looking for a third-party component they never wrote;
+               that misclassification is gone with the form."
+       (is (= ::accepted (compile-body '[v/behavior {:use :x/y :target :t} [:div]]))
+           "the compiled grammar has the attachment form — it lowers, not refuses")
        (is (= ::accepted (compile-body '[v/route-link {:to :x} "t"]))
            "a sibling FRAMEWORK boundary compiles without comment")
        (is (= ::accepted (compile-body '[v/markup {:value nil}]))

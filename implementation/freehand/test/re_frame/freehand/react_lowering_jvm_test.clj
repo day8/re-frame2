@@ -84,6 +84,11 @@
    {:op :letfn    :body '[:div (letfn [(f [] "x")] [:i (f)])]}
    {:op :case     :body '[:div (case (:kind props) :a [:i "a"] [:b "z"])]}
    {:op :presence :body '(v/presence {:timeout-ms 120} [:div {:key "a"} "x"])}
+   ;; The framework host attachment: `[v/behavior {…} node]` lowers to
+   ;; `:op :behavior`, and the browser emitter reaches the shared behaviors
+   ;; runtime (rf2-drpa3.116/.127). `:use` need not be registered to COMPILE —
+   ;; registration is the render's read, exactly as the interpreted twin's is.
+   {:op :behavior :body '[v/behavior {:use :x/y :target :t} [:div "x"]]}
    ;; The row this file was written for: an inline render-fn, whose body is
    ;; lowered by THIS emitter. The prop-carried half — the render-fn authored
    ;; at a CALL SITE, which the analyzer records as an analysed template

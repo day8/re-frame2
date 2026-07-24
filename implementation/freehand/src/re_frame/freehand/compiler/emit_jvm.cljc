@@ -236,6 +236,22 @@
         head-sym  (if self? (:fqn node) (:sym node))]
     `(node/mount ~head-sym [~props-map ~@child-forms])))
 
+(defn- emit-behavior
+  "A `v/behavior` attachment on the structural host: an INERT MARKER. It
+  crosses the SAME `node/mount` seam every internal boundary does, so the
+  compiled marker is byte-identical to the interpreted structural render — the
+  behavior descriptor's own `read-opts` validates the call (the registered id,
+  the one-element child, the config-is-data law) and hands the decorated node
+  back, and `node/boundary` records the id, the semantic target and the public
+  config with the element as its child. Nothing connects: the JVM has no
+  lifecycle, which is exactly the inert-marker claim (D013, FH-BEHAVIOR-003)."
+  [e node]
+  (let [opts (cond-> {:use (:use node)}
+               (:has-target? node) (assoc :target (:target node))
+               (:has-config? node) (assoc :config (:config node))
+               (get-in node [:key :present?]) (assoc :key (get-in node [:key :expr])))]
+    `(node/mount ~(:fqn node) [~opts ~(emit-node e (:child node))])))
+
 (defn- emit-foreign [node]
   (if (:lazy? node)
     ;; a re-frame.freehand.react/lazy component IS callable on the JVM structural
@@ -309,6 +325,7 @@
                   ~(:present? k) ~(:expr k)
                   (node/children ~@(mapv #(emit-node e %) (:children node)))))
     :view     (emit-view e node)
+    :behavior (emit-behavior e node)
     :for      (emit-for e node)
     :if       `(if ~(:test node)
                  ~(emit-node e (:then node))

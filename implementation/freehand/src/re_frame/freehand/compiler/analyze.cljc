@@ -51,6 +51,7 @@
 (def ^:private error-boundary-fqns #{'re-frame.freehand/error-boundary})
 (def ^:private client-only-fqns #{'re-frame.freehand/client-only})
 (def ^:private presence-fqns #{'re-frame.freehand/presence})
+(def ^:private behavior-fqns #{'re-frame.freehand/behavior})
 (def ^:private sub-fqns       #{'re-frame.freehand/sub})
 (def ^:private frame-fqns     #{'re-frame.freehand/frame})
 (def ^:private local-fqns     #{'re-frame.freehand/local})
@@ -3150,7 +3151,7 @@
   [ast]
   (case (:op ast)
     :for true
-    :fragment (boolean (get-in ast [:key :present?]))
+    (:fragment :behavior) (boolean (get-in ast [:key :present?]))
     (:element :view :foreign) (boolean (get-in ast [:props :key :present?]))
     :if (and (presence-keyed-child? (:then ast)) (presence-keyed-child? (:else ast)))
     :let (presence-keyed-child? (:body ast))
@@ -3225,6 +3226,92 @@
        :children child-asts
        :static? false
        :path (:path e)})))
+
+;; ---------------------------------------------------------------------------
+;; v/behavior (rf2-drpa3.116/.127/.153) — the framework host attachment
+;; ---------------------------------------------------------------------------
+;;
+;; `[v/behavior {:use … :target … :config …} node]` attaches a registered
+;; behavior to ONE element. It is a framework-supplied boundary declared on the
+;; public door alongside v/route-link, v/markup and v/error-boundary — NOT a
+;; foreign component. Its var is built with `descriptor/declare-view` directly,
+;; so it carries no `:re-frame.freehand/view` var metadata and `env/classify-
+;; head` would fall through to `:foreign` (rf2-drpa3.153); this reservation runs
+;; AHEAD of generic classification so the boundary is named for what it is and
+;; lowers to its own `:op :behavior` node rather than being misnamed a foreign
+;; component and refused.
+;;
+;; The closed option roster and the one-element-child law are proven HERE at
+;; build. Everything else — that `:use` names a REGISTERED behavior, that
+;; `:config` is data all the way down, the timing arms and the command channel —
+;; is `re-frame.freehand.behaviors`' own, reached IDENTICALLY by both emitters
+;; (`read-opts` on the structural host, `check-attach-opts!` + `use-attachment!`
+;; in the browser), so a compiled attachment and its interpreted twin agree by
+;; construction rather than by a second implementation (D013).
+
+(def ^:private behavior-opt-keys #{:use :target :config})
+
+(defn- behavior-head? [e head]
+  (and (symbol? head)
+       (not (contains? (:locals e) head))
+       (env/resolves-to? e head behavior-fqns)))
+
+(defn- analyze-behavior
+  "`[v/behavior {:use … :target … :config …} node]` — attach a registered
+  behavior to one element, compiled."
+  [e form]
+  (let [opts  (nth form 1 nil)
+        rest* (drop 2 form)]
+    (when-not (map? opts)
+      (env/fail! e :rf.ui.compile/bad-behavior
+                 (str "[v/behavior {:use …} node] takes a literal opts map naming "
+                      "the registered behavior; got " (pr-str opts))
+                 {:form form}))
+    (let [key-present? (contains? opts :key)
+          roster (dissoc opts :key)
+          bad    (remove behavior-opt-keys (keys roster))]
+      (when (seq bad)
+        (env/fail! e :rf.ui.compile/bad-behavior
+                   (str "unknown v/behavior option" (when (next bad) "s") " "
+                        (str/join ", " (map pr-str (sort bad)))
+                        " — the closed roster is {:use :target :config}")
+                   {:form form}))
+      (when-not (contains? roster :use)
+        (env/fail! e :rf.ui.compile/bad-behavior
+                   (str ":use is REQUIRED on [v/behavior {…} node] — it names the "
+                        "registered behavior a (v/defbehavior …) declaration binds")
+                   {:form form}))
+      (when-not (= 1 (count rest*))
+        (env/fail! e :rf.ui.compile/bad-behavior
+                   (str "a behavior owns exactly ONE node, so [v/behavior {…} node] "
+                        "takes exactly one child; this call supplied " (count rest*)
+                        ". Wrap the region in a single element, or attach a behavior "
+                        "to each node that needs one")
+                   {:form form}))
+      (let [child (analyze (dissoc e :top-region?) (first rest*))]
+        (when-not (= :element (:op child))
+          (env/fail! e :rf.ui.compile/bad-behavior
+                     (str "a behavior's child is ONE element — the node it owns. A "
+                          "declared view, a fragment, text or a control form denotes a "
+                          "group or a value rather than a node, and there is nothing for "
+                          "the behavior to attach to; got the " (name (:op child)) " form. "
+                          "Put the element the behavior owns directly under it")
+                     {:form form}))
+        {:op :behavior
+         :sym (nth form 0)
+         :fqn 're-frame.freehand/behavior
+         :use    (walk-expr e [:behavior :use] (:use roster))
+         :has-target? (contains? roster :target)
+         :target (when (contains? roster :target)
+                   (walk-expr e [:behavior :target] (:target roster)))
+         :has-config? (contains? roster :config)
+         :config (when (contains? roster :config)
+                   (walk-expr e [:behavior :config] (:config roster)))
+         :key (when key-present?
+                {:present? true :expr (walk-expr e [:behavior :key] (:key opts))})
+         :child child
+         :static? false
+         :path (:path e)}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Reactive authoring verbs in head position (rf2-vxgfnd.266)
@@ -3659,7 +3746,7 @@
   enough to make the wrapper the thing between the `for` and it."
   [ast]
   (case (:op ast)
-    (:element :view :foreign :fragment) true
+    (:element :view :foreign :fragment :behavior) true
     (:let :letfn)                       (wraps-markup-node? (:body ast))
     :if   (or (wraps-markup-node? (:then ast)) (wraps-markup-node? (:else ast)))
     :case (boolean (or (some wraps-markup-node? (map second (:clauses ast)))
@@ -3765,7 +3852,7 @@
                             (str " Extract a declared child view that does the "
                                  "wrapping, and key it at the call site")))
                      {:form form :op (:op body-ast)}))
-        (when-not (contains? #{:element :view :foreign :fragment} (:op body-ast))
+        (when-not (contains? #{:element :view :foreign :fragment :behavior} (:op body-ast))
           (env/fail! e :rf.ui.compile/unkeyed-list-item
                      (str "for body must be a keyed element/view/fragment — got "
                           (name (:op body-ast)) ". Keyed lists compile to direct "
@@ -3998,6 +4085,10 @@
         (self-head? e head) (analyze-component e form)
         (frame-root-head? e head) (analyze-frame-root e form)
         (frame-provider-head? e head) (analyze-frame-provider e form)
+        ;; v/behavior is a framework host attachment, NOT a foreign component —
+        ;; reserve it ahead of generic classification so it lowers to :behavior
+        ;; rather than being misnamed :foreign and refused (rf2-drpa3.153).
+        (behavior-head? e head) (analyze-behavior e form)
         ;; Reserve sub/frame BEFORE generic component classification
         ;; (rf2-vxgfnd.266): a reactive authoring verb can never be
         ;; reclassified as a :foreign component with an empty manifest.
