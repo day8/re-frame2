@@ -25,10 +25,12 @@
   are a pure function and two ordinary re-frame handlers, shared verbatim
   by both modes, which is why promotion cannot move them. And an
   AUTO-SIZING table — one that measures its own viewport instead of being
-  told its height — has no compiled form to promote: `v/behavior` is the
-  substrate's only before-paint home and the compiled grammar admits no
-  behavior form. The pilot's table is compilable precisely because it
-  declares its geometry rather than measuring it.
+  told its height — measures through `v/behavior`'s `:layout` home, the one
+  before-paint seam the substrate sanctions. The compiled grammar now admits
+  that form, so an auto-sizing table can be promoted too. The pilot's table
+  declares its geometry not out of compilation necessity but because the
+  caller-owns-the-numbers contract keeps it free of the imperative
+  measurement either way.
 
   ## `.cljc`, and what that took
 

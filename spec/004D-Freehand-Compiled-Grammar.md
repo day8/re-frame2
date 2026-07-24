@@ -335,7 +335,7 @@ lexical site index — never a re-derivation a second pass could drift from.
 | `:frame-ops` | each `(frame)` committed-frame read |
 | `:html-sites` | each trusted-markup `ui/html` site |
 | `:crossings` | the internal-view boundaries the body mounts, each MARKED with the mode it crosses into (§Manifests mark the crossing) |
-| `:capabilities` | the union of the structural capability bits the AST names (`:raw` / `:html` / `:foreign` / `:render-slot` / `:render-fn` / `:custom-element` / `:spread` / `:spread-safe`) with the reactive and host-hook bits the sites own |
+| `:capabilities` | the union of the structural capability bits the AST names (`:raw` / `:html` / `:foreign` / `:render-slot` / `:render-fn` / `:custom-element` / `:spread` / `:spread-safe` / `:behavior`) with the reactive and host-hook bits the sites own |
 
 A roster is **empty**, never absent, when the body carries no site of its kind:
 an empty roster is a positive claim — *this view reads nothing* — and an absent
@@ -399,10 +399,19 @@ unlike every roster above it — a **summary the analyzer computes over the site
 not another lexical-site roster**. It is the render-static server-reachable
 `{:caps :deps}` projection: `:caps` the set of runtime-requiring capability tokens
 a pure `:server` render could not honour (a `sub` read, a committed handler, an
-effect, a `ref`, a foreign or lazy head), and `:deps` the set of directly
-referenced view-ids to close over transitively. It names no site and carries no
-`:source-coord` — a roster answers *which site*, this answers *what would this view
-need at runtime, and which views must be proven alongside it*.
+effect, a `ref`, a `v/behavior` host attachment, or a foreign or lazy head), and
+`:deps` the set of directly referenced view-ids to close over transitively. A
+server-reachable `v/behavior` earns its `:behavior` token the same way the others
+earn theirs: it is a live host lifecycle — connect, update, command, disconnect
+over a real node — and a `:server` render owns no node to run it, so render-static
+**refuses** it (the compiled tier at build with
+`:rf.ui.compile/static-root-requires-runtime` and source coordinates, the
+interpreted tier at render) rather than folding it to an inert marker and dropping
+it silently. Reachability governs that count exactly as it governs the dependency
+walk, so a behavior only in a `v/client-only` arm is browser-only and never
+counted. The summary names no site and carries no `:source-coord` — a roster
+answers *which site*, this answers *what would this view need at runtime, and which
+views must be proven alongside it*.
 
 The value is computed once, from the same sites the rosters project, and is BOTH
 carried here and contributed to the ambient per-build `view-static` index — one

@@ -1123,6 +1123,27 @@ an open flag is writable and not buffered, so it takes the key and no generation
   `:target` and `:config` with the decorated element as its child, nothing
   connects, and a command is refused with the channel's own diagnostic. See
   [spec/004-Views.md](../../spec/004-Views.md#registered-behaviors-and-commands).
+
+  `v/behavior` is **common to both tiers**. A `{:compiled true}` view may attach a
+  behavior and stay compiled: the analyzer recognises `[v/behavior …]` as the
+  framework boundary it is — like `route-link` and `markup`, not a foreign
+  component — and lowers it to the grammar's own node, which all three emitters
+  emit. The two tiers meet at one runtime rather than reimplementing the boundary.
+  The **structural** half is byte-identical in both modes: the JVM render and the
+  compiled browser path build the same inert marker. The **mounted** half is
+  shared too: in the browser a compiled attachment connects, updates, commands and
+  tears down through the very same `re-frame.freehand.behaviors` code its
+  interpreted twin uses, so the two agree by construction.
+
+  The refusal follows the same split as `error-boundary`. A COMPILED attachment
+  fails at BUILD with the compile-tier `:rf.ui.compile/bad-behavior` for what the
+  analyzer sees statically — a non-literal opts map, an option outside the closed
+  roster, a missing `:use`, or a child that is not a single element. Everything
+  that turns on a runtime value or the registered definition — a `:use` that
+  resolves to no registered behavior, a non-data `:config`, and the opaque-child
+  law (an `{:opaque true}` behavior's node carrying children) — stays the runtime
+  `:rf.error/behavior-bad-args`, raised identically by the interpreted tier and the
+  compiled browser path.
 - **Example**:
   ```clojure
   [v/behavior {:use    autosize

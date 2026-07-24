@@ -185,7 +185,7 @@
 
 (v/defview restoring-ledger
   "The pilot's caller with scroll RESTORATION on — `:restore-scroll? true`,
-  the interpreted-only variant that writes its persisted offset back onto the
+  the restoring variant that writes its persisted offset back onto the
   viewport before paint. Otherwise identical to [[live-ledger]], so the two
   differ by exactly the option under test."
   [_]
@@ -500,8 +500,9 @@
 ;; pick the window. That is a DOM-DERIVED CACHE, and a cache cannot be
 ;; restored. `:restore-scroll?` attaches the `:layout` restore behavior, which
 ;; writes the persisted offset back onto the viewport before paint — the ONE
-;; sanctioned imperative seam, and the reason a restoring table is
-;; interpreted-only (the compiled grammar has no behavior form). These three
+;; sanctioned imperative seam for that host work. The compiled grammar admits
+;; the behavior form now, so the choice of tier is the caller's; the variant
+;; under test here is the interpreted one. These three
 ;; suites prove the write happens, prove it is what moves the viewport, and —
 ;; through a cache-only CONTROL seeded identically — prove they diverge exactly
 ;; where the write is. The discipline is the deterministic settle the
