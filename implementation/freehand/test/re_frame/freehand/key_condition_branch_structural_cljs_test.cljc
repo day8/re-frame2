@@ -31,6 +31,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
+            [re-frame.freehand.events :as events]
             [re-frame.freehand.tree :as tree]))
 
 ;; ---------------------------------------------------------------------------
@@ -139,3 +140,45 @@
     (is (= {:on-key-down {"Enter" [:app/go 1 "ok"]}}
            (:events (tree/render [:input {:on-key-down {"Enter" [:app/go 1 "ok"]}}])))
         "and it is recorded as the data it is")))
+
+;; ---------------------------------------------------------------------------
+;; The branch grammar is the SHARED planner's, not a second local roster
+;; ---------------------------------------------------------------------------
+;;
+;; rf2-7x0ge AUDIT REOPEN. The first fix recorded EVERY fn-carried branch —
+;; bare functions and every Callback role — as the opaque marker, which admits
+;; declarations the live event planner refuses: a key branch names ONE intent,
+;; so `events/branch-plan` admits only an event vector, an options map carrying
+;; `:event`, a `v/event`, or nil, and refuses `v/handler`, a bare fn,
+;; `v/render-fn`, `v/raw-fn`, a nested key map, a branch-local whole-listener
+;; option, and a mixed string/keyword map. `classify-event` now validates the
+;; whole key-condition map through that SAME planner (`events/event-plan`)
+;; before projecting it, so the interpreted structural walk and the live event
+;; planner cannot hold two branch grammars. These exercise `tree/render`
+;; DIRECTLY — the path the missed upstream-validation assumption left
+;; unguarded — and pin it to the planner by proving the two agree id-for-id.
+
+(def ^:private refused-by-the-closed-branch-grammar
+  "One branch shape per way the closed grammar refuses a NON-dispatching or
+  malformed branch — each refused by the live `events/event-plan`, and now by
+  the structural walk with the SAME typed `:rf.error/view-bad-event` category."
+  [["a v/handler branch"           {"Enter" (v/handler [e] nil)}]
+   ["a bare-function branch"       {"Enter" (fn [_] nil)}]
+   ["a v/render-fn branch"         {"Enter" (v/render-fn [r] [:span r])}]
+   ["a nested key-map branch"      {"Enter" {"a" [:app/go]}}]
+   ["a branch-local :once option"  {"Enter" {:event [:app/go] :once true}}]
+   ["a mixed string/keyword map"   {"Enter" [:app/go] :once true}]])
+
+(deftest a-non-dispatching-branch-is-refused-with-the-shared-typed-category
+  (testing "The over-wide first fix opaqued any fn-carried branch and walked
+            the rest as data, so v/handler, a bare fn, and the mixed/nested
+            shapes rendered a clean structural tree the live event planner
+            rejects. Each is now refused with the planner's own typed category
+            — and the structural walk and the planner are proven to agree
+            id-for-id, so the grammar has ONE owner."
+    (doseq [[note branch-map] refused-by-the-closed-branch-grammar]
+      (let [form [:input {:on-key-down branch-map}]]
+        (is (= :rf.error/view-bad-event (conf/caught-id #(tree/render form)))
+            (str note " — refused structurally with the planner's typed category"))
+        (is (= :rf.error/view-bad-event (conf/caught-id #(events/event-plan branch-map)))
+            (str note " — the LIVE planner refuses the same value with the same id (no drift)"))))))
