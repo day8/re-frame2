@@ -75,8 +75,32 @@
 
 (def default-bundle-path
   "Where `npm run build:freehand-release` lands the artefact, relative to
-  `implementation/` — the directory the Node lane runs from."
+  `implementation/` — the directory the Node lane runs from. This is the
+  MIXED shape — one interpreted leaf and its compiled twin under one root."
   "out/freehand-release/main.js")
+
+(def interpreted-bundle-path
+  "The INTERPRETED-ONLY twin of the release build
+  (`:freehand-release-interpreted`): the same entry app with every view held
+  on the interpreted path. Built with `shadow-cljs release
+  freehand-release-interpreted`."
+  "out/freehand-release-interpreted/main.js")
+
+(def compiled-bundle-path
+  "The COMPILED-ONLY twin of the release build
+  (`:freehand-release-compiled`): the same entry app with every view compiled
+  — no interpreted view reaches the bundle. Built with `shadow-cljs release
+  freehand-release-compiled`."
+  "out/freehand-release-compiled/main.js")
+
+(def matched-bundle-paths
+  "The three matched release shapes, keyed by lowering. They differ ONLY in
+  view lowering — same entry app, same `:advanced`, same `goog.DEBUG` false —
+  so a byte that differs between them differs BECAUSE of lowering and nothing
+  else. Measured in order, this is the row B5's build lane publishes."
+  {:interpreted interpreted-bundle-path
+   :mixed       default-bundle-path
+   :compiled    compiled-bundle-path})
 
 (defn bundle-present?
   "True when the release artefact is on disk. A B5 measurement of a bundle
@@ -176,6 +200,35 @@
      :gzip9-bytes  (gzip-bytes buf 9)
      :brotli-bytes (brotli-bytes buf)
      :source       source}))
+
+;; ---------------------------------------------------------------------------
+;; The per-promotion delta — evidence, never a threshold
+;; ---------------------------------------------------------------------------
+
+(defn promotion-delta
+  "The per-promotion BYTE delta between an interpreted-shape and a
+  compiled-shape [[measure-bundle]]d artefact: `compiled` minus
+  `interpreted`, per encoding.
+
+  A positive number means the compiled shape is LARGER on the wire — the
+  compiled emitter's per-view output outweighing the interpreter body it
+  replaces — and a negative one means promotion shrank the bundle. Which way
+  it falls, and how far, is a fact about the two artefacts, published as
+  evidence: D021's NON-GOALS bar a byte-size threshold, so a delta has no
+  route to a verdict however large it is. Because the two artefacts differ
+  ONLY in lowering (same entry app, same `:advanced`, same `goog.DEBUG`
+  false), this delta is attributable to lowering and nothing else.
+
+  Both maps must be from the same [[measure-bundle]] shape; the raw, gzip
+  (6 and 9) and brotli deltas are answered, plus each side's digest so the
+  delta is tied to the exact two bundles it was taken over."
+  [interpreted compiled]
+  {:raw-bytes    (- (:raw-bytes compiled)    (:raw-bytes interpreted))
+   :gzip6-bytes  (- (:gzip6-bytes compiled)  (:gzip6-bytes interpreted))
+   :gzip9-bytes  (- (:gzip9-bytes compiled)  (:gzip9-bytes interpreted))
+   :brotli-bytes (- (:brotli-bytes compiled) (:brotli-bytes interpreted))
+   :interpreted-sha256 (:sha256 interpreted)
+   :compiled-sha256    (:sha256 compiled)})
 
 ;; ---------------------------------------------------------------------------
 ;; The workload
