@@ -268,6 +268,17 @@
       (gobj/set o "className" c))
     (when sugar-id
       (gobj/set o "id" sugar-id))
+    ;; The id-slot CARDINALITY, judged by the emitted SLOT rather than by the
+    ;; raw keys — and this walk is where the raw comparison SHOWED: React
+    ;; writes `:id` and `:x/id` into one JavaScript property, so a second id
+    ;; spelling silently replaced the first while the structural tree
+    ;; reported both. `#id` sugar occupies the slot once; beyond that the
+    ;; attrs map may carry at most one id-slot key. By PRESENCE, never truth
+    ;; — the compiled analyzer reads `(keys m)` and has no value to consult,
+    ;; so a truth test here would accept a declaration `{:compiled true}`
+    ;; refuses (rf2-5r1af, rf2-drpa3.101).
+    (when-some [{:keys [message]} (conv/id-conflict tag sugar-id (keys attrs))]
+      (malformed! message {:value (shape attrs)}))
     ;; The key is read in its canonical author spelling: an alias of a
     ;; slot-owning key is that key written differently, so `:x/class`
     ;; composes into `className` beside the sugar rather than overwriting
@@ -278,24 +289,6 @@
       (when-some [refusal (conv/attr-key-refusal k)]
         (malformed! (str "The element " tag " carries " k ". " refusal)
                     {:attr k}))
-      ;; The `#id` conflict, judged by the emitted SLOT rather than by the
-      ;; raw key — and this walk is where the raw comparison SHOWED: React
-      ;; writes `:id` and `:x/id` into one JavaScript property, so the
-      ;; aliased pair silently replaced the sugar while the structural tree
-      ;; reported both. Asked only when there IS sugar to conflict with,
-      ;; and by PRESENCE: the authored key is the second spelling, and the
-      ;; compiled analyzer that reads `(keys m)` has no value to consult,
-      ;; so a truth test here would accept a declaration `{:compiled true}`
-      ;; refuses.
-      (when (and sugar-id (conv/id-slot-key? k))
-        (malformed! (str "The element " tag " spells its id twice — once as #" sugar-id
-                         " sugar and once as " k ". Two id spellings on one element is an "
-                         "ambiguity; keep one."
-                         (when (not= :id k)
-                           (str " " k " is :id written differently: a namespace is dropped "
-                                "on the way to the DOM, so both land in the same "
-                                "attribute.")))
-                    {:attr k :value (shape raw)}))
       (cond
         (= :key k)   nil
 

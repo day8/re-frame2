@@ -159,13 +159,13 @@
   interpreted front end has no compile step in which to settle one.
   `:key` is structural and `:class` composes after the sugar classes.
 
-  The `#id` conflict is judged by the emitted SLOT
-  ([[re-frame.freehand.conversion/id-slot-key?]]) rather than by the raw
-  key, because the sugar and an authored id are two spellings of one
-  attribute and the grammar removes that ambiguity rather than ranking it.
-  Asked only when there IS sugar: with no sugar there is no second
-  spelling, and `:x/id` is an ordinary qualified attribute that keeps its
-  authored name.
+  The id-slot CARDINALITY is judged by the emitted SLOT
+  ([[re-frame.freehand.conversion/id-conflict]]) rather than by the raw
+  keys, because every spelling of an id — the `#id` sugar, `:id`, `:x/id`,
+  `\"id\"` — reaches one attribute, and the grammar removes that ambiguity
+  rather than ranking it. `#id` sugar occupies the slot once; beyond that an
+  attrs map may carry at most one id-slot key, so sugar plus one, or two
+  authored spellings with no sugar, is the conflict.
 
   PRESENCE decides it, never truth. The authored key IS the second
   spelling — the generic nil-attribute law says what an id VALUE of nil
@@ -175,21 +175,14 @@
   `{:compiled true}` refuses, and adding one word to a declaration would
   turn a rendering element into a compile error."
   [m tag sugar-id attrs]
+  (when-some [{:keys [message]} (conv/id-conflict tag sugar-id (keys attrs))]
+    (malformed! message {:value (shape attrs)}))
   (reduce-kv
     (fn [m k raw]
       (when-some [refusal (conv/attr-key-refusal k)]
         (malformed!
           (str "The element " tag " carries " k ". " refusal)
           {:attr k}))
-      (when (and sugar-id (conv/id-slot-key? k))
-        (malformed!
-          (str "The element " tag " spells its id twice — once as #" sugar-id
-               " sugar and once as " k ". Two id spellings on one element is an "
-               "ambiguity; keep one." (when (not= :id k)
-                                        (str " " k " is :id written differently: a "
-                                             "namespace is dropped on the way to the DOM, "
-                                             "so both land in the same attribute.")))
-          {:attr k :value (shape raw)}))
       (cond
         (= :key k)   m
         (= :class k) (assoc m :class raw)

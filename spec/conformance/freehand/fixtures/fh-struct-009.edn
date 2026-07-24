@@ -191,7 +191,23 @@
   {:note "as does the string spelling"
    :form [:div#sugar {"id" "alias"}] :error-id :rf.error/ui-tree-malformed}
   {:note "and the symbol one"
-   :form [:div#sugar {id "alias"}] :error-id :rf.error/ui-tree-malformed}]
+   :form [:div#sugar {id "alias"}] :error-id :rf.error/ui-tree-malformed}
+
+  ;; The same law without the shorthand: `#id` sugar is the FIRST spelling
+  ;; when present, but it is not the only one that can occupy the slot. Two
+  ;; AUTHORED keys that both project onto the id slot spell the element's id
+  ;; twice just the same, and React writes one of them into `id` while the
+  ;; structural tree reports both — the winner decided by map iteration
+  ;; order, which is contract on no host. It is the ambiguity the grammar
+  ;; removes rather than ranks, reached with no shorthand (rf2-5r1af).
+  {:note "two authored id spellings on one element spell its id twice"
+   :form [:div {:id "a" :x/id "b"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "and the order the two are written in does not change the verdict"
+   :form [:div {:x/id "b" :id "a"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "a string spelling reaches the same slot as the keyword one"
+   :form [:div {:id "a" "id" "b"}] :error-id :rf.error/ui-tree-malformed}
+  {:note "PRESENCE counts, not value — a nil-valued member is still a second declaration"
+   :form [:div {:id nil :x/id "b"}] :error-id :rf.error/ui-tree-malformed}]
 
  ;; The control that makes the rows above mean something. Refusing by
  ;; emitted prop name is only correct if it refuses the names that ARE

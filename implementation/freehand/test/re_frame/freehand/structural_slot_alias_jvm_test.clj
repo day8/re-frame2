@@ -373,6 +373,109 @@
       (is (= tree (compiled-tree body)) (str note " — compiled")))))
 
 ;; ---------------------------------------------------------------------------
+;; The slot spelled twice with NO shorthand — rf2-5r1af
+;; ---------------------------------------------------------------------------
+
+(def no-sugar-id-pairs
+  "Two AUTHORED keys that both project onto the id slot, with no `#id`
+  shorthand in sight. `#id` sugar is the first spelling ONLY when present;
+  with no sugar the second id-slot key in the map is the conflict, and React
+  writes one of the pair into `id` while the structural tree reports both —
+  the winner decided by map iteration order, contract on no host."
+  ['[:div {:id "a" :x/id "b"}]
+   '[:div {:x/id "b" :id "a"}]          ; the order does not change the verdict
+   '[:div {:id nil :x/id "b"}]          ; PRESENCE, not value
+   ;; a map past the array-map threshold (>8 entries) hashes its keys rather
+   ;; than keeping insertion order, and the pair still collides
+   '[:div {:id "a" :x/id "b" :data-1 1 :data-2 2 :data-3 3
+           :data-4 4 :data-5 5 :data-6 6 :data-7 7}]])
+
+(deftest two-authored-id-spellings-with-no-sugar-are-refused-in-both-modes
+  (testing "rf2-5r1af. The same law the shorthand guard enforces, reached
+            without the shorthand: two spellings of one emitted attribute on
+            one element is an ambiguity the grammar removes rather than
+            ranks. Refused identically on the interpreted walk and in the
+            compiled analyzer, through the diagnostics each already owns —
+            no new always-on id."
+    (doseq [body no-sugar-id-pairs]
+      (let [ex (try (interpreted-tree body) nil (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex) (str (pr-str body) " is refused by the interpreted walk"))
+        (when ex
+          (is (= :rf.error/ui-tree-malformed (:rf.error/id (ex-data ex)))
+              (str (pr-str body) " — the walk's existing diagnostic, not a new id"))
+          (is (str/includes? (ex-message ex) "twice")
+              (str (pr-str body) " — the message says the id is spelled twice"))))
+      (let [ex (try (compiled-tree body) nil (catch Exception e e))]
+        (is (some? ex) (str (pr-str body) " is refused at compile time"))
+        (when ex
+          (is (= :rf.ui.compile/id-sugar-conflict
+                 (:rf.ui.compile/error (ex-data (or (ex-cause ex) ex))))
+              (str (pr-str body) " — reusing the existing compile diagnostic")))))))
+
+(deftest an-id-slot-cardinality-rule-leaves-ordinary-attribute-pairs-alone
+  (testing "The guard fires on the id SLOT alone. A lone qualified id keeps
+            its authored name, and TWO spellings of an ordinary attribute —
+            `:title` and `:x/title` — are accepted, because ordinary
+            attributes stay in author space (rf2-drpa3.93) and this is an
+            id-slot cardinality rule, not a namespace ban. Generalising it to
+            every attribute was considered and DECLINED."
+    (doseq [{:keys [note body tree]}
+            [{:note "a lone qualified id with no sugar stays in author space"
+              :body '[:div {:x/id "alias"}] :tree {:tag :div :attrs {:x/id "alias"}}}
+             {:note ":title and :x/title on one element are two ordinary attributes, not a conflict"
+              :body '[:div {:title "a" :x/title "b"}]
+              :tree {:tag :div :attrs {:title "a" :x/title "b"}}}]]
+      (is (= tree (interpreted-tree body)) (str note " — interpreted"))
+      (is (= tree (compiled-tree body)) (str note " — compiled")))))
+
+;; ---------------------------------------------------------------------------
+;; The runtime v/spread seam — rf2-5r1af (the load-bearing caveat)
+;; ---------------------------------------------------------------------------
+
+(deftest a-spread-that-merges-to-two-ids-is-refused-at-the-shared-seam
+  (testing "rf2-5r1af spread seam. `v/spread` returns a plain runtime MAP, so
+            the id ambiguity is caught at `node/spread-attrs` — the ONE seam
+            an interpreted body and a compiled lowering both call. A patch to
+            the literal sites alone would leave the compiled spread accepting
+            the pair, a NEW cross-mode split."
+    (testing "the interpreted seam (v/spread itself)"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"twice"
+                            (v/spread {:id "a"} {:x/id "b"}))
+          "two id spellings across the two maps")
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"twice"
+                            (v/spread {:id "a" :x/id "b"}))
+          "or two spellings within one map")
+      (is (map? (v/spread {:id "a"} {:id "b"}))
+          "but two EXACT :id writes are later-arg-wins and merge to one — no conflict"))
+    (testing "the compiled seam calls the very same fn from its lowering"
+      (let [ex (try (compiled-tree '[:div (v/spread {:id "a"} {:x/id "b"})])
+                    nil (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex) "the compiled spread refuses the pair at runtime")
+        (when ex
+          (is (= :rf.error/ui-tree-malformed (:rf.error/id (ex-data ex)))
+              "through the interpreted seam's diagnostic — a runtime map, so a runtime refusal"))))))
+
+(deftest id-sugar-beside-a-spread-that-carries-an-id-is-refused
+  (testing "rf2-5r1af probed defect. `#id` sugar wrote the element's id, and a
+            forwarded map spells it again. Interpreted, the post-spread map
+            reaches the element walk and the cardinality guard fires; a spread
+            that itself merges to two ids is caught at the seam in BOTH modes,
+            before the element is even built. The `v/spread` forms are
+            UNQUOTED here so the call actually runs — a quoted one would be an
+            inert list, not the map the seam sees."
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"twice"
+                          (tree/render [:div#sugar (v/spread {:id "a"})]))
+        "sugar plus a single forwarded id, interpreted")
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"twice"
+                          (tree/render [:div#sugar (v/spread {:id "a" :x/id "b"})]))
+        "sugar plus a forwarded map that is itself two ids, interpreted")
+    (let [ex (try (compiled-tree '[:div#sugar (v/spread {:id "a" :x/id "b"})])
+                  nil (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "and compiled, the two-id spread map is refused at the shared seam")
+      (when ex
+        (is (= :rf.error/ui-tree-malformed (:rf.error/id (ex-data ex))))))))
+
+;; ---------------------------------------------------------------------------
 ;; The scope fence
 ;; ---------------------------------------------------------------------------
 

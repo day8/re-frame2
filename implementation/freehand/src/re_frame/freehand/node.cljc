@@ -728,7 +728,17 @@
   ;; both modes rather than an attribute map in one and an absent child in
   ;; the other — the two happen to render the same tree, and agreement by
   ;; coincidence is the thing this whole slice is written against.
-  (merge (canonical-slot-keys base) (canonical-slot-keys overrides)))
+  (let [merged (merge (canonical-slot-keys base) (canonical-slot-keys overrides))]
+    ;; The id-slot CARDINALITY, over the MERGED map both front ends fold onto
+    ;; the element. A spread carries no tag, so its only id ambiguity is two
+    ;; distinct spellings surviving the merge — `(v/spread {:id "a"} {:x/id
+    ;; "b"})`; two exact `:id` writes are later-arg-wins and merge to one, no
+    ;; conflict. This is the ONE seam BOTH modes reach, so the compiled spread
+    ;; — which bypasses the literal analyzer's id guard — refuses the pair
+    ;; here at runtime exactly as the interpreted walk does (rf2-5r1af).
+    (when-some [{:keys [message]} (conv/id-conflict nil nil (keys merged))]
+      (malformed! 're-frame.freehand/spread message {:value (shape merged)}))
+    merged))
 
 (defn- owned-handler-keys
   "The `on-*` keys of a `v/spread-safe` OWNED props map — the handler families

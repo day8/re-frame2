@@ -622,6 +622,64 @@
   [k]
   (remembered id-slot-cache k id-slot-key?*))
 
+(defn id-slot-keys
+  "The keys of `ks` that project onto the emitted `#id` slot — every spelling
+  of an element's id (`:id`, `:x/id`, \"id\", 'id). Its COUNT is how many
+  times the element declares an id: PRESENCE decides, never value."
+  [ks]
+  (filter id-slot-key? ks))
+
+(defn- id-spelling-label
+  "How one authored id spelling names itself in the conflict sentence — a
+  keyword or symbol verbatim, a string quoted so `\"id\"` cannot read as a
+  bareword beside `:id`."
+  [k]
+  (if (string? k) (pr-str k) (str k)))
+
+(defn- namespaced-name?
+  "A namespaced keyword or symbol — a spelling whose namespace the host drops
+  on the way to the DOM, which is why it lands in the same slot as `:id`."
+  [k]
+  (and (or (keyword? k) (symbol? k)) (some? (namespace k))))
+
+(defn id-conflict
+  "nil when the element declares its id AT MOST ONCE; otherwise a map
+  `{:message <sentence> :keys [k …]}` naming the collision.
+
+  `tag` is the element's tag (nil for a forwarded `v/spread` map that names
+  no element); `sugar-id` is the tag's `#id` shorthand value (nil when the
+  tag carries none) — the FIRST id spelling when present; `ks` are the
+  authored attribute keys. `#id` sugar occupies the id slot once, and beyond
+  that an attrs map may carry at most one id-slot key: sugar plus one, or two
+  authored spellings, is the ambiguity.
+
+  PRESENCE decides, never value — an id spelled nil is still a declaration,
+  so `{:id nil :x/id \"b\"}` is two. This is the ONE reading of the id-slot
+  cardinality law, shared verbatim by both interpreted walks, the compiled
+  analyzer and the runtime `v/spread` seam, so `#id` sugar plus an alias, two
+  authored id spellings, and a spread that merges to two all refuse
+  identically (rf2-5r1af, rf2-drpa3.101)."
+  [tag sugar-id ks]
+  (let [id-ks (id-slot-keys ks)]
+    (when-some [[a b offenders]
+                (cond
+                  (and sugar-id (seq id-ks))
+                  [(str "#" sugar-id " sugar") (id-spelling-label (first id-ks))
+                   [(first id-ks)]]
+                  (and (nil? sugar-id) (next id-ks))
+                  [(id-spelling-label (first id-ks)) (id-spelling-label (second id-ks))
+                   [(first id-ks) (second id-ks)]]
+                  :else nil)]
+      (let [qk (first (filter namespaced-name? offenders))]
+        {:offenders offenders
+         :message
+         (str (if tag (str "The element " tag) "A forwarded attribute map")
+              " spells its id twice — once as " a " and once as " b
+              ". Two id spellings on one element is an ambiguity; keep one."
+              (when qk
+                (str " " qk " is :id written differently: a namespace is dropped "
+                     "on the way to the DOM, so both land in the same attribute.")))}))))
+
 (defn- react-event-name* [k]
   (str "on" (upper-first (camelize (subs (name k) 3)))))
 

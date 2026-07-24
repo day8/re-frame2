@@ -128,7 +128,7 @@
    :rf.ui.compile/void-children       [:pass-computed-value]
    :rf.ui.compile/bad-tag             [:use-a-literal-head]
    :rf.ui.compile/duplicate-id-sugar  [:use-a-literal-head]
-   :rf.ui.compile/id-sugar-conflict   [:use-a-literal-head]})
+   :rf.ui.compile/id-sugar-conflict   [:delete-one-id-spelling :use-a-literal-head]})
 
 (def recoveries
   "The CLOSED roster of legal recoveries, each one a thing an author can
@@ -144,6 +144,8 @@
    "extract a declared child view — it may stay interpreted"
    :use-a-literal-head
    "name the element or view literally; heads are not runtime values"
+   :delete-one-id-spelling
+   "keep one of the element's id spellings — the #id shorthand, or an authored :id / :x/id — and delete the other"
    :key-each-row
    "give every row of the list a :key that varies with the row"
    :bind-with-for-let
