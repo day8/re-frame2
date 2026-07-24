@@ -27,6 +27,16 @@
   measures the anchor and promotes the panel — so that row is what says
   the split is a modelling choice rather than an avoidance.
 
+  Two rows are about PROMOTION rather than about the platform. The
+  overlay markup's compiled twin is mounted beside the interpreted one:
+  it reaches the real top layer, dispatches a live click from its
+  compiled event site, builds the same document attribute for attribute
+  — and is judged by the dismissal advisory exactly as its interpreted
+  twin is. The structural rows in `pilot-overlay-parity-cljs-test` prove
+  the two declarations DENOTE the same node; only a page can say the
+  promoted one reaches a browser, because promotion's whole cost is paid
+  at a commit.
+
   This file rides the browser lane through its `-dom-cljs-test` suffix. It
   also matches the node suites' broader regex, where it has no top layer to
   drive and says so rather than passing quietly."
@@ -39,13 +49,16 @@
             [re-frame.frame :as frame]
             [re-frame.freehand :as v]
             [re-frame.freehand.behaviors :as behaviors]
+            [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.pilot-overlay :as ui]
+            [re-frame.freehand.pilot-overlay-compiled :as compiled]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.shell :as shell]
             [re-frame.freehand.top-layer :as top-layer]
             [re-frame.freehand.web :as web]
             [re-frame.live-frame :as live-frame]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as test-support]
+            [re-frame.trace.tooling :as trace-tooling]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -228,6 +241,48 @@
                 :on-toggle          [:probe/toggled :inner]
                 :style              (nest-panel-style)}
           [:div {:role "option"} "This page"]]]]]]]))
+
+(v/defview interpreted-panel
+  "The BROWSER CONTROL for promotion parity: `pilot-overlay-compiled/panel`
+  with `{:compiled true}` removed and nothing else changed. Declared here
+  rather than borrowed, because a view id is derived from where a
+  declaration lives and this file has to mount both twins itself."
+  {:props [:map
+           [:open? :boolean]
+           [:control :any]]}
+  [{:keys [open? control]}]
+  [:div {:data-component "acme/dropdown"
+         :data-part      "root"
+         :style          {:display "inline-block" :position "relative"}}
+   [:button {:data-part     "anchor"
+             :type          "button"
+             :aria-expanded (if open? "true" "false")
+             :on-click      [:acme.ui.dropdown/anchor-clicked control]}
+    "Export as…"]
+   [:div {:data-part          "panel"
+          :role               "listbox"
+          :popover            :auto
+          ::web/popover-open? open?
+          :on-toggle          [:acme.ui.dropdown/toggle-reported control]
+          :style              {:position "fixed"
+                               :inset    "auto"
+                               :top      "var(--acme-anchor-y)"
+                               :left     "var(--acme-anchor-x)"
+                               :margin   0}}
+    "PDF"]])
+
+(v/defview unreconciled-promoted
+  "The POSITIVE CONTROL for the dismissal advisory: a promoted popover
+  asking to be open with nothing listening for the browser's own closing
+  report. It is the mistake the pilot's dropdown does not make, declared
+  in the same mode, so \"the pilot is not accused\" is a reading of the
+  advisory rather than of a channel that was never live."
+  {:compiled true}
+  [_]
+  [:div {:id                 "unreconciled-promoted"
+         :popover            :auto
+         ::web/popover-open? true}
+   "menu"])
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -897,3 +952,199 @@
                        (teardown! container root)
                        (done)))
               (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+
+;; ===========================================================================
+;; PROMOTION PARITY, MOUNTED — the compiled twin reaches the top layer
+;; ===========================================================================
+
+(defn- dom-shape
+  "A mounted subtree as comparable data: every element, its attribute
+  names and values, its text, and its children in document order.
+
+  Deliberately NOT `outerHTML`. The two emitters write the same
+  attributes to an element in a different ORDER, which nothing in a
+  browser can observe but which makes string equality a false negative.
+  Comparing the attribute SET is the parity question that means
+  something, and it is stricter than `outerHTML` everywhere else: a
+  missing attribute, a changed value, an extra node or a reordered child
+  all still fail."
+  [node]
+  (if (= 3 (.-nodeType node))
+    (.-nodeValue node)
+    {:tag      (.-tagName node)
+     :attrs    (into (sorted-map)
+                     (map (fn [a] [(.-name a) (.-value a)]))
+                     (js/Array.from (.-attributes node)))
+     :children (mapv dom-shape (js/Array.from (.-childNodes node)))}))
+
+(defn- overlay-arm!
+  "Drive ONE twin through closed → open → a real click on its anchor, and
+  hand back what the document said at each step.
+
+  The two arms run one at a time, on their own mount, rather than side by
+  side in one commit. That is the platform's rule rather than a
+  convenience: sibling `:auto` popovers are mutually exclusive, so asking
+  both twins to be open at the same moment would light-dismiss the first
+  and the comparison would be reading the exclusivity contract instead of
+  the promotion one."
+  [form]
+  (let [[container root] (mount!)
+        render    (fn [open?]
+                    (act #(.render root (element [form {:open? open? :control k}]))))
+        panel     (fn [] (.querySelector container "[data-part='panel']"))
+        promoted? (fn [] (some-> (panel) (.matches ":popover-open")))
+        root-node (fn [] (.-firstElementChild container))
+        seen      (atom {})]
+    (frame/replace-app-db! fid {})
+    (-> (render false)
+        (.then (fn [_] (settle)))
+        (.then (fn [_]
+                 (swap! seen assoc :closed {:shape    (dom-shape (root-node))
+                                            :promoted (promoted?)})
+                 (render true)))
+        (.then (fn [_] (settle)))
+        (.then (fn [_]
+                 (swap! seen assoc :open {:shape    (dom-shape (root-node))
+                                          :promoted (promoted?)})
+                 (act #(.click (.querySelector container "[data-part='anchor']")))))
+        (.then (fn [_]
+                 (swap! seen assoc :clicked (record))
+                 (teardown! container root)
+                 @seen)))))
+
+(deftest promotion-puts-the-panel-in-the-top-layer-on-a-real-page
+  (testing "Promotion parity, read off the document instead of off a tree.
+
+            The structural rows in `pilot-overlay-parity-cljs-test` prove
+            the two declarations DENOTE the same node. They cannot prove
+            that the promoted one reaches a page, because a structural
+            render has no host to call: `:popover-open` is a platform
+            state, and the reserved desired-state property only becomes
+            one when an emitter turns it into a host call at a commit.
+
+            So each twin is mounted, driven closed → open, and clicked.
+            Three things follow that no structural row can state: the
+            compiled emitter really installs the top-layer host call, so
+            a promoted panel is genuinely IN the top layer; the compiled
+            event site really dispatches a live DOM event into app-db;
+            and the document the compiled emitter builds is the document
+            the interpreted one builds, attribute for attribute and
+            character for character, in both states.
+
+            What is still NOT provable here is the measure-then-place
+            half. A compiled body may not attach a behavior, so the
+            placement the pilot's real dropdown gets from `anchor-box`
+            has no promoted form to compare — that refusal is pinned,
+            with its diagnostic, in `pilot-overlay-parity-cljs-test`."
+    (if-not (browser?)
+      (skip! "the browser job runs the promotion-parity assertions")
+      (async done
+        (setup!)
+        (let [seen (atom {})]
+          (-> (overlay-arm! interpreted-panel)
+              (.then (fn [a]
+                       (swap! seen assoc :interpreted a)
+                       (overlay-arm! compiled/panel)))
+              (.then (fn [b]
+                       (swap! seen assoc :promoted b)
+                       (let [i (:interpreted @seen)
+                             c (:promoted @seen)]
+                         (is (false? (get-in i [:closed :promoted]))
+                             "non-vacuous: the interpreted panel is NOT in the top layer
+                              before it is asked to be")
+                         (is (false? (get-in c [:closed :promoted]))
+                             "non-vacuous: neither is the compiled one")
+                         (is (true? (get-in i [:open :promoted]))
+                             "asked to be open, the interpreted panel is in the top layer")
+                         (is (true? (get-in c [:open :promoted]))
+                             "AND SO IS THE COMPILED ONE — the promoted declaration's
+                              reserved desired state became a host call at the commit")
+                         (is (= (get-in i [:closed :shape]) (get-in c [:closed :shape]))
+                             "closed, the two emitters build the same document: every
+                              element, every attribute, every character of text, in order")
+                         (is (= (get-in i [:open :shape]) (get-in c [:open :shape]))
+                             "and open, they still do")
+                         (is (= {:open? true :active 0} (:clicked c))
+                             (str "the COMPILED anchor's event site dispatched a live "
+                                  "browser click into app-db — " (pr-str (:clicked c))))
+                         (is (= (:clicked i) (:clicked c))
+                             "exactly as the interpreted twin's site does"))
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "the promotion pass threw " e))
+                        (done)))))))))
+
+(def ^:private fx-005 (conf/fixture :FH-TOPLAYER-005))
+
+(defn- advisories!
+  "The dismissal advisories the trace diagnostic bus carried while `f`'s
+  promise settled, in order. The advisory is published from the COMMITTED
+  ref, so the capture has to span the commit rather than the render call."
+  [f]
+  (let [records (atom [])
+        key*    (keyword (gensym "fh-overlay-advisory-"))]
+    (trace-tooling/register-listener!
+      key* (fn [ev] (when (= (:unreconciled-id fx-005) (:operation ev))
+                      (swap! records conj ev))))
+    (-> (f)
+        (.then (fn [_]
+                 (trace-tooling/unregister-listener! key*)
+                 @records))
+        (.catch (fn [e]
+                  (trace-tooling/unregister-listener! key*)
+                  (js/Promise.reject e))))))
+
+(deftest promotion-does-not-change-what-the-dismissal-advisory-says
+  (testing "The other half of the promoted install: an advisory is a
+            judgement about the ELEMENT, and a compiled element has no
+            runtime attribute map to judge — its props are written
+            imperatively onto a JS object. So the facts the judgement
+            needs travel with the desired state, and this row is what says
+            they arrived.
+
+            The pilot's dropdown reconciles its own dismissal (that is
+            what `:on-toggle` and the counting handshake are for), so
+            neither mode may accuse it. A promoted popover that really
+            declares no reconciliation IS accused, in the same mode, at
+            the same commit — which is what makes the pilot's silence a
+            reading rather than a dead channel."
+    (if-not (browser?)
+      (skip! "the browser job runs the advisory assertions")
+      (async done
+        (setup!)
+        (let [seen (atom {})
+              once (fn [form]
+                     (let [[container root] (mount!)]
+                       (-> (advisories!
+                             (fn [] (act #(.render root (element form)))))
+                           (.then (fn [records]
+                                    (teardown! container root)
+                                    records)))))]
+          (-> (once [compiled/panel {:open? true :control k}])
+              (.then (fn [r] (swap! seen assoc :compiled r)
+                       (once [interpreted-panel {:open? true :control k}])))
+              (.then (fn [r] (swap! seen assoc :interpreted r)
+                       (once [unreconciled-promoted {}])))
+              (.then (fn [r]
+                       (swap! seen assoc :control r)
+                       (let [{c :compiled i :interpreted ctl :control} @seen]
+                         (is (= 1 (count ctl))
+                             (str "non-vacuous: the channel is live — a promoted popover "
+                                  "with no dismissal handler IS accused, from a COMPILED "
+                                  "declaration (" (pr-str (mapv :operation ctl)) ")"))
+                         (when-some [ev (first ctl)]
+                           (is (= :popover (:mechanism (:tags ev)))
+                               "naming the mechanism")
+                           (is (= [:on-toggle :on-before-toggle] (:handlers (:tags ev)))
+                               "and the positions that would reconcile it"))
+                         (is (= [] i)
+                             "the pilot's panel reconciles its own dismissal, so the
+                              interpreted twin is not accused")
+                         (is (= [] c)
+                             "AND NEITHER IS THE COMPILED ONE — the `:on-toggle` it
+                              declares reached the judgement that promotion could
+                              have hidden"))
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "the advisory pass threw " e))
+                        (done)))))))))
