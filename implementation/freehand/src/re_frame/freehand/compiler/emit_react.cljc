@@ -585,6 +585,25 @@
     ~(:timeout-ms node)
     ~(or (children-form e st (:children node)) `(cljs.core/array))))
 
+(defn- emit-behavior
+  "A `v/behavior` attachment in the browser. The already-built child element is
+  handed to `re-frame.freehand.behaviors`' shared runtime:
+  `check-attach-opts!` validates the registered id and the config-is-data law,
+  `use-attachment!` installs the CLOSED-timing lifecycle arms, and `attach`
+  chains the ref onto the author's OWN node — the same functions the
+  interpreted `behavior-component` reaches, so a compiled attachment and its
+  interpreted twin connect, update, command and tear down identically (D013,
+  rf2-drpa3.127). The one-element child shape was proven at build; the ref
+  rides that one element."
+  [e st node]
+  (let [opts (cond-> {:use (:use node)}
+               (:has-target? node) (assoc :target (:target node))
+               (:has-config? node) (assoc :config (:config node)))]
+    `(re-frame.freehand.behaviors/compiled-attachment
+      ~(when (get-in node [:key :present?]) (get-in node [:key :expr]))
+      ~opts
+      ~(emit-node e st (:child node)))))
+
 ;; ---------------------------------------------------------------------------
 ;; The walk
 ;; ---------------------------------------------------------------------------
@@ -606,6 +625,7 @@
     :element  (emit-element e st node)
     :fragment (emit-fragment e st node)
     :view     (emit-view e st node)
+    :behavior (emit-behavior e st node)
     :for      (emit-for e st node)
     :slot     (emit-slot e st node)
     :presence (emit-presence e st node)

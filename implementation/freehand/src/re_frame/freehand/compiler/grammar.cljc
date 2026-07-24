@@ -49,7 +49,7 @@
   no unknown-node arm, which is what makes escaping structural rather
   than defensive."
   #{:text :nothing :expr :element :fragment :view :for :if :let :letfn :case
-    :presence :slot})
+    :presence :slot :behavior})
 
 (def element-props-carriers
   "The CLOSED roster of an ELEMENT's `:props` slots that carry AUTHORED

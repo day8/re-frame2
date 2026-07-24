@@ -358,16 +358,21 @@
       (or (nil? rest*)
           (and (map? (first rest*)) (nil? (next rest*)))))))
 
-(defn read-opts
-  "Validate one `[v/behavior {…} node]` call and answer
-  `{:use :target :config :child}`.
+(defn check-attach-opts!
+  "Validate the closed option roster and the `:use`/`:config` values of one
+  `[v/behavior {…} node]` call, and answer `{:use :target :config}` — every
+  arm `read-opts` runs EXCEPT the child.
 
-  The whole closed grammar lives here, so the two execution modes and the
-  two hosts agree about one declaration by construction rather than by
-  agreement. Every arm raises `:rf.error/behavior-bad-args`."
+  The child is validated where each mode can prove it: the compiled analyzer
+  proves the one-element law at build, and [[read-opts]] (the JVM structural
+  render and the interpreted browser walk) checks the child SHAPE it was
+  handed. Both reach THIS for the use and the config, so a compiled attachment
+  and its interpreted twin refuse an unregistered id or a non-data config with
+  the one diagnostic rather than two. Every arm raises
+  `:rf.error/behavior-bad-args`."
   [props]
   (let [unknown (vec (sort (remove option-keys (remove #{:children} (keys props)))))
-        {:keys [use target config children]} props]
+        {:keys [use target config]} props]
     (when (seq unknown)
       (bad-args!
         'v/behavior
@@ -411,6 +416,18 @@
              "report, and let :connect build what the host needs.")
         :keep-the-config-data
         {:path path :value (shape bad)}))
+    {:use use :target target :config config}))
+
+(defn read-opts
+  "Validate one `[v/behavior {…} node]` call and answer
+  `{:use :target :config :child}`.
+
+  The whole closed grammar lives here, so the two execution modes and the
+  two hosts agree about one declaration by construction rather than by
+  agreement. Every arm raises `:rf.error/behavior-bad-args`."
+  [props]
+  (let [{:keys [use target config]} (check-attach-opts! props)
+        children (:children props)]
     (when-not (= 1 (count children))
       (bad-args!
         'v/behavior
@@ -841,6 +858,42 @@
   releases before them ([[re-frame.freehand.refs]])."
   [element ref]
   (react/cloneElement element #js {:ref (refs/chain (refs/element-ref element) ref)}))
+
+;; ---------------------------------------------------------------------------
+;; The COMPILED-tier realisation (rf2-drpa3.127)
+;; ---------------------------------------------------------------------------
+;;
+;; A compiled body resolved the decorated element at build time, so the browser
+;; needs no walk and no candidate of its own here: the element's event sites
+;; were already committed under the compiled view's candidate, and its
+;; one-element shape was proven by the compiled analyzer. What is left is
+;; exactly the lifecycle — and that is the interpreted boundary's own
+;; `use-attachment!`/`attach`/`check-attach-opts!`, reached identically, so a
+;; compiled attachment connects, updates, commands and tears down the same as
+;; its interpreted twin (D013). The difference from `behavior-component` is the
+;; difference between the two modes and nothing else: the interpreted boundary
+;; WALKS its child from markup, this one is HANDED it already built — exactly
+;; the split `presence-boundary` has across `presence-node` and `emit-presence`.
+
+(defn ^:no-doc behavior-el
+  [js-props]
+  (let [opts     (unchecked-get js-props "opts")
+        child    (unchecked-get js-props "child")
+        _        (check-attach-opts! opts)
+        set-node (use-attachment! opts)]
+    (attach child set-node)))
+
+(set! (.-displayName behavior-el) (str behavior-view-id))
+
+(defn ^:no-doc compiled-attachment
+  "The value a compiled body hands React for one `[v/behavior {…} node]`: the
+  boundary element wrapping the already-built child. `key` is the React key when
+  the attachment is a keyed list row, and nil in the ordinary case."
+  [key opts child]
+  (react/createElement behavior-el
+                       (if (nil? key)
+                         #js {"opts" opts "child" child}
+                         #js {"key" key "opts" opts "child" child})))
 
    ))
 
