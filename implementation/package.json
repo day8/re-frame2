@@ -25,6 +25,7 @@
   "scripts": {
     "dev": "node scripts/dev-testbed.cjs",
     "bench:freehand-node": "shadow-cljs compile freehand-bench-node >&2 && node out/freehand-bench-node.js",
+    "bench:freehand-browser": "shadow-cljs compile browser-test-freehand-bench && node scripts/serve-and-run-browser-tests.cjs --root out/browser-test-freehand-bench --port 8024",
     "test:cljs": "shadow-cljs compile node-test && node out/node-test.js",
     "test:cljs-isolation": "shadow-cljs compile node-test && node scripts/check-per-ns-isolation.cjs",
     "test:security": "shadow-cljs compile node-test-security && node out/node-test-security.js",

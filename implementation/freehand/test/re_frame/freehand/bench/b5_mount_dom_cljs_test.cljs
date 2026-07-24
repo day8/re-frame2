@@ -30,9 +30,20 @@
   non-vacuity: the shape actually mounted, both tiers reached the DOM, and
   the timer moved.
 
+  ## Citable there, readable here
+
+  A browser has no environment and no git, so the revision a record must
+  name can only be compiled in — `re-frame.freehand.bench.provenance`'s
+  `build-revision` define. The per-PR `:browser-test` gate sets none and the
+  record it publishes is honestly marked NOT CITABLE; the evidence lane's
+  `:browser-test-freehand-bench` build reads the sha from `RF2_REVISION` and
+  the same record becomes citable, validated through `provenance/result`
+  with no change here.
+
   Node has no browser to mount into, so under the node lane this SKIPS
   cleanly on `(browser?)` — the same posture the other `*-dom` benches keep.
-  It runs for real under `npm run test:browser`.
+  It runs for real under `npm run test:browser`, and for the record under
+  `npm run bench:freehand-browser`.
 
   Normative owner: `docs/design/freehand/decisions/`
   `D021-performance-budgets-and-release-evidence.md`."
@@ -161,14 +172,24 @@
     (.remove (:container arm)))
   nil)
 
-(defn- publish! [record]
+(defn- publish!
+  "Write the record to the console as EDN, prefixed with whether it is
+  citable.
+
+  A citable record goes through `provenance/result` — the ONE documented
+  emission door — so a browser record is validated by exactly what validates
+  a JVM one, rather than by a bypass that logs whatever it was handed. An
+  unattributable one (a build that compiled no revision in) is printed as it
+  stands rather than forced through the door, which would throw; it is still
+  worth reading and is not worth citing, and the line says which."
+  [record]
   (let [ds (prov/defects record)]
     (js/console.log
       (str ";; B5 initial-mount evidence — "
            (if (seq ds)
-             (str "NOT CITABLE (" (count ds) " provenance field(s) unnamed by this run)")
+             (str "NOT CITABLE (" (count ds) " provenance field(s) unnamed by this build)")
              "citable")
-           "\n" (pr-str record)))))
+           "\n" (pr-str (if (seq ds) record (prov/result record)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The reading

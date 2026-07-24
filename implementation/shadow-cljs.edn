@@ -1149,6 +1149,55 @@
    :devtools  {:http-port 8023
                :http-root "out/browser-test-prod-elision"}}
 
+  ;; rf2-drpa3.147 / rf2-drpa3.52 — the Freehand B-spine's BROWSER evidence
+  ;; lane, and the only build in the repo that names the revision its bundle
+  ;; was compiled from.
+  ;;
+  ;; WHY A BUILD AT ALL. B2's mounted storm, B4's latency row and B5's
+  ;; initial-mount reading publish their result records from inside a real
+  ;; browser, and `re-frame.freehand.bench.provenance` refuses to call any
+  ;; record citable that cannot name the revision it was built from. A
+  ;; browser has no environment and no git, so the revision can only arrive
+  ;; at COMPILE time, through the closure-define the provenance namespace
+  ;; documents. The default `:browser-test` build sets none — deliberately:
+  ;; it is the per-PR correctness gate, its bundle is cached across runs,
+  ;; and baking a per-commit constant into it would bust that cache on every
+  ;; push to buy evidence nobody captures. So the evidence lane gets its own
+  ;; build, and the PR gate is left alone.
+  ;;
+  ;; THE REVISION IS READ, NEVER WRITTEN. `#shadow/env` — the same mechanism
+  ;; the testbed builds use for `checkout-root` — reads `RF2_REVISION` from
+  ;; the environment the compile runs in (the workflow sets it to
+  ;; `github.sha`; a local run exports its own `git rev-parse HEAD`). Its
+  ;; default is the EMPTY STRING, which `detect-revision` reads as "this
+  ;; build cannot name one" and which makes every record it publishes print
+  ;; NOT CITABLE. That is the honest degrade the provenance door exists for:
+  ;; an unset environment produces an unattributable record, never an
+  ;; invented revision.
+  ;;
+  ;; The ns-regexp selects the bench's own DOM suites and nothing else, so
+  ;; the captured console is the evidence rather than a 757-test transcript
+  ;; to sift. Those same namespaces still run under the broader
+  ;; `:browser-test` gate on every PR — this build adds a revision, not a
+  ;; second copy of the coverage.
+  ;;
+  ;; Run by `npm run bench:freehand-browser`; the workflow's browser lane
+  ;; captures its console and uploads it beside the JVM and Node artefacts.
+  :browser-test-freehand-bench
+  {:target    :browser-test
+   :ns-regexp "^re-frame\\.freehand\\.bench\\..+-dom-cljs-test$"
+   :test-dir  "out/browser-test-freehand-bench"
+   :runner-ns shadow.test.browser
+   ;; cljs-test-display.core/printing for the same reason :browser-test sets
+   ;; it — without it the "Ran N tests" summary never reaches the console the
+   ;; Playwright runner watches, and a green suite presents as a hang.
+   :compiler-options
+   {:closure-defines
+    {cljs-test-display.core/printing                   true
+     re-frame.freehand.bench.provenance/build-revision #shadow/env ["RF2_REVISION" ""]}}
+   :devtools  {:http-port 8024
+               :http-root "out/browser-test-freehand-bench"}}
+
   ;; Production-elision probe (Spec 009 §Production builds, bead rf2-11hn).
   ;;
   ;; Compiles re-frame.elision-probe under :advanced with goog.DEBUG=false.

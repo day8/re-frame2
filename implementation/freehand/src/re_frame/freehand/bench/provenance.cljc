@@ -76,6 +76,12 @@
    ;;
    ;;   :closure-defines {re-frame.freehand.bench.provenance/build-revision "<sha>"}
    ;;
+   ;; The `:browser-test-freehand-bench` build in implementation/shadow-cljs.edn
+   ;; is the one that does — reading the sha from `RF2_REVISION` through
+   ;; `#shadow/env` rather than holding a literal, so the define says which
+   ;; commit the bundle was compiled from and not which commit someone last
+   ;; edited the config on.
+   ;;
    ;; Left empty, a browser run cannot emit a result record — which is the
    ;; correct outcome, not an inconvenience: an unattributable bundle
    ;; measurement is a number about nothing.
