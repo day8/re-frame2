@@ -288,6 +288,14 @@
   (v/expand-defview nil aenv probe-meta probe-file 'cljs.user verb
                     (list {:compiled true} '[_] body)))
 
+(defn- interpreted-declaration-form
+  "The same production door with NO `{:compiled true}` — the paved path. It
+  emits the same `(def …)`, so it has the same Var to define and the same
+  same-named refer standing in front of it."
+  [aenv verb body]
+  (v/expand-defview nil aenv probe-meta probe-file 'cljs.user verb
+                    (list '[_] body)))
+
 (defn- self-react-body
   "The React realisation of `(defview <verb> [] [<verb> {}])` in the referred
   cljs.user namespace — the self view named `verb` recurses on a bare `[verb {}]`
@@ -398,6 +406,22 @@
         (is (= "cljs.user.sub" (compile-js aenv 'sub))
             "after the declaration the bare name resolves to the declared view,
              not through the refer — ordinary def-shadows-refer semantics")))))
+
+(deftest an-interpreted-declaration-defines-its-current-ns-var-too
+  ;; The audit's "check the interpreted declaration path too if it shares the
+  ;; same `(def …)` resolution boundary" — it does. An interpreted `v/defview`
+  ;; has no analysis and no emitter, but it emits the SAME `(def …)`, so it had
+  ;; the same split identity and no emitter-hosted repair could ever have
+  ;; reached it. This is the row that says the shadow belongs at the
+  ;; declaration.
+  (doseq [verb '[sub frame]]
+    (with-referred-cljs-env
+      (fn [aenv]
+        (let [js (compile-js aenv (interpreted-declaration-form aenv verb [:div "x"]))]
+          (is (re-find (re-pattern (str "cljs\\.user\\." (name verb) "\\s*=")) js)
+              (str verb " — the interpreted declaration defines the current-namespace Var"))
+          (is (not (re-find (re-pattern (str "re_frame\\.freehand\\." (name verb) "\\b")) js))
+              (str verb " — and emits zero authoring-Var definition or reference")))))))
 
 (deftest a-declaration-leaves-unrelated-refers-and-heads-untouched
   ;; Preserve unrelated behavior: the shadow is exactly one name wide. A view
