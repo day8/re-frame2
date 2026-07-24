@@ -346,6 +346,72 @@
                (emit-var-js aenv (symbol "cljs.user" (name verb))))
             (str "the qualified " verb " head resolves to the current-namespace Var"))))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-drpa3.108 — the emitter may not name a re-frame.freehand var that does
+;; not exist. `emit-defview` used to wrap the view body in
+;; `re-frame.freehand.tree/view-boundary` and emit a
+;; `re-frame.freehand.tree/register-view!` call; NEITHER function was ever built
+;; (the donor's runtime was not transplanted with its call sites). The calls
+;; only ever rode `emit-defview`'s RETURNED form — the live `v/defview` path
+;; routes through `expand-defview` -> `compile-structural-view` /
+;; `descriptor/declare-view`, never here — so nothing evaluated the form and the
+;; tier stayed green rather than failing at load with unresolved-var errors.
+;; This positively enumerates the re-frame.freehand vars the emitter names and
+;; confirms each resolves, the method the bead asked for (absence of a failure
+;; was never evidence the emission could run).
+;; ---------------------------------------------------------------------------
+
+(defn- plain-emit-args
+  "emit-defview args for a plain (non-self) element template `[:div …]` in the
+  referred cljs.user namespace — the emitter under test, driven the way
+  `compiler/defview**` drives it, minus the self-recursion machinery."
+  [aenv vname template]
+  (let [e   (referred-env aenv vname)
+        ast (analyze/analyze e template)]
+    {:vname vname
+     :self-fqn (symbol "cljs.user" (name vname))
+     :view-id (keyword "cljs.user" (name vname))
+     :display-name (str "cljs.user/" (name vname))
+     :docstring nil
+     :header (header/parse-header [])
+     :slots []
+     :ast ast
+     :manifest {:view-id (keyword "cljs.user" (name vname)) :sites {} :children? false}
+     :closed-keys nil
+     :children? false}))
+
+(defn- freehand-qualified-syms
+  "Every namespace-qualified symbol in `form` whose namespace is one of
+  re-frame.freehand's own runtime namespaces — the class the emitter must not
+  name unless it resolves."
+  [form]
+  (let [acc (atom #{})]
+    (walk/postwalk
+     (fn [x]
+       (when (and (symbol? x)
+                  (some-> (namespace x) (.startsWith "re-frame.freehand")))
+         (swap! acc conj x))
+       x)
+     form)
+    @acc))
+
+(deftest emit-defview-names-no-unresolvable-freehand-var
+  (with-referred-cljs-env
+    (fn [aenv]
+      (let [form (emit-jvm/emit-defview
+                  (plain-emit-args aenv 'panel '[:div [:span "hi"]]))
+            fh   (freehand-qualified-syms form)]
+        (is (seq fh)
+            "the emitted view fn names re-frame.freehand runtime vars (node/element, node/children)")
+        (doseq [s fh]
+          (is (some? (requiring-resolve s))
+              (str s " must resolve — the emitter may not name a var that does not exist")))
+        (testing "the phantom donor wrappers are gone (rf2-drpa3.108)"
+          (is (not (contains? fh 're-frame.freehand.tree/view-boundary))
+              "the view-boundary wrapper that named a nonexistent fn is removed")
+          (is (not (contains? fh 're-frame.freehand.tree/register-view!))
+              "the register-view! call that named a nonexistent fn is removed"))))))
+
 ;; rf2-eukmp's rows analyzed and compiled the WHOLE emitted `(declare/defn/def)`
 ;; do-form through real cljs.analyzer + cljs.compiler, proving the view's own def
 ;; targeted the current-namespace Var rather than resolving its NAME through a
