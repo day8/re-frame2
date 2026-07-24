@@ -17,6 +17,7 @@
             [re-frame.freehand.compiler.build :as build]
             [re-frame.freehand.compiler.env :as env]
             [re-frame.freehand.controlled :as controlled]
+            [re-frame.freehand.conversion :as conv]
             [re-frame.freehand.events :as events]
             [re-frame.freehand.fingerprint :as fingerprint]
             [re-frame.freehand.props-schema :as props-schema]
@@ -2012,24 +2013,17 @@
                    (str "prop keys must be literal keywords; got " (pr-str k))
                    {:key k}))
       (check-rejected-spelling! e k))
-    ;; The `#id` conflict, judged by the emitted SLOT the key projects onto
-    ;; rather than by the raw `:id`. `:x/id` compiles to the same React
-    ;; property the sugar does, and the compiled emitter writes the sugar
-    ;; pair first, so the authored one won — while the structural lowering
-    ;; carried both. Same projection `check-rejected-spelling!` above reads
-    ;; (rf2-drpa3.101).
-    (when-some [dup (and (:id tag-info)
-                         (first (filter #(= rules/sugar-id-slot (rules/caller-key-slot %))
-                                        (keys m))))]
-      (env/fail! e :rf.ui.compile/id-sugar-conflict
-                 (str "#" (:id tag-info) " sugar AND " dup " on " tag
-                      " — two id spellings on one element is an ambiguity, "
-                      "and this grammar removes ambiguities. Keep one"
-                      (when (not= :id dup)
-                        (str " (" dup " is :id written differently — a namespace is "
-                             "dropped on the way to the DOM, so both compile to the "
-                             "same prop)")))
-                 {:tag tag :prop dup}))
+    ;; The id-slot CARDINALITY, judged by the emitted SLOT each key projects
+    ;; onto rather than by the raw `:id`. Every id spelling — the `#id` sugar,
+    ;; `:id`, `:x/id` — compiles to the same React property, so `#id` sugar
+    ;; occupies the slot once and beyond that a literal props map may carry at
+    ;; most one id-slot key. The compiled emitter wrote the sugar pair first,
+    ;; so a second spelling won while the structural lowering carried both.
+    ;; One reading of the law, shared with both interpreted walks and the
+    ;; runtime spread seam (rf2-5r1af, rf2-drpa3.101).
+    (when-some [{:keys [message offenders]} (conv/id-conflict tag (:id tag-info) (keys m))]
+      (env/fail! e :rf.ui.compile/id-sugar-conflict message
+                 {:tag tag :props offenders}))
     (let [m          (reduce-kv #(assoc %1 (rules/canonical-attr-key %2) %3) {} m)
               key-form   (get m :key)
               m*         (dissoc m :key :class :style :ref)
