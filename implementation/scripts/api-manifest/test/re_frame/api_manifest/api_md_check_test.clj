@@ -370,6 +370,76 @@
       (is (= "unmount!" (:var (first problems)))))))
 
 ;; ---------------------------------------------------------------------------
+;; Root-verb attribution keys on the NAMESPACE, not the bare name (rf2-etj5i).
+;;
+;; `root-ui-row?` treated ANY bare row named create-root / render! /
+;; hydrate-root / unmount! as a re-frame.ui row. Today's Freehand rows survive
+;; only because they are written QUALIFIED (`re-frame.freehand/hydrate-root`).
+;; A future BARE Freehand row (the natural spelling once a section header
+;; already scopes the table) would be mis-attributed to re-frame.ui and could
+;; FALSE-RED (a correct Freehand row judged against re-frame.ui's verb kinds) or
+;; FALSE-GREEN (a re-frame.ui deletion silently satisfied by the Freehand row).
+;; The fix attributes a bare row by the SECTION namespace it sits under, so a
+;; bare Freehand-section row resolves to re-frame.freehand — not re-frame.ui.
+;; ---------------------------------------------------------------------------
+
+(deftest bare-freehand-section-row-does-not-false-red-a-ui-row
+  (testing "FALSE-RED half (rf2-etj5i): a BARE Freehand-section hydrate-root
+            row (Fn), ALONGSIDE the real re-frame.ui hydrate-root (M), is NOT
+            counted as a second re-frame.ui row — no duplicate, no wrong-kind;
+            attribution keys on :section-ns, so the real row keeps the check
+            green rather than reddening on a foreign door's bare row"
+    (is (empty? (kind-problems-for
+                  (conj root-rows-in-sync
+                        {:var "hydrate-root" :qualifier nil
+                         :section-ns "re-frame.freehand"
+                         :doc-kind :fn :line 231 :raw "hydrate-root"}))))))
+
+(deftest bare-freehand-section-row-does-not-false-green-a-deleted-ui-row
+  (testing "FALSE-GREEN half (rf2-etj5i): with the real re-frame.ui unmount!
+            row DELETED, a BARE Freehand-section unmount! row (same :fn kind as
+            re-frame.ui's) does NOT satisfy the re-frame.ui requirement — it
+            resolves to re-frame.freehand by its section, so the deletion is
+            caught :kind-row-missing rather than silently adopted as green"
+    (let [problems (kind-problems-for
+                     (conj (drop-row "unmount!")
+                           {:var "unmount!" :qualifier nil
+                            :section-ns "re-frame.freehand"
+                            :doc-kind :fn :line 232 :raw "unmount!"}))]
+      (is (= 1 (count problems)))
+      (is (= :kind-row-missing (:kind (first problems))))
+      (is (= "unmount!" (:var (first problems)))))))
+
+(deftest parse-var-rows-attributes-bare-row-to-its-section-namespace
+  (testing "END-TO-END (rf2-etj5i): the pure parser attributes a BARE row to
+            the namespace its Markdown section heading names in a code span. A
+            bare hydrate-root under the re-frame.freehand heading carries
+            :section-ns \"re-frame.freehand\"; the bare hydrate-root under the
+            re-frame.ui heading carries \"re-frame.ui\" — so the kind guard sees
+            exactly ONE re-frame.ui hydrate-root, never the Freehand one"
+    (let [lines   [[1 "## Freehand views — `re-frame.freehand` (Spec 004)"]
+                   [2 ""]
+                   [3 "| API | M/Fn | Tier | Notes |"]
+                   [4 "|-----|------|------|-------|"]
+                   [5 "| `hydrate-root` | Fn | front-porch | the freehand door |"]
+                   [6 ""]
+                   [7 "## Compiled views — `re-frame.ui` (Spec 004D)"]
+                   [8 ""]
+                   [9 "| API | M/Fn | Tier | Notes |"]
+                   [10 "|-----|------|------|-------|"]
+                   [11 "| `hydrate-root` | M | advanced | the compiled door |"]]
+          parsed  (c/parse-var-rows lines)
+          by-line (into {} (map (juxt :line identity)) parsed)]
+      (is (= "re-frame.freehand" (:section-ns (get by-line 5)))
+          "the bare hydrate-root under the Freehand heading is attributed to re-frame.freehand")
+      (is (= "re-frame.ui" (:section-ns (get by-line 11)))
+          "the bare hydrate-root under the re-frame.ui heading is attributed to re-frame.ui")
+      (let [rows     [{:namespace "re-frame.ui" :var "hydrate-root" :kind :macro}]
+            problems (c/root-verb-kind-problems {:rows rows :api-rows parsed})]
+        (is (empty? (filter #(= "hydrate-root" (:var %)) problems))
+            "exactly one re-frame.ui hydrate-root is seen — the bare Freehand row is not counted, so no duplicate false-red")))))
+
+;; ---------------------------------------------------------------------------
 ;; END-TO-END parser disappearance (rf2-asxo3).
 ;;
 ;; The pure `parse-var-rows` core lets us feed synthetic indexed API.md lines.

@@ -170,12 +170,29 @@
   [cells]
   (first (keep-indexed (fn [i c] (when (= "Tier" (str/trim c)) i)) cells)))
 
+(defn- section-heading-namespace
+  "The owning namespace a Markdown SECTION HEADING names in a back-tick code
+   span — ``## Compiled views — `re-frame.ui` `` -> \"re-frame.ui\",
+   ``## Freehand views — `re-frame.freehand` `` -> \"re-frame.freehand\" — or nil
+   for a non-heading line or a heading that carries no code-span namespace
+   (`## Registration`). A BARE var-row is attributed to the namespace of the
+   SECTION it sits under, never to its bare name alone: a bare root verb is a
+   `re-frame.ui` verb only inside the `re-frame.ui` section, so a future bare
+   Freehand row (the natural spelling once a section header already scopes the
+   table) can no longer be mis-attributed to `re-frame.ui` (rf2-etj5i)."
+  [line]
+  (when (str/starts-with? (str/triml line) "#")
+    (second (re-find #"`([^`]+)`" line))))
+
 (defn parse-var-rows
   "Pure var-row parser over `[[line-no line-text] ...]` indexed API.md lines
    (rf2-asxo3 — extracted from `parse-api-md-var-rows` so parser DISAPPEARANCE
    is unit-testable with synthetic lines, mirroring the reconcile /
    option-guard pure cores). Returns the `[{:var :qualifier :tier :doc-kind
-   :line :raw} ...]` vector.
+   :section-ns :line :raw} ...]` vector — `:section-ns` is the namespace the
+   row's Markdown SECTION HEADING names in a code span (nil before the first
+   such heading), the context a BARE row is attributed to rather than its bare
+   name (rf2-etj5i).
 
    A row whose `M/Fn` cell is NOT a recognised var-kind marker (`var-kind-
    marker?` — e.g. the marker drifted to an unknown spelling like `Macro`) is
@@ -183,21 +200,29 @@
    root-verb kind guard must not silently pass — it turns a dropped root-verb
    row into a caught `:kind-row-missing`, not a green (rf2-asxo3)."
   [indexed-lines]
-  (loop [lines    indexed-lines
-         tier-idx nil
-         acc      (transient [])]
+  (loop [lines      indexed-lines
+         tier-idx   nil
+         section-ns nil
+         acc        (transient [])]
     (if-let [[[n line] & more] (seq lines)]
       (let [cells (table-row-cells line)]
         (cond
           (nil? cells)
-          ;; A non-table line ends the current table's column context.
-          (recur more nil acc)
+          ;; A non-table line ends the current table's column context; a
+          ;; SECTION HEADING additionally re-establishes the owning namespace a
+          ;; bare row is attributed to (rf2-etj5i). A non-heading line (prose,
+          ;; blank, blockquote) keeps the current section namespace.
+          (recur more nil
+                 (if (str/starts-with? (str/triml line) "#")
+                   (section-heading-namespace line)
+                   section-ns)
+                 acc)
 
           (header-row? cells)
-          (recur more (tier-col-index cells) acc)
+          (recur more (tier-col-index cells) section-ns acc)
 
           (separator-row? cells)
-          (recur more tier-idx acc)
+          (recur more tier-idx section-ns acc)
 
           :else
           (let [first-cell (first cells)
@@ -207,25 +232,28 @@
                      (< tier-idx (count cells)))
               (if-let [tier (first-tier-token (nth cells tier-idx))]
                 (let [[qualifier bare] (parse-first-cell-ident (second m))]
-                  (recur more tier-idx
-                         (conj! acc {:var       bare
-                                     :qualifier qualifier
-                                     :tier      tier
-                                     :doc-kind  (documented-kind kind-cell)
-                                     :line      n
-                                     :raw       (second m)})))
-                (recur more tier-idx acc))
-              (recur more tier-idx acc)))))
+                  (recur more tier-idx section-ns
+                         (conj! acc {:var        bare
+                                     :qualifier  qualifier
+                                     :tier       tier
+                                     :doc-kind   (documented-kind kind-cell)
+                                     :section-ns section-ns
+                                     :line       n
+                                     :raw        (second m)})))
+                (recur more tier-idx section-ns acc))
+              (recur more tier-idx section-ns acc)))))
       (persistent! acc))))
 
 (defn parse-api-md-var-rows
   "Parse spec/API.md and return `[{:var <bare-name> :qualifier <ns-or-alias
-   or nil> :tier <kw> :doc-kind <:macro/:fn/:var or nil> :line <n> :raw
-   <first-cell>} ...]` for every VAR-row found in any table that has a `Tier`
-   column. `:doc-kind` is the manifest `:kind` the row's `M/Fn` marker
-   documents (nil for a `Component` marker, which pins no single kind), so
+   or nil> :tier <kw> :doc-kind <:macro/:fn/:var or nil> :section-ns <ns-or-nil>
+   :line <n> :raw <first-cell>} ...]` for every VAR-row found in any table that
+   has a `Tier` column. `:doc-kind` is the manifest `:kind` the row's `M/Fn`
+   marker documents (nil for a `Component` marker, which pins no single kind), so
    the root-verb kind guard can reconcile it against the manifest
-   (rf2-e9q33). `:qualifier` is the
+   (rf2-e9q33). `:section-ns` is the namespace the row's Markdown section heading
+   names in a code span — how a BARE row is attributed to a namespace rather than
+   to its bare name (rf2-etj5i). `:qualifier` is the
    namespace/alias prefix for a qualified row (`uix-adapter`,
    `re-frame.http`) or nil for a bare row — preserved so qualified rows can
    resolve strictly against the manifest `[namespace var]` index
@@ -352,17 +380,24 @@
 
 (defn- root-ui-row?
   "True when an API.md var-row denotes a `re-frame.ui` root-lifecycle verb
-   (rf2-asxo3): its bare var is one of `root-verb-kinds` AND its qualifier
-   resolves EXACTLY to `re-frame.ui` — a BARE row (the documented convention
-   for the root verbs) or a qualifier that maps through `aliases` (else
-   verbatim) to `re-frame.ui`. A foreign same-name qualified row
-   (`other.ui/render!`) resolves to `other.ui`, is NOT a root-verb row, and so
-   can neither falsely PROVE nor falsely CONTRADICT the real `re-frame.ui`
-   row — the exactness hole the bare-name comparison had."
-  [aliases {:keys [var qualifier]}]
+   (rf2-asxo3; attribution keyed on the row's NAMESPACE, not its bare name —
+   rf2-etj5i): its bare var is one of `root-verb-kinds` AND its ACTUAL namespace
+   is `re-frame.ui`. A QUALIFIED row's namespace is its qualifier mapped through
+   `aliases` (else verbatim); a BARE row's namespace is the SECTION it sits under
+   (`:section-ns`), defaulting to `re-frame.ui` only for a row parsed with no
+   section context. So a foreign same-name qualified row (`other.ui/render!`)
+   resolves to `other.ui`, and a BARE row in the Freehand section (`:section-ns`
+   `re-frame.freehand`) resolves to `re-frame.freehand` — neither is a root-verb
+   row, and neither can falsely PROVE nor falsely CONTRADICT the real
+   `re-frame.ui` row. That closes both exactness holes the bare-name comparison
+   had: a foreign qualifier, AND a bare row mis-attributed to `re-frame.ui` by
+   its name when it in fact belongs to another door's section."
+  [aliases {:keys [var qualifier section-ns]}]
   (and (boolean (root-verb-kinds var))
-       (or (nil? qualifier)
-           (= root-verb-namespace (get aliases qualifier qualifier)))))
+       (= root-verb-namespace
+          (if qualifier
+            (get aliases qualifier qualifier)
+            (or section-ns root-verb-namespace)))))
 
 (defn root-verb-kind-problems
   "Two-sided documented-kind reconciler for the Spec-004C root verbs
@@ -373,13 +408,17 @@
    Returns the seq of problem maps; empty when all four verbs reconcile.
 
    `rows`     — manifest rows (each `{:namespace :var :kind ...}`).
-   `api-rows` — parsed API.md var-rows `{:var :qualifier :doc-kind :line :raw}`.
+   `api-rows` — parsed API.md var-rows `{:var :qualifier :doc-kind :section-ns
+                :line :raw}`.
    `aliases`  — `{alias -> namespace}` adapter `:as` aliases (defaults to
                 `adapter-aliases`) for EXACT qualifier resolution.
 
-   EXACT-ROW: `root-ui-row?` honours the preserved qualifier, so a foreign
-   same-name row (`other.ui/render!`) is not counted as the root verb — it can
-   neither prove nor contradict the real row (the bare-name comparison could).
+   EXACT-ROW: `root-ui-row?` attributes each row by its NAMESPACE — a qualified
+   row by its qualifier, a bare row by its section (rf2-etj5i) — so a foreign
+   same-name qualified row (`other.ui/render!`) OR a bare row in another door's
+   section (a bare Freehand `hydrate-root`) is not counted as the root verb, and
+   can neither prove nor contradict the real row (the bare-name comparison could
+   on both counts).
 
    POLARITY-SAFE: the reconcile is driven by the REQUIRED SET, not by whatever
    rows survive in `api-rows`. So a DELETED row, a row the parser DROPPED for an
