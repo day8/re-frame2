@@ -246,21 +246,30 @@ elements — the child path is browser-only, like the mount verbs.
   **JVM / server only.** Author it in a `.clj` (or JVM-loaded `.cljc`) server-render
   namespace; a CLJS expansion is the compile error
   `:rf.ui.compile/ui-render-static-jvm-only`, because the client emitter targets React
-  directly and there are no structural trees in the browser. Like the mount verbs it
-  is a **macro**, so the root form is literal at the call site — a runtime-assembled
-  vector is the same `:rf.ui.compile/runtime-root-form` compile error every root-form
-  entry raises — and the root-id derives from the **one** mounted view exactly as
-  `v/mount` derives it.
+  directly and there are no structural trees in the browser. **Unlike the mount
+  verbs** — `v/mount` / `v/hydrate-root` / `v/unmount!` are runtime fns — render-static
+  is a **macro**, so the root form is literal at the call site: a runtime-assembled
+  vector is the `:rf.ui.compile/runtime-root-form` compile error only a macro can raise
+  (a fn never sees the literal form), and the root-id derives from the **one** mounted
+  view exactly as `v/mount` derives it.
 
   **No silent elision** (Spec 004C §3, EP-0034 §2): a runtime-requiring capability —
   a subscription, a committed handler, an effect, a foreign head — anywhere in the
-  root's server-reachable view closure is a loud
-  `:rf.ui.compile/static-root-requires-runtime` build error with source coordinates,
-  never a capability quietly dropped from the static output. `v/client-only` stays
-  legal (only its capability-free fallback is server-reachable) and a deterministic
-  `use-id` is exempt. To server-render a live subtree, mount it in the browser with
-  `v/mount` / `v/hydrate-root`, or move it behind a `v/client-only` with a
-  capability-free fallback.
+  root's server-reachable view closure fails loud, never a capability quietly dropped
+  from the static output, and each tier proves this with what it has. A **compiled**
+  view is proven at **build** time — its manifest's `:static-facts` closure makes a
+  breach the compile error `:rf.ui.compile/static-root-requires-runtime` with source
+  coordinates — while an **interpreted** (paved-path) view has no manifest to consult
+  and is proven at **render**, where `re-frame.freehand.tree/emit-static-html` refuses
+  to fold a live capability out of the structural tree
+  (`:rf.error/static-render-requires-runtime`) and a reactive read fails on its own
+  account (`:rf.error/view-read-outside-render`). A referenced view whose static-render
+  facts cannot be obtained is reported **unproven** rather than assumed safe
+  (`:rf.ui.compile/static-root-unproven-dependency`). `v/client-only` stays legal (only
+  its capability-free fallback is server-reachable) and a deterministic `use-id` is
+  exempt. To server-render a live subtree, mount it in the browser with `v/mount` /
+  `v/hydrate-root`, or move it behind a `v/client-only` with a capability-free
+  fallback.
 
   `re-frame.freehand` takes **no compile-time require** on `re-frame.ssr`: the render
   reaches the SSR serialiser through the late-resolution seam
