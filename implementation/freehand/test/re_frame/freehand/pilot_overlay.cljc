@@ -54,7 +54,7 @@
   What is genuinely left is MEASUREMENT — where to put the panel — and
   that is exactly one registered behavior.
 
-  ## The two refs that must not meet
+  ## The two refs, and why they still sit apart
 
   [[anchor-box]] is attached to the dropdown's ROOT element, and the
   desired-state property is declared on the PANEL element inside it. That
