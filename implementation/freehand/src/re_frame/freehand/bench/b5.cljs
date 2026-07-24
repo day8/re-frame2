@@ -86,24 +86,34 @@
   "out/freehand-release/main.js")
 
 (def interpreted-bundle-path
-  "The INTERPRETED-ONLY twin of the release build
-  (`:freehand-release-interpreted`): the same entry app with every view held
-  on the interpreted path. Built with `shadow-cljs release
-  freehand-release-interpreted`."
+  "The arm of the MATCHED PAIR with no view lowered
+  (`:freehand-release-interpreted`, entry
+  `re-frame.freehand.release-app-lowered-none`). Built with `shadow-cljs
+  release freehand-release-interpreted`."
   "out/freehand-release-interpreted/main.js")
 
 (def compiled-bundle-path
-  "The COMPILED-ONLY twin of the release build
-  (`:freehand-release-compiled`): the same entry app with every view compiled
-  — no interpreted view reaches the bundle. Built with `shadow-cljs release
-  freehand-release-compiled`."
+  "The arm of the MATCHED PAIR with every view lowered
+  (`:freehand-release-compiled`, entry
+  `re-frame.freehand.release-app-lowered-full`) — no interpreted view reaches
+  this bundle. Built with `shadow-cljs release freehand-release-compiled`."
   "out/freehand-release-compiled/main.js")
 
 (def matched-bundle-paths
-  "The three matched release shapes, keyed by lowering. They differ ONLY in
-  view lowering — same entry app, same `:advanced`, same `goog.DEBUG` false —
-  so a byte that differs between them differs BECAUSE of lowering and nothing
-  else. Measured in order, this is the row B5's build lane publishes."
+  "The three release shapes B5's build lane measures, keyed by lowering.
+
+  `:interpreted` and `:compiled` are the MATCHED PAIR, and the delta is taken
+  over those two alone. Their entries are one source in two states —
+  identical character for character once the three `{:compiled true}` markers
+  are dropped and the equal-length `lowered-none`/`lowered-full` segment is
+  renamed, which `b5-matched-builds-cljs-test` asserts on every run — under
+  the same `:advanced` and the same `goog.DEBUG` false. A byte that differs
+  between them differs because of lowering.
+
+  `:mixed` is the SHIPPED-COST artefact (`:freehand-release`, one interpreted
+  leaf and its compiled twin under one root). It is built from its own entry
+  with its own registered ids and its own prose, so it is measured here for
+  context and is NOT byte-matched to the pair: no delta is taken against it."
   {:interpreted interpreted-bundle-path
    :mixed       default-bundle-path
    :compiled    compiled-bundle-path})
@@ -229,18 +239,25 @@
   not a per-view one. [[promotion-delta-workload]] publishes both, and names
   the per-view figure for the mean it is.
 
-  And lowering is the DOMINANT variable across the twins, not the only one.
-  The two entries are two namespaces, so each carries its own namespace name
-  into the bundle — through the ids the registrar keys on
-  (`…release-app-interpreted/bump` against `…release-app-compiled/bump`), the
-  root's DOM id, and the namespace docstring, which `:advanced` does NOT
-  strip: it ships once per declared view in both bundles. That prose differs
-  between the twins because it describes different things. Holding it still
-  needs one shared entry shape, which is `rf2-x4jda`'s remaining work; until
-  then the confound is NAMED in the published fixture rather than papered
-  over, and it is small — measured at merge `7ce0788d7e`, +297 raw bytes
-  against a raw delta of 18,475 (1.6%), of which +345 is docstring prose and
-  −48 the shorter identifiers.
+  Lowering is the only variable across the pair. The two entries are one
+  source in two states: identical character for character once the three
+  `{:compiled true}` markers are dropped and the `lowered-none`/`lowered-full`
+  segment is renamed, which `b5-matched-builds-cljs-test` asserts on every
+  run. Two fixture properties earn that, both of them consequences of what
+  `:advanced` does NOT strip:
+
+    - the two namespace segments are the SAME LENGTH, because a namespace's
+      own name rides into the bundle inside the registered event, sub and
+      frame ids, the view manifest and the compiled tier's source
+      coordinates;
+    - neither entry carries a namespace DOCSTRING — the view manifest ships
+      one once per declared view, so a docstring lands three times in the
+      artefact under the probe.
+
+  Both were confounds until `rf2-x4jda`: the entries this pair replaced had
+  differently-worded docstrings and namespace names of different lengths,
+  together worth +252 raw bytes of a 17,905-byte raw delta (1.4%). The pair
+  now measures 0.
 
   Both maps must be from the same [[measure-bundle]] shape; the raw, gzip
   (6 and 9) and brotli deltas are answered, plus each side's digest so the
@@ -254,22 +271,27 @@
    :compiled-sha256    (:sha256 compiled)})
 
 (def matched-on
-  "What the two twins genuinely hold still — the claim the delta rests on."
-  (str "same entry structure (a root over two counter leaves), same handlers, "
-       "same view bodies character-for-character, same :advanced optimisation, "
-       "same goog.DEBUG false, same output shape"))
+  "What the two arms genuinely hold still — the claim the delta rests on."
+  (str "the two entries are ONE SOURCE IN TWO STATES: identical character for "
+       "character once the three {:compiled true} markers are dropped and the "
+       "equal-length lowered-none/lowered-full segment is renamed, asserted on "
+       "every run by b5-matched-builds-cljs-test. Same handlers, same view "
+       "bodies, same root DOM id, no namespace docstring on either (:advanced "
+       "does not strip one and the manifest ships it per declared view), same "
+       ":advanced optimisation, same goog.DEBUG false, same output shape"))
 
 (def not-matched-on
-  "What the two twins do NOT hold still, stated so a reader can discount it.
+  "What the two arms do NOT hold still, stated so a reader can discount it.
 
   Published in the delta's fixture because a caveat that lives only in a
   reviewer's memory is not part of the evidence. See [[promotion-delta]]."
-  (str "the two entries are two NAMESPACES, so each ships its own namespace "
-       "name: the registered event/sub/frame ids, the root's DOM id, and the "
-       "namespace docstring, which :advanced does not strip and which differs "
-       "in prose between the twins. Measured at 7ce0788d7e this accounted for "
-       "+297 raw bytes of an 18,475-byte raw delta (1.6%). Removing it needs "
-       "one shared entry shape across the three builds (rf2-x4jda)"))
+  (str "they remain two NAMESPACES, so the identity strings each ships — the "
+       "registered event/sub/frame ids, the view manifest, the compiled tier's "
+       "source coordinates — differ in CONTENT: lowered-none against "
+       "lowered-full. The two segments are the same length, so the raw delta "
+       "carries none of that; differing content can still move a few bytes "
+       "under gzip and brotli. The per-view figures are a MEAN over the "
+       "promoted view count, not a per-declaration observation"))
 
 (defn promotion-delta-workload
   "The per-promotion byte delta as a WORKLOAD, so it reaches the SAME door

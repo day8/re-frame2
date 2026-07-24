@@ -1,34 +1,42 @@
 (ns re-frame.freehand.bench.b5-matched-builds-cljs-test
-  "B5's BUILD LANE: the three matched release shapes and the per-promotion
-  byte delta between them.
+  "B5's BUILD LANE: the three release shapes and the per-promotion byte delta
+  across the matched pair.
 
   The evidence half of B5 ([[re-frame.freehand.bench.b5-bundle-cljs-test]])
   measures the ONE mixed `:freehand-release` bundle. This file measures all
-  THREE matched shapes — interpreted-only, mixed, compiled-only
-  (`:freehand-release-interpreted`, `:freehand-release`,
-  `:freehand-release-compiled` in `implementation/shadow-cljs.edn`: same entry
-  structure, same `:advanced`, same `goog.DEBUG` false), and publishes the
-  BYTE DELTA between the interpreted and compiled shapes as a whole-app total
-  and a per-promoted-view mean.
+  three shapes — `:freehand-release-interpreted`, `:freehand-release`,
+  `:freehand-release-compiled` in `implementation/shadow-cljs.edn`, same
+  `:advanced` and same `goog.DEBUG` false — and publishes the BYTE DELTA
+  between the two MATCHED arms as a whole-app total and a per-promoted-view
+  mean.
 
-  Lowering is the dominant variable across the twins and not the only one:
-  they are two namespaces, so each ships its own registered ids, root DOM id
-  and namespace docstring — `:advanced` strips none of those. The confound is
-  named in the published fixture
-  ([[re-frame.freehand.bench.b5/not-matched-on]]) and measured at +297 raw
-  bytes of an 18,475-byte raw delta. Holding it still needs one shared entry
-  shape across the three builds, which is `rf2-x4jda`'s remaining work.
+  Lowering is the only variable across the pair, and this file is where that
+  is proved rather than asserted in prose. The two entries
+  (`re-frame.freehand.release-app-lowered-none` and `…-lowered-full`) are one
+  source in two states: drop the three `{:compiled true}` markers, rename the
+  equal-length arm segment, and the sources are identical character for
+  character. The census below checks exactly that on every run, no bundle
+  required — because the confound the #6887 audit found was source drift
+  between two hand-copied entries, and prose in a docstring cannot catch it
+  coming back.
 
-  Two things keep it honest, and both are tested here without any bundle on
-  disk:
+  Three things keep it honest, and the first two need no bundle on disk:
 
+    - the matched-entry CENSUS proves the two arms differ only in lowering,
+      and that neither carries a namespace docstring — `:advanced` does not
+      strip one and the view manifest ships it once per declared view, which
+      is how +339 bytes of prose used to ride the delta;
     - [[re-frame.freehand.bench.b5/promotion-delta]] is exercised over
       synthetic measured artefacts, so the delta arithmetic has coverage on
       every `npm run test:freehand` run, built bundles or not;
     - the three artefacts route through the SAME probe the mixed lane uses —
       [[re-frame.freehand.bench.b5/measure-bundle]] and
       [[re-frame.freehand.bench.b5/workload]] — so no new bench framework is
-      introduced; the matched shapes are just three inputs to it.
+      introduced; the three shapes are just three inputs to it.
+
+  The `:mixed` shape is the SHIPPED-COST artefact, built from its own entry
+  with its own ids and prose. It is measured here for context; no delta is
+  taken against it.
 
   The real bundles are measured only when all three have been built. A delta
   taken against a shape that was never built is a number about nothing, so
@@ -40,28 +48,37 @@
                           freehand-release-compiled
       RF2_REVISION=$(git rev-parse HEAD) npm run test:freehand
 
-  It states no pass/fail about any bundle. Every reading is a byte count or a
-  byte delta, which the harness can only publish — D021's NON-GOALS bar a
-  byte-size threshold, so no matched-build figure has a route to a verdict.
-  The gates that DO red are different lanes over the same release build, each
-  moving one variable and holding the rest:
+  It states no pass/fail about any BUNDLE FIGURE. Every reading is a byte
+  count or a byte delta, which the harness can only publish — D021's NON-GOALS
+  bar a byte-size threshold, so no matched-build figure has a route to a
+  verdict however far it moves. The census reds, but its subject is the
+  fixture's construction, not its numbers: it asks whether the two entries are
+  still one source in two states, which is the premise the numbers are read
+  under. The gates that red on the ARTEFACT are different lanes over the same
+  release build, each moving one variable and holding the rest:
 
     `scripts/check-freehand-reachability.cjs`      moves the APP — an unused
                                                    runtime module is absent
     `scripts/check-freehand-evidence-elision.cjs`  moves `goog.DEBUG` — the
                                                    dev-gated seam is absent
     this file                                      moves LOWERING — and
-                                                   asserts nothing
+                                                   asserts nothing about the
+                                                   bytes that result
 
   Complementary, none of them the same claim.
 
-  Node-only (`fs`/`zlib`/`vm` via b5). Like the mixed bundle test it is
-  driven by a test rather than registered into the standing suite, because
-  its subject is an artefact a standing run has no reason to have built.
+  Node-only (`fs`/`zlib`/`vm`). The census reads the two entry sources
+  relative to `implementation/`, which is where the Node lane runs from and
+  where b5 resolves its bundle paths. Like the mixed bundle test the bundle
+  measurement is driven by a test rather than registered into the standing
+  suite, because its subject is an artefact a standing run has no reason to
+  have built.
 
   Normative owner: `docs/design/freehand/decisions/`
   `D021-performance-budgets-and-release-evidence.md`."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require ["fs" :as fs]
+            [clojure.string :as string]
+            [cljs.test :refer-macros [deftest is testing]]
             [re-frame.freehand.bench :as bench]
             [re-frame.freehand.bench.b5 :as b5]
             [re-frame.freehand.bench.measure :as m]
@@ -75,6 +92,105 @@
   the mixed bundle test."
   {:revision "test-fixture-revision"
    :build    b5/release-build})
+
+;; ---------------------------------------------------------------------------
+;; The matched-entry census — the premise the delta is read under, checked on
+;; every run against the SOURCES, no bundle required
+;; ---------------------------------------------------------------------------
+
+(def ^:private arm-entries
+  "The two arms' entry sources, relative to `implementation/`."
+  {:interpreted "freehand/test/re_frame/freehand/release_app_lowered_none.cljs"
+   :compiled    "freehand/test/re_frame/freehand/release_app_lowered_full.cljs"})
+
+(def ^:private arm-namespaces
+  {:interpreted "re-frame.freehand.release-app-lowered-none"
+   :compiled    "re-frame.freehand.release-app-lowered-full"})
+
+(def ^:private compiled-marker "{:compiled true}")
+
+(defn- arm-entry-file
+  "One arm's entry FILE NAME. The compiled tier emits source coordinates, and
+  they carry this — so it is a second string by which one arm's bundle could
+  name the other."
+  [arm]
+  (last (string/split (get arm-entries arm) #"/")))
+
+(defn- entry-source
+  "One arm's entry source as text. Unlike a bundle, this is a checked-in file:
+  it is always there, so its absence is a fault to red rather than a reason to
+  skip."
+  [arm]
+  (.readFileSync fs (get arm-entries arm) "utf8"))
+
+(defn- occurrences
+  "How many times `needle` appears in `s` — plain string search, no pattern
+  escaping to get wrong."
+  [s needle]
+  (dec (count (.split s needle))))
+
+(defn- census-normalise
+  "An entry source reduced to what reaches the artefact, with the two arms'
+  distinguishing marks folded away:
+
+    - `;;` comment lines and blank lines dropped. Comments are not compiled,
+      so the arms' prose is free to differ and the census's subject stays the
+      code;
+    - the `{:compiled true}` markers dropped — the ONE difference the delta is
+      a reading of;
+    - the arm segment folded to a single token, in both the hyphen spelling
+      (the namespace and every id derived from it) and the underscore one (the
+      file path in the compiled tier's source coordinates).
+
+  Two sources that normalise to the same string differ in lowering and in
+  nothing else."
+  [src]
+  (->> (string/split-lines src)
+       (remove #(string/starts-with? (string/triml %) ";;"))
+       (remove #(= compiled-marker (string/trim %)))
+       (remove string/blank?)
+       (map #(string/replace % #"release[-_]app[-_]lowered[-_](?:none|full)"
+                             "release-app-lowered-ARM"))
+       (string/join "\n")))
+
+(deftest the-two-arms-are-one-source-in-two-states
+  (testing "The premise every figure in this file is read under. The #6887
+            audit found two hand-copied 85-line entries that had already
+            drifted in the variables the evidence held constant, so this is
+            checked rather than promised: normalise both sources and they are
+            identical character for character."
+    (doseq [[arm path] arm-entries]
+      (is (.existsSync fs path)
+          (str "the " (name arm) " arm's entry source must be at " path
+               " — the Node lane runs from implementation/ (cwd "
+               (.cwd js/process) ")")))
+    (let [interp   (entry-source :interpreted)
+          compiled (entry-source :compiled)]
+      (is (= (census-normalise interp) (census-normalise compiled))
+          "the two entries differ only in lowering")
+      (testing "and the equality is not vacuous: the markers really are there,
+                on all three view declarations of the compiled arm and on none
+                of the interpreted arm's"
+        (is (= 3 (occurrences compiled compiled-marker)))
+        (is (= 0 (occurrences interp compiled-marker))))
+      (testing "neither arm carries a namespace DOCSTRING. :advanced does not
+                strip one and the view manifest ships it once per declared
+                view, so a docstring here lands three times inside the artefact
+                under the probe — worth +339 bytes of a 17,905-byte delta on
+                the entries this pair replaced, whose docstrings described
+                different things."
+        (doseq [[arm src] {:interpreted interp :compiled compiled}]
+          (is (re-find #"\(ns\s+\S+\s*\r?\n\s*\(:require" src)
+              (str "the " (name arm) " arm's ns form goes straight to :require"))))
+      (testing "and the two namespace names are the same LENGTH, because a
+                namespace's own name rides into the bundle through the ids the
+                registrar keys on, the view manifest and the source
+                coordinates — a longer name on one arm would weigh into the
+                delta as though it were lowering"
+        (let [[a b] (map #(second (re-find #"\(ns\s+(\S+)" %)) [interp compiled])]
+          (is (= (get arm-namespaces :interpreted) a))
+          (is (= (get arm-namespaces :compiled) b))
+          (is (= (count a) (count b))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The delta arithmetic — covered on every run, no bundle required
@@ -143,9 +259,10 @@
         (is (= 3 (get-in record [:fixture :promoted-views])))
         (is (= "interp" (get-in record [:fixture :interpreted-artefact])))
         (is (= "compiled" (get-in record [:fixture :compiled-artefact])))
-        (is (string? (get-in record [:fixture :matched-on])))
-        (is (re-find #"namespace docstring" (get-in record [:fixture :not-matched-on]))
-            "the confound is named, not implied")))))
+        (is (re-find #"character for character" (get-in record [:fixture :matched-on]))
+            "the matched claim travels with the record, in the terms the census checks")
+        (is (re-find #"gzip and brotli" (get-in record [:fixture :not-matched-on]))
+            "and so does what is left over — a caveat in a reviewer's memory is not evidence")))))
 
 (deftest promotion-delta-can-be-negative-when-promotion-shrinks
   (testing "The delta is evidence, not a threshold: when the compiled shape
@@ -158,7 +275,7 @@
       (is (neg? (:gzip6-bytes d)) "and a negative gzip delta")
       (is (neg? (:brotli-bytes d)) "and a negative brotli delta"))))
 
-(deftest the-three-matched-paths-are-distinct-and-named
+(deftest the-three-paths-are-distinct-and-named
   (testing "The build lane names three shapes keyed by lowering, all
             distinct, each landing in its own advanced output dir."
     (let [paths b5/matched-bundle-paths]
@@ -209,15 +326,16 @@
                (assoc fixture-provenance :revision revision))))))
 
 (def ^:private promoted-views
-  "How many view declarations the interpreted and compiled entries promote
-  together — `counter-a`, `counter-b` and the `app` root
-  (`re-frame.freehand.release-app-interpreted` against
-  `…-compiled`, which adds `{:compiled true}` to all three).
+  "How many view declarations the two arms promote together — `counter-a`,
+  `counter-b` and the `app` root
+  (`re-frame.freehand.release-app-lowered-none` against `…-lowered-full`,
+  which adds `{:compiled true}` to all three).
 
   A FIXTURE PARAMETER, stated here because this is where the fixture is
   known; `b5` measures files and does not read the entries that produced
   them. It is what makes the per-view figure mean anything, and the figure
-  is published as the MEAN it is."
+  is published as the MEAN it is. The census above pins the count from the
+  other side: three markers on the compiled arm, none on the interpreted."
   3)
 
 (deftest the-three-shapes-and-their-delta-are-measured-when-built
@@ -227,7 +345,7 @@
             byte delta between the interpreted and compiled shapes is
             published as evidence — the cost of promoting the app's views,
             as a whole-app total and a per-view mean, with the fixture naming
-            both what the twins hold still and what they do not. When any
+            both what the two arms hold still and what they do not. When any
             shape is unbuilt this SKIPS rather than fabricate a delta between
             files that are not there."
     (let [present (into {} (filter (comp b5/bundle-present? val)) b5/matched-bundle-paths)]
@@ -260,6 +378,16 @@
           ;; The three digests are distinct: three different bundles.
           (is (= 3 (count (set (map (comp :sha256 :measured val) results))))
               "the three shapes are three distinct artefacts")
+          ;; The census is a claim about the SOURCES; this is the same claim
+          ;; read off the artefacts. Neither arm's bundle may carry a string
+          ;; naming the other arm — that is how the replaced entries' prose,
+          ;; each docstring citing its sibling, used to ride the delta.
+          (doseq [[arm other] [[:interpreted :compiled] [:compiled :interpreted]]]
+            (let [source (get-in results [arm :measured :source])]
+              (is (zero? (occurrences source (get arm-namespaces other)))
+                  (str "the " (name arm) " bundle names nothing of the " (name other) " arm"))
+              (is (zero? (occurrences source (arm-entry-file other)))
+                  (str "nor cites its source file in a coordinate"))))
           ;; The delta is a fact about the two artefacts; it gates nothing.
           (is (number? (:raw-bytes delta)) "the per-promotion raw delta is a number")
           (is (= (:raw-bytes delta) (- (:raw-bytes compiled) (:raw-bytes interp)))
