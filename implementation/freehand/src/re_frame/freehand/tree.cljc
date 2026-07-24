@@ -197,19 +197,6 @@
     m
     attrs))
 
-(defn- element-attrs
-  "Split an element's authored props map into the attributes it folds and the
-  `v/spread-safe` caller map it may be carrying.
-
-  `(v/spread-safe owned caller)` answers the owned map with the GUARDED caller
-  riding under [[re-frame.freehand.node/caller-attrs-key]], because the fold —
-  caller under owned, `:class` composing owned-first — belongs to the one
-  canonicaliser rather than to either front end. The compiled emitter hands
-  the same two values to the same slot from the other side."
-  [authored]
-  [(dissoc authored node/caller-attrs-key)
-   (get authored node/caller-attrs-key)])
-
 (defn- element-node
   [tag-kw args]
   (when (namespace tag-kw)
@@ -223,8 +210,14 @@
                       (str "The element head " tag-kw " carries only .class#id sugar and no tag.")
                       {:value (shape tag-kw)}))
         attrs?    (map? (first args))
+        ;; `(v/spread-safe owned caller)` answers the owned map with the GUARDED
+        ;; caller riding under a reserved carrier key, because the fold — caller
+        ;; under owned, `:class` composing owned-first — belongs to the one
+        ;; canonicaliser rather than to either front end. The compiled emitter
+        ;; hands the same two values to the same slot from the other side, and
+        ;; the sibling React walk reads the carrier through this same splitter.
         [authored
-         caller]  (if attrs? (element-attrs (first args)) [nil nil])
+         caller]  (if attrs? (node/split-caller (first args)) [nil nil])
         kid-forms (if attrs? (rest args) args)]
     (node/element
       (with-attrs (cond-> {:tag      tag

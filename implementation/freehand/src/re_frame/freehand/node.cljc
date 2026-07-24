@@ -682,16 +682,57 @@
 (def caller-attrs-key
   "The reserved key `v/spread-safe` hands the guarded caller map to the
   interpreted walk under, riding IN the owned attr map the element already
-  reads. Reserved-namespaced, so an authored attribute can never collide with
-  it, and visible in the value rather than hidden in metadata a `merge` would
+  reads. Visible in the value rather than hidden in metadata a `merge` would
   quietly drop.
 
   A carried marker rather than a pre-merged map because the fold is
   [[element]]'s: the compiled front end reaches it with the owned props it
   analysed at build time and the caller map it could not, and the interpreted
   front end has to reach the SAME fold or the two modes would be two
-  implementations of one policy."
+  implementations of one policy.
+
+  Reserved-namespaced, but a reserved NAMESPACE is not on its own a reserved
+  key: Freehand's namespaced-attribute law makes `:rf.ui/caller` a perfectly
+  ordinary authored attribute, so the name is ALSO refused as an attribute
+  spelling ([[re-frame.freehand.rules/rejected-prop-spellings]]) and the
+  transport is marked at the value ([[carry-caller]]). The two together are
+  what make the carrier unforgeable: an authored key is refused before it can
+  be mistaken for transport, and a value that is not [[carry-caller]]'s is
+  never read as one."
   :rf.ui/caller)
+
+;; The transport MARK. An authored `:rf.ui/caller` cannot be one of these,
+;; whatever it carries, so the splitter below never has to guess whether the
+;; map it found is `v/spread-safe`'s or the author's — which is the guess that
+;; folded an authored string as a map (a raw class cast) and an authored map as
+;; a caller (forged attributes on an element that never asked for them).
+(deftype CarriedCaller [attrs])
+
+(defn carry-caller
+  "Mark the guarded caller map `m` as `v/spread-safe`'s TRANSPORT, so
+  [[split-caller]] can tell it from an authored attribute of the same name."
+  [m]
+  (CarriedCaller. m))
+
+(defn split-caller
+  "Split an element's authored props map into the attributes it folds and the
+  guarded `v/spread-safe` caller map it may be carrying — `[attrs caller]`.
+
+  The one splitter both interpreted front ends call, because the fold on the
+  other side of it (caller under owned, `:class` composing owned-first) is one
+  policy and reading the carrier is half of applying it.
+
+  A `caller-attrs-key` entry that is NOT [[carry-caller]]'s mark is left in the
+  attribute map, where the ordinary refusal
+  ([[re-frame.freehand.conversion/attr-key-refusal]]) names it. That is the
+  whole forgery answer: the transport is identified by the mark, and the name
+  is identified as not-an-attribute, so neither reading can be reached by
+  writing the other."
+  [authored]
+  (let [carried (get authored caller-attrs-key)]
+    (if (instance? CarriedCaller carried)
+      [(dissoc authored caller-attrs-key) (.-attrs ^CarriedCaller carried)]
+      [authored nil])))
 
 (defn spread-safe-attrs
   "`(v/spread-safe owned caller)` — the owned props map carrying its guarded
@@ -707,7 +748,7 @@
       {:value (shape owned)}))
   (let [caller* (safe-caller-attrs caller (owned-handler-keys owned))]
     (cond-> (or owned {})
-      (some? caller*) (assoc caller-attrs-key caller*))))
+      (some? caller*) (assoc caller-attrs-key (carry-caller caller*)))))
 
 (defn- fold-caller
   "Fold a guarded `v/spread-safe` caller map UNDER the element's already-final

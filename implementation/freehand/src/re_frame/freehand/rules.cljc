@@ -346,13 +346,26 @@
 (def rejected-prop-spellings
   "One spelling per name — ambiguities removed at compile time (conversion
   table §Attribute names; template grammar). The value is the didactic
-  replacement the compile error names."
+  replacement the compile error names.
+
+  The last entry is a different kind of name. `:rf.ui/caller` is the
+  RESERVED slot `(v/spread-safe owned caller)` hands its guarded caller map
+  to an element under, and the element walks read it as transport rather
+  than as an attribute. Freehand's own namespaced-attribute law makes
+  `[:div {:rf.ui/caller …}]` an ordinary authored attribute, so without an
+  entry here the two readings collide: an authored string was folded as a
+  map and threw a raw class cast, and an authored MAP was folded silently,
+  injecting caller attributes into an element that never asked for them.
+  Refusing the NAME — every spelling of it, on the direct attribute path
+  and inside a forwarded runtime map alike — leaves the transport with
+  exactly one producer, `v/spread-safe` itself."
   {:class-name                  ":class"
    :html-for                    ":for"
    :dangerously-set-inner-html  "(v/html ...)"
    :dangerouslySetInnerHTML     "(v/html ...)"
    :inner-html                  "(v/html ...)"
-   :children                    "positional children"})
+   :children                    "positional children"
+   :rf.ui/caller                "(v/spread-safe owned caller)"})
 
 (defn- collapsed [n] (str/replace n "-" ""))
 
