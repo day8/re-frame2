@@ -8,8 +8,7 @@
   (:require [cljs.env :as cljs-env]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.freehand.compiler.build :as build]
-            [re-frame.freehand.compiler.build-hook :as build-hook]
-            [re-frame.freehand.compiler.root :as root]))
+            [re-frame.freehand.compiler.build-hook :as build-hook]))
 
 (use-fixtures :each
   (fn [f] (build/reset-build!) (try (f) (finally (build/reset-build!)))))
@@ -68,12 +67,6 @@
 
 (defn- declare-view [state source view-id fp]
   (in-compiler state #(build/contribute! build/views source view-id fp)))
-
-(defn- declare-descriptor [state source root-id label]
-  (in-compiler
-   state
-   #(build/contribute! build/descriptors source root-id
-                       {:rf.root/schema-version 1 :label label})))
 
 (defn- finish
   ([state member-nss] (finish state member-nss (set member-nss)))
@@ -318,21 +311,20 @@
               (get (views moved) :shared/card))
         "the new owner publishes its own view identity")))
 
-;; --- rf2-u53yy.1 S4: roots + plans ride the SYNTHETIC analyzer-map carrier -----
+;; --- rf2-u53yy.1 S4: root sites ride the SYNTHETIC analyzer-map carrier ---------
 ;;
-;; Root/plan CALL SITES carry no def (unlike views, S2), so on a real Shadow build
-;; PASS `register-root-site!` / `register-plan-site!` stamp a SYNTHETIC per-namespace
-;; descriptor `[::namespaces <ns> :rf.ui/root-plan-descriptor {:roots [..] :plans [..]}]`
-;; into the analyzer map (compiler.cljc-style gating on `build/shadow-build-pass?`),
-;; which Shadow persists to its disk cache and RESTORES on a warm hit (the S0 proof
-;; variant B, rf2-u53yy.1.1). `seed-analyzer-root`/`seed-analyzer-plan` stamp that
-;; carrier exactly where the analyzer stores it, so the build hook harvests the
-;; roots/plans registries from it at compile-finish — for a cache-hit member the
-;; macro never re-runs. Eviction is automatic: Shadow's watch reset dissocs the whole
-;; ns entry (`forget-analyzer-ns` models it), so a removed site vanishes.
+;; Root CALL SITES carry no def (unlike views, S2), so on a real Shadow build PASS
+;; `register-root-site!` stamps a SYNTHETIC per-namespace descriptor
+;; `[::namespaces <ns> :rf.ui/root-plan-descriptor {:roots [..]}]` into the analyzer
+;; map (compiler.cljc-style gating on `build/shadow-build-pass?`), which Shadow
+;; persists to its disk cache and RESTORES on a warm hit (the S0 proof variant B,
+;; rf2-u53yy.1.1). `seed-analyzer-roots` stamps that carrier exactly where the
+;; analyzer stores it, so the build hook harvests the roots registry from it at
+;; compile-finish — for a cache-hit member the macro never re-runs. Eviction is
+;; automatic: Shadow's watch reset dissocs the whole ns entry (`forget-analyzer-ns`
+;; models it), so a removed site vanishes.
 
 (defn- roots [state] (build/accepted-aggregate build/roots state))
-(defn- plans [state] (build/accepted-aggregate build/plans state))
 
 (defn- seed-analyzer-roots
   "Stamp `source`'s root sites onto `state`'s analyzer map the way the
@@ -347,53 +339,22 @@
                      :row {:file (str source ".cljs") :line 1 :provenance provenance}})
                   sites)))
 
-(defn- seed-analyzer-plans
-  "Stamp `source`'s frame-plan sites onto `state`'s analyzer map. `sites` is a coll
-  of `[frame-id config-fingerprint]`."
-  [state source sites]
-  (assoc-in state
-            [:compiler-env :cljs.analyzer/namespaces source
-             :rf.ui/root-plan-descriptor :plans]
-            (mapv (fn [[frame-id cf]]
-                    {:frame-id frame-id
-                     :row {:config-fingerprint cf
-                           :file (str source ".cljs") :line 1}})
-                  sites)))
-
-(defn- seed-analyzer-descriptors
-  "Stamp `source`'s Root Descriptor sites onto `state`'s analyzer map the way the
-  register-descriptor! macro does on a Shadow build pass (rf2-u53yy.1 S5 — the
-  descriptors ride the SAME synthetic carrier as roots/plans). `sites` is a coll of
-  `[root-id label]`; the row is a minimal Root Descriptor v1."
-  [state source sites]
-  (assoc-in state
-            [:compiler-env :cljs.analyzer/namespaces source
-             :rf.ui/root-plan-descriptor :descriptors]
-            (mapv (fn [[root-id label]]
-                    {:root-id root-id
-                     :row {:rf.root/schema-version 1 :root-id root-id :label label}})
-                  sites)))
-
-(deftest root-and-plan-descriptors-survive-a-cache-hit-via-the-analyzer-carrier
-  ;; The S4 analog of the S0 carrier proof (rf2-u53yy.1.1) for REAL root/plan sites:
-  ;; a warm cache-hit source's macro never re-runs, yet its root and plan survive
-  ;; because Shadow RESTORED the synthetic descriptor onto the analyzer map and the
-  ;; hook harvests the registries from there — not from a macro side effect.
+(deftest roots-survive-a-cache-hit-via-the-analyzer-carrier
+  ;; The S4 analog of the S0 carrier proof (rf2-u53yy.1.1) for REAL root sites:
+  ;; a warm cache-hit source's macro never re-runs, yet its root survives because
+  ;; Shadow RESTORED the synthetic descriptor onto the analyzer map and the hook
+  ;; harvests the registry from there — not from a macro side effect.
   (let [seed (graph-state :app :compile-prepare '#{app.a app.b})
-        ;; COLD: both compiled; each stamps its root/plan descriptor. Nothing is
+        ;; COLD: both compiled; each stamps its root descriptor. Nothing is
         ;; contributed to the slice (the macro is gated on the Shadow path), so a
         ;; harvested row here proves the analyzer-map carrier is the sole source.
         cold (-> (prepare seed '#{app.a app.b})
                  (seed-analyzer-roots 'app.a [[:page/a :authored]])
-                 (seed-analyzer-plans 'app.a [[:shop "cf-a"]])
                  (seed-analyzer-roots 'app.b [[:page/b :derived]])
                  (finish '#{app.a app.b}))]
     (is (= #{:page/a :page/b} (set (keys (roots cold))))
         "cold: both roots are harvested from the analyzer-map carrier")
     (is (= :authored (:provenance (get (roots cold) :page/a))))
-    (is (= {:shop "cf-a"}
-           (update-vals (plans cold) :config-fingerprint))
-        "cold: the plan is harvested from the analyzer-map carrier")
     ;; WARM: only app.b recompiles. app.a is a cache HIT — its macro does NOT run
     ;; (no re-seed this pass), but Shadow RESTORED its analyzer descriptor, which the
     ;; threaded build-state carries unchanged.
@@ -401,15 +362,12 @@
                    (seed-analyzer-roots 'app.b [[:page/b :derived]])
                    (finish '#{app.a app.b} '#{app.b}))]
       (is (= #{:page/a :page/b} (set (keys (roots warm))))
-          "warm: the cache-hit source's root is RESTORED without the macro re-running")
-      (is (= {:shop "cf-a"} (update-vals (plans warm) :config-fingerprint))
-          "warm: the cache-hit source's plan is RESTORED without the macro re-running"))))
+          "warm: the cache-hit source's root is RESTORED without the macro re-running"))))
 
-(deftest a-removed-root-or-plan-is-evicted-from-the-analyzer-carrier
+(deftest a-removed-root-is-evicted-from-the-analyzer-carrier
   (let [seed (graph-state :app :compile-prepare '#{app.a app.b})
         both (-> (prepare seed '#{app.a app.b})
                  (seed-analyzer-roots 'app.a [[:page/a :authored]])
-                 (seed-analyzer-plans 'app.a [[:shop "cf-a"]])
                  (seed-analyzer-roots 'app.b [[:page/b :authored]])
                  (finish '#{app.a app.b}))
         ;; app.a is recompiled with its mount removed: Shadow's watch reset dissocs
@@ -419,11 +377,8 @@
                     (forget-analyzer-ns 'app.a)
                     (finish '#{app.a app.b} '#{app.a}))]
     (is (= #{:page/a :page/b} (set (keys (roots both)))))
-    (is (= #{:shop} (set (keys (plans both)))))
     (is (= #{:page/b} (set (keys (roots removed))))
-        "a root removed from its recompiled source is evicted from the carrier")
-    (is (= {} (plans removed))
-        "the removed source's plan is evicted from the carrier")))
+        "a root removed from its recompiled source is evicted from the carrier")))
 
 (deftest cross-source-duplicate-root-id-fails-at-compile-finish
   ;; Two root sites in DIFFERENT namespaces resolving to one root-id fail when the
@@ -442,29 +397,6 @@
     (is (= :shared/root (:root-id (ex-data ex))))
     (is (= 2 (count (:sites (ex-data ex)))) "both sites named with coords")))
 
-(deftest cross-source-frame-payload-conflict-fails-at-compile-finish
-  (let [seed (graph-state :app :compile-prepare '#{app.a app.b})
-        collision (-> (prepare seed '#{app.a app.b})
-                      (seed-analyzer-plans 'app.a [[:shop "cf-a"]])
-                      (seed-analyzer-plans 'app.b [[:shop "cf-b"]]))
-        ex (try (finish collision '#{app.a app.b}) nil
-                (catch clojure.lang.ExceptionInfo e e))]
-    (is (some? ex) "differing fingerprints for one frame-id must fail the build")
-    (is (= :re-frame.freehand.compiler.build/frame-payload-conflict
-           (:re-frame.freehand.compiler.build/error (ex-data ex))))
-    (is (= :shop (:frame-id (ex-data ex))))
-    (is (= ["cf-a" "cf-b"] (:fingerprints (ex-data ex))))))
-
-(deftest cross-source-matching-plan-fingerprints-are-the-idempotent-no-op
-  ;; Two namespaces legitimately declaring the same frame plan (matching
-  ;; fingerprint) co-exist — the ratified idempotent no-op, re-derived at finish.
-  (let [seed (graph-state :app :compile-prepare '#{app.a app.b})
-        ok (-> (prepare seed '#{app.a app.b})
-               (seed-analyzer-plans 'app.a [[:shop "cf-same"]])
-               (seed-analyzer-plans 'app.b [[:shop "cf-same"]])
-               (finish '#{app.a app.b}))]
-    (is (= {:shop "cf-same"} (update-vals (plans ok) :config-fingerprint)))))
-
 (deftest a-root-id-transfers-cleanly-to-a-new-owner-via-the-carrier
   ;; app.old owned :shared/root; it is deleted and app.new takes it over. With
   ;; app.old absent from :build-sources the carrier fold sees only app.new's site,
@@ -480,65 +412,6 @@
     (is (= #{:shared/root} (set (keys (roots old)))))
     (is (= #{:shared/root} (set (keys (roots moved)))))))
 
-;; --- rf2-u53yy.1 S5: Root Descriptors ride the SAME synthetic carrier ----------
-;;
-;; The Root Descriptor index is the last registry folded onto the analyzer-map
-;; carrier (S5). `register-descriptor!` stamps `[::namespaces <ns>
-;; :rf.ui/root-plan-descriptor :descriptors]` at the same mount / hydrate site that
-;; stamps a `:roots` site, so the hook harvests the descriptor index from the carrier
-;; at compile-finish — for a cache-hit member the macro never re-runs, yet Shadow
-;; RESTORED the descriptor from disk, so `descriptor-index` reads it back.
-
-(deftest root-descriptors-survive-a-cache-hit-via-the-analyzer-carrier
-  ;; The S5 analog of the S4 root/plan carrier proof for the Root Descriptor index:
-  ;; a warm cache-hit source's macro never re-runs, yet its descriptor survives
-  ;; because Shadow RESTORED the synthetic carrier and the hook harvests the index
-  ;; from there — not from a macro side effect / the per-source slice.
-  (let [seed (graph-state :app :compile-prepare '#{app.a app.b})
-        ;; COLD: both compiled; each stamps its root + descriptor. Nothing is
-        ;; contributed to the slice (the macro is gated on the Shadow path), so a
-        ;; harvested descriptor here proves the analyzer-map carrier is the sole
-        ;; source.
-        cold (-> (prepare seed '#{app.a app.b})
-                 (seed-analyzer-roots 'app.a [[:page/a :authored]])
-                 (seed-analyzer-descriptors 'app.a [[:page/a :a]])
-                 (seed-analyzer-roots 'app.b [[:page/b :derived]])
-                 (seed-analyzer-descriptors 'app.b [[:page/b :b]])
-                 (finish '#{app.a app.b}))]
-    (is (= #{:page/a :page/b} (set (keys (root/descriptor-index cold))))
-        "cold: both descriptors are harvested from the analyzer-map carrier")
-    (is (= :a (:label (get (root/descriptor-index cold) :page/a)))
-        "cold: the harvested descriptor is the stamped Root Descriptor v1")
-    ;; WARM: only app.b recompiles. app.a is a cache HIT — its macro does NOT run
-    ;; (no re-seed this pass), but Shadow RESTORED its analyzer descriptor, which the
-    ;; threaded build-state carries unchanged.
-    (let [warm (-> (prepare cold '#{app.a app.b} '#{app.b})
-                   (seed-analyzer-roots 'app.b [[:page/b :derived]])
-                   (seed-analyzer-descriptors 'app.b [[:page/b :b]])
-                   (finish '#{app.a app.b} '#{app.b}))]
-      (is (= #{:page/a :page/b} (set (keys (root/descriptor-index warm))))
-          "warm: the cache-hit source's descriptor is RESTORED without the macro re-running")
-      (is (= :a (:label (get (root/descriptor-index warm) :page/a)))
-          "warm: the RESTORED descriptor is intact, byte-for-byte"))))
-
-(deftest a-removed-root-descriptor-is-evicted-from-the-analyzer-carrier
-  (let [seed (graph-state :app :compile-prepare '#{app.a app.b})
-        both (-> (prepare seed '#{app.a app.b})
-                 (seed-analyzer-roots 'app.a [[:page/a :authored]])
-                 (seed-analyzer-descriptors 'app.a [[:page/a :a]])
-                 (seed-analyzer-roots 'app.b [[:page/b :authored]])
-                 (seed-analyzer-descriptors 'app.b [[:page/b :b]])
-                 (finish '#{app.a app.b}))
-        ;; app.a is recompiled with its mount removed: Shadow's watch reset dissocs
-        ;; the whole ns entry, so its synthetic descriptor is gone. app.b is an
-        ;; untouched cache hit whose descriptor is restored.
-        removed (-> (prepare both '#{app.a app.b} '#{app.a})
-                    (forget-analyzer-ns 'app.a)
-                    (finish '#{app.a app.b} '#{app.a}))]
-    (is (= #{:page/a :page/b} (set (keys (root/descriptor-index both)))))
-    (is (= #{:page/b} (set (keys (root/descriptor-index removed))))
-        "a descriptor removed from its recompiled source is evicted from the carrier")))
-
 (deftest independent-build-states-never-cross-contribute
   (let [a (pass (graph-state :a :compile-prepare '#{app.view})
                 '#{app.view} [['app.view :app/view ["tf1-a" "hs1-a"]]])
@@ -546,39 +419,6 @@
                 '#{app.view} [['app.view :app/view ["tf1-b" "hs1-b"]]])]
     (is (= {:app/view ["tf1-a" "hs1-a"]} (views a)))
     (is (= {:app/view ["tf1-b" "hs1-b"]} (views b)))))
-
-(deftest descriptor-index-reads-one-coherent-explicit-accepted-snapshot
-  (let [a (-> (graph-state :a :compile-prepare '#{app.a})
-              (prepare '#{app.a})
-              (declare-view 'app.a :app.a/view ["tf1-a" "hs1-a"])
-              (declare-descriptor 'app.a :page/a :a)
-              (finish '#{app.a}))
-        b (-> (graph-state :b :compile-prepare '#{app.b})
-              (prepare '#{app.b})
-              (declare-view 'app.b :app.b/view ["tf1-b" "hs1-b"])
-              (declare-descriptor 'app.b :page/b :b)
-              (finish '#{app.b}))
-        a-index (root/descriptor-index a)
-        b-index (root/descriptor-index b)]
-    (is (= #{:page/a} (set (keys a-index))))
-    (is (= #{:page/b} (set (keys b-index))))
-
-    ;; A process-global fallback can contain unrelated data, but explicit
-    ;; retained-state reads remain build-local.
-    (build/begin-build! :fallback)
-    (build/contribute! build/descriptors 'fallback.ns :page/fallback
-                       {:rf.root/schema-version 1 :label :fallback})
-    (build/commit-build! :fallback)
-    (is (= #{:page/a} (set (keys (root/descriptor-index a)))))
-    (is (= #{:page/b} (set (keys (root/descriptor-index b)))))
-
-    ;; Stage a descriptor in disposable scratch. The ambient read must expose
-    ;; only accepted rows, never the candidate row from open scratch.
-    (let [open-a (-> a
-                     (prepare '#{app.a app.pending} '#{app.pending})
-                     (declare-descriptor 'app.pending :page/pending :pending))
-          ambient-index (read-in-compiler open-a #(root/descriptor-index))]
-      (is (= #{:page/a} (set (keys ambient-index)))))))
 
 ;; --- rf2-4vm19: the runtime removed-source projection wiring ----------------
 ;;
