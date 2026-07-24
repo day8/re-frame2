@@ -52,6 +52,38 @@
   [_]
   [interactive-card {:label "x"}])
 
+;; ---------------------------------------------------------------------------
+;; The PAVED PATH (rf2-drpa3.159) — the default `v/defview`, with no options map
+;; at all. An interpreted declaration has no analysis, no finite grammar and no
+;; manifest, so there are no build-time facts about it and there never can be.
+;; Its half of no-silent-elision is proved by the RENDER instead.
+;; ---------------------------------------------------------------------------
+
+;; The capability-free paved-path view. `plain-card` and `static-card` above are
+;; the SAME body under the two spellings, which is what makes the attributed
+;; result assertable: promotion is a one-line change, so it must not be a
+;; rendering change.
+(v/defview plain-card
+  [{:keys [title]}]
+  [:div.card [:h2 title] [:p "static"]])
+
+;; An interpreted view carrying a COMMITTED HANDLER — the capability the HTML
+;; fold drops silently (the payload that would reinstall it is never emitted).
+(v/defview plain-interactive-card
+  [{:keys [label]}]
+  [:button {:on-click [:clicked]} label])
+
+;; An interpreted view reading state DIRECTLY.
+(v/defview plain-reads-state
+  [_]
+  [:output (v/sub [:basket/total])])
+
+;; An interpreted parent whose only child is the interactive interpreted view —
+;; the capability is NESTED, and the render sees it through the built tree.
+(v/defview plain-parent
+  [_]
+  [:section [plain-interactive-card {:label "x"}]])
+
 (defn- caught-id
   "Run `f`; -> the thrown compile-error id (`:rf.ui.compile/error` ex-data),
   or ::no-throw. `macroexpand-1` wraps a macro-expansion ExceptionInfo in a
@@ -102,6 +134,12 @@
 (def ^:private reads-state-outcome   (capture-render-static '[reads-state {}]))
 (def ^:private static-parent-outcome (capture-render-static '[static-parent]))
 (def ^:private static-card-expansion (expand-render-static '[static-card {:title "x"}]))
+
+;; The ambient build's `view-static` index AS IT STOOD at ns-load, for the same
+;; reason: a clojure.test RUN can clear the per-build index before the deftests
+;; execute, and the drift guard below compares the two publications of ONE
+;; projection, which only exist together at compile time.
+(def ^:private ambient-view-static (compiler/build-view-static))
 
 ;; ---------------------------------------------------------------------------
 ;; Static render correctness — a compiled root -> the expected inert HTML.
@@ -229,6 +267,149 @@
             (tree/render-root-tree
              (fn [] (node/mount static-card [{:title "Hello"}]))))
            (v/render-static [static-card {:title "Hello"}])))))
+
+;; ---------------------------------------------------------------------------
+;; The PAVED PATH (rf2-drpa3.159) — the headline verb serves the headline
+;; authoring path. A capability-free INTERPRETED declaration renders, with no
+;; promotion and no second caller spelling.
+;; ---------------------------------------------------------------------------
+
+(deftest render-static-renders-the-interpreted-paved-path
+  (testing "a capability-free `v/defview` with NO options map renders to the
+            expected inert HTML through the public macro — the ordinary paved
+            path, not a compiled-only island"
+    (is (= "<div class=\"card\"><h2>Hello</h2><p>static</p></div>"
+           (v/render-static [plain-card {:title "Hello"}]))))
+  (testing "the render is a pure function of the literal props"
+    (is (= "<div class=\"card\"><h2>Bye</h2><p>static</p></div>"
+           (v/render-static [plain-card {:title "Bye"}]))))
+  (testing "promotion is a one-line change, so it is not a rendering change: the
+            interpreted declaration and its `{:compiled true}` twin — the same
+            body under the two spellings — render the SAME HTML"
+    (is (= (v/render-static [static-card {:title "Hello"}])
+           (v/render-static [plain-card {:title "Hello"}]))))
+  (testing "the paved-path output is non-hydrating exactly as the compiled one is"
+    (let [html (v/render-static [plain-card {:title "x"}])]
+      (doseq [marker ["data-rf-root" "data-rf-manifest" "__rf_payload"
+                      "data-rf-render-hash" "data-rf-view"]]
+        (is (not (str/includes? html marker)))))))
+
+(deftest render-static-transitively-admits-interpreted-dependencies
+  (testing "an interpreted dependency is ADMITTED at BUILD time — it carries no
+            analysis to prove, so the macro no longer reports the ordinary paved
+            path UNPROVEN and no longer tells the author to recompile a view that
+            was never stale"
+    (is (nil? (:id (capture-render-static '[plain-card {:title "x"}])))
+        "the paved-path expansion raises no compile error")
+    (is (some? (:form (capture-render-static '[plain-card {:title "x"}])))
+        "the paved-path expansion emits the render")))
+
+;; ---------------------------------------------------------------------------
+;; No silent elision, the RENDER-time arm — an interpreted body's capabilities
+;; become visible in the tree its render produced, and the fold refuses to drop
+;; one. Loud, attributed, and never a control that silently does nothing.
+;; ---------------------------------------------------------------------------
+
+(defn- static-render-error
+  "Render `thunk`; -> the thrown `:rf.error/id` + message, or ::no-throw."
+  [thunk]
+  (try (thunk) {:id ::no-throw}
+       (catch clojure.lang.ExceptionInfo e
+         {:id (:rf.error/id (ex-data e))
+          :msg (ex-message e)
+          :data (ex-data e)})))
+
+(deftest render-static-rejects-an-interpreted-committed-handler
+  (let [{:keys [id msg data]}
+        (static-render-error #(v/render-static [plain-interactive-card {:label "x"}]))]
+    (testing "a committed handler in an INTERPRETED body is a loud typed failure —
+              render-static emits no hydration payload, so a folded-away handler
+              would ship a control that does nothing"
+      (is (= :rf.error/static-render-requires-runtime id)))
+    (testing "the diagnostic names the handler slot, the element and the declaration
+              the author has to change"
+      (is (str/includes? msg ":on-click"))
+      (is (str/includes? msg ":button"))
+      (is (str/includes? msg (str ::plain-interactive-card))))
+    (testing "the recovery is the build-time arm's — it is the same law"
+      (is (= :mount-in-the-browser-or-move-the-live-subtree-behind-client-only
+             (:recovery data)))
+      (is (str/includes? msg "v/client-only")))))
+
+(deftest render-static-rejects-a-nested-interpreted-handler
+  (testing "the render-time proof reaches the whole tree, not the root view — an
+            interpreted parent whose only child is interactive fails, attributed
+            to the CHILD declaration that carries the handler"
+    (let [{:keys [id msg]} (static-render-error #(v/render-static [plain-parent {}]))]
+      (is (= :rf.error/static-render-requires-runtime id))
+      (is (str/includes? msg (str ::plain-interactive-card))
+          "attribution is the nearest enclosing view boundary, not the root"))))
+
+(deftest render-static-rejects-an-interpreted-reactive-read
+  (testing "a `v/sub` in an INTERPRETED body fails on its own account: render-static
+            opens no declared render, so the read has no owner and is refused
+            before it probes anything — never silently rendered as an empty slot"
+    (is (= :rf.error/view-read-outside-render
+           (:id (static-render-error #(v/render-static [plain-reads-state {}])))))))
+
+;; ---------------------------------------------------------------------------
+;; Cross-build / AOT resolution — the ambient index is a per-build convenience;
+;; the DECLARED manifest is the durable carrier a precompiled view arrives with.
+;; ---------------------------------------------------------------------------
+
+(deftest compiled-static-facts-ride-the-declared-manifest
+  (testing "a compiled declaration's manifest carries the render-static
+            `{:caps :deps}` projection"
+    (is (= {:caps #{} :deps #{}} (:static-facts (v/manifest static-card))))
+    (is (= #{:handler} (:caps (:static-facts (v/manifest interactive-card))))))
+  (testing "the manifest key and the ambient index entry are ONE projection
+            published twice, so they cannot drift"
+    (doseq [[view vid] [[static-card ::static-card]
+                        [interactive-card ::interactive-card]
+                        [static-parent ::static-parent]]]
+      (let [indexed (get ambient-view-static vid)]
+        (is (some? indexed) (str vid " — the ambient index carries the facts"))
+        (is (= indexed (:static-facts (v/manifest view)))
+            (str vid " — manifest and index publish the same value"))))))
+
+(deftest render-static-proves-a-precompiled-view-with-an-empty-build-index
+  (testing "with THIS build's view-static index empty — a view compiled in another
+            build, an AOT artefact, a precompiled jar — a capability-free compiled
+            dependency still proves safe, from its declared manifest"
+    (with-redefs [compiler/build-view-static (constantly {})]
+      (is (some? (:form (capture-render-static '[static-card {:title "x"}]))))))
+  (testing "and an INTERACTIVE precompiled dependency still fails loud, with the
+            capability error — an empty index is never proof of static safety"
+    (with-redefs [compiler/build-view-static (constantly {})]
+      (is (= :rf.ui.compile/static-root-requires-runtime
+             (:id (capture-render-static '[interactive-card {:label "x"}]))))
+      (is (= :rf.ui.compile/static-root-requires-runtime
+             (:id (capture-render-static '[static-parent])))
+          "the transitive closure resolves through declared manifests too"))))
+
+;; ---------------------------------------------------------------------------
+;; The UNPROVEN diagnostic tells the truth about WHICH route failed — the two
+;; have different recoveries, and the wrong one sends an author to recompile a
+;; view that is not stale.
+;; ---------------------------------------------------------------------------
+
+(deftest unproven-dependency-diagnostics-name-the-route-that-failed
+  (testing "a COMPILED dependency whose manifest carries no :static-facts is a
+            genuinely stale AOT artefact — the recompile recovery is the true one"
+    (with-redefs [compiler/build-view-static        (constantly {})
+                  root/registered-view-static-facts (constantly nil)]
+      (let [{:keys [id msg]} (capture-render-static '[static-card {:title "x"}])]
+        (is (= :rf.ui.compile/static-root-unproven-dependency id))
+        (is (str/includes? msg "Recompile"))
+        (is (str/includes? msg "COMPILED")))))
+  (testing "an id naming no reachable declaration gets the REQUIRE recovery, not
+            the recompile one — nothing is stale, the declaration is absent"
+    (with-redefs [compiler/build-view-static (constantly {})
+                  root/declared-view         (constantly nil)]
+      (let [{:keys [id msg]} (capture-render-static '[static-card {:title "x"}])]
+        (is (= :rf.ui.compile/static-root-unproven-dependency id))
+        (is (str/includes? msg "no reachable v/defview declaration"))
+        (is (not (str/includes? msg "Recompile")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Surface pin — render-static resolves as a MACRO on re-frame.freehand.

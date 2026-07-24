@@ -111,10 +111,16 @@
             present on every entry on every host."
     (let [required (:required-keys struct-010)
           coord-ks (:source-coord-keys struct-010)]
+      ;; The dissoc list is the manifest's NON-roster keys — single facts about
+      ;; the declaration rather than per-site entries, so none of them owns a
+      ;; source coordinate. `:static-facts` is one of them: the render-static
+      ;; `{:caps :deps}` closure is a summary OVER the sites, not a roster of
+      ;; them, and asking it for a per-entry `:source-coord` would be asking a
+      ;; set of capability tokens where its lines are.
       (is (= (set (keys required))
              (set (keys (dissoc (v/manifest (census-view :label))
                                 :view-id :grammar :capabilities
-                                :reactive? :view-cell))))
+                                :reactive? :view-cell :static-facts))))
           "the fixture names every roster the manifest carries and no other")
       (doseq [[nm view] mv/by-name
               [roster ks] required

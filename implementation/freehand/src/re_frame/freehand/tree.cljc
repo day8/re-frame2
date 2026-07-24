@@ -52,7 +52,8 @@
 
   Normative owner:
   [`spec/004B-UI-Tree-and-Conversion.md`](../../../../../spec/004B-UI-Tree-and-Conversion.md)."
-  (:require [re-frame.error :as error]
+  (:require [clojure.string :as str]
+            [re-frame.error :as error]
             [re-frame.freehand.conversion :as conv]
             [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.errors :as eb]
@@ -432,12 +433,90 @@
 
   Binds the HTML namespace context (mirroring [[render]]) so the tree's top
   element derives its `:ns` from the HTML default. There is no reactive read to
-  scope: render-static's no-silent-elision proof (Spec 004C §3, EP-0034 §2)
-  rejects a runtime-requiring capability — including `v/sub` — anywhere in the
-  root's server-reachable closure at BUILD time, so this render is a pure fold."
+  scope, and none is legal: render-static opens no declared render, so a `v/sub`
+  reached from an interpreted body fails on its own account with
+  `:rf.error/view-read-outside-render` rather than probing a value nobody owns
+  — the reactive half of no-silent-elision (Spec 004C §3, EP-0034 §2). The
+  capability half is [[emit-static-html]]'s."
   [thunk]
   (binding [node/*ns-context* nil]
     (assoc (thunk) :rf.ui/tree-version tree-version)))
+
+;; ---------------------------------------------------------------------------
+;; No silent elision — the RENDER-time arm
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004C §3 / EP-0034 §2. A pure `:server` static render cannot honour a
+;; live-runtime capability, so one must never be quietly dropped on the way to
+;; HTML. A COMPILED view is proven at BUILD time, from its analysis, and
+;; `re-frame.freehand.compiler.root/render-static-form` refuses the whole root
+;; form there. An INTERPRETED view has no analysis to prove anything from — no
+;; finite grammar, no manifest, nothing a build could read — so the ordinary
+;; paved-path declaration is proven HERE instead, against the tree its render
+;; actually produced.
+;;
+;; What makes that a complete proof rather than a hopeful one is that the
+;; structural tree is FAITHFUL: the interpreted walk records every handler site
+;; it read, under `:events`, whatever mode wrote it. It is the HTML fold that
+;; drops them — correctly, because on the SSR-then-hydrate path the hydration
+;; payload carries the handlers and the client reinstalls them. `render-static`
+;; emits no payload and no client adopts its output, so on THIS path the same
+;; drop is a button that will never do anything. So the audit asks the one
+;; question that separates the two paths: does this tree carry a live capability
+;; that nothing downstream will ever restore?
+
+(def ^:private static-render-recovery
+  :mount-in-the-browser-or-move-the-live-subtree-behind-client-only)
+
+(defn- live-capability-site
+  "The FIRST live capability in `tree` the static HTML fold would drop, as
+  `{:view-id .. :tag .. :handlers [..]}`, or nil when the tree folds losslessly.
+
+  `:view-id` is the nearest ENCLOSING view boundary — the declaration an author
+  can go and edit — rather than the element, which is a position inside it."
+  [tree]
+  (letfn [(scan [n view-id]
+            (when (map? n)
+              (let [view-id (or (:view-id n) view-id)]
+                (or (when (seq (:events n))
+                      {:view-id  view-id
+                       :tag      (:tag n)
+                       :handlers (vec (sort (keys (:events n))))})
+                    (some #(scan % view-id) (:children n))))))]
+    (scan tree nil)))
+
+#?(:clj
+   (defn assert-static-renderable!
+     "Refuse to fold `tree` to inert HTML while it still carries a live
+     capability — the render-time arm of no-silent-elision. Answers `tree`
+     unchanged when the fold is lossless; otherwise raises the typed
+     `:rf.error/static-render-requires-runtime` naming the view, the element and
+     the handler slots, so the author is told which declaration to change rather
+     than being handed markup whose interactivity silently went missing.
+
+     The two recoveries are the ones the build-time arm names for a compiled
+     view, because it is the same law: mount the tree in the browser with
+     `v/mount` / `v/hydrate-root`, or move the live subtree behind a
+     `v/client-only` whose fallback is capability-free."
+     [tree]
+     (if-let [{:keys [view-id tag handlers]} (live-capability-site tree)]
+       (error/throw-error!
+        :rf.error/static-render-requires-runtime
+        'v/render-static
+        (str "v/render-static rendered a live event handler it cannot honour: "
+             (str/join ", " (map str handlers))
+             (when tag (str " on " tag))
+             (when view-id (str " in view " view-id))
+             ". render-static is the pure :server static-HTML path — it emits no "
+             "hydration payload, so no client ever reinstalls the handler and "
+             "folding it away would ship a control that does nothing. Mount this "
+             "tree in the browser with v/mount / v/hydrate-root, or move the live "
+             "subtree behind a v/client-only with a capability-free fallback.")
+        {:recovery static-render-recovery
+         :extra    (cond-> {:capability :handler :handlers handlers}
+                     view-id (assoc :view-id view-id)
+                     tag     (assoc :tag tag))})
+       tree)))
 
 #?(:clj
    (defn resolve-ssr-emitter
@@ -470,10 +549,17 @@
 
      When the `day8/re-frame2-ssr` artefact is absent from the server classpath
      this raises the ruled, typed `:rf.error/ssr-artefact-missing` naming the
-     artefact — never a raw host exception, never a silent fallback."
+     artefact — never a raw host exception, never a silent fallback.
+
+     The fold is gated on [[assert-static-renderable!]] — the render-time arm of
+     no-silent-elision. This is where the gate belongs, because the question it
+     asks is exactly \"what would this fold drop\": the SSR serialiser is shared
+     with the hydrating path, where dropping `:events` is right, and only a
+     render whose output nothing will ever hydrate can call the same drop a
+     defect."
      [tree]
      (if-let [emit (resolve-ssr-emitter)]
-       (emit tree)
+       (emit (assert-static-renderable! tree))
        (error/throw-error!
         :rf.error/ssr-artefact-missing
         'v/render-static
