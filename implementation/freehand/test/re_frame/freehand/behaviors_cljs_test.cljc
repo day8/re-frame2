@@ -164,6 +164,31 @@
     (let [tree (t/render [bv/plain {}])]
       (is (= tree (edn/read-string (pr-str tree)))))))
 
+(defn- behavior-nodes
+  [tree]
+  (t/find-all tree #(and (map? %) (= :re-frame.freehand/behavior (:view-id %)))))
+
+(deftest fh-behavior-003-the-compiled-marker-equals-the-interpreted-one
+  (testing "Per FH-BEHAVIOR-003, now COMMON (rf2-drpa3.116/.127): the compiled
+            tier has a behavior form, and its structural projection is the SAME
+            inert marker the interpreted tier records — the same view-id, the
+            same public props (id, target, config), the same decorated element
+            as its child, connecting nothing. Proven by rendering each
+            interpreted use site and its {:compiled true} twin and asserting the
+            behavior subtrees are byte-equal — one implementation, both modes."
+    (bv/reset-transcript!)
+    (doseq [[interp compiled note]
+            [[bv/plain     bv/plain-compiled     "the ordinary attachment"]
+             [bv/no-target bv/no-target-compiled "no target recorded as absent"]
+             [bv/pair      bv/pair-compiled      "two markers, each its own id"]]]
+      (let [i-nodes (behavior-nodes (t/render [interp {}]))
+            c-nodes (behavior-nodes (t/render [compiled {}]))]
+        (is (seq i-nodes) (str note " — the interpreted use site has a marker"))
+        (is (= i-nodes c-nodes)
+            (str note " — the compiled marker equals the interpreted one"))))
+    (is (= [] (bv/ops))
+        "and NOTHING ran on either side — the compiled marker is inert too")))
+
 (deftest fh-behavior-003-a-command-with-no-live-connection-is-refused
   (testing "Per FH-BEHAVIOR-003: a command crosses into a live host object,
             and no structural render owns one — so the channel REFUSES rather

@@ -162,6 +162,56 @@
    [:div.node "content"]])
 
 ;; ---------------------------------------------------------------------------
+;; Compiled twins (rf2-drpa3.116/.127)
+;; ---------------------------------------------------------------------------
+;;
+;; The SAME use sites, promoted with `{:compiled true}`. A behavior now has a
+;; compiled form, so a view that attaches one need no longer stay interpreted.
+;; These twins carry byte-identical markup to their interpreted originals, so a
+;; test can assert the compiled structural marker equals the interpreted one and
+;; the compiled browser lifecycle transcript equals the interpreted one — the
+;; cross-mode agreement D013 requires (FH-BEHAVIOR-003, rf2-drpa3.127).
+
+(v/defview plain-compiled
+  "The compiled twin of `plain`."
+  {:compiled true}
+  [{:keys [label]}]
+  [:section.host
+   [v/behavior {:use probe :target :probe/one :config {:label (or label "a")}}
+    [:div.node "content"]]])
+
+(v/defview no-target-compiled
+  "The compiled twin of `no-target`."
+  {:compiled true}
+  [_]
+  [v/behavior {:use probe :config {:label "quiet"}}
+   [:div.node]])
+
+(v/defview pair-compiled
+  "The compiled twin of `pair`."
+  {:compiled true}
+  [_]
+  [:section.host
+   [v/behavior {:use probe :target :probe/one :config {:label "one"}}
+    [:div.node {:data-id "one"}]]
+   [v/behavior {:use probe :target :probe/two :config {:label "two"}}
+    [:div.node {:data-id "two"}]]])
+
+(v/defview layout-compiled
+  "The compiled twin of `layout-timed` — the `:layout` arm, promoted."
+  {:compiled true}
+  [_]
+  [v/behavior {:use measure :target :probe/measured}
+   [:div.node]])
+
+(v/defview control-compiled
+  "The compiled twin of `control-mount` — the same markup, no behavior."
+  {:compiled true}
+  [_]
+  [:section.host
+   [:div.node "content"]])
+
+;; ---------------------------------------------------------------------------
 ;; Refused use sites — one view per arm of the closed grammar
 ;; ---------------------------------------------------------------------------
 
