@@ -67,6 +67,7 @@ elements — the child path is browser-only, like the mount verbs.
 
       :children-policy   :optional (the default), :none, or :required
       :compiled          false (the default), or true to select the compiled tier
+      :props             a props schema — Malli vector data, held inert
 
   `{:compiled true}` is the **one-line promotion**, and it reaches the declaration and
   stops there: no call site changes, ever — mounting is `[todo-row {…}]` before and
@@ -83,12 +84,22 @@ elements — the child path is browser-only, like the mount verbs.
   finite language: a form the grammar does not admit is a build failure naming a
   recovery, never a silent demotion.
 
-  An unknown key, a **reserved-but-unimplemented** key (the props-schema options —
-  `{:props-schema …}` — which the schema slice owns and which are refused until it
-  lands, the way `:compiled` was refused until the compiled tier landed), a missing
-  body, more than one parameter, or a policy outside the roster all raise
-  `:rf.error/defview-bad-args` at **macro-expansion** time. A view that deliberately
-  renders nothing writes an explicit `nil` body.
+  `:props` is an optional **props schema** — Malli vector data, held inert and
+  published as authored. A declared schema **closes** the props map to the keys it
+  names (a view that really does forward arbitrary props says so in the schema
+  itself, `[:map {:closed false} …]`), and the same schema drives both the compiled
+  analyzer's build-time key check and the interpreted boundary's development-only
+  runtime check. Promotion changes *when* a breach is reported, never which props are
+  legal, and production renders the same tree either way. A declaration without
+  `:props` reports its schema as **absent** from [`describe`](#describe) — under the
+  distinct projection key `:props-schema` — never as `:any`, because an undeclared
+  contract and a deliberately permissive one are different facts.
+
+  An unknown key — a one-character typo, or a **reserved** option whose owning slice
+  has not landed (the way `:compiled` and `:props` were each refused until their tier
+  landed) — a missing body, more than one parameter, or a policy outside the roster
+  all raise `:rf.error/defview-bad-args` at **macro-expansion** time. A view that
+  deliberately renders nothing writes an explicit `nil` body.
 - **Example**:
   ```clojure
   (v/defview cart-badge
