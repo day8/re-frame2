@@ -78,11 +78,14 @@
   #{:query :query-merge :fragment})
 
 (def link-behavior-keys
-  "`route-link` BEHAVIOUR key class — `:on-click`. Stripped from the props
-  map before DOM emission alongside the address keys (Spec 012 §The
-  extraction law — route-link's open-props exception). `:prefetch` joins this
-  class in EP-0037 R3."
-  #{:on-click})
+  "`route-link` BEHAVIOUR key class — `:on-click` and `:prefetch` (EP-0037 R3).
+  Stripped from the props map before DOM emission alongside the address keys
+  (Spec 012 §The extraction law — route-link's open-props exception), so a
+  behaviour key never reaches the `<a>` as an unknown attribute. `:on-click` is
+  the imperative pre-navigation seam (replaced by the framework's click closure
+  on the interactive host, dropped on SSR); `:prefetch :intent` is the warm-mode
+  trigger (Spec 012 §Route-plan prefetch)."
+  #{:on-click :prefetch})
 
 (def navigate-request-roster
   "The closed set of keys a `:rf.route/navigate` request map may carry — the
@@ -150,6 +153,40 @@
   `:fragment nil` are valid lone in-place requests."
   [request]
   (boolean (seq (set/intersection (set (keys request)) edit-keys))))
+
+(defn prefetch-address-error
+  "The always-on STRUCTURAL GATE for a `[:rf.route/prefetch {address}]` request
+  (Spec 012 §Route-plan prefetch). Prefetch accepts ONLY the closed named
+  `:rf/route-address` form (`#{:to :params :query :fragment}`) — never a raw
+  `:url` escape, a policy / edit key, or an unknown key. Returns nil when the
+  request is a well-formed address, else `{:reason <kw> :keys [<offending>]}`
+  naming the first violation, which the handler surfaces as
+  `:rf.error/prefetch-bad-address` BEFORE any planning runs. Total over the
+  address roster; rejects before any resource ensure is dispatched. Distinct
+  from a resource *planning* failure (a well-formed address whose plan cannot be
+  built — the ordinary `:rf.error/resource-route-plan` with `:plan-cause
+  :prefetch`).
+
+  The offending unknown keys are reported in the same total canonical order
+  (`identity/canonical-bytes`) the navigate gate uses, so heterogeneous EDN keys
+  never trip a `compare`-based `sort`."
+  [request]
+  (let [sorted-keys (fn [kws] (vec (sort-by identity/canonical-bytes kws)))]
+    (cond
+      (not (map? request))
+      {:reason :request-not-a-map :keys []}
+
+      (seq (set/difference (set (keys request)) address-keys))
+      {:reason :unknown-keys
+       :keys   (sorted-keys (set/difference (set (keys request)) address-keys))}
+
+      (not (keyword? (:to request)))
+      {:reason :missing-to :keys [:to]}
+
+      (not (valid-address? request))
+      {:reason :bad-address :keys []}
+
+      :else nil)))
 
 (defn classify
   "The always-on STRUCTURAL GATE for a `:rf.route/navigate` request map

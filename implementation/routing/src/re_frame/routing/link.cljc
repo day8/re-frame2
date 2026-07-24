@@ -49,6 +49,58 @@
     [path-url (-> (apply dissoc props (concat address/address-keys address/link-behavior-keys))
                   (assoc :href (encode path-url)))]))
 
+(def prefetch-intent-value
+  "The ONE accepted `:prefetch` behaviour value on a route-link (Spec 012
+  §Route-plan prefetch). `:intent` warms on credible user intent (hover / focus
+  / touch). There is no render mode, viewport mode, global default, or hover-
+  delay knob — a passive render dispatches nothing (Governing Law 1)."
+  :intent)
+
+(defn prefetch-payload
+  "The `[:rf.route/prefetch {address}]` dispatch vector for a link whose props
+  request `:prefetch :intent`, or nil when the link does not opt in. PURE, both
+  hosts — the routing calculation a compiled `ui/route-link` / Freehand
+  `v/route-link` consumes through the `:routing/prefetch-payload` seam so it
+  reimplements none of the prefetch law. The address is selected through the ONE
+  shared extractor (`address/extract-address`), so it is byte-identical to the
+  link's own destination (path `:params` + `:query`); `:fragment` is omitted — a
+  prefetch is resource-only and a `#fragment` is never a resource input."
+  [props]
+  (when (= prefetch-intent-value (:prefetch props))
+    (let [{:keys [to params query]} (address/extract-address props)]
+      [:rf.route/prefetch
+       (cond-> {:to to}
+         (seq params) (assoc :params params)
+         (seq query)  (assoc :query query))])))
+
+#?(:cljs
+   (defn- compose-intent-handler
+     "Build one intent-event handler that runs a caller-supplied handler of the
+     same name FIRST (compose, not replace) and then dispatches `payload` to the
+     `render-frame` with `:source :router` (rf2 routing-substrate attribution).
+     Reused for `:on-mouse-enter` / `:on-focus` / `:on-touch-start` so the three
+     prefetch triggers share one composition + dispatch law."
+     [caller-handler render-frame payload]
+     (fn [e]
+       (when caller-handler (caller-handler e))
+       (router/dispatch! payload {:source :router :frame render-frame}))))
+
+#?(:cljs
+   (defn- prefetch-intent-attrs
+     "The `:prefetch :intent` DOM handlers for `rf/route-link`, or nil when the
+     link does not opt in. Warms the destination on credible user intent —
+     pointer hover (`:on-mouse-enter`), focus (`:on-focus`), touch
+     (`:on-touch-start`) — NEVER on render / viewport (Governing Law 1). Each
+     composes with a caller-supplied handler of the same name (read from
+     `props`) and dispatches `[:rf.route/prefetch …]` to the render-time-captured
+     `render-frame`, exactly as the delayed click handler targets its frame. Per
+     Spec 012 §Route-plan prefetch."
+     [props render-frame]
+     (when-let [payload (prefetch-payload props)]
+       {:on-mouse-enter (compose-intent-handler (:on-mouse-enter props) render-frame payload)
+        :on-focus       (compose-intent-handler (:on-focus props)       render-frame payload)
+        :on-touch-start (compose-intent-handler (:on-touch-start props) render-frame payload)})))
+
 #?(:cljs
    (defn- plain-left-click?
      "Return true when the click event is a plain primary-button click with
@@ -169,7 +221,17 @@
            ;; Computed once at render against the resolved attrs (post
            ;; control-key strip) so the string/keyword attr forms are seen.
            native? (native-anchor? base-attrs)
-           attrs (assoc base-attrs
+           ;; EP-0037 R3: `:prefetch :intent` warms the destination's resources
+           ;; on credible user intent (hover / focus / touch). The handlers
+           ;; compose with caller-supplied ones of the same name and dispatch to
+           ;; the SAME render-time-captured frame the click handler targets, so a
+           ;; prefetch warms the frame that rendered the link, never a sibling.
+           ;; `:prefetch` is stripped from `base-attrs` as a link-behaviour key
+           ;; (`href-attrs` / `address/link-behavior-keys`), so it never reaches
+           ;; the `<a>`. Per Spec 012 §Route-plan prefetch.
+           intent-attrs (prefetch-intent-attrs props render-frame)
+           attrs (merge
+                   (assoc base-attrs
                         :on-click
                         (fn [e]
                           (when on-click (on-click e))
@@ -197,7 +259,11 @@
                                  (seq params)   (assoc :params params)
                                  (seq query)    (assoc :query  query)
                                  fragment       (assoc :fragment fragment))]
-                              {:source :router :frame render-frame}))))]
+                              {:source :router :frame render-frame}))))
+                   ;; compose the prefetch intent handlers OVER the base attrs
+                   ;; (they wrap any caller-supplied intent handler); nil when
+                   ;; the link did not opt into `:prefetch :intent`.
+                   intent-attrs)]
        (into [:a attrs] children))))
 
 (defn route-link-render-ssr
@@ -307,6 +373,24 @@
                 (not (.-defaultPrevented e))
                 (plain-left-click? e))
        (.preventDefault e)
+       (router/dispatch! payload {:source :router :frame render-frame}))))
+
+#?(:cljs
+   (defn prefetch-on-intent!
+     "The `:routing/prefetch-on-intent!` seam (CLJS only). Dispatch a prefetch
+     `payload` (the `[:rf.route/prefetch {address}]` vector from `prefetch-
+     payload`, or nil) on credible user intent — a compiled `ui/route-link` /
+     Freehand `v/route-link` binds it to `:on-mouse-enter` / `:on-focus` /
+     `:on-touch-start`, so the anchor warms the destination the same way
+     `rf/route-link` does. Runs the caller-supplied intent handler FIRST
+     (compose, not replace), then dispatches to the render-time-captured
+     `render-frame` with `:source :router` (routing-substrate attribution,
+     retarget-safe by explicit `:frame`). A nil `payload` (the link did not opt
+     into `:prefetch :intent`) still runs the caller handler and dispatches
+     nothing — passive by construction. Mirrors `activate-link!` for the click."
+     [e caller-handler render-frame payload]
+     (when caller-handler (caller-handler e))
+     (when payload
        (router/dispatch! payload {:source :router :frame render-frame}))))
 
 ;; The façade owns the `:route/link` registration:

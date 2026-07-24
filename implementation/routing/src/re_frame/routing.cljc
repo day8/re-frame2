@@ -54,6 +54,7 @@
             [re-frame.routing.nav-fx :as nav-fx]
             [re-frame.routing.nav-token :as nav-token]
             [re-frame.routing.navigate :as navigate]
+            [re-frame.routing.prefetch :as prefetch]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.scroll :as scroll]
             [re-frame.routing.strategy :as strategy]
@@ -230,6 +231,17 @@
 (events/reg-event :rf.route/navigate
                      nav-commit-meta
                      navigate/navigate-handler)
+
+;; :rf.route/prefetch — Spec 012 §Route-plan prefetch (EP-0037 R3). Warm-mode
+;; resource-only intent preload: runs a named destination's effective resource
+;; plan ownerlessly WITHOUT navigating. It allocates NO nav-token / pending-nav
+;; id (prefetch is not an activation), so it declares neither recordable
+;; allocation cofx — only the default `:db` (for `{:from-db …}` scope resolution)
+;; + `:rf.frame/id`. It writes no runtime-db; the framework-authority marker is
+;; carried for consistency with the sibling routing events.
+(events/reg-event :rf.route/prefetch
+                     framework-authority-meta
+                     prefetch/prefetch-handler)
 
 ;; :rf.route/transitioned + :rf.route/handle-url-change — Spec 012 §URL
 ;; changes are events. Both declare both recordable allocation cofx (mint the
@@ -445,3 +457,13 @@
 ;; the late-bind directory without a static require on routing.
 (late-bind/set-fn! :routing/link-model link/link-model)
 #?(:cljs (late-bind/set-fn! :routing/activate-link! link/activate-link!))
+
+;; EP-0037 R3 — the substrate-neutral prefetch seam the compiled `ui/route-link`
+;; and Freehand `v/route-link` descriptors consume so they wire `:prefetch
+;; :intent` through routing's law without reimplementing it. `prefetch-payload`
+;; is PURE and published on BOTH hosts (a descriptor computes the payload at
+;; render, JVM shell included, though only the CLJS anchor binds the intent
+;; handlers); `prefetch-on-intent!` is the CLJS-only intent-dispatch op (SSR has
+;; no DOM intent to intercept). Per Spec 012 §Route-plan prefetch.
+(late-bind/set-fn! :routing/prefetch-payload link/prefetch-payload)
+#?(:cljs (late-bind/set-fn! :routing/prefetch-on-intent! link/prefetch-on-intent!))
