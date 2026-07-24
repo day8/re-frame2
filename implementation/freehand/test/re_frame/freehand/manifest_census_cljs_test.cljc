@@ -111,17 +111,33 @@
             present on every entry on every host."
     (let [required (:required-keys struct-010)
           coord-ks (:source-coord-keys struct-010)]
-      ;; The dissoc list is the manifest's NON-roster keys — single facts about
-      ;; the declaration rather than per-site entries, so none of them owns a
-      ;; source coordinate. `:static-facts` is one of them: the render-static
-      ;; `{:caps :deps}` closure is a summary OVER the sites, not a roster of
-      ;; them, and asking it for a per-entry `:source-coord` would be asking a
-      ;; set of capability tokens where its lines are.
+      ;; What the fixture governs is the manifest's LEXICAL-SITE rosters — the
+      ;; ones whose entries name a form the compiler read, and therefore own a
+      ;; source coordinate. Two kinds of key are excluded, for two different
+      ;; reasons, and both are stated rather than lumped:
+      ;;
+      ;;   - `:view-id` / `:grammar` / `:capabilities` / `:reactive?` /
+      ;;     `:view-cell` / `:static-facts` are NOT rosters at all — single
+      ;;     facts about the declaration. `:static-facts` is the clearest case:
+      ;;     the render-static `{:caps :deps}` closure is a summary OVER the
+      ;;     sites, and asking it for a per-entry `:source-coord` would be
+      ;;     asking a set of capability tokens where its lines are.
+      ;;   - `:diagnostics` IS a roster, but its entries are compile-tier
+      ;;     FINDINGS, not sites: a finding names the `:tag` and `:path` of the
+      ;;     node it was minted from and carries no `:source-coord`, so the
+      ;;     per-entry coordinate law below cannot govern it. Its own fixture
+      ;;     row is a conformance change and is sequenced separately
+      ;;     (rf2-hytu5); `re-frame.freehand.tool-reader-jvm-test` pins the
+      ;;     roster's shape and non-emptiness meanwhile.
       (is (= (set (keys required))
              (set (keys (dissoc (v/manifest (census-view :label))
                                 :view-id :grammar :capabilities
-                                :reactive? :view-cell :static-facts))))
-          "the fixture names every roster the manifest carries and no other")
+                                :reactive? :view-cell :static-facts
+                                :diagnostics))))
+          "the fixture names every lexical-site roster the manifest carries and no other")
+      (is (contains? (v/manifest (census-view :label)) :diagnostics)
+          "and the finding roster is present — excluded from the coordinate law
+           above, never from the manifest")
       (doseq [[nm view] mv/by-name
               [roster ks] required
               entry       (get (v/manifest view) roster)]

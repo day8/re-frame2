@@ -324,6 +324,18 @@
     are the view's finite reactive, intent, render-slot, trusted-markup
     and committed-frame site rosters — the same lexical sites the
     analyzer indexed, projected to their statically knowable facts.
+  - `:diagnostics` is the compile-tier finding roster
+    ([[re-frame.freehand.compiler.a11y]]) — every a11y finding the
+    declaration produced, INCLUDING the suppressed ones, each with the
+    compiler-minted `:sid` its warning names and a `:reason` where one was
+    given. Findings were collected in the compiler env and published
+    nowhere, so a suppressed finding — the whole point of which is that it
+    stays an inspectable fact while printing nothing — was unreachable by
+    any reader (rf2-hytu5). Unlike the site rosters a finding is not a
+    lexical site and carries no `:source-coord`: it names the `:tag` and
+    `:path` of the node it was minted from, which is the coordinate its
+    warning quotes. Readers reach it through
+    [[re-frame.freehand.tool/view-manifest]].
   - A roster entry's `:source-coord` is TOTAL OR ABSENT — a whole
     `{:file :line :column}` of the form that produced it, or of the
     enclosing declaration when the reader anchored no narrower position;
@@ -371,6 +383,8 @@
      :slots         (mapv #(select-keys % [:sid :inline? :source-coord :path]) (:slots sites))
      :html-sites    (mapv #(select-keys % [:source-coord :path]) (:htmls sites))
      :frame-ops     (mapv #(select-keys % [:sid :source-coord :path]) (:frame-ops sites))
+     :diagnostics   (mapv #(select-keys % [:sid :id :tag :path :suppressed? :reason])
+                          (:diagnostics sites))
      :capabilities  (compiled-capabilities ast sites)
      :reactive?     (not elided?)
      :view-cell     (if elided? :elided :present)

@@ -43,8 +43,15 @@
   Every finding — suppressed or not — is recorded as a `:diagnostics` manifest
   site carrying the compiler-minted stable site id, so a suppressed finding
   stays an inspectable fact (with its reason) while printing nothing. Tools
-  read it through `re-frame.freehand.tool/view-manifest`; nothing re-derives site
-  identity downstream."
+  read it through [[re-frame.freehand.tool/view-manifest]]; nothing re-derives
+  site identity downstream.
+
+  Until rf2-hytu5 that last sentence named two things that did not exist:
+  `structural-manifest` carried no `:diagnostics` key, and there was no
+  `re-frame.freehand.tool` namespace at all. Findings were collected in the
+  compiler env and reached no reader, which made a SUPPRESSED finding — whose
+  entire purpose is to remain inspectable while silent — simply lost. Both
+  ends now exist, and this docstring describes them."
   (:require [clojure.string :as str]
             [re-frame.freehand.compiler.env :as env]))
 
