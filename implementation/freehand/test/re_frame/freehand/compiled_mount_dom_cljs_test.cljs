@@ -198,6 +198,19 @@
                         :on-click   [:compiled/pressed]}
    caption])
 
+(v/defview ui-event-probe
+  "A committed site whose intent is a `(v/event …)` CONVERSION rather than
+  a literal vector — the one spelling for an intent the closed projection
+  trio cannot express. The compiled lowering used to hand the runtime the
+  bare fn the callback carries, which `event-plan` classifies `:bare-fn`:
+  the click ran the body and DISCARDED the vector it answered, with no
+  error and nothing on screen to see (rf2-berc2)."
+  {:compiled true}
+  [{:keys [caption]}]
+  [:button#converted.probe {:data-shell (shell-witness)
+                            :on-click   (v/event [e] [:compiled/converted (.-detail e)])}
+   caption])
+
 (v/defview field-probe
   "A CONTROLLED input: a `value` prop makes the element controlled, and
   the door verdict for its handler is decided from those element facts.
@@ -233,6 +246,8 @@
                 (fn [{:keys [db]} _] {:db (update db :presses inc)}))
   (rf/reg-event :compiled/typed
                 (fn [{:keys [db]} [_ v]] {:db (assoc db :text v)}))
+  (rf/reg-event :compiled/converted
+                (fn [{:keys [db]} ev] {:db (update db :converted (fnil conj []) ev)}))
   (rf/reg-event :compiled/total-set
                 (fn [{:keys [db]} [_ n]] {:db (assoc db :total n)})))
 
@@ -462,6 +477,48 @@
                         (.remove container)
                         (done)))))))))
 
+(deftest a-compiled-v-event-site-dispatches-the-vector-its-body-answered
+  (testing "The arm above fires a LITERAL intent. This one fires a
+            `(v/event …)` — a body that CONVERTS the native event into an
+            intent — which is the whole reason the form exists. What is
+            asserted is the vector app-db received, not that the click
+            raised nothing: the defect this row exists for raised nothing
+            at all. It ran the body, discarded the vector, and left an
+            application whose button did exactly nothing with no
+            diagnostic to search for."
+    (if-not (browser?)
+      (skip! "the browser job runs the dispatch assertions")
+      (async done
+        (register!)
+        (seed! {})
+        (let [container (host-node!)
+              mounted   (atom nil)]
+          (-> (act #(v/mount [ui-event-probe {:caption "convert"}] container {:frame fid}))
+              (.then (fn [m]
+                       (reset! mounted m)
+                       (is (= "shell" (attr container "#converted" "data-shell"))
+                           "a v/event site is a reactive site, so the shell is retained")
+                       (is (nil? (:converted (db))) "nothing has been dispatched yet")
+                       (act #(.dispatchEvent (.querySelector container "#converted")
+                                             (js/CustomEvent. "click"
+                                                              #js {:bubbles true :detail 7})))))
+              (.then (fn [_]
+                       (is (= [[:compiled/converted 7]] (:converted (db)))
+                           "the EXACT vector the v/event body answered reached app-db,
+                            carrying the value it read off the native event")
+                       (act #(.dispatchEvent (.querySelector container "#converted")
+                                             (js/CustomEvent. "click"
+                                                              #js {:bubbles true :detail 8})))))
+              (.then (fn [_]
+                       (is (= [[:compiled/converted 7] [:compiled/converted 8]] (:converted (db)))
+                           "and the site's proxy converted the second click too")
+                       (unmount! container @mounted)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "v/event arm rejected: " e))
+                        (.remove container)
+                        (done)))))))))
+
 (deftest a-compiled-controlled-input-round-trips-through-app-db
   (testing "A compiled `:input` carrying `value` is CONTROLLED, and its
             handler's lane is decided from those element facts by the one
@@ -542,7 +599,7 @@
             — or a fixture that loaded empty — would leave every
             assertion above green for the wrong reason."
     (doseq [[nm view] {:page compiled/page :inert inert-probe :sub sub-probe
-                       :event event-probe :field field-probe
+                       :event event-probe :ui-event ui-event-probe :field field-probe
                        :crossing crossing-probe}]
       (is (= :compiled (:lowering (v/describe view))) (str nm " is a compiled declaration"))
       (is (some? (v/manifest view)) (str nm " carries a compiled manifest")))
