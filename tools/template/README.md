@@ -64,13 +64,6 @@ clojure -Sdeps '{:deps {day8/re-frame2-template
         :name acme/my-app \
         :substrate :uix
 
-# re-frame.ui — EXPERIMENTAL (the first-party compiled-view substrate)
-clojure -Sdeps '{:deps {day8/re-frame2-template
-                        {:local/root "tools/template"}}}' \
-        -Tnew create :template day8/re-frame2-template \
-        :name acme/my-app \
-        :substrate :ui
-
 # Reagent, with the Story playground scaffold
 clojure -Sdeps '{:deps {day8/re-frame2-template
                         {:local/root "tools/template"}}}' \
@@ -91,26 +84,9 @@ auto-git-clone before classpath lookup — bypassing the local-root
 checkout (and, pre-split, cloning a repo that doesn't exist yet).
 
 `:include-story? true` is currently **Reagent-only**. Combining it with
-`:substrate :uix` or `:substrate :ui` throws
+`:substrate :uix` throws
 `:rf.error/template-include-story-reagent-only`. A UIx Story
 variant follows once that adapter's Story coverage matches Reagent's.
-
-### `:substrate :ui` (EXPERIMENTAL)
-
-`:substrate :ui` scaffolds the app on **re-frame.ui**, the first-party
-compiled-view substrate: `defview` views, value-shaped subscription
-reads (`(sub [:counter/value])` — nothing to deref), event-vector
-handlers (`{:on-click [:counter/increment]}`), and `ui/mount`. The
-emitted `shadow-cljs.edn` carries the one load-bearing build-hook
-setting from
-[docs/core/how-to/install-re-frame-ui.md](../../docs/core/how-to/install-re-frame-ui.md)
-(no `:cache-blockers` line — the S6 cut-over removed the tax), and the
-deps are the minimal consumer shape (`day8/re-frame2` +
-`day8/re-frame2-ui` + `day8/re-frame2-schemas`; no Xray). It is
-**EXPERIMENTAL** (2026-07-19 template-menu ruling): the surface may
-change between alpha releases, and the Reagent / UIx adapter scaffolds
-remain the supported defaults. `:include-story?` / `:include-ssr?` do
-not combine with it; `:css :tailwind` does.
 
 ### `:css :tailwind`
 
@@ -211,14 +187,14 @@ The normative contract lives under [`spec/`](./spec/):
 | File | What's in it |
 |---|---|
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What the tool is for; lineage from v1; goals; non-goals. |
-| [`spec/001-Substrate-Variants.md`](./spec/001-Substrate-Variants.md) | Reagent / UIx / experimental `:ui` variants; the top-level k/v invocation form; substrate coercion. |
+| [`spec/001-Substrate-Variants.md`](./spec/001-Substrate-Variants.md) | Reagent / UIx variants; the top-level k/v invocation form; substrate coercion. |
 | [`spec/002-Generated-Shape.md`](./spec/002-Generated-Shape.md) | The file tree emitted; the resource tree; substitution variables. |
 | [`spec/003-DepsNew-Rebuild-Plan.md`](./spec/003-DepsNew-Rebuild-Plan.md) | Completed migration record from clj-new and Clojars to deps-new and git-coord. |
 | [`spec/004-SSR-Validation-Report.md`](./spec/004-SSR-Validation-Report.md) | Completed validation record for the shipped SSR variant. |
 | [`spec/005-Repo-Split.md`](./spec/005-Repo-Split.md) | Procedure for the remaining monorepo-to-external-repo split. |
 | [`spec/Principles.md`](./spec/Principles.md) | The design principles (build-time only, counter as canonical example, substrate-agnostic shell, top-level k/v selection). |
 | [`spec/API.md`](./spec/API.md) | The consolidated public invocation surface. |
-| [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | WHY each major decision (deps-new + git-coord over clj-new + Clojars, top-level k/v plumbing, three substrates in v1, counter as example, no-Story-yet, pin lockstep). |
+| [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | WHY each major decision (deps-new + git-coord over clj-new + Clojars, top-level k/v plumbing, the substrate menu, counter as example, no-Story-yet, pin lockstep). |
 
 ## Cross-references
 

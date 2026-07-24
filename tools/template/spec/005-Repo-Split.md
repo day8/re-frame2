@@ -10,10 +10,12 @@
 > the external repo is live and the in-monorepo `tools/template/` is
 > stubbed or deleted.
 
-**Sequencing prerequisite.** Execute this repo split only after Stage-6 W8 has
-collapsed the three substrate variants into one `re-frame.ui` scaffold
-(synthesis `11-adoption-workstreams.md` W8); the split itself runs in Stage 7
-after every alpha gate is green (synthesis `08-delivery.md` §2, Stage 7).
+**Sequencing prerequisite.** The Stage-6 W8 prerequisite — collapse the
+substrate variants onto the compiled-view scaffold (synthesis
+`11-adoption-workstreams.md` W8) — is void: that variant was retired
+(rf2-qmvep, 2026-07-25) rather than adopted, so nothing gates this split
+on it. The split itself runs in Stage 7 after every alpha gate is green
+(synthesis `08-delivery.md` §2, Stage 7).
 
 ## §1 Why split
 

@@ -240,8 +240,7 @@ wired into the build, and consumers can use it today.
   io.github.day8/re-frame2-template :name acme/my-app` and receive a
   working CLJS app wired against the alpha `day8/re-frame2-*` coords.
   Two substrate variants (Reagent / UIx) selectable via the top-level
-  `:substrate :uix` k/v, plus the experimental `:substrate :ui`
-  (re-frame.ui) variant. Distribution is git-coord, not Clojars
+  `:substrate :uix` k/v. Distribution is git-coord, not Clojars
   (rf2-dolpf §2.5).
 
   Note: `tools/template/` is **build-time only**; the template jar is

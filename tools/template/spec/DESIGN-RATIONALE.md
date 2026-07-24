@@ -117,7 +117,7 @@ the first cut.
   `subs.cljs`, host HTML) is identical across substrates. Only
   `core.cljs`, `views.cljs`, `deps.edn`, and the npm pins
   differ. The per-substrate resource sub-tree is ~5 files.
-- **CI exercises all three.** The JVM test suite under
+- **CI exercises every variant.** The JVM test suite under
   `test/day8/re_frame2_template/` runs every substrate end-to-end
   across template-shape, static-parse, and behavioural slices, so
   adding a substrate has a low maintenance tax.
@@ -128,9 +128,22 @@ afterthought.
 
 > **Amended at S7/W13 (rf2-d6epb, 2026-07-22).** The Helix adapter was
 > removed framework-wide, and the template's `:helix` variant went with
-> it. The menu is now `:reagent` (default), `:uix`, and the
-> EXPERIMENTAL `:ui` compiled-view variant (2026-07-19 template-menu
-> ruling); the decision record above is kept as history.
+> it.
+>
+> **Amended again (rf2-qmvep, 2026-07-25).** The EXPERIMENTAL `:ui`
+> compiled-view variant (added under the 2026-07-19 template-menu
+> ruling) is retired. It emitted a `day8/re-frame2-ui` Maven
+> coordinate, and Mike's 2026-07-22 ruling is that the artefact is
+> never published — so every external consumer who picked `:ui` got a
+> `deps.edn` whose first `clojure -M…` failed on an unresolvable
+> dependency. The in-repo gates were green only because they rewrote
+> that coordinate to `:local/root`, an affordance no consumer has. A
+> scaffold for a substrate that will not exist is not worth
+> maintaining, and Freehand gets its own variant when its publication
+> gate lands.
+>
+> The menu is now `:reagent` (default) and `:uix`; the decision record
+> above is kept as history.
 
 ## §3 — Counter as the canonical example
 
@@ -348,7 +361,7 @@ already rules out.
   is now: pass a keyword, get a result; pass anything else, get a
   clear error.
 - **Strict on the value set is unchanged.** Any keyword outside
-  `#{:reagent :uix :ui}` throws with a clear message naming the
+  `#{:reagent :uix}` throws with a clear message naming the
   valid set. The user sees the typo and fixes it.
 
 **Why not keep the forgiving posture.** The inverse — strict on
