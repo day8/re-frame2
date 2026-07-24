@@ -113,6 +113,17 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run test:elision
 
+      # rf2-xwa4n — the nightly superset of the PR-time
+      # `cljs-freehand-evidence-elision` job. That job is surface-gated on the
+      # Freehand producer surfaces (evidence schema / dev-gated seam / release
+      # entry / build-config trio / the checker), which is the right PR-time
+      # cost. This unconditional run is the safety net for everything OUTSIDE
+      # that arm — a core `interop/debug-enabled?` change, an adapter change, a
+      # toolchain bump — that can break the elision without touching Freehand.
+      - name: Gate — Freehand evidence production isolation (test:freehand-evidence-elision)
+        if: ${{ !cancelled() }}
+        run: npm run test:freehand-evidence-elision
+
       - name: Gate — tools must not leak into production bundles (test:bundle-isolation)
         if: ${{ !cancelled() }}
         run: npm run test:bundle-isolation
