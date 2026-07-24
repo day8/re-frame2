@@ -120,6 +120,28 @@
   both onto `auto`."
   #{true "" "auto" "manual" "hint"})
 
+(def ^:private popover-reconcilers
+  "The event positions that reconcile a POPOVER's own dismissal."
+  [:on-toggle :on-before-toggle])
+
+(def ^:private modal-reconcilers
+  "The event positions that reconcile a modal DIALOG's own dismissal."
+  [:on-close :on-cancel])
+
+(def context-keys
+  "Beyond the desired-state pair itself, the element facts a top-layer
+  declaration is judged AGAINST: the `:popover` mode that makes
+  `popover-open?` legal at all, and the event positions that reconcile
+  the browser's own dismissal.
+
+  An interpreted element hands the whole authored attribute map to the
+  emitter, so it reads these for free. A COMPILED element has no runtime
+  attribute map — its props are written imperatively onto a JS object —
+  so its emitter carries exactly these facts alongside the pair. The list
+  living here, with the rules that consume it, is what keeps two modes
+  judging one declaration by one rule."
+  (into #{:popover} cat [popover-reconcilers modal-reconcilers]))
+
 (defn present?
   "Does `attrs` carry either desired-state property? The one question asked
   on every element of every render, so it is two map lookups and nothing
@@ -475,8 +497,8 @@
   the popover's toggle pair, or the dialog's close pair."
   [fact]
   (if (contains? fact :popover-open?)
-    [:on-toggle :on-before-toggle]
-    [:on-close :on-cancel]))
+    popover-reconcilers
+    modal-reconcilers))
 
 (defn- reconciled?
   "Does the element handle the browser's own dismissal? Native dismissal —

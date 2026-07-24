@@ -84,6 +84,33 @@
   commit-time host call instead, exactly as the interpreted walk does."
   #{top-layer/popover-open?-key top-layer/modal-open?-key})
 
+(defn- top-layer-context
+  "The element facts that ride WITH the desired-state pair into
+  [[re-frame.freehand.top-layer/install!]]:
+  [[re-frame.freehand.top-layer/context-keys]], read off this element.
+
+  The install judges a declaration against the element that made it —
+  `popover-open?` is legal only on a valid `:popover` mode, and the
+  dismissal advisory asks whether the element handles the browser's own
+  report. The interpreted walk hands it the whole authored attribute map,
+  so it has both. A compiled element's props are written imperatively
+  onto a JS object and there is no such map, so without this the install
+  judges an EMPTY element: it reads a popover mode of nil and refuses
+  every promoted popover, and it reads no `:on-toggle` and accuses a
+  declaration that does reconcile itself.
+
+  A handler rides as PRESENCE rather than as its callback. What the
+  advisory asks is whether the position is declared at all, and a
+  compiled site's callback is built inside the props form this map cannot
+  reach."
+  [props]
+  (into (into {} (keep (fn [{:keys [k value]}]
+                         (when (contains? top-layer/context-keys k) [k value])))
+              (:attrs props))
+        (keep (fn [{:keys [k]}]
+                (when (contains? top-layer/context-keys k) [k true])))
+        (:events props)))
+
 (defn- new-state [] (atom {:binds [] :n 0}))
 
 (defn- hoist!
@@ -288,6 +315,7 @@
         top         (into {} (keep (fn [{:keys [k value]}]
                                      (when (contains? top-layer-keys k) [k value])))
                           all-attrs)
+        top         (cond-> top (seq top) (into (top-layer-context props)))
         attrs       (remove (fn [{:keys [k]}] (contains? top-layer-keys k)) all-attrs)
         controlled? (controlled/controlled-props? (map :k attrs))
         ;; The multiple-select verdict, from the LITERAL `multiple` — the

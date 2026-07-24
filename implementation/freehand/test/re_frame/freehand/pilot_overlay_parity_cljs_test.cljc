@@ -16,11 +16,11 @@
   and its recovery, because a refusal a pilot met is worth more as a
   reproduction than as prose.
 
-  Promotion cannot be proven in a BROWSER today either: a compiled
-  declaration is emitted through the JVM emitter on both hosts and the
-  browser runtime refuses a compiled descriptor outright. So the compiled
-  mode's browser cell is BLOCKED rather than claimed, and every row here
-  is structural."
+  Promotion reaches a BROWSER too — the promoted panel in a real top
+  layer, building the interpreted twin's document, and its anchor
+  dispatching a live click — but that row needs a live `document` and a
+  real commit, so it lives in `pilot-overlay-dom-cljs-test`. Every row
+  here is structural, which is what these rows are for."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [clojure.string :as str]
