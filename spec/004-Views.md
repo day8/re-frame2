@@ -493,7 +493,11 @@ inspectable — and structurally testable — before anything mounts.
 `::v/checked`, `::v/key`, `::v/scroll-top` and `::v/new-state`, and that roster
 is **closed**. Each marker is the kebab-case spelling of the one host property
 it reads — `target.value`, `target.checked`, `event.key`, `target.scrollTop`,
-`event.newState` — so the roster is read off the platform rather than invented.
+`event.newState` — so the roster is read off the platform rather than invented,
+and a member is present in the payload exactly when the host carries the property
+it reads. A `<div>` has no `value`, so a click on one cannot ask for `::v/value`;
+every element has a scroll offset, so `::v/scroll-top` is available wherever an
+element target is, truthfully at 0.
 
 Closedness is what a projected read is FOR. Because the marker is a keyword and
 the materialized argument is a scalar, the site's intent is assertable by

@@ -98,7 +98,7 @@ Everything above is the **adapter** story: re-frame2 drives a React view layer s
 - A view is a **declaration**, not a function. `(v/defview card [{:keys [title]}] …)` binds a descriptor; `[card {:title t}]` mounts a boundary and `(card {…})` raises `:rf.error/view-called-directly`. There is no Form-1/2/3 question and no `:contextType` footgun, because there is no way to accidentally call a view inline.
 - A view takes **exactly one** parameter, its props map — no positional arguments, and `[_]` for a view that reads none.
 - Subscriptions are read with `(v/sub [:query …])`, which returns the **value**. Nothing to deref, and no injected locals — the render owns the read, including through an ordinary `defn` helper it calls.
-- Handlers are **event vectors as data**: `{:on-click [:cart/add id]}`, with `::v/value` / `::v/checked` / `::v/key` as the closed roster of live-scalar markers. A structural test can then assert what a button does with `=`, no browser involved.
+- Handlers are **event vectors as data**: `{:on-click [:cart/add id]}`, with `::v/value` / `::v/checked` / `::v/key` / `::v/scroll-top` / `::v/new-state` as the closed roster of live-scalar markers. A structural test can then assert what a button does with `=`, no browser involved.
 - The view holds **no state and no lifecycle**: there is no `local`, no `ref` and no `effect`. Product state is app-db behind events, a control that owns a real protocol is a semantic controller, and DOM-owning work is a registered behavior over one node (`v/defbehavior` + `[v/behavior …]`).
 
 Everything upstream of the view is unchanged — the same `reg-event`, `reg-sub`, app-db, effects, frames, machines and routing this skill teaches. Only the view spelling and its host move.

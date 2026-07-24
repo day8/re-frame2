@@ -86,7 +86,8 @@ Freehand puts the intent in the tree as data:
 ```
 
 Live scalars ride **projection markers** instead of a lambda that reaches into
-the native event — `::v/value`, `::v/checked`, `::v/key` are the closed set:
+the native event — `::v/value`, `::v/checked`, `::v/key`, `::v/scroll-top` and
+`::v/new-state` are the closed set:
 
 ```clojure
 [:input {:value (v/sub [:email]) :on-input [:form/set-email ::v/value]}]

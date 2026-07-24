@@ -12,7 +12,7 @@ This skill is not on anyone's critical path:
 
 ## What it does
 
-The skill teaches the **view shift**: a Freehand view is a **declaration** you mount in brackets and never call (`[card {…}]` is a boundary, `(helper …)` is inline); subscriptions **deref-drop** (`@(subscribe …)` → `(v/sub …)`, which returns the value); dispatch **lifts to data** (`#(dispatch [:e])` → `[:e]`, with `::v/value` / `::v/checked` / `::v/key` as the closed projection roster); and the view **holds no state and no lifecycle** — there is no `local`, no `ref`, no `effect`.
+The skill teaches the **view shift**: a Freehand view is a **declaration** you mount in brackets and never call (`[card {…}]` is a boundary, `(helper …)` is inline); subscriptions **deref-drop** (`@(subscribe …)` → `(v/sub …)`, which returns the value); dispatch **lifts to data** (`#(dispatch [:e])` → `[:e]`, with `::v/value` / `::v/checked` / `::v/key` / `::v/scroll-top` / `::v/new-state` as the closed projection roster); and the view **holds no state and no lifecycle** — there is no `local`, no `ref`, no `effect`.
 
 It then applies a transformation catalog organised by what you do with each rule (the `MIG-NN` ids are the skill's own vocabulary, cited so an author can audit any change):
 
