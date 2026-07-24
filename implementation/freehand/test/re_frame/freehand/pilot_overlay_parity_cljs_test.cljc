@@ -9,12 +9,12 @@
   structural node interpreted and compiled. So the top-layer half of the
   pilot really is compiler-recognised common semantics.
 
-  **The BEHAVIOR boundary does not promote at all.** `[v/behavior {…}
-  node]` is classified a foreign component boundary by
-  `:re-frame.freehand/v1` and refused, so the measure-then-place half of a
-  dropdown cannot be compiled. The row that pins it names the diagnostic
-  and its recovery, because a refusal a pilot met is worth more as a
-  reproduction than as prose.
+  **The BEHAVIOR boundary promotes too.** `[v/behavior {…} node]`
+  compiles: the analyzer lowers it to the grammar's own `:op :behavior`,
+  not a foreign component, so the measure-then-place half of a dropdown is
+  no longer stranded on the interpreted tier. The row that pins it expands
+  the declaration itself, because a parity result a pilot reached is worth
+  more as a reproduction than as prose.
 
   Promotion reaches a BROWSER too — the promoted panel in a real top
   layer, building the interpreted twin's document, and its anchor

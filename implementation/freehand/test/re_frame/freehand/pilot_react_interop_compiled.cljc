@@ -9,22 +9,24 @@
 
   The answer has two halves, and both are load-bearing:
 
-  1. **A compiled body CANNOT attach the integration.** `[v/behavior …]`
-     inside a compiled body is refused at BUILD time — the only host shape
-     Freehand offers today is unreachable from the compiled tier. So a view
-     that owns a chart, a grid or an editor is interpreted-forever.
+  1. **A compiled body CAN attach the integration.** `[v/behavior …]` inside
+     a compiled body now COMPILES — the analyzer lowers it to the grammar's
+     own `:op :behavior`, the one imperative host shape Freehand offers, no
+     longer unreachable from the compiled tier. So a view that owns a chart,
+     a grid or an editor can be promoted rather than interpreted-forever; the
+     suite proves the attachment form lowers rather than refuses.
 
-  2. **A compiled body CAN CONTAIN one.** The refusal's own recovery —
-     extract the awkward part into its own declared child — works, and it
-     works well: the compiled parent mounts the interpreted integration as
-     an ordinary declared child, its manifest MARKS the crossing
-     `:interpreted`, and the page is one React tree. That is the substrate
-     keeping its promise, and it is worth stating as plainly as the gap.
+  2. **A compiled body can also CONTAIN one.** Extracting the awkward part
+     into its own declared child works, and often reads better: the compiled
+     parent mounts the interpreted integration as an ordinary declared
+     child, its manifest MARKS the crossing `:interpreted`, and the page is
+     one React tree. That is the substrate keeping its promise — a clean
+     boundary an adopter can reach for even where a direct attachment would
+     also compile.
 
-  The refused spelling lives in the suite (it cannot live here — a build
-  failure in this namespace would fail the whole compile). What lives here
-  is the recovery, promoted: `hot-list` is `{:compiled true}` and mounts
-  the interpreted `invoice-sheet` as a child."
+  Both shapes live in the pilot: the suite proves the direct attachment
+  lowers, and this namespace shows the crossing, promoted — `hot-list` is
+  `{:compiled true}` and mounts the interpreted `invoice-sheet` as a child."
   (:require [re-frame.freehand :as v]
             [re-frame.freehand.pilot-react-interop :as pilot]))
 

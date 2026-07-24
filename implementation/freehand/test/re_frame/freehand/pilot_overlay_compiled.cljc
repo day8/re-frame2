@@ -9,12 +9,13 @@
   both event sites.
 
   What is NOT here is the behavior boundary the pilot's real dropdown
-  wraps this markup in. `[v/behavior {…} node]` is classified a FOREIGN
-  component boundary by `:re-frame.freehand/v1` and refused, so the
-  measure-then-place half of the composition cannot be promoted at all.
-  That is a finding, not an omission, and
-  `pilot-overlay-parity-cljs-test` pins the refusal with its diagnostic id
-  rather than leaving this namespace's silence to be interpreted.
+  wraps this markup in — and its absence is now a matter of FOCUS, not a
+  limit. `[v/behavior {…} node]` compiles: the analyzer lowers it to the
+  grammar's own `:op :behavior`, not a foreign component, so the
+  measure-then-place half of the composition promotes as cleanly as the
+  markup does. `pilot-overlay-parity-cljs-test` proves the body WITH the
+  behavior compiles too, so this namespace keeps to the markup and lets
+  the suite carry the boundary.
 
   A separate namespace, because a view id is derived from where a
   declaration LIVES: two declarations of one name cannot share one."

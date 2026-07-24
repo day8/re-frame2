@@ -39,13 +39,15 @@
   is the mainstream virtual-list contract — react-window's `FixedSizeList`
   takes `height` and `itemSize` for exactly this reason — and it is what
   keeps this component free of measurement. Measurement matters here
-  because a view that measures cannot be promoted: `v/behavior` is the
-  substrate's only before-paint home and the compiled grammar has no
-  behavior form, so an auto-sizing table (one that reads its own
-  viewport's height instead of being told it) is interpreted forever.
-  Declaring the geometry is therefore not a dodge — it is the difference
-  between a table that can be compiled and one that cannot, and the
-  design takes the compilable half deliberately.
+  because reading a viewport's own height before paint is imperative host
+  work — `v/behavior`'s `:layout` home, the one seam the substrate
+  sanctions for it. The compiled grammar now admits that form (a `:layout`
+  behavior lowers on both emitters and reaches the shared runtime in the
+  browser), so an auto-sizing table is no longer stranded on the
+  interpreted tier. Declaring the geometry is therefore not a compilation
+  dodge but the mainstream virtual-list contract: the CALLER owns the
+  numbers, exactly as react-window's `FixedSizeList` does, and the
+  component stays free of the imperative read either way.
 
   ## What the LIBRARY owns and what the CALLER owns
 
@@ -108,8 +110,10 @@
   nothing writes it back, so a fresh or time-travelled state renders a remote
   window while the viewport still sits at scrollTop 0. A table that needs the
   reverse direction opts into the `:layout` [[restore-scroll]] behavior, which
-  is the honest cost: a viewport a behavior restores cannot be promoted,
-  because the compiled grammar admits no behavior form."
+  is the honest cost: writing a persisted offset back onto a live viewport
+  before paint is imperative host work, done through the one seam the
+  substrate sanctions for it — a cost that no longer forecloses promotion,
+  because the compiled grammar admits the behavior form now."
   :acme.ui/tables)
 
 (def default-overscan
@@ -194,11 +198,12 @@
 ;; Writing the persisted offset BACK onto the viewport is host work — it reads
 ;; and mutates a live DOM node before the browser paints — which is exactly
 ;; what `v/behavior`'s `:layout` timing is for and the ONE seam the substrate
-;; sanctions for it. The cost is explicit, and it is the point: a viewport a
-;; behavior restores cannot be PROMOTED, because the compiled grammar admits
-;; no behavior form. So restoration is OPT-IN (`:restore-scroll?`), the default
-;; table stays a compilable cache, and a table that needs the reverse
-;; direction takes it knowing it has chosen the interpreted tier.
+;; sanctions for it. The cost is explicit, and it is the point: restoration
+;; is OPT-IN (`:restore-scroll?`) because the DEFAULT table needs no behavior
+;; at all — it stays a pure declarative cache — not because attaching one
+;; forecloses compilation. The compiled grammar admits the behavior form now,
+;; so a restoring table can take the compiled tier as readily as the plain
+;; one; a caller opts in for the restore semantics, not to escape promotion.
 
 (defn- restore-scroll-top!
   "Move `node`'s `scrollTop` to `top`, but ONLY when they differ — so a write
@@ -225,8 +230,10 @@
   DOM — moves no host state at all.
 
   `:layout`, because a restore that ran after paint would show the wrong rows
-  for one frame. Attaching this behavior is what makes a restoring table
-  interpreted-only: it is the promotion cost the [[tables-root]] note names."
+  for one frame. Attaching this behavior is imperative host work — the honest
+  cost the [[tables-root]] note names — but not a promotion cost: the compiled
+  grammar admits the behavior form, so a restoring table compiles like the
+  plain one."
   {:timing  :layout
    :connect (fn [{:keys [node config]}]
               (restore-scroll-top! node (:scroll-top config))
@@ -264,10 +271,10 @@
   CONTROLLED, restorable state: the viewport is wrapped in the `:layout`
   [[restore-scroll]] behavior, which writes the persisted offset back onto a
   freshly mounted or time-travelled viewport before paint. It is off by
-  default because attaching a behavior makes the table interpreted-only — the
-  compiled grammar has no behavior form — so a caller opts in for a table
-  whose scroll position must survive a mount or a restore, and pays the
-  promotion cost knowingly."
+  default because the default table needs no behavior at all — it stays a
+  pure declarative cache — so a caller opts in for a table whose scroll
+  position must survive a mount or a restore. Attaching the behavior no
+  longer costs promotion: the compiled grammar admits the behavior form now."
   {:props [:map
            [:table-key :any]
            [:rows :any]
