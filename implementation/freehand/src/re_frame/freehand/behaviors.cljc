@@ -81,6 +81,15 @@
   answers a node, a memory, or anything a caller could reach one through,
   and neither adds an application event to carry them.
 
+  BOTH CROSS THE PUBLIC DOOR, as `v/active-connections` and
+  `v/command-log` at the `tooling` tier. A tool projection a tool cannot
+  reach without depending on an unsupported namespace is not a tool
+  projection, and `re-frame.freehand` is the one public door
+  (Conventions §Freehand). What does NOT cross is the pair of summaries
+  and the window bound — [[connection-count]], [[target-ids]] and
+  [[command-log-limit]] are each derivable from a projection in one
+  form, so they stay implementation/test helpers under `^:no-doc`.
+
   Normative owner:
   [`spec/004-Views.md`](../../../../../spec/004-Views.md) §Registered
   behaviors and commands."
@@ -491,27 +500,43 @@
                  (some? (:config rec)) (assoc :config (:config rec)))))
         (sort-by key @connections)))
 
-(defn connection-count
+(defn ^:no-doc connection-count
   "How many behavior connections are live — the scalar summary of
   [[active-connections]]. Zero outside a mount, so a test asserts the exact
-  integer after teardown rather than trusting a cleanup path."
+  integer after teardown rather than trusting a cleanup path.
+
+  IMPLEMENTATION / TEST HELPER, deliberately: it does NOT cross the public
+  door with [[active-connections]], because `(count (v/active-connections))`
+  is the same answer and a supported surface earns its place by being
+  something a reader cannot compute for itself."
   []
   (count @connections))
 
-(defn target-ids
+(defn ^:no-doc target-ids
   "The semantic ids live connections currently claim, across every frame —
   the set summary of [[active-connections]]. Never a handle: it answers
   ids, never nodes or memory. A command resolves per-frame, so two frames
   claiming one id appear here once; [[active-connections]] is the read that
-  tells them apart."
+  tells them apart.
+
+  IMPLEMENTATION / TEST HELPER for the same reason [[connection-count]] is:
+  `(into #{} (keep :target) (v/active-connections))` is the same answer, and
+  the projection is strictly more informative because it tells two frames
+  apart."
   []
   (into #{} (keep :target) (vals @connections)))
 
-(def command-log-limit
+(def ^:no-doc command-log-limit
   "The command-traffic projection is a BOUNDED window — the most recent
   rows and nothing older. A tool wants the last few commands and what
   became of them; an unbounded log would be a retention leak dressed up as
-  evidence, growing for as long as a session lives."
+  evidence, growing for as long as a session lives.
+
+  The BOUND is public contract; this NUMBER is not. It stays an
+  implementation/test constant so the window can be retuned without a
+  published API change — a tool reads the rows it was handed and never
+  needs to know how many more there might have been. Retention
+  configuration is an explicit non-goal."
   64)
 
 (defonce ^:private command-traffic
