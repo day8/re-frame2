@@ -9,20 +9,33 @@
      a mutable container, and a mutable container is a value you can look
      at.
 
-  2. **The evidence surface is not on the shipping render path.** Checked
-     as REACHABILITY over the require graph, rooted at the public door —
-     not as a search for a string. The graph is built by reading each
-     source file's `ns` form, reader conditionals and all, so a require
-     that exists only on one host is an edge like any other.
+  2. **The evidence surface reaches the render path through ONE seam.**
+     The emission slice (rf2-3naow) landed: `re-frame.freehand.cell`
+     now emits a dev-gated occurrence-record per selected commit, so the
+     schema IS reachable from the public door — by construction, and
+     through exactly one namespace. Checked as REACHABILITY over the
+     require graph, rooted at the door: the schema is reachable, and
+     `cell` is the SOLE Freehand namespace whose `ns` form mentions it,
+     so the seam is a single controlled entry point rather than a
+     scattered dependency.
 
-  On (2) and what it is not: this is a require-graph assertion, not a
-  bundle proof. It answers \"can a production render reach this code\"
-  and not \"did this code survive `:advanced`\". The two coincide today
-  because nothing emits evidence yet — the schema is values and the
-  functions that refuse malformed ones, reachable from no render. When
-  the emission slice lands and a dev-gated call site appears on the path,
-  this assertion is the wrong one and a control-build probe is the right
-  one; it should be REPLACED then, not relaxed.
+  On (2) and what it is NOT: this is a require-graph assertion, not a
+  bundle proof. It answers \"how does a render reach this code\" and not
+  \"did this code survive `:advanced`\". Production ISOLATION — that the
+  emission and the schema it reaches DCE out of the shipping bundle — is
+  proven separately by a control-build probe, because a require-graph
+  walk cannot see what dead-code elimination removed. The seam sits behind
+  `re-frame.interop/debug-enabled?` (`goog.DEBUG`), and building
+  `:freehand-release` two ways discriminates on the emission door's own
+  string `occurrence-keyed schema (D020)`: ABSENT (0) under
+  `goog.DEBUG=false`, PRESENT (1) under a `goog.DEBUG=true` control of the
+  same entry. (rf2-3naow measured 744089 release / 794930 control bytes;
+  the fuller shipped-cost probe is rf2-drpa3.52.)
+
+  This test USED to assert the schema was unreachable from any render —
+  true only while nothing emitted evidence. That assertion was replaced,
+  not relaxed, exactly as its own note instructed, the moment the
+  dev-gated seam appeared on the path.
 
   JVM-only because both claims are about the whole source tree, and the
   JVM is where a test can read it."
@@ -164,12 +177,22 @@
         (recur (conj seen n) (into (vec (rest queue)) (get graph n))))
       seen)))
 
-(deftest the-evidence-schema-is-not-reachable-from-the-public-door
+(defn- freehand-namespaces-mentioning
+  "Every Freehand namespace whose `ns` form mentions `target` — the
+  over-approximate require-graph edge, so a require on one host, or even a
+  docstring code sample, counts. Answers the set of would-be seams."
+  [graph target]
+  (into #{} (keep (fn [[self edges]] (when (contains? edges target) self))) graph))
+
+(deftest the-evidence-schema-reaches-the-render-path-only-through-the-dev-gated-seam
   (testing "Rooted at `re-frame.freehand`, the substrate's one public door,
-            and followed transitively. Nothing an application mounts can
-            reach the evidence schema, which is why there is no evidence
-            code in an application's bundle to elide — an absence
-            established by construction rather than by a switch."
+            and followed transitively. The emission slice (rf2-3naow) put a
+            dev-gated occurrence-record on the render path, so the schema IS
+            reachable now — but through exactly ONE seam. This replaces the
+            former `not-reachable` assertion (true only while nothing emitted
+            evidence), as that assertion's own note instructed: replaced when
+            the seam landed, not relaxed. Production ISOLATION is the
+            control-build probe's job (see the ns docstring), not this walk's."
     (let [graph     (require-graph)
           reachable (reachable-from graph 're-frame.freehand)]
       (testing "the graph is real — the positive control"
@@ -177,13 +200,20 @@
         (is (< 10 (count reachable)) "and the door reaches a substantial tree")
         (doseq [on-the-path '[re-frame.freehand.tree
                               re-frame.freehand.descriptor
-                              re-frame.freehand.node]]
+                              re-frame.freehand.node
+                              re-frame.freehand.cell]]
           (is (contains? reachable on-the-path)
               (str on-the-path " is reachable from the door — if it were not, the walk is broken "
-                   "and the absence below would be meaningless"))))
-      (testing "and the evidence schema is not in it"
-        (is (not (contains? reachable 're-frame.freehand.evidence))
-            (str "re-frame.freehand.evidence became reachable from the public door. If an "
-                 "emission site was added deliberately, this assertion is the wrong one from "
-                 "now on: replace it with a control-build probe that proves the emission "
-                 "elides, rather than relaxing it."))))))
+                   "and the claims below would be meaningless"))))
+      (testing "the schema is reachable — the seam is wired onto the render path"
+        (is (contains? reachable 're-frame.freehand.evidence)
+            (str "re-frame.freehand.evidence is no longer reachable from the public door. The "
+                 "rf2-3naow emission seam is supposed to reach it under the dev gate; if the "
+                 "seam was removed, remove this test too — do not leave it asserting a wiring "
+                 "that is gone.")))
+      (testing "and it reaches the path through exactly one seam"
+        (let [seams (freehand-namespaces-mentioning graph 're-frame.freehand.evidence)]
+          (is (= '#{re-frame.freehand.cell} seams)
+              (str "the evidence schema must reach the render path through cell alone — the one "
+                   "dev-gated commit seam. A second Freehand namespace mentioning it would be a "
+                   "second, ungated door onto the shipping path. Found: " (pr-str seams))))))))

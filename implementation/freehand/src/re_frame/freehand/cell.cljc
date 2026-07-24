@@ -78,6 +78,8 @@
             [re-frame.frame :as frame]
             [re-frame.freehand.eq :as eq]
             [re-frame.freehand.events :as events]
+            [re-frame.freehand.evidence :as evidence]
+            [re-frame.interop :as interop]
             [re-frame.router :as router]
             [re-frame.substrate.observation :as obs]))
 
@@ -749,6 +751,74 @@
                   (when-not (identical? now handle) handle))))
         prior))
 
+;; ---------------------------------------------------------------------------
+;; The dev-gated occurrence-record emission seam (rf2-3naow, F4g)
+;; ---------------------------------------------------------------------------
+;;
+;; A render on the Freehand path publishes ONE evidence record per SELECTED
+;; commit — the occurrence, its lowering, its generation and the commit
+;; projection, validated through `re-frame.freehand.evidence/record`. The
+;; whole seam sits behind `interop/debug-enabled?`, the SAME gate the rest of
+;; the tooling reads (`goog.DEBUG` on ClojureScript, the JVM debug flag on the
+;; JVM), so under `:advanced` with `goog.DEBUG=false` Closure folds the gate to
+;; `false`, the branch DCEs, and neither the record construction nor the
+;; evidence schema it reaches survives into a production bundle.
+;;
+;; This is a SEAM, not an evidence framework: it validates a record and hands
+;; it to whatever sink is installed. The default sink is nil — nothing is
+;; retained here, exactly as `re-frame.freehand.evidence` retains nothing (its
+;; `retention` names Spec 009's per-frame ring and no second store). The
+;; accumulator that folds these records is downstream (rf2-drpa3.167).
+
+(defonce ^:private evidence-sink
+  ;; The installed occurrence-record sink, or nil for the no-op default.
+  ;; `defonce` so reloading this namespace does not drop a sink a consumer
+  ;; installed; an atom because installation is a RUNTIME act (a tool
+  ;; attaching), never a compile-time one.
+  (atom nil))
+
+(defn set-evidence-sink!
+  "Install `f` — a 1-arg fn taking a validated occurrence record — as the
+  render path's evidence sink, and answer the PRIOR sink. `nil` restores
+  the no-op default.
+
+  The seam builds a record only when a sink is installed AND
+  `interop/debug-enabled?` is true, so an application that installs no sink
+  pays nothing beyond the folded-away gate. Downstream tooling
+  (rf2-drpa3.167) installs the accumulator here."
+  [f]
+  (let [prev @evidence-sink]
+    (reset! evidence-sink f)
+    prev))
+
+(defn- occurrence-of
+  "The runtime OCCURRENCE key for `cell` — the mounted boundary's own
+  identity, never a query key or a lexical site id (D020). A root
+  occurrence has no parent, and parent-occurrence threading is a later
+  slice, so `:parent` is nil here and `:key` is the cell's stable object
+  identity."
+  [^ViewCell cell]
+  {:parent nil
+   :key    #?(:clj  (System/identityHashCode cell)
+              :cljs (goog/getUid cell))})
+
+(defn emit-commit-evidence!
+  "DEV-GATED render-path evidence seam: when a sink is installed, build the
+  commit occurrence-record for `cell` at `lowering` / `generation`,
+  validate it through `re-frame.freehand.evidence/record`, and deliver it.
+
+  Compiles out of production entirely — the `interop/debug-enabled?` gate
+  is a `goog.DEBUG` constant under `:advanced`, so the whole body (and the
+  evidence schema it reaches) DCEs when `goog.DEBUG=false`. A malformed
+  record throws from `evidence/record` at the seam rather than reaching a
+  reader; that is the point of validating here."
+  [^ViewCell cell lowering generation]
+  (when interop/debug-enabled?
+    (when-let [sink @evidence-sink]
+      (sink (evidence/commit-record (view-id cell) lowering
+                                    (occurrence-of cell) generation))))
+  nil)
+
 (defn commit!
   "COMMIT time: publish `candidate`'s ENTIRE bundle — its frame, its
   dependencies, its event site table and its evidence — or publish
@@ -761,8 +831,15 @@
 
   Retargeting is exactly a re-commit with a different frame, so a frame
   change reaches every dependency AND every event site without changing
-  one callback identity."
-  [^RenderCandidate cand]
+  one callback identity.
+
+  `lowering` is the occurrence's execution mode — `:interpreted` or
+  `:compiled` — carried onto the dev-gated evidence record a selected
+  commit emits (see [[emit-commit-evidence!]]). The one-arg arity defaults
+  to `:interpreted`, the unrestricted general case a bare probe or a
+  headless commit runs under."
+  ([cand] (commit! cand :interpreted))
+  ([^RenderCandidate cand lowering]
   (let [^ViewCell owner-cell (.-cell cand)
         s0                   @(st owner-cell)]
     (if-not (current? cand s0)
@@ -830,7 +907,12 @@
             ;; is still corrected.
             (when (some (fn [[k {:keys [evidence]}]] (moved? (get readings k) evidence)) staged)
               (advance-revision! owner-cell))
-            :published))))))
+            ;; The dev-gated occurrence-record seam (rf2-3naow): a SELECTED
+            ;; commit is the one place the whole bundle is live, so it is
+            ;; where the record is emitted. Compiles out with the gate in
+            ;; production; an abandoned candidate reaches neither branch.
+            (emit-commit-evidence! owner-cell lowering (.-generation cand))
+            :published)))))))
 
 (defn disconnect!
   "Release everything this cell owns and retire every callback it
